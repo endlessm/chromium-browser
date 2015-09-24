@@ -138,8 +138,7 @@ void SincResampler::InitializeCPUSpecificFeatures() {}
 #elif defined(WEBRTC_DETECT_NEON)
 #define CONVOLVE_FUNC convolve_proc_
 void SincResampler::InitializeCPUSpecificFeatures() {
-  convolve_proc_ = WebRtc_GetCPUFeaturesARM() & kCPUFeatureNEON ?
-      Convolve_NEON : Convolve_C;
+  convolve_proc_ = Convolve_C;
 }
 #else
 // Unknown architecture.
