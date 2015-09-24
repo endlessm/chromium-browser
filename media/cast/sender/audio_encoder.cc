@@ -14,9 +14,7 @@
 #include "base/stl_util.h"
 #include "base/sys_byteorder.h"
 #include "base/time/time.h"
-#include "media/base/audio_bus.h"
 #include "media/cast/cast_defines.h"
-#include "media/cast/cast_environment.h"
 
 #if !defined(OS_IOS)
 #include "third_party/opus/src/include/opus.h"
@@ -38,7 +36,7 @@ const int kDefaultFramesPerSecond = 100;
 
 // Base class that handles the common problem of feeding one or more AudioBus'
 // data into a buffer and then, once the buffer is full, encoding the signal and
-// emitting an EncodedFrame via the FrameEncodedCallback.
+// emitting a SenderEncodedFrame via the FrameEncodedCallback.
 //
 // Subclasses complete the implementation by handling the actual encoding
 // details.
@@ -56,7 +54,7 @@ class AudioEncoder::ImplBase
         num_channels_(num_channels),
         samples_per_frame_(samples_per_frame),
         callback_(callback),
-        cast_initialization_status_(STATUS_AUDIO_UNINITIALIZED),
+        operational_status_(STATUS_UNINITIALIZED),
         frame_duration_(base::TimeDelta::FromMicroseconds(
             base::Time::kMicrosecondsPerSecond * samples_per_frame_ /
             sampling_rate)),
@@ -69,12 +67,12 @@ class AudioEncoder::ImplBase
     if (num_channels_ <= 0 || samples_per_frame_ <= 0 ||
         frame_duration_ == base::TimeDelta() ||
         samples_per_frame_ * num_channels_ > kMaxSamplesTimesChannelsPerFrame) {
-      cast_initialization_status_ = STATUS_INVALID_AUDIO_CONFIGURATION;
+      operational_status_ = STATUS_INVALID_CONFIGURATION;
     }
   }
 
-  CastInitializationStatus InitializationResult() const {
-    return cast_initialization_status_;
+  OperationalStatus InitializationResult() const {
+    return operational_status_;
   }
 
   int samples_per_frame() const {
@@ -85,7 +83,7 @@ class AudioEncoder::ImplBase
 
   void EncodeAudio(scoped_ptr<AudioBus> audio_bus,
                    const base::TimeTicks& recorded_time) {
-    DCHECK_EQ(cast_initialization_status_, STATUS_AUDIO_INITIALIZED);
+    DCHECK_EQ(operational_status_, STATUS_INITIALIZED);
     DCHECK(!recorded_time.is_null());
 
     // Determine whether |recorded_time| is consistent with the amount of audio
@@ -116,6 +114,11 @@ class AudioEncoder::ImplBase
     // Encode all audio in |audio_bus| into zero or more frames.
     int src_pos = 0;
     while (src_pos < audio_bus->frames()) {
+      // Note: This is used to compute the deadline utilization and so it uses
+      // the real-world clock instead of the CastEnvironment clock, the latter
+      // of which might be simulated.
+      const base::TimeTicks start_time = base::TimeTicks::Now();
+
       const int num_samples_to_xfer = std::min(
           samples_per_frame_ - buffer_fill_end_, audio_bus->frames() - src_pos);
       DCHECK_EQ(audio_bus->channels(), num_channels_);
@@ -127,8 +130,8 @@ class AudioEncoder::ImplBase
       if (buffer_fill_end_ < samples_per_frame_)
         break;
 
-      scoped_ptr<EncodedFrame> audio_frame(
-          new EncodedFrame());
+      scoped_ptr<SenderEncodedFrame> audio_frame(
+          new SenderEncodedFrame());
       audio_frame->dependency = EncodedFrame::KEY;
       audio_frame->frame_id = frame_id_;
       audio_frame->referenced_frame_id = frame_id_;
@@ -136,6 +139,12 @@ class AudioEncoder::ImplBase
       audio_frame->reference_time = frame_capture_time_;
 
       if (EncodeFromFilledBuffer(&audio_frame->data)) {
+        // Compute deadline utilization as the real-world time elapsed divided
+        // by the signal duration.
+        audio_frame->deadline_utilization =
+            (base::TimeTicks::Now() - start_time).InSecondsF() /
+                frame_duration_.InSecondsF();
+
         cast_environment_->PostTask(
             CastEnvironment::MAIN,
             FROM_HERE,
@@ -169,8 +178,8 @@ class AudioEncoder::ImplBase
   const int samples_per_frame_;
   const FrameEncodedCallback callback_;
 
-  // Subclass' ctor is expected to set this to STATUS_AUDIO_INITIALIZED.
-  CastInitializationStatus cast_initialization_status_;
+  // Subclass' ctor is expected to set this to STATUS_INITIALIZED.
+  OperationalStatus operational_status_;
 
   // The duration of one frame of encoded audio samples. Derived from
   // |samples_per_frame_| and the sampling rate.
@@ -223,7 +232,7 @@ class AudioEncoder::OpusImpl : public AudioEncoder::ImplBase {
         encoder_memory_(new uint8[opus_encoder_get_size(num_channels)]),
         opus_encoder_(reinterpret_cast<OpusEncoder*>(encoder_memory_.get())),
         buffer_(new float[num_channels * samples_per_frame_]) {
-    if (ImplBase::cast_initialization_status_ != STATUS_AUDIO_UNINITIALIZED ||
+    if (ImplBase::operational_status_ != STATUS_UNINITIALIZED ||
         sampling_rate % samples_per_frame_ != 0 ||
         !IsValidFrameDuration(frame_duration_)) {
       return;
@@ -232,11 +241,10 @@ class AudioEncoder::OpusImpl : public AudioEncoder::ImplBase {
                           sampling_rate,
                           num_channels,
                           OPUS_APPLICATION_AUDIO) != OPUS_OK) {
-      ImplBase::cast_initialization_status_ =
-          STATUS_INVALID_AUDIO_CONFIGURATION;
+      ImplBase::operational_status_ = STATUS_INVALID_CONFIGURATION;
       return;
     }
-    ImplBase::cast_initialization_status_ = STATUS_AUDIO_INITIALIZED;
+    ImplBase::operational_status_ = STATUS_INITIALIZED;
 
     if (bitrate <= 0) {
       // Note: As of 2013-10-31, the encoder in "auto bitrate" mode would use a
@@ -250,12 +258,12 @@ class AudioEncoder::OpusImpl : public AudioEncoder::ImplBase {
   }
 
  private:
-  ~OpusImpl() override {}
+  ~OpusImpl() final {}
 
   void TransferSamplesIntoBuffer(const AudioBus* audio_bus,
                                  int source_offset,
                                  int buffer_fill_offset,
-                                 int num_samples) override {
+                                 int num_samples) final {
     // Opus requires channel-interleaved samples in a single array.
     for (int ch = 0; ch < audio_bus->channels(); ++ch) {
       const float* src = audio_bus->channel(ch) + source_offset;
@@ -266,7 +274,7 @@ class AudioEncoder::OpusImpl : public AudioEncoder::ImplBase {
     }
   }
 
-  bool EncodeFromFilledBuffer(std::string* out) override {
+  bool EncodeFromFilledBuffer(std::string* out) final {
     out->resize(kOpusMaxPayloadSize);
     const opus_int32 result =
         opus_encode_float(opus_encoder_,
@@ -343,19 +351,18 @@ class AudioEncoder::AppleAacImpl : public AudioEncoder::ImplBase {
         file_(nullptr),
         num_access_units_(0),
         can_resume_(true) {
-    if (ImplBase::cast_initialization_status_ != STATUS_AUDIO_UNINITIALIZED) {
+    if (ImplBase::operational_status_ != STATUS_UNINITIALIZED) {
       return;
     }
     if (!Initialize(sampling_rate, bitrate)) {
-      ImplBase::cast_initialization_status_ =
-          STATUS_INVALID_AUDIO_CONFIGURATION;
+      ImplBase::operational_status_ = STATUS_INVALID_CONFIGURATION;
       return;
     }
-    ImplBase::cast_initialization_status_ = STATUS_AUDIO_INITIALIZED;
+    ImplBase::operational_status_ = STATUS_INITIALIZED;
   }
 
  private:
-  virtual ~AppleAacImpl() { Teardown(); }
+  ~AppleAacImpl() final { Teardown(); }
 
   // Destroys the existing audio converter and file, if any.
   void Teardown() {
@@ -532,7 +539,7 @@ class AudioEncoder::AppleAacImpl : public AudioEncoder::ImplBase {
   void TransferSamplesIntoBuffer(const AudioBus* audio_bus,
                                  int source_offset,
                                  int buffer_fill_offset,
-                                 int num_samples) override {
+                                 int num_samples) final {
     DCHECK_EQ(audio_bus->channels(), input_buffer_->channels());
 
     // See the comment on |input_bus_| for more on this optimization. Note that
@@ -554,7 +561,7 @@ class AudioEncoder::AppleAacImpl : public AudioEncoder::ImplBase {
         source_offset, num_samples, buffer_fill_offset, input_buffer_.get());
   }
 
-  bool EncodeFromFilledBuffer(std::string* out) override {
+  bool EncodeFromFilledBuffer(std::string* out) final {
     // Reset the buffer size field to the buffer capacity.
     converter_abl_.mBuffers[0].mDataByteSize = max_access_unit_size_;
 
@@ -707,18 +714,18 @@ class AudioEncoder::Pcm16Impl : public AudioEncoder::ImplBase {
                  sampling_rate / kDefaultFramesPerSecond, /* 10 ms frames */
                  callback),
         buffer_(new int16[num_channels * samples_per_frame_]) {
-    if (ImplBase::cast_initialization_status_ != STATUS_AUDIO_UNINITIALIZED)
+    if (ImplBase::operational_status_ != STATUS_UNINITIALIZED)
       return;
-    cast_initialization_status_ = STATUS_AUDIO_INITIALIZED;
+    operational_status_ = STATUS_INITIALIZED;
   }
 
  private:
-  ~Pcm16Impl() override {}
+  ~Pcm16Impl() final {}
 
   void TransferSamplesIntoBuffer(const AudioBus* audio_bus,
                                  int source_offset,
                                  int buffer_fill_offset,
-                                 int num_samples) override {
+                                 int num_samples) final {
     audio_bus->ToInterleavedPartial(
         source_offset,
         num_samples,
@@ -726,7 +733,7 @@ class AudioEncoder::Pcm16Impl : public AudioEncoder::ImplBase {
         buffer_.get() + buffer_fill_offset * num_channels_);
   }
 
-  bool EncodeFromFilledBuffer(std::string* out) override {
+  bool EncodeFromFilledBuffer(std::string* out) final {
     // Output 16-bit PCM integers in big-endian byte order.
     out->resize(num_channels_ * samples_per_frame_ * sizeof(int16));
     const int16* src = buffer_.get();
@@ -787,17 +794,17 @@ AudioEncoder::AudioEncoder(
 
 AudioEncoder::~AudioEncoder() {}
 
-CastInitializationStatus AudioEncoder::InitializationResult() const {
+OperationalStatus AudioEncoder::InitializationResult() const {
   DCHECK(insert_thread_checker_.CalledOnValidThread());
   if (impl_.get()) {
     return impl_->InitializationResult();
   }
-  return STATUS_UNSUPPORTED_AUDIO_CODEC;
+  return STATUS_UNSUPPORTED_CODEC;
 }
 
 int AudioEncoder::GetSamplesPerFrame() const {
   DCHECK(insert_thread_checker_.CalledOnValidThread());
-  if (InitializationResult() != STATUS_AUDIO_INITIALIZED) {
+  if (InitializationResult() != STATUS_INITIALIZED) {
     NOTREACHED();
     return std::numeric_limits<int>::max();
   }
@@ -806,7 +813,7 @@ int AudioEncoder::GetSamplesPerFrame() const {
 
 base::TimeDelta AudioEncoder::GetFrameDuration() const {
   DCHECK(insert_thread_checker_.CalledOnValidThread());
-  if (InitializationResult() != STATUS_AUDIO_INITIALIZED) {
+  if (InitializationResult() != STATUS_INITIALIZED) {
     NOTREACHED();
     return base::TimeDelta();
   }
@@ -817,7 +824,7 @@ void AudioEncoder::InsertAudio(scoped_ptr<AudioBus> audio_bus,
                                const base::TimeTicks& recorded_time) {
   DCHECK(insert_thread_checker_.CalledOnValidThread());
   DCHECK(audio_bus.get());
-  if (InitializationResult() != STATUS_AUDIO_INITIALIZED) {
+  if (InitializationResult() != STATUS_INITIALIZED) {
     NOTREACHED();
     return;
   }

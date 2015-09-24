@@ -1,11 +1,11 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
 #include "../../../include/fxge/fx_ge.h"
-#if _FX_OS_ == _FX_WIN32_DESKTOP_ || _FX_OS_ == _FX_WIN64_
+#if _FX_OS_ == _FX_WIN32_DESKTOP_ || _FX_OS_ == _FX_WIN64_DESKTOP_
 #include "../../../include/fxge/fx_ge_win32.h"
 #include "dwrite_int.h"
 #include <dwrite.h>
@@ -26,7 +26,7 @@ inline InterfaceType* SafeAcquire(InterfaceType* newObject)
     }
     return newObject;
 }
-class CDwFontFileStream FX_FINAL : public IDWriteFontFileStream, public CFX_Object
+class CDwFontFileStream final : public IDWriteFontFileStream
 {
 public:
     explicit CDwFontFileStream(void const* fontFileReferenceKey, UINT32 fontFileReferenceKeySize);
@@ -46,7 +46,7 @@ private:
     void const* resourcePtr_;
     DWORD resourceSize_;
 };
-class CDwFontFileLoader FX_FINAL : public IDWriteFontFileLoader, public CFX_Object
+class CDwFontFileLoader final : public IDWriteFontFileLoader
 {
 public:
     virtual HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** ppvObject);
@@ -57,8 +57,7 @@ public:
     static IDWriteFontFileLoader* GetLoader()
     {
         if (instance_ == NULL) {
-            instance_ = FX_NEW CDwFontFileLoader();
-            return instance_;
+            instance_ = new CDwFontFileLoader();
         }
         return instance_;
     }
@@ -71,7 +70,7 @@ private:
     ULONG refCount_;
     static IDWriteFontFileLoader* instance_;
 };
-class CDwFontContext : public CFX_Object
+class CDwFontContext
 {
 public:
     CDwFontContext(IDWriteFactory* dwriteFactory);
@@ -83,7 +82,7 @@ private:
     HRESULT hr_;
     IDWriteFactory* dwriteFactory_;
 };
-class CDwGdiTextRenderer : public CFX_Object
+class CDwGdiTextRenderer
 {
 public:
     CDwGdiTextRenderer(
@@ -129,7 +128,7 @@ CDWriteExt::~CDWriteExt()
 {
     Unload();
 }
-LPVOID	CDWriteExt::DwCreateFontFaceFromStream(FX_LPBYTE pData, FX_DWORD size, int simulation_style)
+LPVOID	CDWriteExt::DwCreateFontFaceFromStream(uint8_t* pData, FX_DWORD size, int simulation_style)
 {
     IDWriteFactory* pDwFactory = (IDWriteFactory*)m_pDWriteFactory;
     IDWriteFontFile* pDwFontFile = NULL;
@@ -209,10 +208,7 @@ FX_BOOL CDWriteExt::DwCreateRenderingTarget(CFX_DIBitmap* pBitmap, void** render
     if (FAILED(hr)) {
         goto failed;
     }
-    *(CDwGdiTextRenderer**)renderTarget = FX_NEW CDwGdiTextRenderer(pBitmap, pBitmapRenderTarget, pRenderingParams);
-    if (*(CDwGdiTextRenderer**)renderTarget == NULL) {
-        goto failed;
-    }
+    *(CDwGdiTextRenderer**)renderTarget = new CDwGdiTextRenderer(pBitmap, pBitmapRenderTarget, pRenderingParams);
     SafeRelease(&pGdiInterop);
     SafeRelease(&pBitmapRenderTarget);
     SafeRelease(&pRenderingParams);
@@ -314,7 +310,7 @@ HRESULT STDMETHODCALLTYPE CDwFontFileStream::ReadFileFragment(
 {
     if (fileOffset <= resourceSize_ &&
             fragmentSize <= resourceSize_ - fileOffset) {
-        *fragmentStart = static_cast<FX_BYTE const*>(resourcePtr_) + static_cast<size_t>(fileOffset);
+        *fragmentStart = static_cast<uint8_t const*>(resourcePtr_) + static_cast<size_t>(fileOffset);
         *fragmentContext = NULL;
         return S_OK;
     } else {
@@ -372,10 +368,7 @@ HRESULT STDMETHODCALLTYPE CDwFontFileLoader::CreateStreamFromKey(
 )
 {
     *fontFileStream = NULL;
-    CDwFontFileStream* stream = FX_NEW CDwFontFileStream(fontFileReferenceKey, fontFileReferenceKeySize);
-    if (stream == NULL)	{
-        return E_OUTOFMEMORY;
-    }
+    CDwFontFileStream* stream = new CDwFontFileStream(fontFileReferenceKey, fontFileReferenceKeySize);
     if (!stream->IsInitialized()) {
         delete stream;
         return E_FAIL;
@@ -440,7 +433,7 @@ STDMETHODIMP CDwGdiTextRenderer::DrawGlyphRun(
         bitmap.bmWidth,
         bitmap.bmHeight,
         bitmap.bmBitsPixel == 24 ? FXDIB_Rgb : FXDIB_Rgb32,
-        (FX_LPBYTE)bitmap.bmBits
+        (uint8_t*)bitmap.bmBits
     );
     dib.CompositeBitmap(
         text_bbox.left,

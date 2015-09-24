@@ -15,6 +15,12 @@ namespace pulse {
 
 namespace {
 
+#if defined(GOOGLE_CHROME_BUILD)
+static const char kBrowserDisplayName[] = "google-chrome";
+#else
+static const char kBrowserDisplayName[] = "chromium-browser";
+#endif
+
 pa_channel_position ChromiumToPAChannelPosition(Channels channel) {
   switch (channel) {
     // PulseAudio does not differentiate between left/right and
@@ -46,6 +52,18 @@ pa_channel_position ChromiumToPAChannelPosition(Channels channel) {
       return PA_CHANNEL_POSITION_INVALID;
   }
 }
+
+class ScopedPropertyList {
+ public:
+  ScopedPropertyList() : property_list_(pa_proplist_new()) {}
+  ~ScopedPropertyList() { pa_proplist_free(property_list_); }
+
+  pa_proplist* get() const { return property_list_; }
+
+ private:
+  pa_proplist* property_list_;
+  DISALLOW_COPY_AND_ASSIGN(ScopedPropertyList);
+};
 
 }  // namespace
 
@@ -81,16 +99,22 @@ pa_sample_format_t BitsToPASampleFormat(int bits_per_sample) {
 
 pa_channel_map ChannelLayoutToPAChannelMap(ChannelLayout channel_layout) {
   pa_channel_map channel_map;
-  pa_channel_map_init(&channel_map);
+  if (channel_layout == CHANNEL_LAYOUT_MONO) {
+    // CHANNEL_LAYOUT_MONO only specifies audio on the C channel, but we
+    // want PulseAudio to play single-channel audio on more than just that.
+    pa_channel_map_init_mono(&channel_map);
+  } else {
+    pa_channel_map_init(&channel_map);
 
-  channel_map.channels = ChannelLayoutToChannelCount(channel_layout);
-  for (Channels ch = LEFT; ch <= CHANNELS_MAX;
-       ch = static_cast<Channels>(ch + 1)) {
-    int channel_index = ChannelOrder(channel_layout, ch);
-    if (channel_index < 0)
-      continue;
+    channel_map.channels = ChannelLayoutToChannelCount(channel_layout);
+    for (Channels ch = LEFT; ch <= CHANNELS_MAX;
+         ch = static_cast<Channels>(ch + 1)) {
+      int channel_index = ChannelOrder(channel_layout, ch);
+      if (channel_index < 0)
+        continue;
 
-    channel_map.map[channel_index] = ChromiumToPAChannelPosition(ch);
+      channel_map.map[channel_index] = ChromiumToPAChannelPosition(ch);
+    }
   }
 
   return channel_map;
@@ -157,8 +181,14 @@ bool CreateInputStream(pa_threaded_mainloop* mainloop,
   pa_channel_map* map = (source_channel_map.channels != 0) ?
       &source_channel_map : NULL;
 
-  // Create a new recording stream.
-  *stream = pa_stream_new(context, "RecordStream", &sample_specifications, map);
+  // Create a new recording stream and
+  // tells PulseAudio what the stream icon should be.
+  ScopedPropertyList property_list;
+  pa_proplist_sets(property_list.get(), PA_PROP_APPLICATION_ICON_NAME,
+                   kBrowserDisplayName);
+  *stream = pa_stream_new_with_proplist(context, "RecordStream",
+                                        &sample_specifications, map,
+                                        property_list.get());
   RETURN_ON_FAILURE(*stream, "failed to create PA recording stream");
 
   pa_stream_set_state_callback(*stream, stream_callback, user_data);
@@ -250,7 +280,7 @@ bool CreateOutputStream(pa_threaded_mainloop** mainloop,
   sample_specifications.rate = params.sample_rate();
   sample_specifications.channels = params.channels();
 
-  // Get channel mapping and open playback stream.
+  // Get channel mapping.
   pa_channel_map* map = NULL;
   pa_channel_map source_channel_map = ChannelLayoutToPAChannelMap(
       params.channel_layout());
@@ -259,7 +289,14 @@ bool CreateOutputStream(pa_threaded_mainloop** mainloop,
     // than the default channel map (NULL).
     map = &source_channel_map;
   }
-  *stream = pa_stream_new(*context, "Playback", &sample_specifications, map);
+
+  // Open playback stream and
+  // tell PulseAudio what the stream icon should be.
+  ScopedPropertyList property_list;
+  pa_proplist_sets(property_list.get(), PA_PROP_APPLICATION_ICON_NAME,
+                   kBrowserDisplayName);
+  *stream = pa_stream_new_with_proplist(
+      *context, "Playback", &sample_specifications, map, property_list.get());
   RETURN_ON_FAILURE(*stream, "failed to create PA playback stream");
 
   pa_stream_set_state_callback(*stream, stream_callback, user_data);

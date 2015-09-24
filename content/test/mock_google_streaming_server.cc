@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/sys_byteorder.h"
@@ -14,6 +15,7 @@
 #include "content/browser/speech/proto/google_streaming_api.pb.h"
 #include "content/browser/speech/speech_recognition_manager_impl.h"
 #include "net/base/escape.h"
+#include "net/base/net_errors.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "net/url_request/url_request_status.h"
 
@@ -40,17 +42,16 @@ void MockGoogleStreamingServer::OnRequestStart(int fetcher_id) {
 
   // Extract request argument from the the request URI.
   std::string query = GetURLFetcher(true)->GetOriginalURL().query();
-  std::vector<std::string> query_params;
-  Tokenize(query, "&", &query_params);
   const net::UnescapeRule::Type kUnescapeAll =
       net::UnescapeRule::NORMAL |
       net::UnescapeRule::SPACES |
       net::UnescapeRule::URL_SPECIAL_CHARS |
       net::UnescapeRule::REPLACE_PLUS_WITH_SPACE;
-  for (size_t i = 0; i < query_params.size(); ++i) {
-    const std::string query_param = query_params[i];
-    std::vector<std::string> param_parts;
-    Tokenize(query_param, "=", &param_parts);
+  for (const base::StringPiece& query_param :
+       base::SplitStringPiece(query, "&", base::KEEP_WHITESPACE,
+                              base::SPLIT_WANT_NONEMPTY)) {
+    std::vector<std::string> param_parts = base::SplitString(
+        query_param, "=", base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
     if (param_parts.size() != 2)
       continue;
     std::string param_key = net::UnescapeURLComponent(param_parts[0],
@@ -129,10 +130,8 @@ void MockGoogleStreamingServer::SimulateServerResponse(
     bool success, const std::string& http_response) {
   net::TestURLFetcher* fetcher = GetURLFetcher(true);
 
-  net::URLRequestStatus status;
-  status.set_status(success ? net::URLRequestStatus::SUCCESS :
-                              net::URLRequestStatus::FAILED);
-  fetcher->set_status(status);
+  fetcher->set_status(
+      net::URLRequestStatus::FromError(success ? net::OK : net::ERR_FAILED));
   fetcher->set_response_code(success ? 200 : 500);
   fetcher->SetResponseString(http_response);
   fetcher->delegate()->OnURLFetchDownloadProgress(fetcher, 0, 0);

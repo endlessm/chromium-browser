@@ -35,10 +35,17 @@ DemoModeDetector::~DemoModeDetector() {
 // Public methods.
 
 void DemoModeDetector::InitDetection() {
-  if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kDisableDemoMode))
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableDemoMode))
     return;
 
-  if (base::SysInfo::IsRunningOnChromeOS()) {
+  const bool has_derelict_switch =
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDerelictDetectionTimeout) ||
+      base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDerelictIdleTimeout);
+
+  if (base::SysInfo::IsRunningOnChromeOS() && !has_derelict_switch) {
     std::string track;
     // We're running on an actual device; if we cannot find our release track
     // value or if the track contains "testimage", don't start demo mode.
@@ -54,6 +61,7 @@ void DemoModeDetector::InitDetection() {
 }
 
 void DemoModeDetector::StopDetection() {
+  oobe_timer_.Stop();
   idle_detector_.reset();
 }
 
@@ -67,8 +75,7 @@ void DemoModeDetector::RegisterPrefs(PrefRegistrySimple* registry) {
 void DemoModeDetector::StartIdleDetection() {
   if (!idle_detector_.get()) {
     idle_detector_.reset(
-        new IdleDetector(base::Closure(),
-                         base::Bind(&DemoModeDetector::OnIdle,
+        new IdleDetector(base::Bind(&DemoModeDetector::OnIdle,
                                     weak_ptr_factory_.GetWeakPtr())));
   }
   idle_detector_->Start(derelict_idle_timeout_);
@@ -104,7 +111,7 @@ void DemoModeDetector::OnOobeTimerUpdate() {
 }
 
 void DemoModeDetector::SetupTimeouts() {
-  CommandLine* cmdline = CommandLine::ForCurrentProcess();
+  base::CommandLine* cmdline = base::CommandLine::ForCurrentProcess();
   DCHECK(cmdline);
 
   PrefService* prefs = g_browser_process->local_state();

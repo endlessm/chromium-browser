@@ -5,6 +5,7 @@
 #ifndef ASH_SYSTEM_CHROMEOS_SCREEN_CAPTURE_SCREEN_CAPTURE_TRAY_ITEM_H_
 #define ASH_SYSTEM_CHROMEOS_SCREEN_CAPTURE_SCREEN_CAPTURE_TRAY_ITEM_H_
 
+#include "ash/shell_observer.h"
 #include "ash/system/chromeos/screen_security/screen_capture_observer.h"
 #include "ash/system/chromeos/screen_security/screen_tray_item.h"
 
@@ -15,27 +16,32 @@ class View;
 namespace ash {
 
 class ASH_EXPORT ScreenCaptureTrayItem : public ScreenTrayItem,
-                                         public ScreenCaptureObserver {
+                                         public ScreenCaptureObserver,
+                                         public ShellObserver {
  public:
   explicit ScreenCaptureTrayItem(SystemTray* system_tray);
-  virtual ~ScreenCaptureTrayItem();
+  ~ScreenCaptureTrayItem() override;
 
  private:
   // Overridden from SystemTrayItem.
-  virtual views::View* CreateTrayView(user::LoginStatus status) override;
-  virtual views::View* CreateDefaultView(user::LoginStatus status) override;
+  views::View* CreateTrayView(user::LoginStatus status) override;
+  views::View* CreateDefaultView(user::LoginStatus status) override;
 
   // Overridden from ScreenTrayItem.
-  virtual void CreateOrUpdateNotification() override;
-  virtual std::string GetNotificationId() override;
+  void CreateOrUpdateNotification() override;
+  std::string GetNotificationId() override;
 
   // Overridden from ScreenCaptureObserver.
-  virtual void OnScreenCaptureStart(
+  void OnScreenCaptureStart(
       const base::Closure& stop_callback,
       const base::string16& screen_capture_status) override;
-  virtual void OnScreenCaptureStop() override;
+  void OnScreenCaptureStop() override;
+
+  // Overridden from ShellObserver.
+  void OnCastingSessionStartedOrStopped(bool started) override;
 
   base::string16 screen_capture_status_;
+  bool is_casting_ = false;
 
   DISALLOW_COPY_AND_ASSIGN(ScreenCaptureTrayItem);
 };

@@ -27,6 +27,7 @@
 #include "cc/resources/returned_resource.h"
 #include "cc/resources/transferable_resource.h"
 #include "cc/surfaces/surface_id.h"
+#include "cc/surfaces/surface_sequence.h"
 #include "content/common/content_export.h"
 #include "gpu/ipc/gpu_command_buffer_traits.h"
 #include "ipc/ipc_message_macros.h"
@@ -49,7 +50,7 @@ template <>
 struct ParamTraits<cc::FilterOperation> {
   typedef cc::FilterOperation param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -57,7 +58,7 @@ template <>
 struct ParamTraits<cc::FilterOperations> {
   typedef cc::FilterOperations param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -65,7 +66,7 @@ template <>
 struct ParamTraits<skia::RefPtr<SkImageFilter> > {
   typedef skia::RefPtr<SkImageFilter> param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -73,7 +74,7 @@ template <>
 struct ParamTraits<gfx::Transform> {
   typedef gfx::Transform param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -81,7 +82,7 @@ template <>
 struct CONTENT_EXPORT ParamTraits<cc::RenderPass> {
   typedef cc::RenderPass param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* r);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -89,7 +90,7 @@ template<>
 struct CONTENT_EXPORT ParamTraits<cc::CompositorFrame> {
   typedef cc::CompositorFrame param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* p);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -97,7 +98,7 @@ template<>
 struct CONTENT_EXPORT ParamTraits<cc::CompositorFrameAck> {
   typedef cc::CompositorFrameAck param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* p);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -105,7 +106,7 @@ template<>
 struct CONTENT_EXPORT ParamTraits<cc::DelegatedFrameData> {
   typedef cc::DelegatedFrameData param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* p);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -113,7 +114,31 @@ template <>
 struct CONTENT_EXPORT ParamTraits<cc::SoftwareFrameData> {
   typedef cc::SoftwareFrameData param_type;
   static void Write(Message* m, const param_type& p);
-  static bool Read(const Message* m, PickleIterator* iter, param_type* p);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct CONTENT_EXPORT ParamTraits<cc::DrawQuad::Resources> {
+  typedef cc::DrawQuad::Resources param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct CONTENT_EXPORT ParamTraits<cc::StreamVideoDrawQuad::OverlayResources> {
+  typedef cc::StreamVideoDrawQuad::OverlayResources param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct CONTENT_EXPORT ParamTraits<cc::TextureDrawQuad::OverlayResources> {
+  typedef cc::TextureDrawQuad::OverlayResources param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* p);
   static void Log(const param_type& p, std::string* l);
 };
 
@@ -144,7 +169,12 @@ IPC_STRUCT_TRAITS_BEGIN(cc::RenderPassId)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(cc::SurfaceId)
-IPC_STRUCT_TRAITS_MEMBER(id)
+  IPC_STRUCT_TRAITS_MEMBER(id)
+IPC_STRUCT_TRAITS_END()
+
+IPC_STRUCT_TRAITS_BEGIN(cc::SurfaceSequence)
+  IPC_STRUCT_TRAITS_MEMBER(id_namespace)
+  IPC_STRUCT_TRAITS_MEMBER(sequence)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(cc::DrawQuad)
@@ -153,11 +183,13 @@ IPC_STRUCT_TRAITS_BEGIN(cc::DrawQuad)
   IPC_STRUCT_TRAITS_MEMBER(opaque_rect)
   IPC_STRUCT_TRAITS_MEMBER(visible_rect)
   IPC_STRUCT_TRAITS_MEMBER(needs_blending)
+  IPC_STRUCT_TRAITS_MEMBER(resources)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(cc::CheckerboardDrawQuad)
   IPC_STRUCT_TRAITS_PARENT(cc::DrawQuad)
   IPC_STRUCT_TRAITS_MEMBER(color)
+  IPC_STRUCT_TRAITS_MEMBER(scale)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(cc::DebugBorderDrawQuad)
@@ -169,14 +201,12 @@ IPC_STRUCT_TRAITS_END()
 IPC_STRUCT_TRAITS_BEGIN(cc::IOSurfaceDrawQuad)
   IPC_STRUCT_TRAITS_PARENT(cc::DrawQuad)
   IPC_STRUCT_TRAITS_MEMBER(io_surface_size)
-  IPC_STRUCT_TRAITS_MEMBER(io_surface_resource_id)
   IPC_STRUCT_TRAITS_MEMBER(orientation)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(cc::RenderPassDrawQuad)
   IPC_STRUCT_TRAITS_PARENT(cc::DrawQuad)
   IPC_STRUCT_TRAITS_MEMBER(render_pass_id)
-  IPC_STRUCT_TRAITS_MEMBER(mask_resource_id)
   IPC_STRUCT_TRAITS_MEMBER(mask_uv_scale)
   IPC_STRUCT_TRAITS_MEMBER(mask_texture_size)
   IPC_STRUCT_TRAITS_MEMBER(filters)
@@ -192,7 +222,7 @@ IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(cc::StreamVideoDrawQuad)
   IPC_STRUCT_TRAITS_PARENT(cc::DrawQuad)
-  IPC_STRUCT_TRAITS_MEMBER(resource_id)
+  IPC_STRUCT_TRAITS_MEMBER(overlay_resources)
   IPC_STRUCT_TRAITS_MEMBER(matrix)
 IPC_STRUCT_TRAITS_END()
 
@@ -203,7 +233,7 @@ IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(cc::TextureDrawQuad)
   IPC_STRUCT_TRAITS_PARENT(cc::DrawQuad)
-  IPC_STRUCT_TRAITS_MEMBER(resource_id)
+  IPC_STRUCT_TRAITS_MEMBER(overlay_resources)
   IPC_STRUCT_TRAITS_MEMBER(premultiplied_alpha)
   IPC_STRUCT_TRAITS_MEMBER(uv_top_left)
   IPC_STRUCT_TRAITS_MEMBER(uv_bottom_right)
@@ -212,31 +242,31 @@ IPC_STRUCT_TRAITS_BEGIN(cc::TextureDrawQuad)
   IPC_STRUCT_TRAITS_MEMBER(vertex_opacity[1])
   IPC_STRUCT_TRAITS_MEMBER(vertex_opacity[2])
   IPC_STRUCT_TRAITS_MEMBER(vertex_opacity[3])
-  IPC_STRUCT_TRAITS_MEMBER(flipped)
+  IPC_STRUCT_TRAITS_MEMBER(y_flipped)
+  IPC_STRUCT_TRAITS_MEMBER(nearest_neighbor)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(cc::TileDrawQuad)
   IPC_STRUCT_TRAITS_PARENT(cc::DrawQuad)
-  IPC_STRUCT_TRAITS_MEMBER(resource_id)
   IPC_STRUCT_TRAITS_MEMBER(tex_coord_rect)
   IPC_STRUCT_TRAITS_MEMBER(texture_size)
   IPC_STRUCT_TRAITS_MEMBER(swizzle_contents)
+  IPC_STRUCT_TRAITS_MEMBER(nearest_neighbor)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(cc::YUVVideoDrawQuad)
   IPC_STRUCT_TRAITS_PARENT(cc::DrawQuad)
-  IPC_STRUCT_TRAITS_MEMBER(tex_coord_rect)
-  IPC_STRUCT_TRAITS_MEMBER(y_plane_resource_id)
-  IPC_STRUCT_TRAITS_MEMBER(u_plane_resource_id)
-  IPC_STRUCT_TRAITS_MEMBER(v_plane_resource_id)
-  IPC_STRUCT_TRAITS_MEMBER(a_plane_resource_id)
+  IPC_STRUCT_TRAITS_MEMBER(ya_tex_coord_rect)
+  IPC_STRUCT_TRAITS_MEMBER(uv_tex_coord_rect)
+  IPC_STRUCT_TRAITS_MEMBER(ya_tex_size)
+  IPC_STRUCT_TRAITS_MEMBER(uv_tex_size)
   IPC_STRUCT_TRAITS_MEMBER(color_space)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(cc::SharedQuadState)
-  IPC_STRUCT_TRAITS_MEMBER(content_to_target_transform)
-  IPC_STRUCT_TRAITS_MEMBER(content_bounds)
-  IPC_STRUCT_TRAITS_MEMBER(visible_content_rect)
+IPC_STRUCT_TRAITS_MEMBER(quad_to_target_transform)
+IPC_STRUCT_TRAITS_MEMBER(quad_layer_bounds)
+IPC_STRUCT_TRAITS_MEMBER(visible_quad_layer_rect)
   IPC_STRUCT_TRAITS_MEMBER(clip_rect)
   IPC_STRUCT_TRAITS_MEMBER(is_clipped)
   IPC_STRUCT_TRAITS_MEMBER(opacity)
@@ -250,6 +280,7 @@ IPC_STRUCT_TRAITS_BEGIN(cc::TransferableResource)
   IPC_STRUCT_TRAITS_MEMBER(filter)
   IPC_STRUCT_TRAITS_MEMBER(size)
   IPC_STRUCT_TRAITS_MEMBER(mailbox_holder)
+  IPC_STRUCT_TRAITS_MEMBER(read_lock_fences_enabled)
   IPC_STRUCT_TRAITS_MEMBER(is_repeated)
   IPC_STRUCT_TRAITS_MEMBER(is_software)
   IPC_STRUCT_TRAITS_MEMBER(allow_overlay)
@@ -269,10 +300,22 @@ IPC_STRUCT_TRAITS_BEGIN(cc::ViewportSelectionBound)
   IPC_STRUCT_TRAITS_MEMBER(visible)
 IPC_STRUCT_TRAITS_END()
 
+IPC_STRUCT_TRAITS_BEGIN(cc::ViewportSelection)
+  IPC_STRUCT_TRAITS_MEMBER(start)
+  IPC_STRUCT_TRAITS_MEMBER(end)
+  IPC_STRUCT_TRAITS_MEMBER(is_editable)
+  IPC_STRUCT_TRAITS_MEMBER(is_empty_text_form_control)
+IPC_STRUCT_TRAITS_END()
+
+IPC_ENUM_TRAITS_MAX_VALUE( \
+    cc::BeginFrameArgs::BeginFrameArgsType, \
+    cc::BeginFrameArgs::BEGIN_FRAME_ARGS_TYPE_MAX - 1)
+
 IPC_STRUCT_TRAITS_BEGIN(cc::BeginFrameArgs)
   IPC_STRUCT_TRAITS_MEMBER(frame_time)
   IPC_STRUCT_TRAITS_MEMBER(deadline)
   IPC_STRUCT_TRAITS_MEMBER(interval)
+  IPC_STRUCT_TRAITS_MEMBER(type)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(cc::CompositorFrameMetadata)
@@ -283,10 +326,11 @@ IPC_STRUCT_TRAITS_BEGIN(cc::CompositorFrameMetadata)
   IPC_STRUCT_TRAITS_MEMBER(root_layer_size)
   IPC_STRUCT_TRAITS_MEMBER(min_page_scale_factor)
   IPC_STRUCT_TRAITS_MEMBER(max_page_scale_factor)
+  IPC_STRUCT_TRAITS_MEMBER(root_overflow_x_hidden)
+  IPC_STRUCT_TRAITS_MEMBER(root_overflow_y_hidden)
   IPC_STRUCT_TRAITS_MEMBER(location_bar_offset)
   IPC_STRUCT_TRAITS_MEMBER(location_bar_content_translation)
-  IPC_STRUCT_TRAITS_MEMBER(selection_start)
-  IPC_STRUCT_TRAITS_MEMBER(selection_end)
+  IPC_STRUCT_TRAITS_MEMBER(selection)
   IPC_STRUCT_TRAITS_MEMBER(latency_info)
   IPC_STRUCT_TRAITS_MEMBER(satisfies_sequences)
 IPC_STRUCT_TRAITS_END()

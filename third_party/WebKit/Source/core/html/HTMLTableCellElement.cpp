@@ -31,10 +31,11 @@
 #include "core/dom/Attribute.h"
 #include "core/dom/ElementTraversal.h"
 #include "core/html/HTMLTableElement.h"
-#include "core/rendering/RenderTableCell.h"
+#include "core/html/parser/HTMLParserIdioms.h"
+#include "core/layout/LayoutTableCell.h"
 
-using std::max;
-using std::min;
+using namespace std;
+using namespace std;
 
 namespace blink {
 
@@ -43,7 +44,7 @@ namespace blink {
 // (FIXME: We should consider increasing this limit (crbug.com/78577).
 // Firefox uses a limit of 1,000 for colspan and resets the value to 1
 // but we don't discriminate between rowspan / colspan as it is artificial.
-static const int maxColRowSpan = 8190;
+static const unsigned maxColRowSpan = 8190;
 
 using namespace HTMLNames;
 
@@ -54,16 +55,22 @@ inline HTMLTableCellElement::HTMLTableCellElement(const QualifiedName& tagName, 
 
 DEFINE_ELEMENT_FACTORY_WITH_TAGNAME(HTMLTableCellElement)
 
-int HTMLTableCellElement::colSpan() const
+unsigned HTMLTableCellElement::colSpan() const
 {
     const AtomicString& colSpanValue = fastGetAttribute(colspanAttr);
-    return max(1, min(colSpanValue.toInt(), maxColRowSpan));
+    unsigned value = 0;
+    if (colSpanValue.isEmpty() || !parseHTMLNonNegativeInteger(colSpanValue, value))
+        return 1;
+    return max(1u, min(value, maxColRowSpan));
 }
 
-int HTMLTableCellElement::rowSpan() const
+unsigned HTMLTableCellElement::rowSpan() const
 {
     const AtomicString& rowSpanValue = fastGetAttribute(rowspanAttr);
-    return max(1, min(rowSpanValue.toInt(), maxColRowSpan));
+    unsigned value = 0;
+    if (rowSpanValue.isEmpty() || !parseHTMLNonNegativeInteger(rowSpanValue, value))
+        return 1;
+    return max(1u, min(value, maxColRowSpan));
 }
 
 int HTMLTableCellElement::cellIndex() const
@@ -87,9 +94,9 @@ bool HTMLTableCellElement::isPresentationAttribute(const QualifiedName& name) co
 
 void HTMLTableCellElement::collectStyleForPresentationAttribute(const QualifiedName& name, const AtomicString& value, MutableStylePropertySet* style)
 {
-    if (name == nowrapAttr)
+    if (name == nowrapAttr) {
         addPropertyToPresentationAttributeStyle(style, CSSPropertyWhiteSpace, CSSValueWebkitNowrap);
-    else if (name == widthAttr) {
+    } else if (name == widthAttr) {
         if (!value.isEmpty()) {
             int widthInt = value.toInt();
             if (widthInt > 0) // width="0" is ignored for compatibility with WinIE.
@@ -101,20 +108,22 @@ void HTMLTableCellElement::collectStyleForPresentationAttribute(const QualifiedN
             if (heightInt > 0) // height="0" is ignored for compatibility with WinIE.
                 addHTMLLengthToStyle(style, CSSPropertyHeight, value);
         }
-    } else
+    } else {
         HTMLTablePartElement::collectStyleForPresentationAttribute(name, value, style);
+    }
 }
 
 void HTMLTableCellElement::parseAttribute(const QualifiedName& name, const AtomicString& value)
 {
     if (name == rowspanAttr) {
-        if (renderer() && renderer()->isTableCell())
-            toRenderTableCell(renderer())->colSpanOrRowSpanChanged();
+        if (layoutObject() && layoutObject()->isTableCell())
+            toLayoutTableCell(layoutObject())->colSpanOrRowSpanChanged();
     } else if (name == colspanAttr) {
-        if (renderer() && renderer()->isTableCell())
-            toRenderTableCell(renderer())->colSpanOrRowSpanChanged();
-    } else
+        if (layoutObject() && layoutObject()->isTableCell())
+            toLayoutTableCell(layoutObject())->colSpanOrRowSpanChanged();
+    } else {
         HTMLTablePartElement::parseAttribute(name, value);
+    }
 }
 
 const StylePropertySet* HTMLTableCellElement::additionalPresentationAttributeStyle()
@@ -149,9 +158,9 @@ const AtomicString& HTMLTableCellElement::axis() const
     return fastGetAttribute(axisAttr);
 }
 
-void HTMLTableCellElement::setColSpan(int n)
+void HTMLTableCellElement::setColSpan(unsigned n)
 {
-    setIntegralAttribute(colspanAttr, n);
+    setUnsignedIntegralAttribute(colspanAttr, n);
 }
 
 const AtomicString& HTMLTableCellElement::headers() const
@@ -159,9 +168,9 @@ const AtomicString& HTMLTableCellElement::headers() const
     return fastGetAttribute(headersAttr);
 }
 
-void HTMLTableCellElement::setRowSpan(int n)
+void HTMLTableCellElement::setRowSpan(unsigned n)
 {
-    setIntegralAttribute(rowspanAttr, n);
+    setUnsignedIntegralAttribute(rowspanAttr, n);
 }
 
 const AtomicString& HTMLTableCellElement::scope() const
@@ -171,18 +180,18 @@ const AtomicString& HTMLTableCellElement::scope() const
 
 HTMLTableCellElement* HTMLTableCellElement::cellAbove() const
 {
-    RenderObject* cellRenderer = renderer();
-    if (!cellRenderer)
+    LayoutObject* cellLayoutObject = layoutObject();
+    if (!cellLayoutObject)
         return nullptr;
-    if (!cellRenderer->isTableCell())
-        return nullptr;
-
-    RenderTableCell* tableCellRenderer = toRenderTableCell(cellRenderer);
-    RenderTableCell* cellAboveRenderer = tableCellRenderer->table()->cellAbove(tableCellRenderer);
-    if (!cellAboveRenderer)
+    if (!cellLayoutObject->isTableCell())
         return nullptr;
 
-    return toHTMLTableCellElement(cellAboveRenderer->node());
+    LayoutTableCell* tableCellLayoutObject = toLayoutTableCell(cellLayoutObject);
+    LayoutTableCell* cellAboveLayoutObject = tableCellLayoutObject->table()->cellAbove(tableCellLayoutObject);
+    if (!cellAboveLayoutObject)
+        return nullptr;
+
+    return toHTMLTableCellElement(cellAboveLayoutObject->node());
 }
 
 } // namespace blink

@@ -14,8 +14,10 @@
 #include "base/memory/weak_ptr.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_initializer.h"
 #include "chrome/browser/chromeos/policy/device_cloud_policy_validator.h"
+#include "chrome/browser/chromeos/policy/enrollment_config.h"
 #include "chrome/browser/chromeos/policy/enterprise_install_attributes.h"
 #include "components/policy/core/common/cloud/cloud_policy_client.h"
+#include "components/policy/core/common/cloud/cloud_policy_constants.h"
 #include "components/policy/core/common/cloud/cloud_policy_store.h"
 #include "google_apis/gaia/gaia_oauth_client.h"
 #include "policy/proto/device_management_backend.pb.h"
@@ -25,7 +27,7 @@ class SequencedTaskRunner;
 }
 
 namespace chromeos {
-class DeviceSettingsService;
+class OwnerSettingsServiceChromeOS;
 }
 
 namespace policy {
@@ -63,17 +65,17 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
       DeviceCloudPolicyStoreChromeOS* store,
       EnterpriseInstallAttributes* install_attributes,
       ServerBackedStateKeysBroker* state_keys_broker,
-      chromeos::DeviceSettingsService* device_settings_service,
+      chromeos::OwnerSettingsServiceChromeOS* owner_settings_service,
       scoped_ptr<CloudPolicyClient> client,
       scoped_refptr<base::SequencedTaskRunner> background_task_runner,
+      const EnrollmentConfig& enrollment_config,
       const std::string& auth_token,
       const std::string& client_id,
-      bool is_auto_enrollment,
       const std::string& requisition,
       const AllowedDeviceModes& allowed_device_modes,
-      enterprise_management::PolicyData::ManagementMode management_mode,
+      ManagementMode management_mode,
       const EnrollmentCallback& completion_callback);
-  virtual ~EnrollmentHandlerChromeOS();
+  ~EnrollmentHandlerChromeOS() override;
 
   // Starts the enrollment process and reports the result to
   // |completion_callback_|.
@@ -83,23 +85,23 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
   scoped_ptr<CloudPolicyClient> ReleaseClient();
 
   // CloudPolicyClient::Observer:
-  virtual void OnPolicyFetched(CloudPolicyClient* client) override;
-  virtual void OnRegistrationStateChanged(CloudPolicyClient* client) override;
-  virtual void OnRobotAuthCodesFetched(CloudPolicyClient* client) override;
-  virtual void OnClientError(CloudPolicyClient* client) override;
+  void OnPolicyFetched(CloudPolicyClient* client) override;
+  void OnRegistrationStateChanged(CloudPolicyClient* client) override;
+  void OnRobotAuthCodesFetched(CloudPolicyClient* client) override;
+  void OnClientError(CloudPolicyClient* client) override;
 
   // CloudPolicyStore::Observer:
-  virtual void OnStoreLoaded(CloudPolicyStore* store) override;
-  virtual void OnStoreError(CloudPolicyStore* store) override;
+  void OnStoreLoaded(CloudPolicyStore* store) override;
+  void OnStoreError(CloudPolicyStore* store) override;
 
   // GaiaOAuthClient::Delegate:
-  virtual void OnGetTokensResponse(const std::string& refresh_token,
-                                   const std::string& access_token,
-                                   int expires_in_seconds) override;
-  virtual void OnRefreshTokenResponse(const std::string& access_token,
-                                      int expires_in_seconds) override;
-  virtual void OnOAuthError() override;
-  virtual void OnNetworkError(int response_code) override;
+  void OnGetTokensResponse(const std::string& refresh_token,
+                           const std::string& access_token,
+                           int expires_in_seconds) override;
+  void OnRefreshTokenResponse(const std::string& access_token,
+                              int expires_in_seconds) override;
+  void OnOAuthError() override;
+  void OnNetworkError(int response_code) override;
 
  private:
   // Indicates what step of the process is currently pending. These steps need
@@ -135,9 +137,9 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
   // enrollment.
   void StartLockDevice();
 
-  // Checks the status after SetManagementSettings() is done. Proceeds to
-  // robot auth code storing if successful.
-  void HandleSetManagementSettingsDone();
+  // Called after SetManagementSettings() is done. Proceeds to robot
+  // auth code storing if successful.
+  void HandleSetManagementSettingsDone(bool success);
 
   // Handle callback from InstallAttributes::LockDevice() and retry on failure.
   void HandleLockDeviceResult(
@@ -158,23 +160,30 @@ class EnrollmentHandlerChromeOS : public CloudPolicyClient::Observer,
   DeviceCloudPolicyStoreChromeOS* store_;
   EnterpriseInstallAttributes* install_attributes_;
   ServerBackedStateKeysBroker* state_keys_broker_;
-  chromeos::DeviceSettingsService* device_settings_service_;
+  chromeos::OwnerSettingsServiceChromeOS* owner_settings_service_;
   scoped_ptr<CloudPolicyClient> client_;
   scoped_refptr<base::SequencedTaskRunner> background_task_runner_;
   scoped_ptr<gaia::GaiaOAuthClient> gaia_oauth_client_;
 
+  EnrollmentConfig enrollment_config_;
   std::string auth_token_;
   std::string client_id_;
-  bool is_auto_enrollment_;
   std::string requisition_;
-  std::string current_state_key_;
-  std::string refresh_token_;
   AllowedDeviceModes allowed_device_modes_;
-  enterprise_management::PolicyData::ManagementMode management_mode_;
+  ManagementMode management_mode_;
   EnrollmentCallback completion_callback_;
+
+  // The current state key provided by |state_keys_broker_|.
+  std::string current_state_key_;
 
   // The device mode as received in the registration request.
   DeviceMode device_mode_;
+
+  // Whether the server signaled to skip robot auth setup.
+  bool skip_robot_auth_;
+
+  // The robot account refresh token.
+  std::string robot_refresh_token_;
 
   // The validated policy response info to be installed in the store.
   scoped_ptr<enterprise_management::PolicyFetchResponse> policy_;

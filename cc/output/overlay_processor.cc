@@ -6,25 +6,25 @@
 
 #include "cc/output/output_surface.h"
 #include "cc/output/overlay_strategy_single_on_top.h"
+#include "cc/output/overlay_strategy_underlay.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/transform.h"
 
 namespace cc {
 
-OverlayProcessor::OverlayProcessor(OutputSurface* surface,
-                                   ResourceProvider* resource_provider)
-    : surface_(surface), resource_provider_(resource_provider) {}
+OverlayProcessor::OverlayProcessor(OutputSurface* surface) : surface_(surface) {
+}
 
 void OverlayProcessor::Initialize() {
   DCHECK(surface_);
-  if (!resource_provider_)
-    return;
 
   OverlayCandidateValidator* candidates =
-      surface_->overlay_candidate_validator();
+      surface_->GetOverlayCandidateValidator();
   if (candidates) {
-    strategies_.push_back(scoped_ptr<Strategy>(
-        new OverlayStrategySingleOnTop(candidates, resource_provider_)));
+    strategies_.push_back(
+        scoped_ptr<Strategy>(new OverlayStrategySingleOnTop(candidates)));
+    strategies_.push_back(
+        scoped_ptr<Strategy>(new OverlayStrategyUnderlay(candidates)));
   }
 }
 
