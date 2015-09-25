@@ -20,14 +20,14 @@ namespace options {
 class DesktopIntegrationSettingsHandler : public OptionsPageUIHandler {
  public:
   DesktopIntegrationSettingsHandler();
-  virtual ~DesktopIntegrationSettingsHandler();
+  ~DesktopIntegrationSettingsHandler() override;
 
   // OptionsPageUIHandler implementation.
-  virtual void GetLocalizedValues(
+  void GetLocalizedValues(
       base::DictionaryValue* localized_strings) override;
-  virtual void InitializeHandler() override;
-  virtual void InitializePage() override;
-  virtual void RegisterMessages() override;
+  void InitializeHandler() override;
+  void InitializePage() override;
+  void RegisterMessages() override;
 
  private:
 
