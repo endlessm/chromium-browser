@@ -680,8 +680,26 @@ def process_software_rendering_list(script_dir, output_dir):
 def process_gpu_driver_bug_list(script_dir, output_dir):
   total_features = load_gpu_driver_bug_workarounds(
       os.path.join(script_dir, 'gpu_driver_bug_workaround_type.h'))
+
+  bug_list_file = os.path.join(script_dir, 'gpu_driver_bug_list.json')
+  # This workaround will only be applied when building on a native env
+  excluded_bug_ids_arm = [109]
+  if 'arm' in platform.machine():
+
+    with open(bug_list_file, 'r') as json_data:
+      bug_list = json.loads(json_data.read())
+
+      for gpu_bug in bug_list['entries']:
+        if (gpu_bug['id'] in excluded_bug_ids_arm):
+          bug_list['entries'].remove(gpu_bug)
+
+    bug_list_file = os.path.join(script_dir, 'gpu_driver_bug_list_arm.json')
+
+    with open(bug_list_file, 'w') as f:
+      f.write(json.dumps(bug_list))
+
   process_json_file(
-      os.path.join(script_dir, 'gpu_driver_bug_list.json'),
+      bug_list_file,
       'GpuDriverBugList',
       'gpu_driver_bug_workaround_type.h',
       total_features,
