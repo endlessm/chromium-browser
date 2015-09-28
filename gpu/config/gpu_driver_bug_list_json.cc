@@ -1265,6 +1265,7 @@ LONG_STRING_CONST(
         "disable_gl_rgb_format"
       ]
     },
+#ifndef __arm__
     {
       "id": 109,
       "description": "MakeCurrent is slow on Linux with NVIDIA drivers",
@@ -1276,6 +1277,7 @@ LONG_STRING_CONST(
         "use_virtualized_gl_contexts"
       ]
     },
+#endif
     {
       "id": 110,
       "description": "EGL Sync server causes crashes on Adreno 2xx and 3xx drivers",
