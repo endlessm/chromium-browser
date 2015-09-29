@@ -927,6 +927,11 @@ SupportsType MimeUtil::IsCodecSupported(const std::string& mime_type_lower_case,
   }
 #endif
 
+#ifdef __arm__
+  if (codec == MimeUtil::VP8 || codec == MimeUtil::VP9)
+    return IsNotSupported;
+#endif
+
   return ambiguous_platform_support ? MayBeSupported : IsSupported;
 }
 
