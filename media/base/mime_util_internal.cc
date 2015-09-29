@@ -751,6 +751,11 @@ bool MimeUtil::IsCodecSupported(Codec codec,
   }
 #endif
 
+#ifdef __arm__
+  if (codec == MimeUtil::VP8 || codec == MimeUtil::VP9)
+    return false;
+#endif
+
   return allow_proprietary_codecs_ || !IsCodecProprietary(codec);
 }
 
