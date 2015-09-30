@@ -12,10 +12,13 @@ PATH=debian/tmp/usr/lib/chromium-browser:$PATH
 set -o errexit
 set -o nounset
 
+OKAY_ERRORS="(libdc1394 error: Failed to initialize libdc1394|Couldn't load libexif.)"
+
 SRCDIR=$1
 
 echo $SRCDIR
 
+which metacity
 metacity >windowmanager.out 2>windowmanager.err &
 windowmanager_pid=$!
 
@@ -42,7 +45,7 @@ while test "$retry" -lt "$retrylimit"; do
 done
 test "$retry" -lt ${retrylimit}
 
-mkdir profile_storage
+mkdir -p profile_storage
 
 # Now everything is set up for a series of tests.
 
@@ -108,7 +111,7 @@ for sikulitest in $SRCDIR/debian/tests/testdata/*.sikuli; do
 	echo -n "Test $(basename ${testname}): "
 
 	sikuli $sikulitest &>${testname}-log
-	if fgrep -q "[error]" ${testname}-log; then
+	if egrep -v "${OKAY_ERRORS}" ${testname}-log |egrep -i "(exception|error)"; then
 		failures="$(basename $testname)  $failures"
 		echo "BAD"
 		cat -n ${testname}-log
