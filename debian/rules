@@ -21,10 +21,11 @@ DEB_BUILD_ARCH_BITS ?= $(shell dpkg-architecture -qDEB_BUILD_ARCH_BITS)
 DEB_TAR_SRCDIR := .
 SRC_DIR        := $(CURDIR)/$(DEB_TAR_SRCDIR)
 LIB_DIR        := usr/lib/$(DEBIAN_NAME)
+EXTRA_CODECS_DIR := var/lib/codecs/$(DEBIAN_NAME)
 BINARY_PACKAGE_COMPRESSION ?= xz
 FFMPEG_DIR     := third_party/ffmpeg
 FFMPEG_SRC_DIR := $(SRC_DIR)/$(FFMPEG_DIR)
-NINJA          := ninja
+NINJA          := ninja -l 6
 SNAPPY_PKGR_TO_USE :=
 
 # Whitelist LP provided new langs only in release builds, PPAs ship them all
@@ -37,6 +38,10 @@ endif
 
 ifneq (,$(findstring Debian,$(DEBIAN_DIST)))
 DISTRIBUTION=DEBIAN
+endif
+
+ifneq (,$(findstring Endless,$(DEBIAN_DIST)))
+DISTRIBUTION=ENDLESS
 endif
 
 WANT_DEBUG       ?= 0
@@ -52,6 +57,13 @@ GOOGLEAPI_APIKEY_UBUNTU := AIzaSyAQfxPJiounkhOjODEO5ZieffeBv6yft2Q
 GOOGLEAPI_CLIENTID_UBUNTU := 424119844901.apps.googleusercontent.com
 GOOGLEAPI_CLIENTSECRET_UBUNTU := AIienwDlGIIsHoKnNHmWGXyJ
 
+# Set up Google API keys, see http://www.chromium.org/developers/how-tos/api-keys .
+# Note: these are for Endless use ONLY. For your own distribution,
+# please get your own set of keys.
+GOOGLEAPI_APIKEY_ENDLESS := AIzaSyChQFDXkTljICsLpPO6t90OlWQ8-xRd6BA
+GOOGLEAPI_CLIENTID_ENDLESS := 398519776638-svi4sr3c7716j1hgcs8cpq83psj4mov9.apps.googleusercontent.com
+GOOGLEAPI_CLIENTSECRET_ENDLESS := 1N8wLrO5WFJPapT0TlgoOh0r
+
 GYP_PARAMS := --depth=$(CURDIR) --format=ninja
 
 BROWSER_GYP_DEFINES =
@@ -59,7 +71,7 @@ FFMPEG_GYP_DEFINES =
 GYP_DEFINES =
 
 # Build the launchpad translations (already landed upstream)
-GYP_DEFINES += use_third_party_translations=1
+GYP_DEFINES += use_third_party_translations=0
 
 # Always add debug symbols, and strip them when we don't want them.
 #GYP_DEFINES += release_extra_cflags="-g"
@@ -210,7 +222,7 @@ ifeq (,$(filter 12.04%,$(UBUNTU_DIST)))
 GYP_DEFINES += use_gnome_keyring=1 linux_link_gnome_keyring=1
 # controlling the use of GConf (the classic GNOME configuration
 # and GIO, which contains GSettings (the new GNOME config system)
-GYP_DEFINES += use_gconf=1 use_gio=1
+GYP_DEFINES += use_gconf=0 use_gio=1
 endif
 
 # Build chrome and chrome_sandbox, and chromedriver
@@ -247,7 +259,7 @@ endif
 # Debian Policy §4.9
 binary binary-arch binary-indep build build-arch build-indep clean install install-arch install-indep patch:
 	@set -eux
-	dh --sourcedirectory=$(DEB_TAR_SRCDIR) --builddirectory=$(DEB_TAR_SRCDIR)/out/$(BUILD_TYPE)-chromium --with quilt $@
+	dh --sourcedirectory=$(DEB_TAR_SRCDIR) --builddirectory=$(DEB_TAR_SRCDIR)/out/$(BUILD_TYPE)-chromium --with quilt,eoscontent $@
 
 # BZR build-deb rule
 get-packaged-orig-source: URL=https://commondatastorage.googleapis.com/chromium-browser-official/chromium-$(ORIG_VERSION).tar.xz
@@ -296,6 +308,7 @@ local-install-arch: S_CR_PATH := apps/chromium/current
 local-install-arch: SNAPPY_ROOT := debian/snappy/$(S_CR_PATH)
 local-install-arch: PKG_DIRS := $(addprefix debian/,$(shell dh_listpackages))
 local-install-arch: TRASH := .deps gen obj.host obj.target \*.lock obj build.\* .landmines mksnapshot.ia32 protoc pyproto re2c resources xdg-mime xdg-settings yasm \*.TOC \*.stamp product_logo_\*png gen\* lib/\* lib libvpx_obj_int_extract .ninja\* chrome-wrapper \*.breakpad.\* java_mojo dump_syms 
+
 local-install-arch:
 	@set -eux
 	# Two stages: Install out of source tree. Copy to packaging.
@@ -304,8 +317,10 @@ ifeq (1,$(COMPONENT_SHARED_LIB_BUILD))
 	mkdir -p                                                          $(CURDIR)/debian/tmp-std/$(LIB_DIR)/libs
 	mv -v $(SRC_DIR)/out/$(BUILD_TYPE)-chromium/lib/libffmpeg.so      $(CURDIR)/debian/tmp-std/$(LIB_DIR)/libs
 
-	mkdir -p                                                          $(CURDIR)/debian/tmp-extra/$(LIB_DIR)/libs
-	mv -v $(SRC_DIR)/out/$(BUILD_TYPE)-ffmpeg-extra/lib/libffmpeg.so  $(CURDIR)/debian/tmp-extra/$(LIB_DIR)/libs
+	# For the -extra pacakge, install under /var/lib/codecs and
+	# append the browser's version number to the filename.
+	mkdir -p                                                          $(CURDIR)/debian/tmp-extra/$(EXTRA_CODECS_DIR)
+	mv -v $(SRC_DIR)/out/$(BUILD_TYPE)-ffmpeg-extra/lib/libffmpeg.so  $(CURDIR)/debian/tmp-extra/$(EXTRA_CODECS_DIR)
 endif
 
 	mkdir -p $(CURDIR)/debian/tmp/$(LIB_DIR)
@@ -358,6 +373,13 @@ endif
 	find debian/*/$(LIB_DIR)/libs             -type f -name \*.so             -execdir chrpath --replace "\$$ORIGIN" {} \;
 	find debian/*/$(LIB_DIR)      -maxdepth 1 -type f -name \*.so             -execdir chrpath --replace "\$$ORIGIN/libs" {} \;
 	find debian/*/$(LIB_DIR)      -maxdepth 1 -type f             -executable -execdir chrpath --replace "\$$ORIGIN/libs" {} \;
+
+	# We can't really use RPATH since it does ignore LD_LIBRARY_PATH,
+	# which we need to load the extra codecs from /var/lib/codecs,
+	# so we convert it to RUNPATH in all the affected binaries.
+	find debian/*/$(LIB_DIR)/libs             -type f -name \*.so             -execdir chrpath -c {} \;
+	find debian/*/$(LIB_DIR)      -maxdepth 1 -type f -name \*.so             -execdir chrpath -c {} \;
+	find debian/*/$(LIB_DIR)      -maxdepth 1 -type f             -executable -execdir chrpath -c {} \;
 endif
 
 	# Launcher script

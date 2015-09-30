@@ -1,3 +1,30 @@
+chromium-browser (45.0.2454.85-0ubuntu0.15.04.1.1181endless1) eos; urgency=medium
+
+  * Rebased chromium-browser on top of 45.0.2454.85 from Ubuntu Vivid.
+  * debian/chromium-browser.desktop:
+    - Restore "Internet" as the Name ("Chromium Web Browser" in Vivid).
+    - Removed StartupNotify=true
+  * debian/control:
+    - Add build dependency on eos-shell-content-dev.
+    - Remove build dependency on libgconf2-dev.
+    - Remove dependency on chromium-codecs-ffmpeg-extra completely, so that
+      the version with only-free codecs is the only one which gets installed.
+  * debian/rules:
+    - Limit ninja not to spawn new jobs if load average is greater than 6.
+    - Do not use GConf.
+    - Add Endless distro.
+    - Add Google API keys for Endless and enable them (#2473).
+    - Disable third party translations, as they are already in upstream.
+    - Pass 'eoscontent' to debhelper tools.
+    - Install the extra version of libffmpeg.so under /var/lib/codecs.
+    - Convert RPATH to RUNPATH for all the relevant binaries.
+  * debian/chromium-browser.sh.in:
+    - Ensure /var/lib/codes/chromium-browser is prepended to LD_LIBRARY_PATH.
+  * debian/chromium-codecs-ffmpeg-extra.install:
+    - Install the libffmpeg.so library directly under /var/lib/codecs.
+
+ -- Mario Sanchez Prada <mario@endlessm.com>  Tue, 29 Sep 2015 12:35:36 +0100
+
 chromium-browser (45.0.2454.85-0ubuntu0.15.04.1.1181) vivid-security; urgency=medium
 
   * Upstream release 45.0.2454.85:
