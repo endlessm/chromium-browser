@@ -117,6 +117,7 @@ GYP_DEFINES += \
 	arm_neon=0 \
 	target_arch=arm \
 	use_cups=1 \
+	use_v4l2_codec=1 \
 	$(NULL)
 
  ifeq (armel,$(DEB_HOST_ARCH))
