@@ -195,6 +195,7 @@ ifeq (arm,$(DEB_HOST_ARCH_CPU))
 defines += \
 	arm_neon=0 \
 	target_arch=arm \
+	use_v4l2_codec=1 \
 	$(NULL)
 
  ifeq (armel,$(DEB_HOST_ARCH))
