@@ -25,7 +25,7 @@ EXTRA_CODECS_DIR := var/lib/codecs/$(DEBIAN_NAME)
 BINARY_PACKAGE_COMPRESSION ?= xz
 FFMPEG_DIR     := third_party/ffmpeg
 FFMPEG_SRC_DIR := $(SRC_DIR)/$(FFMPEG_DIR)
-NINJA          := ninja -l 6
+NINJA          := ninja -l 3
 SNAPPY_PKGR_TO_USE :=
 
 # Whitelist LP provided new langs only in release builds, PPAs ship them all
