@@ -142,7 +142,7 @@ browser_defines+=proprietary_codecs=1
 
 ffmpeg_defines += \
 	use_system_vpx=0 \
-	release_extra_cflags=-g \
+	release_extra_cflags=-g1 \
 	$(NULL)
 ffmpeg_std_defines   := $(NULL)
 ffmpeg_extra_defines := ffmpeg_branding=Chrome
@@ -189,6 +189,9 @@ defines += enable_widevine=0 enable_pepper_cdms=1
 #defines += use_ozone=1 ozone_auto_platforms=0 ozone_platform_mir=1 ozone_platform_wayland=0
 #defines += use_ozone=1
 #defines += ozone_platform_mir=1
+
+# build with minimal debug information so that OBS does not die linking
+defines += release_extra_cflags="-g1"
 
 # Intentional configuration, not bug work-arounds.
 ifeq (arm,$(DEB_HOST_ARCH_CPU))
