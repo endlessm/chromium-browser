@@ -73,8 +73,8 @@ GYP_DEFINES =
 # Build the launchpad translations (already landed upstream)
 GYP_DEFINES += use_third_party_translations=0
 
-# Always add debug symbols, and strip them when we don't want them.
-#GYP_DEFINES += release_extra_cflags="-g"
+# Build with minimal debug information so that OBS does not die linking.
+GYP_DEFINES += release_extra_cflags="-g1"
 
 # Don't fail on compilation warnings.
 GYP_DEFINES += werror=$(NULL)
@@ -212,7 +212,7 @@ BROWSER_GYP_DEFINES += \
 	$(NULL)
 FFMPEG_GYP_DEFINES += \
 	use_system_vpx=0 \
-	release_extra_cflags=-g \
+	release_extra_cflags=-g1 \
 	$(NULL)
 FFMPEG_STD_GYP_DEFINES   = $(NULL)
 FFMPEG_EXTRA_GYP_DEFINES = ffmpeg_branding=Chrome
