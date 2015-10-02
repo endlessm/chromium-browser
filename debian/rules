@@ -197,7 +197,6 @@ defines += release_extra_cflags="-g1"
 ifeq (arm,$(DEB_HOST_ARCH_CPU))
 
 defines += \
-	arm_neon=0 \
 	target_arch=arm \
 	use_cups=1 \
 	use_v4l2_codec=1 \
@@ -213,12 +212,9 @@ defines += \
  endif
  ifeq (armhf,$(DEB_HOST_ARCH))
 gyp_params += -DUSE_EABI_HARDFLOAT 
-# ARN Neon optional flag is off because it causes build errors, AND testing
-# /proc/cpuinfo contents can't work with a sandbox anyway.
 defines += \
-	arm_neon_optional=0 \
+	arm_neon=1 \
 	v8_use_arm_eabi_hardfloat=true \
-	arm_fpu=vfpv3-d16 \
 	arm_float_abi=hard \
 	arm_thumb=1 \
 	armv7=1 \
