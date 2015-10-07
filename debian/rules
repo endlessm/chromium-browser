@@ -205,6 +205,7 @@ DEB_DH_SHLIBDEPS_ARGS_$(DEBIAN_CODECS_NAME) := -l$(CURDIR)/debian/$(DEBIAN_CODEC
 DEB_DH_SHLIBDEPS_ARGS_$(DEBIAN_CODECS_NAME)-extra := -l$(CURDIR)/debian/$(DEBIAN_CODECS_NAME)-extra/$(LIB_DIR)
 BROWSER_GYP_DEFINES += \
 	proprietary_codecs=1 \
+	enable_hangout_services_extension=1 \
 	$(NULL)
 FFMPEG_GYP_DEFINES += \
 	use_system_vpx=0 \
