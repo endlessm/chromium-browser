@@ -138,7 +138,8 @@ defines+=use_system_re2=1 \
          use_system_xdg_utils=1 \
 
 ### Debian diversion, not prop on all codecs
-browser_defines+=proprietary_codecs=1
+browser_defines+=proprietary_codecs=1 \
+         enable_hangout_services_extension=1 \
 
 ffmpeg_defines += \
 	use_system_vpx=0 \
