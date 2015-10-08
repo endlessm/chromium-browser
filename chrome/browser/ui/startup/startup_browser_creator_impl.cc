@@ -545,8 +545,9 @@ void StartupBrowserCreatorImpl::ProcessLaunchURLs(
     return;
   }
 
+  // Do NOT show the welcome page at any time on Endless.
   // Determine whether or not this launch must include the welcome page.
-  InitializeWelcomeRunType(urls_to_open);
+  // InitializeWelcomeRunType(urls_to_open);
 
 // TODO(tapted): Move this to startup_browser_creator_win.cc after refactor.
 #if defined(OS_WIN)
