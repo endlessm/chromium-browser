@@ -275,6 +275,10 @@ override_dh_install-arch:
 
 	mkdir -p $(T)
 
+	# We don't want to ship the libwidevinecdm.so file, as it will be
+	# provided via our own downloader (eos-chrome-plugin-updater).
+	rm -f out/Release/libwidevinecdm.so
+
 	mkdir -p                             $(CURDIR)/debian/tmp-extra/$(LIB_DIR)
 	mv -v out/Release/libffmpeg.so       $(CURDIR)/debian/tmp-extra/$(LIB_DIR)
 
