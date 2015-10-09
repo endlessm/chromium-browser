@@ -267,7 +267,7 @@ override_dh_install-arch: TRASH := \
 	./libEGL.so \
 	./libGLESv2.so \
 	libVkLayer_\* \
-	libwidevinecdm\*
+	libwidevinecdm.so
 override_dh_install-arch: debian/chromium-browser.sh
 override_dh_install-arch:
 	# Two stages: Install out of source tree. Copy to packaging.
