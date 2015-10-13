@@ -398,6 +398,14 @@ endif
 	# Preferences
 	cp -a debian/chromium-browser.default debian/chromium-browser/etc/chromium-browser/default
 
+	# Master preferences (will be merged into user preferences on first run)
+ifeq (i386,$(DEB_HOST_ARCH))
+	cp -a debian/master_preferences.i386 debian/chromium-browser/$(LIB_DIR)/master_preferences
+endif
+ifeq (armhf,$(DEB_HOST_ARCH))
+	cp -a debian/master_preferences.armhf debian/chromium-browser/$(LIB_DIR)/master_preferences
+endif
+
 	# Rename the binary from chrome to chromium-browser, this is required as
 	# chromium dereferences all symlinks before starting its children making
 	# the Gnome System Monitor confused with icons
@@ -610,7 +618,7 @@ compare-arch:
 	fi; \
 	find debian/tmp debian/tmp-extra debian/tmp-std -type f |cut -d/ -f3- >$${T}/unfiltered-built ;\
 	grep -vE \($(subst $(SPACE),\|,$(BUILT_UNUSED_MATCH))\) $${T}/unfiltered-built $(foreach expr,$(RENAMED_FILE), |sed -r -e $(expr)) |grep -vE \($(subst $(SPACE),\|,$(INDEP_MATCH))\) | LC_ALL=C sort >$${T}/built ;\
-	find $(PKG_DIRS) -type f |grep -v /DEBIAN |cut -d/ -f3- |grep -v ^usr/lib/debug/ | LC_ALL=C sort >$${T}/unfiltered-packaged ;\
+	find $(PKG_DIRS) -type f |grep -v /DEBIAN |cut -d/ -f3- |grep -v ^usr/lib/debug/ |grep -v master_preferences | LC_ALL=C sort >$${T}/unfiltered-packaged ;\
 	grep -vE \($(subst $(SPACE),\|,$(PACKAGED_NOT_FROM_TREE_MATCH))\) $${T}/unfiltered-packaged |grep -vE \($(subst $(SPACE),\|,$(INDEP_MATCH))\) >$${T}/packaged ;\
 	if ! diff -U0 $${T}/built $${T}/packaged; then \
 	  echo " => Found archdep differences, please investigate. $${T}/built $${T}/packaged" ; \
