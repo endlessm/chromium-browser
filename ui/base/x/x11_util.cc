@@ -967,7 +967,12 @@ void SetWindowRole(XDisplay* display, XID window, const std::string& role) {
 }
 
 bool GetCustomFramePrefDefault() {
+#if !defined(__ARMEL__)
+  // We don't force the system's title bars on ARM for performance reasons.
+  // On Intel this is a much less noticeable issue since the copy of data
+  // between chromium's own buffer and the visible one is accelerated by HW.
   return false;
+#endif
 
   // If the window manager doesn't support enough of EWMH to tell us its name,
   // assume that it doesn't want custom frames. For example, _NET_WM_MOVERESIZE
