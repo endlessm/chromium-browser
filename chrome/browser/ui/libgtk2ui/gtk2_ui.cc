@@ -1073,6 +1073,23 @@ GdkColor Gtk2UI::BuildAndSetFrameColor(const GdkColor* base,
 }
 
 SkBitmap Gtk2UI::GenerateGtkThemeBitmap(int id) const {
+  // Consider Right-To-Left text direction for arrow buttons.
+  if (base::i18n::IsRTL()) {
+    switch (id) {
+    case IDR_BACK:
+      return GenerateGTKIcon(IDR_FORWARD);
+    case IDR_BACK_D:
+      return GenerateGTKIcon(IDR_FORWARD_D);
+    case IDR_FORWARD:
+      return GenerateGTKIcon(IDR_BACK);
+    case IDR_FORWARD_D:
+      return GenerateGTKIcon(IDR_BACK_D);
+
+    default:
+      break;
+    }
+  }
+
   switch (id) {
     case IDR_THEME_TOOLBAR: {
       GtkStyle* style = gtk_rc_get_style(fake_window_);
