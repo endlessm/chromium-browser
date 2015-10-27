@@ -146,9 +146,6 @@ StartupTabs StartupTabProviderImpl::GetStandardOnboardingTabsForState(
     bool is_signed_in,
     bool is_supervised_user) {
   StartupTabs tabs;
-  if (!has_seen_welcome_page && is_signin_allowed && !is_signed_in &&
-      !is_supervised_user)
-    tabs.emplace_back(GetWelcomePageUrl(!is_first_run), false);
   return tabs;
 }
 
