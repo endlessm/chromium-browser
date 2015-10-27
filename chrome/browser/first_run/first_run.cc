@@ -67,7 +67,6 @@ namespace {
 uint16_t g_auto_import_state = first_run::AUTO_IMPORT_NONE;
 
 // Flags for functions of similar name.
-bool g_should_show_welcome_page = false;
 bool g_should_do_autofill_personal_data_manager_first_run = false;
 
 // Indicates whether this is first run. Populated when IsChromeFirstRun
@@ -304,15 +303,10 @@ void RegisterProfilePrefs(
 }
 
 bool IsChromeFirstRun() {
-  if (g_first_run == internal::FIRST_RUN_UNKNOWN) {
-    const base::CommandLine* command_line =
-        base::CommandLine::ForCurrentProcess();
-    g_first_run = internal::DetermineFirstRunState(
-        internal::IsFirstRunSentinelPresent(),
-        command_line->HasSwitch(switches::kForceFirstRun),
-        command_line->HasSwitch(switches::kNoFirstRun));
-  }
-  return g_first_run == internal::FIRST_RUN_TRUE;
+  // We don't ever want a "First Run experience" to happen, so we
+  // just create the sentinel if needed and always return false.
+  CreateSentinelIfNeeded();
+  return false;
 }
 
 #if defined(OS_MACOSX)
@@ -329,7 +323,7 @@ bool IsMetricsReportingOptIn() {
 }
 
 void CreateSentinelIfNeeded() {
-  if (IsChromeFirstRun())
+  if (!internal::IsFirstRunSentinelPresent())
     internal::CreateSentinel();
 
   // Causes the first run sentinel creation time to be read and cached, while
@@ -349,13 +343,10 @@ void ResetCachedSentinelDataForTesting() {
 }
 
 void SetShouldShowWelcomePage() {
-  g_should_show_welcome_page = true;
 }
 
 bool ShouldShowWelcomePage() {
-  bool retval = g_should_show_welcome_page;
-  g_should_show_welcome_page = false;
-  return retval;
+  return false;
 }
 
 bool IsOnWelcomePage(content::WebContents* contents) {
