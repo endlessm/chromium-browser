@@ -187,10 +187,6 @@ StartupTabs StartupTabProviderImpl::GetStandardOnboardingTabsForState(
     bool is_signed_in,
     bool is_supervised_user) {
   StartupTabs tabs;
-  if (CanShowWelcome(is_signin_allowed, is_supervised_user) &&
-      ShouldShowWelcomeForOnboarding(has_seen_welcome_page, is_signed_in)) {
-    tabs.emplace_back(GetWelcomePageUrl(!is_first_run), false);
-  }
   return tabs;
 }
 
