@@ -614,17 +614,11 @@ MasterPrefs::MasterPrefs()
 MasterPrefs::~MasterPrefs() {}
 
 bool IsChromeFirstRun() {
-  if (internal::g_first_run == internal::FIRST_RUN_UNKNOWN) {
-    internal::g_first_run = internal::FIRST_RUN_FALSE;
-    const base::CommandLine* command_line =
-        base::CommandLine::ForCurrentProcess();
-    if (command_line->HasSwitch(switches::kForceFirstRun) ||
-        (!command_line->HasSwitch(switches::kNoFirstRun) &&
-         !internal::IsFirstRunSentinelPresent())) {
-      internal::g_first_run = internal::FIRST_RUN_TRUE;
-    }
-  }
-  return internal::g_first_run == internal::FIRST_RUN_TRUE;
+  // We don't ever want a "First Run experience" to happen, so we
+  // just create the sentinel if needed and always return false.
+  if (!internal::IsFirstRunSentinelPresent())
+      internal::CreateSentinel();
+  return false;
 }
 
 #if defined(OS_MACOSX)
