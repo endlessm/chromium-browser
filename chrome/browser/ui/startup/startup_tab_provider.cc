@@ -242,13 +242,6 @@ StartupTabs StartupTabProviderImpl::GetStandardOnboardingTabsForState(
 #endif  // defined(OS_WIN) && defined(GOOGLE_CHROME_BUILD)
 
   StartupTabs tabs;
-  if (CanShowWelcome(params.is_signin_allowed, params.is_supervised_user,
-                     params.is_force_signin_enabled) &&
-      ShouldShowWelcomeForOnboarding(params.has_seen_welcome_page,
-                                     params.is_signed_in,
-                                     params.is_signin_in_progress)) {
-    tabs.emplace_back(GetWelcomePageUrl(!params.is_first_run), false);
-  }
   return tabs;
 }
 
