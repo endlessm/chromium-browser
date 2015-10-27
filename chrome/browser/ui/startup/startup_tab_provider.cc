@@ -157,12 +157,6 @@ bool StartupTabProviderImpl::ShouldShowWelcomeForOnboarding(
 StartupTabs StartupTabProviderImpl::GetStandardOnboardingTabsForState(
     const StandardOnboardingTabsParams& params) {
   StartupTabs tabs;
-  if (CanShowWelcome(params.is_signin_allowed, params.is_supervised_user,
-                     params.is_force_signin_enabled) &&
-      ShouldShowWelcomeForOnboarding(params.has_seen_welcome_page,
-                                     params.is_signed_in)) {
-    tabs.emplace_back(GetWelcomePageUrl(!params.is_first_run), false);
-  }
   return tabs;
 }
 
