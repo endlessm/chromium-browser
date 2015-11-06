@@ -1286,6 +1286,7 @@ void V4L2VideoDecodeAccelerator::NotifyFlushDoneIfNeeded() {
   if (!StartDevicePoll())
     return;
 
+  decoder_flushed_ = false;
   decoder_flushing_ = false;
   DVLOG(3) << "NotifyFlushDoneIfNeeded(): returning flush";
   child_task_runner_->PostTask(FROM_HERE,
