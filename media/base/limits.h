@@ -19,7 +19,7 @@ enum {
   kMaxCanvas = (1 << (14 * 2)),  // 16384 x 16384
 
   // Total number of video frames which are populating in the pipeline.
-  kMaxVideoFrames = 4,
+  kMaxVideoFrames = 12,
 
   // The following limits are used by AudioParameters::IsValid().
   //
