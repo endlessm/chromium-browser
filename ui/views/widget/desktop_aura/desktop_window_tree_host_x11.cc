@@ -1088,10 +1088,12 @@ void DesktopWindowTreeHostX11::OnCursorVisibilityChangedNative(bool show) {
 
 void DesktopWindowTreeHostX11::InitX11Window(
     const Widget::InitParams& params) {
-  unsigned long attribute_mask = CWBackPixmap;
+  unsigned long attribute_mask = CWBackPixel;
   XSetWindowAttributes swa;
   memset(&swa, 0, sizeof(swa));
-  swa.background_pixmap = None;
+
+  int whiteColor = WhitePixel(xdisplay_, DefaultScreen(xdisplay_));
+  swa.background_pixel = whiteColor;
 
   ::Atom window_type;
   switch (params.type) {
