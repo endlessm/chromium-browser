@@ -132,6 +132,10 @@ class GL_EXPORT NativeViewGLSurfaceGLX : public GLSurfaceGLX {
 
   std::unique_ptr<GLSurfacePresentationHelper> presentation_helper_;
 
+  // FIXME: Part of temporary hack to restore the background pixel for the
+  // underlying XWindow. See NativeViewGLSurfaceGLX::SwapBuffers for details.
+  bool hasSwappedBuffers_;
+
   DISALLOW_COPY_AND_ASSIGN(NativeViewGLSurfaceGLX);
 };
 
