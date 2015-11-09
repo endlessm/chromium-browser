@@ -178,6 +178,10 @@ class GL_EXPORT NativeViewGLSurfaceEGL : public GLSurfaceEGL {
 
   base::queue<SwapInfo> swap_info_queue_;
 
+  // FIXME: Part of temporary hack to restore the background pixel for the
+  // underlying XWindow. See NativeViewGLSurfaceGLX::SwapBuffers for details.
+  bool hasSwappedBuffers_;
+
   DISALLOW_COPY_AND_ASSIGN(NativeViewGLSurfaceEGL);
 };
 
