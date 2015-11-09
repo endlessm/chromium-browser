@@ -1345,11 +1345,17 @@ void DesktopWindowTreeHostX11::OnFullscreenStateChanged() {}
 
 void DesktopWindowTreeHostX11::InitX11Window(
     const Widget::InitParams& params) {
-  unsigned long attribute_mask = CWBackPixmap | CWBitGravity;
+  unsigned long attribute_mask = CWBackPixel | CWBitGravity;
   XSetWindowAttributes swa;
   memset(&swa, 0, sizeof(swa));
   swa.background_pixmap = x11::None;
   swa.bit_gravity = NorthWestGravity;
+
+  // Set the white color on startup to make the initial flickering
+  // happening between the XWindow is mapped and the first expose
+  // event is completely handled less annoying.
+  int whiteColor = WhitePixel(xdisplay_, DefaultScreen(xdisplay_));
+  swa.background_pixel = whiteColor;
 
   ::Atom window_type;
   switch (params.type) {
