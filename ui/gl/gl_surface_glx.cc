@@ -443,7 +443,7 @@ void* GLSurfaceGLX::GetDisplay() {
 GLSurfaceGLX::~GLSurfaceGLX() {}
 
 NativeViewGLSurfaceGLX::NativeViewGLSurfaceGLX(gfx::AcceleratedWidget window)
-    : parent_window_(window), window_(0), glx_window_(0), config_(nullptr) {
+    : parent_window_(window), window_(0), glx_window_(0), config_(nullptr), hasSwappedBuffers_(false) {
 }
 
 GLXDrawable NativeViewGLSurfaceGLX::GetDrawableHandle() const {
@@ -542,6 +542,20 @@ gfx::SwapResult NativeViewGLSurfaceGLX::SwapBuffers() {
       "height", GetSize().height());
 
   glXSwapBuffers(g_display, GetDrawableHandle());
+
+  // FIXME: We need to restore the background pixel that we set to WhitePixel
+  // on views::DesktopWindowTreeHostX11::InitX11Window back to None for the XWindow
+  // associated to this surface after the first SwapBuffers has happened, to avoid
+  // showing a weird white background while resizing.
+  //
+  // This is probably not the right way to do it, so we try to do it only once for the
+  // lifetime of the surface, while we keep working on the proper solution upstream.
+  // https://code.google.com/p/chromium/issues/detail?id=554008
+  if (!hasSwappedBuffers_) {
+    XSetWindowBackgroundPixmap(g_display, parent_window_, 0);
+    hasSwappedBuffers_ = true;
+  }
+
   return gfx::SwapResult::SWAP_ACK;
 }
 
