@@ -143,6 +143,10 @@ class GL_EXPORT NativeViewGLSurfaceEGL : public GLSurfaceEGL {
 
   std::vector<GLSurfaceOverlay> pending_overlays_;
 
+  // FIXME: Part of temporary hack to restore the background pixel for the
+  // underlying XWindow. See NativeViewGLSurfaceGLX::SwapBuffers for details.
+  bool hasSwappedBuffers_;
+
   DISALLOW_COPY_AND_ASSIGN(NativeViewGLSurfaceEGL);
 };
 
