@@ -1102,6 +1102,9 @@ void DesktopWindowTreeHostX11::InitX11Window(
   memset(&swa, 0, sizeof(swa));
   swa.bit_gravity = NorthWestGravity;
 
+  // Set the white color on startup to make the initial flickering
+  // happening between the XWindow is mapped and the first expose
+  // event is completely handled less annoying.
   int whiteColor = WhitePixel(xdisplay_, DefaultScreen(xdisplay_));
   swa.background_pixel = whiteColor;
 
@@ -1946,6 +1949,9 @@ uint32_t DesktopWindowTreeHostX11::DispatchEvent(
       FOR_EACH_OBSERVER(DesktopWindowTreeHostObserverX11,
                         observer_list_,
                         OnWindowMapped(xwindow_));
+      // Restore the XWindow's background after the window is shown for
+      // the first time, to avoid showing it all white while resizing.
+      XSetWindowBackgroundPixmap(xdisplay_, xwindow_, None);
       break;
     }
     case UnmapNotify: {
