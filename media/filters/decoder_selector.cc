@@ -118,7 +118,7 @@ void DecoderSelector<StreamType>::SelectDecoder(
     return;
   }
 
-#if !defined(OS_ANDROID)
+#if !defined(OS_ANDROID) && !defined(__arm__)
   InitializeDecryptingDecoder();
 #else
   InitializeDecryptingDemuxerStream();
