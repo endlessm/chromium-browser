@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "content/public/common/user_agent.h"
 #include "content/public/renderer/content_renderer_client.h"
 
 #include "content/public/renderer/media_stream_renderer_factory.h"
@@ -220,6 +221,15 @@ BrowserPluginDelegate* ContentRendererClient::CreateBrowserPluginDelegate(
 }
 
 std::string ContentRendererClient::GetUserAgentOverrideForURL(const GURL& url) {
+#ifdef __arm__
+  /* With the default Linux user agent, Netflix presents a cryptic error when
+   * trying to play back video. Pretend to be CrOS. */
+  if (url.DomainIs("netflix.com") || url.DomainIs("nflxvideo.net")) {
+    std::string product = content::GetContentClient()->GetProduct();
+    std::string user_agent = content::BuildUserAgentFromOSAndProduct("X11; CrOS armv7l 7262.57.0", product);
+    return user_agent;
+  }
+#endif
   return std::string();
 }
 
