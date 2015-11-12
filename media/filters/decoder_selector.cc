@@ -96,7 +96,7 @@ void DecoderSelector<StreamType>::SelectDecoder(
   // When there is a CDM attached, always try the decrypting decoder or
   // demuxer-stream first.
   if (cdm_context_) {
-#if !defined(OS_ANDROID)
+#if !defined(OS_ANDROID) && !defined(__arm__)
     InitializeDecryptingDecoder();
 #else
     InitializeDecryptingDemuxerStream();
