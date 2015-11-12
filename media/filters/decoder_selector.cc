@@ -96,7 +96,7 @@ void DecoderSelector<StreamType>::SelectDecoder(
   // When there is a CDM attached, always try the decrypting decoder or
   // demuxer-stream first.
   if (cdm_context_) {
-#if !defined(DISABLE_FFMPEG_VIDEO_DECODERS)
+#if !defined(DISABLE_FFMPEG_VIDEO_DECODERS) && !defined(__arm__)
     InitializeDecryptingDecoder();
 #else
     InitializeDecryptingDemuxerStream();
