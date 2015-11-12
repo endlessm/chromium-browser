@@ -111,6 +111,20 @@ void DecoderSelector<StreamType>::SelectDecoder(
     return;
   }
 
+#ifdef __arm__
+  /* This code copy-pasted from DecryptingDecoderInitDone failure path:
+   * on ARM,  we want to go straight to the DecryptingDemuxerStream option,
+   * so that the decrypted video can be decoded with hardware acceleration.
+   */
+  decrypted_stream_.reset(new DecryptingDemuxerStream(
+      task_runner_, media_log_, set_decryptor_ready_cb_,
+      waiting_for_decryption_key_cb_));
+
+  decrypted_stream_->Initialize(
+      input_stream_,
+      base::Bind(&DecoderSelector<StreamType>::DecryptingDemuxerStreamInitDone,
+                 weak_ptr_factory_.GetWeakPtr()));
+#else
   decoder_.reset(new typename StreamTraits::DecryptingDecoderType(
       task_runner_, media_log_, set_decryptor_ready_cb_,
       waiting_for_decryption_key_cb_));
@@ -120,6 +134,7 @@ void DecoderSelector<StreamType>::SelectDecoder(
       base::Bind(&DecoderSelector<StreamType>::DecryptingDecoderInitDone,
                  weak_ptr_factory_.GetWeakPtr()),
       output_cb_);
+#endif
 }
 
 template <DemuxerStream::Type StreamType>
