@@ -104,7 +104,7 @@ void DecoderSelector<StreamType>::SelectDecoder(
     DCHECK(cdm_context_);
 // TODO(xhwang): This if-defined doesn't make a lot of sense. It should be
 // replaced by some better checks.
-#if !defined(OS_ANDROID)
+#if !defined(OS_ANDROID) && !defined(__arm__)
     InitializeDecryptingDecoder();
 #else
     InitializeDecryptingDemuxerStream();
