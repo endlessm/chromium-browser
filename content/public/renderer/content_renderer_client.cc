@@ -230,10 +230,13 @@ std::string ContentRendererClient::GetUserAgentOverrideForURL(const GURL& url) {
     return user_agent;
   }
 
-  /* With the default user agent string, containing the '(X11; Linux armv7l)' part,
-   * Google Calendar redirects to its mobile version, so send 'Linux i686' instead. */
-  if (url.DomainIs("calendar.google.com") || (url.DomainIs("google.com") && url.path().substr(0, 9) == "/calendar")) {
-	std::string product = content::GetContentClient()->GetProduct();
+  /* With the default user agent string, containing the '(X11; Linux armv7l)'
+     part, Google Calendar and Yahoo redirect to their mobile version,
+     so send 'Linux i686' instead. */
+  if (url.DomainIs("calendar.google.com") ||
+      (url.DomainIs("google.com") && url.path().substr(0, 9) == "/calendar") ||
+      url.DomainIs("yahoo.com")) {
+    std::string product = content::GetContentClient()->GetProduct();
     std::string user_agent = content::BuildUserAgentFromOSAndProduct("X11; Linux i686)", product);
     return user_agent;
   }
