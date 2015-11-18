@@ -1088,7 +1088,7 @@ void DesktopWindowTreeHostX11::OnCursorVisibilityChangedNative(bool show) {
 
 void DesktopWindowTreeHostX11::InitX11Window(
     const Widget::InitParams& params) {
-  unsigned long attribute_mask = CWBackPixel;
+  unsigned long attribute_mask = CWBackPixel | CWBitGravity;
   XSetWindowAttributes swa;
   memset(&swa, 0, sizeof(swa));
 
@@ -1097,6 +1097,8 @@ void DesktopWindowTreeHostX11::InitX11Window(
   // event is completely handled less annoying.
   int whiteColor = WhitePixel(xdisplay_, DefaultScreen(xdisplay_));
   swa.background_pixel = whiteColor;
+
+  swa.bit_gravity = NorthWestGravity;
 
   ::Atom window_type;
   switch (params.type) {
