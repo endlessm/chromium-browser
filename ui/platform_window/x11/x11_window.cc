@@ -123,6 +123,7 @@ void X11Window::Show() {
   XSetWindowAttributes swa;
   memset(&swa, 0, sizeof(swa));
   swa.background_pixmap = None;
+  swa.bit_gravity = NorthWestGravity;
   swa.override_redirect = False;
   xwindow_ = XCreateWindow(xdisplay_,
                            xroot_window_,
@@ -134,7 +135,7 @@ void X11Window::Show() {
                            CopyFromParent,  // depth
                            InputOutput,
                            CopyFromParent,  // visual
-                           CWBackPixmap | CWOverrideRedirect,
+                           CWBackPixmap | CWBitGravity | CWOverrideRedirect,
                            &swa);
 
   long event_mask = ButtonPressMask | ButtonReleaseMask | FocusChangeMask |
