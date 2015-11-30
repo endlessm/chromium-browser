@@ -444,6 +444,11 @@ size_t RenderProcessHost::GetMaxRendererProcessCount() {
 
   static size_t max_count = 0;
   if (!max_count) {
+    if (base::SysInfo::AmountOfPhysicalMemoryMB() <= 1024) {
+        max_count = 1;
+        return max_count;
+    }
+
     const size_t kEstimatedWebContentsMemoryUsage =
 #if defined(ARCH_CPU_64_BITS)
         60;  // In MB
