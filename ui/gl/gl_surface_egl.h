@@ -110,6 +110,10 @@ class GL_EXPORT NativeViewGLSurfaceEGL : public GLSurfaceEGL {
 
   int swap_interval_;
 
+  // FIXME: Part of temporary hack to restore the background pixel for the
+  // underlying XWindow. See NativeViewGLSurfaceGLX::SwapBuffers for details.
+  bool hasSwappedBuffers_;
+
 #if defined(OS_WIN)
   bool vsync_override_;
 
