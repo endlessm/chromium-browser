@@ -1935,9 +1935,6 @@ uint32_t DesktopWindowTreeHostX11::DispatchEvent(
       FOR_EACH_OBSERVER(DesktopWindowTreeHostObserverX11,
                         observer_list_,
                         OnWindowMapped(xwindow_));
-      // Restore the XWindow's background after the window is shown for
-      // the first time, to avoid showing it all white while resizing.
-      XSetWindowBackgroundPixmap(xdisplay_, xwindow_, None);
       break;
     }
     case UnmapNotify: {

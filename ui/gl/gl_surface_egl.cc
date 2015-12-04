@@ -501,7 +501,8 @@ NativeViewGLSurfaceEGL::NativeViewGLSurfaceEGL(EGLNativeWindowType window)
       supports_post_sub_buffer_(false),
       config_(NULL),
       size_(1, 1),
-      swap_interval_(1) {
+      swap_interval_(1),
+      hasSwappedBuffers_(false) {
 #if defined(OS_ANDROID)
   if (window)
     ANativeWindow_acquire(window);
@@ -706,6 +707,19 @@ gfx::SwapResult NativeViewGLSurfaceEGL::SwapBuffers() {
     DVLOG(1) << "eglSwapBuffers failed with error "
              << GetLastEGLErrorString();
     return gfx::SwapResult::SWAP_FAILED;
+  }
+
+  // FIXME: We need to restore the background pixel that we set to WhitePixel
+  // on views::DesktopWindowTreeHostX11::InitX11Window back to None for the XWindow
+  // associated to this surface after the first SwapBuffers has happened, to avoid
+  // showing a weird white background while resizing.
+  //
+  // This is probably not the right way to do it, so we try to do it only once for the
+  // lifetime of the surface, while we keep working on the proper solution upstream.
+  // https://code.google.com/p/chromium/issues/detail?id=554008
+  if (!hasSwappedBuffers_) {
+    XSetWindowBackgroundPixmap(g_native_display_type, window_, 0);
+    hasSwappedBuffers_ = true;
   }
 
   return gfx::SwapResult::SWAP_ACK;
