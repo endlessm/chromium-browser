@@ -221,6 +221,26 @@ if [ $want_debug -eq 1 ] ; then
   fi
   exit $?
 else
+  if [[ "$@" != *"--user-data-dir="* ]]; then
+    # Try to poke an existing chromium process through the unix socket. If this
+    # succeeds and we get "ACK" back, exit this script. Otherwise keep going as
+    # normal. Do not do this when running with a custom user data directory, as
+    # in that case we need a completely separate instance of chromium anyway.
+    hexargs=""
+    for arg in "START" "$(pwd)" $LIBDIR/$APPNAME $CHROMIUM_FLAGS "$@"
+    do
+      hexargs="$hexargs$(echo -ne "\0$arg" | xxd -p)"
+    done
+
+    # The command nc can point either to nc.traditional or to nc.openbsd depending
+    # on the configuratino of alternatives, but we DO want nc.openbsd for sure (the
+    # other one does not have an -U parameter) so we'd better call it directly not
+    # to risk issues if configuration changes at some point.
+    if echo $hexargs | sed "s/^00//" | xxd -r -p | nc.openbsd -NU "$HOME/.config/chromium/SingletonSocket" 2> /dev/null | grep "^ACK$" > /dev/null; then
+      exit 0
+    fi
+  fi
+
   if [ $want_temp_profile -eq 0 ] ; then
     exec $LIBDIR/$APPNAME $CHROMIUM_FLAGS "$@"
   else
