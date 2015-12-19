@@ -48,6 +48,7 @@ Pre-Depends: dpkg (>= 1.15.6)
 Depends: ${shlibs:Depends}, ${misc:Depends},
 	bash (>= 4),
 	libnss3,
+	netcat-openbsd (>= 1.110),
 	xdg-utils,
 	chromium-codecs-ffmpeg (= ${binary:Version}),
 	chromium-browser-l10n
