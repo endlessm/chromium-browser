@@ -68,6 +68,23 @@ SeparatorColorCache& GetSeparatorColorCache() {
   return *cache;
 }
 
+bool IsThemeableImage(int id) {
+  // We don't want to theme some icons when using the GTK+ theme, since
+  // they look worse than the default ones, and quite bad when scaled up.
+  switch (id) {
+  case IDR_BACK:
+  case IDR_BACK_D:
+  case IDR_FORWARD:
+  case IDR_FORWARD_D:
+    return false;
+
+  default:
+    // See GtkUI::GenerateGtkThemeBitmap() in gtk_ui.cc to get
+    // an idea of which types of images would be in this case.
+    return true;
+  }
+}
+
 }  // namespace
 
 const char ThemeHelper::kDefaultThemeID[] = "";
@@ -403,7 +420,7 @@ gfx::Image ThemeHelper::GetImageNamed(
   }
 
   gfx::Image image;
-  if (theme_supplier)
+  if (theme_supplier && IsThemeableImage(adjusted_id))
     image = theme_supplier->GetImageNamed(adjusted_id);
 
   if (image.IsEmpty()) {
