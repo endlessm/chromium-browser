@@ -28,6 +28,7 @@
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/pref_names.h"
 #include "components/prefs/pref_service.h"
+#include "components/grit/components_scaled_resources.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/user_metrics.h"
 #include "extensions/browser/extension_prefs.h"
@@ -100,6 +101,36 @@ bool IsColorGrayscale(SkColor color) {
   int b = SkColorGetB(color);
   int range = std::max(r, std::max(g, b)) - std::min(r, std::min(g, b));
   return range < kChannelTolerance;
+}
+
+bool IsThemeableImage(int id) {
+  // We don't want to theme some icons when using the GTK+ theme, since
+  // they look worse than the default ones, and quite bad when scaled up.
+  switch (id) {
+  case IDR_OMNIBOX_CALCULATOR:
+  case IDR_OMNIBOX_EXTENSION_APP:
+  case IDR_OMNIBOX_HTTP:
+  case IDR_OMNIBOX_SEARCH:
+  case IDR_OMNIBOX_STAR:
+  case IDR_OMNIBOX_TTS:
+  case IDR_BACK:
+  case IDR_BACK_D:
+  case IDR_FORWARD:
+  case IDR_FORWARD_D:
+  case IDR_HOME:
+  case IDR_RELOAD:
+  case IDR_RELOAD_D:
+  case IDR_STOP:
+  case IDR_STOP_D:
+    return false;
+
+  default:
+    // See Gtk2UI::GenerateGtkThemeBitmap() in gtk2_ui.cc to get
+    // an idea of which types of images would be in this case.
+    return true;
+  }
+
+  return true;
 }
 
 }  // namespace
@@ -756,7 +787,7 @@ gfx::Image ThemeService::GetImageNamed(int id, bool incognito) const {
   }
 
   gfx::Image image;
-  if (theme_supplier_)
+  if (IsThemeableImage(adjusted_id) && theme_supplier_)
     image = theme_supplier_->GetImageNamed(adjusted_id);
 
   if (image.IsEmpty())
