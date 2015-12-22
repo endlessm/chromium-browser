@@ -41,6 +41,7 @@
 #include "chrome/grit/theme_resources.h"
 #include "components/grit/components_scaled_resources.h"
 #include "components/prefs/pref_service.h"
+#include "components/grit/components_scaled_resources.h"
 #include "content/public/browser/notification_service.h"
 #include "extensions/browser/extension_file_task_runner.h"
 #include "extensions/browser/extension_prefs.h"
@@ -132,6 +133,23 @@ bool IsColorGrayscale(SkColor color) {
   int b = SkColorGetB(color);
   int range = std::max(r, std::max(g, b)) - std::min(r, std::min(g, b));
   return range < kChannelTolerance;
+}
+
+bool IsThemeableImage(int id) {
+  // We don't want to theme some icons when using the GTK+ theme, since
+  // they look worse than the default ones, and quite bad when scaled up.
+  switch (id) {
+  case IDR_BACK:
+  case IDR_BACK_D:
+  case IDR_FORWARD:
+  case IDR_FORWARD_D:
+    return false;
+
+  default:
+    // See GtkUI::GenerateGtkThemeBitmap() in gtk_ui.cc to get
+    // an idea of which types of images would be in this case.
+    return true;
+  }
 }
 
 }  // namespace
@@ -918,7 +936,7 @@ gfx::Image ThemeService::GetImageNamed(int id, bool incognito) const {
   }
 
   gfx::Image image;
-  if (theme_supplier_)
+  if (IsThemeableImage(adjusted_id) && theme_supplier_)
     image = theme_supplier_->GetImageNamed(adjusted_id);
 
   if (image.IsEmpty())
