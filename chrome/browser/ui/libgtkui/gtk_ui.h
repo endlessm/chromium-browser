@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_UI_LIBGTKUI_GTK_UI_H_
 #define CHROME_BROWSER_UI_LIBGTKUI_GTK_UI_H_
 
+#include <gio/gio.h>
+
 #include <map>
 #include <memory>
 #include <vector>
@@ -149,6 +151,9 @@ class GtkUi : public views::LinuxUI {
   // A regular GtkWindow.
   GtkWidget* fake_window_;
 
+  // Gets the additional scaling factor that might have been defined on Endless
+  float GetEndlessScalingFactor() const;
+
   // Colors calculated by LoadGtkValues() that are given to the
   // caller while |use_gtk_| is true.
   ColorMap colors_;
@@ -205,6 +210,10 @@ class GtkUi : public views::LinuxUI {
   NativeThemeGetter native_theme_overrider_;
 
   float device_scale_factor_ = 1.0f;
+
+  // Only used in certain configurations of Endless devices, where we
+  // want to define an additional scaling factor when on composite mode.
+  GSettings* endless_gsettings_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(GtkUi);
 };
