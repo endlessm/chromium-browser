@@ -769,6 +769,7 @@
           'dependencies': [
             '../../build/linux/system.gyp:x11',
             '../../build/linux/system.gyp:xrandr',
+            '../../build/linux/system.gyp:gio',
             '../events/devices/events_devices.gyp:events_devices',
             '../events/platform/x11/x11_events_platform.gyp:x11_events_platform',
             '../gfx/x/gfx_x11.gyp:gfx_x11',
