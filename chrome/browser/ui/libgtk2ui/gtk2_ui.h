@@ -9,6 +9,8 @@
 #include <memory>
 #include <vector>
 
+#include <gio/gio.h>
+
 #include "base/compiler_specific.h"
 #include "base/macros.h"
 #include "base/observer_list.h"
@@ -157,6 +159,9 @@ class Gtk2UI : public views::LinuxUI {
   // Updates |default_font_*|.
   void UpdateDefaultFont();
 
+  // Gets the additional scaling factor that might have been defined on Endless
+  float GetEndlessScalingFactor() const;
+
   // Colors calculated by LoadGtkValues() that are given to the
   // caller while |use_gtk_| is true.
   ColorMap colors_;
@@ -210,6 +215,10 @@ class Gtk2UI : public views::LinuxUI {
   NativeThemeGetter native_theme_overrider_;
 
   float device_scale_factor_;
+
+  // Only used in certain configurations of Endless devices, where we
+  // want to define an additional scaling factor when on composite mode.
+  GSettings* endless_gsettings_;
 
   DISALLOW_COPY_AND_ASSIGN(Gtk2UI);
 };
