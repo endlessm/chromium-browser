@@ -7,6 +7,7 @@
 #include <X11/Xcursor/Xcursor.h>
 #include <dlfcn.h>
 #include <math.h>
+#include <gio/gio.h>
 #include <pango/pango.h>
 
 #include <cmath>
@@ -460,10 +461,15 @@ GtkUi::GtkUi() : middle_click_action_(GetDefaultMiddleClickAction()) {
 #endif
 }
 
+// GSettings schema and key for the additional scaling factor defined by Endless.
+const char* kEndlessCompositeModeSchema = "com.endlessm.CompositeMode";
+const char* kEndlessCompositeModeScalingFactorKey = "browser-scaling-factor";
+
 GtkUi::~GtkUi() {
 #if GTK_MAJOR_VERSION == 2
   gtk_widget_destroy(fake_window_);
 #endif
+  g_object_unref(endless_gsettings_);
 }
 
 void OnThemeChanged(GObject* obj, GParamSpec* param, GtkUi* gtkui) {
@@ -492,6 +498,16 @@ void GtkUi::Initialize() {
 #endif  // defined(USE_GCONF)
 
   indicators_count = 0;
+
+  /* The com.endlessm.CompositeMode schema will be present in some configurations only,
+   * so we need to do some extra checks here before assuming it's there. */
+  GSettingsSchema* schema = g_settings_schema_source_lookup(g_settings_schema_source_get_default(), kEndlessCompositeModeSchema, FALSE);
+  if (schema != NULL) {
+    endless_gsettings_ = g_settings_new_full(schema, NULL, NULL);
+    DVLOG(1) << "Found " << kEndlessCompositeModeSchema << " GSettings schema.";
+  } else {
+    DVLOG(1) << "No " << kEndlessCompositeModeSchema << " GSettings schema found.";
+  }
 
   // Instantiate the singleton instance of Gtk2EventLoop.
   Gtk2EventLoop::GetInstance();
@@ -1069,6 +1085,30 @@ bool GtkUi::GetChromeStyleColor(const char* style_property,
   return false;
 }
 
+float GtkUi::GetEndlessScalingFactor() const {
+  static float cached_result = -1.0f;
+
+  // The GSettings instance will be null in those configurations where
+  // we are not using eos-composite-mode, so we need to check this first;
+  if (!endless_gsettings_) {
+    return 1.0f;
+  }
+
+  // We only check the scaling factor on start up, not to confuse the UI in
+  // case the value of the GSettings key changes while chromium is running.
+  if (cached_result < 0.0f) {
+    double browser_scaling_factor = g_settings_get_double(endless_gsettings_, kEndlessCompositeModeScalingFactorKey);
+    DVLOG(1) << "GSetting browser-scaling-factor key found: " << browser_scaling_factor;
+
+    // The browse-scaling-factor should already be in [1.0, 2.0], but it
+    // does we'd better do some extra validation here, before applying it.
+    cached_result = std::max(1.0, std::min(browser_scaling_factor, 2.0));
+  }
+
+  DVLOG(1) << "Effective scaling-factor to be applied for Endless: " << cached_result;
+  return cached_result;
+}
+
 void GtkUi::ResetStyle() {
   LoadGtkValues();
   native_theme_->NotifyObservers();
@@ -1079,9 +1119,12 @@ void GtkUi::UpdateDeviceScaleFactor() {
   // changes.  This is to allow flags to override the DPI settings
   // during startup.
   float scale = GetRawDeviceScaleFactor();
+  // Endless can define an additional scaling factor to consider when on Composite
+  // mode that the browser will apply on top of whatever the current DPI value is.
+  float endless_factor = GetEndlessScalingFactor();
   // Blacklist scaling factors <120% (crbug.com/484400) and round
   // to 1 decimal to prevent rendering problems (crbug.com/485183).
-  device_scale_factor_ = scale < 1.2f ? 1.0f : roundf(scale * 10) / 10;
+  device_scale_factor_ = scale < 1.2f ? 1.0f : roundf(endless_factor * scale * 10) / 10;
   UpdateDefaultFont();
 }
 
