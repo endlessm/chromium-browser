@@ -1441,7 +1441,7 @@ float Gtk2UI::GetDeviceScaleFactor() const {
   // Round to 1 decimal, e.g. to 1.4.
   const float rounded = roundf(scale * 10) / 10;
   // See crbug.com/484400
-  return rounded < 1.3 ? 1.0 : rounded;
+  return rounded < 1.3f ? 1.0f : rounded;
 }
 
 }  // namespace libgtk2ui
