@@ -630,8 +630,16 @@ void HTMLMediaElement::removedFrom(ContainerNode* insertionPoint) {
   HTMLElement::removedFrom(insertionPoint);
   if (insertionPoint->inActiveDocument()) {
     updateControlsVisibility();
-    if (m_networkState > kNetworkEmpty)
-      pauseInternal();
+    if (m_networkState > kNetworkEmpty) {
+      // We stop <video> elements when removing them from their containers instead of pausing
+      // them to avoid keeping the video decoder element alive for too long, as that could
+      // result in some sites falling back to SW decoding in case it's not possible to create
+      // a HW decoding element while the old one is still in use (e.g. V4L2). See shell#6246.
+      if (isHTMLVideoElement())
+          stopMediaElement();
+      else
+          pauseInternal();
+    }
   }
 }
 
@@ -3376,9 +3384,7 @@ void HTMLMediaElement::clearMediaPlayer() {
     layoutObject()->setShouldDoFullPaintInvalidation();
 }
 
-void HTMLMediaElement::contextDestroyed(ExecutionContext*) {
-  BLINK_MEDIA_LOG << "contextDestroyed(" << (void*)this << ")";
-
+void HTMLMediaElement::stopMediaElement() {
   // Close the async event queue so that no events are enqueued.
   cancelPendingEventsAndCallbacks();
   m_asyncEventQueue->close();
@@ -3401,6 +3407,12 @@ void HTMLMediaElement::contextDestroyed(ExecutionContext*) {
     layoutObject()->updateFromElement();
 
   stopPeriodicTimers();
+}
+
+void HTMLMediaElement::contextDestroyed(ExecutionContext*) {
+  BLINK_MEDIA_LOG << "contextDestroyed(" << (void*)this << ")";
+
+  stopMediaElement();
 
   // Ensure that hasPendingActivity() is not preventing garbage collection,
   // since otherwise this media element will simply leak.

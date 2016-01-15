@@ -347,6 +347,7 @@ class CORE_EXPORT HTMLMediaElement
   LayoutObject* createLayoutObject(const ComputedStyle&) override;
   InsertionNotificationRequest insertedInto(ContainerNode*) final;
   void didNotifySubtreeInsertionsToDocument() override;
+  void stopMediaElement();
   void removedFrom(ContainerNode*) final;
   void didRecalcStyle(StyleRecalcChange) final;
 
