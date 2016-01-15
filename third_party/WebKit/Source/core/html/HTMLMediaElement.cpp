@@ -609,8 +609,16 @@ void HTMLMediaElement::removedFrom(ContainerNode* insertionPoint)
     HTMLElement::removedFrom(insertionPoint);
     if (insertionPoint->inActiveDocument()) {
         configureMediaControls();
-        if (m_networkState > NETWORK_EMPTY)
-            pauseInternal();
+        if (m_networkState > NETWORK_EMPTY) {
+            // We stop <video> elements when removing them from their containers instead of pausing
+            // them to avoid keeping the video decoder element alive for too long, as that could
+            // result in some sites falling back to SW decoding in case it's not possible to create
+            // a HW decoding element while the old one is still in use (e.g. V4L2). See shell#6246.
+            if (isHTMLVideoElement())
+                stop();
+            else
+                pauseInternal();
+        }
     }
 }
 
