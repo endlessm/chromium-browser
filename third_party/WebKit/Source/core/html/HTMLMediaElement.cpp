@@ -595,13 +595,19 @@ void HTMLMediaElement::removedFrom(ContainerNode* insertionPoint)
 {
     WTF_LOG(Media, "HTMLMediaElement::removedFrom(%p, %p)", this, insertionPoint);
 
-    userCancelledLoad();
-
     HTMLElement::removedFrom(insertionPoint);
     if (insertionPoint->inActiveDocument()) {
         configureMediaControls();
-        //if (m_networkState > NETWORK_EMPTY)
-        //    pause();
+        if (m_networkState > NETWORK_EMPTY) {
+            // We stop <video> elements when removing them from their containers instead of pausing
+            // them to avoid keeping the video decoder element alive for too long, as that could
+            // result in some sites falling back to SW decoding in case it's not possible to create
+            // a HW decoding element while the old one is still in use (e.g. V4L2). See shell#6246.
+            if (isHTMLVideoElement())
+                stop();
+            else
+                pause();
+        }
     }
 }
 
@@ -1926,11 +1932,6 @@ void HTMLMediaElement::play()
         m_userGestureRequiredForPlay = false;
     }
 
-    /* Ignore request if the element isn't in the active page to minimize
-     * hardware decoder resource usage */
-    if (!inActiveDocument())
-        return;
-
     playInternal();
 }
 
@@ -1998,11 +1999,6 @@ void HTMLMediaElement::gesturelessInitialPlayHalted()
 void HTMLMediaElement::pause()
 {
     WTF_LOG(Media, "HTMLMediaElement::pause(%p)", this);
-
-    /* Ignore request if the element isn't in the active page to minimize
-     * hardware decoder resource usage */
-    if (!inActiveDocument())
-        return;
 
     if (!m_player || m_networkState == NETWORK_EMPTY)
         scheduleDelayedAction(LoadMediaResource);
