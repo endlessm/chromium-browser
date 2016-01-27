@@ -150,7 +150,7 @@
             'signal_processing/spl_sqrt_floor.c',
           ],
           'conditions': [
-            ['arm_version>=7', {
+            ['arm_version>=7 and arm_neon==1', {
               'sources': [
                 'signal_processing/filter_ar_fast_q12_armv7.S',
               ],
