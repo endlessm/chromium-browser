@@ -43,7 +43,7 @@ class SecurityOrigin;
 class ExecutionContext;
 
 class DatabaseManager {
-    WTF_MAKE_NONCOPYABLE(DatabaseManager); WTF_MAKE_FAST_ALLOCATED(DatabaseManager);
+    WTF_MAKE_NONCOPYABLE(DatabaseManager); USING_FAST_MALLOC(DatabaseManager);
 public:
     static DatabaseManager& manager();
     static void terminateDatabaseThread();
@@ -87,7 +87,7 @@ private:
     // m_contextMap can have two or more entries even though we don't support
     // Web SQL on workers because single Blink process can have multiple main
     // contexts.
-    typedef PersistentHeapHashMap<ExecutionContext*, Member<DatabaseContext>> ContextMap;
+    typedef PersistentHeapHashMap<RawPtrWillBeMember<ExecutionContext>, Member<DatabaseContext>> ContextMap;
     ContextMap m_contextMap;
 #if ENABLE(ASSERT)
     int m_databaseContextRegisteredCount;

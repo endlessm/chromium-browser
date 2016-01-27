@@ -9,6 +9,7 @@
 
 #include "chrome/renderer/safe_browsing/phishing_dom_feature_extractor.h"
 
+#include <stdint.h>
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/command_line.h"
@@ -28,7 +29,9 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "content/public/browser/interstitial_page.h"
+#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
@@ -45,13 +48,6 @@
 using ::testing::DoAll;
 using ::testing::Invoke;
 using ::testing::Return;
-
-namespace {
-
-// The first RenderFrame is routing ID 1, and the first RenderView is 2.
-const int kRenderViewRoutingId = 2;
-
-}
 
 namespace safe_browsing {
 
@@ -70,7 +66,8 @@ class PhishingDOMFeatureExtractorTest : public InProcessBrowserTest {
   }
 
  protected:
-  PhishingDOMFeatureExtractorTest() : weak_factory_(this) {}
+  PhishingDOMFeatureExtractorTest()
+      : render_view_routing_id_(MSG_ROUTING_NONE), weak_factory_(this) {}
 
   ~PhishingDOMFeatureExtractorTest() override {}
 
@@ -83,8 +80,9 @@ class PhishingDOMFeatureExtractorTest : public InProcessBrowserTest {
   }
 
   void SetUpOnMainThread() override {
-    extractor_.reset(new PhishingDOMFeatureExtractor(
-        content::RenderView::FromRoutingID(kRenderViewRoutingId), &clock_));
+    render_view_routing_id_ =
+        GetWebContents()->GetRenderViewHost()->GetRoutingID();
+    extractor_.reset(new PhishingDOMFeatureExtractor(&clock_));
 
     ASSERT_TRUE(StartTestServer());
     host_resolver()->AddRule("*", "127.0.0.1");
@@ -101,14 +99,20 @@ class PhishingDOMFeatureExtractorTest : public InProcessBrowserTest {
     return success_;
   }
 
+  blink::WebFrame* GetWebFrame() {
+    content::RenderView* render_view =
+        content::RenderView::FromRoutingID(render_view_routing_id_);
+    return render_view->GetWebView()->mainFrame();
+  }
+
   void ExtractFeaturesInternal(FeatureMap* features) {
     scoped_refptr<content::MessageLoopRunner> message_loop =
         new content::MessageLoopRunner;
+
     extractor_->ExtractFeatures(
-        features,
+        GetWebFrame()->document(), features,
         base::Bind(&PhishingDOMFeatureExtractorTest::ExtractionDone,
-                   base::Unretained(this),
-                   message_loop->QuitClosure()));
+                   base::Unretained(this), message_loop->QuitClosure()));
     message_loop->Run();
   }
 
@@ -121,9 +125,7 @@ class PhishingDOMFeatureExtractorTest : public InProcessBrowserTest {
 
   // Does the actual work of removing the iframe "frame1" from the document.
   void RemoveIframe() {
-    content::RenderView* render_view =
-        content::RenderView::FromRoutingID(kRenderViewRoutingId);
-    blink::WebFrame* main_frame = render_view->GetWebView()->mainFrame();
+    blink::WebFrame* main_frame = GetWebFrame();
     ASSERT_TRUE(main_frame);
     main_frame->executeScript(
         blink::WebString(
@@ -176,6 +178,8 @@ class PhishingDOMFeatureExtractorTest : public InProcessBrowserTest {
     return url;
   }
 
+  int32 render_view_routing_id_;
+
   // Map of url -> response body for network requests from the renderer.
   // Any urls not in this map are served a 404 error.
   std::map<std::string, std::string> responses_;
@@ -202,7 +206,7 @@ IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest, FormFeatures) {
       std::string("http://other.com/"));
   expected_features.AddBooleanFeature(features::kPageActionURL +
       std::string("http://host.com:") +
-      base::IntToString(embedded_test_server_->port()) +
+      base::UintToString(embedded_test_server_->port()) +
       std::string("/query"));
 
   FeatureMap features;
@@ -286,7 +290,7 @@ IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest, LinkFeatures) {
   // The PhishingDOMFeatureExtractor depends on URLs being domains and not IPs,
   // so use a domain.
   std::string url_str = "https://host.com:";
-  url_str += base::IntToString(https_server.host_port_pair().port());
+  url_str += base::UintToString(https_server.host_port_pair().port());
   url_str += "/files/safe_browsing/secure_link_features.html";
   ui_test_utils::NavigateToURL(browser(), GURL(url_str));
 
@@ -337,7 +341,7 @@ IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest,
   // The PhishingDOMFeatureExtractor depends on URLs being domains and not IPs,
   // so use a domain.
   std::string url_str = "https://host.com:";
-  url_str += base::IntToString(https_server.host_port_pair().port());
+  url_str += base::UintToString(https_server.host_port_pair().port());
   url_str += "/files/safe_browsing/secure_script_and_image.html";
   ui_test_utils::NavigateToURL(browser(), GURL(url_str));
 
@@ -357,7 +361,7 @@ IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest, SubFrames) {
 
   // Test that features are aggregated across all frames.
 
-  std::string port = base::IntToString(embedded_test_server_->port());
+  std::string port = base::UintToString(embedded_test_server_->port());
   responses_[GetURL("host2.com", "").spec()] =
       "<html><head><script></script><body>"
       "<form action=\"http://host4.com/\"><input type=checkbox></form>"
@@ -471,7 +475,7 @@ IN_PROC_BROWSER_TEST_F(PhishingDOMFeatureExtractorTest, MAYBE_Continuation) {
   expected_features.AddRealFeature(features::kPageActionOtherDomainFreq, 0.5);
   expected_features.AddBooleanFeature(features::kPageActionURL +
       std::string("http://host.com:") +
-      base::IntToString(embedded_test_server_->port()) +
+      base::UintToString(embedded_test_server_->port()) +
       std::string("/ondomain"));
   expected_features.AddBooleanFeature(features::kPageActionURL +
       std::string("http://host2.com/"));

@@ -53,12 +53,14 @@
 #include "base/memory/weak_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram.h"
+#include "base/profiler/stack_sampling_profiler.h"
 #include "base/single_thread_task_runner.h"
 #include "base/synchronization/lock.h"
 #include "base/threading/platform_thread.h"
 #include "base/threading/thread.h"
 #include "base/threading/watchdog.h"
 #include "base/time/time.h"
+#include "components/omnibox/browser/omnibox_event_global_tracker.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -532,6 +534,12 @@ class ThreadWatcherObserver : public content::NotificationObserver {
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
 
+  // Called when a URL is opened from the Omnibox.
+  void OnURLOpenedFromOmnibox(OmniboxLog* log);
+
+  // Called when user activity is detected.
+  void OnUserActivityDetected();
+
   // The singleton of this class.
   static ThreadWatcherObserver* g_thread_watcher_observer_;
 
@@ -543,6 +551,11 @@ class ThreadWatcherObserver : public content::NotificationObserver {
 
   // It is the time interval between wake up calls to thread watchers.
   const base::TimeDelta wakeup_interval_;
+
+  // Subscription for receiving callbacks that a URL was opened from the
+  // omnibox.
+  scoped_ptr<base::CallbackList<void(OmniboxLog*)>::Subscription>
+      omnibox_url_opened_subscription_;
 
   DISALLOW_COPY_AND_ASSIGN(ThreadWatcherObserver);
 };
@@ -577,6 +590,11 @@ class WatchDogThread : public base::Thread {
   void CleanUp() override;
 
  private:
+  friend class JankTimeBombTest;
+
+  // This method returns true if Init() is called.
+  bool Started() const;
+
   static bool PostTaskHelper(
       const tracked_objects::Location& from_here,
       const base::Closure& task,
@@ -623,6 +641,34 @@ class StartupTimeBomb {
   const base::PlatformThreadId thread_id_;
 
   DISALLOW_COPY_AND_ASSIGN(StartupTimeBomb);
+};
+
+// This is a wrapper class for metrics logging of the stack of a janky method.
+class JankTimeBomb {
+ public:
+  // This is instantiated when the jank needs to be detected in a method. Posts
+  // an Alarm callback task on WatchDogThread with |duration| as the delay. This
+  // can be called on any thread.
+  explicit JankTimeBomb(base::TimeDelta duration);
+  virtual ~JankTimeBomb();
+
+  // Returns true if JankTimeBomb is enabled.
+  bool IsEnabled() const;
+
+ protected:
+  // Logs the call stack of given thread_id's janky method. This runs on
+  // WatchDogThread. This is overridden in tests to prevent the metrics logging.
+  virtual void Alarm(base::PlatformThreadId thread_id);
+
+ private:
+  // A profiler that periodically samples stack traces. Used to sample jank
+  // behavior.
+  scoped_ptr<base::StackSamplingProfiler> sampling_profiler_;
+
+  // We use this factory during creation and starting timer.
+  base::WeakPtrFactory<JankTimeBomb> weak_ptr_factory_;
+
+  DISALLOW_COPY_AND_ASSIGN(JankTimeBomb);
 };
 
 // This is a wrapper class for detecting hangs during shutdown.

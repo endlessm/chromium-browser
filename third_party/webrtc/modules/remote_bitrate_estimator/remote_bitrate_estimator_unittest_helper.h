@@ -19,7 +19,7 @@
 #include "webrtc/base/constructormagic.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
-#include "webrtc/system_wrappers/interface/clock.h"
+#include "webrtc/system_wrappers/include/clock.h"
 
 namespace webrtc {
 namespace testing {
@@ -100,7 +100,7 @@ class RtpStream {
   uint32_t rtp_timestamp_offset_;
   const double kNtpFracPerMs;
 
-  DISALLOW_COPY_AND_ASSIGN(RtpStream);
+  RTC_DISALLOW_COPY_AND_ASSIGN(RtpStream);
 };
 
 class StreamGenerator {
@@ -138,7 +138,7 @@ class StreamGenerator {
   // All streams being transmitted on this simulated channel.
   StreamMap streams_;
 
-  DISALLOW_COPY_AND_ASSIGN(StreamGenerator);
+  RTC_DISALLOW_COPY_AND_ASSIGN(StreamGenerator);
 };
 }  // namespace testing
 
@@ -211,7 +211,7 @@ class RemoteBitrateEstimatorTest : public ::testing::Test {
   rtc::scoped_ptr<RemoteBitrateEstimator> bitrate_estimator_;
   rtc::scoped_ptr<testing::StreamGenerator> stream_generator_;
 
-  DISALLOW_COPY_AND_ASSIGN(RemoteBitrateEstimatorTest);
+  RTC_DISALLOW_COPY_AND_ASSIGN(RemoteBitrateEstimatorTest);
 };
 }  // namespace webrtc
 

@@ -72,6 +72,7 @@ class CC_EXPORT AnimationHost {
   void SetMutatorHostClient(MutatorHostClient* client);
 
   void SetNeedsCommit();
+  void SetNeedsRebuildPropertyTrees();
 
   void PushPropertiesTo(AnimationHost* host_impl);
 
@@ -93,12 +94,21 @@ class CC_EXPORT AnimationHost {
 
   bool ScrollOffsetAnimationWasInterrupted(int layer_id) const;
 
-  bool IsAnimatingFilterProperty(int layer_id) const;
-  bool IsAnimatingOpacityProperty(int layer_id) const;
-  bool IsAnimatingTransformProperty(int layer_id) const;
+  bool IsAnimatingFilterProperty(int layer_id, LayerTreeType tree_type) const;
+  bool IsAnimatingOpacityProperty(int layer_id, LayerTreeType tree_type) const;
+  bool IsAnimatingTransformProperty(int layer_id,
+                                    LayerTreeType tree_type) const;
 
-  bool HasPotentiallyRunningOpacityAnimation(int layer_id) const;
-  bool HasPotentiallyRunningTransformAnimation(int layer_id) const;
+  bool HasPotentiallyRunningFilterAnimation(int layer_id,
+                                            LayerTreeType tree_type) const;
+  bool HasPotentiallyRunningOpacityAnimation(int layer_id,
+                                             LayerTreeType tree_type) const;
+  bool HasPotentiallyRunningTransformAnimation(int layer_id,
+                                               LayerTreeType tree_type) const;
+
+  bool HasAnyAnimationTargetingProperty(
+      int layer_id,
+      Animation::TargetProperty property) const;
 
   bool FilterIsAnimatingOnImplOnly(int layer_id) const;
   bool OpacityIsAnimatingOnImplOnly(int layer_id) const;
@@ -115,11 +125,16 @@ class CC_EXPORT AnimationHost {
                                       const gfx::BoxF& box,
                                       gfx::BoxF* bounds) const;
 
-  bool HasOnlyTranslationTransforms(int layer_id) const;
+  bool HasOnlyTranslationTransforms(int layer_id,
+                                    LayerTreeType tree_type) const;
   bool AnimationsPreserveAxisAlignment(int layer_id) const;
 
-  bool MaximumTargetScale(int layer_id, float* max_scale) const;
-  bool AnimationStartScale(int layer_id, float* start_scale) const;
+  bool MaximumTargetScale(int layer_id,
+                          LayerTreeType tree_type,
+                          float* max_scale) const;
+  bool AnimationStartScale(int layer_id,
+                           LayerTreeType tree_type,
+                           float* start_scale) const;
 
   bool HasAnyAnimation(int layer_id) const;
   bool HasActiveAnimation(int layer_id) const;

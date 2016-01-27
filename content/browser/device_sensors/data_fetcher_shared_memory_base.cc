@@ -24,6 +24,7 @@ size_t GetConsumerSharedMemoryBufferSize(ConsumerType consumer_type) {
     case CONSUMER_TYPE_MOTION:
       return sizeof(DeviceMotionHardwareBuffer);
     case CONSUMER_TYPE_ORIENTATION:
+    case CONSUMER_TYPE_ORIENTATION_ABSOLUTE:
       return sizeof(DeviceOrientationHardwareBuffer);
     case CONSUMER_TYPE_LIGHT:
       return sizeof(DeviceLightHardwareBuffer);
@@ -51,7 +52,7 @@ class DataFetcherSharedMemoryBase::PollingThread : public base::Thread {
 
   unsigned consumers_bitmask_;
   DataFetcherSharedMemoryBase* fetcher_;
-  scoped_ptr<base::RepeatingTimer<PollingThread> > timer_;
+  scoped_ptr<base::RepeatingTimer> timer_;
 
   DISALLOW_COPY_AND_ASSIGN(PollingThread);
 };
@@ -77,7 +78,7 @@ void DataFetcherSharedMemoryBase::PollingThread::AddConsumer(
   consumers_bitmask_ |= consumer_type;
 
   if (!timer_ && fetcher_->GetType() == FETCHER_TYPE_POLLING_CALLBACK) {
-    timer_.reset(new base::RepeatingTimer<PollingThread>());
+    timer_.reset(new base::RepeatingTimer());
     timer_->Start(FROM_HERE,
                   fetcher_->GetInterval(),
                   this, &PollingThread::DoPoll);
@@ -90,7 +91,7 @@ void DataFetcherSharedMemoryBase::PollingThread::RemoveConsumer(
   if (!fetcher_->Stop(consumer_type))
     return;
 
-  consumers_bitmask_ ^= consumer_type;
+  consumers_bitmask_ &= ~consumer_type;
 
   if (!consumers_bitmask_)
     timer_.reset();  // will also stop the timer.
@@ -168,6 +169,7 @@ bool DataFetcherSharedMemoryBase::StopFetchingDeviceData(
 void DataFetcherSharedMemoryBase::Shutdown() {
   StopFetchingDeviceData(CONSUMER_TYPE_MOTION);
   StopFetchingDeviceData(CONSUMER_TYPE_ORIENTATION);
+  StopFetchingDeviceData(CONSUMER_TYPE_ORIENTATION_ABSOLUTE);
   StopFetchingDeviceData(CONSUMER_TYPE_LIGHT);
 }
 

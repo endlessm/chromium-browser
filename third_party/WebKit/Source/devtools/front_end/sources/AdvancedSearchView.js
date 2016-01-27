@@ -24,7 +24,7 @@ WebInspector.AdvancedSearchView = function()
 
     this._search = WebInspector.HistoryInput.create();
     this._searchPanelElement.appendChild(this._search);
-    this._search.placeholder = WebInspector.UIString("Use 'file:' to define search scope");
+    this._search.placeholder = WebInspector.UIString("Enter query, use `file:` to filter by path");
     this._search.setAttribute("type", "text");
     this._search.classList.add("search-config-search");
     this._search.setAttribute("results", "0");
@@ -50,13 +50,8 @@ WebInspector.AdvancedSearchView = function()
 
     this._advancedSearchConfig = WebInspector.settings.createLocalSetting("advancedSearchConfig", new WebInspector.SearchConfig("", true, false).toPlainObject());
     this._load();
-    WebInspector.AdvancedSearchView._instance = this;
     /** @type {!WebInspector.SearchScope} */
     this._searchScope = new WebInspector.SourcesSearchScope();
-    if (WebInspector.AdvancedSearchView._pendingQuery !== undefined) {
-        this._toggle(WebInspector.AdvancedSearchView._pendingQuery);
-        delete WebInspector.AdvancedSearchView._pendingQuery;
-    }
 }
 
 WebInspector.AdvancedSearchView.prototype = {
@@ -353,25 +348,40 @@ WebInspector.AdvancedSearchView.ActionDelegate.prototype = {
      * @override
      * @param {!WebInspector.Context} context
      * @param {string} actionId
+     * @return {boolean}
      */
     handleAction: function(context, actionId)
     {
-        var searchView = WebInspector.AdvancedSearchView._instance;
-        if (!searchView || !searchView.isShowing() || searchView._search !== searchView.element.window().document.activeElement) {
-            var selection = WebInspector.inspectorView.element.getDeepSelection();
-            var queryCandidate = "";
-            if (selection.rangeCount)
-                queryCandidate = selection.toString().replace(/\r?\n.*/, "");
+        this._showSearch();
+        return true;
+    },
 
-            WebInspector.inspectorView.setCurrentPanel(WebInspector.SourcesPanel.instance());
-            WebInspector.inspectorView.showViewInDrawer("sources.search");
-            if (WebInspector.AdvancedSearchView._instance)
-                WebInspector.AdvancedSearchView._instance._toggle(queryCandidate);
-            else
-                WebInspector.AdvancedSearchView._pendingQuery = queryCandidate;
-        } else {
-            WebInspector.inspectorView.closeDrawer();
+    /**
+     * @return {!Promise.<!WebInspector.AdvancedSearchView>}
+     */
+    _showSearch: function()
+    {
+        /**
+         * @param {?WebInspector.Widget} view
+         * @return {!WebInspector.AdvancedSearchView}
+         */
+        function updateSearchBox(view)
+        {
+            console.assert(view && view instanceof WebInspector.AdvancedSearchView);
+            var searchView = /** @type {!WebInspector.AdvancedSearchView} */(view);
+            if (searchView._search !== searchView.element.window().document.activeElement) {
+                WebInspector.inspectorView.setCurrentPanel(WebInspector.SourcesPanel.instance());
+                searchView._toggle(queryCandidate);
+                searchView.focus();
+            }
+            return searchView;
         }
+
+        var selection = WebInspector.inspectorView.element.getDeepSelection();
+        var queryCandidate = "";
+        if (selection.rangeCount)
+            queryCandidate = selection.toString().replace(/\r?\n.*/, "");
+        return WebInspector.inspectorView.showViewInDrawer("sources.search").then(updateSearchBox);
     }
 }
 

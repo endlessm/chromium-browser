@@ -7,10 +7,12 @@
 
 #include "core/editing/SelectionStrategy.h"
 #include "core/editing/VisibleSelection.h"
+#include "wtf/Allocator.h"
 
 namespace blink {
 
 class GranularityStrategy {
+    USING_FAST_MALLOC(GranularityStrategy);
 public:
     virtual ~GranularityStrategy();
     virtual SelectionStrategy GetType() const = 0;

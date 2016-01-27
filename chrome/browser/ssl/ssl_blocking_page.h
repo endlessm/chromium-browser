@@ -14,8 +14,8 @@
 #include "base/time/time.h"
 #include "chrome/browser/interstitials/security_interstitial_page.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/ssl/certificate_error_report.h"
 #include "chrome/browser/ssl/ssl_cert_reporter.h"
+#include "components/certificate_reporting/error_report.h"
 #include "net/ssl/ssl_info.h"
 #include "url/gurl.h"
 
@@ -30,7 +30,6 @@ class PolicyTest_SSLErrorOverridingDisallowed_Test;
 }
 
 class CertReportHelper;
-class SSLErrorClassification;
 
 // This class is responsible for showing/hiding the interstitial page that is
 // shown when a certificate error happens.
@@ -99,7 +98,6 @@ class SSLBlockingPage : public SecurityInterstitialPage {
  private:
   void NotifyDenyCertificate();
   void NotifyAllowCertificate();
-  CertificateErrorReport::InterstitialReason GetCertReportInterstitialReason();
 
   std::string GetUmaHistogramPrefix() const;
   std::string GetSamplingEventName() const;
@@ -122,19 +120,12 @@ class SSLBlockingPage : public SecurityInterstitialPage {
   // Did the user previously allow a bad certificate but the decision has now
   // expired?
   const bool expired_but_previously_allowed_;
-  scoped_ptr<SSLErrorClassification> ssl_error_classification_;
 
   // The time at which the interstitial was triggered. The interstitial
   // calculates all times relative to this.
   const base::Time time_triggered_;
 
   scoped_ptr<CertReportHelper> cert_report_helper_;
-
-  // Which type of interstitial this is.
-  enum SSLInterstitialReason {
-    SSL_REASON_SSL,
-    SSL_REASON_BAD_CLOCK
-  } interstitial_reason_;
 
   DISALLOW_COPY_AND_ASSIGN(SSLBlockingPage);
 };

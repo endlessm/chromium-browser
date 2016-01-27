@@ -22,15 +22,14 @@ OnscreenDisplayClient::OnscreenDisplayClient(
     const RendererSettings& settings,
     scoped_refptr<base::SingleThreadTaskRunner> task_runner)
     : output_surface_(output_surface.Pass()),
+      task_runner_(task_runner),
       display_(new Display(this,
                            manager,
                            bitmap_manager,
                            gpu_memory_buffer_manager,
                            settings)),
-      task_runner_(task_runner),
       output_surface_lost_(false),
-      disable_gpu_vsync_(settings.disable_gpu_vsync) {
-}
+      disable_display_vsync_(settings.disable_display_vsync) {}
 
 OnscreenDisplayClient::~OnscreenDisplayClient() {
 }
@@ -42,7 +41,7 @@ bool OnscreenDisplayClient::Initialize() {
     max_frames_pending = OutputSurface::DEFAULT_MAX_FRAMES_PENDING;
 
   BeginFrameSource* frame_source;
-  if (disable_gpu_vsync_) {
+  if (disable_display_vsync_) {
     unthrottled_frame_source_ =
         BackToBackBeginFrameSource::Create(task_runner_.get());
     frame_source = unthrottled_frame_source_.get();

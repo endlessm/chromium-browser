@@ -84,7 +84,7 @@ private:
 
     static PassRefPtrWillBeRawPtr<StyleRuleCharset> consumeCharsetRule(CSSParserTokenRange prelude);
     PassRefPtrWillBeRawPtr<StyleRuleImport> consumeImportRule(CSSParserTokenRange prelude);
-    PassRefPtrWillBeRawPtr<StyleRuleNamespace> consumeNamespaceRule(CSSParserTokenRange prelude); // This can set m_defaultNamespace
+    PassRefPtrWillBeRawPtr<StyleRuleNamespace> consumeNamespaceRule(CSSParserTokenRange prelude);
     PassRefPtrWillBeRawPtr<StyleRuleMedia> consumeMediaRule(CSSParserTokenRange prelude, CSSParserTokenRange block);
     PassRefPtrWillBeRawPtr<StyleRuleSupports> consumeSupportsRule(CSSParserTokenRange prelude, CSSParserTokenRange block);
     PassRefPtrWillBeRawPtr<StyleRuleViewport> consumeViewportRule(CSSParserTokenRange prelude, CSSParserTokenRange block);
@@ -98,6 +98,7 @@ private:
     void consumeDeclarationList(CSSParserTokenRange, StyleRule::Type);
     void consumeDeclaration(CSSParserTokenRange, StyleRule::Type);
     void consumeDeclarationValue(CSSParserTokenRange, CSSPropertyID, bool important, StyleRule::Type);
+    void consumeVariableDeclarationValue(CSSParserTokenRange, const AtomicString& variableName, bool important);
 
     static PassOwnPtr<Vector<double>> consumeKeyframeKeyList(CSSParserTokenRange);
 
@@ -106,7 +107,6 @@ private:
     WillBeHeapVector<CSSProperty, 256> m_parsedProperties;
     CSSParserContext m_context;
 
-    AtomicString m_defaultNamespace;
     RawPtrWillBeMember<StyleSheetContents> m_styleSheet;
 
     // For the inspector

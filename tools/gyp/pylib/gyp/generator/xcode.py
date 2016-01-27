@@ -590,6 +590,15 @@ def GenerateOutput(target_list, target_dicts, data, params):
   parallel_builds = generator_flags.get('xcode_parallel_builds', True)
   serialize_all_tests = \
       generator_flags.get('xcode_serialize_all_test_runs', True)
+  upgrade_check_project_version = \
+      generator_flags.get('xcode_upgrade_check_project_version', None)
+
+  # Format upgrade_check_project_version with leading zeros as needed.
+  if upgrade_check_project_version:
+    upgrade_check_project_version = str(upgrade_check_project_version)
+    while len(upgrade_check_project_version) < 4:
+      upgrade_check_project_version = '0' + upgrade_check_project_version
+
   skip_excluded_files = \
       not generator_flags.get('xcode_list_excluded_files', True)
   xcode_projects = {}
@@ -604,9 +613,17 @@ def GenerateOutput(target_list, target_dicts, data, params):
     xcode_projects[build_file] = xcp
     pbxp = xcp.project
 
+    # Set project-level attributes from multiple options
+    project_attributes = {};
     if parallel_builds:
-      pbxp.SetProperty('attributes',
-                       {'BuildIndependentTargetsInParallel': 'YES'})
+      project_attributes['BuildIndependentTargetsInParallel'] = 'YES'
+    if upgrade_check_project_version:
+      project_attributes['LastUpgradeCheck'] = upgrade_check_project_version
+      project_attributes['LastTestingUpgradeCheck'] = \
+          upgrade_check_project_version
+      project_attributes['LastSwiftUpdateCheck'] = \
+          upgrade_check_project_version
+    pbxp.SetProperty('attributes', project_attributes)
 
     # Add gyp/gypi files to project
     if not generator_flags.get('standalone'):
@@ -648,6 +665,7 @@ def GenerateOutput(target_list, target_dicts, data, params):
       'loadable_module':             'com.googlecode.gyp.xcode.bundle',
       'shared_library':              'com.apple.product-type.library.dynamic',
       'static_library':              'com.apple.product-type.library.static',
+      'mac_kernel_extension':        'com.apple.product-type.kernel-extension',
       'executable+bundle':           'com.apple.product-type.application',
       'loadable_module+bundle':      'com.apple.product-type.bundle',
       'loadable_module+xctest':      'com.apple.product-type.bundle.unit-test',
@@ -655,7 +673,9 @@ def GenerateOutput(target_list, target_dicts, data, params):
       'executable+extension+bundle': 'com.apple.product-type.app-extension',
       'executable+watch+extension+bundle':
           'com.apple.product-type.watchkit-extension',
-      'executable+watch+bundle': 'com.apple.product-type.application.watchapp',
+      'executable+watch+bundle':
+          'com.apple.product-type.application.watchapp',
+      'mac_kernel_extension+bundle': 'com.apple.product-type.kernel-extension',
     }
 
     target_properties = {

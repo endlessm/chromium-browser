@@ -9,7 +9,6 @@
 #include "platform/graphics/ImageBufferSurface.h"
 #include "public/platform/WebThread.h"
 #include "third_party/skia/include/core/SkCanvas.h"
-#include "wtf/LinkedStack.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/RefPtr.h"
 
@@ -28,29 +27,29 @@ public:
 };
 
 class PLATFORM_EXPORT RecordingImageBufferSurface : public ImageBufferSurface {
-    WTF_MAKE_NONCOPYABLE(RecordingImageBufferSurface); WTF_MAKE_FAST_ALLOCATED(RecordingImageBufferSurface);
+    WTF_MAKE_NONCOPYABLE(RecordingImageBufferSurface); USING_FAST_MALLOC(RecordingImageBufferSurface);
 public:
     RecordingImageBufferSurface(const IntSize&, PassOwnPtr<RecordingImageBufferFallbackSurfaceFactory> fallbackFactory, OpacityMode = NonOpaque);
     ~RecordingImageBufferSurface() override;
 
     // Implementation of ImageBufferSurface interfaces
-    SkCanvas* canvas() const override;
+    SkCanvas* canvas() override;
+    void disableDeferral() override;
     PassRefPtr<SkPicture> getPicture() override;
-    void willDrawVideo() override;
+    void flush() override;
     void didDraw(const FloatRect&) override;
     bool isValid() const override { return true; }
     bool isRecording() const override { return !m_fallbackSurface; }
-    void willAccessPixels() override;
+    bool writePixels(const SkImageInfo& origInfo, const void* pixels, size_t rowBytes, int x, int y) override;
     void willOverwriteCanvas() override;
     virtual void finalizeFrame(const FloatRect&);
     void setImageBuffer(ImageBuffer*) override;
-    PassRefPtr<SkImage> newImageSnapshot() const override;
+    PassRefPtr<SkImage> newImageSnapshot(AccelerationHint) override;
     void draw(GraphicsContext*, const FloatRect& destRect, const FloatRect& srcRect, SkXfermode::Mode) override;
     bool isExpensiveToPaint() override;
     void setHasExpensiveOp() override { m_currentFrameHasExpensiveOp = true; }
 
     // Passthroughs to fallback surface
-    const SkBitmap& bitmap() override;
     bool restore() override;
     WebLayer* layer() const override;
     bool isAccelerated() const override;

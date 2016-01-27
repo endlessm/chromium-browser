@@ -39,6 +39,10 @@
 
 namespace net {
 
+namespace test {
+class SpdyStreamTest;
+}
+
 // This is somewhat arbitrary and not really fixed, but it will always work
 // reasonably with ethernet. Chop the world into 2-packet chunks.  This is
 // somewhat arbitrary, but is reasonably small and ensures that we elicit
@@ -57,7 +61,7 @@ const int kMaxConcurrentPushedStreams = 1000;
 // If more than this many bytes have been read or more than that many
 // milliseconds have passed, return ERR_IO_PENDING from ReadLoop.
 const int kYieldAfterBytesRead = 32 * 1024;
-const int kYieldAfterDurationMilliseconds = 50;
+const int kYieldAfterDurationMilliseconds = 20;
 
 // First and last valid stream IDs. As we always act as the client,
 // start at 1 for the first stream id.
@@ -503,7 +507,7 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   // Default value of SETTINGS_INITIAL_WINDOW_SIZE per protocol specification.
   // A session is always created with this initial window size.
   static int32 GetDefaultInitialWindowSize(NextProto protocol) {
-    return protocol < kProtoHTTP2MinimumVersion ? 65536 : 65535;
+    return protocol < kProtoHTTP2 ? 65536 : 65535;
   }
 
   // https://http2.github.io/http2-spec/#TLSUsage mandates minimum security
@@ -517,9 +521,15 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   bool CloseOneIdleConnection() override;
 
  private:
+  friend class test::SpdyStreamTest;
   friend class base::RefCounted<SpdySession>;
-  friend class SpdyStreamRequest;
+  friend class HttpNetworkTransactionTest;
+  friend class HttpProxyClientSocketPoolTest;
+  friend class SpdyHttpStreamTest;
+  friend class SpdyNetworkTransactionTest;
+  friend class SpdyProxyClientSocketTest;
   friend class SpdySessionTest;
+  friend class SpdyStreamRequest;
 
   // Allow tests to access our innards for testing purposes.
   FRIEND_TEST_ALL_PREFIXES(SpdySessionTest, ClientPing);
@@ -548,6 +558,7 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   FRIEND_TEST_ALL_PREFIXES(SpdySessionTest,
                            CancelReservedStreamOnHeadersReceived);
   FRIEND_TEST_ALL_PREFIXES(SpdySessionTest, RejectInvalidUnknownFrames);
+  FRIEND_TEST_ALL_PREFIXES(SpdySessionPoolTest, IPAddressChanged);
 
   typedef std::deque<base::WeakPtr<SpdyStreamRequest> >
       PendingStreamRequestQueue;
@@ -821,7 +832,8 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   void OnPing(SpdyPingId unique_id, bool is_ack) override;
   void OnRstStream(SpdyStreamId stream_id, SpdyRstStreamStatus status) override;
   void OnGoAway(SpdyStreamId last_accepted_stream_id,
-                SpdyGoAwayStatus status) override;
+                SpdyGoAwayStatus status,
+                StringPiece debug_data) override;
   void OnDataFrameHeader(SpdyStreamId stream_id,
                          size_t length,
                          bool fin) override;
@@ -830,6 +842,9 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
                          size_t len,
                          bool fin) override;
   void OnStreamPadding(SpdyStreamId stream_id, size_t len) override;
+  SpdyHeadersHandlerInterface* OnHeaderFrameStart(
+      SpdyStreamId stream_id) override;
+  void OnHeaderFrameEnd(SpdyStreamId stream_id, bool end_headers) override;
   void OnSettings(bool clear_persisted) override;
   void OnSetting(SpdySettingsIds id, uint8 flags, uint32 value) override;
   void OnWindowUpdate(SpdyStreamId stream_id, int delta_window_size) override;
@@ -954,9 +969,9 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
 
   size_t max_concurrent_streams() const { return max_concurrent_streams_; }
 
-  // Returns the SSLClientSocket that this SPDY session sits on top of,
-  // or NULL, if the transport is not SSL.
-  SSLClientSocket* GetSSLClientSocket() const;
+  // Set whether priority->dependency conversion is enabled
+  // by default for all future SpdySessions.
+  static void SetPriorityDependencyDefaultForTesting(bool enable);
 
   // Whether Do{Read,Write}Loop() is in the call stack. Useful for
   // making sure we don't destroy ourselves prematurely in that case.
@@ -1003,6 +1018,14 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   // them into a separate ActiveStreamMap, and not deliver network events to
   // them?
   ActiveStreamMap active_streams_;
+
+  // Per-priority map from stream id to all active streams.  This map will
+  // contain the same set of streams as |active_streams_|.  It is used for
+  // setting dependencies to match incoming requests RequestPriority.
+  //
+  // |active_streams_by_priority_| does *not* own its SpdyStream objects.
+  std::map<SpdyStreamId, SpdyStream*>
+      active_streams_by_priority_[NUM_PRIORITIES];
 
   // (Bijective) map from the URL to the ID of the streams that have
   // already started to be pushed by the server, but do not have
@@ -1181,6 +1204,10 @@ class NET_EXPORT SpdySession : public BufferedSpdyFramerVisitorInterface,
   HostPortPair trusted_spdy_proxy_;
 
   TimeFunc time_func_;
+
+  // Should priority-based dependency information be sent in stream header
+  // frames.
+  bool send_priority_dependency_;
 
   // Used for posting asynchronous IO tasks.  We use this even though
   // SpdySession is refcounted because we don't need to keep the SpdySession

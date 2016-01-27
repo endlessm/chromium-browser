@@ -4,6 +4,7 @@
 
 #include "components/metrics/serialization/serialization_utils.h"
 
+#include <errno.h>
 #include <sys/file.h>
 
 #include <string>
@@ -91,8 +92,9 @@ scoped_ptr<MetricSample> SerializationUtils::ParseSample(
   if (sample.empty())
     return scoped_ptr<MetricSample>();
 
-  std::vector<std::string> parts;
-  base::SplitString(sample, '\0', &parts);
+  std::vector<std::string> parts = base::SplitString(
+      sample, std::string(1, '\0'),
+      base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   // We should have two null terminated strings so split should produce
   // three chunks.
   if (parts.size() != 3) {

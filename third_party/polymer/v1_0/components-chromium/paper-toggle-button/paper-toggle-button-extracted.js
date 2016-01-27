@@ -1,9 +1,8 @@
-
-    Polymer({
+Polymer({
       is: 'paper-toggle-button',
 
       behaviors: [
-        Polymer.PaperInkyFocusBehavior
+        Polymer.PaperCheckedElementBehavior
       ],
 
       hostAttributes: {
@@ -23,57 +22,10 @@
          *
          * @event iron-change
          */
-        /**
-         * Gets or sets the state, `true` is checked and `false` is unchecked.
-         *
-         * @attribute checked
-         * @type boolean
-         * @default false
-         */
-        checked: {
-          type: Boolean,
-          value: false,
-          reflectToAttribute: true,
-          notify: true,
-          observer: '_checkedChanged'
-        },
-
-        /**
-         * If true, the button toggles the active state with each tap or press
-         * of the spacebar.
-         *
-         * @attribute toggles
-         * @type boolean
-         * @default true
-         */
-        toggles: {
-          type: Boolean,
-          value: true,
-          reflectToAttribute: true
-        }
       },
 
       listeners: {
         track: '_ontrack'
-      },
-
-      ready: function() {
-        this._isReady = true;
-      },
-
-      // button-behavior hook
-      _buttonStateChanged: function() {
-        if (this.disabled) {
-          return;
-        }
-        if (this._isReady) {
-          this.checked = this.active;
-        }
-      },
-
-      _checkedChanged: function(checked) {
-        this.active = this.checked;
-        this.fire('iron-change');
       },
 
       _ontrack: function(event) {
@@ -108,7 +60,16 @@
       _trackEnd: function(track) {
         this.$.toggleButton.classList.remove('dragging');
         this.transform('', this.$.toggleButton);
+      },
+
+      // customize the element's ripple
+      _createRipple: function() {
+        this._rippleContainer = this.$.toggleButton;
+        var ripple = Polymer.PaperRippleBehavior._createRipple();
+        ripple.id = 'ink';
+        ripple.setAttribute('recenters', '');
+        ripple.classList.add('circle', 'toggle-ink');
+        return ripple;
       }
 
     });
-  

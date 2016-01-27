@@ -13,6 +13,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/trace_event/trace_event.h"
+#include "components/pref_registry/pref_registry_syncable.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_client.h"
@@ -142,6 +143,32 @@ AboutSigninInternals::AboutSigninInternals(
       cookie_manager_service_(cookie_manager_service) {}
 
 AboutSigninInternals::~AboutSigninInternals() {}
+
+// static
+void AboutSigninInternals::RegisterPrefs(
+    user_prefs::PrefRegistrySyncable* user_prefs) {
+  // SigninManager information for about:signin-internals.
+
+  // TODO(rogerta): leaving untimed fields here for now because legacy
+  // profiles still have these prefs.  In three or four version from M43
+  // we can probably remove them.
+  for (int i = UNTIMED_FIELDS_BEGIN; i < UNTIMED_FIELDS_END; ++i) {
+    const std::string pref_path =
+        SigninStatusFieldToString(static_cast<UntimedSigninStatusField>(i));
+    user_prefs->RegisterStringPref(pref_path.c_str(), std::string());
+  }
+
+  for (int i = TIMED_FIELDS_BEGIN; i < TIMED_FIELDS_END; ++i) {
+    const std::string value =
+        SigninStatusFieldToString(static_cast<TimedSigninStatusField>(i)) +
+        ".value";
+    const std::string time =
+        SigninStatusFieldToString(static_cast<TimedSigninStatusField>(i)) +
+        ".time";
+    user_prefs->RegisterStringPref(value.c_str(), std::string());
+    user_prefs->RegisterStringPref(time.c_str(), std::string());
+  }
+}
 
 void AboutSigninInternals::AddSigninObserver(
     AboutSigninInternals::Observer* observer) {
@@ -316,11 +343,12 @@ void AboutSigninInternals::OnTokenRemoved(
   NotifyObservers();
 }
 
-void AboutSigninInternals::OnRefreshTokenReceived(std::string status) {
+void AboutSigninInternals::OnRefreshTokenReceived(const std::string& status) {
   NotifySigninValueChanged(REFRESH_TOKEN_RECEIVED, status);
 }
 
-void AboutSigninInternals::OnAuthenticationResultReceived(std::string status) {
+void AboutSigninInternals::OnAuthenticationResultReceived(
+    const std::string& status) {
   NotifySigninValueChanged(AUTHENTICATION_RESULT_RECEIVED, status);
 }
 
@@ -416,13 +444,17 @@ base::DictionaryValue* AboutSigninInternals::TokenInfo::ToValue() const {
   } else if (!receive_time.is_null()) {
     if (error == GoogleServiceAuthError::AuthErrorNone()) {
       bool token_expired = expiration_time < base::Time::Now();
+      std::string expiration_time_string = GetTimeStr(expiration_time);
+      if (expiration_time.is_null()) {
+        token_expired = false;
+        expiration_time_string = "Expiration time not available";
+      }
       std::string status_str = "";
       if (token_expired)
         status_str = "<p style=\"color: #ffffff; background-color: #ff0000\">";
-      base::StringAppendF(&status_str,
-                          "Received token at %s. Expire at %s",
+      base::StringAppendF(&status_str, "Received token at %s. Expire at %s",
                           GetTimeStr(receive_time).c_str(),
-                          GetTimeStr(expiration_time).c_str());
+                          expiration_time_string.c_str());
       if (token_expired)
         base::StringAppendF(&status_str, "</p>");
       token_info->SetString("status", status_str);
@@ -482,8 +514,6 @@ scoped_ptr<base::DictionaryValue> AboutSigninInternals::SigninStatus::ToValue(
   AddSectionEntry(basic_info, "Chrome Version", product_version);
   AddSectionEntry(basic_info, "Webview Based Signin?",
       switches::IsEnableWebviewBasedSignin() == true ? "On" : "Off");
-  AddSectionEntry(basic_info, "New Avatar Menu?",
-      switches::IsNewAvatarMenu() == true ? "On" : "Off");
   AddSectionEntry(basic_info, "New Profile Management?",
       switches::IsNewProfileManagement() == true ? "On" : "Off");
   AddSectionEntry(basic_info, "Account Consistency?",
@@ -510,7 +540,7 @@ scoped_ptr<base::DictionaryValue> AboutSigninInternals::SigninStatus::ToValue(
     AddSectionEntry(basic_info,
                     SigninStatusFieldToLabel(
                         static_cast<UntimedSigninStatusField>(USERNAME)),
-                    signin_manager->GetAuthenticatedUsername());
+                    signin_manager->GetAuthenticatedAccountInfo().email);
     if (signin_error_controller->HasError()) {
       const std::string error_account_id =
           signin_error_controller->error_account_id();

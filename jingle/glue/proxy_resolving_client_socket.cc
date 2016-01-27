@@ -86,11 +86,11 @@ ProxyResolvingClientSocket::ProxyResolvingClientSocket(
     session_params.trusted_spdy_proxy = reference_params->trusted_spdy_proxy;
     session_params.forced_spdy_exclusions =
         reference_params->forced_spdy_exclusions;
-    session_params.use_alternate_protocols =
-        reference_params->use_alternate_protocols;
+    session_params.use_alternative_services =
+        reference_params->use_alternative_services;
   }
 
-  network_session_ = new net::HttpNetworkSession(session_params);
+  network_session_.reset(new net::HttpNetworkSession(session_params));
 }
 
 ProxyResolvingClientSocket::~ProxyResolvingClientSocket() {
@@ -423,6 +423,11 @@ bool ProxyResolvingClientSocket::GetSSLInfo(net::SSLInfo* ssl_info) {
 void ProxyResolvingClientSocket::GetConnectionAttempts(
     net::ConnectionAttempts* out) const {
   out->clear();
+}
+
+int64_t ProxyResolvingClientSocket::GetTotalReceivedBytes() const {
+  NOTIMPLEMENTED();
+  return 0;
 }
 
 void ProxyResolvingClientSocket::CloseTransportSocket() {

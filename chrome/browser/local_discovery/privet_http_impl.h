@@ -240,7 +240,7 @@ class PrivetHTTPClientImpl : public PrivetHTTPClient {
   PrivetHTTPClientImpl(
       const std::string& name,
       const net::HostPortPair& host_port,
-      net::URLRequestContextGetter* request_context);
+      const scoped_refptr<net::URLRequestContextGetter>& context_getter);
   ~PrivetHTTPClientImpl() override;
 
   // PrivetHTTPClient implementation.
@@ -260,7 +260,7 @@ class PrivetHTTPClientImpl : public PrivetHTTPClient {
   void OnPrivetInfoDone(const base::DictionaryValue* value);
 
   std::string name_;
-  scoped_refptr<net::URLRequestContextGetter> request_context_;
+  scoped_refptr<net::URLRequestContextGetter> context_getter_;
   net::HostPortPair host_port_;
 
   scoped_ptr<PrivetJSONOperation> info_operation_;

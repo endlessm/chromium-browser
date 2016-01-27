@@ -23,8 +23,8 @@
 #include "core/svg/SVGFETileElement.h"
 
 #include "core/SVGNames.h"
-#include "platform/graphics/filters/FilterEffect.h"
 #include "core/svg/graphics/filters/SVGFilterBuilder.h"
+#include "platform/graphics/filters/FilterEffect.h"
 
 namespace blink {
 
@@ -57,9 +57,7 @@ void SVGFETileElement::svgAttributeChanged(const QualifiedName& attrName)
 PassRefPtrWillBeRawPtr<FilterEffect> SVGFETileElement::build(SVGFilterBuilder* filterBuilder, Filter* filter)
 {
     FilterEffect* input1 = filterBuilder->getEffectById(AtomicString(m_in1->currentValue()->value()));
-
-    if (!input1)
-        return nullptr;
+    ASSERT(input1);
 
     RefPtrWillBeRawPtr<FilterEffect> effect = FETile::create(filter);
     effect->inputEffects().append(input1);

@@ -24,9 +24,11 @@ namespace content {
 class EmbeddedWorkerRegistry;
 class EmbeddedWorkerTestHelper;
 class MessagePortMessageFilter;
+class MockRenderProcessHost;
 class ServiceWorkerContextCore;
 class ServiceWorkerContextWrapper;
 struct ServiceWorkerFetchRequest;
+class TestBrowserContext;
 
 // In-Process EmbeddedWorker test helper.
 //
@@ -51,6 +53,10 @@ class EmbeddedWorkerTestHelper : public IPC::Sender,
   // the context makes storage stuff in memory.
   EmbeddedWorkerTestHelper(const base::FilePath& user_data_directory,
                            int mock_render_process_id);
+  // Use this constructor to have |EmbeddedWorkerTestHelper| create a
+  // |MockRenderProcessHost| for its render process, instead of just using
+  // a hardcoded (invalid) process id.
+  explicit EmbeddedWorkerTestHelper(const base::FilePath& user_data_directory);
   ~EmbeddedWorkerTestHelper() override;
 
   // Call this to simulate add/associate a process to a pattern.
@@ -73,6 +79,12 @@ class EmbeddedWorkerTestHelper : public IPC::Sender,
   void ShutdownContext();
 
   int mock_render_process_id() const { return mock_render_process_id_;}
+  // Mock render process. Only set if the one-parameter constructor was used.
+  MockRenderProcessHost* mock_render_process_host() {
+    return render_process_host_.get();
+  }
+
+  TestBrowserContext* browser_context() { return browser_context_.get(); }
 
  protected:
   // Called when StartWorker, StopWorker and SendMessageToWorker message
@@ -102,13 +114,13 @@ class EmbeddedWorkerTestHelper : public IPC::Sender,
   virtual void OnPushEvent(int embedded_worker_id,
                            int request_id,
                            const std::string& data);
-  virtual void OnSyncEvent(int embedded_worker_id, int request_id);
 
   // These functions simulate sending an EmbeddedHostMsg message to the
   // browser.
   void SimulateWorkerReadyForInspection(int embedded_worker_id);
   void SimulateWorkerScriptCached(int embedded_worker_id);
-  void SimulateWorkerScriptLoaded(int thread_id, int embedded_worker_id);
+  void SimulateWorkerScriptLoaded(int embedded_worker_id);
+  void SimulateWorkerThreadStarted(int thread_id, int embedded_worker_id);
   void SimulateWorkerScriptEvaluated(int embedded_worker_id);
   void SimulateWorkerStarted(int embedded_worker_id);
   void SimulateWorkerStopped(int embedded_worker_id);
@@ -127,9 +139,11 @@ class EmbeddedWorkerTestHelper : public IPC::Sender,
   void OnFetchEventStub(int request_id,
                         const ServiceWorkerFetchRequest& request);
   void OnPushEventStub(int request_id, const std::string& data);
-  void OnSyncEventStub(int request_id);
 
   MessagePortMessageFilter* NewMessagePortMessageFilter();
+
+  scoped_ptr<TestBrowserContext> browser_context_;
+  scoped_ptr<MockRenderProcessHost> render_process_host_;
 
   scoped_refptr<ServiceWorkerContextWrapper> wrapper_;
 

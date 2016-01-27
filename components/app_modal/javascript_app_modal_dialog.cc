@@ -6,8 +6,9 @@
 
 #include "components/app_modal/javascript_dialog_manager.h"
 #include "components/app_modal/javascript_native_dialog_factory.h"
+#include "content/public/browser/web_contents.h"
 #include "ui/gfx/text_elider.h"
-
+#include "url/origin.h"
 
 namespace app_modal {
 namespace {
@@ -34,7 +35,7 @@ void EnforceMaxPromptSize(const base::string16& in_string,
 #else
 // One-dimensional eliding.  Trust the window system to break the string
 // appropriately, but limit its overall length to something reasonable.
-const int kMessageTextMaxSize = 3000;
+const int kMessageTextMaxSize = 2000;
 const int kDefaultPromptMaxSize = 2000;
 void EnforceMaxTextSize(const base::string16& in_string,
                         base::string16* out_string) {
@@ -49,8 +50,8 @@ void EnforceMaxPromptSize(const base::string16& in_string,
 }  // namespace
 
 ChromeJavaScriptDialogExtraData::ChromeJavaScriptDialogExtraData()
-    : suppress_javascript_messages_(false) {
-}
+    : has_already_shown_a_dialog_(false),
+      suppress_javascript_messages_(false) {}
 
 JavaScriptAppModalDialog::JavaScriptAppModalDialog(
     content::WebContents* web_contents,
@@ -148,16 +149,24 @@ void JavaScriptAppModalDialog::NotifyDelegate(bool success,
   // The callback_ above may delete web_contents_, thus removing the extra
   // data from the map owned by ::JavaScriptDialogManager. Make sure
   // to only use the data if still present. http://crbug.com/236476
-  ExtraDataMap::iterator extra_data = extra_data_map_->find(web_contents());
+  ExtraDataMap::iterator extra_data =
+      extra_data_map_->find(GetSerializedOriginForWebContents(web_contents()));
   if (extra_data != extra_data_map_->end()) {
-    extra_data->second.last_javascript_message_dismissal_ =
-        base::TimeTicks::Now();
+    extra_data->second.has_already_shown_a_dialog_ = true;
     extra_data->second.suppress_javascript_messages_ = suppress_js_messages;
   }
 
   // On Views, we can end up coming through this code path twice :(.
   // See crbug.com/63732.
   AppModalDialog::Invalidate();
+}
+
+// static
+std::string JavaScriptAppModalDialog::GetSerializedOriginForWebContents(
+    content::WebContents* contents) {
+  if (!contents)
+    return url::Origin().Serialize();
+  return url::Origin(contents->GetLastCommittedURL()).Serialize();
 }
 
 }  // namespace app_modal

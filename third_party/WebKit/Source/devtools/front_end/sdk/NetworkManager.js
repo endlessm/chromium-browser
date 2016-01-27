@@ -47,6 +47,9 @@ WebInspector.NetworkManager = function(target)
     this._initNetworkConditions();
     this._networkAgent.enable();
 
+    /** @type {!Map<!NetworkAgent.CertificateId, !Promise<!NetworkAgent.CertificateDetails>>} */
+    this._certificateDetailsCache = new Map();
+
     WebInspector.moduleSetting("cacheDisabled").addChangeListener(this._cacheDisabledSettingChanged, this);
 }
 
@@ -54,7 +57,8 @@ WebInspector.NetworkManager.EventTypes = {
     RequestStarted: "RequestStarted",
     RequestUpdated: "RequestUpdated",
     RequestFinished: "RequestFinished",
-    RequestUpdateDropped: "RequestUpdateDropped"
+    RequestUpdateDropped: "RequestUpdateDropped",
+    ResponseReceived: "ResponseReceived"
 }
 
 WebInspector.NetworkManager._MIMETypes = {
@@ -104,16 +108,6 @@ WebInspector.NetworkManager.prototype = {
         WebInspector.moduleSetting("cacheDisabled").removeChangeListener(this._cacheDisabledSettingChanged, this);
     },
 
-    clearBrowserCache: function()
-    {
-        this._networkAgent.clearBrowserCache();
-    },
-
-    clearBrowserCookies: function()
-    {
-        this._networkAgent.clearBrowserCookies();
-    },
-
     _initNetworkConditions: function()
     {
         this._networkAgent.canEmulateNetworkConditions(callback.bind(this));
@@ -152,6 +146,44 @@ WebInspector.NetworkManager.prototype = {
     _networkConditionsSettingChanged: function(event)
     {
         this._updateNetworkConditions(/** @type {!WebInspector.NetworkManager.Conditions} */ (event.data));
+    },
+
+    /**
+     * @param {!NetworkAgent.CertificateId} certificateId
+     * @return {!Promise<!NetworkAgent.CertificateDetails>}
+     */
+    certificateDetailsPromise: function(certificateId)
+    {
+        var cachedPromise = this._certificateDetailsCache.get(certificateId);
+        if (cachedPromise)
+            return cachedPromise;
+
+        /**
+         * @this {WebInspector.NetworkManager}
+         * @param {function(?NetworkAgent.CertificateDetails)} resolve
+         * @param {function()} reject
+         */
+        function executor(resolve, reject) {
+            /**
+             * @param {?Protocol.Error} error
+             * @param {?NetworkAgent.CertificateDetails} certificateDetails
+             */
+            function innerCallback(error, certificateDetails)
+            {
+                if (error) {
+                    console.error("Unable to get certificate details from the browser (for certificate ID ", certificateId, "): ", error);
+                    reject();
+                } else {
+                    resolve(certificateDetails);
+                }
+            }
+            this._networkAgent.getCertificateDetails(certificateId, innerCallback);
+        }
+
+        var promise = new Promise(executor.bind(this));
+
+        this._certificateDetailsCache.set(certificateId, promise);
+        return promise;
     },
 
     __proto__: WebInspector.SDKModel.prototype
@@ -193,6 +225,8 @@ WebInspector.NetworkDispatcher.prototype = {
         networkRequest.requestMethod = request.method;
         networkRequest.setRequestHeaders(this._headersMapToHeadersArray(request.headers));
         networkRequest.requestFormData = request.postData;
+        networkRequest.setInitialPriority(request.initialPriority);
+        networkRequest.mixedContentType = request.mixedContentType || NetworkAgent.RequestMixedContentType.None;
     },
 
     /**
@@ -230,6 +264,8 @@ WebInspector.NetworkDispatcher.prototype = {
 
         networkRequest.protocol = response.protocol;
 
+        networkRequest.setSecurityState(response.securityState);
+
         if (!this._mimeTypeIsConsistentWithType(networkRequest)) {
             var consoleModel = this._manager._target.consoleModel;
             consoleModel.addMessage(new WebInspector.ConsoleMessage(consoleModel.target(), WebInspector.ConsoleMessage.MessageSource.Network,
@@ -241,6 +277,9 @@ WebInspector.NetworkDispatcher.prototype = {
                 0,
                 networkRequest.requestId));
         }
+
+        if (response.securityDetails)
+            networkRequest.setSecurityDetails(response.securityDetails);
     },
 
     /**
@@ -349,6 +388,7 @@ WebInspector.NetworkDispatcher.prototype = {
         this._updateNetworkRequestWithResponse(networkRequest, response);
 
         this._updateNetworkRequest(networkRequest);
+        this._manager.dispatchEventToListeners(WebInspector.NetworkManager.EventTypes.ResponseReceived, networkRequest);
     },
 
     /**
@@ -393,8 +433,9 @@ WebInspector.NetworkDispatcher.prototype = {
      * @param {!PageAgent.ResourceType} resourceType
      * @param {string} localizedDescription
      * @param {boolean=} canceled
+     * @param {!NetworkAgent.BlockedReason=} blockedReason
      */
-    loadingFailed: function(requestId, time, resourceType, localizedDescription, canceled)
+    loadingFailed: function(requestId, time, resourceType, localizedDescription, canceled, blockedReason)
     {
         var networkRequest = this._inflightRequestsById[requestId];
         if (!networkRequest)
@@ -403,6 +444,20 @@ WebInspector.NetworkDispatcher.prototype = {
         networkRequest.failed = true;
         networkRequest.setResourceType(WebInspector.resourceTypes[resourceType]);
         networkRequest.canceled = canceled;
+        if (blockedReason) {
+            networkRequest.setBlockedReason(blockedReason);
+            if (blockedReason === NetworkAgent.BlockedReason.Inspector) {
+                var consoleModel = this._manager._target.consoleModel;
+                consoleModel.addMessage(new WebInspector.ConsoleMessage(consoleModel.target(), WebInspector.ConsoleMessage.MessageSource.Network,
+                    WebInspector.ConsoleMessage.MessageLevel.Warning,
+                    WebInspector.UIString("Request was blocked by DevTools: \"%s\".", networkRequest.url),
+                    WebInspector.ConsoleMessage.MessageType.Log,
+                    "",
+                    0,
+                    0,
+                    networkRequest.requestId));
+            }
+        }
         networkRequest.localizedFailDescription = localizedDescription;
         this._finishNetworkRequest(networkRequest, time, -1);
     },
@@ -630,11 +685,26 @@ WebInspector.NetworkDispatcher.prototype = {
 
 /**
  * @constructor
+ * @extends {WebInspector.Object}
  * @implements {WebInspector.TargetManager.Observer}
  */
 WebInspector.MultitargetNetworkManager = function()
 {
+    WebInspector.Object.call(this);
     WebInspector.targetManager.observeTargets(this);
+
+    /** @type {!Set<string>} */
+    this._blockedURLs = new Set();
+    this._blockedSetting = WebInspector.moduleSetting("blockedURLs");
+    this._blockedSetting.addChangeListener(this._updateBlockedURLs, this);
+    this._blockedSetting.set([]);
+    this._updateBlockedURLs();
+
+    this._userAgentOverride = "";
+}
+
+WebInspector.MultitargetNetworkManager.Events = {
+    UserAgentChanged: "UserAgentChanged"
 }
 
 WebInspector.MultitargetNetworkManager.prototype = {
@@ -647,8 +717,10 @@ WebInspector.MultitargetNetworkManager.prototype = {
         var networkAgent = target.networkAgent();
         if (this._extraHeaders)
             networkAgent.setExtraHTTPHeaders(this._extraHeaders);
-        if (typeof this._userAgent !== "undefined")
-            networkAgent.setUserAgentOverride(this._userAgent);
+        if (this._currentUserAgent())
+            networkAgent.setUserAgentOverride(this._currentUserAgent());
+        for (var url of this._blockedURLs)
+            networkAgent.addBlockedURL(url);
     },
 
     /**
@@ -670,15 +742,107 @@ WebInspector.MultitargetNetworkManager.prototype = {
     },
 
     /**
+     * @return {string}
+     */
+    _currentUserAgent: function()
+    {
+        return this._customUserAgent ? this._customUserAgent : this._userAgentOverride;
+    },
+
+    _updateUserAgentOverride: function()
+    {
+        var userAgent = this._currentUserAgent();
+        WebInspector.ResourceLoader.targetUserAgent = userAgent;
+        for (var target of WebInspector.targetManager.targets())
+            target.networkAgent().setUserAgentOverride(userAgent);
+    },
+
+    /**
      * @param {string} userAgent
      */
     setUserAgentOverride: function(userAgent)
     {
-        WebInspector.ResourceLoader.targetUserAgent = userAgent;
-        this._userAgent = userAgent;
+        if (this._userAgentOverride === userAgent)
+            return;
+        this._userAgentOverride = userAgent;
+        if (!this._customUserAgent)
+            this._updateUserAgentOverride();
+        this.dispatchEventToListeners(WebInspector.MultitargetNetworkManager.Events.UserAgentChanged);
+    },
+
+    /**
+     * @return {string}
+     */
+    userAgentOverride: function()
+    {
+        return this._userAgentOverride;
+    },
+
+    /**
+     * @param {string} userAgent
+     */
+    setCustomUserAgentOverride: function(userAgent)
+    {
+        this._customUserAgent = userAgent;
+        this._updateUserAgentOverride();
+    },
+
+    _updateBlockedURLs: function()
+    {
+        var blocked = this._blockedSetting.get();
+        for (var url of blocked) {
+            if (!this._blockedURLs.has(url))
+                this._addBlockedURL(url);
+        }
+        for (var url of this._blockedURLs) {
+            if (blocked.indexOf(url) === -1)
+                this._removeBlockedURL(url);
+        }
+    },
+
+    /**
+     * @param {string} url
+     */
+    _addBlockedURL: function(url)
+    {
+        this._blockedURLs.add(url);
         for (var target of WebInspector.targetManager.targets())
-            target.networkAgent().setUserAgentOverride(this._userAgent);
-    }
+            target.networkAgent().addBlockedURL(url);
+    },
+
+    /**
+     * @param {string} url
+     */
+    _removeBlockedURL: function(url)
+    {
+        this._blockedURLs.delete(url);
+        for (var target of WebInspector.targetManager.targets())
+            target.networkAgent().removeBlockedURL(url);
+    },
+
+    clearBrowserCache: function()
+    {
+        for (var target of WebInspector.targetManager.targets())
+            target.networkAgent().clearBrowserCache();
+    },
+
+    clearBrowserCookies: function()
+    {
+        for (var target of WebInspector.targetManager.targets())
+            target.networkAgent().clearBrowserCookies();
+    },
+
+    /**
+     * @param {!NetworkAgent.CertificateId} certificateId
+     */
+    showCertificateViewer: function(certificateId)
+    {
+        var target = WebInspector.targetManager.mainTarget();
+        if (target)
+            target.networkAgent().showCertificateViewer(certificateId);
+    },
+
+    __proto__: WebInspector.Object.prototype
 }
 
 /**

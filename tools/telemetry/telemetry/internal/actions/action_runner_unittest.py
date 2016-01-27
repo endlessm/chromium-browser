@@ -4,18 +4,15 @@
 import unittest
 
 from telemetry.core import exceptions
-from telemetry.core import util
 from telemetry import decorators
 from telemetry.internal.actions import page_action
 from telemetry.page import action_runner as action_runner_module
 from telemetry.testing import tab_test_case
+import mock
 from telemetry.timeline import model
 from telemetry.timeline import tracing_category_filter
 from telemetry.timeline import tracing_options
 from telemetry.web_perf import timeline_interaction_record as tir_module
-
-util.AddDirToPythonPath(util.GetTelemetryDir(), 'third_party', 'mock')
-import mock  # pylint:disable=import-error
 
 
 class ActionRunnerInteractionTest(tab_test_case.TabTestCase):
@@ -53,7 +50,8 @@ class ActionRunnerInteractionTest(tab_test_case.TabTestCase):
       self.assertTrue(getattr(records[0], attribute_name))
 
   # Test disabled for android: crbug.com/437057
-  @decorators.Disabled('android', 'chromeos')
+  # Test disabled for linux: crbug.com/513874
+  @decorators.Disabled('android', 'chromeos', 'linux')
   def testIssuingMultipleMeasurementInteractionRecords(self):
     self.VerifyIssuingInteractionRecords(repeatable=True)
 
@@ -231,7 +229,7 @@ class ActionRunnerTest(tab_test_case.TabTestCase):
     action_runner.ScrollPage(direction='right', left_start_ratio=0.9,
                              distance=100)
     self.assertTrue(action_runner.EvaluateJavaScript(
-        'document.body.scrollLeft') > 75)
+        '(document.scrollingElement || document.body).scrollLeft') > 75)
 
   @decorators.Disabled('android',   # crbug.com/437065.
                        'chromeos')  # crbug.com/483212.
@@ -255,7 +253,7 @@ class ActionRunnerTest(tab_test_case.TabTestCase):
 
     action_runner.SwipePage(direction='left', left_start_ratio=0.9)
     self.assertTrue(action_runner.EvaluateJavaScript(
-        'document.body.scrollLeft') > 75)
+        '(document.scrollingElement || document.body).scrollLeft') > 75)
 
 
 class InteractionTest(unittest.TestCase):

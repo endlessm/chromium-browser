@@ -14,8 +14,8 @@
 #include "base/stl_util.h"
 #include "base/thread_task_runner_handle.h"
 #include "net/base/net_errors.h"
-#include "net/socket/stream_socket.h"
 #include "remoting/protocol/message_serialization.h"
+#include "remoting/protocol/p2p_stream_socket.h"
 
 namespace remoting {
 namespace protocol {
@@ -77,16 +77,16 @@ class ChannelMultiplexer::MuxChannel {
   void set_receive_id(int id) { receive_id_ = id; }
 
   // Called by ChannelMultiplexer.
-  scoped_ptr<net::StreamSocket> CreateSocket();
+  scoped_ptr<P2PStreamSocket> CreateSocket();
   void OnIncomingPacket(scoped_ptr<MultiplexPacket> packet,
                         const base::Closure& done_task);
   void OnBaseChannelError(int error);
 
   // Called by MuxSocket.
   void OnSocketDestroyed();
-  bool DoWrite(scoped_ptr<MultiplexPacket> packet,
+  void DoWrite(scoped_ptr<MultiplexPacket> packet,
                const base::Closure& done_task);
-  int DoRead(net::IOBuffer* buffer, int buffer_len);
+  int DoRead(const scoped_refptr<net::IOBuffer>& buffer, int buffer_len);
 
  private:
   ChannelMultiplexer* multiplexer_;
@@ -100,7 +100,7 @@ class ChannelMultiplexer::MuxChannel {
   DISALLOW_COPY_AND_ASSIGN(MuxChannel);
 };
 
-class ChannelMultiplexer::MuxSocket : public net::StreamSocket,
+class ChannelMultiplexer::MuxSocket : public P2PStreamSocket,
                                       public base::NonThreadSafe,
                                       public base::SupportsWeakPtr<MuxSocket> {
  public:
@@ -111,66 +111,11 @@ class ChannelMultiplexer::MuxSocket : public net::StreamSocket,
   void OnBaseChannelError(int error);
   void OnPacketReceived();
 
-  // net::StreamSocket interface.
-  int Read(net::IOBuffer* buffer,
-           int buffer_len,
+  // P2PStreamSocket interface.
+  int Read(const scoped_refptr<net::IOBuffer>& buffer, int buffer_len,
            const net::CompletionCallback& callback) override;
-  int Write(net::IOBuffer* buffer,
-            int buffer_len,
+  int Write(const scoped_refptr<net::IOBuffer>& buffer, int buffer_len,
             const net::CompletionCallback& callback) override;
-
-  int SetReceiveBufferSize(int32 size) override {
-    NOTIMPLEMENTED();
-    return net::ERR_NOT_IMPLEMENTED;
-  }
-  int SetSendBufferSize(int32 size) override {
-    NOTIMPLEMENTED();
-    return net::ERR_NOT_IMPLEMENTED;
-  }
-
-  int Connect(const net::CompletionCallback& callback) override {
-    NOTIMPLEMENTED();
-    return net::ERR_NOT_IMPLEMENTED;
-  }
-  void Disconnect() override { NOTIMPLEMENTED(); }
-  bool IsConnected() const override {
-    NOTIMPLEMENTED();
-    return true;
-  }
-  bool IsConnectedAndIdle() const override {
-    NOTIMPLEMENTED();
-    return false;
-  }
-  int GetPeerAddress(net::IPEndPoint* address) const override {
-    NOTIMPLEMENTED();
-    return net::ERR_NOT_IMPLEMENTED;
-  }
-  int GetLocalAddress(net::IPEndPoint* address) const override {
-    NOTIMPLEMENTED();
-    return net::ERR_NOT_IMPLEMENTED;
-  }
-  const net::BoundNetLog& NetLog() const override {
-    NOTIMPLEMENTED();
-    return net_log_;
-  }
-  void SetSubresourceSpeculation() override { NOTIMPLEMENTED(); }
-  void SetOmniboxSpeculation() override { NOTIMPLEMENTED(); }
-  bool WasEverUsed() const override { return true; }
-  bool UsingTCPFastOpen() const override { return false; }
-  bool WasNpnNegotiated() const override { return false; }
-  net::NextProto GetNegotiatedProtocol() const override {
-    return net::kProtoUnknown;
-  }
-  bool GetSSLInfo(net::SSLInfo* ssl_info) override {
-    NOTIMPLEMENTED();
-    return false;
-  }
-  void GetConnectionAttempts(net::ConnectionAttempts* out) const override {
-    out->clear();
-  }
-  void ClearConnectionAttempts() override {}
-  void AddConnectionAttempts(const net::ConnectionAttempts& attempts) override {
-  }
 
  private:
   MuxChannel* channel_;
@@ -184,8 +129,6 @@ class ChannelMultiplexer::MuxSocket : public net::StreamSocket,
   bool write_pending_;
   int write_result_;
   net::CompletionCallback write_callback_;
-
-  net::BoundNetLog net_log_;
 
   DISALLOW_COPY_AND_ASSIGN(MuxSocket);
 };
@@ -209,7 +152,7 @@ ChannelMultiplexer::MuxChannel::~MuxChannel() {
   STLDeleteElements(&pending_packets_);
 }
 
-scoped_ptr<net::StreamSocket> ChannelMultiplexer::MuxChannel::CreateSocket() {
+scoped_ptr<P2PStreamSocket> ChannelMultiplexer::MuxChannel::CreateSocket() {
   DCHECK(!socket_);  // Can't create more than one socket per channel.
   scoped_ptr<MuxSocket> result(new MuxSocket(this));
   socket_ = result.get();
@@ -239,7 +182,7 @@ void ChannelMultiplexer::MuxChannel::OnSocketDestroyed() {
   socket_ = nullptr;
 }
 
-bool ChannelMultiplexer::MuxChannel::DoWrite(
+void ChannelMultiplexer::MuxChannel::DoWrite(
     scoped_ptr<MultiplexPacket> packet,
     const base::Closure& done_task) {
   packet->set_channel_id(send_id_);
@@ -247,11 +190,12 @@ bool ChannelMultiplexer::MuxChannel::DoWrite(
     packet->set_channel_name(name_);
     id_sent_ = true;
   }
-  return multiplexer_->DoWrite(packet.Pass(), done_task);
+  multiplexer_->DoWrite(packet.Pass(), done_task);
 }
 
-int ChannelMultiplexer::MuxChannel::DoRead(net::IOBuffer* buffer,
-                                           int buffer_len) {
+int ChannelMultiplexer::MuxChannel::DoRead(
+    const scoped_refptr<net::IOBuffer>& buffer,
+    int buffer_len) {
   int pos = 0;
   while (buffer_len > 0 && !pending_packets_.empty()) {
     DCHECK(!pending_packets_.front()->is_empty());
@@ -280,7 +224,7 @@ ChannelMultiplexer::MuxSocket::~MuxSocket() {
 }
 
 int ChannelMultiplexer::MuxSocket::Read(
-    net::IOBuffer* buffer, int buffer_len,
+    const scoped_refptr<net::IOBuffer>& buffer, int buffer_len,
     const net::CompletionCallback& callback) {
   DCHECK(CalledOnValidThread());
   DCHECK(read_callback_.is_null());
@@ -299,7 +243,7 @@ int ChannelMultiplexer::MuxSocket::Read(
 }
 
 int ChannelMultiplexer::MuxSocket::Write(
-    net::IOBuffer* buffer, int buffer_len,
+    const scoped_refptr<net::IOBuffer>& buffer, int buffer_len,
     const net::CompletionCallback& callback) {
   DCHECK(CalledOnValidThread());
   DCHECK(write_callback_.is_null());
@@ -312,13 +256,8 @@ int ChannelMultiplexer::MuxSocket::Write(
   packet->mutable_data()->assign(buffer->data(), size);
 
   write_pending_ = true;
-  bool result = channel_->DoWrite(packet.Pass(), base::Bind(
+  channel_->DoWrite(packet.Pass(), base::Bind(
       &ChannelMultiplexer::MuxSocket::OnWriteComplete, AsWeakPtr()));
-
-  if (!result) {
-    // Cannot complete the write, e.g. if the connection has been terminated.
-    return net::ERR_FAILED;
-  }
 
   // OnWriteComplete() might be called above synchronously.
   if (write_pending_) {
@@ -420,7 +359,7 @@ void ChannelMultiplexer::CancelChannelCreation(const std::string& name) {
 }
 
 void ChannelMultiplexer::OnBaseChannelReady(
-    scoped_ptr<net::StreamSocket> socket) {
+    scoped_ptr<P2PStreamSocket> socket) {
   base_channel_factory_ = nullptr;
   base_channel_ = socket.Pass();
 
@@ -429,7 +368,8 @@ void ChannelMultiplexer::OnBaseChannelReady(
     reader_.StartReading(base_channel_.get(),
                          base::Bind(&ChannelMultiplexer::OnBaseChannelError,
                                     base::Unretained(this)));
-    writer_.Init(base_channel_.get(),
+    writer_.Init(base::Bind(&P2PStreamSocket::Write,
+                            base::Unretained(base_channel_.get())),
                  base::Bind(&ChannelMultiplexer::OnBaseChannelError,
                             base::Unretained(this)));
   }
@@ -451,7 +391,7 @@ void ChannelMultiplexer::DoCreatePendingChannels() {
 
   PendingChannel c = pending_channels_.front();
   pending_channels_.erase(pending_channels_.begin());
-  scoped_ptr<net::StreamSocket> socket;
+  scoped_ptr<P2PStreamSocket> socket;
   if (base_channel_.get())
     socket = GetOrCreateChannel(c.name)->CreateSocket();
   c.callback.Run(socket.Pass());
@@ -520,9 +460,9 @@ void ChannelMultiplexer::OnIncomingPacket(scoped_ptr<MultiplexPacket> packet,
   channel->OnIncomingPacket(packet.Pass(), done_task);
 }
 
-bool ChannelMultiplexer::DoWrite(scoped_ptr<MultiplexPacket> packet,
+void ChannelMultiplexer::DoWrite(scoped_ptr<MultiplexPacket> packet,
                                  const base::Closure& done_task) {
-  return writer_.Write(SerializeAndFrameMessage(*packet), done_task);
+  writer_.Write(SerializeAndFrameMessage(*packet), done_task);
 }
 
 }  // namespace protocol

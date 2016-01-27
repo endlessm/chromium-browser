@@ -165,16 +165,17 @@ void FakeMediaSource::SetSourceFile(const base::FilePath& video_file,
       source_audio_params_.Reset(
           AudioParameters::AUDIO_PCM_LINEAR,
           layout,
-          av_codec_context->channels,
           av_codec_context->sample_rate,
           8 * av_get_bytes_per_sample(av_codec_context->sample_fmt),
           av_codec_context->sample_rate / kAudioPacketsPerSecond);
+      source_audio_params_.set_channels_for_discrete(
+          av_codec_context->channels);
       CHECK(source_audio_params_.IsValid());
       LOG(INFO) << "Source file has audio.";
     } else if (av_codec->type == AVMEDIA_TYPE_VIDEO) {
-      VideoFrame::Format format =
-          PixelFormatToVideoFormat(av_codec_context->pix_fmt);
-      if (format != VideoFrame::YV12) {
+      VideoPixelFormat format =
+          AVPixelFormatToVideoPixelFormat(av_codec_context->pix_fmt);
+      if (format != PIXEL_FORMAT_YV12) {
         LOG(ERROR) << "Cannot handle non YV12 video format: " << format;
         continue;
       }
@@ -375,10 +376,12 @@ bool FakeMediaSource::SendNextTranscodedAudio(base::TimeDelta elapsed_time) {
 void FakeMediaSource::SendNextFrame() {
   // Send as much as possible. Audio is sent according to
   // system time.
-  while (SendNextTranscodedAudio(clock_->NowTicks() - start_time_));
+  while (SendNextTranscodedAudio(clock_->NowTicks() - start_time_)) {
+  }
 
   // Video is sync'ed to audio.
-  while (SendNextTranscodedVideo(audio_sent_ts_->GetTimestamp()));
+  while (SendNextTranscodedVideo(audio_sent_ts_->GetTimestamp())) {
+  }
 
   if (audio_bus_queue_.empty() && video_frame_queue_.empty()) {
     // Both queues are empty can only mean that we have reached
@@ -438,7 +441,7 @@ void FakeMediaSource::DecodeAudio(ScopedAVPacket packet) {
   AVFrame* avframe = av_frame_alloc();
 
   // Make a shallow copy of packet so we can slide packet.data as frames are
-  // decoded from the packet; otherwise av_free_packet() will corrupt memory.
+  // decoded from the packet; otherwise av_packet_unref() will corrupt memory.
   AVPacket packet_temp = *packet.get();
 
   do {
@@ -547,19 +550,10 @@ void FakeMediaSource::DecodeVideo(ScopedAVPacket packet) {
     video_first_pts_ = avframe->pkt_pts - adjustment_pts;
   }
 
-  video_frame_queue_.push(
-      VideoFrame::WrapExternalYuvData(
-          media::VideoFrame::YV12,
-          size,
-          gfx::Rect(size),
-          size,
-          avframe->linesize[0],
-          avframe->linesize[1],
-          avframe->linesize[2],
-          avframe->data[0],
-          avframe->data[1],
-          avframe->data[2],
-          timestamp));
+  video_frame_queue_.push(VideoFrame::WrapExternalYuvData(
+      media::PIXEL_FORMAT_YV12, size, gfx::Rect(size), size,
+      avframe->linesize[0], avframe->linesize[1], avframe->linesize[2],
+      avframe->data[0], avframe->data[1], avframe->data[2], timestamp));
   video_frame_queue_.back()->AddDestructionObserver(
       base::Bind(&AVFreeFrame, avframe));
   last_video_frame_timestamp_ = timestamp;

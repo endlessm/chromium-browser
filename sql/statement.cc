@@ -110,6 +110,11 @@ void Statement::Reset(bool clear_bound_vars) {
       ref_->connection()->RecordOneEvent(Connection::EVENT_STATEMENT_SUCCESS);
   }
 
+  // Potentially release dirty cache pages if an autocommit statement made
+  // changes.
+  if (ref_->connection())
+    ref_->connection()->ReleaseCacheMemoryIfNeeded(false);
+
   succeeded_ = false;
   stepped_ = false;
 }
@@ -210,8 +215,8 @@ ColType Statement::ColumnType(int col) const {
 }
 
 ColType Statement::DeclaredColumnType(int col) const {
-  std::string column_type(sqlite3_column_decltype(ref_->stmt(), col));
-  base::StringToLowerASCII(&column_type);
+  std::string column_type = base::ToLowerASCII(
+      sqlite3_column_decltype(ref_->stmt(), col));
 
   if (column_type == "integer")
     return COLUMN_TYPE_INTEGER;

@@ -10,8 +10,8 @@
 
 namespace media {
 
-WebMAudioClient::WebMAudioClient(const LogCB& log_cb)
-    : log_cb_(log_cb) {
+WebMAudioClient::WebMAudioClient(const scoped_refptr<MediaLog>& media_log)
+    : media_log_(media_log) {
   Reset();
 }
 
@@ -37,7 +37,7 @@ bool WebMAudioClient::InitializeConfig(
   } else if (codec_id == "A_OPUS") {
     audio_codec = kCodecOpus;
   } else {
-    MEDIA_LOG(ERROR, log_cb_) << "Unsupported audio codec_id " << codec_id;
+    MEDIA_LOG(ERROR, media_log_) << "Unsupported audio codec_id " << codec_id;
     return false;
   }
 
@@ -51,7 +51,7 @@ bool WebMAudioClient::InitializeConfig(
   ChannelLayout channel_layout =  GuessChannelLayout(channels_);
 
   if (channel_layout == CHANNEL_LAYOUT_UNSUPPORTED) {
-    MEDIA_LOG(ERROR, log_cb_) << "Unsupported channel count " << channels_;
+    MEDIA_LOG(ERROR, media_log_) << "Unsupported channel count " << channels_;
     return false;
   }
 
@@ -64,13 +64,6 @@ bool WebMAudioClient::InitializeConfig(
   if (audio_codec == kCodecOpus) {
     samples_per_second = 48000;
     sample_format = kSampleFormatF32;
-  }
-
-  const uint8* extra_data = NULL;
-  size_t extra_data_size = 0;
-  if (codec_private.size() > 0) {
-    extra_data = &codec_private[0];
-    extra_data_size = codec_private.size();
   }
 
   // Convert |codec_delay| from nanoseconds into frames.
@@ -87,10 +80,8 @@ bool WebMAudioClient::InitializeConfig(
       sample_format,
       channel_layout,
       samples_per_second,
-      extra_data,
-      extra_data_size,
+      codec_private,
       is_encrypted,
-      true,
       base::TimeDelta::FromMicroseconds(
           (seek_preroll != -1 ? seek_preroll : 0) / 1000),
       codec_delay_in_frames);
@@ -100,9 +91,9 @@ bool WebMAudioClient::InitializeConfig(
 bool WebMAudioClient::OnUInt(int id, int64 val) {
   if (id == kWebMIdChannels) {
     if (channels_ != -1) {
-      MEDIA_LOG(ERROR, log_cb_) << "Multiple values for id " << std::hex << id
-                                << " specified. (" << channels_ << " and "
-                                << val << ")";
+      MEDIA_LOG(ERROR, media_log_) << "Multiple values for id " << std::hex
+                                   << id << " specified. (" << channels_
+                                   << " and " << val << ")";
       return false;
     }
 
@@ -129,9 +120,9 @@ bool WebMAudioClient::OnFloat(int id, double val) {
     return false;
 
   if (*dst != -1) {
-    MEDIA_LOG(ERROR, log_cb_) << "Multiple values for id " << std::hex << id
-                              << " specified (" << *dst << " and " << val
-                              << ")";
+    MEDIA_LOG(ERROR, media_log_) << "Multiple values for id " << std::hex << id
+                                 << " specified (" << *dst << " and " << val
+                                 << ")";
     return false;
   }
 

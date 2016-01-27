@@ -8,17 +8,20 @@ import android.graphics.Bitmap;
 
 import org.chromium.base.ObserverList.RewindableIterator;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.ChromeApplication;
-import org.chromium.chrome.browser.EmptyTabObserver;
 import org.chromium.chrome.browser.IntentHandler;
-import org.chromium.chrome.browser.Tab;
-import org.chromium.chrome.browser.TabObserver;
 import org.chromium.chrome.browser.TabState;
-import org.chromium.chrome.browser.TabUma.TabCreationState;
 import org.chromium.chrome.browser.WarmupManager;
 import org.chromium.chrome.browser.WebContentsFactory;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
-import org.chromium.chrome.browser.tab.ChromeTab;
+import org.chromium.chrome.browser.tab.EmptyTabObserver;
+import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabDelegateFactory;
+import org.chromium.chrome.browser.tab.TabObserver;
+import org.chromium.chrome.browser.tab.TabUma;
+import org.chromium.chrome.browser.tab.TabUma.TabCreationState;
+import org.chromium.chrome.browser.tab.TabWebContentsDelegateAndroid;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.document.ActivityDelegate;
@@ -28,9 +31,7 @@ import org.chromium.ui.base.WindowAndroid;
 /**
  * A Tab child class with Chrome documents specific functionality.
  */
-public class DocumentTab extends ChromeTab {
-    private static final int DESIRED_ICON_SIZE_DP = 32;
-
+public class DocumentTab extends Tab {
     /**
      * Observer class with extra calls specific to Chrome Documents
      */
@@ -40,23 +41,14 @@ public class DocumentTab extends ChromeTab {
          * @param image The favicon image that was received.
          */
         protected void onFaviconReceived(Bitmap image) { }
-
-        /**
-         * Called when a tab is set to be covered or uncovered by child activity.
-         */
-        protected void onSetCoveredByChildActivity() { }
     }
 
-    private int mDesiredIconSizePx;
     private boolean mDidRestoreState;
 
     // Whether this document tab was constructed from passed-in web contents pointer.
     private boolean mCreatedFromWebContents;
 
     private final DocumentActivity mActivity;
-
-    // Whether this tab is covered by its child activity.
-    private boolean mIsCoveredByChildActivity;
 
     /**
      * Standard constructor for the document tab.
@@ -65,13 +57,14 @@ public class DocumentTab extends ChromeTab {
      * @param windowAndroid The window that this tab should be using.
      * @param url The url to load on creation.
      * @param parentTabId The id of the parent tab.
+     * @param initiallyHidden Whether or not the {@link WebContents} should be initially hidden.
      */
-    private DocumentTab(DocumentActivity activity, boolean incognito,
-            WindowAndroid windowAndroid, String url, int parentTabId) {
-        super(ActivityDelegate.getTabIdFromIntent(activity.getIntent()), activity,
-                incognito, windowAndroid, TabLaunchType.FROM_EXTERNAL_APP, parentTabId, null, null);
+    private DocumentTab(DocumentActivity activity, boolean incognito, WindowAndroid windowAndroid,
+            String url, int parentTabId, boolean initiallyHidden) {
+        super(ActivityDelegate.getTabIdFromIntent(activity.getIntent()), parentTabId, incognito,
+                activity, windowAndroid, TabLaunchType.FROM_EXTERNAL_APP, null, null);
         mActivity = activity;
-        initialize(url, null, activity.getTabContentManager(), false);
+        initialize(url, null, activity.getTabContentManager(), false, initiallyHidden);
     }
 
     /**
@@ -85,11 +78,10 @@ public class DocumentTab extends ChromeTab {
      */
     private DocumentTab(DocumentActivity activity, boolean incognito,
             WindowAndroid windowAndroid, String url, TabState tabState, int parentTabId) {
-        super(ActivityDelegate.getTabIdFromIntent(activity.getIntent()), activity,
-                incognito, windowAndroid, TabLaunchType.FROM_RESTORE, parentTabId,
-                TabCreationState.FROZEN_ON_RESTORE, tabState);
+        super(ActivityDelegate.getTabIdFromIntent(activity.getIntent()), parentTabId, incognito,
+                activity, windowAndroid, TabLaunchType.FROM_RESTORE,  null, tabState);
         mActivity = activity;
-        initialize(url, null, activity.getTabContentManager(), true);
+        initialize(url, null, activity.getTabContentManager(), true, false);
     }
 
     /**
@@ -103,11 +95,10 @@ public class DocumentTab extends ChromeTab {
      */
     private DocumentTab(DocumentActivity activity, boolean incognito,
             WindowAndroid windowAndroid, String url, int parentTabId, WebContents webContents) {
-        super(ActivityDelegate.getTabIdFromIntent(activity.getIntent()), activity,
-                incognito, windowAndroid, TabLaunchType.FROM_LONGPRESS_FOREGROUND,
-                parentTabId, null, null);
+        super(ActivityDelegate.getTabIdFromIntent(activity.getIntent()), parentTabId, incognito,
+                activity, windowAndroid, TabLaunchType.FROM_LONGPRESS_FOREGROUND, null, null);
         mActivity = activity;
-        initialize(url, webContents, activity.getTabContentManager(), false);
+        initialize(url, webContents, activity.getTabContentManager(), false, false);
         mCreatedFromWebContents = true;
     }
 
@@ -122,18 +113,22 @@ public class DocumentTab extends ChromeTab {
      * @param url The url to use for looking up potentially pre-rendered web contents.
      * @param webContents Optionally, a pre-created web contents.
      * @param unfreeze Whether we want to initialize the tab from tab state.
+     * @param initiallyHidden Whether or not the {@link WebContents} should be initially hidden.
      */
     private void initialize(String url, WebContents webContents,
-            TabContentManager tabContentManager, boolean unfreeze) {
-        mDesiredIconSizePx = (int) (DESIRED_ICON_SIZE_DP
-                * mActivity.getResources().getDisplayMetrics().density);
-
+            TabContentManager tabContentManager, boolean unfreeze, boolean initiallyHidden) {
         if (!unfreeze && webContents == null) {
             webContents = WarmupManager.getInstance().hasPrerenderedUrl(url)
                     ? WarmupManager.getInstance().takePrerenderedWebContents()
-                    : WebContentsFactory.createWebContents(isIncognito(), false);
+                    : WebContentsFactory.createWebContents(isIncognito(), initiallyHidden);
         }
-        initialize(webContents, tabContentManager, false);
+        initialize(webContents, tabContentManager, new TabDelegateFactory() {
+            @Override
+            public TabWebContentsDelegateAndroid createWebContentsDelegate(
+                    Tab tab, ChromeActivity activity) {
+                return new DocumentTabWebContentsDelegateAndroid(DocumentTab.this, mActivity);
+            }
+        }, initiallyHidden);
         if (unfreeze) mDidRestoreState = unfreezeContents();
 
         getView().requestFocus();
@@ -143,9 +138,6 @@ public class DocumentTab extends ChromeTab {
     public void onFaviconAvailable(Bitmap image) {
         super.onFaviconAvailable(image);
         if (image == null) return;
-        if (image.getWidth() < mDesiredIconSizePx || image.getHeight() < mDesiredIconSizePx) {
-            return;
-        }
         RewindableIterator<TabObserver> observers = getTabObservers();
         while (observers.hasNext()) {
             TabObserver observer = observers.next();
@@ -158,8 +150,11 @@ public class DocumentTab extends ChromeTab {
     /**
      * A web contents delegate for handling opening new windows in Document mode.
      */
-    public class DocumentTabChromeWebContentsDelegateAndroidImpl
-            extends TabChromeWebContentsDelegateAndroidImpl {
+    public class DocumentTabWebContentsDelegateAndroid extends TabWebContentsDelegateAndroid {
+        public DocumentTabWebContentsDelegateAndroid(Tab tab, ChromeActivity activity) {
+            super(tab, activity);
+        }
+
         /**
          * TODO(dfalcantara): Remove this when DocumentActivity.getTabModelSelector()
          *                    can return a TabModelSelector that activateContents() can use.
@@ -168,11 +163,6 @@ public class DocumentTab extends ChromeTab {
         protected TabModel getTabModel() {
             return ChromeApplication.getDocumentTabModelSelector().getModel(isIncognito());
         }
-    }
-
-    @Override
-    protected TabChromeWebContentsDelegateAndroid createWebContentsDelegate() {
-        return new DocumentTabChromeWebContentsDelegateAndroidImpl();
     }
 
     /**
@@ -198,9 +188,10 @@ public class DocumentTab extends ChromeTab {
      * @param webContents A {@link WebContents} object.
      * @param tabState State that was previously persisted to disk for the Tab.
      * @return The created {@link DocumentTab}.
+     * @param initiallyHidden Whether or not the {@link WebContents} should be initially hidden.
      */
     static DocumentTab create(DocumentActivity activity, boolean incognito, WindowAndroid window,
-            String url, WebContents webContents, TabState tabState) {
+            String url, WebContents webContents, TabState tabState, boolean initiallyHidden) {
         int parentTabId = activity.getIntent().getIntExtra(
                 IntentHandler.EXTRA_PARENT_TAB_ID, Tab.INVALID_TAB_ID);
         if (webContents != null) {
@@ -211,27 +202,30 @@ public class DocumentTab extends ChromeTab {
         }
 
         if (tabState == null) {
-            return new DocumentTab(activity, incognito, window, url, parentTabId);
+            return new DocumentTab(activity, incognito, window, url, parentTabId, initiallyHidden);
         } else {
             return new DocumentTab(activity, incognito, window, "", tabState, parentTabId);
         }
     }
 
     @Override
-    public boolean isCoveredByChildActivity() {
-        return mIsCoveredByChildActivity;
+    public void onActivityStart() {
+        // DocumentActivity#onResumeWithNative() will call Tab.show(), and so we don't need to call
+        // it at this point.
+        onActivityStartInternal(false /* showNow */);
     }
 
-    @Override
     @VisibleForTesting
-    public void setCoveredByChildActivity(boolean isCoveredByChildActivity) {
-        mIsCoveredByChildActivity = isCoveredByChildActivity;
-        RewindableIterator<TabObserver> observers = getTabObservers();
-        while (observers.hasNext()) {
-            TabObserver observer = observers.next();
-            if (observer instanceof DocumentTabObserver) {
-                ((DocumentTabObserver) observer).onSetCoveredByChildActivity();
-            }
-        }
+    public DocumentActivity getActivity() {
+        return mActivity;
+    }
+
+    /**
+     * A helper function to create TabUma and set it to the tab.
+     * @param creationState In what state the tab was created.
+     */
+    public void initializeTabUma(TabCreationState creationState) {
+        setTabUma(new TabUma(this, creationState,
+                mActivity.getTabModelSelector().getModel(mActivity.isIncognito())));
     }
 }

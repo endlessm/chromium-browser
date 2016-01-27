@@ -14,6 +14,7 @@
       'dependencies': [
         '../base/base.gyp:base',
         '../base/base.gyp:base_prefs',
+        '../components/components.gyp:data_use_measurement_core',
         '../components/components.gyp:keyed_service_core',
         '../content/content.gyp:content_browser',
         '../net/net.gyp:net',
@@ -71,9 +72,9 @@
           # bake_in_configs.py will read the filenames out of it manually.
           'action': ['python',
                      '<(bake_in_configs_script)',
-                     '.',
-                     'domain_reliability/baked_in_configs.gypi',
-                     '<(baked_in_configs_cc)'],
+                     '--gypi-relative-to=.',
+                     '--gypi-file=domain_reliability/baked_in_configs.gypi',
+                     '--output=<(baked_in_configs_cc)'],
           'process_outputs_as_sources': 1,
           'message': 'Baking in Domain Reliability configs',
         },

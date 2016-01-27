@@ -146,8 +146,10 @@ using testing::internal::FloatingEqMatcher;
 using testing::internal::FormatMatcherDescription;
 using testing::internal::IsReadableTypeName;
 using testing::internal::JoinAsTuple;
+using testing::internal::linked_ptr;
 using testing::internal::MatchMatrix;
 using testing::internal::RE;
+using testing::internal::scoped_ptr;
 using testing::internal::StreamMatchResultListener;
 using testing::internal::Strings;
 using testing::internal::linked_ptr;
@@ -762,6 +764,21 @@ TEST(SafeMatcherCastTest, ValueIsNotCopied) {
   EXPECT_TRUE(m.Matches(n));
 }
 
+TEST(ExpectThat, TakesLiterals) {
+  EXPECT_THAT(1, 1);
+  EXPECT_THAT(1.0, 1.0);
+  EXPECT_THAT(string(), "");
+}
+
+TEST(ExpectThat, TakesFunctions) {
+  struct Helper {
+    static void Func() {}
+  };
+  void (*func)() = Helper::Func;
+  EXPECT_THAT(func, Helper::Func);
+  EXPECT_THAT(func, &Helper::Func);
+}
+
 // Tests that A<T>() matches any value of type T.
 TEST(ATest, MatchesAnyValue) {
   // Tests a matcher for a value type.
@@ -1025,14 +1042,14 @@ TEST(IsNullTest, ReferenceToConstLinkedPtr) {
   EXPECT_FALSE(m.Matches(non_null_p));
 }
 
-TEST(IsNullTest, ReferenceToConstScopedPtr) {
-  const Matcher<const scoped_ptr<double>&> m = IsNull();
-  const scoped_ptr<double> null_p;
-  const scoped_ptr<double> non_null_p(new double);
+#if GTEST_LANG_CXX11
+TEST(IsNullTest, StdFunction) {
+  const Matcher<std::function<void()>> m = IsNull();
 
-  EXPECT_TRUE(m.Matches(null_p));
-  EXPECT_FALSE(m.Matches(non_null_p));
+  EXPECT_TRUE(m.Matches(std::function<void()>()));
+  EXPECT_FALSE(m.Matches([]{}));
 }
+#endif  // GTEST_LANG_CXX11
 
 // Tests that IsNull() describes itself properly.
 TEST(IsNullTest, CanDescribeSelf) {
@@ -1073,14 +1090,14 @@ TEST(NotNullTest, ReferenceToConstLinkedPtr) {
   EXPECT_TRUE(m.Matches(non_null_p));
 }
 
-TEST(NotNullTest, ReferenceToConstScopedPtr) {
-  const Matcher<const scoped_ptr<double>&> m = NotNull();
-  const scoped_ptr<double> null_p;
-  const scoped_ptr<double> non_null_p(new double);
+#if GTEST_LANG_CXX11
+TEST(NotNullTest, StdFunction) {
+  const Matcher<std::function<void()>> m = NotNull();
 
-  EXPECT_FALSE(m.Matches(null_p));
-  EXPECT_TRUE(m.Matches(non_null_p));
+  EXPECT_TRUE(m.Matches([]{}));
+  EXPECT_FALSE(m.Matches(std::function<void()>()));
 }
+#endif  // GTEST_LANG_CXX11
 
 // Tests that NotNull() describes itself properly.
 TEST(NotNullTest, CanDescribeSelf) {
@@ -3071,6 +3088,19 @@ TEST_F(DoubleNearTest, DoubleNearCanDescribeSelf) {
   EXPECT_EQ("is anything", DescribeNegation(m3));
 }
 
+TEST_F(DoubleNearTest, ExplainsResultWhenMatchFails) {
+  EXPECT_EQ("", Explain(DoubleNear(2.0, 0.1), 2.05));
+  EXPECT_EQ("which is 0.2 from 2", Explain(DoubleNear(2.0, 0.1), 2.2));
+  EXPECT_EQ("which is -0.3 from 2", Explain(DoubleNear(2.0, 0.1), 1.7));
+
+  const string explanation = Explain(DoubleNear(2.1, 1e-10), 2.1 + 1.2e-10);
+  // Different C++ implementations may print floating-point numbers
+  // slightly differently.
+  EXPECT_TRUE(explanation == "which is 1.2e-10 from 2.1" ||  // GCC
+              explanation == "which is 1.2e-010 from 2.1")   // MSVC
+      << " where explanation is \"" << explanation << "\".";
+}
+
 TEST_F(DoubleNearTest, NanSensitiveDoubleNearCanDescribeSelf) {
   Matcher<double> m1 = NanSensitiveDoubleNear(2.0, 0.5);
   EXPECT_EQ("is approximately 2 (absolute error <= 0.5)", Describe(m1));
@@ -3144,7 +3174,6 @@ TEST(PointeeTest, ReferenceToNonConstRawPointer) {
   p = NULL;
   EXPECT_FALSE(m.Matches(p));
 }
-
 
 MATCHER_P(FieldIIs, inner_matcher, "") {
   return ExplainMatchResult(inner_matcher, arg.i, result_listener);

@@ -22,7 +22,7 @@
 
 #if (DE_OS == DE_OS_WIN32)
 #include <Windows.h>
-#elif (DE_OS == DE_OS_UNIX)
+#elif (DE_OS == DE_OS_UNIX) || (DE_OS == DE_OS_OSX)
 #include <sys/unistd.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -48,18 +48,26 @@ const char *g_dEQPDataSearchDirs[] =
     "../third_party/deqp/src/data",
     "deqp_support/data",
     "third_party/deqp/src/data",
-    "../../third_party/deqp/src/data"
+    "../../third_party/deqp/src/data",
+    "../../../third_party/deqp/src/data"
 };
 
 // TODO(jmadill): upstream to dEQP?
 #if (DE_OS == DE_OS_WIN32)
 deBool deIsDir(const char *filename)
 {
-    DWORD attribs = GetFileAttributesA(filename);
-    return (attribs != INVALID_FILE_ATTRIBUTES) &&
-           ((attribs & FILE_ATTRIBUTE_DIRECTORY) > 0);
+    WIN32_FILE_ATTRIBUTE_DATA fileInformation;
+
+    BOOL result = GetFileAttributesExA(filename, GetFileExInfoStandard, &fileInformation);
+    if (result)
+    {
+        DWORD attribs = fileInformation.dwFileAttributes;
+        return (attribs != INVALID_FILE_ATTRIBUTES) && ((attribs & FILE_ATTRIBUTE_DIRECTORY) > 0);
+    }
+
+    return false;
 }
-#elif (DE_OS == DE_OS_UNIX)
+#elif (DE_OS == DE_OS_UNIX) || (DE_OS == DE_OS_OSX)
 deBool deIsDir(const char *filename)
 {
     struct stat st;

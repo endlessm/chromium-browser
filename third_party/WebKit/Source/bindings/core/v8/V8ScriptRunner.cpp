@@ -35,6 +35,7 @@
 #include "core/dom/ExecutionContext.h"
 #include "core/fetch/CachedMetadata.h"
 #include "core/fetch/ScriptResource.h"
+#include "core/inspector/InspectorInstrumentation.h"
 #include "core/inspector/InspectorTraceEvents.h"
 #include "platform/ScriptForbiddenScope.h"
 #include "platform/TraceEvent.h"
@@ -344,7 +345,7 @@ v8::MaybeLocal<v8::Script> V8ScriptRunner::compileScript(const String& code, con
 
 v8::MaybeLocal<v8::Script> V8ScriptRunner::compileScript(v8::Local<v8::String> code, const String& fileName, const String& sourceMapUrl, const TextPosition& scriptStartPosition, v8::Isolate* isolate, ScriptResource* resource, ScriptStreamer* streamer, CachedMetadataHandler* cacheHandler, AccessControlStatus accessControlStatus, V8CacheOptions cacheOptions, bool isInternalScript)
 {
-    TRACE_EVENT1("v8", "v8.compile", "fileName", fileName.utf8());
+    TRACE_EVENT2("v8,devtools.timeline", "v8.compile", "fileName", fileName.utf8(), "data", InspectorCompileScriptEvent::data(fileName, scriptStartPosition));
     TRACE_EVENT_SCOPED_SAMPLING_STATE("v8", "V8Compile");
 
     ASSERT(!streamer || resource);
@@ -388,7 +389,9 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::runCompiledScript(v8::Isolate* isolate
             return v8::MaybeLocal<v8::Value>();
         }
         V8RecursionScope recursionScope(isolate);
+        InspectorInstrumentationCookie cookie = InspectorInstrumentation::willExecuteScript(context, script->GetUnboundScript()->GetId());
         result = script->Run(isolate->GetCurrentContext());
+        InspectorInstrumentation::didExecuteScript(cookie);
     }
 
     crashIfV8IsDead();
@@ -434,8 +437,10 @@ v8::MaybeLocal<v8::Value> V8ScriptRunner::callFunction(v8::Local<v8::Function> f
         return v8::MaybeLocal<v8::Value>();
     }
     V8RecursionScope recursionScope(isolate);
+    InspectorInstrumentationCookie cookie = InspectorInstrumentation::willExecuteScript(context, function->ScriptId());
     v8::MaybeLocal<v8::Value> result = function->Call(isolate->GetCurrentContext(), receiver, argc, args);
     crashIfV8IsDead();
+    InspectorInstrumentation::didExecuteScript(cookie);
     return result;
 }
 

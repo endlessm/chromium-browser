@@ -110,8 +110,10 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
      * @constructor
      * @extends {sglrShaderProgram.ShaderProgram}
      * @param {gluShaderUtil.DataType} outputType
+     * @param {number=} pointSize
      */
-    es3fFboTestUtil.FlatColorShader = function(outputType) {
+    es3fFboTestUtil.FlatColorShader = function(outputType, pointSize) {
+        pointSize = pointSize || 1;
         /** @type {sglrShaderProgram.ShaderProgramDeclaration} */
         var decl = new sglrShaderProgram.ShaderProgramDeclaration();
         /** @type {gluShaderUtil.DataType} */ this.m_outputType = outputType;
@@ -126,6 +128,7 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
             'void main (void)\n' +
             '{\n' +
             ' gl_Position = a_position;\n' +
+            ' gl_PointSize = ' + pointSize + '.0;\n' +
             '}\n'));
         decl.pushFragmentSource(new sglrShaderProgram.FragmentSource(
             '#version 300 es\n' +
@@ -136,6 +139,7 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
             ' o_color = ' + gluShaderUtil.getDataTypeName(outputType) + '(u_color);\n' +
             '}\n'));
         sglrShaderProgram.ShaderProgram.call(this, decl);
+        this.m_pointSize = pointSize;
     };
 
     es3fFboTestUtil.FlatColorShader.prototype = Object.create(sglrShaderProgram.ShaderProgram.prototype);
@@ -162,6 +166,7 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
         for (var packetNdx = 0; packetNdx < numPackets; ++packetNdx) {
             /** @type {rrVertexPacket.VertexPacket} */ var packet = packets[packetNdx];
             packet.position = rrVertexAttrib.readVertexAttrib(inputs[0], packet.instanceNdx, packet.vertexNdx, rrGenericVector.GenericVecType.FLOAT);
+            packet.pointSize = this.m_pointSize;
         }
     };
 
@@ -171,7 +176,7 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
      */
     es3fFboTestUtil.FlatColorShader.prototype.shadeFragments = function(packet, context) {
         var numPackets = packet.length;
-        /** @const {Array<number>} */ var color = deMath.clampVector(this.m_uniforms[0].value, 0, 1);
+        /** @const {Array<number>} */ var color = this.m_uniforms[0].value;
         /** @const {Array<number>} */ var icolor = es3fFboTestUtil.castVectorSaturate(color, tcuTexture.deTypes.deInt32);
         /** @const {Array<number>} */ var uicolor = es3fFboTestUtil.castVectorSaturate(color, tcuTexture.deTypes.deUint32);
 
@@ -481,7 +486,6 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
         var numPackets = packet.length;
         /** @type {Array<number>} */ var outScale = this.m_uniforms[0].value;
         /** @type {Array<number>} */ var outBias = this.m_uniforms[1].value;
-
         var texCoords = [];
         var colors = [];
 
@@ -496,17 +500,20 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
             // sample each texture
             for (var ndx = 0; ndx < this.m_inputs.length; ndx++) {
                 var tex = this.m_uniforms[2 + ndx * 3].sampler;
+                var ratioX = tex.m_view.getWidth() / context.getWidth();
+                var ratioY = tex.m_view.getHeight() / context.getHeight();
+                var lod = Math.floor(Math.log2(Math.max(ratioX, ratioY)));
 
                 /** @const {Array<number>} */ var scale = this.m_uniforms[2 + ndx * 3 + 1].value;
                 /** @const {Array<number>} */ var bias = this.m_uniforms[2 + ndx * 3 + 2].value;
 
-                var tmpColors = tex.sample(texCoords);
+                var tmpColors = tex.sample(texCoords, lod);
 
                 colors = deMath.add(colors, deMath.add(deMath.multiply(tmpColors, scale), bias));
             }
 
             // write out
-            /** @const {Array<number>} */ var color = deMath.clampVector(deMath.add(deMath.multiply(colors, outScale), outBias), 0, 1);
+            /** @const {Array<number>} */ var color = deMath.add(deMath.multiply(colors, outScale), outBias);
             /** @const {Array<number>} */ var icolor = es3fFboTestUtil.castVectorSaturate(color, tcuTexture.deTypes.deInt32);
             /** @const {Array<number>} */ var uicolor = es3fFboTestUtil.castVectorSaturate(color, tcuTexture.deTypes.deUint32);
 
@@ -575,19 +582,30 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
     es3fFboTestUtil.TextureCubeShader.prototype.setFace = function(face) {
         /** @const {Array<Array<number>>} */ var s_cubeTransforms = [
             // Face -X: (x, y, 1) -> (-1, -(2*y-1), +(2*x-1))
-            [[0.0, 0.0, -1.0], [0.0, -2.0, 1.0], [2.0, 0.0, -1.0]],
+            [0, 0, -1,
+             0, -2, 1,
+             2, 0, -1],
             // Face +X: (x, y, 1) -> (+1, -(2*y-1), -(2*x-1))
-            [[0.0, 0.0, 1.0], [0.0, -2.0, 1.0], [-2.0, 0.0, 1.0]],
+            [0, 0, 1,
+             0, -2, 1,
+            -2, 0, 1],
             // Face -Y: (x, y, 1) -> (+(2*x-1), -1, -(2*y-1))
-            [[2.0, 0.0, -1.0], [0.0, 0.0, -1.0], [0.0, -2.0, 1.0]],
+            [2, 0, -1,
+             0, 0, -1,
+             0, -2, 1],
             // Face +Y: (x, y, 1) -> (+(2*x-1), +1, +(2*y-1))
-            [[2.0, 0.0, -1.0], [0.0, 0.0, 1.0], [0.0, 2.0, -1.0]],
+            [2, 0, -1,
+             0, 0, 1,
+             0, 2, -1],
             // Face -Z: (x, y, 1) -> (-(2*x-1), -(2*y-1), -1)
-            [[-2.0, 0.0, 1.0], [0.0, -2.0, 1.0], [0.0, 0.0, -1.0]],
+            [-2, 0, 1,
+             0, -2, 1,
+              0, 0, -1],
             // Face +Z: (x, y, 1) -> (+(2*x-1), -(2*y-1), +1)
-            [[2.0, 0.0, -1.0], [0.0, -2.0, 1.0], [0.0, 0.0, 1.0]]];
-        DE_ASSERT(deMath.deInBounds32(face, 0, Object.keys(tcuTexture.CubeFace).length));
-        this.m_coordMat = /** @type {tcuMatrix.Mat3} */ (tcuMatrix.matrixFromVector(3, 3, s_cubeTransforms[face]));
+            [2, 0, -1,
+             0, -2, 1,
+             0, 0, 1]];
+        this.m_coordMat = /** @type {tcuMatrix.Mat3} */ (tcuMatrix.matrixFromArray(3, 3, s_cubeTransforms[face]));
     };
 
     /**
@@ -618,7 +636,7 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
      * @param {number} numPackets
      */
     es3fFboTestUtil.TextureCubeShader.prototype.shadeVertices = function(inputs, packets, numPackets) {
-        /** @type {tcuMatrix.Matrix} */ var texCoordMat = tcuMatrix.matrixFromVector(3, 3, this.m_uniforms[0].value);
+    /** @type {tcuMatrix.Matrix} */ var texCoordMat = tcuMatrix.matrixFromArray(3, 3, this.m_uniforms[0].value);
 
         for (var packetNdx = 0; packetNdx < numPackets; ++packetNdx) {
             /** @type {rrVertexPacket.VertexPacket} */ var packet = packets[packetNdx];
@@ -638,21 +656,22 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
      */
     es3fFboTestUtil.TextureCubeShader.prototype.shadeFragments = function(packet, context) {
         var numPackets = packet.length;
-        var sval = this.m_uniforms[2].value;
-        var bval = this.m_uniforms[3].value;
-        /** @const {Array<number>} */ var texScale = [sval, sval, sval, sval];
-        /** @const {Array<number>} */ var texBias = [bval, bval, bval, bval];
+        /** @const {Array<number>} */ var texScale = this.m_uniforms[2].value;
+        /** @const {Array<number>} */ var texBias = this.m_uniforms[3].value;
 
         var texCoords = [];
         var colors = [];
 
         for (var packetNdx = 0; packetNdx < numPackets; ++packetNdx) {
             var tex = this.m_uniforms[1].sampler;
+            var ratioX = tex.m_view.getSize() / context.getWidth();
+            var ratioY = tex.m_view.getSize() / context.getHeight();
+            var lod = Math.floor(Math.log2(Math.max(ratioX, ratioY)));
 
             var coord = rrShadingContext.readTriangleVarying(packet[packetNdx], context, 0);
             texCoords = [coord[0], coord[1], coord[2]];
 
-            colors = tex.sample(texCoords);
+            colors = tex.sample(texCoords, lod);
 
             var color = deMath.clampVector(deMath.add(deMath.multiply(colors, texScale), texBias), 0, 1);
             var icolor = es3fFboTestUtil.castVectorSaturate(color, tcuTexture.deTypes.deInt32);
@@ -773,11 +792,14 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
 
         for (var packetNdx = 0; packetNdx < numPackets; ++packetNdx) {
             var tex = this.m_uniforms[0].sampler;
+            var ratioX = tex.m_view.getWidth() / context.getWidth();
+            var ratioY = tex.m_view.getHeight() / context.getHeight();
+            var lod = Math.floor(Math.log2(Math.max(ratioX, ratioY)));
 
             /** @const {Array<number>} */ var coord = rrShadingContext.readTriangleVarying(packet[packetNdx], context, 0);
             texCoords = [coord[0], coord[1], layer];
 
-            colors = tex.sample(texCoords);
+            colors = tex.sample(texCoords, lod);
 
             /** @const {Array<number>} */ var color = deMath.clampVector(deMath.add(deMath.multiply(colors, texScale), texBias), 0, 1);
             /** @const {Array<number>} */ var icolor = es3fFboTestUtil.castVectorSaturate(color, tcuTexture.deTypes.deInt32);
@@ -899,11 +921,15 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
 
         for (var packetNdx = 0; packetNdx < numPackets; ++packetNdx) {
             var tex = this.m_uniforms[0].sampler;
+            var ratioX = tex.m_view.getWidth() / context.getWidth();
+            var ratioY = tex.m_view.getHeight() / context.getHeight();
+            // TODO: what to do with Z coordinate?
+            var lod = Math.floor(Math.log2(Math.max(ratioX, ratioY)));
 
             var coord = rrShadingContext.readTriangleVarying(packet[packetNdx], context, 0);
             texCoords = [coord[0], coord[1], depth];
 
-            colors = tex.sample(texCoords);
+            colors = tex.sample(texCoords, lod);
 
             /** @const {Array<number>} */ var color = deMath.clampVector(deMath.add(deMath.multiply(colors, texScale), texBias), 0, 1);
             /** @const {Array<number>} */ var icolor = es3fFboTestUtil.castVectorSaturate(color, tcuTexture.deTypes.deInt32);
@@ -1093,16 +1119,16 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
      * @return {gluShaderUtil.DataType}
      */
     es3fFboTestUtil.getFragmentOutputType = function(format) {
-        switch (tcuTextureUtil.getTextureChannelClass(format.type)) {
-            case tcuTextureUtil.TextureChannelClass.FLOATING_POINT:
-            case tcuTextureUtil.TextureChannelClass.SIGNED_FIXED_POINT:
-            case tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT:
+        switch (tcuTexture.getTextureChannelClass(format.type)) {
+            case tcuTexture.TextureChannelClass.FLOATING_POINT:
+            case tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT:
+            case tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT:
                 return gluShaderUtil.DataType.FLOAT_VEC4;
 
-            case tcuTextureUtil.TextureChannelClass.UNSIGNED_INTEGER:
+            case tcuTexture.TextureChannelClass.UNSIGNED_INTEGER:
                 return gluShaderUtil.DataType.UINT_VEC4;
 
-            case tcuTextureUtil.TextureChannelClass.SIGNED_INTEGER:
+            case tcuTexture.TextureChannelClass.SIGNED_INTEGER:
                 return gluShaderUtil.DataType.INT_VEC4;
 
             default:
@@ -1115,18 +1141,18 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
      * @return {tcuTexture.TextureFormat}
      */
     es3fFboTestUtil.getFramebufferReadFormat = function(format) {
-        switch (tcuTextureUtil.getTextureChannelClass(format.type)) {
-            case tcuTextureUtil.TextureChannelClass.FLOATING_POINT:
+        switch (tcuTexture.getTextureChannelClass(format.type)) {
+            case tcuTexture.TextureChannelClass.FLOATING_POINT:
                 return new tcuTexture.TextureFormat(tcuTexture.ChannelOrder.RGBA, tcuTexture.ChannelType.FLOAT);
 
-            case tcuTextureUtil.TextureChannelClass.SIGNED_FIXED_POINT:
-            case tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT:
+            case tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT:
+            case tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT:
                 return new tcuTexture.TextureFormat(tcuTexture.ChannelOrder.RGBA, tcuTexture.ChannelType.UNORM_INT8);
 
-            case tcuTextureUtil.TextureChannelClass.UNSIGNED_INTEGER:
+            case tcuTexture.TextureChannelClass.UNSIGNED_INTEGER:
                 return new tcuTexture.TextureFormat(tcuTexture.ChannelOrder.RGBA, tcuTexture.ChannelType.UNSIGNED_INT32);
 
-            case tcuTextureUtil.TextureChannelClass.SIGNED_INTEGER:
+            case tcuTexture.TextureChannelClass.SIGNED_INTEGER:
                 return new tcuTexture.TextureFormat(tcuTexture.ChannelOrder.RGBA, tcuTexture.ChannelType.SIGNED_INT32);
 
             default:
@@ -1140,21 +1166,21 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
      * @param {Array<number>} value
      */
     es3fFboTestUtil.clearColorBuffer = function(ctx, format, value) {
-        /** @const @type {tcuTextureUtil.TextureChannelClass} */
-        var fmtClass = tcuTextureUtil.getTextureChannelClass(format.type);
+        /** @const @type {tcuTexture.TextureChannelClass} */
+        var fmtClass = tcuTexture.getTextureChannelClass(format.type);
 
         switch (fmtClass) {
-            case tcuTextureUtil.TextureChannelClass.FLOATING_POINT:
-            case tcuTextureUtil.TextureChannelClass.SIGNED_FIXED_POINT:
-            case tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT:
+            case tcuTexture.TextureChannelClass.FLOATING_POINT:
+            case tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT:
+            case tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT:
                 ctx.clearBufferfv(gl.COLOR, 0, value);
                 break;
 
-            case tcuTextureUtil.TextureChannelClass.UNSIGNED_INTEGER:
+            case tcuTexture.TextureChannelClass.UNSIGNED_INTEGER:
                 ctx.clearBufferuiv(gl.COLOR, 0, value);
                 break;
 
-            case tcuTextureUtil.TextureChannelClass.SIGNED_INTEGER:
+            case tcuTexture.TextureChannelClass.SIGNED_INTEGER:
                 ctx.clearBufferiv(gl.COLOR, 0, value);
                 break;
 
@@ -1253,7 +1279,8 @@ es3fFboTestUtil.FboIncompleteException.prototype.getReason = function() {return 
         /** @type {gluTextureUtil.TransferFormat} */ var transferFmt = gluTextureUtil.getTransferFormat(readFormat);
         /** @type {number} */ var alignment = 4; // \note gl.PACK_ALIGNMENT = 4 is assumed.
         /** @type {number} */ var rowSize = deMath.deAlign32(readFormat.getPixelSize() * width, alignment);
-        var data = new Uint8Array(rowSize * height);
+        var typedArrayType = tcuTexture.getTypedArray(readFormat.type);
+        var data = new typedArrayType(rowSize * height);
         ctx.readPixels(x, y, width, height, transferFmt.format, transferFmt.dataType, data);
 
         // Convert to surface.

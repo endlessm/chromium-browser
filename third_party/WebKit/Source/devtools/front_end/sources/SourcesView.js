@@ -291,8 +291,6 @@ WebInspector.SourcesView.prototype = {
         var project = event.data;
         var uiSourceCodes = project.uiSourceCodes();
         this._removeUISourceCodes(uiSourceCodes);
-        if (project.type() === WebInspector.projectTypes.Network)
-            this._editorContainer.reset();
     },
 
     _updateScriptViewToolbarItems: function()
@@ -651,10 +649,10 @@ WebInspector.SourcesView.prototype = {
         switch (uiSourceCode.contentType()) {
         case WebInspector.resourceTypes.Document:
         case WebInspector.resourceTypes.Script:
-            WebInspector.JavaScriptOutlineDialog.show(this, uiSourceCode, this.showSourceLocation.bind(this, uiSourceCode));
+            WebInspector.JavaScriptOutlineDialog.show(uiSourceCode, this.showSourceLocation.bind(this, uiSourceCode));
             return true;
         case WebInspector.resourceTypes.Stylesheet:
-            WebInspector.StyleSheetOutlineDialog.show(this, uiSourceCode, this.showSourceLocation.bind(this, uiSourceCode));
+            WebInspector.StyleSheetOutlineDialog.show(uiSourceCode, this.showSourceLocation.bind(this, uiSourceCode));
             return true;
         default:
             // We don't want default browser shortcut to be executed, so pretend to handle this event.
@@ -672,7 +670,7 @@ WebInspector.SourcesView.prototype = {
         var defaultScores = new Map();
         for (var i = 1; i < uiSourceCodes.length; ++i) // Skip current element
             defaultScores.set(uiSourceCodes[i], uiSourceCodes.length - i);
-        WebInspector.OpenResourceDialog.show(this, this.element, query, defaultScores);
+        WebInspector.OpenResourceDialog.show(this, query, defaultScores);
     },
 
     /**
@@ -810,16 +808,18 @@ WebInspector.SourcesView.SwitchFileActionDelegate.prototype = {
      * @override
      * @param {!WebInspector.Context} context
      * @param {string} actionId
+     * @return {boolean}
      */
     handleAction: function(context, actionId)
     {
         var sourcesView = WebInspector.context.flavor(WebInspector.SourcesView);
         var currentUISourceCode = sourcesView.currentUISourceCode();
         if (!currentUISourceCode)
-            return;
+            return false;
         var nextUISourceCode = WebInspector.SourcesView.SwitchFileActionDelegate._nextFile(currentUISourceCode);
         if (!nextUISourceCode)
-            return;
+            return false;
         sourcesView.showSourceLocation(nextUISourceCode);
+        return true;
     }
 }

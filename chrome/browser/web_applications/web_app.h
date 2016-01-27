@@ -47,6 +47,7 @@ struct ShortcutInfo {
   // is still used to generate the app id (windows app id, not chrome app id).
   std::string extension_id;
   bool is_platform_app;
+  bool from_bookmark;
   base::string16 title;
   base::string16 description;
   base::FilePath extension_path;
@@ -77,7 +78,7 @@ struct ShortcutInfo {
 enum ApplicationsMenuLocation {
   APP_MENU_LOCATION_NONE,
   APP_MENU_LOCATION_ROOT,
-  APP_MENU_LOCATION_SUBDIR_CHROME,
+  APP_MENU_LOCATION_SUBDIR_CHROME_DEPRECATED,  // TODO(bcwhite) remove this
   APP_MENU_LOCATION_SUBDIR_CHROMEAPPS,
   APP_MENU_LOCATION_HIDDEN,
 };

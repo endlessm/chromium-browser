@@ -45,7 +45,7 @@ static size_t maximumSingleResourceContentSize = 10 * 1000 * 1000;
 namespace blink {
 
 
-PassRefPtrWillBeRawPtr<XHRReplayData> XHRReplayData::create(ExecutionContext* executionContext, const AtomicString& method, const KURL& url, bool async, PassRefPtr<FormData> formData, bool includeCredentials)
+PassRefPtrWillBeRawPtr<XHRReplayData> XHRReplayData::create(ExecutionContext* executionContext, const AtomicString& method, const KURL& url, bool async, PassRefPtr<EncodedFormData> formData, bool includeCredentials)
 {
     return adoptRefWillBeNoop(new XHRReplayData(executionContext, method, url, async, formData, includeCredentials));
 }
@@ -55,7 +55,7 @@ void XHRReplayData::addHeader(const AtomicString& key, const AtomicString& value
     m_headers.set(key, value);
 }
 
-XHRReplayData::XHRReplayData(ExecutionContext* executionContext, const AtomicString& method, const KURL& url, bool async, PassRefPtr<FormData> formData, bool includeCredentials)
+XHRReplayData::XHRReplayData(ExecutionContext* executionContext, const AtomicString& method, const KURL& url, bool async, PassRefPtr<EncodedFormData> formData, bool includeCredentials)
     : ContextLifecycleObserver(executionContext)
     , m_method(method)
     , m_url(url)
@@ -80,6 +80,12 @@ NetworkResourcesData::ResourceData::ResourceData(const String& requestId, const 
     , m_httpStatusCode(0)
     , m_cachedResource(nullptr)
 {
+}
+
+DEFINE_TRACE(NetworkResourcesData::ResourceData)
+{
+    visitor->trace(m_xhrReplayData);
+    visitor->trace(m_cachedResource);
 }
 
 void NetworkResourcesData::ResourceData::setContent(const String& content, bool base64Encoded)
@@ -152,7 +158,16 @@ NetworkResourcesData::NetworkResourcesData()
 
 NetworkResourcesData::~NetworkResourcesData()
 {
+#if !ENABLE(OILPAN)
     clear();
+#endif
+}
+
+DEFINE_TRACE(NetworkResourcesData)
+{
+#if ENABLE(OILPAN)
+    visitor->trace(m_requestIdToResourceDataMap);
+#endif
 }
 
 void NetworkResourcesData::resourceCreated(const String& requestId, const String& loaderId)
@@ -295,9 +310,9 @@ void NetworkResourcesData::setXHRReplayData(const String& requestId, XHRReplayDa
     resourceData->setXHRReplayData(xhrReplayData);
 }
 
-Vector<NetworkResourcesData::ResourceData*> NetworkResourcesData::resources()
+WillBeHeapVector<RawPtrWillBeMember<NetworkResourcesData::ResourceData>> NetworkResourcesData::resources()
 {
-    Vector<ResourceData*> result;
+    WillBeHeapVector<RawPtrWillBeMember<ResourceData>> result;
     for (auto& request : m_requestIdToResourceDataMap)
         result.append(request.value);
     return result;
@@ -328,8 +343,10 @@ void NetworkResourcesData::clear(const String& preservedLoaderId)
         ResourceData* resourceData = resource.value;
         if (!preservedLoaderId.isNull() && resourceData->loaderId() == preservedLoaderId)
             preservedMap.set(resource.key, resource.value);
+#if !ENABLE(OILPAN)
         else
             delete resourceData;
+#endif
     }
     m_requestIdToResourceDataMap.swap(preservedMap);
 
@@ -359,7 +376,9 @@ void NetworkResourcesData::ensureNoDataForRequestId(const String& requestId)
         return;
     if (resourceData->hasContent() || resourceData->hasData())
         m_contentSize -= resourceData->evictContent();
+#if !ENABLE(OILPAN)
     delete resourceData;
+#endif
     m_requestIdToResourceDataMap.remove(requestId);
 }
 
@@ -378,4 +397,3 @@ bool NetworkResourcesData::ensureFreeSpace(size_t size)
 }
 
 } // namespace blink
-

@@ -10,13 +10,15 @@ namespace content {
 
 // static
 InProcessIOSurfaceManager* InProcessIOSurfaceManager::GetInstance() {
-  return Singleton<InProcessIOSurfaceManager,
-                   LeakySingletonTraits<InProcessIOSurfaceManager>>::get();
+  return base::Singleton<
+      InProcessIOSurfaceManager,
+      base::LeakySingletonTraits<InProcessIOSurfaceManager>>::get();
 }
 
-bool InProcessIOSurfaceManager::RegisterIOSurface(int io_surface_id,
-                                                  int client_id,
-                                                  IOSurfaceRef io_surface) {
+bool InProcessIOSurfaceManager::RegisterIOSurface(
+    gfx::IOSurfaceId io_surface_id,
+    int client_id,
+    IOSurfaceRef io_surface) {
   base::AutoLock lock(lock_);
 
   DCHECK(io_surfaces_.find(io_surface_id) == io_surfaces_.end());
@@ -26,15 +28,17 @@ bool InProcessIOSurfaceManager::RegisterIOSurface(int io_surface_id,
   return true;
 }
 
-void InProcessIOSurfaceManager::UnregisterIOSurface(int io_surface_id,
-                                                    int client_id) {
+void InProcessIOSurfaceManager::UnregisterIOSurface(
+    gfx::IOSurfaceId io_surface_id,
+    int client_id) {
   base::AutoLock lock(lock_);
 
   DCHECK(io_surfaces_.find(io_surface_id) != io_surfaces_.end());
   io_surfaces_.erase(io_surface_id);
 }
 
-IOSurfaceRef InProcessIOSurfaceManager::AcquireIOSurface(int io_surface_id) {
+IOSurfaceRef InProcessIOSurfaceManager::AcquireIOSurface(
+    gfx::IOSurfaceId io_surface_id) {
   base::AutoLock lock(lock_);
 
   DCHECK(io_surfaces_.find(io_surface_id) != io_surfaces_.end());

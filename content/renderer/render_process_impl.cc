@@ -43,6 +43,12 @@ RenderProcessImpl::RenderProcessImpl()
   }
 #endif
 
+  std::string scavenge_reclaim_unmodified_flag(
+      "--scavenge_reclaim_unmodified_objects");
+  v8::V8::SetFlagsFromString(
+      scavenge_reclaim_unmodified_flag.c_str(),
+      static_cast<int>(scavenge_reclaim_unmodified_flag.size()));
+
   if (base::SysInfo::IsLowEndDevice()) {
     std::string optimize_flag("--optimize-for-size");
     v8::V8::SetFlagsFromString(optimize_flag.c_str(),
@@ -55,6 +61,13 @@ RenderProcessImpl::RenderProcessImpl()
     std::string flags(
         command_line.GetSwitchValueASCII(switches::kJavaScriptFlags));
     v8::V8::SetFlagsFromString(flags.c_str(), static_cast<int>(flags.size()));
+  }
+
+  if (command_line.HasSwitch(
+          switches::kEnableExperimentalWebPlatformFeatures)) {
+    std::string extras_flag("--experimental_extras");
+    v8::V8::SetFlagsFromString(extras_flag.c_str(),
+                               static_cast<int>(extras_flag.size()));
   }
 
   SiteIsolationStatsGatherer::SetEnabled(

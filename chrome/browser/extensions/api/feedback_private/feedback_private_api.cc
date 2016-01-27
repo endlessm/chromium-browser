@@ -89,8 +89,8 @@ void FeedbackPrivateAPI::RequestFeedback(
     args->Append(info.ToValue().release());
 
     scoped_ptr<Event> event(new Event(
-        events::UNKNOWN, feedback_private::OnFeedbackRequested::kEventName,
-        args.Pass()));
+        events::FEEDBACK_PRIVATE_ON_FEEDBACK_REQUESTED,
+        feedback_private::OnFeedbackRequested::kEventName, args.Pass()));
     event->restrict_to_browser_context = browser_context_;
 
     EventRouter::Get(browser_context_)
@@ -142,7 +142,7 @@ bool FeedbackPrivateGetUserEmailFunction::RunSync() {
   SigninManagerBase* signin_manager =
       SigninManagerFactory::GetForProfile(GetProfile());
   SetResult(new base::StringValue(
-      signin_manager ? signin_manager->GetAuthenticatedUsername()
+      signin_manager ? signin_manager->GetAuthenticatedAccountInfo().email
                      : std::string()));
   return true;
 }

@@ -7,14 +7,13 @@ import itertools
 import logging
 import os
 import sys
+import tempfile
 import unittest
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT_DIR)
 
 from utils import subprocess42
-
-OUTPUT = os.path.join(ROOT_DIR, 'tests', 'subprocess42', 'output.py')
 
 
 # Disable pre-set unbuffered output to not interfere with the testing being done
@@ -41,6 +40,48 @@ SCRIPT = (
   '    print(\'ioerror\');\n'
   'print(\'bye\')') % (
     'signal.SIGBREAK' if sys.platform == 'win32' else 'signal.SIGTERM')
+
+
+OUTPUT_SCRIPT = r"""
+import re
+import sys
+import time
+
+def main():
+  try:
+    for command in sys.argv[1:]:
+      if re.match(r'^[0-9\.]+$', command):
+        time.sleep(float(command))
+        continue
+
+      if command.startswith('out_'):
+        pipe = sys.stdout
+      elif command.startswith('err_'):
+        pipe = sys.stderr
+      else:
+        return 1
+
+      command = command[4:]
+      if command == 'print':
+        pipe.write('printing')
+      elif command == 'sleeping':
+        pipe.write('Sleeping.\n')
+      elif command == 'slept':
+        pipe.write('Slept.\n')
+      elif command == 'lf':
+        pipe.write('\n')
+      elif command == 'flush':
+        pipe.flush()
+      else:
+        return 1
+    return 0
+  except OSError:
+    return 0
+
+
+if __name__ == '__main__':
+  sys.exit(main())
+"""
 
 
 def to_native_eol(string):
@@ -94,10 +135,31 @@ def get_output_sleep_proc_err(sleep_duration):
 
 
 class Subprocess42Test(unittest.TestCase):
-  def test_call_with_timeout(self):
+  def setUp(self):
+    self._output_script = None
+    super(Subprocess42Test, self).setUp()
+
+  def tearDown(self):
+    try:
+      if self._output_script:
+        os.remove(self._output_script)
+    finally:
+      super(Subprocess42Test, self).tearDown()
+
+  @property
+  def output_script(self):
+    if not self._output_script:
+      handle, self._output_script = tempfile.mkstemp(
+          prefix='subprocess42', suffix='.py')
+      os.write(handle, OUTPUT_SCRIPT)
+      os.close(handle)
+    return self._output_script
+
+  def test_communicate_timeout(self):
     timedout = 1 if sys.platform == 'win32' else -9
     # Format is:
     # ( (cmd, stderr_pipe, timeout), (stdout, stderr, returncode) ), ...
+    # See OUTPUT script for the meaning of the commands.
     test_data = [
       # 0 means no timeout, like None.
       (
@@ -115,8 +177,8 @@ class Subprocess42Test(unittest.TestCase):
 
       # On a loaded system, this can be tight.
       (
-        (['out_sleeping', 'out_flush', '100', 'out_slept'], None, 0.5),
-        ('Sleeping.\n', '', timedout),
+        (['out_sleeping', 'out_flush', '60', 'out_slept'], None, 0.5),
+        ('Sleeping.\n', None, timedout),
       ),
       (
         (
@@ -124,7 +186,7 @@ class Subprocess42Test(unittest.TestCase):
           # OSes. This means the likelihood of missing stderr output from a
           # killed child process on Windows is much higher than on other OSes.
           [
-            'out_sleeping', 'out_flush', 'err_print', 'err_flush', '100',
+            'out_sleeping', 'out_flush', 'err_print', 'err_flush', '60',
             'out_slept',
           ],
           subprocess42.PIPE,
@@ -133,17 +195,28 @@ class Subprocess42Test(unittest.TestCase):
       ),
 
       (
-        (['out_sleeping', '0.001', 'out_slept'], None, 100),
-        ('Sleeping.\nSlept.\n', '', 0),
+        (['out_sleeping', '0.001', 'out_slept'], None, 60),
+        ('Sleeping.\nSlept.\n', None, 0),
       ),
     ]
-    for i, (data, expected) in enumerate(test_data):
-      stdout, stderr, code, duration = subprocess42.call_with_timeout(
-          [sys.executable, OUTPUT] + data[0],
+    for i, ((args, errpipe, timeout), expected) in enumerate(test_data):
+      proc = subprocess42.Popen(
+          [sys.executable, self.output_script] + args,
           env=ENV,
-          stderr=data[1],
-          timeout=data[2])
-      self.assertTrue(duration > 0.0001, (data, duration))
+          stdout=subprocess42.PIPE,
+          stderr=errpipe)
+      try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        code = proc.returncode
+      except subprocess42.TimeoutExpired as e:
+        stdout = e.output
+        stderr = e.stderr
+        self.assertTrue(proc.kill())
+        code = proc.wait()
+      finally:
+        duration = proc.duration()
+      expected_duration = 0.0001 if not timeout or timeout == 60 else timeout
+      self.assertTrue(duration > expected_duration, (i, expected_duration))
       self.assertEqual(
           (i, stdout, stderr, code),
           (i,
@@ -152,16 +225,112 @@ class Subprocess42Test(unittest.TestCase):
             expected[2]))
 
       # Try again with universal_newlines=True.
-      stdout, stderr, code, duration = subprocess42.call_with_timeout(
-          [sys.executable, OUTPUT] + data[0],
+      proc = subprocess42.Popen(
+          [sys.executable, self.output_script] + args,
           env=ENV,
-          stderr=data[1],
-          timeout=data[2],
+          stdout=subprocess42.PIPE,
+          stderr=errpipe,
           universal_newlines=True)
-      self.assertTrue(duration > 0.0001, (data, duration))
+      try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        code = proc.returncode
+      except subprocess42.TimeoutExpired as e:
+        stdout = e.output
+        stderr = e.stderr
+        self.assertTrue(proc.kill())
+        code = proc.wait()
+      finally:
+        duration = proc.duration()
+      self.assertTrue(duration > expected_duration, (i, expected_duration))
       self.assertEqual(
           (i, stdout, stderr, code),
           (i,) + expected)
+
+  def test_communicate_input(self):
+    cmd = [
+      sys.executable, '-u', '-c',
+      'import sys; sys.stdout.write(sys.stdin.read(5))',
+    ]
+    proc = subprocess42.Popen(
+        cmd, stdin=subprocess42.PIPE, stdout=subprocess42.PIPE)
+    out, err = proc.communicate(input='12345')
+    self.assertEqual('12345', out)
+    self.assertEqual(None, err)
+
+  def test_communicate_input_timeout(self):
+    cmd = [sys.executable, '-u', '-c', 'import time; time.sleep(60)']
+    proc = subprocess42.Popen(cmd, stdin=subprocess42.PIPE)
+    try:
+      proc.communicate(input='12345', timeout=0.5)
+      self.fail()
+    except subprocess42.TimeoutExpired as e:
+      self.assertEqual(None, e.output)
+      self.assertEqual(None, e.stderr)
+      self.assertTrue(proc.kill())
+      proc.wait()
+      self.assertLess(0.5, proc.duration())
+
+  def test_communicate_input_stdout_timeout(self):
+    cmd = [
+      sys.executable, '-u', '-c',
+      'import sys, time; sys.stdout.write(sys.stdin.read(5)); time.sleep(60)',
+    ]
+    proc = subprocess42.Popen(
+        cmd, stdin=subprocess42.PIPE, stdout=subprocess42.PIPE)
+    try:
+      proc.communicate(input='12345', timeout=0.5)
+      self.fail()
+    except subprocess42.TimeoutExpired as e:
+      self.assertEqual('12345', e.output)
+      self.assertEqual(None, e.stderr)
+      self.assertTrue(proc.kill())
+      proc.wait()
+      self.assertLess(0.5, proc.duration())
+
+  def test_communicate_timeout_no_pipe(self):
+    # In this case, it's effectively a wait() call.
+    cmd = [sys.executable, '-u', '-c', 'import time; time.sleep(60)']
+    proc = subprocess42.Popen(cmd)
+    try:
+      proc.communicate(timeout=0.5)
+      self.fail()
+    except subprocess42.TimeoutExpired as e:
+      self.assertEqual(None, e.output)
+      self.assertEqual(None, e.stderr)
+      self.assertTrue(proc.kill())
+      proc.wait()
+      self.assertLess(0.5, proc.duration())
+
+  def test_call(self):
+    cmd = [sys.executable, '-u', '-c', 'import sys; sys.exit(0)']
+    self.assertEqual(0, subprocess42.call(cmd))
+
+    cmd = [sys.executable, '-u', '-c', 'import sys; sys.exit(1)']
+    self.assertEqual(1, subprocess42.call(cmd))
+
+  def test_check_call(self):
+    cmd = [sys.executable, '-u', '-c', 'import sys; sys.exit(0)']
+    self.assertEqual(0, subprocess42.check_call(cmd))
+
+    cmd = [sys.executable, '-u', '-c', 'import sys; sys.exit(1)']
+    try:
+      self.assertEqual(1, subprocess42.check_call(cmd))
+      self.fail()
+    except subprocess42.CalledProcessError as e:
+      self.assertEqual(None, e.output)
+
+  def test_check_output(self):
+    cmd = [sys.executable, '-u', '-c', 'print(\'.\')']
+    self.assertEqual(
+        '.\n',
+        subprocess42.check_output(cmd, universal_newlines=True))
+
+    cmd = [sys.executable, '-u', '-c', 'import sys; print(\'.\'); sys.exit(1)']
+    try:
+      subprocess42.check_output(cmd, universal_newlines=True)
+      self.fail()
+    except subprocess42.CalledProcessError as e:
+      self.assertEqual('.\n', e.output)
 
   def test_recv_any(self):
     # Test all pipe direction and output scenarios.
@@ -231,7 +400,7 @@ class Subprocess42Test(unittest.TestCase):
       },
     ]
     for i, testcase in enumerate(combinations):
-      cmd = [sys.executable, OUTPUT] + testcase['cmd']
+      cmd = [sys.executable, self.output_script] + testcase['cmd']
       p = subprocess42.Popen(
           cmd, env=ENV, stdout=testcase['stdout'], stderr=testcase['stderr'])
       actual = {}
@@ -281,22 +450,26 @@ class Subprocess42Test(unittest.TestCase):
         try:
           actual = ''
           proc = get_output_sleep_proc(flush, unbuffered, duration)
-          got_none = False
-          while True:
-            p, data = proc.recv_any(timeout=0)
-            if not p:
-              if proc.poll() is None:
-                got_none = True
-                continue
-              break
-            self.assertEqual('stdout', p)
-            self.assertTrue(data, (p, data))
-            actual += data
+          try:
+            got_none = False
+            while True:
+              p, data = proc.recv_any(timeout=0)
+              if not p:
+                if proc.poll() is None:
+                  got_none = True
+                  continue
+                break
+              self.assertEqual('stdout', p)
+              self.assertTrue(data, (p, data))
+              actual += data
 
-          self.assertEqual('A\nB\n', actual)
-          self.assertEqual(0, proc.returncode)
-          self.assertEqual(True, got_none)
-          break
+            self.assertEqual('A\nB\n', actual)
+            self.assertEqual(0, proc.returncode)
+            self.assertEqual(True, got_none)
+            break
+          finally:
+            proc.kill()
+            proc.wait()
         except AssertionError:
           if duration != 2:
             print('Sleeping rocks. Trying slower.')
@@ -323,123 +496,109 @@ class Subprocess42Test(unittest.TestCase):
     for duration in (0.05, 0.1, 0.5, 2):
       try:
         proc = get_output_sleep_proc(True, True, duration)
-        expected = [
-          'A\n',
-          'B\n',
-        ]
-        for p, data in proc.yield_any():
-          self.assertEqual('stdout', p)
-          self.assertEqual(expected.pop(0), data)
-        self.assertEqual(0, proc.returncode)
-        self.assertEqual([], expected)
-        break
+        try:
+          expected = [
+            'A\n',
+            'B\n',
+          ]
+          for p, data in proc.yield_any():
+            self.assertEqual('stdout', p)
+            self.assertEqual(expected.pop(0), data)
+          self.assertEqual(0, proc.returncode)
+          self.assertEqual([], expected)
+          break
+        finally:
+          proc.kill()
+          proc.wait()
       except AssertionError:
         if duration != 2:
           print('Sleeping rocks. Trying slower.')
           continue
         raise
 
-  def test_yield_any_hard_timeout(self):
-    # Kill the process due to hard_timeout.
-    proc = get_output_sleep_proc(True, True, 10)
-    got_none = False
-    actual = ''
-    for p, data in proc.yield_any(hard_timeout=1):
-      if not data:
-        got_none = True
-        continue
-      self.assertEqual('stdout', p)
-      actual += data
-    if sys.platform == 'win32':
-      self.assertEqual(1, proc.returncode)
-    else:
-      self.assertEqual(-9, proc.returncode)
-    self.assertEqual('A\n', actual)
-    # No None is returned, since it's not using soft_timeout.
-    self.assertEqual(False, got_none)
-
-  def test_yield_any_hard_timeout_callable(self):
-    # Kill the process due to hard_timeout.
-    proc = get_output_sleep_proc(True, True, 10)
-    got_none = False
-    actual = ''
-    called = []
-    def hard_timeout():
-      called.append(1)
-      return 1
-    for p, data in proc.yield_any(hard_timeout=hard_timeout):
-      if not data:
-        got_none = True
-        continue
-      self.assertEqual('stdout', p)
-      actual += data
-    if sys.platform == 'win32':
-      self.assertEqual(1, proc.returncode)
-    else:
-      self.assertEqual(-9, proc.returncode)
-    self.assertEqual('A\n', actual)
-    # No None is returned, since it's not using soft_timeout.
-    self.assertEqual(False, got_none)
-    self.assertTrue(called)
-
-  def test_yield_any_soft_timeout_0(self):
+  def test_yield_any_timeout_0(self):
     # rec_any() is expected to timeout and return None with no data pending at
     # least once, due to the sleep of 'duration' and the use of timeout=0.
     for duration in (0.05, 0.1, 0.5, 2):
       try:
         proc = get_output_sleep_proc(True, True, duration)
-        expected = [
-          'A\n',
-          'B\n',
-        ]
-        got_none = False
-        for p, data in proc.yield_any(soft_timeout=0):
-          if not p:
-            got_none = True
-            continue
-          self.assertEqual('stdout', p)
-          self.assertEqual(expected.pop(0), data)
-        self.assertEqual(0, proc.returncode)
-        self.assertEqual([], expected)
-        self.assertEqual(True, got_none)
-        break
+        try:
+          expected = [
+            'A\n',
+            'B\n',
+          ]
+          got_none = False
+          for p, data in proc.yield_any(timeout=0):
+            if not p:
+              got_none = True
+              continue
+            self.assertEqual('stdout', p)
+            self.assertEqual(expected.pop(0), data)
+          self.assertEqual(0, proc.returncode)
+          self.assertEqual([], expected)
+          self.assertEqual(True, got_none)
+          break
+        finally:
+          proc.kill()
+          proc.wait()
       except AssertionError:
         if duration != 2:
           print('Sleeping rocks. Trying slower.')
           continue
         raise
 
-  def test_yield_any_soft_timeout_0_called(self):
+  def test_yield_any_timeout_0_called(self):
     # rec_any() is expected to timeout and return None with no data pending at
     # least once, due to the sleep of 'duration' and the use of timeout=0.
     for duration in (0.05, 0.1, 0.5, 2):
       try:
         proc = get_output_sleep_proc(True, True, duration)
-        expected = [
-          'A\n',
-          'B\n',
-        ]
-        got_none = False
-        called = []
-        def soft_timeout():
-          called.append(0)
-          return 0
-        for p, data in proc.yield_any(soft_timeout=soft_timeout):
-          if not p:
-            got_none = True
-            continue
-          self.assertEqual('stdout', p)
-          self.assertEqual(expected.pop(0), data)
-        self.assertEqual(0, proc.returncode)
-        self.assertEqual([], expected)
-        self.assertEqual(True, got_none)
-        self.assertTrue(called)
-        break
+        try:
+          expected = [
+            'A\n',
+            'B\n',
+          ]
+          got_none = False
+          called = []
+          def timeout():
+            called.append(0)
+            return 0
+          for p, data in proc.yield_any(timeout=timeout):
+            if not p:
+              got_none = True
+              continue
+            self.assertEqual('stdout', p)
+            self.assertEqual(expected.pop(0), data)
+          self.assertEqual(0, proc.returncode)
+          self.assertEqual([], expected)
+          self.assertEqual(True, got_none)
+          self.assertTrue(called)
+          break
+        finally:
+          proc.kill()
+          proc.wait()
       except AssertionError:
         if duration != 2:
           print('Sleeping rocks. Trying slower.')
           continue
         raise
+
+  def test_yield_any_returncode(self):
+    proc = subprocess42.Popen(
+        [sys.executable, '-c', 'import sys;sys.stdout.write("yo");sys.exit(1)'],
+        stdout=subprocess42.PIPE)
+    for p, d in proc.yield_any():
+      self.assertEqual('stdout', p)
+      self.assertEqual('yo', d)
+    # There was a bug where the second call to wait() would overwrite
+    # proc.returncode with 0 when timeout is not None.
+    self.assertEqual(1, proc.wait())
+    self.assertEqual(1, proc.wait(timeout=0))
+    self.assertEqual(1, proc.poll())
+    self.assertEqual(1, proc.returncode)
+    # On Windows, the clock resolution is 15ms so Popen.duration() will likely
+    # be 0.
+    self.assertLessEqual(0, proc.duration())
 
   def test_detached(self):
     is_win = (sys.platform == 'win32')
@@ -476,6 +635,7 @@ class Subprocess42Test(unittest.TestCase):
     finally:
       # In case the test fails.
       proc.kill()
+      proc.wait()
 
   def test_attached(self):
     is_win = (sys.platform == 'win32')
@@ -503,6 +663,7 @@ class Subprocess42Test(unittest.TestCase):
     finally:
       # In case the test fails.
       proc.kill()
+      proc.wait()
 
 
 if __name__ == '__main__':

@@ -95,10 +95,10 @@ class ProvidedFileSystem : public ProvidedFileSystemInterface {
   AbortCallback GetMetadata(const base::FilePath& entry_path,
                             MetadataFieldMask fields,
                             const GetMetadataCallback& callback) override;
-  AbortCallback GetActions(const base::FilePath& entry_path,
+  AbortCallback GetActions(const std::vector<base::FilePath>& entry_paths,
                            const GetActionsCallback& callback) override;
   AbortCallback ExecuteAction(
-      const base::FilePath& entry_path,
+      const std::vector<base::FilePath>& entry_paths,
       const std::string& action_id,
       const storage::AsyncFileUtil::StatusCallback& callback) override;
   AbortCallback ReadDirectory(
@@ -186,6 +186,9 @@ class ProvidedFileSystem : public ProvidedFileSystemInterface {
   // |operation_request_id|. The request is removed immediately on the C++ side
   // despite being handled by the providing extension or not.
   void Abort(int operation_request_id);
+
+  // Called when aborting is completed with either a success or an error.
+  void OnAbortCompleted(int operation_request_id, base::File::Error result);
 
   // Adds a watcher within |watcher_queue_|.
   AbortCallback AddWatcherInQueue(const AddWatcherInQueueArgs& args);

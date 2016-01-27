@@ -7,15 +7,15 @@
 #
 # You can auto-update this file with ./pnacl/deps_update.py
 
-binutils=c030c3cc99f3843affcf339afb01fc94a87a5487
+binutils=d5a23a319f685b7b853346eafe800d8ba8a69bac
 #
 # Three lines avoid merge conflicts.
 #
-clang=0895c9a2aedd33371c6cb8703d5fe8bb4493169b
+clang=605ea9bc25022747e435e57ee7b578e1fc220a63
 #
 # Three lines avoid merge conflicts.
 #
-llvm=796349362ed0ceb7e27c7765fa570f55fc1277af
+llvm=baa63524b6b493ec2a6aa2c5193d9f25c0c33191
 #
 # Three lines avoid merge conflicts.
 #
@@ -23,7 +23,7 @@ gcc=574429118e460375c377728420c43aad4a3103dc
 #
 # Three lines avoid merge conflicts.
 #
-libcxx=640116b36573795793453c2b0671b161deb9256f
+libcxx=c627a310c8986c42c828adab52f3826fceba802e
 #
 # Three lines avoid merge conflicts.
 #
@@ -31,7 +31,7 @@ libcxxabi=de05b63efeb5df83abe927c08f330c35995c82a7
 #
 # Three lines avoid merge conflicts.
 #
-nacl_newlib=8c4da477c5348743d900307ce8443da4cc2fcdb8
+nacl_newlib=3b7c4ddb17a22f463043363e18adabe0b325c5b6
 #
 # Three lines avoid merge conflicts.
 #
@@ -39,11 +39,11 @@ llvm_test_suite=6438a2b505fa29f82eb850aed1785db1738b971c
 #
 # Three lines avoid merge conflicts.
 #
-compiler_rt=61a748a59c2ff3a8349bd895f01f35eac0fc5217
+compiler_rt=9ded361c356ebc38a115e8134b8f7ca4f1d61eb0
 #
 # Three lines avoid merge conflicts.
 #
-subzero=d00d48da12ac44879066724978a032be64fcb0ad
+subzero=430e84471a54f6e5a1727054be28680e489cf28d
 #
 # Three lines avoid merge conflicts.
 #

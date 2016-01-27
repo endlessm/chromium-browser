@@ -23,6 +23,7 @@
 #include "ui/aura/window_property.h"
 #include "ui/base/dragdrop/os_exchange_data_provider_aurax11.h"
 #include "ui/base/hit_test.h"
+#include "ui/base/ime/input_method.h"
 #include "ui/base/x/x11_util.h"
 #include "ui/events/devices/x11/device_data_manager_x11.h"
 #include "ui/events/devices/x11/device_list_cache_x11.h"
@@ -171,6 +172,7 @@ DesktopWindowTreeHostX11::DesktopWindowTreeHostX11(
       window_parent_(NULL),
       custom_window_shape_(false),
       urgency_hint_set_(false),
+      activatable_(true),
       close_widget_factory_(this) {
 }
 
@@ -276,6 +278,7 @@ void DesktopWindowTreeHostX11::CleanUpWindowList(
 void DesktopWindowTreeHostX11::Init(aura::Window* content_window,
                                     const Widget::InitParams& params) {
   content_window_ = content_window;
+  activatable_ = (params.activatable == Widget::InitParams::ACTIVATABLE_YES);
 
   // TODO(erg): Check whether we *should* be building a WindowTreeHost here, or
   // whether we should be proxying requests to another DRWHL.
@@ -399,9 +402,6 @@ void DesktopWindowTreeHostX11::ShowWindowWithState(
     MapWindow(show_state);
 
   switch (show_state) {
-    case ui::SHOW_STATE_NORMAL:
-      Activate();
-      break;
     case ui::SHOW_STATE_MAXIMIZED:
       Maximize();
       break;
@@ -413,6 +413,14 @@ void DesktopWindowTreeHostX11::ShowWindowWithState(
       break;
     default:
       break;
+  }
+
+  // Makes the window activated by default if the state is not INACTIVE or
+  // MINIMIZED.
+  if (show_state != ui::SHOW_STATE_INACTIVE &&
+      show_state != ui::SHOW_STATE_MINIMIZED &&
+      activatable_) {
+    Activate();
   }
 
   native_widget_delegate_->AsWidget()->SetInitialFocus(show_state);
@@ -975,16 +983,17 @@ void DesktopWindowTreeHostX11::SetBounds(
   unsigned value_mask = 0;
 
   if (size_changed) {
+    // Update the minimum and maximum sizes in case they have changed.
+    UpdateMinAndMaxSize();
+
     if (bounds_in_pixels.width() < min_size_in_pixels_.width() ||
         bounds_in_pixels.height() < min_size_in_pixels_.height() ||
         (!max_size_in_pixels_.IsEmpty() &&
          (bounds_in_pixels.width() > max_size_in_pixels_.width() ||
           bounds_in_pixels.height() > max_size_in_pixels_.height()))) {
-      // Update the minimum and maximum sizes in case they have changed.
-      UpdateMinAndMaxSize();
-
       gfx::Size size_in_pixels = bounds_in_pixels.size();
-      size_in_pixels.SetToMin(max_size_in_pixels_);
+      if (!max_size_in_pixels_.IsEmpty())
+        size_in_pixels.SetToMin(max_size_in_pixels_);
       size_in_pixels.SetToMax(min_size_in_pixels_);
       bounds_in_pixels.set_size(size_in_pixels);
     }
@@ -1075,10 +1084,11 @@ void DesktopWindowTreeHostX11::OnCursorVisibilityChangedNative(bool show) {
 
 void DesktopWindowTreeHostX11::InitX11Window(
     const Widget::InitParams& params) {
-  unsigned long attribute_mask = CWBackPixmap;
+  unsigned long attribute_mask = CWBackPixmap | CWBitGravity;
   XSetWindowAttributes swa;
   memset(&swa, 0, sizeof(swa));
   swa.background_pixmap = None;
+  swa.bit_gravity = NorthWestGravity;
 
   ::Atom window_type;
   switch (params.type) {
@@ -1274,7 +1284,8 @@ void DesktopWindowTreeHostX11::InitX11Window(
   if (window_icon) {
     SetWindowIcons(gfx::ImageSkia(), *window_icon);
   }
-  CreateCompositor(GetAcceleratedWidget());
+  CreateCompositor();
+  OnAcceleratedWidgetAvailable();
 }
 
 gfx::Size DesktopWindowTreeHostX11::AdjustSize(
@@ -1517,6 +1528,10 @@ void DesktopWindowTreeHostX11::DispatchTouchEvent(ui::TouchEvent* event) {
   }
 }
 
+void DesktopWindowTreeHostX11::DispatchKeyEvent(ui::KeyEvent* event) {
+  GetInputMethod()->DispatchKeyEvent(event);
+}
+
 void DesktopWindowTreeHostX11::ConvertEventToDifferentHost(
     ui::LocatedEvent* located_event,
     DesktopWindowTreeHostX11* host) {
@@ -1529,8 +1544,9 @@ void DesktopWindowTreeHostX11::ConvertEventToDifferentHost(
             display_dest.device_scale_factor());
   gfx::Vector2d offset = GetLocationOnNativeScreen() -
                          host->GetLocationOnNativeScreen();
-  gfx::Point location_in_pixel_in_host = located_event->location() + offset;
-  located_event->set_location(location_in_pixel_in_host);
+  gfx::PointF location_in_pixel_in_host =
+      located_event->location_f() + gfx::Vector2dF(offset);
+  located_event->set_location_f(location_in_pixel_in_host);
 }
 
 void DesktopWindowTreeHostX11::ResetWindowRegion() {
@@ -1745,7 +1761,7 @@ uint32_t DesktopWindowTreeHostX11::DispatchEvent(
     }
     case KeyPress: {
       ui::KeyEvent keydown_event(xev);
-      SendEventToProcessor(&keydown_event);
+      DispatchKeyEvent(&keydown_event);
       break;
     }
     case KeyRelease: {
@@ -1756,7 +1772,7 @@ uint32_t DesktopWindowTreeHostX11::DispatchEvent(
         break;
 
       ui::KeyEvent key_event(xev);
-      SendEventToProcessor(&key_event);
+      DispatchKeyEvent(&key_event);
       break;
     }
     case ButtonPress:
@@ -1881,7 +1897,7 @@ uint32_t DesktopWindowTreeHostX11::DispatchEvent(
         case ui::ET_KEY_PRESSED:
         case ui::ET_KEY_RELEASED: {
           ui::KeyEvent key_event(xev);
-          SendEventToProcessor(&key_event);
+          DispatchKeyEvent(&key_event);
           break;
         }
         case ui::ET_UNKNOWN:
@@ -2021,14 +2037,14 @@ gfx::Rect DesktopWindowTreeHostX11::GetWorkAreaBoundsInPixels() const {
 
 gfx::Rect DesktopWindowTreeHostX11::ToDIPRect(
     const gfx::Rect& rect_in_pixels) const {
-  gfx::RectF rect_in_dip = rect_in_pixels;
+  gfx::RectF rect_in_dip = gfx::RectF(rect_in_pixels);
   GetRootTransform().TransformRectReverse(&rect_in_dip);
   return gfx::ToEnclosingRect(rect_in_dip);
 }
 
 gfx::Rect DesktopWindowTreeHostX11::ToPixelRect(
     const gfx::Rect& rect_in_dip) const {
-  gfx::RectF rect_in_pixels = rect_in_dip;
+  gfx::RectF rect_in_pixels = gfx::RectF(rect_in_dip);
   GetRootTransform().TransformRect(&rect_in_pixels);
   return gfx::ToEnclosingRect(rect_in_pixels);
 }

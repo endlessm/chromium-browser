@@ -89,7 +89,10 @@ class NetworkScreen : public NetworkModel,
   void SetTimezone(const std::string& timezone_id);
   std::string GetTimezone() const;
 
-  void CreateNetworkFromOnc(const std::string& onc_spec);
+  // Currently We can only get unsecured Wifi network configuration from shark
+  // that can be applied to remora. Returns the network ONC configuration.
+  void GetConnectedWifiNetwork(std::string* out_onc_spec);
+  void CreateAndConnectNetworkFromOnc(const std::string& onc_spec);
 
   void AddObserver(Observer* observer);
   void RemoveObserver(Observer* observer);
@@ -145,11 +148,14 @@ class NetworkScreen : public NetworkModel,
 
   // Callback for chromeos::ResolveUILanguageList() (from l10n_util).
   void OnLanguageListResolved(scoped_ptr<base::ListValue> new_language_list,
-                              std::string new_language_list_locale,
-                              std::string new_selected_language);
+                              const std::string& new_language_list_locale,
+                              const std::string& new_selected_language);
 
   // Callback when the system timezone settings is changed.
   void OnSystemTimezoneChanged();
+
+  // Called when connection the network from ONC failed.
+  void OnConnectNetworkFromOncFailed();
 
   // True if subscribed to network change notification.
   bool is_network_subscribed_;
@@ -162,7 +168,7 @@ class NetworkScreen : public NetworkModel,
   bool continue_pressed_;
 
   // Timer for connection timeout.
-  base::OneShotTimer<NetworkScreen> connection_timer_;
+  base::OneShotTimer connection_timer_;
 
   scoped_ptr<CrosSettings::ObserverSubscription> timezone_subscription_;
 

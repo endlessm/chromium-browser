@@ -13,6 +13,7 @@
 #include "base/threading/thread.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_request_context_getter.h"
+#include "remoting/base/logging.h"
 #include "remoting/base/service_urls.h"
 #include "remoting/base/url_request_context_getter.h"
 #include "remoting/host/setup/host_starter.h"
@@ -21,6 +22,7 @@
 
 #if !defined(OS_WIN)
 #include <termios.h>
+#include <unistd.h>
 #endif  // !defined(OS_WIN)
 
 using remoting::HostStarter;
@@ -104,10 +106,24 @@ int main(int argc, char** argv) {
   const base::CommandLine* command_line =
       base::CommandLine::ForCurrentProcess();
 
+  logging::LoggingSettings settings;
+  logging::InitLogging(settings);
+
   std::string host_name = command_line->GetSwitchValueASCII("name");
   std::string host_pin = command_line->GetSwitchValueASCII("pin");
   std::string auth_code = command_line->GetSwitchValueASCII("code");
   std::string redirect_url = command_line->GetSwitchValueASCII("redirect-url");
+
+  // Check if current user is root. If it is root, then throw an error message.
+  // This is because start_host should be run in user mode.
+#if !defined(OS_WIN)
+  if (geteuid() == 0) {
+    fprintf(stderr,
+            "Refusing to run %s as root.",
+            argv[0]);
+    return 1;
+  }
+#endif  // !defined(OS_WIN)
 
   if (host_name.empty()) {
     fprintf(stderr,

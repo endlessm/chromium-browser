@@ -13,6 +13,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
@@ -25,7 +26,6 @@
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar.h"
 #include "components/nacl/common/nacl_switches.h"
-#include "content/public/browser/dom_operation_notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
@@ -36,7 +36,6 @@
 #include "ppapi/shared_impl/ppapi_switches.h"
 #include "ui/gl/gl_switches.h"
 
-using content::DomOperationNotificationDetails;
 using content::RenderViewHost;
 using content::TestMessageHandler;
 
@@ -145,8 +144,9 @@ void PPAPITestBase::SetUpCommandLine(base::CommandLine* command_line) {
 
 void PPAPITestBase::SetUpOnMainThread() {
   // Always allow access to the PPAPI broker.
-  browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
-      CONTENT_SETTINGS_TYPE_PPAPI_BROKER, CONTENT_SETTING_ALLOW);
+  HostContentSettingsMapFactory::GetForProfile(browser()->profile())
+      ->SetDefaultContentSetting(CONTENT_SETTINGS_TYPE_PPAPI_BROKER,
+                                 CONTENT_SETTING_ALLOW);
 }
 
 GURL PPAPITestBase::GetTestFileUrl(const std::string& test_case) {
@@ -429,26 +429,10 @@ std::string PPAPINaClPNaClNonSfiTest::BuildQuery(
                             base.c_str(), test_case.c_str());
 }
 
-void PPAPINaClPNaClTransitionalNonSfiTest::SetUpCommandLine(
-    base::CommandLine* command_line) {
-  PPAPINaClPNaClNonSfiTest::SetUpCommandLine(command_line);
-#if !defined(DISABLE_NACL)
-  command_line->AppendSwitchASCII(switches::kUseNaClHelperNonSfi, "false");
-#endif
-}
-
 void PPAPIPrivateNaClPNaClNonSfiTest::SetUpCommandLine(
     base::CommandLine* command_line) {
   PPAPINaClPNaClNonSfiTest::SetUpCommandLine(command_line);
   AddPrivateSwitches(command_line);
-}
-
-void PPAPIPrivateNaClPNaClTransitionalNonSfiTest::SetUpCommandLine(
-    base::CommandLine* command_line) {
-  PPAPIPrivateNaClPNaClNonSfiTest::SetUpCommandLine(command_line);
-#if !defined(DISABLE_NACL)
-  command_line->AppendSwitchASCII(switches::kUseNaClHelperNonSfi, "false");
-#endif
 }
 
 void PPAPINaClTestDisallowedSockets::SetUpCommandLine(

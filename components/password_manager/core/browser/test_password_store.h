@@ -36,10 +36,6 @@ class TestPasswordStore : public PasswordStore {
  protected:
   ~TestPasswordStore() override;
 
-  // Helper function to determine if forms are considered equivalent.
-  bool FormsAreEquivalent(const autofill::PasswordForm& lhs,
-                          const autofill::PasswordForm& rhs);
-
   // PasswordStore interface
   PasswordStoreChangeList AddLoginImpl(
       const autofill::PasswordForm& form) override;
@@ -60,13 +56,15 @@ class TestPasswordStore : public PasswordStore {
   PasswordStoreChangeList RemoveLoginsSyncedBetweenImpl(
       base::Time delete_begin,
       base::Time delete_end) override;
+  bool RemoveStatisticsCreatedBetweenImpl(base::Time delete_begin,
+                                          base::Time delete_end) override;
   bool FillAutofillableLogins(
       ScopedVector<autofill::PasswordForm>* forms) override;
   bool FillBlacklistLogins(
       ScopedVector<autofill::PasswordForm>* forms) override;
   void AddSiteStatsImpl(const InteractionsStats& stats) override;
   void RemoveSiteStatsImpl(const GURL& origin_domain) override;
-  scoped_ptr<InteractionsStats> GetSiteStatsImpl(
+  ScopedVector<InteractionsStats> GetSiteStatsImpl(
       const GURL& origin_domain) override;
 
  private:

@@ -20,6 +20,7 @@
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
+#include "chrome/browser/task_management/web_contents_tags.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/panels/native_panel.h"
@@ -95,7 +96,6 @@ PanelExtensionWindowController::CreateWindowValueWithTabs(
     const extensions::Extension* extension) const {
   base::DictionaryValue* result = CreateWindowValue();
 
-  DCHECK(IsVisibleToExtension(extension));
   base::DictionaryValue* tab_value = CreateTabValue(extension, 0);
   if (tab_value) {
     base::ListValue* tab_list = new base::ListValue();
@@ -114,7 +114,6 @@ base::DictionaryValue* PanelExtensionWindowController::CreateTabValue(
   if (!web_contents)
     return NULL;
 
-  DCHECK(IsVisibleToExtension(extension));
   base::DictionaryValue* tab_value = new base::DictionaryValue();
   tab_value->SetInteger(extensions::tabs_constants::kIdKey,
                         SessionTabHelper::IdForTab(web_contents));
@@ -151,6 +150,7 @@ void PanelExtensionWindowController::SetFullscreenMode(
 
 bool PanelExtensionWindowController::IsVisibleToExtension(
     const extensions::Extension* extension) const {
+  DCHECK(extension);
   return extension->id() == panel_->extension_id();
 }
 
@@ -534,8 +534,12 @@ void Panel::Initialize(const GURL& url,
   panel_host_->Init(url);
   content::WebContents* web_contents = GetWebContents();
   // The contents might be NULL for most of our tests.
-  if (web_contents)
+  if (web_contents) {
     native_panel_->AttachWebContents(web_contents);
+
+    // Make the panel show up in the task manager.
+    task_management::WebContentsTags::CreateForPanel(web_contents, this);
+  }
 
   // Close when the extension is unloaded or the browser is exiting.
   extension_registry_->AddObserver(this);

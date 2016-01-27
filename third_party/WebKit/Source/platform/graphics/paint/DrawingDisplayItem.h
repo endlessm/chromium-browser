@@ -13,7 +13,7 @@
 
 namespace blink {
 
-class PLATFORM_EXPORT DrawingDisplayItem : public DisplayItem {
+class PLATFORM_EXPORT DrawingDisplayItem final : public DisplayItem {
 public:
 #if ENABLE(ASSERT)
     enum UnderInvalidationCheckingMode {
@@ -29,7 +29,7 @@ public:
         , UnderInvalidationCheckingMode underInvalidationCheckingMode = CheckPicture
 #endif
         )
-        : DisplayItem(client, type)
+        : DisplayItem(client, type, sizeof(*this))
         , m_picture(picture && picture->approximateOpCount() ? picture : nullptr)
 #if ENABLE(ASSERT)
         , m_underInvalidationCheckingMode(underInvalidationCheckingMode)
@@ -38,14 +38,15 @@ public:
         ASSERT(isDrawingType(type));
     }
 
-    virtual void replay(GraphicsContext&);
-    void appendToWebDisplayItemList(WebDisplayItemList*) const override;
+    void replay(GraphicsContext&) const override;
+    void appendToWebDisplayItemList(const IntRect&, WebDisplayItemList*) const override;
     bool drawsContent() const override;
 
     const SkPicture* picture() const { return m_picture.get(); }
 
 #if ENABLE(ASSERT)
     UnderInvalidationCheckingMode underInvalidationCheckingMode() const { return m_underInvalidationCheckingMode; }
+    bool equals(const DisplayItem& other) const final;
 #endif
 
 private:

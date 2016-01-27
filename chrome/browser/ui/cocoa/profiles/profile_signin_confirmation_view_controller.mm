@@ -13,6 +13,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #import "chrome/browser/ui/chrome_style.h"
 #import "chrome/browser/ui/cocoa/constrained_window/constrained_window_control_utils.h"
 #import "chrome/browser/ui/cocoa/hover_close_button.h"
@@ -101,7 +102,7 @@ NSTextView* AddTextView(
               withFont:font
           messageColor:[NSColor blackColor]];
   [textView addLinkRange:NSMakeRange(offset, [linkString length])
-                withName:@""
+                 withURL:@"about:blank"  // using a link here is bad ui
                linkColor:linkColor];
   RemoveUnderlining(textView, offset, link.size());
   [textView setDelegate:delegate];

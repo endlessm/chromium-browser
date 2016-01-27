@@ -128,7 +128,7 @@ bool WebScrollbarThemeClientImpl::isScrollableAreaActive() const
     return m_scrollbar->isScrollableAreaActive();
 }
 
-IntPoint WebScrollbarThemeClientImpl::convertFromContainingWindow(const IntPoint& windowPoint)
+IntPoint WebScrollbarThemeClientImpl::convertFromContainingWindow(const IntPoint& windowPoint) const
 {
     // Unused by Chromium scrollbar themes.
     ASSERT_NOT_REACHED();
@@ -195,6 +195,10 @@ void WebScrollbarThemeClientImpl::styleChanged()
     ASSERT_NOT_REACHED();
 }
 
+void WebScrollbarThemeClientImpl::visibilityChanged()
+{
+}
+
 bool WebScrollbarThemeClientImpl::enabled() const
 {
     return m_scrollbar->enabled();
@@ -228,6 +232,26 @@ float WebScrollbarThemeClientImpl::elasticOverscroll() const
 void WebScrollbarThemeClientImpl::setElasticOverscroll(float elasticOverscroll)
 {
     return m_scrollbar->setElasticOverscroll(elasticOverscroll);
+}
+
+bool WebScrollbarThemeClientImpl::trackNeedsRepaint() const
+{
+    return true;
+}
+
+void WebScrollbarThemeClientImpl::setTrackNeedsRepaint(bool)
+{
+    ASSERT_NOT_REACHED();
+}
+
+bool WebScrollbarThemeClientImpl::thumbNeedsRepaint() const
+{
+    return true;
+}
+
+void WebScrollbarThemeClientImpl::setThumbNeedsRepaint(bool)
+{
+    ASSERT_NOT_REACHED();
 }
 
 DisplayItemClient WebScrollbarThemeClientImpl::displayItemClient() const

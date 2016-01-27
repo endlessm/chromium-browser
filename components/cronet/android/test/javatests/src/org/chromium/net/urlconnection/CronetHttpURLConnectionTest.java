@@ -9,8 +9,8 @@ import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.util.Feature;
-import org.chromium.net.CronetTestActivity;
 import org.chromium.net.CronetTestBase;
+import org.chromium.net.CronetTestFramework;
 import org.chromium.net.MockUrlRequestJobFactory;
 import org.chromium.net.NativeTestServer;
 import org.chromium.net.UrlRequestException;
@@ -45,12 +45,11 @@ public class CronetHttpURLConnectionTest extends CronetTestBase {
     protected void setUp() throws Exception {
         super.setUp();
         String[] commandLineArgs = {
-                CronetTestActivity.CACHE_KEY, CronetTestActivity.CACHE_DISK,
-                CronetTestActivity.LIBRARY_INIT_KEY, CronetTestActivity.LIBRARY_INIT_WRAPPER,
+                CronetTestFramework.CACHE_KEY, CronetTestFramework.CACHE_DISK,
+                CronetTestFramework.LIBRARY_INIT_KEY, CronetTestFramework.LIBRARY_INIT_WRAPPER,
         };
-        launchCronetTestAppWithUrlAndCommandLineArgs(null, commandLineArgs);
-        assertTrue(NativeTestServer.startNativeTestServer(
-                getInstrumentation().getTargetContext()));
+        startCronetTestFrameworkWithUrlAndCommandLineArgs(null, commandLineArgs);
+        assertTrue(NativeTestServer.startNativeTestServer(getContext()));
     }
 
     @Override
@@ -97,23 +96,6 @@ public class CronetHttpURLConnectionTest extends CronetTestBase {
             assertEquals("OK", connection.getResponseMessage());
             assertEquals(dataString, getResponseAsString(connection));
             connection.disconnect();
-        }
-    }
-
-    @SmallTest
-    @Feature({"Cronet"})
-    @OnlyRunCronetHttpURLConnection
-    // TODO(xunjieli): Change the test after chunked support is added.
-    public void testPostChunked() throws Exception {
-        URL url = new URL(NativeTestServer.getEchoBodyURL());
-        HttpURLConnection connection =
-                (HttpURLConnection) url.openConnection();
-        connection.setDoOutput(true);
-        connection.setRequestMethod("POST");
-        try {
-            connection.setChunkedStreamingMode(0);
-        } catch (UnsupportedOperationException e) {
-            assertEquals("Chunked mode not supported yet", e.getMessage());
         }
     }
 
@@ -174,8 +156,7 @@ public class CronetHttpURLConnectionTest extends CronetTestBase {
         }
         checkExceptionsAreThrown(secondConnection);
         // Starts the server to avoid crashing on shutdown in tearDown().
-        assertTrue(NativeTestServer.startNativeTestServer(
-                getInstrumentation().getTargetContext()));
+        assertTrue(NativeTestServer.startNativeTestServer(getContext()));
     }
 
     @SmallTest
@@ -343,7 +324,7 @@ public class CronetHttpURLConnectionTest extends CronetTestBase {
             fail();
         } catch (UnsupportedOperationException e) {
             assertEquals(e.getMessage(),
-                    "Cannot add multiple headers of the same key. "
+                    "Cannot add multiple headers of the same key, header-Name. "
                     + "crbug.com/432719.");
         }
     }
@@ -504,7 +485,11 @@ public class CronetHttpURLConnectionTest extends CronetTestBase {
         connection.disconnect();
     }
 
-    @SuppressFBWarnings("DLS_DEAD_LOCAL_STORE")
+    @SuppressFBWarnings({
+            "DLS_DEAD_LOCAL_STORE",
+            "RANGE_ARRAY_OFFSET",
+            "RANGE_ARRAY_LENGTH"
+            })
     @SmallTest
     @Feature({"Cronet"})
     @CompareDefaultWithCronet
@@ -772,6 +757,21 @@ public class CronetHttpURLConnectionTest extends CronetTestBase {
             // Expected.
         }
         assertNull(connection.getErrorStream());
+        connection.disconnect();
+    }
+
+    @SmallTest
+    @Feature({"Cronet"})
+    @CompareDefaultWithCronet
+    // Tests that redirects across the HTTP and HTTPS boundary are not followed.
+    public void testDoNotFollowRedirectsIfSchemesDontMatch() throws Exception {
+        URL url = new URL(NativeTestServer.getFileURL("/redirect_invalid_scheme.html"));
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setInstanceFollowRedirects(true);
+        assertEquals(302, connection.getResponseCode());
+        assertEquals("Found", connection.getResponseMessage());
+        // Redirect is not followed, but the url is updated to the Location header.
+        assertEquals("https://127.0.0.1:8000/success.txt", connection.getURL().toString());
         connection.disconnect();
     }
 

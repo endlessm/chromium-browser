@@ -15,8 +15,11 @@
 #include "base/time/time.h"
 #include "components/password_manager/core/browser/password_store_change.h"
 #include "components/password_manager/core/browser/password_store_sync.h"
-#include "components/password_manager/core/browser/statistics_table.h"
 #include "sync/api/syncable_service.h"
+
+namespace url {
+class Origin;
+}
 
 namespace autofill {
 struct PasswordForm;
@@ -33,6 +36,7 @@ namespace password_manager {
 class AffiliatedMatchHelper;
 class PasswordStoreConsumer;
 class PasswordSyncableService;
+struct InteractionsStats;
 
 // Interface for storing form passwords in a platform-specific secure way.
 // The login request/manipulation API is not threadsafe and must be used
@@ -77,15 +81,15 @@ class PasswordStore : protected PasswordStoreSync,
   // affiliation-based matching is disabled. The passed |helper| must already be
   // initialized if it is non-null.
   void SetAffiliatedMatchHelper(scoped_ptr<AffiliatedMatchHelper> helper);
+  AffiliatedMatchHelper* affiliated_match_helper() const {
+    return affiliated_match_helper_.get();
+  }
 
   // Toggles whether or not to propagate password changes in Android credentials
   // to the affiliated Web credentials.
   void enable_propagating_password_changes_to_web_credentials(bool enabled) {
     is_propagating_password_changes_to_web_credentials_enabled_ = enabled;
   }
-
-  // Returns whether or not an affiliation-based match helper is set.
-  bool HasAffiliatedMatchHelper() const;
 
   // Adds the given PasswordForm to the secure password store asynchronously.
   virtual void AddLogin(const autofill::PasswordForm& form);
@@ -103,16 +107,33 @@ class PasswordStore : protected PasswordStoreSync,
   // Removes the matching PasswordForm from the secure password store (async).
   virtual void RemoveLogin(const autofill::PasswordForm& form);
 
+  // Remove all logins which are same-origin with the given origin and created
+  // in the given date range. |completion| will be posted to the
+  // |main_thread_runner_| after deletions have been completed and notification
+  // have been sent out.
+  void RemoveLoginsByOriginAndTime(const url::Origin& origin,
+                                   base::Time delete_begin,
+                                   base::Time delete_end,
+                                   const base::Closure& completion);
+
   // Removes all logins created in the given date range. If |completion| is not
   // null, it will be posted to the |main_thread_runner_| after deletions have
   // be completed and notification have been sent out.
-  virtual void RemoveLoginsCreatedBetween(base::Time delete_begin,
-                                          base::Time delete_end,
-                                          const base::Closure& completion);
+  void RemoveLoginsCreatedBetween(base::Time delete_begin,
+                                  base::Time delete_end,
+                                  const base::Closure& completion);
 
   // Removes all logins synced in the given date range.
-  virtual void RemoveLoginsSyncedBetween(base::Time delete_begin,
-                                         base::Time delete_end);
+  void RemoveLoginsSyncedBetween(base::Time delete_begin,
+                                 base::Time delete_end);
+
+  // Removes all the stats created in the given date range. If |completion| is
+  // not null, it will be posted to the |main_thread_runner_| after deletions
+  // have been completed.
+  // Should be called on the UI thread.
+  void RemoveStatisticsCreatedBetween(base::Time delete_begin,
+                                      base::Time delete_end,
+                                      const base::Closure& completion);
 
   // Removes cached affiliation data that is no longer needed; provided that
   // affiliation-based matching is enabled.
@@ -125,6 +146,9 @@ class PasswordStore : protected PasswordStoreSync,
   // platforms that support prompting the user for access (such as Mac OS).
   // NOTE: This means that this method can return different results depending
   // on the value of |prompt_policy|.
+  // TODO(engedy): Currently, this will not return federated logins saved from
+  // Android applications that are affiliated with the realm of |form|. Need to
+  // decide if this is the desired behavior. See: https://crbug.com/539844.
   virtual void GetLogins(const autofill::PasswordForm& form,
                          AuthorizationPromptPolicy prompt_policy,
                          PasswordStoreConsumer* consumer);
@@ -189,7 +213,7 @@ class PasswordStore : protected PasswordStoreSync,
     void NotifyConsumerWithResults(
         ScopedVector<autofill::PasswordForm> results);
 
-    void NotifyWithSiteStatistics(scoped_ptr<InteractionsStats> stats);
+    void NotifyWithSiteStatistics(ScopedVector<InteractionsStats> stats);
 
     void set_ignore_logins_cutoff(base::Time cutoff) {
       ignore_logins_cutoff_ = cutoff;
@@ -218,6 +242,12 @@ class PasswordStore : protected PasswordStoreSync,
                                  bool custom_passphrase_sync_enabled) = 0;
 
   // Synchronous implementation to remove the given logins.
+  virtual PasswordStoreChangeList RemoveLoginsByOriginAndTimeImpl(
+      const url::Origin& origin,
+      base::Time delete_begin,
+      base::Time delete_end);
+
+  // Synchronous implementation to remove the given logins.
   virtual PasswordStoreChangeList RemoveLoginsCreatedBetweenImpl(
       base::Time delete_begin,
       base::Time delete_end) = 0;
@@ -226,6 +256,10 @@ class PasswordStore : protected PasswordStoreSync,
   virtual PasswordStoreChangeList RemoveLoginsSyncedBetweenImpl(
       base::Time delete_begin,
       base::Time delete_end) = 0;
+
+  // Synchronous implementation to remove the statistics.
+  virtual bool RemoveStatisticsCreatedBetweenImpl(base::Time delete_begin,
+                                                  base::Time delete_end) = 0;
 
   // Finds all PasswordForms with a signon_realm that is equal to, or is a
   // PSL-match to that of |form|, and takes care of notifying the consumer with
@@ -260,9 +294,8 @@ class PasswordStore : protected PasswordStoreSync,
   // Synchronous implementation for manipulating with statistics.
   virtual void AddSiteStatsImpl(const InteractionsStats& stats) = 0;
   virtual void RemoveSiteStatsImpl(const GURL& origin_domain) = 0;
-  // Returns a raw pointer so that InteractionsStats can be forward declared.
-  virtual scoped_ptr<InteractionsStats> GetSiteStatsImpl(
-      const GURL& origin_domain) WARN_UNUSED_RESULT = 0;
+  virtual ScopedVector<InteractionsStats> GetSiteStatsImpl(
+      const GURL& origin_domain) = 0;
 
   // Log UMA stats for number of bulk deletions.
   void LogStatsForBulkDeletion(int num_deletions);
@@ -317,11 +350,18 @@ class PasswordStore : protected PasswordStoreSync,
   void UpdateLoginWithPrimaryKeyInternal(
       const autofill::PasswordForm& new_form,
       const autofill::PasswordForm& old_primary_key);
+  void RemoveLoginsByOriginAndTimeInternal(const url::Origin& origin,
+                                           base::Time delete_begin,
+                                           base::Time delete_end,
+                                           const base::Closure& completion);
   void RemoveLoginsCreatedBetweenInternal(base::Time delete_begin,
                                           base::Time delete_end,
                                           const base::Closure& completion);
   void RemoveLoginsSyncedBetweenInternal(base::Time delete_begin,
                                          base::Time delete_end);
+  void RemoveStatisticsCreatedBetweenInternal(base::Time delete_begin,
+                                              base::Time delete_end,
+                                              const base::Closure& completion);
 
   // Finds all non-blacklist PasswordForms, and notifies the consumer.
   void GetAutofillableLoginsImpl(scoped_ptr<GetLoginsRequest> request);

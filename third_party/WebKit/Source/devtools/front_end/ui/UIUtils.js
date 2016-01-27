@@ -38,22 +38,45 @@ WebInspector.highlightedSearchResultClassName = "highlighted-search-result";
  * @param {?function(!MouseEvent)} elementDragEnd
  * @param {string} cursor
  * @param {?string=} hoverCursor
+ * @param {number=} startDelay
  */
-WebInspector.installDragHandle = function(element, elementDragStart, elementDrag, elementDragEnd, cursor, hoverCursor)
+WebInspector.installDragHandle = function(element, elementDragStart, elementDrag, elementDragEnd, cursor, hoverCursor, startDelay)
 {
-    element.addEventListener("mousedown", WebInspector.elementDragStart.bind(WebInspector, elementDragStart, elementDrag, elementDragEnd, cursor), false);
+    /**
+     * @param {!Event} event
+     */
+    function onMouseDown(event)
+    {
+        var dragStart = WebInspector.elementDragStart.bind(WebInspector, element, elementDragStart, elementDrag, elementDragEnd, cursor, event);
+        if (!startDelay)
+            dragStart();
+        startTimer = setTimeout(dragStart, startDelay || 0);
+    }
+
+    function onMouseUp()
+    {
+        if (startTimer)
+            clearInterval(startTimer);
+        startTimer = null;
+    }
+
+    var startTimer;
+    element.addEventListener("mousedown", onMouseDown, false);
+    if (startDelay)
+        element.addEventListener("mouseup", onMouseUp, false);
     if (hoverCursor !== null)
         element.style.cursor = hoverCursor || cursor;
 }
 
 /**
+ * @param {!Element} targetElement
  * @param {?function(!MouseEvent):boolean} elementDragStart
  * @param {function(!MouseEvent)} elementDrag
  * @param {?function(!MouseEvent)} elementDragEnd
  * @param {string} cursor
  * @param {!Event} event
  */
-WebInspector.elementDragStart = function(elementDragStart, elementDrag, elementDragEnd, cursor, event)
+WebInspector.elementDragStart = function(targetElement, elementDragStart, elementDrag, elementDragEnd, cursor, event)
 {
     // Only drag upon left button. Right will likely cause a context menu. So will ctrl-click on mac.
     if (event.button || (WebInspector.isMac() && event.ctrlKey))
@@ -84,7 +107,6 @@ WebInspector.elementDragStart = function(elementDragStart, elementDrag, elementD
     if (targetDocument !== WebInspector._dragEventsTargetDocumentTop)
         WebInspector._dragEventsTargetDocumentTop.addEventListener("mouseup", WebInspector._elementDragEnd, true);
 
-    var targetElement = /** @type {!Element} */ (event.target);
     if (typeof cursor === "string") {
         WebInspector._restoreCursorAfterDrag = restoreCursor.bind(null, targetElement.style.cursor);
         targetElement.style.cursor = cursor;
@@ -176,12 +198,14 @@ WebInspector._elementDragEnd = function(event)
 /**
  * @constructor
  * @param {!Document} document
+ * @param {boolean=} dimmed
  */
-WebInspector.GlassPane = function(document)
+WebInspector.GlassPane = function(document, dimmed)
 {
     this.element = createElement("div");
-    this.element.style.cssText = "position:absolute;top:0;bottom:0;left:0;right:0;background-color:transparent;z-index:1000;overflow:hidden;";
-    this.element.id = "glass-pane";
+    var background = dimmed ? "rgba(255, 255, 255, 0.5)" : "transparent";
+    this._zIndex = WebInspector._glassPane ? WebInspector._glassPane._zIndex + 1000 : 3000; // Deliberately starts with 3000 to hide other z-indexed elements below.
+    this.element.style.cssText = "position:absolute;top:0;bottom:0;left:0;right:0;background-color:" + background + ";z-index:" + this._zIndex + ";overflow:hidden;";
     document.body.appendChild(this.element);
     WebInspector._glassPane = this;
 }
@@ -195,6 +219,9 @@ WebInspector.GlassPane.prototype = {
         this.element.remove();
     }
 }
+
+/** @type {!WebInspector.GlassPane|undefined} */
+WebInspector._glassPane;
 
 /**
  * @type {!Array.<!WebInspector.Widget|!WebInspector.Dialog>}
@@ -474,7 +501,7 @@ Number.preciseMillisToString = function(ms, precision)
 }
 
 /** @type {!WebInspector.UIStringFormat} */
-WebInspector._subMillisFormat = new WebInspector.UIStringFormat("%.3f\u2009ms");
+WebInspector._subMillisFormat = new WebInspector.UIStringFormat("%.2f\u2009ms");
 
 /** @type {!WebInspector.UIStringFormat} */
 WebInspector._millisFormat = new WebInspector.UIStringFormat("%.0f\u2009ms");
@@ -637,9 +664,9 @@ WebInspector.asyncStackTraceLabel = function(description)
 /**
  * @return {string}
  */
-WebInspector.manageBlackboxingButtonLabel = function()
+WebInspector.manageBlackboxingSettingsTabLabel = function()
 {
-    return WebInspector.UIString("Manage framework blackboxing...");
+    return WebInspector.UIString("Blackboxing");
 }
 
 /**
@@ -748,17 +775,17 @@ WebInspector.setCurrentFocusElement = function(x)
         WebInspector._previousFocusElement = WebInspector._currentFocusElement;
     WebInspector._currentFocusElement = x;
 
-    if (WebInspector._currentFocusElement) {
-        WebInspector._currentFocusElement.focus();
+    if (x) {
+        x.focus();
 
         // Make a caret selection inside the new element if there isn't a range selection and there isn't already a caret selection inside.
         // This is needed (at least) to remove caret from console when focus is moved to some element in the panel.
         // The code below should not be applied to text fields and text areas, hence _isTextEditingElement check.
         var selection = x.getComponentSelection();
-        if (!WebInspector._isTextEditingElement(WebInspector._currentFocusElement) && selection.isCollapsed && !WebInspector._currentFocusElement.isInsertionCaretInside()) {
-            var selectionRange = WebInspector._currentFocusElement.ownerDocument.createRange();
-            selectionRange.setStart(WebInspector._currentFocusElement, 0);
-            selectionRange.setEnd(WebInspector._currentFocusElement, 0);
+        if (!WebInspector._isTextEditingElement(x) && selection.isCollapsed && !x.isInsertionCaretInside()) {
+            var selectionRange = x.ownerDocument.createRange();
+            selectionRange.setStart(x, 0);
+            selectionRange.setEnd(x, 0);
 
             selection.removeAllRanges();
             selection.addRange(selectionRange);
@@ -827,9 +854,9 @@ WebInspector.highlightRangesWithStyleClass = function(element, resultRanges, sty
 {
     changes = changes || [];
     var highlightNodes = [];
-    var lineText = element.deepTextContent();
-    var ownerDocument = element.ownerDocument;
     var textNodes = element.childTextNodes();
+    var lineText = textNodes.map(function (node) { return node.textContent; }).join("");
+    var ownerDocument = element.ownerDocument;
 
     if (textNodes.length === 0)
         return highlightNodes;
@@ -1088,8 +1115,7 @@ WebInspector.LongClickController = function(element)
  * @enum {string}
  */
 WebInspector.LongClickController.Events = {
-    LongClick: "LongClick",
-    LongPress: "LongPress"
+    LongClick: "LongClick"
 };
 
 WebInspector.LongClickController.prototype = {
@@ -1114,8 +1140,6 @@ WebInspector.LongClickController.prototype = {
         this._element.addEventListener("mouseup", boundMouseUp, false);
         this._element.addEventListener("click", boundReset, true);
 
-        var longClicks = 0;
-
         this._longClickData = { mouseUp: boundMouseUp, mouseDown: boundMouseDown, reset: boundReset };
 
         /**
@@ -1126,8 +1150,7 @@ WebInspector.LongClickController.prototype = {
         {
             if (e.which !== 1)
                 return;
-            longClicks = 0;
-            this._longClickInterval = setInterval(longClicked.bind(this, e), 200);
+            this._longClickInterval = setTimeout(longClicked.bind(this, e), 200);
         }
 
         /**
@@ -1147,8 +1170,7 @@ WebInspector.LongClickController.prototype = {
          */
         function longClicked(e)
         {
-            ++longClicks;
-            this.dispatchEventToListeners(longClicks === 1 ? WebInspector.LongClickController.Events.LongClick : WebInspector.LongClickController.Events.LongPress, e);
+            this.dispatchEventToListeners(WebInspector.LongClickController.Events.LongClick, e);
         }
     },
 

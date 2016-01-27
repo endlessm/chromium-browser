@@ -44,27 +44,19 @@ WebInspector.ElementsPanel = function()
     this._splitWidget.show(this.element);
 
     this._searchableView = new WebInspector.SearchableView(this);
-    this._searchableView.setMinimumSize(25, 19);
+    this._searchableView.setMinimumSize(25, 28);
     this._searchableView.setPlaceholder(WebInspector.UIString("Find by string, selector, or XPath"));
     var stackElement = this._searchableView.element;
 
     this._contentElement = createElement("div");
     var crumbsContainer = createElement("div");
-    if (Runtime.experiments.isEnabled("materialDesign")) {
-        this._toolbar = this._createElementsToolbar();
-        var toolbar = stackElement.createChild("div", "elements-topbar hbox");
-        toolbar.appendChild(crumbsContainer);
-        toolbar.appendChild(this._toolbar.element);
-        stackElement.appendChild(this._contentElement);
-    } else {
-        stackElement.appendChild(this._contentElement);
-        stackElement.appendChild(crumbsContainer);
-    }
+    stackElement.appendChild(this._contentElement);
+    stackElement.appendChild(crumbsContainer);
 
-    this._elementsPanelTreeOutilneSplit = new WebInspector.SplitWidget(false, true, "treeOutlineAnimationTimelineWidget", 300, 300);
-    this._elementsPanelTreeOutilneSplit.hideSidebar();
-    this._elementsPanelTreeOutilneSplit.setMainWidget(this._searchableView);
-    this._splitWidget.setMainWidget(this._elementsPanelTreeOutilneSplit);
+    this._treeOutlineSplit = new WebInspector.SplitWidget(false, true, "treeOutlineAnimationTimelineWidget", 300, 300);
+    this._treeOutlineSplit.hideSidebar();
+    this._treeOutlineSplit.setMainWidget(this._searchableView);
+    this._splitWidget.setMainWidget(this._treeOutlineSplit);
 
     this._contentElement.id = "elements-content";
     // FIXME: crbug.com/425984
@@ -80,10 +72,12 @@ WebInspector.ElementsPanel = function()
     this.sidebarPanes = {};
     /** @type !Array<!WebInspector.ElementsSidebarViewWrapperPane> */
     this._elementsSidebarViewWrappers = [];
+    this._currentToolbarPane = null;
+    this._toolbarPaneElement = createElementWithClass("div", "styles-sidebar-toolbar-pane");
+
     var sharedSidebarModel = new WebInspector.SharedSidebarModel();
     this.sidebarPanes.platformFonts = WebInspector.PlatformFontsWidget.createSidebarWrapper(sharedSidebarModel);
-    this.sidebarPanes.styles = new WebInspector.StylesSidebarPane(this._showStylesSidebar.bind(this));
-
+    this.sidebarPanes.styles = new WebInspector.StylesSidebarPane(this._toolbarPaneElement);
     this.sidebarPanes.computedStyle = WebInspector.ComputedStyleWidget.createSidebarWrapper(this.sidebarPanes.styles, sharedSidebarModel);
 
     this.sidebarPanes.styles.addEventListener(WebInspector.StylesSidebarPane.Events.SelectorEditingStarted, this._onEditingSelectorStarted.bind(this));
@@ -94,9 +88,8 @@ WebInspector.ElementsPanel = function()
     this.sidebarPanes.domBreakpoints = WebInspector.domBreakpointsSidebarPane.createProxy(this);
     this.sidebarPanes.eventListeners = WebInspector.EventListenersWidget.createSidebarWrapper();
 
-    WebInspector.dockController.addEventListener(WebInspector.DockController.Events.DockSideChanged, this._dockSideChanged.bind(this));
-    WebInspector.moduleSetting("splitVerticallyWhenDockedToRight").addChangeListener(this._dockSideChanged.bind(this));
-    this._dockSideChanged();
+    WebInspector.moduleSetting("sidebarPosition").addChangeListener(this._updateSidebarPosition.bind(this));
+    this._updateSidebarPosition();
     this._loadSidebarViews();
 
     /** @type {!Array.<!WebInspector.ElementsTreeOutline>} */
@@ -106,7 +99,6 @@ WebInspector.ElementsPanel = function()
     WebInspector.targetManager.observeTargets(this);
     WebInspector.moduleSetting("showUAShadowDOM").addChangeListener(this._showUAShadowDOMChanged.bind(this));
     WebInspector.targetManager.addModelListener(WebInspector.DOMModel, WebInspector.DOMModel.Events.DocumentUpdated, this._documentUpdatedEvent, this);
-    WebInspector.targetManager.addModelListener(WebInspector.CSSStyleModel, WebInspector.CSSStyleModel.Events.PseudoStateForced, this._pseudoStateForced, this);
     WebInspector.extensionServer.addEventListener(WebInspector.ExtensionServer.Events.SidebarPaneAdded, this._extensionSidebarPaneAdded, this);
 }
 
@@ -114,14 +106,81 @@ WebInspector.ElementsPanel._elementsSidebarViewTitleSymbol = Symbol("title");
 
 WebInspector.ElementsPanel.prototype = {
     /**
-     * @return {!WebInspector.Toolbar}
+     * @param {?WebInspector.Widget} widget
      */
-    _createElementsToolbar: function()
+    showToolbarPane: function(widget)
     {
-        var toolbar = new WebInspector.ExtensibleToolbar("elements-toolbar");
-        toolbar.element.classList.add("elements-toolbar");
-        toolbar.appendSeparator();
-        return toolbar;
+        if (this._animatedToolbarPane !== undefined)
+            this._pendingWidget = widget;
+        else
+            this._startToolbarPaneAnimation(widget);
+    },
+
+    /**
+     * @param {?WebInspector.Widget} widget
+     */
+    _startToolbarPaneAnimation: function(widget)
+    {
+        if (widget === this._currentToolbarPane)
+            return;
+
+        if (widget && this._currentToolbarPane) {
+            this._currentToolbarPane.detach();
+            widget.show(this._toolbarPaneElement);
+            this._currentToolbarPane = widget;
+            return;
+        }
+
+        this._animatedToolbarPane = widget;
+
+        if (this._currentToolbarPane)
+            this._toolbarPaneElement.style.animationName = 'styles-element-state-pane-slideout';
+        else if (widget)
+            this._toolbarPaneElement.style.animationName = 'styles-element-state-pane-slidein';
+
+        if (widget)
+            widget.show(this._toolbarPaneElement);
+
+        var listener = onAnimationEnd.bind(this);
+        this._toolbarPaneElement.addEventListener("animationend", listener, false);
+
+        /**
+         * @this {WebInspector.ElementsPanel}
+         */
+        function onAnimationEnd()
+        {
+            this._toolbarPaneElement.style.removeProperty('animation-name');
+            this._toolbarPaneElement.removeEventListener("animationend", listener, false);
+
+            if (this._currentToolbarPane)
+                this._currentToolbarPane.detach();
+
+            this._currentToolbarPane = this._animatedToolbarPane;
+            delete this._animatedToolbarPane;
+
+            if (this._pendingWidget !== undefined) {
+                this._startToolbarPaneAnimation(this._pendingWidget);
+                delete this._pendingWidget;
+            }
+        }
+    },
+
+    _toggleHideElement: function()
+    {
+        var node = this.selectedDOMNode();
+        var treeOutline = this._treeOutlineForNode(node);
+        if (!node || !treeOutline)
+            return;
+        treeOutline.toggleHideElement(node);
+    },
+
+    _toggleEditAsHTML: function()
+    {
+        var node = this.selectedDOMNode();
+        var treeOutline = this._treeOutlineForNode(node);
+        if (!node || !treeOutline)
+            return;
+        treeOutline.toggleEditAsHTML(node);
     },
 
     _loadSidebarViews: function()
@@ -180,12 +239,14 @@ WebInspector.ElementsPanel.prototype = {
         treeOutline.addEventListener(WebInspector.ElementsTreeOutline.Events.SelectedNodeChanged, this._selectedNodeChanged, this);
         treeOutline.addEventListener(WebInspector.ElementsTreeOutline.Events.NodePicked, this._onNodePicked, this);
         treeOutline.addEventListener(WebInspector.ElementsTreeOutline.Events.ElementsTreeUpdated, this._updateBreadcrumbIfNeeded, this);
+        new WebInspector.ElementsTreeElementHighlighter(treeOutline);
         this._treeOutlines.push(treeOutline);
         this._modelToTreeOutline.set(domModel, treeOutline);
 
         // Perform attach if necessary.
         if (this.isShowing())
             this.wasShown();
+
     },
 
     /**
@@ -238,6 +299,8 @@ WebInspector.ElementsPanel.prototype = {
 
     wasShown: function()
     {
+        WebInspector.context.setFlavor(WebInspector.ElementsPanel, this);
+
         for (var i = 0; i < this._treeOutlines.length; ++i) {
             var treeOutline = this._treeOutlines[i];
             // Attach heavy component lazily
@@ -263,6 +326,8 @@ WebInspector.ElementsPanel.prototype = {
 
     willHide: function()
     {
+        WebInspector.context.setFlavor(WebInspector.ElementsPanel, null);
+
         WebInspector.DOMModel.hideDOMNodeHighlight();
         for (var i = 0; i < this._treeOutlines.length; ++i) {
             var treeOutline = this._treeOutlines[i];
@@ -277,16 +342,9 @@ WebInspector.ElementsPanel.prototype = {
 
     onResize: function()
     {
+        if (WebInspector.moduleSetting("sidebarPosition").get() === "auto")
+            this.element.window().requestAnimationFrame(this._updateSidebarPosition.bind(this));  // Do not force layout.
         this._updateTreeOutlineVisibleWidth();
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _pseudoStateForced: function(event)
-    {
-        var node = /** @type {!WebInspector.DOMNode} */ (event.data["node"]);
-        this._treeOutlineForNode(node).updateOpenCloseTags(node);
     },
 
     /**
@@ -800,15 +858,17 @@ WebInspector.ElementsPanel.prototype = {
      */
     revealAndSelectNode: function(node)
     {
-        if (WebInspector.inspectElementModeController && WebInspector.inspectElementModeController.enabled()) {
-            InspectorFrontendHost.bringToFront();
-            WebInspector.inspectElementModeController.disable();
-        }
+        if (WebInspector.inspectElementModeController && WebInspector.inspectElementModeController.isInInspectElementMode())
+            WebInspector.inspectElementModeController.stopInspection();
 
         this._omitDefaultSelection = true;
-        WebInspector.inspectorView.setCurrentPanel(this);
+
+        var showLayoutEditor = !!WebInspector.inspectElementModeController && WebInspector.inspectElementModeController.isInLayoutEditorMode();
+        WebInspector.inspectorView.setCurrentPanel(this, showLayoutEditor);
         node = WebInspector.moduleSetting("showUAShadowDOM").get() ? node : this._leaveUserAgentShadowDOM(node);
-        node.highlightForTwoSeconds();
+        if (!showLayoutEditor)
+            node.highlightForTwoSeconds();
+
         this.selectDOMNode(node, true);
         delete this._omitDefaultSelection;
 
@@ -833,7 +893,7 @@ WebInspector.ElementsPanel.prototype = {
         // Add debbuging-related actions
         if (object instanceof WebInspector.DOMNode) {
             contextMenu.appendSeparator();
-            WebInspector.domBreakpointsSidebarPane.populateNodeContextMenu(object, contextMenu);
+            WebInspector.domBreakpointsSidebarPane.populateNodeContextMenu(object, contextMenu, true);
         }
 
         // Skip adding "Reveal..." menu item for our own tree outline.
@@ -851,35 +911,32 @@ WebInspector.ElementsPanel.prototype = {
         contextMenu.show();
     },
 
-    _dockSideChanged: function()
-    {
-        var vertically = WebInspector.dockController.isVertical() && WebInspector.moduleSetting("splitVerticallyWhenDockedToRight").get();
-        this._splitVertically(vertically);
-    },
-
     _showUAShadowDOMChanged: function()
     {
         for (var i = 0; i < this._treeOutlines.length; ++i)
             this._treeOutlines[i].update();
     },
 
-    _showStylesSidebar: function()
+    _updateSidebarPosition: function()
     {
-        this.sidebarPaneView.selectTab(this.sidebarPanes.styles.title());
-    },
+        var vertically;
+        var position = WebInspector.moduleSetting("sidebarPosition").get();
+        if (position === "right")
+            vertically = false;
+        else if (position === "bottom")
+            vertically = true;
+        else
+            vertically = WebInspector.inspectorView.element.offsetWidth < 680;
 
-    /**
-     * @param {boolean} vertically
-     */
-    _splitVertically: function(vertically)
-    {
         if (this.sidebarPaneView && vertically === !this._splitWidget.isVertical())
             return;
 
-        var extensionSidebarPanes = WebInspector.extensionServer.sidebarPanes();
-        if (this.sidebarPaneView && extensionSidebarPanes.length)
+        if (this.sidebarPaneView && this.sidebarPaneView.shouldHideOnDetach())
             return; // We can't reparent extension iframes.
 
+        var selectedTabId = this.sidebarPaneView ? this.sidebarPaneView.selectedTabId : null;
+
+        var extensionSidebarPanes = WebInspector.extensionServer.sidebarPanes();
         if (this.sidebarPaneView) {
             this.sidebarPaneView.detach();
             this._splitWidget.uninstallResizer(this.sidebarPaneView.headerElement());
@@ -977,6 +1034,9 @@ WebInspector.ElementsPanel.prototype = {
 
         this._splitWidget.setSidebarWidget(this.sidebarPaneView);
         this.sidebarPanes.styles.expand();
+
+        if (selectedTabId)
+            this.sidebarPaneView.selectTab(selectedTabId);
     },
 
     /**
@@ -993,10 +1053,8 @@ WebInspector.ElementsPanel.prototype = {
      */
     _addExtensionSidebarPane: function(pane)
     {
-        if (pane.panelName() === this.name) {
-            this.setHideOnDetach();
+        if (pane.panelName() === this.name)
             this._extensionSidebarPanesContainer.addPane(pane);
-        }
     },
 
     /**
@@ -1005,10 +1063,10 @@ WebInspector.ElementsPanel.prototype = {
     setWidgetBelowDOM: function(widget)
     {
         if (widget) {
-            this._elementsPanelTreeOutilneSplit.setSidebarWidget(widget);
-            this._elementsPanelTreeOutilneSplit.showBoth(true);
+            this._treeOutlineSplit.setSidebarWidget(widget);
+            this._treeOutlineSplit.showBoth(true);
         } else {
-            this._elementsPanelTreeOutilneSplit.hideSidebar(true);
+            this._treeOutlineSplit.hideSidebar(true);
         }
     },
 
@@ -1128,4 +1186,101 @@ WebInspector.ElementsPanelFactory.prototype = {
     {
         return WebInspector.ElementsPanel.instance();
     }
+}
+
+/**
+ * @constructor
+ * @implements {WebInspector.ActionDelegate}
+ */
+WebInspector.ElementsActionDelegate = function() { }
+
+WebInspector.ElementsActionDelegate.prototype = {
+    /**
+     * @override
+     * @param {!WebInspector.Context} context
+     * @param {string} actionId
+     * @return {boolean}
+     */
+    handleAction: function(context, actionId)
+    {
+        switch (actionId) {
+        case "elements.hide-element":
+            WebInspector.ElementsPanel.instance()._toggleHideElement();
+            return true;
+        case "elements.edit-as-html":
+            WebInspector.ElementsPanel.instance()._toggleEditAsHTML();
+            return true;
+        }
+        return false;
+    }
+}
+
+/**
+ * @constructor
+ * @implements {WebInspector.DOMPresentationUtils.MarkerDecorator}
+ */
+WebInspector.ElementsPanel.PseudoStateMarkerDecorator = function()
+{
+}
+
+WebInspector.ElementsPanel.PseudoStateMarkerDecorator.prototype = {
+    /**
+     * @override
+     * @param {!WebInspector.DOMNode} node
+     * @return {?{title: string, color: string}}
+     */
+    decorate: function(node)
+    {
+        return { color: "orange", title: WebInspector.UIString("Element state: %s", ":" + WebInspector.CSSStyleModel.fromNode(node).pseudoState(node).join(", :")) };
+    }
+}
+
+/**
+ * @constructor
+ * @extends {WebInspector.Widget}
+ * @param {!WebInspector.ToolbarItem} toolbarItem
+ */
+WebInspector.ElementsPanel.BaseToolbarPaneWidget = function(toolbarItem)
+{
+    WebInspector.Widget.call(this);
+    this._toolbarItem = toolbarItem;
+    WebInspector.context.addFlavorChangeListener(WebInspector.DOMNode, this._nodeChanged, this);
+}
+
+WebInspector.ElementsPanel.BaseToolbarPaneWidget.prototype = {
+    _nodeChanged: function()
+    {
+        if (!this.isShowing())
+            return;
+
+        var elementNode = WebInspector.SharedSidebarModel.elementNode(WebInspector.context.flavor(WebInspector.DOMNode));
+        this.onNodeChanged(elementNode);
+    },
+
+    /**
+     * @param {?WebInspector.DOMNode} newNode
+     * @protected
+     */
+    onNodeChanged: function(newNode)
+    {
+    },
+
+    /**
+     * @override
+     */
+    willHide: function()
+    {
+        this._toolbarItem.setToggled(false);
+    },
+
+    /**
+     * @override
+     */
+    wasShown: function()
+    {
+        this._toolbarItem.setToggled(true);
+        this._nodeChanged();
+    },
+
+    __proto__: WebInspector.Widget.prototype
 }

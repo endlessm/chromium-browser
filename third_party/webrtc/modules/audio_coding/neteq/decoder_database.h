@@ -37,11 +37,10 @@ class DecoderDatabase {
   struct DecoderInfo {
     // Constructors.
     DecoderInfo()
-        : codec_type(kDecoderArbitrary),
+        : codec_type(NetEqDecoder::kDecoderArbitrary),
           fs_hz(8000),
           decoder(NULL),
-          external(false) {
-    }
+          external(false) {}
     DecoderInfo(NetEqDecoder ct, int fs, AudioDecoder* dec, bool ext)
         : codec_type(ct),
           fs_hz(fs),
@@ -147,7 +146,7 @@ class DecoderDatabase {
   int active_decoder_;
   int active_cng_decoder_;
 
-  DISALLOW_COPY_AND_ASSIGN(DecoderDatabase);
+  RTC_DISALLOW_COPY_AND_ASSIGN(DecoderDatabase);
 };
 
 }  // namespace webrtc

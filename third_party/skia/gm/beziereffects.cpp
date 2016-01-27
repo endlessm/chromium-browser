@@ -12,14 +12,14 @@
 
 #if SK_SUPPORT_GPU
 
-#include "GrBatchTarget.h"
 #include "GrContext.h"
 #include "GrPathUtils.h"
 #include "GrTest.h"
-#include "GrTestBatch.h"
 #include "SkColorPriv.h"
 #include "SkDevice.h"
 #include "SkGeometry.h"
+
+#include "batches/GrTestBatch.h"
 
 #include "effects/GrBezierEffect.h"
 
@@ -31,21 +31,22 @@ namespace skiagm {
 
 class BezierCubicOrConicTestBatch : public GrTestBatch {
 public:
+    DEFINE_BATCH_CLASS_ID
     struct Geometry : public GrTestBatch::Geometry {
         SkRect fBounds;
     };
 
     const char* name() const override { return "BezierCubicOrConicTestBatch"; }
 
-    static GrBatch* Create(const GrGeometryProcessor* gp, const Geometry& geo,
-                           const SkScalar klmEqs[9], SkScalar sign) {
-        return SkNEW_ARGS(BezierCubicOrConicTestBatch, (gp, geo, klmEqs, sign));
+    static GrDrawBatch* Create(const GrGeometryProcessor* gp, const Geometry& geo,
+                               const SkScalar klmEqs[9], SkScalar sign) {
+        return new BezierCubicOrConicTestBatch(gp, geo, klmEqs, sign);
     }
 
 private:
     BezierCubicOrConicTestBatch(const GrGeometryProcessor* gp, const Geometry& geo,
                                 const SkScalar klmEqs[9], SkScalar sign)
-        : INHERITED(gp, geo.fBounds) {
+        : INHERITED(ClassID(), gp, geo.fBounds) {
         for (int i = 0; i < 9; i++) {
             fKlmEqs[i] = klmEqs[i];
         }
@@ -69,11 +70,11 @@ private:
         return &fGeometry;
     }
 
-    void onGenerateGeometry(GrBatchTarget* batchTarget, const GrPipeline* pipeline) override {
+    void generateGeometry(Target* target) override {
         QuadHelper helper;
         size_t vertexStride = this->geometryProcessor()->getVertexStride();
         SkASSERT(vertexStride == sizeof(Vertex));
-        Vertex* verts = reinterpret_cast<Vertex*>(helper.init(batchTarget, vertexStride, 1));
+        Vertex* verts = reinterpret_cast<Vertex*>(helper.init(target, vertexStride, 1));
         if (!verts) {
             return;
         }
@@ -86,7 +87,7 @@ private:
             verts[v].fKLM[1] = eval_line(verts[v].fPosition, fKlmEqs + 3, fSign);
             verts[v].fKLM[2] = eval_line(verts[v].fPosition, fKlmEqs + 6, 1.f);
         }
-        helper.issueDraw(batchTarget);
+        helper.recordDraw(target);
     }
 
     Geometry fGeometry;
@@ -119,12 +120,12 @@ protected:
 
     void onDraw(SkCanvas* canvas) override {
         GrRenderTarget* rt = canvas->internal_private_accessTopLayerRenderTarget();
-        if (NULL == rt) {
-            this->drawGpuOnlyMessage(canvas);
+        if (nullptr == rt) {
+            skiagm::GM::DrawGpuOnlyMessage(canvas);
             return;
         }
         GrContext* context = rt->getContext();
-        if (NULL == context) {
+        if (nullptr == context) {
             return;
         }
 
@@ -157,7 +158,7 @@ protected:
                 {   // scope to contain GrTestTarget
                     GrTestTarget tt;
                     context->getTestTarget(&tt);
-                    if (NULL == tt.target()) {
+                    if (nullptr == tt.target()) {
                         continue;
                     }
                     GrPrimitiveEdgeType et = (GrPrimitiveEdgeType)edgeType;
@@ -226,10 +227,10 @@ protected:
                     geometry.fColor = color;
                     geometry.fBounds = bounds;
 
-                    SkAutoTUnref<GrBatch> batch(
+                    SkAutoTUnref<GrDrawBatch> batch(
                             BezierCubicOrConicTestBatch::Create(gp, geometry, klmEqs, klmSigns[c]));
 
-                    tt.target()->drawBatch(&pipelineBuilder, batch);
+                    tt.target()->drawBatch(pipelineBuilder, batch);
                 }
                 ++col;
                 if (numCols == col) {
@@ -267,12 +268,12 @@ protected:
 
     void onDraw(SkCanvas* canvas) override {
         GrRenderTarget* rt = canvas->internal_private_accessTopLayerRenderTarget();
-        if (NULL == rt) {
-            this->drawGpuOnlyMessage(canvas);
+        if (nullptr == rt) {
+            skiagm::GM::DrawGpuOnlyMessage(canvas);
             return;
         }
         GrContext* context = rt->getContext();
-        if (NULL == context) {
+        if (nullptr == context) {
             return;
         }
 
@@ -305,7 +306,7 @@ protected:
                 {   // scope to contain GrTestTarget
                     GrTestTarget tt;
                     context->getTestTarget(&tt);
-                    if (NULL == tt.target()) {
+                    if (nullptr == tt.target()) {
                         continue;
                     }
                     GrPrimitiveEdgeType et = (GrPrimitiveEdgeType)edgeType;
@@ -371,10 +372,10 @@ protected:
                     geometry.fColor = color;
                     geometry.fBounds = bounds;
 
-                    SkAutoTUnref<GrBatch> batch(
+                    SkAutoTUnref<GrDrawBatch> batch(
                             BezierCubicOrConicTestBatch::Create(gp, geometry, klmEqs, 1.f));
 
-                    tt.target()->drawBatch(&pipelineBuilder, batch);
+                    tt.target()->drawBatch(pipelineBuilder, batch);
                 }
                 ++col;
                 if (numCols == col) {
@@ -430,21 +431,22 @@ private:
 
 class BezierQuadTestBatch : public GrTestBatch {
 public:
+    DEFINE_BATCH_CLASS_ID
     struct Geometry : public GrTestBatch::Geometry {
         SkRect fBounds;
     };
 
     const char* name() const override { return "BezierQuadTestBatch"; }
 
-    static GrBatch* Create(const GrGeometryProcessor* gp, const Geometry& geo,
-                           const GrPathUtils::QuadUVMatrix& devToUV) {
-        return SkNEW_ARGS(BezierQuadTestBatch, (gp, geo, devToUV));
+    static GrDrawBatch* Create(const GrGeometryProcessor* gp, const Geometry& geo,
+                               const GrPathUtils::QuadUVMatrix& devToUV) {
+        return new BezierQuadTestBatch(gp, geo, devToUV);
     }
 
 private:
     BezierQuadTestBatch(const GrGeometryProcessor* gp, const Geometry& geo,
                         const GrPathUtils::QuadUVMatrix& devToUV)
-        : INHERITED(gp, geo.fBounds)
+        : INHERITED(ClassID(), gp, geo.fBounds)
         , fGeometry(geo)
         , fDevToUV(devToUV) {
     }
@@ -464,11 +466,11 @@ private:
         return &fGeometry;
     }
 
-    void onGenerateGeometry(GrBatchTarget* batchTarget, const GrPipeline* pipeline) override {
+    void generateGeometry(Target* target) override {
         QuadHelper helper;
         size_t vertexStride = this->geometryProcessor()->getVertexStride();
         SkASSERT(vertexStride == sizeof(Vertex));
-        Vertex* verts = reinterpret_cast<Vertex*>(helper.init(batchTarget, vertexStride, 1));
+        Vertex* verts = reinterpret_cast<Vertex*>(helper.init(target, vertexStride, 1));
         if (!verts) {
             return;
         }
@@ -476,7 +478,7 @@ private:
                                       fGeometry.fBounds.fRight, fGeometry.fBounds.fBottom,
                                       sizeof(Vertex));
         fDevToUV.apply<4, sizeof(Vertex), sizeof(SkPoint)>(verts);
-        helper.issueDraw(batchTarget);
+        helper.recordDraw(target);
     }
 
     Geometry fGeometry;
@@ -509,12 +511,12 @@ protected:
 
     void onDraw(SkCanvas* canvas) override {
         GrRenderTarget* rt = canvas->internal_private_accessTopLayerRenderTarget();
-        if (NULL == rt) {
-            this->drawGpuOnlyMessage(canvas);
+        if (nullptr == rt) {
+            skiagm::GM::DrawGpuOnlyMessage(canvas);
             return;
         }
         GrContext* context = rt->getContext();
-        if (NULL == context) {
+        if (nullptr == context) {
             return;
         }
 
@@ -545,7 +547,7 @@ protected:
                 {   // scope to contain GrTestTarget
                     GrTestTarget tt;
                     context->getTestTarget(&tt);
-                    if (NULL == tt.target()) {
+                    if (nullptr == tt.target()) {
                         continue;
                     }
                     GrPrimitiveEdgeType et = (GrPrimitiveEdgeType)edgeType;
@@ -610,9 +612,10 @@ protected:
                     geometry.fColor = color;
                     geometry.fBounds = bounds;
 
-                    SkAutoTUnref<GrBatch> batch(BezierQuadTestBatch::Create(gp, geometry, DevToUV));
+                    SkAutoTUnref<GrDrawBatch> batch(BezierQuadTestBatch::Create(gp, geometry,
+                                                                                DevToUV));
 
-                    tt.target()->drawBatch(&pipelineBuilder, batch);
+                    tt.target()->drawBatch(pipelineBuilder, batch);
                 }
                 ++col;
                 if (numCols == col) {
@@ -627,10 +630,9 @@ private:
     typedef GM INHERITED;
 };
 
-DEF_GM( return SkNEW(BezierCubicEffects); )
-DEF_GM( return SkNEW(BezierConicEffects); )
-DEF_GM( return SkNEW(BezierQuadEffects); )
-
+DEF_GM(return new BezierCubicEffects;)
+DEF_GM(return new BezierConicEffects;)
+DEF_GM(return new BezierQuadEffects;)
 }
 
 #endif

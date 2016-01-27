@@ -10,19 +10,24 @@
 #include "base/test/launcher/unit_test_launcher.h"
 #include "base/test/test_suite.h"
 #include "components/content_settings/core/common/content_settings_pattern.h"
-#include "content/public/test/test_content_client_initializer.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/base/ui_base_paths.h"
 #include "url/url_util.h"
 
 #if !defined(OS_IOS)
-#include "ui/gl/gl_surface.h"
+#include "content/public/test/test_content_client_initializer.h"
+#include "ui/gl/test/gl_surface_test_support.h"
 #endif
 
 #if defined(OS_ANDROID)
 #include "base/android/jni_android.h"
 #include "components/invalidation/impl/android/component_jni_registrar.h"
+#include "components/policy/core/browser/android/component_jni_registrar.h"
+#include "components/safe_json/android/component_jni_registrar.h"
+#include "components/signin/core/browser/android/component_jni_registrar.h"
+#include "content/browser/android/browser_jni_registrar.h"
+#include "net/android/net_jni_registrar.h"
 #include "ui/base/android/ui_base_jni_registrar.h"
 #include "ui/gfx/android/gfx_jni_registrar.h"
 #endif
@@ -43,14 +48,19 @@ class ComponentsTestSuite : public base::TestSuite {
     base::StatisticsRecorder::Initialize();
 
 #if !defined(OS_IOS)
-    gfx::GLSurface::InitializeOneOffForTests();
+    gfx::GLSurfaceTestSupport::InitializeOneOff();
 #endif
 #if defined(OS_ANDROID)
     // Register JNI bindings for android.
     JNIEnv* env = base::android::AttachCurrentThread();
-    gfx::android::RegisterJni(env);
-    ui::android::RegisterJni(env);
-    invalidation::android::RegisterInvalidationJni(env);
+    ASSERT_TRUE(gfx::android::RegisterJni(env));
+    ASSERT_TRUE(ui::android::RegisterJni(env));
+    ASSERT_TRUE(invalidation::android::RegisterInvalidationJni(env));
+    ASSERT_TRUE(policy::android::RegisterPolicy(env));
+    ASSERT_TRUE(safe_json::android::RegisterSafeJsonJni(env));
+    ASSERT_TRUE(signin::android::RegisterSigninJni(env));
+    ASSERT_TRUE(net::android::RegisterJni(env));
+    ASSERT_TRUE(content::android::RegisterBrowserJni(env));
 #endif
 
     ui::RegisterPathProvider();
@@ -72,10 +82,10 @@ class ComponentsTestSuite : public base::TestSuite {
 
     // These schemes need to be added globally to pass tests of
     // autocomplete_input_unittest.cc and content_settings_pattern*
-    url::AddStandardScheme("chrome");
-    url::AddStandardScheme("chrome-extension");
-    url::AddStandardScheme("chrome-devtools");
-    url::AddStandardScheme("chrome-search");
+    url::AddStandardScheme("chrome", url::SCHEME_WITHOUT_PORT);
+    url::AddStandardScheme("chrome-extension", url::SCHEME_WITHOUT_PORT);
+    url::AddStandardScheme("chrome-devtools", url::SCHEME_WITHOUT_PORT);
+    url::AddStandardScheme("chrome-search", url::SCHEME_WITHOUT_PORT);
 
     // Not using kExtensionScheme to avoid the dependency to extensions.
     ContentSettingsPattern::SetNonWildcardDomainNonPortScheme(
@@ -97,15 +107,21 @@ class ComponentsUnitTestEventListener : public testing::EmptyTestEventListener {
   ~ComponentsUnitTestEventListener() override {}
 
   void OnTestStart(const testing::TestInfo& test_info) override {
+#if !defined(OS_IOS)
     content_initializer_.reset(new content::TestContentClientInitializer());
+#endif
   }
 
   void OnTestEnd(const testing::TestInfo& test_info) override {
+#if !defined(OS_IOS)
     content_initializer_.reset();
+#endif
   }
 
  private:
+#if !defined(OS_IOS)
   scoped_ptr<content::TestContentClientInitializer> content_initializer_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(ComponentsUnitTestEventListener);
 };

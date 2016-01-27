@@ -15,7 +15,7 @@
 
 #include "webrtc/base/constructormagic.h"
 #include "webrtc/base/scoped_ptr.h"
-#include "webrtc/modules/interface/module.h"
+#include "webrtc/modules/include/module.h"
 
 namespace webrtc {
 
@@ -73,7 +73,7 @@ class CallStats : public Module {
   // Observers getting stats reports.
   std::list<CallStatsObserver*> observers_;
 
-  DISALLOW_COPY_AND_ASSIGN(CallStats);
+  RTC_DISALLOW_COPY_AND_ASSIGN(CallStats);
 };
 
 }  // namespace webrtc

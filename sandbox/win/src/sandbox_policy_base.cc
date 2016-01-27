@@ -525,24 +525,25 @@ bool PolicyBase::SetupService(InterceptionManager* manager, int service) {
   return dispatch->SetupService(manager, service);
 }
 
-ResultCode PolicyBase::MakeJobObject(HANDLE* job) {
+ResultCode PolicyBase::MakeJobObject(base::win::ScopedHandle* job) {
   if (job_level_ != JOB_NONE) {
     // Create the windows job object.
     Job job_obj;
     DWORD result = job_obj.Init(job_level_, NULL, ui_exceptions_,
                                 memory_limit_);
-    if (ERROR_SUCCESS != result) {
+    if (ERROR_SUCCESS != result)
       return SBOX_ERROR_GENERIC;
-    }
-    *job = job_obj.Detach();
+
+    *job = job_obj.Take();
   } else {
-    *job = NULL;
+    *job = base::win::ScopedHandle();
   }
   return SBOX_ALL_OK;
 }
 
 ResultCode PolicyBase::MakeTokens(base::win::ScopedHandle* initial,
-                                  base::win::ScopedHandle* lockdown) {
+                                  base::win::ScopedHandle* lockdown,
+                                  base::win::ScopedHandle* lowbox) {
   if (appcontainer_list_.get() && appcontainer_list_->HasAppContainer() &&
       lowbox_sid_) {
     return SBOX_ERROR_BAD_PARAMS;
@@ -550,13 +551,10 @@ ResultCode PolicyBase::MakeTokens(base::win::ScopedHandle* initial,
 
   // Create the 'naked' token. This will be the permanent token associated
   // with the process and therefore with any thread that is not impersonating.
-  HANDLE temp_handle;
-  DWORD result = CreateRestrictedToken(&temp_handle, lockdown_level_,
-                                       integrity_level_, PRIMARY);
+  DWORD result = CreateRestrictedToken(lockdown_level_,  integrity_level_,
+                                       PRIMARY, lockdown);
   if (ERROR_SUCCESS != result)
     return SBOX_ERROR_GENERIC;
-
-  lockdown->Set(temp_handle);
 
   // If we're launching on the alternate desktop we need to make sure the
   // integrity label on the object is no higher than the sandboxed process's
@@ -616,18 +614,17 @@ ResultCode PolicyBase::MakeTokens(base::win::ScopedHandle* initial,
       return SBOX_ERROR_GENERIC;
 
     DCHECK(token_lowbox);
-    lockdown->Set(token_lowbox);
+    lowbox->Set(token_lowbox);
   }
 
   // Create the 'better' token. We use this token as the one that the main
   // thread uses when booting up the process. It should contain most of
   // what we need (before reaching main( ))
-  result = CreateRestrictedToken(&temp_handle, initial_level_,
-                                 integrity_level_, IMPERSONATION);
+  result = CreateRestrictedToken(initial_level_, integrity_level_,
+                                 IMPERSONATION, initial);
   if (ERROR_SUCCESS != result)
     return SBOX_ERROR_GENERIC;
 
-  initial->Set(temp_handle);
   return SBOX_ALL_OK;
 }
 

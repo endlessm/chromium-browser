@@ -26,7 +26,6 @@
 #define Node_h
 
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
-#include "bindings/core/v8/UnionTypesCore.h"
 #include "core/CoreExport.h"
 #include "core/dom/MutationObserver.h"
 #include "core/dom/SimulatedClickOptions.h"
@@ -113,6 +112,8 @@ protected:
     { }
 
 protected:
+    // LayoutObjects are fully owned by their DOM node. See LayoutObject's
+    // LIFETIME documentation section.
     LayoutObject* m_layoutObject;
 };
 
@@ -127,6 +128,8 @@ WILL_NOT_BE_EAGERLY_TRACED_CLASS(Node);
 #define NODE_BASE_CLASSES public EventTarget, public TreeShared<Node>
 #endif
 
+// This class represents a DOM node in the DOM tree.
+// https://dom.spec.whatwg.org/#interface-node
 class CORE_EXPORT Node : NODE_BASE_CLASSES {
 #if !ENABLE(OILPAN)
     DEFINE_EVENT_TARGET_REFCOUNTING(TreeShared<Node>);
@@ -179,7 +182,7 @@ public:
     static void* allocateObject(size_t size, bool isEager)
     {
         ThreadState* state = ThreadStateFor<ThreadingTrait<Node>::Affinity>::state();
-        return Heap::allocateOnHeapIndex(state, size, isEager ? ThreadState::EagerSweepHeapIndex : ThreadState::NodeHeapIndex, GCInfoTrait<EventTarget>::index());
+        return Heap::allocateOnHeapIndex(state, size, isEager ? BlinkGC::EagerSweepHeapIndex : BlinkGC::NodeHeapIndex, GCInfoTrait<EventTarget>::index());
     }
 #else // !ENABLE(OILPAN)
     // All Nodes are placed in their own heap partition for security.
@@ -210,12 +213,7 @@ public:
     Node* firstChild() const;
     Node* lastChild() const;
 
-    void prepend(const HeapVector<NodeOrString>&, ExceptionState&);
-    void append(const HeapVector<NodeOrString>&, ExceptionState&);
-    void before(const HeapVector<NodeOrString>&, ExceptionState&);
-    void after(const HeapVector<NodeOrString>&, ExceptionState&);
-    void replaceWith(const HeapVector<NodeOrString>&, ExceptionState&);
-    void remove(ExceptionState&);
+    void remove(ExceptionState& = ASSERT_NO_EXCEPTION);
 
     Node* pseudoAwareNextSibling() const;
     Node* pseudoAwarePreviousSibling() const;
@@ -231,8 +229,6 @@ public:
 
     bool hasChildren() const { return firstChild(); }
     virtual PassRefPtrWillBeRawPtr<Node> cloneNode(bool deep = false) = 0;
-    virtual const AtomicString& localName() const;
-    virtual const AtomicString& namespaceURI() const;
     void normalize();
 
     bool isSameNode(Node* other) const { return this == other; }
@@ -303,6 +299,9 @@ public:
     bool hasCustomStyleCallbacks() const { return getFlag(HasCustomStyleCallbacksFlag); }
 
     // If this node is in a shadow tree, returns its shadow host. Otherwise, returns nullptr.
+    // TODO(kochi): crbug.com/507413 shadowHost() can return nullptr even when it is in a
+    // shadow tree but its root is detached from its host. This can happen when handling
+    // queued events (e.g. during execCommand()).
     Element* shadowHost() const;
     ShadowRoot* containingShadowRoot() const;
     ShadowRoot* youngestShadowRoot() const;
@@ -389,7 +388,6 @@ public:
     void setNeedsStyleInvalidation();
 
     void updateDistribution();
-    void recalcDistribution();
 
     bool svgFilterNeedsLayerUpdate() const { return getFlag(SVGFilterNeedsLayerUpdateFlag); }
     void setSVGFilterNeedsLayerUpdate() { setFlag(SVGFilterNeedsLayerUpdateFlag); }
@@ -422,8 +420,8 @@ public:
         UserSelectAllDoesNotAffectEditability,
         UserSelectAllIsAlwaysNonEditable
     };
-    bool isContentEditable(UserSelectAllTreatment = UserSelectAllDoesNotAffectEditability);
-    bool isContentRichlyEditable();
+    bool isContentEditable(UserSelectAllTreatment = UserSelectAllDoesNotAffectEditability) const;
+    bool isContentRichlyEditable() const;
 
     bool hasEditableStyle(EditableType editableType = ContentIsEditable, UserSelectAllTreatment treatment = UserSelectAllIsAlwaysNonEditable) const
     {
@@ -451,12 +449,6 @@ public:
 
     virtual LayoutRect boundingBox() const;
     IntRect pixelSnappedBoundingBox() const { return pixelSnappedIntRect(boundingBox()); }
-
-    // Returns true if the node has a non-empty bounding box in layout.
-    // This does not 100% guarantee the user can see it, but is pretty close.
-    // Note: This method only works properly after layout has occurred.
-    // DEPRECATED: Use Element::hasNonEmptyLayoutSize() instead.
-    bool hasNonEmptyBoundingBox() const;
 
     unsigned nodeIndex() const;
 
@@ -525,6 +517,7 @@ public:
     LayoutBoxModelObject* layoutBoxModelObject() const;
 
     struct AttachContext {
+        STACK_ALLOCATED();
         ComputedStyle* resolvedStyle;
         bool performingReattach;
 
@@ -586,6 +579,8 @@ public:
     //
     virtual void removedFrom(ContainerNode* insertionPoint);
 
+    // FIXME(dominicc): This method is not debug-only--it is used by
+    // Tracing--rename it to something indicative.
     String debugName() const;
 
 #ifndef NDEBUG
@@ -619,8 +614,6 @@ public:
     const AtomicString& interfaceName() const override;
     ExecutionContext* executionContext() const final;
 
-    bool addEventListener(const AtomicString& eventType, PassRefPtr<EventListener>, bool useCapture = false) override;
-    bool removeEventListener(const AtomicString& eventType, PassRefPtr<EventListener>, bool useCapture = false) override;
     void removeAllEventListeners() override;
     void removeAllEventListenersRecursively();
 
@@ -629,11 +622,7 @@ public:
     virtual void* preDispatchEventHandler(Event*) { return nullptr; }
     virtual void postDispatchEventHandler(Event*, void* /*dataFromPreDispatch*/) { }
 
-    using EventTarget::dispatchEvent;
-    bool dispatchEvent(PassRefPtrWillBeRawPtr<Event>) override;
-
     void dispatchScopedEvent(PassRefPtrWillBeRawPtr<Event>);
-    void dispatchScopedEventDispatchMediator(PassRefPtrWillBeRawPtr<EventDispatchMediator>);
 
     virtual void handleLocalEvents(Event&);
 
@@ -644,10 +633,8 @@ public:
     bool dispatchWheelEvent(const PlatformWheelEvent&);
     bool dispatchMouseEvent(const PlatformMouseEvent&, const AtomicString& eventType, int clickCount = 0, Node* relatedTarget = nullptr);
     bool dispatchGestureEvent(const PlatformGestureEvent&);
-    bool dispatchTouchEvent(PassRefPtrWillBeRawPtr<TouchEvent>);
-    bool dispatchPointerEvent(PassRefPtrWillBeRawPtr<PointerEvent>);
 
-    void dispatchSimulatedClick(Event* underlyingEvent, SimulatedClickMouseEventOptions = SendNoEvents);
+    void dispatchSimulatedClick(Event* underlyingEvent, SimulatedClickMouseEventOptions = SendNoEvents, SimulatedClickCreationScope = SimulatedClickCreationScope::FromUserAgent);
 
     void dispatchInputEvent();
 
@@ -658,7 +645,7 @@ public:
     EventTargetData* eventTargetData() override;
     EventTargetData& ensureEventTargetData() override;
 
-    void getRegisteredMutationObserversOfType(WillBeHeapHashMap<RawPtrWillBeMember<MutationObserver>, MutationRecordDeliveryOptions>&, MutationObserver::MutationType, const QualifiedName* attributeName);
+    void getRegisteredMutationObserversOfType(WillBeHeapHashMap<RefPtrWillBeMember<MutationObserver>, MutationRecordDeliveryOptions>&, MutationObserver::MutationType, const QualifiedName* attributeName);
     void registerMutationObserver(MutationObserver&, MutationObserverOptions, const HashSet<AtomicString>& attributeFilter);
     void unregisterMutationObserver(MutationObserverRegistration*);
     void registerTransientMutationObserver(MutationObserverRegistration*);
@@ -759,6 +746,10 @@ protected:
 
     virtual void didMoveToNewDocument(Document& oldDocument);
 
+    bool addEventListenerInternal(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener>, const EventListenerOptions&) override;
+    bool removeEventListenerInternal(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener>, const EventListenerOptions&) override;
+    bool dispatchEventInternal(PassRefPtrWillBeRawPtr<Event>) override;
+
     static void reattachWhitespaceSiblingsIfNeeded(Text* start);
 
 #if !ENABLE(OILPAN)
@@ -798,6 +789,13 @@ private:
 #endif
     bool hasTreeSharedParent() const { return !!parentOrShadowHostNode(); }
 
+    // Gets nodeName without caching AtomicStrings. Used by
+    // debugName. Compositor may call debugName from the "impl" thread
+    // during "commit". The main thread is stopped at that time, but
+    // it is not safe to cache AtomicStrings because those are
+    // per-thread.
+    virtual String debugNodeName() const;
+
     enum EditableLevel { Editable, RichlyEditable };
     bool hasEditableStyle(EditableLevel, UserSelectAllTreatment = UserSelectAllIsAlwaysNonEditable) const;
     bool isEditableToAccessibility(EditableLevel) const;
@@ -806,6 +804,8 @@ private:
     bool isUserActionElementInActiveChain() const;
     bool isUserActionElementHovered() const;
     bool isUserActionElementFocused() const;
+
+    void recalcDistribution();
 
     void setStyleChange(StyleChangeType);
 
@@ -826,6 +826,8 @@ private:
     // When a node has rare data we move the layoutObject into the rare data.
     union DataUnion {
         DataUnion() : m_layoutObject(nullptr) { }
+        // LayoutObjects are fully owned by their DOM node. See LayoutObject's
+        // LIFETIME documentation section.
         LayoutObject* m_layoutObject;
         NodeRareDataBase* m_rareData;
     } m_data;
@@ -904,6 +906,11 @@ PassRefPtrWillBeRawPtr<T> T::create(Document& document) \
 { \
     return adoptRefWillBeNoop(new T(document)); \
 }
+
+// These printers are available only for testing in "webkit_unit_tests", and
+// implemented in "core/testing/CoreTestPrinters.cpp".
+std::ostream& operator<<(std::ostream&, const Node&);
+std::ostream& operator<<(std::ostream&, const Node*);
 
 } // namespace blink
 

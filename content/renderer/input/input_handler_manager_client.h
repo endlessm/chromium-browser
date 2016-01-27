@@ -9,10 +9,11 @@
 #include "base/callback.h"
 #include "base/callback_forward.h"
 #include "content/common/content_export.h"
+#include "content/common/input/input_event_ack_state.h"
 #include "ui/gfx/geometry/vector2d_f.h"
 
 namespace ui {
-struct LatencyInfo;
+class LatencyInfo;
 }
 
 namespace cc {
@@ -25,6 +26,7 @@ class WebInputEvent;
 
 namespace content {
 struct DidOverscrollParams;
+class SynchronousInputHandlerProxy;
 
 class CONTENT_EXPORT InputHandlerManagerClient {
  public:
@@ -42,8 +44,9 @@ class CONTENT_EXPORT InputHandlerManagerClient {
   virtual void SetBoundHandler(const Handler& handler) = 0;
 
   // Called from the compositor thread.
-  virtual void DidAddInputHandler(int routing_id,
-                                  cc::InputHandler* input_handler) = 0;
+  virtual void DidAddInputHandler(
+      int routing_id,
+      SynchronousInputHandlerProxy* synchronous_handler) = 0;
   virtual void DidRemoveInputHandler(int routing_id) = 0;
   virtual void DidOverscroll(int routing_id,
                              const DidOverscrollParams& params) = 0;

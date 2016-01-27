@@ -11,6 +11,7 @@
 #include "base/thread_task_runner_handle.h"
 #include "components/html_viewer/blink_url_request_type_converters.h"
 #include "mojo/common/common_type_converters.h"
+#include "mojo/common/data_pipe_utils.h"
 #include "mojo/common/url_type_converters.h"
 #include "mojo/services/network/public/interfaces/url_loader_factory.mojom.h"
 #include "net/base/net_errors.h"
@@ -28,15 +29,17 @@ namespace {
 blink::WebURLResponse::HTTPVersion StatusLineToHTTPVersion(
     const mojo::String& status_line) {
   if (status_line.is_null())
-    return blink::WebURLResponse::HTTP_0_9;
+    return blink::WebURLResponse::HTTPVersion_0_9;
 
-  if (base::StartsWithASCII(status_line, "HTTP/1.0", true))
-    return blink::WebURLResponse::HTTP_1_0;
+  if (base::StartsWith(status_line.get(), "HTTP/1.0",
+                       base::CompareCase::SENSITIVE))
+    return blink::WebURLResponse::HTTPVersion_1_0;
 
-  if (base::StartsWithASCII(status_line, "HTTP/1.1", true))
-    return blink::WebURLResponse::HTTP_1_1;
+  if (base::StartsWith(status_line.get(), "HTTP/1.1",
+                       base::CompareCase::SENSITIVE))
+    return blink::WebURLResponse::HTTPVersion_1_1;
 
-  return blink::WebURLResponse::Unknown;
+  return blink::WebURLResponse::HTTPVersionUnknown;
 }
 
 blink::WebURLResponse ToWebURLResponse(const URLResponsePtr& url_response) {
@@ -88,7 +91,25 @@ void WebURLLoaderImpl::loadSynchronously(
     blink::WebURLResponse& response,
     blink::WebURLError& error,
     blink::WebData& data) {
-  NOTIMPLEMENTED();
+  mojo::URLRequestPtr url_request = mojo::URLRequest::From(request);
+  url_request->auto_follow_redirects = true;
+  URLResponsePtr url_response;
+  url_loader_->Start(url_request.Pass(),
+                     [&url_response](URLResponsePtr url_response_result) {
+                        url_response = url_response_result.Pass();
+                     });
+  url_loader_.WaitForIncomingResponse();
+  if (url_response->error) {
+    error.domain = WebString::fromUTF8(net::kErrorDomain);
+    error.reason = url_response->error->code;
+    error.unreachableURL = GURL(url_response->url);
+    return;
+  }
+
+  response = ToWebURLResponse(url_response);
+  std::string body;
+  mojo::common::BlockingCopyToString(url_response->body.Pass(), &body);
+  data.assign(body.data(), body.length());
 }
 
 void WebURLLoaderImpl::loadAsynchronously(const blink::WebURLRequest& request,
@@ -207,10 +228,11 @@ void WebURLLoaderImpl::OnReceivedRedirect(const blink::WebURLRequest& request,
     new_request.setHTTPBody(request.httpBody());
 
   base::WeakPtr<WebURLLoaderImpl> self(weak_factory_.GetWeakPtr());
-  client_->willSendRequest(this, new_request, ToWebURLResponse(url_response));
+  client_->willFollowRedirect(
+      this, new_request, ToWebURLResponse(url_response));
   // TODO(darin): Check if new_request was rejected.
 
-  // We may have been deleted during willSendRequest.
+  // We may have been deleted during willFollowRedirect.
   if (!self)
     return;
 
@@ -288,6 +310,11 @@ void WebURLLoaderImpl::WaitToReadMore() {
 
 void WebURLLoaderImpl::OnResponseBodyStreamReady(MojoResult result) {
   ReadMore();
+}
+
+void WebURLLoaderImpl::setLoadingTaskRunner(
+    blink::WebTaskRunner* web_task_runner) {
+  // TODO(alexclarke): Consider hooking this up.
 }
 
 }  // namespace html_viewer

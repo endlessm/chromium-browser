@@ -68,7 +68,8 @@ const QualifiedName& HTMLScriptElement::subResourceAttributeName() const
 void HTMLScriptElement::childrenChanged(const ChildrenChange& change)
 {
     HTMLElement::childrenChanged(change);
-    m_loader->childrenChanged();
+    if (change.isChildInsertion())
+        m_loader->childrenChanged();
 }
 
 void HTMLScriptElement::didMoveToNewDocument(Document& oldDocument)
@@ -128,15 +129,7 @@ void HTMLScriptElement::didNotifySubtreeInsertionsToDocument()
 
 void HTMLScriptElement::setText(const String &value)
 {
-    RefPtrWillBeRawPtr<Node> protectFromMutationEvents(this);
-
-    if (hasOneTextChild()) {
-        toText(firstChild())->setData(value);
-        return;
-    }
-
-    removeChildren();
-    appendChild(document().createTextNode(value.impl()), IGNORE_EXCEPTION);
+    setTextContent(value);
 }
 
 void HTMLScriptElement::setAsync(bool async)

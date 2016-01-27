@@ -14,31 +14,51 @@ namespace extensions {
 
 namespace {
 
+const char kEnableMediaRouterExperiment[] = "EnableMediaRouter";
+const char kEnableMediaRouterWithCastExtensionExperiment[] =
+    "EnableMediaRouterWithCastExtension";
+const char kExtensionActionRedesignExperiment[] = "ExtensionActionRedesign";
+
 class CommonSwitches {
  public:
   CommonSwitches()
-      : easy_off_store_install(NULL, FeatureSwitch::DEFAULT_DISABLED),
+      : easy_off_store_install(nullptr, FeatureSwitch::DEFAULT_DISABLED),
         force_dev_mode_highlighting(switches::kForceDevModeHighlighting,
                                     FeatureSwitch::DEFAULT_DISABLED),
-        prompt_for_external_extensions(NULL,
-#if defined(OS_WIN)
-                                       FeatureSwitch::DEFAULT_ENABLED),
+        prompt_for_external_extensions(
+#if defined(CHROMIUM_BUILD)
+            switches::kPromptForExternalExtensions,
 #else
-                                       FeatureSwitch::DEFAULT_DISABLED),
+            nullptr,
+#endif
+#if defined(OS_WIN)
+            FeatureSwitch::DEFAULT_ENABLED),
+#else
+            FeatureSwitch::DEFAULT_DISABLED),
 #endif
         error_console(switches::kErrorConsole, FeatureSwitch::DEFAULT_DISABLED),
         enable_override_bookmarks_ui(switches::kEnableOverrideBookmarksUI,
                                      FeatureSwitch::DEFAULT_DISABLED),
         extension_action_redesign(switches::kExtensionActionRedesign,
+                                  kExtensionActionRedesignExperiment,
                                   FeatureSwitch::DEFAULT_DISABLED),
+        extension_action_redesign_override(switches::kExtensionActionRedesign,
+                                           FeatureSwitch::DEFAULT_ENABLED),
         scripts_require_action(switches::kScriptsRequireAction,
                                FeatureSwitch::DEFAULT_DISABLED),
         embedded_extension_options(switches::kEmbeddedExtensionOptions,
                                    FeatureSwitch::DEFAULT_DISABLED),
-        surface_worker(switches::kSurfaceWorker,
-                       FeatureSwitch::DEFAULT_DISABLED),
         trace_app_source(switches::kTraceAppSource,
-                         FeatureSwitch::DEFAULT_ENABLED) {
+                         FeatureSwitch::DEFAULT_ENABLED),
+        // The switch media-router is defined in
+        // chrome/common/chrome_switches.cc, but we can't depend on chrome here.
+        media_router("media-router",
+                     kEnableMediaRouterExperiment,
+                     FeatureSwitch::DEFAULT_DISABLED),
+        media_router_with_cast_extension(
+            "media-router",
+            kEnableMediaRouterWithCastExtensionExperiment,
+            FeatureSwitch::DEFAULT_DISABLED) {
   }
 
   // Enables extensions to be easily installed from sites other than the web
@@ -54,10 +74,12 @@ class CommonSwitches {
   FeatureSwitch error_console;
   FeatureSwitch enable_override_bookmarks_ui;
   FeatureSwitch extension_action_redesign;
+  FeatureSwitch extension_action_redesign_override;
   FeatureSwitch scripts_require_action;
   FeatureSwitch embedded_extension_options;
-  FeatureSwitch surface_worker;
   FeatureSwitch trace_app_source;
+  FeatureSwitch media_router;
+  FeatureSwitch media_router_with_cast_extension;
 };
 
 base::LazyInstance<CommonSwitches> g_common_switches =
@@ -81,6 +103,13 @@ FeatureSwitch* FeatureSwitch::enable_override_bookmarks_ui() {
   return &g_common_switches.Get().enable_override_bookmarks_ui;
 }
 FeatureSwitch* FeatureSwitch::extension_action_redesign() {
+  // Force-enable the redesigned extension action toolbar when the Media Router
+  // is enabled. Should be removed when the toolbar redesign is used by default.
+  // See crbug.com/514694
+  // TODO(kmarshall): Remove this override.
+  if (media_router()->IsEnabled())
+    return &g_common_switches.Get().extension_action_redesign_override;
+
   return &g_common_switches.Get().extension_action_redesign;
 }
 FeatureSwitch* FeatureSwitch::scripts_require_action() {
@@ -89,11 +118,14 @@ FeatureSwitch* FeatureSwitch::scripts_require_action() {
 FeatureSwitch* FeatureSwitch::embedded_extension_options() {
   return &g_common_switches.Get().embedded_extension_options;
 }
-FeatureSwitch* FeatureSwitch::surface_worker() {
-  return &g_common_switches.Get().surface_worker;
-}
 FeatureSwitch* FeatureSwitch::trace_app_source() {
   return &g_common_switches.Get().trace_app_source;
+}
+FeatureSwitch* FeatureSwitch::media_router() {
+  return &g_common_switches.Get().media_router;
+}
+FeatureSwitch* FeatureSwitch::media_router_with_cast_extension() {
+  return &g_common_switches.Get().media_router_with_cast_extension;
 }
 
 FeatureSwitch::ScopedOverride::ScopedOverride(FeatureSwitch* feature,
@@ -109,24 +141,33 @@ FeatureSwitch::ScopedOverride::~ScopedOverride() {
 }
 
 FeatureSwitch::FeatureSwitch(const char* switch_name,
-                             DefaultValue default_value) {
-  Init(base::CommandLine::ForCurrentProcess(), switch_name, default_value);
-}
+                             DefaultValue default_value)
+    : FeatureSwitch(base::CommandLine::ForCurrentProcess(),
+                    switch_name,
+                    default_value) {}
+
+FeatureSwitch::FeatureSwitch(const char* switch_name,
+                             const char* field_trial_name,
+                             DefaultValue default_value)
+    : FeatureSwitch(base::CommandLine::ForCurrentProcess(),
+                    switch_name,
+                    field_trial_name,
+                    default_value) {}
 
 FeatureSwitch::FeatureSwitch(const base::CommandLine* command_line,
                              const char* switch_name,
-                             DefaultValue default_value) {
-  Init(command_line, switch_name, default_value);
-}
+                             DefaultValue default_value)
+    : FeatureSwitch(command_line, switch_name, nullptr, default_value) {}
 
-void FeatureSwitch::Init(const base::CommandLine* command_line,
-                         const char* switch_name,
-                         DefaultValue default_value) {
-  command_line_ = command_line;
-  switch_name_ = switch_name;
-  default_value_ = default_value == DEFAULT_ENABLED;
-  override_value_ = OVERRIDE_NONE;
-}
+FeatureSwitch::FeatureSwitch(const base::CommandLine* command_line,
+                             const char* switch_name,
+                             const char* field_trial_name,
+                             DefaultValue default_value)
+    : command_line_(command_line),
+      switch_name_(switch_name),
+      field_trial_name_(field_trial_name),
+      default_value_(default_value == DEFAULT_ENABLED),
+      override_value_(OVERRIDE_NONE) {}
 
 bool FeatureSwitch::IsEnabled() const {
   if (override_value_ != OVERRIDE_NONE)
@@ -150,6 +191,15 @@ bool FeatureSwitch::IsEnabled() const {
 
   if (default_value_ && command_line_->HasSwitch(GetLegacyDisableFlag()))
     return false;
+
+  if (field_trial_name_) {
+    std::string group_name =
+        base::FieldTrialList::FindFullName(field_trial_name_);
+    if (group_name == "Enabled")
+      return true;
+    if (group_name == "Disabled")
+      return false;
+  }
 
   return default_value_;
 }

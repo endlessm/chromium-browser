@@ -4,14 +4,13 @@
 
 package org.chromium.android_webview.test;
 
-import android.os.Build;
 import android.test.suitebuilder.annotation.MediumTest;
 
 import org.chromium.android_webview.AwContents;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.android_webview.test.util.JSUtils;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
+import org.chromium.base.test.util.parameter.ParameterizedTest;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.net.test.util.TestWebServer;
 
@@ -20,7 +19,6 @@ import java.util.concurrent.CountDownLatch;
 /**
  * Tests for the ContentViewClient.onPageFinished() method.
  */
-@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class ClientOnPageFinishedTest extends AwTestBase {
 
     private TestAwContentsClient mContentsClient;
@@ -151,6 +149,8 @@ public class ClientOnPageFinishedTest extends AwTestBase {
 
     @MediumTest
     @Feature({"AndroidWebView"})
+    // Run in single-process mode only. Blocked by multiple RVHs crbug.com/533516.
+    @ParameterizedTest.Set
     public void testNotCalledForValidSubresources() throws Throwable {
         TestCallbackHelperContainer.OnPageFinishedHelper onPageFinishedHelper =
                 mContentsClient.getOnPageFinishedHelper();
@@ -374,6 +374,8 @@ public class ClientOnPageFinishedTest extends AwTestBase {
 
     @MediumTest
     @Feature({"AndroidWebView"})
+    // Run in single-process mode only. Blocked by multiple RVHs crbug.com/533516.
+    @ParameterizedTest.Set
     public void testNotCalledOnDomModificationAfterLoadData()
             throws Throwable {
         TestWebServer webServer = TestWebServer.start();

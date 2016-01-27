@@ -32,7 +32,7 @@ protected:
         csp->bindToExecutionContext(document.get());
     }
 
-    RefPtr<ContentSecurityPolicy> csp;
+    RefPtrWillBePersistent<ContentSecurityPolicy> csp;
     RefPtrWillBePersistent<Document> document;
 };
 
@@ -52,6 +52,24 @@ TEST_F(CSPSourceListTest, BasicMatchingNone)
 
     EXPECT_FALSE(sourceList.matches(KURL(base, "http://example.com/")));
     EXPECT_FALSE(sourceList.matches(KURL(base, "https://example.test/")));
+}
+
+TEST_F(CSPSourceListTest, BasicMatchingStar)
+{
+    KURL base;
+    String sources = "*";
+    CSPSourceList sourceList(csp.get(), "script-src");
+    parseSourceList(sourceList, sources);
+
+    EXPECT_TRUE(sourceList.matches(KURL(base, "http://example.com/")));
+    EXPECT_TRUE(sourceList.matches(KURL(base, "https://example.com/")));
+    EXPECT_TRUE(sourceList.matches(KURL(base, "http://example.com/bar")));
+    EXPECT_TRUE(sourceList.matches(KURL(base, "http://foo.example.com/")));
+    EXPECT_TRUE(sourceList.matches(KURL(base, "http://foo.example.com/bar")));
+
+    EXPECT_FALSE(sourceList.matches(KURL(base, "data:https://example.test/")));
+    EXPECT_FALSE(sourceList.matches(KURL(base, "blob:https://example.test/")));
+    EXPECT_FALSE(sourceList.matches(KURL(base, "filesystem:https://example.test/")));
 }
 
 TEST_F(CSPSourceListTest, BasicMatchingSelf)
@@ -126,16 +144,21 @@ TEST_F(CSPSourceListTest, WildcardMatching)
     EXPECT_TRUE(sourceList.matches(KURL(base, "http://example1.com:8000/foo/")));
     EXPECT_TRUE(sourceList.matches(KURL(base, "http://example1.com:9000/foo/")));
     EXPECT_TRUE(sourceList.matches(KURL(base, "https://foo.example2.com/bar/")));
-    EXPECT_TRUE(sourceList.matches(KURL(base, "https://example2.com/bar/")));
     EXPECT_TRUE(sourceList.matches(KURL(base, "http://foo.test/")));
     EXPECT_TRUE(sourceList.matches(KURL(base, "http://foo.bar.test/")));
+    EXPECT_TRUE(sourceList.matches(KURL(base, "https://example1.com/foo/")));
+    EXPECT_TRUE(sourceList.matches(KURL(base, "https://example1.com:8000/foo/")));
+    EXPECT_TRUE(sourceList.matches(KURL(base, "https://example1.com:9000/foo/")));
+    EXPECT_TRUE(sourceList.matches(KURL(base, "https://foo.test/")));
+    EXPECT_TRUE(sourceList.matches(KURL(base, "https://foo.bar.test/")));
 
     EXPECT_FALSE(sourceList.matches(KURL(base, "https://example1.com:8000/foo")));
     EXPECT_FALSE(sourceList.matches(KURL(base, "https://example2.com:8000/bar")));
     EXPECT_FALSE(sourceList.matches(KURL(base, "https://foo.example2.com:8000/bar")));
     EXPECT_FALSE(sourceList.matches(KURL(base, "https://example2.foo.com/bar")));
-    EXPECT_FALSE(sourceList.matches(KURL(base, "https://foo.test/")));
     EXPECT_FALSE(sourceList.matches(KURL(base, "http://foo.test.bar/")));
+    EXPECT_FALSE(sourceList.matches(KURL(base, "https://example2.com/bar/")));
+    EXPECT_FALSE(sourceList.matches(KURL(base, "http://test/")));
 }
 
 TEST_F(CSPSourceListTest, RedirectMatching)
@@ -149,9 +172,10 @@ TEST_F(CSPSourceListTest, RedirectMatching)
     EXPECT_TRUE(sourceList.matches(KURL(base, "http://example1.com/bar/"), ContentSecurityPolicy::DidRedirect));
     EXPECT_TRUE(sourceList.matches(KURL(base, "http://example2.com/bar/"), ContentSecurityPolicy::DidRedirect));
     EXPECT_TRUE(sourceList.matches(KURL(base, "http://example2.com/foo/"), ContentSecurityPolicy::DidRedirect));
+    EXPECT_TRUE(sourceList.matches(KURL(base, "https://example1.com/foo/"), ContentSecurityPolicy::DidRedirect));
+    EXPECT_TRUE(sourceList.matches(KURL(base, "https://example1.com/bar/"), ContentSecurityPolicy::DidRedirect));
 
     EXPECT_FALSE(sourceList.matches(KURL(base, "http://example3.com/foo/"), ContentSecurityPolicy::DidRedirect));
-    EXPECT_FALSE(sourceList.matches(KURL(base, "https://example1.com/foo/"), ContentSecurityPolicy::DidRedirect));
 }
 
 } // namespace

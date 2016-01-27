@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_UI_PASSWORDS_MANAGE_PASSWORDS_UI_CONTROLLER_H_
 #define CHROME_BROWSER_UI_PASSWORDS_MANAGE_PASSWORDS_UI_CONTROLLER_H_
 
+#include <vector>
+
 #include "base/memory/scoped_vector.h"
 #include "base/timer/elapsed_timer.h"
 #include "chrome/browser/ui/passwords/manage_passwords_state.h"
@@ -24,7 +26,7 @@ struct CredentialInfo;
 class PasswordFormManager;
 }
 
-class ManagePasswordsIcon;
+class ManagePasswordsIconView;
 
 // Per-tab class to control the Omnibox password icon and bubble.
 class ManagePasswordsUIController
@@ -39,6 +41,13 @@ class ManagePasswordsUIController
   // This stores the provided object and triggers the UI to prompt the user
   // about whether they would like to save the password.
   void OnPasswordSubmitted(
+      scoped_ptr<password_manager::PasswordFormManager> form_manager);
+
+  // Called when the user submits a change password form, so we can handle
+  // later requests to update stored credentials in the PasswordManager.
+  // This stores the provided object and triggers the UI to prompt the user
+  // about whether they would like to update the password.
+  void OnUpdatePasswordSubmitted(
       scoped_ptr<password_manager::PasswordFormManager> form_manager);
 
   // Called when the site asks user to choose from credentials. This triggers
@@ -63,22 +72,22 @@ class ManagePasswordsUIController
   // password credentials for the current site which are stored in
   // |password_form_map|. This stores a copy of |password_form_map| and shows
   // the manage password icon.
-  void OnPasswordAutofilled(const autofill::PasswordFormMap& password_form_map);
-
-  // Called when a form is _not_ autofilled due to user blacklisting. This
-  // stores a copy of |password_form_map| so that we can offer the user the
-  // ability to reenable the manager for this form.
-  void OnBlacklistBlockedAutofill(
-      const autofill::PasswordFormMap& password_form_map);
+  void OnPasswordAutofilled(const autofill::PasswordFormMap& password_form_map,
+                            const GURL& origin);
 
   // PasswordStore::Observer implementation.
   void OnLoginsChanged(
       const password_manager::PasswordStoreChangeList& changes) override;
 
   // Called from the model when the user chooses to save a password; passes the
-  // action off to the FormManager. The controller MUST be in a pending state,
-  // and WILL be in MANAGE_STATE after this method executes.
+  // action to the |form_manager|. The controller must be in a pending state,
+  // and will be in MANAGE_STATE after this method executes.
   virtual void SavePassword();
+
+  // Called from the model when the user chooses to update a password; passes
+  // the action to the |form_manager|. The controller must be in a pending
+  // state, and will be in MANAGE_STATE after this method executes.
+  virtual void UpdatePassword(const autofill::PasswordForm& password_form);
 
   // Called from the model when the user chooses a credential.
   // The controller MUST be in a pending credentials state.
@@ -87,34 +96,28 @@ class ManagePasswordsUIController
       password_manager::CredentialType credential_type);
 
   // Called from the model when the user chooses to never save passwords; passes
-  // the action off to the FormManager. The controller MUST be in a pending
-  // state, and WILL be in BLACKLIST_STATE after this method executes.
+  // the action off to the FormManager. The controller must be in a pending
+  // state, and will state in this state.
   virtual void NeverSavePassword();
-
-  // Called from the model when the user chooses to unblacklist the site. The
-  // controller MUST be in BLACKLIST_STATE, and WILL be in MANAGE_STATE after
-  // this method executes. The method removes the first form of
-  // GetCurrentForms() which should be the blacklisted one.
-  virtual void UnblacklistSite();
-
-  // Called from the model. The controller should switch to MANAGE_STATE and pop
-  // up a bubble.
-  virtual void ManageAccounts();
 
   // Open a new tab, pointing to the password manager settings page.
   virtual void NavigateToPasswordManagerSettingsPage();
 
-  // Open a new tab, pointing to passwords.google.com.
-  void NavigateToExternalPasswordManager();
+  // Two different ways to open a new tab pointing to passwords.google.com.
+  // TODO(crbug.com/548259) eliminate one of them.
+  virtual void NavigateToExternalPasswordManager();
+  virtual void NavigateToSmartLockPage();
 
   // Open a new tab, pointing to the Smart Lock help article.
-  void NavigateToSmartLockPage();
+  virtual void NavigateToSmartLockHelpPage();
 
   virtual const autofill::PasswordForm& PendingPassword() const;
 
+#if !defined(OS_ANDROID)
   // Set the state of the Omnibox icon, and possibly show the associated bubble
   // without user interaction.
-  virtual void UpdateIconAndBubbleState(ManagePasswordsIcon* icon);
+  virtual void UpdateIconAndBubbleState(ManagePasswordsIconView* icon);
+#endif
 
   // Called from the model when the bubble is displayed.
   void OnBubbleShown();
@@ -122,7 +125,13 @@ class ManagePasswordsUIController
   // Called from the model when the bubble is hidden.
   void OnBubbleHidden();
 
-  password_manager::ui::State state() const { return passwords_data_.state(); }
+  // Called when the user chose not to update password.
+  void OnNopeUpdateClicked();
+
+  // Called when the user didn't interact with Update UI.
+  void OnNoInteractionOnUpdate();
+
+  virtual password_manager::ui::State state() const;
 
   // True if a password is sitting around, waiting for a user to decide whether
   // or not to save it.
@@ -144,6 +153,10 @@ class ManagePasswordsUIController
     return passwords_data_.federated_credentials_forms();
   }
 
+  // True if the password for previously stored account was overridden, i.e. in
+  // newly submitted form the password is different from stored one.
+  bool PasswordOverridden() const;
+
  protected:
   explicit ManagePasswordsUIController(
       content::WebContents* web_contents);
@@ -151,6 +164,8 @@ class ManagePasswordsUIController
   // The pieces of saving and blacklisting passwords that interact with
   // FormManager, split off into internal functions for testing/mocking.
   virtual void SavePasswordInternal();
+  virtual void UpdatePasswordInternal(
+      const autofill::PasswordForm& password_form);
   virtual void NeverSavePasswordInternal();
 
   // Called when a PasswordForm is autofilled, when a new PasswordForm is

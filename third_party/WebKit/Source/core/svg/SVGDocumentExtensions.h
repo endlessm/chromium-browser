@@ -21,6 +21,7 @@
 #ifndef SVGDocumentExtensions_h
 #define SVGDocumentExtensions_h
 
+#include "core/layout/svg/SVGResourcesCache.h"
 #include "platform/geometry/FloatPoint.h"
 #include "platform/heap/Handle.h"
 #include "wtf/Forward.h"
@@ -33,12 +34,12 @@ namespace blink {
 class Document;
 class LayoutSVGResourceContainer;
 class SubtreeLayoutScope;
-class SVGResourcesCache;
 class SVGSVGElement;
+class SVGElement;
 class Element;
 
 class SVGDocumentExtensions : public NoBaseWillBeGarbageCollectedFinalized<SVGDocumentExtensions> {
-    WTF_MAKE_NONCOPYABLE(SVGDocumentExtensions); WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(SVGDocumentExtensions);
+    WTF_MAKE_NONCOPYABLE(SVGDocumentExtensions); USING_FAST_MALLOC_WILL_BE_REMOVED(SVGDocumentExtensions);
 public:
     typedef WillBeHeapHashSet<RawPtrWillBeMember<Element>> SVGPendingElements;
     explicit SVGDocumentExtensions(Document*);
@@ -46,6 +47,9 @@ public:
 
     void addTimeContainer(SVGSVGElement*);
     void removeTimeContainer(SVGSVGElement*);
+
+    // Records the SVG element as having a Web Animation on an SVG attribute that needs applying.
+    void addWebAnimationsPendingSVGElement(SVGElement&);
 
     void addResource(const AtomicString& id, LayoutSVGResourceContainer*);
     void removeResource(const AtomicString& id);
@@ -60,7 +64,7 @@ public:
     void reportWarning(const String&);
     void reportError(const String&);
 
-    SVGResourcesCache* resourcesCache() const { return m_resourcesCache.get(); }
+    SVGResourcesCache& resourcesCache() { return m_resourcesCache; }
 
     void addSVGRootWithRelativeLengthDescendents(SVGSVGElement*);
     void removeSVGRootWithRelativeLengthDescendents(SVGSVGElement*);
@@ -80,10 +84,12 @@ public:
 private:
     RawPtrWillBeMember<Document> m_document;
     WillBeHeapHashSet<RawPtrWillBeMember<SVGSVGElement>> m_timeContainers; // For SVG 1.2 support this will need to be made more general.
+    using SVGElementSet = WillBeHeapHashSet<RefPtrWillBeMember<SVGElement>>;
+    SVGElementSet m_webAnimationsPendingSVGElements;
     HashMap<AtomicString, LayoutSVGResourceContainer*> m_resources;
     WillBeHeapHashMap<AtomicString, OwnPtrWillBeMember<SVGPendingElements>> m_pendingResources; // Resources that are pending.
     WillBeHeapHashMap<AtomicString, OwnPtrWillBeMember<SVGPendingElements>> m_pendingResourcesForRemoval; // Resources that are pending and scheduled for removal.
-    OwnPtr<SVGResourcesCache> m_resourcesCache;
+    SVGResourcesCache m_resourcesCache;
     WillBeHeapHashSet<RawPtrWillBeMember<SVGSVGElement>> m_relativeLengthSVGRoots; // Root SVG elements with relative length descendants.
     FloatPoint m_translate;
 #if ENABLE(ASSERT)

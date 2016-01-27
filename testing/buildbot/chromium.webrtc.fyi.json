@@ -1,12 +1,48 @@
 {
   "Android GN": {
     "additional_compile_targets": [
-      "chrome_shell_apk"
+      "chrome_public_apk"
     ]
   },
   "Android GN (dbg)": {
     "additional_compile_targets": [
-      "chrome_shell_apk"
+      "chrome_public_apk"
+    ]
+  },
+  "Linux": {
+    "gtest_tests": [
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": false
+        },
+        "test": "content_unittests"
+      }
+    ],
+    "scripts": [
+      {
+        "args": [
+          "browser_tests",
+          "--gtest_filter=WebRtc*:Webrtc*:TabCapture*:*MediaStream*",
+          "--run-manual",
+          "--ui-test-action-max-timeout=350000",
+          "--test-launcher-jobs=1",
+          "--test-launcher-bot-mode",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "name": "browser_tests",
+        "script": "gtest_perf_test.py"
+      },
+      {
+        "args": [
+          "content_browsertests",
+          "--gtest_filter=WebRtc*",
+          "--run-manual",
+          "--test-launcher-print-test-stdio=always",
+          "--test-launcher-bot-mode"
+        ],
+        "name": "content_browsertests",
+        "script": "gtest_perf_test.py"
+      }
     ]
   },
   "Linux GN": {
@@ -33,7 +69,6 @@
       "extensions_unittests",
       "gcm_unit_tests",
       "gfx_unittests",
-      "gl_unittests",
       "gn_unittests",
       "google_apis_unittests",
       "gpu_unittests",
@@ -43,6 +78,7 @@
       "jingle_unittests",
       "mandoline:all",
       "media_unittests",
+      "media_blink_unittests",
       "net_unittests",
       "ppapi_unittests",
       "printing_unittests",
@@ -84,7 +120,6 @@
       "extensions_unittests",
       "gcm_unit_tests",
       "gfx_unittests",
-      "gl_unittests",
       "gn_unittests",
       "google_apis_unittests",
       "gpu_unittests",
@@ -94,6 +129,7 @@
       "jingle_unittests",
       "mandoline:all",
       "media_unittests",
+      "media_blink_unittests",
       "net_unittests",
       "ppapi_unittests",
       "printing_unittests",
@@ -126,6 +162,7 @@
       "ipc_tests",
       "jingle_unittests",
       "media_unittests",
+      "media_blink_unittests",
       "mojo_common_unittests",
       "mojo_public_bindings_unittests",
       "mojo_public_environment_unittests",
@@ -156,6 +193,7 @@
       "ipc_tests",
       "jingle_unittests",
       "media_unittests",
+      "media_blink_unittests",
       "mojo_common_unittests",
       "mojo_public_bindings_unittests",
       "mojo_public_environment_unittests",
@@ -169,6 +207,42 @@
       "sync_unit_tests",
       "ui_base_unittests",
       "url_unittests"
+    ]
+  },
+  "Mac Tester": {
+    "gtest_tests": [
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": false
+        },
+        "test": "content_unittests"
+      }
+    ],
+    "scripts": [
+      {
+        "args": [
+          "browser_tests",
+          "--gtest_filter=WebRtc*:Webrtc*:TabCapture*:*MediaStream*",
+          "--run-manual",
+          "--ui-test-action-max-timeout=350000",
+          "--test-launcher-jobs=1",
+          "--test-launcher-bot-mode",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "name": "browser_tests",
+        "script": "gtest_perf_test.py"
+      },
+      {
+        "args": [
+          "content_browsertests",
+          "--gtest_filter=WebRtc*",
+          "--run-manual",
+          "--test-launcher-print-test-stdio=always",
+          "--test-launcher-bot-mode"
+        ],
+        "name": "content_browsertests",
+        "script": "gtest_perf_test.py"
+      }
     ]
   },
   "Win GN": {
@@ -197,7 +271,6 @@
       "extensions_unittests",
       "gcm_unit_tests",
       "gfx_unittests",
-      "gl_unittests",
       "google_apis_unittests",
       "gpu_unittests",
       "interactive_ui_tests",
@@ -207,6 +280,7 @@
       "keyboard_unittests",
       "mandoline:all",
       "media_unittests",
+      "media_blink_unittests",
       "message_center_unittests",
       "ppapi_unittests",
       "printing_unittests",
@@ -250,7 +324,6 @@
       "extensions_unittests",
       "gcm_unit_tests",
       "gfx_unittests",
-      "gl_unittests",
       "google_apis_unittests",
       "gpu_unittests",
       "interactive_ui_tests",
@@ -260,6 +333,7 @@
       "keyboard_unittests",
       "mandoline:all",
       "media_unittests",
+      "media_blink_unittests",
       "message_center_unittests",
       "ppapi_unittests",
       "printing_unittests",
@@ -275,6 +349,115 @@
       "url_unittests",
       "views_unittests",
       "wm_unittests"
+    ]
+  },
+  "Win10 Tester": {
+    "gtest_tests": [
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": false
+        },
+        "test": "content_unittests"
+      }
+    ],
+    "scripts": [
+      {
+        "args": [
+          "browser_tests",
+          "--gtest_filter=WebRtc*:Webrtc*:TabCapture*:*MediaStream*",
+          "--run-manual",
+          "--ui-test-action-max-timeout=350000",
+          "--test-launcher-jobs=1",
+          "--test-launcher-bot-mode",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "name": "browser_tests",
+        "script": "gtest_perf_test.py"
+      },
+      {
+        "args": [
+          "content_browsertests",
+          "--gtest_filter=WebRtc*",
+          "--run-manual",
+          "--test-launcher-print-test-stdio=always",
+          "--test-launcher-bot-mode"
+        ],
+        "name": "content_browsertests",
+        "script": "gtest_perf_test.py"
+      }
+    ]
+  },
+  "Win7 Tester": {
+    "gtest_tests": [
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": false
+        },
+        "test": "content_unittests"
+      }
+    ],
+    "scripts": [
+      {
+        "args": [
+          "browser_tests",
+          "--gtest_filter=WebRtc*:Webrtc*:TabCapture*:*MediaStream*",
+          "--run-manual",
+          "--ui-test-action-max-timeout=350000",
+          "--test-launcher-jobs=1",
+          "--test-launcher-bot-mode",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "name": "browser_tests",
+        "script": "gtest_perf_test.py"
+      },
+      {
+        "args": [
+          "content_browsertests",
+          "--gtest_filter=WebRtc*",
+          "--run-manual",
+          "--test-launcher-print-test-stdio=always",
+          "--test-launcher-bot-mode"
+        ],
+        "name": "content_browsertests",
+        "script": "gtest_perf_test.py"
+      }
+    ]
+  },
+  "WinXP Tester": {
+    "gtest_tests": [
+      {
+        "args": [
+          "--gtest_filter=WebRtc*",
+          "--run-manual",
+          "--test-launcher-print-test-stdio=always",
+          "--test-launcher-bot-mode"
+        ],
+        "swarming": {
+          "can_use_on_swarming_builders": false
+        },
+        "test": "content_browsertests"
+      },
+      {
+        "swarming": {
+          "can_use_on_swarming_builders": false
+        },
+        "test": "content_unittests"
+      }
+    ],
+    "scripts": [
+      {
+        "args": [
+          "browser_tests",
+          "--gtest_filter=WebRtc*:Webrtc*:TabCapture*:*MediaStream*",
+          "--run-manual",
+          "--ui-test-action-max-timeout=350000",
+          "--test-launcher-jobs=1",
+          "--test-launcher-bot-mode",
+          "--test-launcher-print-test-stdio=always"
+        ],
+        "name": "browser_tests",
+        "script": "gtest_perf_test.py"
+      }
     ]
   }
 }

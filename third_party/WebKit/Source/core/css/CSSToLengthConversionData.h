@@ -32,6 +32,8 @@
 #define CSSToLengthConversionData_h
 
 #include "core/CoreExport.h"
+#include "core/css/CSSPrimitiveValue.h"
+#include "wtf/Allocator.h"
 #include "wtf/Assertions.h"
 #include "wtf/MathExtras.h"
 #include <limits>
@@ -43,9 +45,11 @@ class LayoutView;
 class Font;
 
 class CORE_EXPORT CSSToLengthConversionData {
+    DISALLOW_NEW();
 public:
 
     class FontSizes {
+        DISALLOW_NEW();
     public:
         FontSizes() : m_em(0), m_rem(0), m_font(nullptr) { }
         FontSizes(float em, float rem, const Font*);
@@ -62,6 +66,7 @@ public:
     };
 
     class ViewportSize {
+        DISALLOW_NEW();
     public:
         ViewportSize() : m_width(0), m_height(0) { }
         ViewportSize(double width, double height) : m_width(width), m_height(height) { }
@@ -81,7 +86,7 @@ public:
     float zoom() const { return m_zoom; }
 
     float emFontSize() const { return m_fontSizes.em(); }
-    float remFontSize() const { return m_fontSizes.rem(); }
+    float remFontSize() const;
     float exFontSize() const { return m_fontSizes.ex(); }
     float chFontSize() const { return m_fontSizes.ch(); }
 
@@ -102,6 +107,8 @@ public:
     {
         return CSSToLengthConversionData(m_style, m_fontSizes, m_viewportSize, newZoom);
     }
+
+    double zoomedComputedPixels(double value, CSSPrimitiveValue::UnitType) const;
 
 private:
     const ComputedStyle* m_style;

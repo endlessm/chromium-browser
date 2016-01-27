@@ -8,6 +8,7 @@
 #include <qos2.h>
 #include <winsock2.h>
 
+#include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/threading/non_thread_safe.h"
@@ -18,10 +19,11 @@
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_export.h"
-#include "net/base/net_util.h"
+#include "net/base/network_change_notifier.h"
 #include "net/base/rand_callback.h"
 #include "net/log/net_log.h"
 #include "net/udp/datagram_socket.h"
+#include "net/udp/diff_serv_code_point.h"
 
 namespace net {
 
@@ -38,6 +40,13 @@ class NET_EXPORT UDPSocketWin
   // Opens the socket.
   // Returns a net error code.
   int Open(AddressFamily address_family);
+
+  // Binds this socket to |network|. All data traffic on the socket will be sent
+  // and received via |network|. Must be called before Connect(). This call will
+  // fail if |network| has disconnected. Communication using this socket will
+  // fail if |network| disconnects.
+  // Returns a net error code.
+  int BindToNetwork(NetworkChangeNotifier::NetworkHandle network);
 
   // Connects the socket to connect with a certain |address|.
   // Should be called after Open().

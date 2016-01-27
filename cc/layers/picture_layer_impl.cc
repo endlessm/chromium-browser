@@ -18,7 +18,6 @@
 #include "cc/layers/append_quads_data.h"
 #include "cc/layers/solid_color_layer_impl.h"
 #include "cc/output/begin_frame_args.h"
-#include "cc/quads/checkerboard_draw_quad.h"
 #include "cc/quads/debug_border_draw_quad.h"
 #include "cc/quads/picture_draw_quad.h"
 #include "cc/quads/solid_color_draw_quad.h"
@@ -101,8 +100,8 @@ void PictureLayerImpl::PushPropertiesTo(LayerImpl* base_layer) {
   LayerImpl::PushPropertiesTo(base_layer);
 
   // Twin relationships should never change once established.
-  DCHECK_IMPLIES(twin_layer_, twin_layer_ == layer_impl);
-  DCHECK_IMPLIES(twin_layer_, layer_impl->twin_layer_ == this);
+  DCHECK(!twin_layer_ || twin_layer_ == layer_impl);
+  DCHECK(!twin_layer_ || layer_impl->twin_layer_ == this);
   // The twin relationship does not need to exist before the first
   // PushPropertiesTo from pending to active layer since before that the active
   // layer can not have a pile or tilings, it has only been created and inserted
@@ -113,7 +112,7 @@ void PictureLayerImpl::PushPropertiesTo(LayerImpl* base_layer) {
   layer_impl->SetNearestNeighbor(nearest_neighbor_);
 
   // Solid color layers have no tilings.
-  DCHECK_IMPLIES(raster_source_->IsSolidColor(), tilings_->num_tilings() == 0);
+  DCHECK(!raster_source_->IsSolidColor() || tilings_->num_tilings() == 0);
   // The pending tree should only have a high res (and possibly low res) tiling.
   DCHECK_LE(tilings_->num_tilings(),
             layer_tree_impl()->create_low_res_tiling() ? 2u : 1u);
@@ -124,8 +123,8 @@ void PictureLayerImpl::PushPropertiesTo(LayerImpl* base_layer) {
   DCHECK(invalidation_.IsEmpty());
 
   // After syncing a solid color layer, the active layer has no tilings.
-  DCHECK_IMPLIES(raster_source_->IsSolidColor(),
-                 layer_impl->tilings_->num_tilings() == 0);
+  DCHECK(!raster_source_->IsSolidColor() ||
+         layer_impl->tilings_->num_tilings() == 0);
 
   layer_impl->raster_page_scale_ = raster_page_scale_;
   layer_impl->raster_device_scale_ = raster_device_scale_;
@@ -145,8 +144,8 @@ void PictureLayerImpl::AppendQuads(RenderPass* render_pass,
                                    AppendQuadsData* append_quads_data) {
   // The bounds and the pile size may differ if the pile wasn't updated (ie.
   // PictureLayer::Update didn't happen). In that case the pile will be empty.
-  DCHECK_IMPLIES(!raster_source_->GetSize().IsEmpty(),
-                 bounds() == raster_source_->GetSize())
+  DCHECK(raster_source_->GetSize().IsEmpty() ||
+         bounds() == raster_source_->GetSize())
       << " bounds " << bounds().ToString() << " pile "
       << raster_source_->GetSize().ToString();
 
@@ -183,12 +182,22 @@ void PictureLayerImpl::AppendQuads(RenderPass* render_pass,
     gfx::Rect opaque_rect = contents_opaque() ? geometry_rect : gfx::Rect();
     gfx::Rect visible_geometry_rect =
         scaled_occlusion.GetUnoccludedContentRect(geometry_rect);
+
+    // The raster source may not be valid over the entire visible rect,
+    // and rastering outside of that may cause incorrect pixels.
+    gfx::Rect scaled_recorded_viewport = gfx::ScaleToEnclosingRect(
+        raster_source_->RecordedViewport(), max_contents_scale);
+    geometry_rect.Intersect(scaled_recorded_viewport);
+    opaque_rect.Intersect(scaled_recorded_viewport);
+    visible_geometry_rect.Intersect(scaled_recorded_viewport);
+
     if (visible_geometry_rect.IsEmpty())
       return;
 
+    DCHECK(raster_source_->HasRecordings());
     gfx::Rect quad_content_rect = shared_quad_state->visible_quad_layer_rect;
     gfx::Size texture_size = quad_content_rect.size();
-    gfx::RectF texture_rect = gfx::RectF(texture_size);
+    gfx::RectF texture_rect = gfx::RectF(gfx::SizeF(texture_size));
 
     PictureDrawQuad* quad =
         render_pass->CreateAndAppendDrawQuad<PictureDrawQuad>();
@@ -261,6 +270,8 @@ void PictureLayerImpl::AppendQuads(RenderPass* render_pass,
   size_t missing_tile_count = 0u;
   size_t on_demand_missing_tile_count = 0u;
   only_used_low_res_last_append_quads_ = true;
+  gfx::Rect scaled_recorded_viewport = gfx::ScaleToEnclosingRect(
+      raster_source_->RecordedViewport(), max_contents_scale);
   for (PictureLayerTilingSet::CoverageIterator iter(
            tilings_.get(), max_contents_scale,
            shared_quad_state->visible_quad_layer_rect, ideal_contents_scale_);
@@ -322,8 +333,11 @@ void PictureLayerImpl::AppendQuads(RenderPass* render_pass,
 
     if (!has_draw_quad) {
       // Checkerboard.
-      // TODO(danakj): Make this a different color when debugging.
       SkColor color = SafeOpaqueBackgroundColor();
+      if (ShowDebugBorders()) {
+        // Fill the whole tile with the missing tile color.
+        color = DebugColors::OOMTileBorderColor();
+      }
       SolidColorDrawQuad* quad =
           render_pass->CreateAndAppendDrawQuad<SolidColorDrawQuad>();
       quad->SetNew(shared_quad_state, geometry_rect, visible_geometry_rect,
@@ -334,10 +348,23 @@ void PictureLayerImpl::AppendQuads(RenderPass* render_pass,
         append_quads_data->num_missing_tiles++;
         ++missing_tile_count;
       }
-      append_quads_data->approximated_visible_content_area +=
+      int64 checkerboarded_area =
           visible_geometry_rect.width() * visible_geometry_rect.height();
       append_quads_data->checkerboarded_visible_content_area +=
-          visible_geometry_rect.width() * visible_geometry_rect.height();
+          checkerboarded_area;
+      // Intersect checkerboard rect with interest rect to generate rect where
+      // we checkerboarded and has recording. The area where we don't have
+      // recording is not necessarily a Rect, and its area is calculated using
+      // subtraction.
+      gfx::Rect visible_rect_has_recording = visible_geometry_rect;
+      visible_rect_has_recording.Intersect(scaled_recorded_viewport);
+      int64 checkerboarded_has_recording_area =
+          visible_rect_has_recording.width() *
+          visible_rect_has_recording.height();
+      append_quads_data->checkerboarded_needs_raster_content_area +=
+          checkerboarded_has_recording_area;
+      append_quads_data->checkerboarded_no_recording_content_area +=
+          checkerboarded_area - checkerboarded_has_recording_area;
       continue;
     }
 
@@ -377,6 +404,7 @@ void PictureLayerImpl::AppendQuads(RenderPass* render_pass,
 bool PictureLayerImpl::UpdateTiles(bool resourceless_software_draw) {
   if (!resourceless_software_draw) {
     visible_rect_for_tile_priority_ = visible_layer_rect();
+    screen_space_transform_for_tile_priority_ = screen_space_transform();
   }
 
   if (!CanHaveTilings()) {
@@ -403,6 +431,9 @@ bool PictureLayerImpl::UpdateTiles(bool resourceless_software_draw) {
     AddTilingsForRasterScale();
   }
 
+  if (layer_tree_impl()->IsActiveTree())
+    AddLowResolutionTilingIfNeeded();
+
   DCHECK(raster_page_scale_);
   DCHECK(raster_device_scale_);
   DCHECK(raster_source_scale_);
@@ -412,7 +443,7 @@ bool PictureLayerImpl::UpdateTiles(bool resourceless_software_draw) {
   was_screen_space_transform_animating_ =
       draw_properties().screen_space_transform_is_animating;
 
-  if (draw_transform_is_animating())
+  if (screen_space_transform_is_animating())
     raster_source_->SetShouldAttemptToUseDistanceFieldText();
 
   double current_frame_time_in_seconds =
@@ -462,11 +493,10 @@ void PictureLayerImpl::UpdateViewportRectForTilePriorityInContentSpace() {
   if (visible_rect_in_content_space.IsEmpty() ||
       layer_tree_impl()->DeviceViewport() != viewport_rect_for_tile_priority) {
     gfx::Transform view_to_layer(gfx::Transform::kSkipInitialization);
-    if (screen_space_transform().GetInverse(&view_to_layer)) {
+    if (screen_space_transform_for_tile_priority_.GetInverse(&view_to_layer)) {
       // Transform from view space to content space.
-      visible_rect_in_content_space =
-          gfx::ToEnclosingRect(MathUtil::ProjectClippedRect(
-              view_to_layer, viewport_rect_for_tile_priority));
+      visible_rect_in_content_space = MathUtil::ProjectEnclosingClippedRect(
+          view_to_layer, viewport_rect_for_tile_priority);
 
       // We have to allow for a viewport that is outside of the layer bounds in
       // order to compute tile priorities correctly for offscreen content that
@@ -495,13 +525,13 @@ PictureLayerImpl* PictureLayerImpl::GetPendingOrActiveTwinLayer() const {
 }
 
 void PictureLayerImpl::UpdateRasterSource(
-    scoped_refptr<RasterSource> raster_source,
+    scoped_refptr<DisplayListRasterSource> raster_source,
     Region* new_invalidation,
     const PictureLayerTilingSet* pending_set) {
   // The bounds and the pile size may differ if the pile wasn't updated (ie.
   // PictureLayer::Update didn't happen). In that case the pile will be empty.
-  DCHECK_IMPLIES(!raster_source->GetSize().IsEmpty(),
-                 bounds() == raster_source->GetSize())
+  DCHECK(raster_source->GetSize().IsEmpty() ||
+         bounds() == raster_source->GetSize())
       << " bounds " << bounds().ToString() << " pile "
       << raster_source->GetSize().ToString();
 
@@ -516,9 +546,8 @@ void PictureLayerImpl::UpdateRasterSource(
   invalidation_.Swap(new_invalidation);
 
   bool can_have_tilings = CanHaveTilings();
-  DCHECK_IMPLIES(
-      pending_set,
-      can_have_tilings == GetPendingOrActiveTwinLayer()->CanHaveTilings());
+  DCHECK(!pending_set ||
+         can_have_tilings == GetPendingOrActiveTwinLayer()->CanHaveTilings());
 
   // Need to call UpdateTiles again if CanHaveTilings changed.
   if (could_have_tilings != can_have_tilings)
@@ -557,7 +586,7 @@ void PictureLayerImpl::UpdateCanUseLCDTextAfterCommit() {
 
   // Raster sources are considered const, so in order to update the state
   // a new one must be created and all tiles recreated.
-  scoped_refptr<RasterSource> new_raster_source =
+  scoped_refptr<DisplayListRasterSource> new_raster_source =
       raster_source_->CreateCloneWithoutLCDText();
   raster_source_.swap(new_raster_source);
 
@@ -577,8 +606,8 @@ bool PictureLayerImpl::RasterSourceUsesLCDText() const {
 
 void PictureLayerImpl::NotifyTileStateChanged(const Tile* tile) {
   if (layer_tree_impl()->IsActiveTree()) {
-    gfx::RectF layer_damage_rect =
-        gfx::ScaleRect(tile->content_rect(), 1.f / tile->contents_scale());
+    gfx::Rect layer_damage_rect = gfx::ScaleToEnclosingRect(
+        tile->content_rect(), 1.f / tile->contents_scale());
     AddDamageRect(layer_damage_rect);
   }
   if (tile->draw_info().NeedsRaster()) {
@@ -622,8 +651,7 @@ Region PictureLayerImpl::GetInvalidationRegion() {
   return IntersectRegions(invalidation_, update_rect());
 }
 
-ScopedTilePtr PictureLayerImpl::CreateTile(float contents_scale,
-                                           const gfx::Rect& content_rect) {
+ScopedTilePtr PictureLayerImpl::CreateTile(const Tile::CreateInfo& info) {
   int flags = 0;
 
   // We don't handle solid color masks, so we shouldn't bother analyzing those.
@@ -631,9 +659,11 @@ ScopedTilePtr PictureLayerImpl::CreateTile(float contents_scale,
   if (!is_mask_)
     flags = Tile::USE_PICTURE_ANALYSIS;
 
+  if (contents_opaque())
+    flags |= Tile::IS_OPAQUE;
+
   return layer_tree_impl()->tile_manager()->CreateTile(
-      content_rect.size(), content_rect, contents_scale, id(),
-      layer_tree_impl()->source_frame_number(), flags);
+      info, id(), layer_tree_impl()->source_frame_number(), flags);
 }
 
 const Region* PictureLayerImpl::GetPendingInvalidation() {
@@ -693,7 +723,8 @@ gfx::Size PictureLayerImpl::CalculateTileSize(
       divisor = 2;
     if (content_bounds.width() <= viewport_width / 4)
       divisor = 1;
-    default_tile_height = MathUtil::RoundUp(viewport_height, divisor) / divisor;
+    default_tile_height =
+        MathUtil::UncheckedRoundUp(viewport_height, divisor) / divisor;
 
     // Grow default sizes to account for overlapping border texels.
     default_tile_width += 2 * PictureLayerTiling::kBorderTexels;
@@ -729,12 +760,12 @@ gfx::Size PictureLayerImpl::CalculateTileSize(
   // Clamp the tile width/height to the content width/height to save space.
   if (content_bounds.width() < default_tile_width) {
     tile_width = std::min(tile_width, content_bounds.width());
-    tile_width = MathUtil::RoundUp(tile_width, kTileRoundUp);
+    tile_width = MathUtil::UncheckedRoundUp(tile_width, kTileRoundUp);
     tile_width = std::min(tile_width, default_tile_width);
   }
   if (content_bounds.height() < default_tile_height) {
     tile_height = std::min(tile_height, content_bounds.height());
-    tile_height = MathUtil::RoundUp(tile_height, kTileRoundUp);
+    tile_height = MathUtil::UncheckedRoundUp(tile_height, kTileRoundUp);
     tile_height = std::min(tile_height, default_tile_height);
   }
 
@@ -748,8 +779,8 @@ void PictureLayerImpl::GetContentsResourceId(ResourceId* resource_id,
                                              gfx::Size* resource_size) const {
   // The bounds and the pile size may differ if the pile wasn't updated (ie.
   // PictureLayer::Update didn't happen). In that case the pile will be empty.
-  DCHECK_IMPLIES(!raster_source_->GetSize().IsEmpty(),
-                 bounds() == raster_source_->GetSize())
+  DCHECK(raster_source_->GetSize().IsEmpty() ||
+         bounds() == raster_source_->GetSize())
       << " bounds " << bounds().ToString() << " pile "
       << raster_source_->GetSize().ToString();
   gfx::Rect content_rect(bounds());
@@ -807,31 +838,18 @@ void PictureLayerImpl::AddTilingsForRasterScale() {
 
   PictureLayerTiling* high_res =
       tilings_->FindTilingWithScale(raster_contents_scale_);
-  // We always need a high res tiling, so create one if it doesn't exist.
-  if (!high_res)
+  if (!high_res) {
+    // We always need a high res tiling, so create one if it doesn't exist.
     high_res = AddTiling(raster_contents_scale_);
-  high_res->set_resolution(HIGH_RESOLUTION);
-
-  // If the low res scale is the same as the high res scale, that tiling
-  // will be treated as high res.
-  if (layer_tree_impl()->create_low_res_tiling() &&
-      raster_contents_scale_ != low_res_raster_contents_scale_) {
-    PictureLayerTiling* low_res =
-        tilings_->FindTilingWithScale(low_res_raster_contents_scale_);
-
-    // Only create new low res tilings when the transform is static.  This
-    // prevents wastefully creating a paired low res tiling for every new high
-    // res tiling during a pinch or a CSS animation.
-    bool is_pinching = layer_tree_impl()->PinchGestureActive();
-    bool is_animating = draw_properties().screen_space_transform_is_animating;
-    if (!low_res && !is_pinching && !is_animating)
-      low_res = AddTiling(low_res_raster_contents_scale_);
-
-    if (low_res) {
-      DCHECK_NE(low_res, high_res);
-      low_res->set_resolution(LOW_RESOLUTION);
-    }
+  } else if (high_res->may_contain_low_resolution_tiles()) {
+    // If the tiling we find here was LOW_RESOLUTION previously, it may not be
+    // fully rastered, so destroy the old tiles.
+    high_res->Reset();
+    // Reset the flag now that we'll make it high res, it will have fully
+    // rastered content.
+    high_res->reset_may_contain_low_resolution_tiles();
   }
+  high_res->set_resolution(HIGH_RESOLUTION);
 
   if (layer_tree_impl()->IsPendingTree()) {
     // On the pending tree, drop any tilings that are non-ideal since we don't
@@ -886,6 +904,34 @@ bool PictureLayerImpl::ShouldAdjustRasterScale() const {
     return true;
 
   return false;
+}
+
+void PictureLayerImpl::AddLowResolutionTilingIfNeeded() {
+  DCHECK(layer_tree_impl()->IsActiveTree());
+
+  if (!layer_tree_impl()->create_low_res_tiling())
+    return;
+
+  // We should have a high resolution tiling at raster_contents_scale, so if the
+  // low res one is the same then we shouldn't try to override this tiling by
+  // marking it as a low res.
+  if (raster_contents_scale_ == low_res_raster_contents_scale_)
+    return;
+
+  PictureLayerTiling* low_res =
+      tilings_->FindTilingWithScale(low_res_raster_contents_scale_);
+  DCHECK(!low_res || low_res->resolution() != HIGH_RESOLUTION);
+
+  // Only create new low res tilings when the transform is static.  This
+  // prevents wastefully creating a paired low res tiling for every new high
+  // res tiling during a pinch or a CSS animation.
+  bool is_pinching = layer_tree_impl()->PinchGestureActive();
+  bool is_animating = draw_properties().screen_space_transform_is_animating;
+  if (!is_pinching && !is_animating) {
+    if (!low_res)
+      low_res = AddTiling(low_res_raster_contents_scale_);
+    low_res->set_resolution(LOW_RESOLUTION);
+  }
 }
 
 void PictureLayerImpl::RecalculateRasterScales() {
@@ -951,8 +997,8 @@ void PictureLayerImpl::RecalculateRasterScales() {
     float maximum_scale = draw_properties().maximum_animation_contents_scale;
     float starting_scale = draw_properties().starting_animation_contents_scale;
     if (maximum_scale) {
-      gfx::Size bounds_at_maximum_scale = gfx::ToCeiledSize(
-          gfx::ScaleSize(raster_source_->GetSize(), maximum_scale));
+      gfx::Size bounds_at_maximum_scale =
+          gfx::ScaleToCeiledSize(raster_source_->GetSize(), maximum_scale);
       int64 maximum_area = static_cast<int64>(bounds_at_maximum_scale.width()) *
                            static_cast<int64>(bounds_at_maximum_scale.height());
       gfx::Size viewport = layer_tree_impl()->device_viewport_size();
@@ -962,8 +1008,8 @@ void PictureLayerImpl::RecalculateRasterScales() {
         can_raster_at_maximum_scale = true;
     }
     if (starting_scale && starting_scale > maximum_scale) {
-      gfx::Size bounds_at_starting_scale = gfx::ToCeiledSize(
-          gfx::ScaleSize(raster_source_->GetSize(), starting_scale));
+      gfx::Size bounds_at_starting_scale =
+          gfx::ScaleToCeiledSize(raster_source_->GetSize(), starting_scale);
       int64 start_area = static_cast<int64>(bounds_at_starting_scale.width()) *
                          static_cast<int64>(bounds_at_starting_scale.height());
       gfx::Size viewport = layer_tree_impl()->device_viewport_size();
@@ -992,8 +1038,8 @@ void PictureLayerImpl::RecalculateRasterScales() {
 
   // If this layer would create zero or one tiles at this content scale,
   // don't create a low res tiling.
-  gfx::Size raster_bounds = gfx::ToCeiledSize(
-      gfx::ScaleSize(raster_source_->GetSize(), raster_contents_scale_));
+  gfx::Size raster_bounds =
+      gfx::ScaleToCeiledSize(raster_source_->GetSize(), raster_contents_scale_);
   gfx::Size tile_size = CalculateTileSize(raster_bounds);
   bool tile_covers_bounds = tile_size.width() >= raster_bounds.width() &&
                             tile_size.height() >= raster_bounds.height();
@@ -1033,9 +1079,9 @@ void PictureLayerImpl::CleanUpTilingsOnActiveLayer(
   }
 
   PictureLayerTilingSet* twin_set = twin ? twin->tilings_.get() : nullptr;
-  tilings_->CleanUpTilings(
-      min_acceptable_high_res_scale, max_acceptable_high_res_scale,
-      used_tilings, layer_tree_impl()->create_low_res_tiling(), twin_set);
+  tilings_->CleanUpTilings(min_acceptable_high_res_scale,
+                           max_acceptable_high_res_scale, used_tilings,
+                           twin_set);
   DCHECK_GT(tilings_->num_tilings(), 0u);
   SanityCheckTilingState();
 }
@@ -1128,7 +1174,7 @@ scoped_ptr<PictureLayerTilingSet>
 PictureLayerImpl::CreatePictureLayerTilingSet() {
   const LayerTreeSettings& settings = layer_tree_impl()->settings();
   return PictureLayerTilingSet::Create(
-      GetTree(), this, settings.max_tiles_for_interest_area,
+      GetTree(), this, settings.tiling_interest_area_padding,
       layer_tree_impl()->use_gpu_rasterization()
           ? settings.gpu_rasterization_skewport_target_time_in_seconds
           : settings.skewport_target_time_in_seconds,

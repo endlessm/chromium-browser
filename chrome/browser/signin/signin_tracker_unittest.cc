@@ -10,9 +10,8 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
-#include "chrome/browser/signin/fake_profile_oauth2_token_service.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service_builder.h"
-#include "chrome/browser/signin/fake_signin_manager.h"
+#include "chrome/browser/signin/fake_signin_manager_builder.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/signin_tracker_factory.h"
@@ -21,6 +20,7 @@
 #include "chrome/test/base/testing_profile.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/fake_auth_status_provider.h"
+#include "components/signin/core/browser/fake_profile_oauth2_token_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -58,7 +58,7 @@ class SigninTrackerTest : public testing::Test {
     builder.AddTestingFactory(ProfileOAuth2TokenServiceFactory::GetInstance(),
                               BuildFakeProfileOAuth2TokenService);
     builder.AddTestingFactory(SigninManagerFactory::GetInstance(),
-                              FakeSigninManagerBase::Build);
+                              BuildFakeSigninManagerBase);
     profile_ = builder.Build();
 
     fake_oauth2_token_service_ =

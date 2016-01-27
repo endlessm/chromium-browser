@@ -319,7 +319,7 @@ gluShaderUtil.getDataTypeScalarType = function(dataType) {
 
 /**
  * Returns type of scalar
- * @param {gluShaderUtil.DataType} dataType shader
+ * @param {?gluShaderUtil.DataType} dataType shader
  * @return {gluShaderUtil.DataType} type of scalar type
  */
 gluShaderUtil.getDataTypeScalarTypeAsDataType = function(dataType) {
@@ -458,7 +458,7 @@ gluShaderUtil.getDataTypeScalarSize = function(dataType) {
 
 /**
  * Checks if dataType is float or vector
- * @param {gluShaderUtil.DataType} dataType shader
+ * @param {?gluShaderUtil.DataType} dataType shader
  * @return {boolean} Is dataType float or vector
  */
 gluShaderUtil.isDataTypeFloatOrVec = function(dataType) {
@@ -580,7 +580,7 @@ gluShaderUtil.getDataTypeMatrix = function(numCols, numRows) {
     if (!(deMath.deInRange32(numCols, 2, 4) && deMath.deInRange32(numRows, 2, 4)))
         throw new Error('Out of bounds: (' + numCols + ',' + numRows + ')');
 
-    var size = numRows.toString() + 'x' + numCols.toString();
+    var size = numCols.toString() + 'x' + numRows.toString();
     var datatypes = {
         '2x2': gluShaderUtil.DataType.FLOAT_MAT2,
         '2x3': gluShaderUtil.DataType.FLOAT_MAT2X3,
@@ -636,8 +636,33 @@ gluShaderUtil.getDataTypeMatrixNumColumns = function(dataType) {
 };
 
 /**
+ * @param {gluShaderUtil.DataType} dataType
+ * @return {number}
+ */
+gluShaderUtil.getDataTypeNumLocations = function(dataType) {
+    if (gluShaderUtil.isDataTypeScalarOrVector(dataType))
+        return 1;
+    else if (gluShaderUtil.isDataTypeMatrix(dataType))
+        return gluShaderUtil.getDataTypeMatrixNumColumns(dataType);
+    throw Error('Unrecognized dataType ' + dataType);
+};
+
+/**
+ * @param {gluShaderUtil.DataType} dataType
+ * @return {number}
+ */
+gluShaderUtil.getDataTypeNumComponents = function(dataType) {
+    if (gluShaderUtil.isDataTypeScalarOrVector(dataType))
+        return gluShaderUtil.getDataTypeScalarSize(dataType);
+    else if (gluShaderUtil.isDataTypeMatrix(dataType))
+        return gluShaderUtil.getDataTypeMatrixNumRows(dataType);
+
+    throw Error('Unrecognized dataType ' + dataType);
+};
+
+/**
  * Returns name of the dataType
- * @param {gluShaderUtil.DataType} dataType shader
+ * @param {?gluShaderUtil.DataType} dataType shader
  * @return {string} dataType name
  */
 gluShaderUtil.getDataTypeName = function(dataType) {

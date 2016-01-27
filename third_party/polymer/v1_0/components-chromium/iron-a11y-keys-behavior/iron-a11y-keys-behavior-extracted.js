@@ -1,5 +1,4 @@
-
-  (function() {
+(function() {
     'use strict';
 
     /**
@@ -82,10 +81,10 @@
      * in a KeyboardEvent instance.
      */
     var MODIFIER_KEYS = {
-      shift: 'shiftKey',
-      ctrl: 'ctrlKey',
-      alt: 'altKey',
-      meta: 'metaKey'
+      'shift': 'shiftKey',
+      'ctrl': 'ctrlKey',
+      'alt': 'altKey',
+      'meta': 'metaKey'
     };
 
     /**
@@ -229,7 +228,7 @@
      * `keys` property is pressed.
      *
      * @demo demo/index.html
-     * @polymerBehavior IronA11yKeysBehavior
+     * @polymerBehavior
      */
     Polymer.IronA11yKeysBehavior = {
       properties: {
@@ -241,6 +240,15 @@
           value: function() {
             return this;
           }
+        },
+
+        /**
+         * If true, this property will cause the implementing element to
+         * automatically stop propagation on any handled KeyboardEvents.
+         */
+        stopKeyboardEventPropagation: {
+          type: Boolean,
+          value: false
         },
 
         _boundKeyHandlers: {
@@ -386,6 +394,10 @@
       },
 
       _onKeyBindingEvent: function(keyBindings, event) {
+        if (this.stopKeyboardEventPropagation) {
+          event.stopPropagation();
+        }
+
         keyBindings.forEach(function(keyBinding) {
           var keyCombo = keyBinding[0];
           var handlerName = keyBinding[1];
@@ -399,10 +411,14 @@
       _triggerKeyHandler: function(keyCombo, handlerName, keyboardEvent) {
         var detail = Object.create(keyCombo);
         detail.keyboardEvent = keyboardEvent;
-
-        this[handlerName].call(this, new CustomEvent(keyCombo.event, {
-          detail: detail
-        }));
+        var event = new CustomEvent(keyCombo.event, {
+          detail: detail,
+          cancelable: true
+        });
+        this[handlerName].call(this, event);
+        if (event.defaultPrevented) {
+          keyboardEvent.preventDefault();
+        }
       }
     };
   })();

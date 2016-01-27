@@ -19,14 +19,16 @@
 #include "chrome/browser/net/spdyproxy/data_reduction_proxy_chrome_settings_factory.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_test_utils.h"
+#include "components/data_reduction_proxy/core/browser/data_store.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_headers.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_params.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_pref_names.h"
+#include "components/proxy_config/proxy_config_pref_names.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/test/test_renderer_host.h"
 #include "content/public/test/web_contents_tester.h"
 
 #include "extensions/browser/extension_prefs.h"
@@ -122,6 +124,8 @@ class RenderViewContextMenuTest : public testing::Test {
     menu->Init();
     return menu;
   }
+ private:
+  content::RenderViewHostTestEnabler rvh_test_enabler_;
 };
 
 // Generates a URLPatternSet with a single pattern
@@ -376,11 +380,11 @@ class RenderViewContextMenuPrefsTest : public ChromeRenderViewHostTestHarness {
         DataReductionProxyChromeSettingsFactory::GetForBrowserContext(
             profile());
 
-    // TODO(bengr): Remove prefs::kProxy registration after M46. See
-    // http://crbug.com/445599.
+    // TODO(bengr): Remove proxy_config::prefs::kProxy registration after M46.
+    // See http://crbug.com/445599.
     PrefRegistrySimple* registry =
         drp_test_context_->pref_service()->registry();
-    registry->RegisterDictionaryPref(prefs::kProxy);
+    registry->RegisterDictionaryPref(proxy_config::prefs::kProxy);
 
     drp_test_context_->pref_service()->SetBoolean(
         data_reduction_proxy::prefs::kDataReductionProxyEnabled,
@@ -390,7 +394,19 @@ class RenderViewContextMenuPrefsTest : public ChromeRenderViewHostTestHarness {
     settings->InitDataReductionProxySettings(
         drp_test_context_->io_data(), drp_test_context_->pref_service(),
         drp_test_context_->request_context_getter(),
+        make_scoped_ptr(new data_reduction_proxy::DataStore()),
+        base::ThreadTaskRunnerHandle::Get(),
         base::ThreadTaskRunnerHandle::Get());
+  }
+
+  // Force destruction of |DataReductionProxySettings| so that objects on DB
+  // task runner can be destroyed before test threads are destroyed. This method
+  // must be called by tests that call |SetupDataReductionProxy|. We cannot
+  // destroy |drp_test_context_| until browser context keyed services are
+  // destroyed since |DataReductionProxyChromeSettings| holds a pointer to the
+  // |PrefService|, which is owned by |drp_test_context_|.
+  void DestroyDataReductionProxySettings() {
+    drp_test_context_->DestroySettings();
   }
 
  protected:
@@ -449,6 +465,8 @@ TEST_F(RenderViewContextMenuPrefsTest, DataSaverEnabledSaveImageAs) {
       content::WebContentsTester::For(web_contents())->GetSaveFrameHeaders();
   EXPECT_TRUE(headers.find("Chrome-Proxy: pass-through") != std::string::npos);
   EXPECT_TRUE(headers.find("Cache-Control: no-cache") != std::string::npos);
+
+  DestroyDataReductionProxySettings();
 }
 
 // Verify that request headers do not specify pass through when "Save Image
@@ -468,6 +486,8 @@ TEST_F(RenderViewContextMenuPrefsTest, DataSaverDisabledSaveImageAs) {
       content::WebContentsTester::For(web_contents())->GetSaveFrameHeaders();
   EXPECT_TRUE(headers.find("Chrome-Proxy: pass-through") == std::string::npos);
   EXPECT_TRUE(headers.find("Cache-Control: no-cache") == std::string::npos);
+
+  DestroyDataReductionProxySettings();
 }
 
 // Verify that the Chrome-Proxy Lo-Fi directive causes the context menu to
@@ -484,4 +504,6 @@ TEST_F(RenderViewContextMenuPrefsTest, DataSaverLoadImage) {
   AppendImageItems(menu.get());
 
   ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_LOAD_ORIGINAL_IMAGE));
+
+  DestroyDataReductionProxySettings();
 }

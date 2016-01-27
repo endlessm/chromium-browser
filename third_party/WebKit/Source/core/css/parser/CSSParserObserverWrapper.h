@@ -6,13 +6,15 @@
 #define CSSParserObserverWrapper_h
 
 #include "core/css/parser/CSSParserObserver.h"
+#include "wtf/Allocator.h"
 
 namespace blink {
 
 class CSSParserObserverWrapper {
+    STACK_ALLOCATED();
 public:
-    CSSParserObserverWrapper(CSSParserObserver& observer)
-    : m_observer(observer)
+    explicit CSSParserObserverWrapper(CSSParserObserver& observer)
+        : m_observer(observer)
     { }
 
     unsigned startOffset(const CSSParserTokenRange&);
@@ -41,6 +43,7 @@ private:
     CSSParserToken* m_firstParserToken;
 
     struct CommentPosition {
+        DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
         unsigned startOffset;
         unsigned endOffset;
         unsigned tokensBefore;

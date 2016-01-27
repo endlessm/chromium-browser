@@ -10,9 +10,11 @@
 #include <shlguid.h>
 
 #include "base/files/file_util.h"
+#include "base/logging.h"
 #include "base/path_service.h"
 #include "base/process/launch.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/win/metro.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_co_mem.h"
 #include "base/win/scoped_handle.h"
@@ -485,11 +487,7 @@ EC_HOST_UI_MODE CommandExecuteImpl::GetLaunchMode() {
     return launch_mode;
   }
 
-  // As of now ActivateApplication fails on Windows 10 (Build 9926).
-  // Until there is some clarity on special status of browser in metro mode on
-  // Windows 10, we just  disable Chrome metro mode so that browser remains
-  // usable.
-  if (base::win::GetVersion() >= base::win::VERSION_WIN10) {
+  if (!base::win::IsChromeMetroSupported()) {
     launch_mode = ECHUIM_DESKTOP;
     launch_mode_determined = true;
     return launch_mode;

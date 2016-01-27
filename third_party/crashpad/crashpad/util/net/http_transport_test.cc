@@ -121,7 +121,7 @@ class HTTPTransportTestFixture : public MultiprocessExec {
     // Read until the child's stdout closes.
     std::string request;
     char buf[32];
-    ssize_t bytes_read;
+    FileOperationResult bytes_read;
     while ((bytes_read = ReadFile(ReadPipeHandle(), buf, sizeof(buf))) != 0) {
       ASSERT_GE(bytes_read, 0);
       request.append(buf, bytes_read);
@@ -276,6 +276,39 @@ TEST(HTTPTransport, UnchunkedPlainText) {
   HTTPTransportTestFixture test(headers, body_stream.Pass(), 200,
       &UnchunkedPlainText);
   test.Run();
+}
+
+void RunUpload33k(bool has_content_length) {
+  // On OS X, NSMutableURLRequest winds up calling into a CFReadStream’s Read()
+  // callback with a 32kB buffer. Make sure that it’s able to get everything
+  // when enough is available to fill this buffer, requiring more than one
+  // Read().
+
+  std::string request_string(33 * 1024, 'a');
+  scoped_ptr<HTTPBodyStream> body_stream(
+      new StringHTTPBodyStream(request_string));
+
+  HTTPHeaders headers;
+  headers[kContentType] = "application/octet-stream";
+  if (has_content_length) {
+    headers[kContentLength] =
+        base::StringPrintf("%" PRIuS, request_string.size());
+  }
+  HTTPTransportTestFixture test(headers, body_stream.Pass(), 200,
+      [](HTTPTransportTestFixture* fixture, const std::string& request) {
+        size_t body_start = request.rfind("\r\n");
+        EXPECT_EQ(33 * 1024u + 2, request.size() - body_start);
+      });
+  test.Run();
+}
+
+TEST(HTTPTransport, Upload33k) {
+  RunUpload33k(true);
+}
+
+TEST(HTTPTransport, Upload33k_LengthUnknown) {
+  // The same as Upload33k, but without declaring Content-Length ahead of time.
+  RunUpload33k(false);
 }
 
 }  // namespace

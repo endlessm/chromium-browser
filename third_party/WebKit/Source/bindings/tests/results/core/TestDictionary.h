@@ -7,6 +7,7 @@
 #ifndef TestDictionary_h
 #define TestDictionary_h
 
+#include "bindings/core/v8/Dictionary.h"
 #include "bindings/core/v8/Nullable.h"
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/UnionTypesCore.h"
@@ -26,7 +27,7 @@
 namespace blink {
 
 class CORE_EXPORT TestDictionary {
-    ALLOW_ONLY_INLINE_ALLOCATION();
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     TestDictionary();
 
@@ -41,6 +42,10 @@ public:
     bool hasCreateMember() const { return !m_createMember.isNull(); }
     bool createMember() const { return m_createMember.get(); }
     void setCreateMember(bool value) { m_createMember = value; }
+
+    bool hasDictionaryMember() const { return !m_dictionaryMember.isUndefinedOrNull(); }
+    Dictionary dictionaryMember() const { return m_dictionaryMember; }
+    void setDictionaryMember(Dictionary value) { m_dictionaryMember = value; }
 
     bool hasDoubleOrNullMember() const { return !m_doubleOrNullMember.isNull(); }
     double doubleOrNullMember() const { return m_doubleOrNullMember.get(); }
@@ -96,6 +101,10 @@ public:
     bool hasRestrictedDoubleMember() const { return !m_restrictedDoubleMember.isNull(); }
     double restrictedDoubleMember() const { return m_restrictedDoubleMember.get(); }
     void setRestrictedDoubleMember(double value) { m_restrictedDoubleMember = value; }
+
+    bool hasRuntimeMember() const { return !m_runtimeMember.isNull(); }
+    bool runtimeMember() const { return m_runtimeMember.get(); }
+    void setRuntimeMember(bool value) { m_runtimeMember = value; }
 
     bool hasStringArrayMember() const { return !m_stringArrayMember.isNull(); }
     const Vector<String>& stringArrayMember() const { return m_stringArrayMember.get(); }
@@ -171,6 +180,7 @@ private:
     ScriptValue m_anyMember;
     Nullable<bool> m_booleanMember;
     Nullable<bool> m_createMember;
+    Dictionary m_dictionaryMember;
     Nullable<double> m_doubleOrNullMember;
     DoubleOrString m_doubleOrStringMember;
     Nullable<HeapVector<DoubleOrString>> m_doubleOrStringSequenceMember;
@@ -184,6 +194,7 @@ private:
     ScriptValue m_objectOrNullMember;
     DoubleOrString m_otherDoubleOrStringMember;
     Nullable<double> m_restrictedDoubleMember;
+    Nullable<bool> m_runtimeMember;
     Nullable<Vector<String>> m_stringArrayMember;
     String m_stringMember;
     String m_stringOrNullMember;

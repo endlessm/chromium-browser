@@ -31,7 +31,7 @@ class TreeScope;
 
 class CORE_EXPORT FrameTree final {
     WTF_MAKE_NONCOPYABLE(FrameTree);
-    DISALLOW_ALLOCATION();
+    DISALLOW_NEW();
 public:
     explicit FrameTree(Frame* thisFrame);
     ~FrameTree();
@@ -69,7 +69,6 @@ private:
     Frame* deepLastChild() const;
     AtomicString uniqueChildName(const AtomicString& requestedName) const;
     bool uniqueNameExists(const AtomicString& name) const;
-    unsigned scopedChildCount(TreeScope*) const;
 
     RawPtrWillBeMember<Frame> m_thisFrame;
 

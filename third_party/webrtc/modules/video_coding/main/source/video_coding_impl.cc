@@ -15,7 +15,7 @@
 #include "webrtc/modules/video_coding/main/source/jitter_buffer.h"
 #include "webrtc/modules/video_coding/main/source/packet.h"
 #include "webrtc/modules/video_coding/main/source/video_coding_impl.h"
-#include "webrtc/system_wrappers/interface/clock.h"
+#include "webrtc/system_wrappers/include/clock.h"
 
 namespace webrtc {
 namespace vcm {
@@ -133,10 +133,6 @@ class VideoCodingModuleImpl : public VideoCodingModule {
         externalEncoder, payloadType, internalSource);
   }
 
-  int32_t CodecConfigParameters(uint8_t* buffer, int32_t size) override {
-    return sender_->CodecConfigParameters(buffer, size);
-  }
-
   int Bitrate(unsigned int* bitrate) const override {
     return sender_->Bitrate(bitrate);
   }
@@ -168,7 +164,9 @@ class VideoCodingModuleImpl : public VideoCodingModule {
 
   int32_t SetVideoProtection(VCMVideoProtection videoProtection,
                              bool enable) override {
-    sender_->SetVideoProtection(enable, videoProtection);
+    // TODO(pbos): Remove enable from receive-side protection modes as well.
+    if (enable)
+      sender_->SetVideoProtection(videoProtection);
     return receiver_->SetVideoProtection(videoProtection, enable);
   }
 
@@ -185,10 +183,6 @@ class VideoCodingModuleImpl : public VideoCodingModule {
 
   int32_t EnableFrameDropper(bool enable) override {
     return sender_->EnableFrameDropper(enable);
-  }
-
-  int32_t SentFrameCount(VCMFrameCount& frameCount) const override {
-    return sender_->SentFrameCount(&frameCount);
   }
 
   void SuspendBelowMinBitrate() override {

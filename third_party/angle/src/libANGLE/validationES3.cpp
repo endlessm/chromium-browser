@@ -131,6 +131,15 @@ ES3FormatCombinationSet BuildES3FormatSet()
     InsertES3FormatCombo(&set, GL_ALPHA,              GL_ALPHA,           GL_UNSIGNED_BYTE                 );
     InsertES3FormatCombo(&set, GL_SRGB_ALPHA_EXT,     GL_SRGB_ALPHA_EXT,  GL_UNSIGNED_BYTE                 );
     InsertES3FormatCombo(&set, GL_SRGB_EXT,           GL_SRGB_EXT,        GL_UNSIGNED_BYTE                 );
+    InsertES3FormatCombo(&set, GL_RG,                 GL_RG,              GL_UNSIGNED_BYTE                 );
+    InsertES3FormatCombo(&set, GL_RG,                 GL_RG,              GL_FLOAT                         );
+    InsertES3FormatCombo(&set, GL_RG,                 GL_RG,              GL_HALF_FLOAT                    );
+    InsertES3FormatCombo(&set, GL_RG,                 GL_RG,              GL_HALF_FLOAT_OES                );
+    InsertES3FormatCombo(&set, GL_RED,                GL_RED,             GL_UNSIGNED_BYTE                 );
+    InsertES3FormatCombo(&set, GL_RED,                GL_RED,             GL_FLOAT                         );
+    InsertES3FormatCombo(&set, GL_RED,                GL_RED,             GL_HALF_FLOAT                    );
+    InsertES3FormatCombo(&set, GL_RED,                GL_RED,             GL_HALF_FLOAT_OES                );
+    InsertES3FormatCombo(&set, GL_DEPTH_STENCIL,      GL_DEPTH_STENCIL,   GL_UNSIGNED_INT_24_8             );
 
     // Depth stencil formats
     InsertES3FormatCombo(&set, GL_DEPTH_COMPONENT16,  GL_DEPTH_COMPONENT, GL_UNSIGNED_SHORT                );
@@ -185,33 +194,6 @@ ES3FormatCombinationSet BuildES3FormatSet()
 
     // From GL_ANGLE_depth_texture
     InsertES3FormatCombo(&set, GL_DEPTH_COMPONENT32_OES,  GL_DEPTH_COMPONENT, GL_UNSIGNED_INT_24_8_OES         );
-
-    // Compressed formats
-    // From ES 3.0.1 spec, table 3.16
-    //                    | Internal format                             | Format                                      | Type           |
-    //                    |                                             |                                             |                |
-    InsertES3FormatCombo(&set, GL_COMPRESSED_R11_EAC,                        GL_COMPRESSED_R11_EAC,                        GL_UNSIGNED_BYTE);
-    InsertES3FormatCombo(&set, GL_COMPRESSED_R11_EAC,                        GL_COMPRESSED_R11_EAC,                        GL_UNSIGNED_BYTE);
-    InsertES3FormatCombo(&set, GL_COMPRESSED_SIGNED_R11_EAC,                 GL_COMPRESSED_SIGNED_R11_EAC,                 GL_UNSIGNED_BYTE);
-    InsertES3FormatCombo(&set, GL_COMPRESSED_RG11_EAC,                       GL_COMPRESSED_RG11_EAC,                       GL_UNSIGNED_BYTE);
-    InsertES3FormatCombo(&set, GL_COMPRESSED_SIGNED_RG11_EAC,                GL_COMPRESSED_SIGNED_RG11_EAC,                GL_UNSIGNED_BYTE);
-    InsertES3FormatCombo(&set, GL_COMPRESSED_RGB8_ETC2,                      GL_COMPRESSED_RGB8_ETC2,                      GL_UNSIGNED_BYTE);
-    InsertES3FormatCombo(&set, GL_COMPRESSED_SRGB8_ETC2,                     GL_COMPRESSED_SRGB8_ETC2,                     GL_UNSIGNED_BYTE);
-    InsertES3FormatCombo(&set, GL_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2,  GL_COMPRESSED_RGB8_PUNCHTHROUGH_ALPHA1_ETC2,  GL_UNSIGNED_BYTE);
-    InsertES3FormatCombo(&set, GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2, GL_COMPRESSED_SRGB8_PUNCHTHROUGH_ALPHA1_ETC2, GL_UNSIGNED_BYTE);
-    InsertES3FormatCombo(&set, GL_COMPRESSED_RGBA8_ETC2_EAC,                 GL_COMPRESSED_RGBA8_ETC2_EAC,                 GL_UNSIGNED_BYTE);
-    InsertES3FormatCombo(&set, GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC,          GL_COMPRESSED_SRGB8_ALPHA8_ETC2_EAC,          GL_UNSIGNED_BYTE);
-
-
-    // From GL_EXT_texture_compression_dxt1
-    InsertES3FormatCombo(&set, GL_COMPRESSED_RGB_S3TC_DXT1_EXT,              GL_COMPRESSED_RGB_S3TC_DXT1_EXT,              GL_UNSIGNED_BYTE);
-    InsertES3FormatCombo(&set, GL_COMPRESSED_RGBA_S3TC_DXT1_EXT,             GL_COMPRESSED_RGBA_S3TC_DXT1_EXT,             GL_UNSIGNED_BYTE);
-
-    // From GL_ANGLE_texture_compression_dxt3
-    InsertES3FormatCombo(&set, GL_COMPRESSED_RGBA_S3TC_DXT3_ANGLE,           GL_COMPRESSED_RGBA_S3TC_DXT3_ANGLE,           GL_UNSIGNED_BYTE);
-
-    // From GL_ANGLE_texture_compression_dxt5
-    InsertES3FormatCombo(&set, GL_COMPRESSED_RGBA_S3TC_DXT5_ANGLE,           GL_COMPRESSED_RGBA_S3TC_DXT5_ANGLE,           GL_UNSIGNED_BYTE);
 
     return set;
 }
@@ -287,7 +269,7 @@ bool ValidateES3TexImageParameters(Context *context, GLenum target, GLint level,
     }
 
     // Validate image size
-    if (!ValidImageSize(context, target, level, width, height, depth))
+    if (!ValidImageSizeParameters(context, target, level, width, height, depth, isSubImage))
     {
         context->recordError(Error(GL_INVALID_VALUE));
         return false;
@@ -354,7 +336,7 @@ bool ValidateES3TexImageParameters(Context *context, GLenum target, GLint level,
       case GL_TEXTURE_2D_ARRAY:
         if (static_cast<GLuint>(width) > (caps.max2DTextureSize >> level) ||
             static_cast<GLuint>(height) > (caps.max2DTextureSize >> level) ||
-            static_cast<GLuint>(depth) > (caps.maxArrayTextureLayers >> level))
+            static_cast<GLuint>(depth) > caps.maxArrayTextureLayers)
         {
             context->recordError(Error(GL_INVALID_VALUE));
             return false;
@@ -373,7 +355,7 @@ bool ValidateES3TexImageParameters(Context *context, GLenum target, GLint level,
         return false;
     }
 
-    if (texture->isImmutable() && !isSubImage)
+    if (texture->getImmutableFormat() && !isSubImage)
     {
         context->recordError(Error(GL_INVALID_OPERATION));
         return false;
@@ -384,13 +366,20 @@ bool ValidateES3TexImageParameters(Context *context, GLenum target, GLint level,
     const gl::InternalFormat &actualFormatInfo = gl::GetInternalFormatInfo(actualInternalFormat);
     if (isCompressed)
     {
+        if (!actualFormatInfo.compressed)
+        {
+            context->recordError(Error(
+                GL_INVALID_ENUM, "internalformat is not a supported compressed internal format."));
+            return false;
+        }
+
         if (!ValidCompressedImageSize(context, actualInternalFormat, width, height))
         {
             context->recordError(Error(GL_INVALID_OPERATION));
             return false;
         }
 
-        if (!actualFormatInfo.compressed)
+        if (!actualFormatInfo.textureSupport(context->getClientVersion(), context->getExtensions()))
         {
             context->recordError(Error(GL_INVALID_ENUM));
             return false;
@@ -857,7 +846,13 @@ bool ValidateES3TexStorageParameters(Context *context, GLenum target, GLsizei le
         return false;
     }
 
-    if (levels > gl::log2(std::max(std::max(width, height), depth)) + 1)
+    GLsizei maxDim = std::max(width, height);
+    if (target != GL_TEXTURE_2D_ARRAY)
+    {
+        maxDim = std::max(maxDim, depth);
+    }
+
+    if (levels > gl::log2(maxDim) + 1)
     {
         context->recordError(Error(GL_INVALID_OPERATION));
         return false;
@@ -930,7 +925,7 @@ bool ValidateES3TexStorageParameters(Context *context, GLenum target, GLsizei le
         return false;
     }
 
-    if (texture->isImmutable())
+    if (texture->getImmutableFormat())
     {
         context->recordError(Error(GL_INVALID_OPERATION));
         return false;
@@ -1240,4 +1235,91 @@ bool ValidateReadBuffer(Context *context, GLenum src)
     return true;
 }
 
+bool ValidateCompressedTexImage3D(Context *context,
+                                  GLenum target,
+                                  GLint level,
+                                  GLenum internalformat,
+                                  GLsizei width,
+                                  GLsizei height,
+                                  GLsizei depth,
+                                  GLint border,
+                                  GLsizei imageSize,
+                                  const GLvoid *data)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION));
+        return false;
+    }
+
+    const InternalFormat &formatInfo = GetInternalFormatInfo(internalformat);
+    if (imageSize < 0 ||
+        static_cast<GLuint>(imageSize) !=
+            formatInfo.computeBlockSize(GL_UNSIGNED_BYTE, width, height))
+    {
+        context->recordError(Error(GL_INVALID_VALUE));
+        return false;
+    }
+
+    // 3D texture target validation
+    if (target != GL_TEXTURE_3D && target != GL_TEXTURE_2D_ARRAY)
+    {
+        context->recordError(
+            Error(GL_INVALID_ENUM, "Must specify a valid 3D texture destination target"));
+        return false;
+    }
+
+    // validateES3TexImageFormat sets the error code if there is an error
+    if (!ValidateES3TexImageParameters(context, target, level, internalformat, true, false, 0, 0, 0,
+                                       width, height, depth, border, GL_NONE, GL_NONE, data))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool ValidateBindVertexArray(Context *context, GLuint array)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION));
+        return false;
+    }
+
+    return ValidateBindVertexArrayBase(context, array);
+}
+
+bool ValidateDeleteVertexArrays(Context *context, GLsizei n)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION));
+        return false;
+    }
+
+    return ValidateDeleteVertexArraysBase(context, n);
+}
+
+bool ValidateGenVertexArrays(Context *context, GLsizei n)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION));
+        return false;
+    }
+
+    return ValidateGenVertexArraysBase(context, n);
+}
+
+bool ValidateIsVertexArray(Context *context)
+{
+    if (context->getClientVersion() < 3)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION));
+        return false;
+    }
+
+    return true;
+}
 }

@@ -6,6 +6,7 @@
 
 #include <jni.h>
 
+#include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/basictypes.h"
 #include "base/logging.h"
@@ -29,7 +30,7 @@ FakeServerHelperAndroid::FakeServerHelperAndroid(JNIEnv* env, jobject obj) {
 
 FakeServerHelperAndroid::~FakeServerHelperAndroid() { }
 
-static jlong Init(JNIEnv* env, jobject obj) {
+static jlong Init(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   FakeServerHelperAndroid* fake_server_android =
       new FakeServerHelperAndroid(env, obj);
   return reinterpret_cast<intptr_t>(fake_server_android);
@@ -63,14 +64,9 @@ jboolean FakeServerHelperAndroid::VerifyEntityCountByTypeAndName(
     jobject obj,
     jlong fake_server,
     jlong count,
-    jstring model_type_string,
+    jint model_type_int,
     jstring name) {
-  syncer::ModelType model_type;
-  if (!NotificationTypeToRealModelType(base::android::ConvertJavaStringToUTF8(
-      env, model_type_string), &model_type)) {
-    LOG(WARNING) << "Invalid ModelType string.";
-    return false;
-  }
+  syncer::ModelType model_type = static_cast<syncer::ModelType>(model_type_int);
   fake_server::FakeServer* fake_server_ptr =
       reinterpret_cast<fake_server::FakeServer*>(fake_server);
   fake_server::FakeServerVerifier fake_server_verifier(fake_server_ptr);
@@ -107,6 +103,28 @@ jboolean FakeServerHelperAndroid::VerifySessions(
     LOG(WARNING) << result.message();
 
   return result;
+}
+
+base::android::ScopedJavaLocalRef<jobjectArray>
+FakeServerHelperAndroid::GetSyncEntitiesByModelType(JNIEnv* env,
+                                                    jobject obj,
+                                                    jlong fake_server,
+                                                    jint model_type_int) {
+  fake_server::FakeServer* fake_server_ptr =
+      reinterpret_cast<fake_server::FakeServer*>(fake_server);
+
+  syncer::ModelType model_type = static_cast<syncer::ModelType>(model_type_int);
+
+  std::vector<sync_pb::SyncEntity> entities =
+      fake_server_ptr->GetSyncEntitiesByModelType(model_type);
+
+  std::vector<std::string> entity_strings;
+  for (size_t i = 0; i < entities.size(); ++i) {
+    std::string s;
+    entities[i].SerializeToString(&s);
+    entity_strings.push_back(s);
+  }
+  return base::android::ToJavaArrayOfByteArray(env, entity_strings);
 }
 
 void FakeServerHelperAndroid::InjectUniqueClientEntity(
@@ -202,8 +220,9 @@ void FakeServerHelperAndroid::ModifyBookmarkEntity(JNIEnv* env,
       CreateBookmarkEntity(env, title, url, parent_id);
   sync_pb::SyncEntity proto;
   bookmark->SerializeAsProto(&proto);
-  fake_server_ptr->ModifyEntitySpecifics(
+  fake_server_ptr->ModifyBookmarkEntity(
       base::android::ConvertJavaStringToUTF8(env, entity_id),
+      base::android::ConvertJavaStringToUTF8(env, parent_id),
       proto.specifics());
 }
 
@@ -225,8 +244,9 @@ void FakeServerHelperAndroid::ModifyBookmarkFolderEntity(JNIEnv* env,
 
   sync_pb::SyncEntity proto;
   bookmark_builder.BuildFolder()->SerializeAsProto(&proto);
-  fake_server_ptr->ModifyEntitySpecifics(
+  fake_server_ptr->ModifyBookmarkEntity(
       base::android::ConvertJavaStringToUTF8(env, entity_id),
+      base::android::ConvertJavaStringToUTF8(env, parent_id),
       proto.specifics());
 }
 

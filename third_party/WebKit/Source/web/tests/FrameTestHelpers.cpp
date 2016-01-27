@@ -72,7 +72,7 @@ TestWebFrameClient* testClientForFrame(WebFrame* frame)
     return static_cast<TestWebFrameClient*>(toWebLocalFrameImpl(frame)->client());
 }
 
-class ServeAsyncRequestsTask : public WebThread::Task {
+class ServeAsyncRequestsTask : public WebTaskRunner::Task {
 public:
     explicit ServeAsyncRequestsTask(TestWebFrameClient* client)
         : m_client(client)
@@ -83,7 +83,7 @@ public:
     {
         Platform::current()->unitTestSupport()->serveAsynchronousMockedRequests();
         if (m_client->isLoading())
-            Platform::current()->currentThread()->postTask(FROM_HERE, new ServeAsyncRequestsTask(m_client));
+            Platform::current()->currentThread()->taskRunner()->postTask(BLINK_FROM_HERE, new ServeAsyncRequestsTask(m_client));
         else
             Platform::current()->unitTestSupport()->exitRunLoop();
     }
@@ -94,11 +94,11 @@ private:
 
 void pumpPendingRequests(WebFrame* frame)
 {
-    Platform::current()->currentThread()->postTask(FROM_HERE, new ServeAsyncRequestsTask(testClientForFrame(frame)));
+    Platform::current()->currentThread()->taskRunner()->postTask(BLINK_FROM_HERE, new ServeAsyncRequestsTask(testClientForFrame(frame)));
     Platform::current()->unitTestSupport()->enterRunLoop();
 }
 
-class LoadTask : public WebThread::Task {
+class LoadTask : public WebTaskRunner::Task {
 public:
     LoadTask(WebFrame* frame, const WebURLRequest& request)
         : m_frame(frame)
@@ -116,7 +116,7 @@ private:
     const WebURLRequest m_request;
 };
 
-class LoadHTMLStringTask : public WebThread::Task {
+class LoadHTMLStringTask : public WebTaskRunner::Task {
 public:
     LoadHTMLStringTask(WebFrame* frame, const std::string& html, const WebURL& baseURL)
         : m_frame(frame)
@@ -136,7 +136,7 @@ private:
     const WebURL m_baseURL;
 };
 
-class LoadHistoryItemTask : public WebThread::Task {
+class LoadHistoryItemTask : public WebTaskRunner::Task {
 public:
     LoadHistoryItemTask(WebFrame* frame, const WebHistoryItem& item, WebHistoryLoadType loadType, WebURLRequest::CachePolicy cachePolicy)
         : m_frame(frame)
@@ -158,7 +158,7 @@ private:
     const WebURLRequest::CachePolicy m_cachePolicy;
 };
 
-class ReloadTask : public WebThread::Task {
+class ReloadTask : public WebTaskRunner::Task {
 public:
     ReloadTask(WebFrame* frame, bool ignoreCache)
         : m_frame(frame)
@@ -196,31 +196,31 @@ void loadFrame(WebFrame* frame, const std::string& url)
     urlRequest.initialize();
     urlRequest.setURL(URLTestHelpers::toKURL(url));
 
-    Platform::current()->currentThread()->postTask(FROM_HERE, new LoadTask(frame, urlRequest));
+    Platform::current()->currentThread()->taskRunner()->postTask(BLINK_FROM_HERE, new LoadTask(frame, urlRequest));
     pumpPendingRequests(frame);
 }
 
 void loadHTMLString(WebFrame* frame, const std::string& html, const WebURL& baseURL)
 {
-    Platform::current()->currentThread()->postTask(FROM_HERE, new LoadHTMLStringTask(frame, html, baseURL));
+    Platform::current()->currentThread()->taskRunner()->postTask(BLINK_FROM_HERE, new LoadHTMLStringTask(frame, html, baseURL));
     pumpPendingRequests(frame);
 }
 
 void loadHistoryItem(WebFrame* frame, const WebHistoryItem& item, WebHistoryLoadType loadType, WebURLRequest::CachePolicy cachePolicy)
 {
-    Platform::current()->currentThread()->postTask(FROM_HERE, new LoadHistoryItemTask(frame, item, loadType, cachePolicy));
+    Platform::current()->currentThread()->taskRunner()->postTask(BLINK_FROM_HERE, new LoadHistoryItemTask(frame, item, loadType, cachePolicy));
     pumpPendingRequests(frame);
 }
 
 void reloadFrame(WebFrame* frame)
 {
-    Platform::current()->currentThread()->postTask(FROM_HERE, new ReloadTask(frame, false));
+    Platform::current()->currentThread()->taskRunner()->postTask(BLINK_FROM_HERE, new ReloadTask(frame, false));
     pumpPendingRequests(frame);
 }
 
 void reloadFrameIgnoringCache(WebFrame* frame)
 {
-    Platform::current()->currentThread()->postTask(FROM_HERE, new ReloadTask(frame, true));
+    Platform::current()->currentThread()->taskRunner()->postTask(BLINK_FROM_HERE, new ReloadTask(frame, true));
     pumpPendingRequests(frame);
 }
 
@@ -251,6 +251,12 @@ WebViewImpl* WebViewHelper::initialize(bool enableJavascript, TestWebFrameClient
     m_webView = WebViewImpl::create(webViewClient);
     m_webView->settings()->setJavaScriptEnabled(enableJavascript);
     m_webView->settings()->setPluginsEnabled(true);
+    // Enable (mocked) network loads of image URLs, as this simplifies
+    // the completion of resource loads upon test shutdown & helps avoid
+    // dormant loads trigger Resource leaks for image loads.
+    //
+    // Consequently, all external image resources must be mocked.
+    m_webView->settings()->setLoadsImagesAutomatically(true);
     if (updateSettingsFunc)
         updateSettingsFunc(m_webView->settings());
     else
@@ -286,7 +292,7 @@ TestWebFrameClient::TestWebFrameClient() : m_loadsInProgress(0)
 {
 }
 
-WebFrame* TestWebFrameClient::createChildFrame(WebLocalFrame* parent, WebTreeScopeType scope, const WebString& frameName, WebSandboxFlags sandboxFlags)
+WebFrame* TestWebFrameClient::createChildFrame(WebLocalFrame* parent, WebTreeScopeType scope, const WebString& frameName, WebSandboxFlags sandboxFlags, const WebFrameOwnerProperties& frameOwnerProperties)
 {
     WebFrame* frame = WebLocalFrame::create(scope, this);
     parent->appendChild(frame);

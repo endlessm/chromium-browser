@@ -13,7 +13,7 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser_window_state.h"
-#include "chrome/common/chrome_version_info.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/context_factory.h"
 #include "grit/chrome_unscaled_resources.h"
@@ -21,6 +21,7 @@
 #include "ui/base/ui_base_switches.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/screen.h"
+#include "ui/views/controls/menu/menu_controller.h"
 #include "ui/views/widget/native_widget.h"
 #include "ui/views/widget/widget.h"
 
@@ -52,6 +53,7 @@
 #endif
 
 #if defined(USE_ASH)
+#include "ash/accelerators/accelerator_controller.h"
 #include "ash/shell.h"
 #include "ash/wm/window_state.h"
 #include "chrome/browser/ui/ash/ash_init.h"
@@ -126,6 +128,14 @@ int GetAppbarAutohideEdgesOnWorkerThread(HMONITOR monitor) {
 }
 #endif
 
+#if defined(USE_ASH)
+void ProcessAcceleratorNow(const ui::Accelerator& accelerator) {
+  // TODO(afakhry): See if we need here to send the accelerator to the
+  // FocusManager of the active window in a follow-up CL.
+  ash::Shell::GetInstance()->accelerator_controller()->Process(accelerator);
+}
+#endif  // defined(USE_ASH)
+
 }  // namespace
 
 
@@ -178,9 +188,8 @@ bool ChromeViewsDelegate::GetSavedWindowPlacement(
   if (!prefs)
     return false;
 
-  DCHECK(prefs->FindPreference(window_name.c_str()));
-  const base::DictionaryValue* dictionary =
-      prefs->GetDictionary(window_name.c_str());
+  DCHECK(prefs->FindPreference(window_name));
+  const base::DictionaryValue* dictionary = prefs->GetDictionary(window_name);
   int left = 0;
   int top = 0;
   int right = 0;
@@ -219,6 +228,34 @@ void ChromeViewsDelegate::NotifyAccessibilityEvent(
   AutomationManagerAura::GetInstance()->HandleEvent(
       GetProfileForWindow(view->GetWidget()), view, event_type);
 #endif
+}
+
+views::ViewsDelegate::ProcessMenuAcceleratorResult
+ChromeViewsDelegate::ProcessAcceleratorWhileMenuShowing(
+    const ui::Accelerator& accelerator) {
+#if defined(USE_ASH)
+  // Handle ash accelerators only when a menu is opened on an ash desktop.
+  if (chrome::GetActiveDesktop() != chrome::HOST_DESKTOP_TYPE_ASH)
+    return views::ViewsDelegate::ProcessMenuAcceleratorResult::LEAVE_MENU_OPEN;
+
+  ash::AcceleratorController* accelerator_controller =
+      ash::Shell::GetInstance()->accelerator_controller();
+
+  accelerator_controller->accelerator_history()->StoreCurrentAccelerator(
+      accelerator);
+  if (accelerator_controller->ShouldCloseMenuAndRepostAccelerator(
+          accelerator)) {
+    base::MessageLoopForUI::current()->PostTask(
+        FROM_HERE,
+        base::Bind(ProcessAcceleratorNow, accelerator));
+    return views::ViewsDelegate::ProcessMenuAcceleratorResult::CLOSE_MENU;
+  }
+
+  ProcessAcceleratorNow(accelerator);
+  return views::ViewsDelegate::ProcessMenuAcceleratorResult::LEAVE_MENU_OPEN;
+#else
+  return views::ViewsDelegate::ProcessMenuAcceleratorResult::LEAVE_MENU_OPEN;
+#endif  // defined(USE_ASH)
 }
 
 #if defined(OS_WIN)
@@ -387,7 +424,7 @@ ui::ContextFactory* ChromeViewsDelegate::GetContextFactory() {
 }
 
 std::string ChromeViewsDelegate::GetApplicationName() {
-  return chrome::VersionInfo().Name();
+  return version_info::GetProductName();
 }
 
 #if defined(OS_WIN)

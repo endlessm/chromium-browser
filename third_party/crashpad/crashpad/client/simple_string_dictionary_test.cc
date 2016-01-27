@@ -172,8 +172,10 @@ TEST(SimpleStringDictionary, Iterator) {
 
   int totalCount = 0;
 
-  const SimpleStringDictionary::Entry* entry;
-  while ((entry = iter.Next())) {
+  for (;;) {
+    const SimpleStringDictionary::Entry* entry = iter.Next();
+    if (!entry)
+      break;
     totalCount++;
 
     // Extract keyNumber from a string of the form key<keyNumber>
@@ -276,7 +278,7 @@ TEST(SimpleStringDictionary, OutOfSpace) {
   EXPECT_FALSE(map.GetValueForKey("c"));
 }
 
-#if DCHECK_IS_ON
+#if DCHECK_IS_ON()
 
 TEST(SimpleStringDictionaryDeathTest, NullKey) {
   TSimpleStringDictionary<4, 6, 6> map;

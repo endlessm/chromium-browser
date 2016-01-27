@@ -13,30 +13,29 @@ namespace blink {
 
 class PropertyHandle;
 
-class CORE_EXPORT Interpolation : public RefCountedWillBeGarbageCollectedFinalized<Interpolation> {
+class CORE_EXPORT Interpolation : public RefCounted<Interpolation> {
+    WTF_MAKE_NONCOPYABLE(Interpolation);
 public:
     virtual ~Interpolation();
 
     virtual void interpolate(int iteration, double fraction);
 
     virtual bool isStyleInterpolation() const { return false; }
-    virtual bool isInvalidatableStyleInterpolation() const { return false; }
+    virtual bool isInvalidatableInterpolation() const { return false; }
     virtual bool isLegacyStyleInterpolation() const { return false; }
     virtual bool isSVGInterpolation() const { return false; }
 
     virtual PropertyHandle property() const = 0;
 
-    DECLARE_VIRTUAL_TRACE();
-
 protected:
-    const OwnPtrWillBeMember<InterpolableValue> m_start;
-    const OwnPtrWillBeMember<InterpolableValue> m_end;
+    const OwnPtr<InterpolableValue> m_start;
+    const OwnPtr<InterpolableValue> m_end;
 
     mutable double m_cachedFraction;
     mutable int m_cachedIteration;
-    mutable OwnPtrWillBeMember<InterpolableValue> m_cachedValue;
+    mutable OwnPtr<InterpolableValue> m_cachedValue;
 
-    Interpolation(PassOwnPtrWillBeRawPtr<InterpolableValue> start, PassOwnPtrWillBeRawPtr<InterpolableValue> end);
+    Interpolation(PassOwnPtr<InterpolableValue> start, PassOwnPtr<InterpolableValue> end);
 
 private:
     InterpolableValue* getCachedValueForTesting() const { return m_cachedValue.get(); }
@@ -48,6 +47,8 @@ private:
     friend class AnimationColorStyleInterpolationTest;
     friend class AnimationSVGStrokeDasharrayStyleInterpolationTest;
 };
+
+using ActiveInterpolations = Vector<RefPtr<Interpolation>, 1>;
 
 } // namespace blink
 

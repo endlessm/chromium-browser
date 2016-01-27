@@ -58,6 +58,7 @@ class WebContentsDelegate;
 struct CustomContextMenuContext;
 struct DropData;
 struct Manifest;
+struct PageImportanceSignals;
 struct RendererPreferences;
 
 // WebContents is the core class in content/. A WebContents renders web content
@@ -112,11 +113,13 @@ class WebContents : public PageNavigator,
     // (e.g., for blocked popups).
     bool created_with_opener;
 
-    // The routing ids of the RenderView and of the main RenderFrame. Either
-    // both must be provided, or both must be MSG_ROUTING_NONE to have the
-    // WebContents make the assignment.
-    int routing_id;
-    int main_frame_routing_id;
+    // The routing ids of the RenderView, main RenderFrame, and the widget for
+    // the main RenderFrame. Either all routing IDs must be provided or all must
+    // be MSG_ROUTING_NONE to have WebContents make the assignment. If provided,
+    // these routing IDs are associated with |site_instance->GetProcess()|.
+    int32_t routing_id;
+    int32_t main_frame_routing_id;
+    int32_t main_frame_widget_routing_id;
 
     // The name of the top-level frame of the new window. It is non-empty
     // when creating a named window (e.g. <a target="foo"> or
@@ -160,10 +163,9 @@ class WebContents : public PageNavigator,
       const CreateParams& params,
       const SessionStorageNamespaceMap& session_storage_namespace_map);
 
-  // Returns a WebContents that wraps the RenderViewHost, or nullptr if the
+  // Returns the WebContents that owns the RenderViewHost, or nullptr if the
   // render view host's delegate isn't a WebContents.
-  CONTENT_EXPORT static WebContents* FromRenderViewHost(
-      const RenderViewHost* rvh);
+  CONTENT_EXPORT static WebContents* FromRenderViewHost(RenderViewHost* rvh);
 
   CONTENT_EXPORT static WebContents* FromRenderFrameHost(RenderFrameHost* rfh);
 
@@ -248,8 +250,10 @@ class WebContents : public PageNavigator,
   // Create a WebUI page for the given url. In most cases, this doesn't need to
   // be called by embedders since content will create its own WebUI objects as
   // necessary. However if the embedder wants to create its own WebUI object and
-  // keep track of it manually, it can use this.
-  virtual WebUI* CreateWebUI(const GURL& url) = 0;
+  // keep track of it manually, it can use this. |frame_name| is used to
+  // identify the frame and cannot be empty.
+  virtual WebUI* CreateSubframeWebUI(const GURL& url,
+                                     const std::string& frame_name) = 0;
 
   // Returns the committed WebUI if one exists, otherwise the pending one.
   virtual WebUI* GetWebUI() const = 0;
@@ -275,6 +279,8 @@ class WebContents : public PageNavigator,
   virtual void SetParentNativeViewAccessible(
       gfx::NativeViewAccessible accessible_parent) = 0;
 #endif
+
+  virtual const PageImportanceSignals& GetPageImportanceSignals() const = 0;
 
   // Tab navigation state ------------------------------------------------------
 
@@ -320,9 +326,6 @@ class WebContents : public PageNavigator,
   // Returns the upload progress.
   virtual uint64 GetUploadSize() const = 0;
   virtual uint64 GetUploadPosition() const = 0;
-
-  // Returns a set of the site URLs currently committed in this tab.
-  virtual std::set<GURL> GetSitesInTab() const = 0;
 
   // Returns the character encoding of the page.
   virtual const std::string& GetEncoding() const = 0;
@@ -574,8 +577,8 @@ class WebContents : public PageNavigator,
   virtual int GetMinimumZoomPercent() const = 0;
   virtual int GetMaximumZoomPercent() const = 0;
 
-  // Set the renderer's page scale back to one.
-  virtual void ResetPageScale() = 0;
+  // Set the renderer's page scale to the given factor.
+  virtual void SetPageScale(float page_scale_factor) = 0;
 
   // Gets the preferred size of the contents.
   virtual gfx::Size GetPreferredSize() const = 0;
@@ -637,7 +640,7 @@ class WebContents : public PageNavigator,
   // removed since we can then embed iframes in different processes.
   virtual bool IsSubframe() const = 0;
 
-  // Finds text on a page.
+  // Finds text on a page. |search_text| should not be empty.
   virtual void Find(int request_id,
                     const base::string16& search_text,
                     const blink::WebFindOptions& options) = 0;
@@ -655,7 +658,14 @@ class WebContents : public PageNavigator,
   typedef base::Callback<void(const Manifest&)> GetManifestCallback;
 
   // Requests the Manifest of the main frame's document.
-  virtual void GetManifest(const GetManifestCallback&) = 0;
+  virtual void GetManifest(const GetManifestCallback& callback) = 0;
+
+  typedef base::Callback<void(bool)> HasManifestCallback;
+
+  // Returns true if the main frame has a <link> to a web manifest, otherwise
+  // false. This method does not guarantee that the manifest exists at the
+  // specified location or is valid.
+  virtual void HasManifest(const HasManifestCallback& callback) = 0;
 
   // Requests the renderer to exit fullscreen.
   virtual void ExitFullscreen() = 0;
@@ -672,10 +682,13 @@ class WebContents : public PageNavigator,
   virtual void ResumeMediaSession() = 0;
   // Requests to suspend the current media session.
   virtual void SuspendMediaSession() = 0;
-
+  // Requests to stop the current media session.
+  virtual void StopMediaSession() = 0;
+#if !defined(USE_AURA)
   CONTENT_EXPORT static WebContents* FromJavaWebContents(
       jobject jweb_contents_android);
   virtual base::android::ScopedJavaLocalRef<jobject> GetJavaWebContents() = 0;
+#endif  // !USE_AURA
 #elif defined(OS_MACOSX)
   // Allowing other views disables optimizations which assume that only a single
   // WebContents is present.

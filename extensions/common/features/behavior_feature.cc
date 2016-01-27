@@ -6,9 +6,13 @@
 
 namespace extensions {
 
-const char* BehaviorFeature::kBluetoothPeripheral = "bluetooth.peripheral";
+const char* const BehaviorFeature::kServiceWorker = "service_worker";
 
-const char* BehaviorFeature::kWhitelistedForIncognito =
+const char* const BehaviorFeature::kWhitelistedForIncognito =
     "whitelisted_for_incognito";
+
+const char* const BehaviorFeature::kDoNotSync = "do_not_sync";
+
+const char* const BehaviorFeature::kZoomWithoutBubble = "zoom_without_bubble";
 
 }  // namespace extensions

@@ -1,19 +1,21 @@
 # Copyright 2012 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+import logging
 import sys
 
-from telemetry.core import device_finder
 from telemetry.core import util
+from telemetry.core import platform as platform_module
 from telemetry import decorators
 from telemetry.internal.browser import browser_finder
 from telemetry.internal.browser import browser_finder_exceptions
 from telemetry.internal.browser import browser_options
+from telemetry.internal.platform import device_finder
+from telemetry.internal.util import binary_manager
 from telemetry.internal.util import command_line
+from telemetry.internal.util import ps_util
 from telemetry.testing import browser_test_case
 from telemetry.testing import options_for_unittests
-
-util.AddDirToPythonPath(util.GetTelemetryThirdPartyDir(), 'typ')
 
 import typ
 
@@ -38,6 +40,8 @@ class RunTestsCommand(command_line.OptparseCommand):
   def AddCommandLineArgs(cls, parser, _):
     parser.add_option('--repeat-count', type='int', default=1,
                       help='Repeats each a provided number of times.')
+    parser.add_option('--no-browser', action='store_true', default=False,
+                      help='Don\'t require an actual browser to run the tests.')
     parser.add_option('-d', '--also-run-disabled-tests',
                       dest='run_disabled_tests',
                       action='store_true', default=False,
@@ -45,6 +49,9 @@ class RunTestsCommand(command_line.OptparseCommand):
     parser.add_option('--exact-test-filter', action='store_true', default=False,
                       help='Treat test filter as exact matches (default is '
                            'substring matches).')
+    parser.add_option('--client-config', dest='client_config', default=None)
+    parser.add_option('--disable-logging-config', action='store_true',
+                      default=False, help='Configure logging (default on)')
 
     typ.ArgumentParser.add_option_group(parser,
                                         "Options for running the tests",
@@ -60,6 +67,9 @@ class RunTestsCommand(command_line.OptparseCommand):
     # explicitly.
     if not args.retry_limit and not args.positional_args:
       args.retry_limit = 3
+
+    if args.no_browser:
+      return
 
     try:
       possible_browser = browser_finder.FindBrowser(args)
@@ -78,6 +88,10 @@ class RunTestsCommand(command_line.OptparseCommand):
     cls.AddCommandLineArgs(parser, None)
     options, positional_args = parser.parse_args(args)
     options.positional_args = positional_args
+
+    # Must initialize the DependencyManager before calling
+    # browser_finder.FindBrowser(args)
+    binary_manager.InitDependencyManager(options.client_config)
     cls.ProcessCommandLineArgs(parser, options, None)
 
     obj = cls()
@@ -86,11 +100,16 @@ class RunTestsCommand(command_line.OptparseCommand):
     return obj.Run(options)
 
   def Run(self, args):
-    possible_browser = browser_finder.FindBrowser(args)
-
     runner = typ.Runner()
     if self.stream:
       runner.host.stdout = self.stream
+
+    if args.no_browser:
+      possible_browser = None
+      platform = platform_module.GetHostPlatform()
+    else:
+      possible_browser = browser_finder.FindBrowser(args)
+      platform = possible_browser.platform
 
     # Telemetry seems to overload the system if we run one test per core,
     # so we scale things back a fair amount. Many of the telemetry tests
@@ -99,12 +118,12 @@ class RunTestsCommand(command_line.OptparseCommand):
     #
     # It should be possible to handle multiple devices if we adjust the
     # browser_finder code properly, but for now we only handle one on ChromeOS.
-    if possible_browser.platform.GetOSName() == 'chromeos':
+    if platform.GetOSName() == 'chromeos':
       runner.args.jobs = 1
-    elif possible_browser.platform.GetOSName() == 'android':
+    elif platform.GetOSName() == 'android':
       runner.args.jobs = len(device_finder.GetDevicesMatchingOptions(args))
       print 'Running tests with %d Android device(s).' % runner.args.jobs
-    elif possible_browser.platform.GetOSVersionName() == 'xp':
+    elif platform.GetOSVersionName() == 'xp':
       # For an undiagnosed reason, XP falls over with more parallelism.
       # See crbug.com/388256
       runner.args.jobs = max(int(args.jobs) // 4, 1)
@@ -117,14 +136,16 @@ class RunTestsCommand(command_line.OptparseCommand):
     runner.args.retry_limit = args.retry_limit
     runner.args.test_results_server = args.test_results_server
     runner.args.test_type = args.test_type
-    # Always print out test's timing info.
-    runner.args.timing = True
     runner.args.top_level_dir = args.top_level_dir
-    runner.args.verbose = args.verbosity
     runner.args.write_full_results_to = args.write_full_results_to
     runner.args.write_trace_to = args.write_trace_to
+    runner.args.list_only = args.list_only
 
     runner.args.path.append(util.GetUnittestDataDir())
+
+    # Always print out these info for the ease of debugging.
+    runner.args.timing = True
+    runner.args.verbose = 3
 
     runner.classifier = GetClassifier(args, possible_browser)
     runner.context = args
@@ -140,7 +161,22 @@ class RunTestsCommand(command_line.OptparseCommand):
 
 
 def GetClassifier(args, possible_browser):
-  def ClassifyTest(test_set, test):
+
+  def ClassifyTestWithoutBrowser(test_set, test):
+    name = test.id()
+    if (not args.positional_args
+        or _MatchesSelectedTest(name, args.positional_args,
+                                  args.exact_test_filter)):
+      # TODO(telemetry-team): Make sure that all telemetry unittest that invokes
+      # actual browser are subclasses of browser_test_case.BrowserTestCase
+      # (crbug.com/537428)
+      if issubclass(test.__class__, browser_test_case.BrowserTestCase):
+        test_set.tests_to_skip.append(typ.TestInput(
+            name, msg='Skip the test because it requires a browser.'))
+      else:
+        test_set.parallel_tests.append(typ.TestInput(name))
+
+  def ClassifyTestWithBrowser(test_set, test):
     name = test.id()
     if (not args.positional_args
         or _MatchesSelectedTest(name, args.positional_args,
@@ -155,7 +191,10 @@ def GetClassifier(args, possible_browser):
       else:
         test_set.parallel_tests.append(typ.TestInput(name))
 
-  return ClassifyTest
+  if possible_browser:
+    return ClassifyTestWithBrowser
+  else:
+    return ClassifyTestWithoutBrowser
 
 
 def _MatchesSelectedTest(name, selected_tests, selected_tests_are_exact):
@@ -168,7 +207,25 @@ def _MatchesSelectedTest(name, selected_tests, selected_tests_are_exact):
 
 
 def _SetUpProcess(child, context): # pylint: disable=W0613
+  ps_util.EnableListingStrayProcessesUponExitHook()
+  if binary_manager.NeedsInit():
+    # Typ doesn't keep the DependencyManager initialization in the child
+    # processes.
+    binary_manager.InitDependencyManager(context.client_config)
+  # We need to reset the handlers in case some other parts of telemetry already
+  # set it to make this work.
+  logging.getLogger().handlers = []
+  logging.basicConfig(
+      level=logging.INFO,
+      format='(%(levelname)s) %(asctime)s %(module)s.%(funcName)s:%(lineno)d  '
+             '%(message)s')
   args = context
+  if not args.disable_logging_config:
+    logging.getLogger().handlers = []
+    logging.basicConfig(
+        level=logging.INFO,
+        format='(%(levelname)s) %(asctime)s %(module)s.%(funcName)s:%(lineno)d'
+              '  %(message)s')
   if args.device and args.device == 'android':
     android_devices = device_finder.GetDevicesMatchingOptions(args)
     args.device = android_devices[child.worker_num-1].guid
@@ -176,6 +233,8 @@ def _SetUpProcess(child, context): # pylint: disable=W0613
 
 
 def _TearDownProcess(child, context): # pylint: disable=W0613
+  # It's safe to call teardown_browser even if we did not start any browser
+  # in any of the tests.
   browser_test_case.teardown_browser()
   options_for_unittests.Pop()
 

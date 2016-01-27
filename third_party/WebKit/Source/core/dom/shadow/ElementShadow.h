@@ -41,13 +41,13 @@ namespace blink {
 
 class CORE_EXPORT ElementShadow final : public NoBaseWillBeGarbageCollectedFinalized<ElementShadow> {
     WTF_MAKE_NONCOPYABLE(ElementShadow);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(ElementShadow);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(ElementShadow);
 public:
     static PassOwnPtrWillBeRawPtr<ElementShadow> create();
     ~ElementShadow();
 
     Element* host() const;
-    ShadowRoot* youngestShadowRoot() const { return m_shadowRoots.head(); }
+    ShadowRoot& youngestShadowRoot() const { ASSERT(m_shadowRoots.head()); return *m_shadowRoots.head(); }
     ShadowRoot* oldestShadowRoot() const { return m_shadowRoots.tail(); }
     ElementShadow* containingShadow() const;
 
@@ -81,11 +81,16 @@ private:
     void distribute();
     void clearDistribution();
 
+    void distributeV0();
+    void distributeV1();
+
     void collectSelectFeatureSetFrom(ShadowRoot&);
     void distributeNodeChildrenTo(InsertionPoint*, ContainerNode*);
 
     bool needsSelectFeatureSet() const { return m_needsSelectFeatureSet; }
     void setNeedsSelectFeatureSet() { m_needsSelectFeatureSet = true; }
+
+    bool isV1() const { return youngestShadowRoot().type() == ShadowRootType::Open || youngestShadowRoot().type() == ShadowRootType::Closed; };
 
 #if ENABLE(OILPAN)
     // The cost of |new| in Oilpan is lower than non-Oilpan.  We should reduce
@@ -106,7 +111,7 @@ private:
 inline Element* ElementShadow::host() const
 {
     ASSERT(!m_shadowRoots.isEmpty());
-    return youngestShadowRoot()->host();
+    return youngestShadowRoot().host();
 }
 
 inline ShadowRoot* Node::youngestShadowRoot() const
@@ -119,7 +124,7 @@ inline ShadowRoot* Node::youngestShadowRoot() const
 inline ShadowRoot* Element::youngestShadowRoot() const
 {
     if (ElementShadow* shadow = this->shadow())
-        return shadow->youngestShadowRoot();
+        return &shadow->youngestShadowRoot();
     return 0;
 }
 

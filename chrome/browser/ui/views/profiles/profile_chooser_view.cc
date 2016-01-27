@@ -15,9 +15,9 @@
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/profiles/profiles_state.h"
+#include "chrome/browser/signin/chrome_signin_helper.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_error_controller_factory.h"
-#include "chrome/browser/signin/signin_header_helper.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/signin/signin_ui_util.h"
@@ -36,6 +36,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_error_controller.h"
+#include "components/signin/core/browser/signin_header_helper.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -45,11 +46,16 @@
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/compositor/clip_transform_recorder.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/color_palette.h"
+#include "ui/gfx/image/canvas_image_source.h"
 #include "ui/gfx/image/image.h"
 #include "ui/gfx/image/image_skia.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/path.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/gfx/text_elider.h"
+#include "ui/gfx/vector_icons_public.h"
+#include "ui/native_theme/common_theme.h"
 #include "ui/native_theme/native_theme.h"
 #include "ui/views/controls/button/blue_button.h"
 #include "ui/views/controls/button/image_button.h"
@@ -62,6 +68,8 @@
 #include "ui/views/controls/styled_label.h"
 #include "ui/views/controls/textfield/textfield.h"
 #include "ui/views/controls/webview/webview.h"
+#include "ui/views/layout/box_layout.h"
+#include "ui/views/layout/fill_layout.h"
 #include "ui/views/layout/grid_layout.h"
 #include "ui/views/layout/layout_constants.h"
 #include "ui/views/widget/widget.h"
@@ -72,13 +80,17 @@ namespace {
 
 const int kFixedMenuWidth = 250;
 const int kButtonHeight = 32;
-const int kFixedGaiaViewHeight = 440;
-const int kFixedGaiaViewWidth = 360;
+const int kPasswordCombinedFixedGaiaViewHeight = 440;
+const int kPasswordCombinedFixedGaiaViewWidth = 360;
+const int kFixedGaiaViewHeight = 512;
+const int kFixedGaiaViewWidth = 448;
 const int kFixedAccountRemovalViewWidth = 280;
 const int kFixedSwitchUserViewWidth = 320;
 const int kLargeImageSide = 88;
 
 const int kVerticalSpacing = 16;
+
+const int kTitleViewNativeWidgetOffset = 8;
 
 bool IsProfileChooser(profiles::BubbleViewMode mode) {
   return mode == profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER ||
@@ -126,6 +138,23 @@ std::string GetAuthErrorAccountId(Profile* profile) {
     return std::string();
 
   return error->error_account_id();
+}
+
+views::ImageButton* CreateBackButton(views::ButtonListener* listener) {
+  views::ImageButton* back_button = new views::ImageButton(listener);
+  back_button->SetImageAlignment(views::ImageButton::ALIGN_LEFT,
+                                 views::ImageButton::ALIGN_MIDDLE);
+  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
+  back_button->SetImage(views::ImageButton::STATE_NORMAL,
+                        rb->GetImageSkiaNamed(IDR_BACK));
+  back_button->SetImage(views::ImageButton::STATE_HOVERED,
+                        rb->GetImageSkiaNamed(IDR_BACK_H));
+  back_button->SetImage(views::ImageButton::STATE_PRESSED,
+                        rb->GetImageSkiaNamed(IDR_BACK_P));
+  back_button->SetImage(views::ImageButton::STATE_DISABLED,
+                        rb->GetImageSkiaNamed(IDR_BACK_D));
+  back_button->SetFocusable(true);
+  return back_button;
 }
 
 // BackgroundColorHoverButton -------------------------------------------------
@@ -176,6 +205,55 @@ class SizedContainer : public views::View {
   gfx::Size preferred_size_;
 };
 
+// A view to host the GAIA webview overlapped with a back button.  This class
+// is needed to reparent the back button inside a native view so that on
+// windows, user input can be be properly routed to the button.
+class HostView : public views::View {
+ public:
+  HostView() {}
+
+  void Initialize(views::View* title_view, views::View* main_view);
+
+ private:
+  // views::View:
+  void ViewHierarchyChanged(
+      const ViewHierarchyChangedDetails& details) override;
+
+  // The title itself and the overlaped widget that contains it.
+  views::View* title_view_ = nullptr;  // Not owned.
+  scoped_ptr<views::Widget> title_widget_;
+
+  DISALLOW_COPY_AND_ASSIGN(HostView);
+};
+
+void HostView::Initialize(views::View* title_view, views::View* main_view) {
+  title_view_ = title_view;
+  AddChildView(main_view);
+  SetLayoutManager(new views::FillLayout());
+}
+
+void HostView::ViewHierarchyChanged(
+    const ViewHierarchyChangedDetails& details) {
+  if (title_widget_ != nullptr || GetWidget() == nullptr)
+    return;
+
+  // The title view must be placed within its own widget so that it can
+  // properly receive user input when overlapped on another view.
+  views::Widget::InitParams params(
+      views::Widget::InitParams::TYPE_CONTROL);
+  params.parent = GetWidget()->GetNativeView();
+  params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
+  params.ownership = views::Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+  title_widget_.reset(new views::Widget);
+  title_widget_->Init(params);
+  title_widget_->SetContentsView(title_view_);
+
+  gfx::Rect bounds(title_view_->GetPreferredSize());
+  title_view_->SetBoundsRect(bounds);
+  bounds.Offset(kTitleViewNativeWidgetOffset, kTitleViewNativeWidgetOffset);
+  title_widget_->SetBounds(bounds);
+}
+
 }  // namespace
 
 // RightAlignedIconLabelButton -------------------------------------------------
@@ -197,6 +275,14 @@ class RightAlignedIconLabelButton : public views::LabelButton {
   }
 
  private:
+  void OnFocus() override {
+    SetState(STATE_HOVERED);
+  }
+
+  void OnBlur() override {
+    SetState(STATE_NORMAL);
+  }
+
   DISALLOW_COPY_AND_ASSIGN(RightAlignedIconLabelButton);
 };
 
@@ -235,9 +321,8 @@ class EditableProfilePhoto : public views::LabelButton {
     const SkColor kBackgroundColor = SkColorSetARGB(65, 255, 255, 255);
     photo_overlay_->set_background(
         views::Background::CreateSolidBackground(kBackgroundColor));
-    photo_overlay_->SetVectorIcon(gfx::VectorIconId::PHOTO_CAMERA,
-                                  SkColorSetRGB(0x33, 0x33, 0x33),
-                                  gfx::Size(48, 48));
+    photo_overlay_->SetImage(gfx::CreateVectorIcon(
+        gfx::VectorIconId::PHOTO_CAMERA, 48u, SkColorSetRGB(0x33, 0x33, 0x33)));
 
     photo_overlay_->SetSize(bounds.size());
     photo_overlay_->SetVisible(false);
@@ -291,48 +376,56 @@ class EditableProfilePhoto : public views::LabelButton {
 // EditableProfileName -------------------------------------------------
 
 // A custom text control that turns into a textfield for editing when clicked.
-class EditableProfileName : public RightAlignedIconLabelButton,
+class EditableProfileName : public views::View,
                             public views::ButtonListener {
  public:
   EditableProfileName(views::TextfieldController* controller,
                       const base::string16& text,
                       bool is_editing_allowed)
-      : RightAlignedIconLabelButton(this, text),
-        profile_name_textfield_(NULL) {
+      : button_(new RightAlignedIconLabelButton(this, text)),
+        profile_name_textfield_(new views::Textfield()) {
     ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
     const gfx::FontList& medium_font_list =
         rb->GetFontList(ui::ResourceBundle::MediumFont);
-    SetFontList(medium_font_list);
-    SetHorizontalAlignment(gfx::ALIGN_CENTER);
+    button_->SetFontList(medium_font_list);
+    button_->SetHorizontalAlignment(gfx::ALIGN_CENTER);
 
     if (!is_editing_allowed) {
-      SetBorder(views::Border::CreateEmptyBorder(2, 0, 2, 0));
+      button_->SetBorder(views::Border::CreateEmptyBorder(2, 0, 2, 0));
       return;
     }
 
     // Show an "edit" pencil icon when hovering over. In the default state,
     // we need to create an empty placeholder of the correct size, so that
     // the text doesn't jump around when the hovered icon appears.
-    gfx::ImageSkia hover_image =
-        *rb->GetImageSkiaNamed(IDR_ICON_PROFILES_EDIT_HOVER);
-    SetImage(STATE_NORMAL, CreateSquarePlaceholderImage(hover_image.width()));
-    SetImage(STATE_HOVERED, hover_image);
-    SetImage(STATE_PRESSED,
-             *rb->GetImageSkiaNamed(IDR_ICON_PROFILES_EDIT_PRESSED));
+    // TODO(estade): revisit colors and press effect.
+    const int kIconSize = 16;
+    button_->SetImage(views::LabelButton::STATE_NORMAL,
+                      CreateSquarePlaceholderImage(kIconSize));
+    button_->SetImage(views::LabelButton::STATE_HOVERED,
+                      gfx::CreateVectorIcon(
+                          gfx::VectorIconId::MODE_EDIT, kIconSize,
+                          SkColorSetRGB(0x33, 0x33, 0x33)));
+    button_->SetImage(views::LabelButton::STATE_PRESSED,
+                      gfx::CreateVectorIcon(
+                          gfx::VectorIconId::MODE_EDIT, kIconSize,
+                          SkColorSetRGB(0x20, 0x20, 0x20)));
     // To center the text, we need to offest it by the width of the icon we
     // are adding and its padding. We need to also add a small top/bottom
     // padding to account for the textfield's border.
     const int kIconTextLabelButtonSpacing = 5;
-    SetBorder(views::Border::CreateEmptyBorder(
-        2, hover_image.width() + kIconTextLabelButtonSpacing, 2, 0));
+    button_->SetBorder(views::Border::CreateEmptyBorder(
+        2, kIconSize + kIconTextLabelButtonSpacing, 2, 0));
 
     // Textfield that overlaps the button.
-    profile_name_textfield_ = new views::Textfield();
     profile_name_textfield_->set_controller(controller);
     profile_name_textfield_->SetFontList(medium_font_list);
     profile_name_textfield_->SetHorizontalAlignment(gfx::ALIGN_CENTER);
-
     profile_name_textfield_->SetVisible(false);
+
+    SetLayoutManager(
+        new views::BoxLayout(views::BoxLayout::kVertical, 0, 0, 0));
+    AddChildView(button_);
     AddChildView(profile_name_textfield_);
   }
 
@@ -342,19 +435,20 @@ class EditableProfileName : public RightAlignedIconLabelButton,
 
   // Hide the editable textfield to show the profile name button instead.
   void ShowReadOnlyView() {
-    if (profile_name_textfield_)
-      profile_name_textfield_->SetVisible(false);
+    button_->SetVisible(true);
+    profile_name_textfield_->SetVisible(false);
   }
 
  private:
   // views::ButtonListener:
   void ButtonPressed(views::Button* sender, const ui::Event& event) override {
-    if (profile_name_textfield_) {
-      profile_name_textfield_->SetVisible(true);
-      profile_name_textfield_->SetText(GetText());
-      profile_name_textfield_->SelectAll(false);
-      profile_name_textfield_->RequestFocus();
-    }
+    button_->SetVisible(false);
+    profile_name_textfield_->SetVisible(true);
+    profile_name_textfield_->SetText(button_->GetText());
+    profile_name_textfield_->SelectAll(false);
+    profile_name_textfield_->RequestFocus();
+    // Re-layouts the view after swaping the controls.
+    Layout();
   }
 
   // views::LabelButton:
@@ -365,21 +459,7 @@ class EditableProfileName : public RightAlignedIconLabelButton,
     return false;
   }
 
-  void Layout() override {
-    if (profile_name_textfield_)
-      profile_name_textfield_->SetBounds(0, 0, width(), height());
-    RightAlignedIconLabelButton::Layout();
-  }
-
-  void OnFocus() override {
-    RightAlignedIconLabelButton::OnFocus();
-    SetState(STATE_HOVERED);
-  }
-
-  void OnBlur() override {
-    RightAlignedIconLabelButton::OnBlur();
-    SetState(STATE_NORMAL);
-  }
+  RightAlignedIconLabelButton* button_;
 
   // Textfield that is shown when editing the profile name. Can be NULL if
   // the profile name isn't allowed to be edited (e.g. for guest profiles).
@@ -393,23 +473,12 @@ class TitleCard : public views::View {
  public:
   TitleCard(const base::string16& message, views::ButtonListener* listener,
             views::ImageButton** back_button) {
-    back_button_ = new views::ImageButton(listener);
-    back_button_->SetImageAlignment(views::ImageButton::ALIGN_LEFT,
-                                    views::ImageButton::ALIGN_MIDDLE);
-    ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
-    back_button_->SetImage(views::ImageButton::STATE_NORMAL,
-                           rb->GetImageSkiaNamed(IDR_BACK));
-    back_button_->SetImage(views::ImageButton::STATE_HOVERED,
-                           rb->GetImageSkiaNamed(IDR_BACK_H));
-    back_button_->SetImage(views::ImageButton::STATE_PRESSED,
-                           rb->GetImageSkiaNamed(IDR_BACK_P));
-    back_button_->SetImage(views::ImageButton::STATE_DISABLED,
-                           rb->GetImageSkiaNamed(IDR_BACK_D));
-    back_button_->SetFocusable(true);
+    back_button_ = CreateBackButton(listener);
     *back_button = back_button_;
 
     title_label_ = new views::Label(message);
     title_label_->SetHorizontalAlignment(gfx::ALIGN_CENTER);
+    ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
     const gfx::FontList& medium_font_list =
         rb->GetFontList(ui::ResourceBundle::MediumFont);
     title_label_->SetFontList(medium_font_list);
@@ -471,6 +540,57 @@ class TitleCard : public views::View {
 
   DISALLOW_COPY_AND_ASSIGN(TitleCard);
 };
+
+// ProfileBadge --------------------------------------------------------
+
+const size_t kProfileBadgeSize = 30;
+const size_t kProfileBadgeWhitePadding = 2;
+
+// Draws a white circle, then a light blue circle, then a dark blue icon.
+class ProfileBadge : public gfx::CanvasImageSource {
+ public:
+  ProfileBadge(gfx::VectorIconId id, size_t icon_size)
+      : CanvasImageSource(gfx::Size(kProfileBadgeSize, kProfileBadgeSize),
+                          false),
+        id_(id),
+        icon_size_(icon_size) {}
+
+  ~ProfileBadge() override {}
+
+  // CanvasImageSource:
+  void Draw(gfx::Canvas* canvas) override {
+    const SkISize size = canvas->sk_canvas()->getDeviceSize();
+    gfx::Rect bounds(0, 0, size.width(), size.height());
+
+    SkPaint paint;
+    paint.setAntiAlias(true);
+    paint.setColor(SK_ColorWHITE);
+    canvas->DrawCircle(bounds.CenterPoint(), size.width() / 2, paint);
+
+    paint.setColor(SkColorSetRGB(0xAF, 0xD9, 0xFC));
+    canvas->DrawCircle(bounds.CenterPoint(),
+                       size.width() / 2 - kProfileBadgeWhitePadding, paint);
+
+    int offset = (kProfileBadgeSize - icon_size_) / 2;
+    canvas->Translate(gfx::Vector2d(offset, offset));
+    gfx::PaintVectorIcon(canvas, id_, icon_size_, SkColorSetRGB(0, 0x66, 0xff));
+  }
+
+ private:
+  const gfx::VectorIconId id_;
+  const size_t icon_size_;
+
+  DISALLOW_COPY_AND_ASSIGN(ProfileBadge);
+};
+
+gfx::ImageSkia CreateBadgeForProfile(Profile* profile) {
+  ProfileBadge* badge =
+      profile->IsChild()
+          ? new ProfileBadge(gfx::VectorIconId::ACCOUNT_CHILD_INVERT, 26)
+          : new ProfileBadge(gfx::VectorIconId::SUPERVISOR_ACCOUNT, 20);
+
+  return gfx::ImageSkia(badge, badge->size());
+}
 
 // ProfileChooserView ---------------------------------------------------------
 
@@ -659,16 +779,19 @@ void ProfileChooserView::ShowView(profiles::BubbleViewMode view_to_display,
   RemoveAllChildViews(true);
   view_mode_ = view_to_display;
 
-  views::GridLayout* layout;
-  views::View* sub_view;
+  views::GridLayout* layout = nullptr;
+  views::View* sub_view = nullptr;
   views::View* view_to_focus = nullptr;
   switch (view_mode_) {
     case profiles::BUBBLE_VIEW_MODE_GAIA_SIGNIN:
     case profiles::BUBBLE_VIEW_MODE_GAIA_ADD_ACCOUNT:
-    case profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH:
-      layout = CreateSingleColumnLayout(this, kFixedGaiaViewWidth);
+    case profiles::BUBBLE_VIEW_MODE_GAIA_REAUTH: {
+      const int width = switches::UsePasswordSeparatedSigninFlow()
+          ? kFixedGaiaViewWidth : kPasswordCombinedFixedGaiaViewWidth;
+      layout = CreateSingleColumnLayout(this, width);
       sub_view = CreateGaiaSigninView(&view_to_focus);
       break;
+    }
     case profiles::BUBBLE_VIEW_MODE_ACCOUNT_REMOVAL:
       layout = CreateSingleColumnLayout(this, kFixedAccountRemovalViewWidth);
       sub_view = CreateAccountRemovalView();
@@ -679,9 +802,12 @@ void ProfileChooserView::ShowView(profiles::BubbleViewMode view_to_display,
       ProfileMetrics::LogProfileNewAvatarMenuNotYou(
           ProfileMetrics::PROFILE_AVATAR_MENU_NOT_YOU_VIEW);
       break;
-    default:
+    case profiles::BUBBLE_VIEW_MODE_ACCOUNT_MANAGEMENT:
+    case profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER:
+    case profiles::BUBBLE_VIEW_MODE_FAST_PROFILE_CHOOSER:
       layout = CreateSingleColumnLayout(this, kFixedMenuWidth);
       sub_view = CreateProfileChooserView(avatar_menu);
+      break;
   }
   // Clears tutorial mode for all non-profile-chooser views.
   if (view_mode_ != profiles::BUBBLE_VIEW_MODE_PROFILE_CHOOSER)
@@ -714,6 +840,10 @@ bool ProfileChooserView::AcceleratorPressed(
   // Move the focus up or down.
   GetFocusManager()->AdvanceFocus(accelerator.key_code() != ui::VKEY_DOWN);
   return true;
+}
+
+views::View* ProfileChooserView::GetInitiallyFocusedView() {
+  return signin_current_profile_link_;
 }
 
 bool ProfileChooserView::HandleContextMenu(
@@ -1174,13 +1304,9 @@ views::View* ProfileChooserView::CreateCurrentProfileView(
       new SizedContainer(gfx::Size(column_width, kLargeImageSide));
   profile_icon_container->AddChildView(current_profile_photo_);
 
-  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
   if (browser_->profile()->IsSupervised()) {
     views::ImageView* supervised_icon = new views::ImageView();
-    int image_id = browser_->profile()->IsChild()
-        ? IDR_ICON_PROFILES_MENU_CHILD
-        : IDR_ICON_PROFILES_MENU_LEGACY_SUPERVISED;
-    supervised_icon->SetImage(rb->GetImageSkiaNamed(image_id));
+    supervised_icon->SetImage(CreateBadgeForProfile(browser_->profile()));
     gfx::Size preferred_size = supervised_icon->GetPreferredSize();
     gfx::Rect parent_bounds = current_profile_photo_->bounds();
     supervised_icon->SetBounds(
@@ -1223,19 +1349,22 @@ views::View* ProfileChooserView::CreateCurrentProfileView(
     } else {
       // Badge the email address if there's an authentication error.
       if (HasAuthError(browser_->profile())) {
-        const gfx::ImageSkia warning_image = *rb->GetImageNamed(
-            IDR_ICON_PROFILES_ACCOUNT_BUTTON_ERROR).ToImageSkia();
         auth_error_email_button_ =
             new RightAlignedIconLabelButton(this, avatar_item.username);
         auth_error_email_button_->SetElideBehavior(gfx::ELIDE_EMAIL);
         auth_error_email_button_->SetImage(
-            views::LabelButton::STATE_NORMAL, warning_image);
+            views::LabelButton::STATE_NORMAL,
+            gfx::CreateVectorIcon(gfx::VectorIconId::WARNING, 18,
+                                  gfx::kChromeIconGrey));
+
         auth_error_email_button_->SetTextColor(
             views::LabelButton::STATE_NORMAL,
-            views::Link::GetDefaultEnabledColor());
+            ui::NativeTheme::instance()->GetSystemColor(
+                ui::NativeTheme::kColorId_LinkEnabled));
         auth_error_email_button_->SetFocusable(true);
-        gfx::Insets insets = views::LabelButtonBorder::GetDefaultInsetsForStyle(
-            views::Button::STYLE_TEXTBUTTON);
+        gfx::Insets insets =
+            views::LabelButtonAssetBorder::GetDefaultInsetsForStyle(
+                views::Button::STYLE_TEXTBUTTON);
         auth_error_email_button_->SetBorder(views::Border::CreateEmptyBorder(
             insets.top(), insets.left(), insets.bottom(), insets.right()));
         layout->AddView(auth_error_email_button_);
@@ -1328,11 +1457,10 @@ views::View* ProfileChooserView::CreateOptionsView(bool display_lock) {
   base::string16 text = browser_->profile()->IsGuestSession() ?
       l10n_util::GetStringUTF16(IDS_PROFILES_EXIT_GUEST) :
       l10n_util::GetStringUTF16(IDS_PROFILES_SWITCH_USERS_BUTTON);
-  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
+  const int kIconSize = 16;
   users_button_ = new BackgroundColorHoverButton(
-      this,
-      text,
-      *rb->GetImageSkiaNamed(IDR_ICON_PROFILES_MENU_AVATAR));
+      this, text, gfx::CreateVectorIcon(gfx::VectorIconId::ACCOUNT_BOX,
+                                        kIconSize, gfx::kChromeIconGrey));
   layout->StartRow(1, 0);
   layout->AddView(users_button_);
 
@@ -1340,6 +1468,7 @@ views::View* ProfileChooserView::CreateOptionsView(bool display_lock) {
     layout->StartRow(1, 0);
     layout->AddView(new views::Separator(views::Separator::HORIZONTAL));
 
+    ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
     go_incognito_button_ = new BackgroundColorHoverButton(
         this,
         l10n_util::GetStringUTF16(IDS_PROFILES_GO_INCOGNITO_BUTTON),
@@ -1353,9 +1482,9 @@ views::View* ProfileChooserView::CreateOptionsView(bool display_lock) {
     layout->AddView(new views::Separator(views::Separator::HORIZONTAL));
 
     lock_button_ = new BackgroundColorHoverButton(
-        this,
-        l10n_util::GetStringUTF16(IDS_PROFILES_PROFILE_SIGNOUT_BUTTON),
-        *rb->GetImageSkiaNamed(IDR_ICON_PROFILES_MENU_LOCK));
+        this, l10n_util::GetStringUTF16(IDS_PROFILES_PROFILE_SIGNOUT_BUTTON),
+        gfx::CreateVectorIcon(gfx::VectorIconId::LOCK, kIconSize,
+                              gfx::kChromeIconGrey));
     layout->StartRow(1, 0);
     layout->AddView(lock_button_);
   }
@@ -1437,13 +1566,16 @@ void ProfileChooserView::CreateAccountButton(views::GridLayout* layout,
   const gfx::ImageSkia* delete_default_image =
       rb->GetImageNamed(IDR_CLOSE_1).ToImageSkia();
   const int kDeleteButtonWidth = delete_default_image->width();
-  const gfx::ImageSkia warning_default_image = reauth_required ?
-      *rb->GetImageNamed(IDR_ICON_PROFILES_ACCOUNT_BUTTON_ERROR).ToImageSkia() :
-      gfx::ImageSkia();
-  const int kWarningButtonWidth = reauth_required ?
-      warning_default_image.width() + views::kRelatedButtonHSpacing : 0;
-  int available_width = width - 2 * views::kButtonHEdgeMarginNew
-      - kDeleteButtonWidth - kWarningButtonWidth;
+  gfx::ImageSkia warning_default_image;
+  int warning_button_width = 0;
+  if (reauth_required) {
+    const int kIconSize = 18;
+    warning_default_image = gfx::CreateVectorIcon(
+        gfx::VectorIconId::WARNING, kIconSize, gfx::kChromeIconGrey);
+    warning_button_width = kIconSize + views::kRelatedButtonHSpacing;
+  }
+  int available_width = width - 2 * views::kButtonHEdgeMarginNew -
+                        kDeleteButtonWidth - warning_button_width;
   views::LabelButton* email_button = new BackgroundColorHoverButton(
       reauth_required ? this : NULL,
       base::UTF8ToUTF16(email),
@@ -1511,24 +1643,36 @@ views::View* ProfileChooserView::CreateGaiaSigninView(
       return NULL;
   }
 
-  // Adds Gaia signin webview
+  // Adds Gaia signin webview.
+  const gfx::Size pref_size = switches::UsePasswordSeparatedSigninFlow()
+      ? gfx::Size(kFixedGaiaViewWidth, kFixedGaiaViewHeight)
+      : gfx::Size(kPasswordCombinedFixedGaiaViewWidth,
+                  kPasswordCombinedFixedGaiaViewHeight);
   Profile* profile = browser_->profile();
   views::WebView* web_view = new views::WebView(profile);
   web_view->LoadInitialURL(url);
   web_view->GetWebContents()->SetDelegate(this);
-  web_view->SetPreferredSize(
-      gfx::Size(kFixedGaiaViewWidth, kFixedGaiaViewHeight));
+  web_view->SetPreferredSize(pref_size);
   content::RenderWidgetHostView* rwhv =
       web_view->GetWebContents()->GetRenderWidgetHostView();
   if (rwhv)
     rwhv->SetBackgroundColor(profiles::kAvatarBubbleGaiaBackgroundColor);
+
+  if (signin_content_view)
+    *signin_content_view = web_view;
+
+  if (switches::UsePasswordSeparatedSigninFlow()) {
+    gaia_signin_cancel_button_ = CreateBackButton(this);
+    HostView* host = new HostView();
+    host->Initialize(gaia_signin_cancel_button_, web_view);
+    return host;
+  }
+
   TitleCard* title_card = new TitleCard(l10n_util::GetStringUTF16(message_id),
                                         this,
                                         &gaia_signin_cancel_button_);
-  if (signin_content_view)
-    *signin_content_view = web_view;
   return TitleCard::AddPaddedTitleCard(
-      web_view, title_card, kFixedGaiaViewWidth);
+      web_view, title_card, kPasswordCombinedFixedGaiaViewWidth);
 }
 
 views::View* ProfileChooserView::CreateAccountRemovalView() {
@@ -1696,10 +1840,11 @@ views::View* ProfileChooserView::CreateSwitchUserView() {
   layout->StartRowWithPadding(1, 0, 0, views::kUnrelatedControlVerticalSpacing);
   layout->AddView(new views::Separator(views::Separator::HORIZONTAL));
 
+  const int kIconSize = 24;
   add_person_button_ = new BackgroundColorHoverButton(
-      this,
-      l10n_util::GetStringUTF16(IDS_PROFILES_ADD_PERSON_BUTTON),
-      *rb->GetImageSkiaNamed(IDR_ICON_PROFILES_MENU_AVATAR));
+      this, l10n_util::GetStringUTF16(IDS_PROFILES_ADD_PERSON_BUTTON),
+      gfx::CreateVectorIcon(gfx::VectorIconId::ACCOUNT_BOX, kIconSize,
+                            gfx::kChromeIconGrey));
   layout->StartRow(1, 0);
   layout->AddView(add_person_button_);
 
@@ -1708,9 +1853,9 @@ views::View* ProfileChooserView::CreateSwitchUserView() {
   layout->AddView(new views::Separator(views::Separator::HORIZONTAL));
 
   disconnect_button_ = new BackgroundColorHoverButton(
-      this,
-      l10n_util::GetStringUTF16(IDS_PROFILES_DISCONNECT_BUTTON),
-      *rb->GetImageSkiaNamed(IDR_ICON_PROFILES_MENU_DISCONNECT));
+      this, l10n_util::GetStringUTF16(IDS_PROFILES_DISCONNECT_BUTTON),
+      gfx::CreateVectorIcon(gfx::VectorIconId::REMOVE_BOX, kIconSize,
+                            gfx::kChromeIconGrey));
   layout->StartRow(1, 0);
   layout->AddView(disconnect_button_);
 

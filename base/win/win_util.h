@@ -61,20 +61,6 @@ BASE_EXPORT void GetNonClientMetrics(NONCLIENTMETRICS_XP* metrics);
 // Returns the string representing the current user sid.
 BASE_EXPORT bool GetUserSidString(std::wstring* user_sid);
 
-// Returns true if the shift key is currently pressed.
-BASE_EXPORT bool IsShiftPressed();
-
-// Returns true if the ctrl key is currently pressed.
-BASE_EXPORT bool IsCtrlPressed();
-
-// Returns true if the alt key is currently pressed.
-BASE_EXPORT bool IsAltPressed();
-
-// Returns true if the altgr key is currently pressed.
-// Windows does not have specific key code and modifier bit and Alt+Ctrl key is
-// used as AltGr key in Windows.
-BASE_EXPORT bool IsAltGrPressed();
-
 // Returns false if user account control (UAC) has been disabled with the
 // EnableLUA registry flag. Returns true if user account control is enabled.
 // NOTE: The EnableLUA registry flag, which is ignored on Windows XP
@@ -165,6 +151,13 @@ BASE_EXPORT void SetDomainStateForTesting(bool state);
 // may be re-implemented in the future to return a reliable value, based on
 // run-time detection of this capability.
 BASE_EXPORT bool MaybeHasSHA256Support();
+
+// Returns true if the current process can make USER32 or GDI32 calls such as
+// CreateWindow and CreateDC. Windows 8 and above allow the kernel component
+// of these calls to be disabled which can cause undefined behaviour such as
+// crashes. This function can be used to guard areas of code using these calls
+// and provide a fallback path if necessary.
+BASE_EXPORT bool IsUser32AndGdi32Available();
 
 }  // namespace win
 }  // namespace base

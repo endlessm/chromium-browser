@@ -17,6 +17,10 @@
 
 #include <mach/mach.h>
 
+#include <string>
+
+#include "base/mac/scoped_mach_port.h"
+
 namespace crashpad {
 
 //! \brief `MACH_PORT_NULL` with the correct type for a Mach port,
@@ -94,10 +98,63 @@ mach_port_t NewMachPort(mach_port_right_t right);
 //! recognize. Calling this function will return a value for `EXC_MASK_ALL`
 //! appropriate for the system at run time.
 //!
-//! \note `EXC_MASK_ALL` does not include the value of `EXC_MASK_CRASH`.
-//!     Consumers that want `EXC_MASK_ALL` along with `EXC_MASK_CRASH` must use
-//!     ExcMaskAll() | `EXC_MASK_CRASH` explicitly.
+//! \note `EXC_MASK_ALL` does not include the value of `EXC_MASK_CRASH` or
+//!     `EXC_MASK_CORPSE_NOTIFY`. Consumers that want `EXC_MASK_ALL` along with
+//!     `EXC_MASK_CRASH` may use ExcMaskAll() `| EXC_MASK_CRASH`. Consumers may
+//!     use ExcMaskValid() for `EXC_MASK_ALL` along with `EXC_MASK_CRASH`,
+//!     `EXC_MASK_CORPSE_NOTIFY`, and any values that come into existence in the
+//!     future.
 exception_mask_t ExcMaskAll();
+
+//! \brief An exception mask containing every possible exception understood by
+//!     the operating system at run time.
+//!
+//! `EXC_MASK_ALL`, and thus ExcMaskAll(), never includes the value of
+//! `EXC_MASK_CRASH` or `EXC_MASK_CORPSE_NOTIFY`. For situations where an
+//! exception mask corresponding to every possible exception understood by the
+//! running kernel is desired, use this function instead.
+//!
+//! Should new exception types be introduced in the future, this function will
+//! be updated to include their bits in the returned mask value when run time
+//! support is present.
+exception_mask_t ExcMaskValid();
+
+//! \brief Makes a `boostrap_check_in()` call to the process’ bootstrap server.
+//!
+//! This function is provided to make it easier to call `bootstrap_check_in()`
+//! while avoiding accidental leaks of the returned receive right.
+//!
+//! \param[in] service_name The service name to check in.
+//!
+//! \return On success, a receive right to the service port. On failure,
+//!     `MACH_PORT_NULL` with a message logged.
+base::mac::ScopedMachReceiveRight BootstrapCheckIn(
+    const std::string& service_name);
+
+//! \brief Makes a `boostrap_look_up()` call to the process’ bootstrap server.
+//!
+//! This function is provided to make it easier to call `bootstrap_look_up()`
+//! while avoiding accidental leaks of the returned send right.
+//!
+//! \param[in] service_name The service name to look up.
+//!
+//! \return On success, a send right to the service port. On failure,
+//!     `MACH_PORT_NULL` with a message logged.
+base::mac::ScopedMachSendRight BootstrapLookUp(const std::string& service_name);
+
+//! \brief Obtains the system’s default Mach exception handler for crash-type
+//!     exceptions.
+//!
+//! This is obtained by looking up `"com.apple.ReportCrash"` with the bootstrap
+//! server. The service name comes from the first launch agent loaded by
+//! `launchd` with a `MachServices` entry having `ExceptionServer` set. This
+//! launch agent is normally loaded from
+//! `/System/Library/LaunchAgents/com.apple.ReportCrash.plist`.
+//!
+//! \return On success, a send right to an `exception_handler_t` corresponding
+//!     to the system’s default crash reporter. On failure, `MACH_PORT_NULL`,
+//!     with a message logged.
+base::mac::ScopedMachSendRight SystemCrashReporterHandler();
 
 }  // namespace crashpad
 

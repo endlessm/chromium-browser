@@ -209,6 +209,9 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   // and dispatched to that host instead.
   void DispatchTouchEvent(ui::TouchEvent* event);
 
+  // Dispatches a key event.
+  void DispatchKeyEvent(ui::KeyEvent* event);
+
   // Updates the location of |located_event| to be in |host|'s coordinate system
   // so that it can be dispatched to |host|.
   void ConvertEventToDifferentHost(ui::LocatedEvent* located_event,
@@ -343,6 +346,8 @@ class VIEWS_EXPORT DesktopWindowTreeHostX11
   // attention to the window or completely ignore the hint. We stop flashing
   // the frame when |xwindow_| gains focus or handles a mouse button event.
   bool urgency_hint_set_;
+
+  bool activatable_;
 
   base::CancelableCallback<void()> delayed_resize_task_;
 

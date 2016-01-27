@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
   ui::RegisterPathProvider();
 
   base::FilePath ui_test_pak_path;
-  DCHECK(PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
+  CHECK(PathService::Get(ui::UI_TEST_PAK, &ui_test_pak_path));
   ui::ResourceBundle::InitSharedInstanceWithPakPath(ui_test_pak_path);
 
   base::PowerMonitor power_monitor(make_scoped_ptr(
@@ -97,9 +97,8 @@ int main(int argc, char** argv) {
 #endif
 
     views::examples::ShowExamplesWindow(
-        views::examples::QUIT_ON_CLOSE,
-        NULL,
-        scoped_ptr<ScopedVector<views::examples::ExampleBase> >());
+        views::examples::QUIT_ON_CLOSE, nullptr,
+        scoped_ptr<ScopedVector<views::examples::ExampleBase>>());
 
     base::RunLoop().Run();
 

@@ -12,10 +12,10 @@
 
 #include "base/files/file.h"
 #include "base/memory/scoped_ptr.h"
-#include "chrome/browser/chromeos/drive/file_errors.h"
-#include "chrome/browser/chromeos/drive/file_system_interface.h"
 #include "chrome/browser/chromeos/extensions/file_manager/private_api_base.h"
 #include "chrome/browser/chromeos/file_manager/fileapi_util.h"
+#include "components/drive/file_errors.h"
+#include "components/drive/file_system_interface.h"
 
 namespace drive {
 class FileCacheEntry;
@@ -65,14 +65,14 @@ class FileManagerPrivateInternalGetEntryPropertiesFunction
 };
 
 // Implements the chrome.fileManagerPrivate.pinDriveFile method.
-class FileManagerPrivatePinDriveFileFunction
+class FileManagerPrivateInternalPinDriveFileFunction
     : public LoggedAsyncExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.pinDriveFile",
-                             FILEMANAGERPRIVATE_PINDRIVEFILE)
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivateInternal.pinDriveFile",
+                             FILEMANAGERPRIVATEINTERNAL_PINDRIVEFILE)
 
  protected:
-  ~FileManagerPrivatePinDriveFileFunction() override {}
+  ~FileManagerPrivateInternalPinDriveFileFunction() override {}
 
   // AsyncExtensionFunction overrides.
   bool RunAsync() override;
@@ -83,14 +83,28 @@ class FileManagerPrivatePinDriveFileFunction
 };
 
 // Implements the chrome.fileManagerPrivate.cancelFileTransfers method.
-class FileManagerPrivateCancelFileTransfersFunction
+class FileManagerPrivateInternalCancelFileTransfersFunction
     : public LoggedAsyncExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.cancelFileTransfers",
-                             FILEMANAGERPRIVATE_CANCELFILETRANSFERS)
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivateInternal.cancelFileTransfers",
+                             FILEMANAGERPRIVATEINTERNAL_CANCELFILETRANSFERS)
 
  protected:
-  ~FileManagerPrivateCancelFileTransfersFunction() override {}
+  ~FileManagerPrivateInternalCancelFileTransfersFunction() override {}
+
+  // AsyncExtensionFunction overrides.
+  bool RunAsync() override;
+};
+
+// Implements the chrome.fileManagerPrivate.cancelAllFileTransfers method.
+class FileManagerPrivateCancelAllFileTransfersFunction
+    : public LoggedAsyncExtensionFunction {
+ public:
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.cancelAllFileTransfers",
+                             FILEMANAGERPRIVATE_CANCELALLFILETRANSFERS)
+
+ protected:
+  ~FileManagerPrivateCancelAllFileTransfersFunction() override {}
 
   // AsyncExtensionFunction overrides.
   bool RunAsync() override;
@@ -183,14 +197,14 @@ class FileManagerPrivateRequestAccessTokenFunction
 };
 
 // Implements the chrome.fileManagerPrivate.getShareUrl method.
-class FileManagerPrivateGetShareUrlFunction
+class FileManagerPrivateInternalGetShareUrlFunction
     : public LoggedAsyncExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.getShareUrl",
-                             FILEMANAGERPRIVATE_GETSHAREURL)
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivateInternal.getShareUrl",
+                             FILEMANAGERPRIVATEINTERNAL_GETSHAREURL)
 
  protected:
-  ~FileManagerPrivateGetShareUrlFunction() override {}
+  ~FileManagerPrivateInternalGetShareUrlFunction() override {}
 
   // AsyncExtensionFunction overrides.
   bool RunAsync() override;
@@ -201,14 +215,14 @@ class FileManagerPrivateGetShareUrlFunction
 };
 
 // Implements the chrome.fileManagerPrivate.requestDriveShare method.
-class FileManagerPrivateRequestDriveShareFunction
+class FileManagerPrivateInternalRequestDriveShareFunction
     : public LoggedAsyncExtensionFunction {
  public:
-  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.requestDriveShare",
-                             FILEMANAGERPRIVATE_REQUESTDRIVESHARE);
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivateInternal.requestDriveShare",
+                             FILEMANAGERPRIVATEINTERNAL_REQUESTDRIVESHARE);
 
  protected:
-  ~FileManagerPrivateRequestDriveShareFunction() override {}
+  ~FileManagerPrivateInternalRequestDriveShareFunction() override {}
   bool RunAsync() override;
 
  private:
@@ -217,16 +231,16 @@ class FileManagerPrivateRequestDriveShareFunction
 };
 
 // Implements the chrome.fileManagerPrivate.getDownloadUrl method.
-class FileManagerPrivateGetDownloadUrlFunction
+class FileManagerPrivateInternalGetDownloadUrlFunction
     : public LoggedAsyncExtensionFunction {
  public:
-  FileManagerPrivateGetDownloadUrlFunction();
+  FileManagerPrivateInternalGetDownloadUrlFunction();
 
-  DECLARE_EXTENSION_FUNCTION("fileManagerPrivate.getDownloadUrl",
-                             FILEMANAGERPRIVATE_GETDOWNLOADURL)
+  DECLARE_EXTENSION_FUNCTION("fileManagerPrivateInternal.getDownloadUrl",
+                             FILEMANAGERPRIVATEINTERNAL_GETDOWNLOADURL)
 
  protected:
-  ~FileManagerPrivateGetDownloadUrlFunction() override;
+  ~FileManagerPrivateInternalGetDownloadUrlFunction() override;
 
   // AsyncExtensionFunction overrides.
   bool RunAsync() override;

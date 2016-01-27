@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/types.h>
 #include <time.h>
 
@@ -28,7 +29,6 @@
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/numerics/safe_conversions.h"
-#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "client/crash_report_database.h"
@@ -46,6 +46,7 @@ void Usage(const base::FilePath& me) {
 "Usage: %" PRFilePath " [OPTION]... PID\n"
 "Operate on Crashpad crash report databases.\n"
 "\n"
+"      --create                    allow database at PATH to be created\n"
 "  -d, --database=PATH             operate on the crash report database at PATH\n"
 "      --show-client-id            show the client ID\n"
 "      --show-uploads-enabled      show whether uploads are enabled\n"
@@ -58,7 +59,7 @@ void Usage(const base::FilePath& me) {
 "      --set-uploads-enabled=BOOL  enable or disable uploads\n"
 "      --set-last-upload-attempt-time=TIME\n"
 "                                  set the last-upload-attempt time to TIME\n"
-"      --new-report=PATH           submit a new report at PATH\n"
+"      --new-report=PATH           submit a new report at PATH, or - for stdin\n"
 "      --utc                       show and set UTC times instead of local\n"
 "      --help                      display this help and exit\n"
 "      --version                   output version information and exit\n",
@@ -72,6 +73,7 @@ struct Options {
   const char* database;
   const char* set_last_upload_attempt_time_string;
   time_t set_last_upload_attempt_time;
+  bool create;
   bool show_client_id;
   bool show_uploads_enabled;
   bool show_last_upload_attempt_time;
@@ -106,14 +108,14 @@ bool StringToBool(const char* string, bool* boolean) {
   };
 
   for (size_t index = 0; index < arraysize(kFalseWords); ++index) {
-    if (base::strcasecmp(string, kFalseWords[index]) == 0) {
+    if (strcasecmp(string, kFalseWords[index]) == 0) {
       *boolean = false;
       return true;
     }
   }
 
   for (size_t index = 0; index < arraysize(kTrueWords); ++index) {
-    if (base::strcasecmp(string, kTrueWords[index]) == 0) {
+    if (strcasecmp(string, kTrueWords[index]) == 0) {
       *boolean = true;
       return true;
     }
@@ -135,7 +137,7 @@ std::string BoolToString(bool boolean) {
 // when true, causes |string| to be interpreted as a UTC time rather than a
 // local time when the time zone is ambiguous.
 bool StringToTime(const char* string, time_t* time, bool utc) {
-  if (base::strcasecmp(string, "never") == 0) {
+  if (strcasecmp(string, "never") == 0) {
     *time = 0;
     return true;
   }
@@ -253,6 +255,7 @@ int DatabaseUtilMain(int argc, char* argv[]) {
 
     // Long options without short equivalents.
     kOptionLastChar = 255,
+    kOptionCreate,
     kOptionShowClientID,
     kOptionShowUploadsEnabled,
     kOptionShowLastUploadAttemptTime,
@@ -271,6 +274,7 @@ int DatabaseUtilMain(int argc, char* argv[]) {
   };
 
   const option long_options[] = {
+      {"create", no_argument, nullptr, kOptionCreate},
       {"database", required_argument, nullptr, kOptionDatabase},
       {"show-client-id", no_argument, nullptr, kOptionShowClientID},
       {"show-uploads-enabled", no_argument, nullptr, kOptionShowUploadsEnabled},
@@ -305,6 +309,10 @@ int DatabaseUtilMain(int argc, char* argv[]) {
   int opt;
   while ((opt = getopt_long(argc, argv, "d:", long_options, nullptr)) != -1) {
     switch (opt) {
+      case kOptionCreate: {
+        options.create = true;
+        break;
+      }
       case kOptionDatabase: {
         options.database = optarg;
         break;
@@ -410,14 +418,19 @@ int DatabaseUtilMain(int argc, char* argv[]) {
       options.has_set_uploads_enabled +
       (options.set_last_upload_attempt_time_string != nullptr);
 
-  if (show_operations + set_operations == 0) {
+  if ((options.create ? 1 : 0) + show_operations + set_operations == 0) {
     ToolSupport::UsageHint(me, "nothing to do");
     return EXIT_FAILURE;
   }
 
-  scoped_ptr<CrashReportDatabase> database(CrashReportDatabase::Initialize(
-      base::FilePath(ToolSupport::CommandLineArgumentToFilePathStringType(
-          options.database))));
+  scoped_ptr<CrashReportDatabase> database;
+  base::FilePath database_path = base::FilePath(
+      ToolSupport::CommandLineArgumentToFilePathStringType(options.database));
+  if (options.create) {
+    database = CrashReportDatabase::Initialize(database_path);
+  } else {
+    database = CrashReportDatabase::InitializeWithoutCreating(database_path);
+  }
   if (!database) {
     return EXIT_FAILURE;
   }
@@ -527,9 +540,19 @@ int DatabaseUtilMain(int argc, char* argv[]) {
   }
 
   for (const base::FilePath new_report_path : options.new_report_paths) {
-    FileReader file_reader;
-    if (!file_reader.Open(new_report_path)) {
-      return EXIT_FAILURE;
+    scoped_ptr<FileReaderInterface> file_reader;
+
+    bool is_stdin = false;
+    if (new_report_path.value() == FILE_PATH_LITERAL("-")) {
+      is_stdin = true;
+      file_reader.reset(new WeakStdioFileReader(stdin));
+    } else {
+      scoped_ptr<FileReader> file_path_reader(new FileReader());
+      if (!file_path_reader->Open(new_report_path)) {
+        return EXIT_FAILURE;
+      }
+
+      file_reader = file_path_reader.Pass();
     }
 
     CrashReportDatabase::NewReport* new_report;
@@ -543,15 +566,17 @@ int DatabaseUtilMain(int argc, char* argv[]) {
         call_error_writing_crash_report(database.get(), new_report);
 
     char buf[4096];
-    ssize_t read_result;
-    while ((read_result = file_reader.Read(buf, sizeof(buf))) > 0) {
-      if (!LoggingWriteFile(new_report->handle, buf, read_result)) {
+    FileOperationResult read_result;
+    do {
+      read_result = file_reader->Read(buf, sizeof(buf));
+      if (read_result < 0) {
         return EXIT_FAILURE;
       }
-    }
-    if (read_result < 0) {
-      return EXIT_FAILURE;
-    }
+      if (read_result > 0 &&
+          !LoggingWriteFile(new_report->handle, buf, read_result)) {
+        return EXIT_FAILURE;
+      }
+    } while (read_result == sizeof(buf));
 
     call_error_writing_crash_report.Disarm();
 
@@ -559,6 +584,13 @@ int DatabaseUtilMain(int argc, char* argv[]) {
     status = database->FinishedWritingCrashReport(new_report, &uuid);
     if (status != CrashReportDatabase::kNoError) {
       return EXIT_FAILURE;
+    }
+
+    file_reader.reset();
+    if (is_stdin) {
+      if (fclose(stdin) == EOF) {
+        STDIO_PLOG(ERROR) << "fclose";
+      }
     }
 
     const char* prefix = (show_operations > 1) ? "New report ID: " : "";

@@ -8,6 +8,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/net/url_request_mock_util.h"
 #include "chrome/browser/plugins/chrome_plugin_service_filter.h"
@@ -16,7 +17,6 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/render_messages.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/test_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -192,8 +192,7 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest,
                        PRE_AllowCookiesForASessionUsingExceptions) {
   // NOTE: don't use test_server here, since we need the port to be the same
   // across the restart.
-  GURL url = URLRequestMockHTTPJob::GetMockUrl(
-      base::FilePath(FILE_PATH_LITERAL("setcookie.html")));
+  GURL url = URLRequestMockHTTPJob::GetMockUrl("setcookie.html");
   content_settings::CookieSettings* settings =
       CookieSettingsFactory::GetForProfile(browser()->profile()).get();
   settings->SetDefaultCookieSetting(CONTENT_SETTING_BLOCK);
@@ -210,8 +209,7 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest,
 
 IN_PROC_BROWSER_TEST_F(ContentSettingsTest,
                        AllowCookiesForASessionUsingExceptions) {
-  GURL url = URLRequestMockHTTPJob::GetMockUrl(
-      base::FilePath(FILE_PATH_LITERAL("setcookie.html")));
+  GURL url = URLRequestMockHTTPJob::GetMockUrl("setcookie.html");
   ASSERT_TRUE(GetCookies(browser()->profile(), url).empty());
 }
 
@@ -240,8 +238,9 @@ IN_PROC_BROWSER_TEST_F(ContentSettingsTest, RedirectLoopCookies) {
 IN_PROC_BROWSER_TEST_F(ContentSettingsTest, ContentSettingsBlockDataURLs) {
   GURL url("data:text/html,<title>Data URL</title><script>alert(1)</script>");
 
-  browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
-      CONTENT_SETTINGS_TYPE_JAVASCRIPT, CONTENT_SETTING_BLOCK);
+  HostContentSettingsMapFactory::GetForProfile(browser()->profile())
+      ->SetDefaultContentSetting(CONTENT_SETTINGS_TYPE_JAVASCRIPT,
+                                 CONTENT_SETTING_BLOCK);
 
   ui_test_utils::NavigateToURL(browser(), url);
 
@@ -432,8 +431,9 @@ class PepperContentSettingsSpecialCasesPluginsBlockedTest
  public:
   void SetUpOnMainThread() override {
     PepperContentSettingsSpecialCasesTest::SetUpOnMainThread();
-    browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
-        CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_BLOCK);
+    HostContentSettingsMapFactory::GetForProfile(browser()->profile())
+        ->SetDefaultContentSetting(CONTENT_SETTINGS_TYPE_PLUGINS,
+                                   CONTENT_SETTING_BLOCK);
   }
 };
 
@@ -442,10 +442,12 @@ class PepperContentSettingsSpecialCasesJavaScriptBlockedTest
  public:
   void SetUpOnMainThread() override {
     PepperContentSettingsSpecialCasesTest::SetUpOnMainThread();
-    browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
-        CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_ALLOW);
-    browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
-        CONTENT_SETTINGS_TYPE_JAVASCRIPT, CONTENT_SETTING_BLOCK);
+    HostContentSettingsMapFactory::GetForProfile(browser()->profile())
+        ->SetDefaultContentSetting(CONTENT_SETTINGS_TYPE_PLUGINS,
+                                   CONTENT_SETTING_ALLOW);
+    HostContentSettingsMapFactory::GetForProfile(browser()->profile())
+        ->SetDefaultContentSetting(CONTENT_SETTINGS_TYPE_JAVASCRIPT,
+                                   CONTENT_SETTING_BLOCK);
   }
 };
 
@@ -459,8 +461,9 @@ IN_PROC_BROWSER_TEST_F(PepperContentSettingsSpecialCasesTest, Baseline) {
           switches::kAshBrowserTests))
     return;
 #endif
-  browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
-      CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_ALLOW);
+  HostContentSettingsMapFactory::GetForProfile(browser()->profile())
+      ->SetDefaultContentSetting(CONTENT_SETTINGS_TYPE_PLUGINS,
+                                 CONTENT_SETTING_ALLOW);
 
   RunLoadPepperPluginTest(kExternalClearKeyMimeType, true);
 }
@@ -482,7 +485,7 @@ IN_PROC_BROWSER_TEST_F(PepperContentSettingsSpecialCasesPluginsBlockedTest,
   RunLoadPepperPluginTest(kExternalClearKeyMimeType, false);
 }
 
-#if defined(WIDEVINE_CDM_AVAILABLE)
+#if defined(WIDEVINE_CDM_AVAILABLE) && !defined(OS_CHROMEOS)
 IN_PROC_BROWSER_TEST_F(PepperContentSettingsSpecialCasesPluginsBlockedTest,
                        WidevineCdm) {
 #if defined(OS_WIN) && defined(USE_ASH)
@@ -493,7 +496,7 @@ IN_PROC_BROWSER_TEST_F(PepperContentSettingsSpecialCasesPluginsBlockedTest,
 #endif
   RunLoadPepperPluginTest(kWidevineCdmPluginMimeType, true);
 }
-#endif  // defined(WIDEVINE_CDM_AVAILABLE)
+#endif  // defined(WIDEVINE_CDM_AVAILABLE) && !defined(OS_CHROMEOS)
 #endif  // defined(ENABLE_PEPPER_CDMS)
 
 #if !defined(DISABLE_NACL)

@@ -29,18 +29,17 @@ const int kFakeIPv6NetworkPrefixLength = 64;
 class FakeNetworkManager : public NetworkManagerBase,
                            public MessageHandler {
  public:
-  FakeNetworkManager()
-      : thread_(Thread::Current()),
-        next_index_(0),
-        started_(false),
-        sent_first_update_(false) {
-  }
+  FakeNetworkManager() : thread_(Thread::Current()) {}
 
   typedef std::vector<SocketAddress> IfaceList;
 
   void AddInterface(const SocketAddress& iface) {
-    // ensure a unique name for the interface
-    SocketAddress address("test" + rtc::ToString(next_index_++), 0);
+    // Ensure a unique name for the interface if its name is not given.
+    AddInterface(iface, "test" + rtc::ToString(next_index_++));
+  }
+
+  void AddInterface(const SocketAddress& iface, const std::string& if_name) {
+    SocketAddress address(if_name, 0);
     address.SetResolvedIP(iface.ipaddr());
     ifaces_.push_back(address);
     DoUpdateNetworks();
@@ -58,29 +57,30 @@ class FakeNetworkManager : public NetworkManagerBase,
   }
 
   virtual void StartUpdating() {
-    if (started_) {
-      if (sent_first_update_)
+    ++start_count_;
+    if (start_count_ == 1) {
+      sent_first_update_ = false;
+      thread_->Post(this);
+    } else {
+      if (sent_first_update_) {
         SignalNetworksChanged();
-      return;
+      }
     }
-
-    started_ = true;
-    sent_first_update_ = false;
-    thread_->Post(this);
   }
 
-  virtual void StopUpdating() {
-    started_ = false;
-  }
+  virtual void StopUpdating() { --start_count_; }
 
   // MessageHandler interface.
   virtual void OnMessage(Message* msg) {
     DoUpdateNetworks();
   }
 
+  using NetworkManagerBase::set_enumeration_permission;
+  using NetworkManagerBase::set_default_local_addresses;
+
  private:
   void DoUpdateNetworks() {
-    if (!started_)
+    if (start_count_ == 0)
       return;
     std::vector<Network*> networks;
     for (IfaceList::iterator it = ifaces_.begin();
@@ -96,6 +96,7 @@ class FakeNetworkManager : public NetworkManagerBase,
                                           it->hostname(),
                                           prefix,
                                           prefix_length));
+      net->set_default_local_address_provider(this);
       net->AddIP(it->ipaddr());
       networks.push_back(net.release());
     }
@@ -109,9 +110,12 @@ class FakeNetworkManager : public NetworkManagerBase,
 
   Thread* thread_;
   IfaceList ifaces_;
-  int next_index_;
-  bool started_;
-  bool sent_first_update_;
+  int next_index_ = 0;
+  int start_count_ = 0;
+  bool sent_first_update_ = false;
+
+  IPAddress default_local_ipv4_address_;
+  IPAddress default_local_ipv6_address_;
 };
 
 }  // namespace rtc

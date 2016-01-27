@@ -26,18 +26,12 @@ X86_64_STRIP := $(shell $(NACL_CONFIG) -t $(TOOLCHAIN) -a x86_64 --tool=strip)
 X86_64_NM := $(shell $(NACL_CONFIG) -t $(TOOLCHAIN) -a x86_64 --tool=nm)
 endif
 
-ifneq (,$(findstring $(TOOLCHAIN),newlib bionic clang-newlib))
-ARM_SUPPORT=1
-endif
-
-ifeq ($(ARM_SUPPORT),1)
 ARM_CC := $(NACL_COMPILER_PREFIX) $(shell $(NACL_CONFIG) -t $(TOOLCHAIN) -a arm --tool=cc)
 ARM_CXX := $(NACL_COMPILER_PREFIX) $(shell $(NACL_CONFIG) -t $(TOOLCHAIN) -a arm --tool=c++)
 ARM_LINK := $(shell $(NACL_CONFIG) -t $(TOOLCHAIN) -a arm --tool=c++)
 ARM_LIB := $(shell $(NACL_CONFIG) -t $(TOOLCHAIN) -a arm --tool=ar)
 ARM_STRIP := $(shell $(NACL_CONFIG) -t $(TOOLCHAIN) -a arm --tool=strip)
 ARM_NM := $(shell $(NACL_CONFIG) -t $(TOOLCHAIN) -a arm --tool=nm)
-endif
 
 NCVAL ?= python $(NACL_SDK_ROOT)/tools/ncval.py
 
@@ -183,9 +177,7 @@ endef
 ifneq ($(TOOLCHAIN),bionic)
 VALID_ARCHES := x86_32 x86_64
 endif
-ifeq ($(ARM_SUPPORT),1)
 VALID_ARCHES += arm
-endif
 
 ifdef NACL_ARCH
 ifeq (,$(findstring $(NACL_ARCH),$(VALID_ARCHES)))
@@ -323,7 +315,6 @@ $(LIBDIR)/$(TOOLCHAIN)_x86_64/$(CONFIG_DIR)/lib$(1).a: $(X86_64_OUTDIR)/lib$(1)_
 endif
 
 ifneq (,$(findstring arm,$(ARCHES)))
-ifeq ($(ARM_SUPPORT),1)
 all: $(ARM_OUTDIR)/lib$(1)_arm.a
 $(ARM_OUTDIR)/lib$(1)_arm.a: $(foreach src,$(2),$(call SRC_TO_OBJ,$(src),_arm))
 	$(MKDIR) -p $$(dir $$@)
@@ -335,7 +326,6 @@ install: $(LIBDIR)/$(TOOLCHAIN)_arm/$(CONFIG_DIR)/lib$(1).a
 $(LIBDIR)/$(TOOLCHAIN)_arm/$(CONFIG_DIR)/lib$(1).a: $(ARM_OUTDIR)/lib$(1)_arm.a
 	$(MKDIR) -p $$(dir $$@)
 	$(call LOG,CP  ,$$@,$(OSHELPERS) cp $$^ $$@)
-endif
 endif
 endef
 
@@ -389,6 +379,70 @@ endef
 #
 define LINK_RULE
 $(call LINKER_RULE,$(1),$(2),$(filter-out pthread,$(3)),$(4),$(5),$(LIB_PATHS))
+endef
+
+
+#
+# Macro to generate linker scripts
+#
+# $1 = Target Name
+# $2 = Static Linker Script
+# $3 = Shared Linker Script
+#
+define LINKER_SCRIPT_RULE
+$(STAMPDIR)/$(1).stamp:
+	@echo "  STAMP $$@"
+	@echo "TOUCHED $$@" > $(STAMPDIR)/$(1).stamp
+
+ifneq (,$(findstring x86_32,$(ARCHES)))
+$(STAMPDIR)/$(1).stamp: $(LIBDIR)/$(TOOLCHAIN)_x86_32/$(CONFIG)/lib$(1).a
+install: $(LIBDIR)/$(TOOLCHAIN)_x86_32/$(CONFIG)/lib$(1).a
+$(LIBDIR)/$(TOOLCHAIN)_x86_32/$(CONFIG)/lib$(1).a: $(2)
+	$(MKDIR) -p $$(dir $$@)
+	$(call LOG,CP  ,$$@,$(OSHELPERS) cp $$^ $$@)
+endif
+
+ifneq (,$(findstring x86_64,$(ARCHES)))
+$(STAMPDIR)/$(1).stamp: $(LIBDIR)/$(TOOLCHAIN)_x86_64/$(CONFIG)/lib$(1).a
+install: $(LIBDIR)/$(TOOLCHAIN)_x86_64/$(CONFIG)/lib$(1).a
+$(LIBDIR)/$(TOOLCHAIN)_x86_64/$(CONFIG)/lib$(1).a: $(2)
+	$(MKDIR) -p $$(dir $$@)
+	$(call LOG,CP  ,$$@,$(OSHELPERS) cp $$^ $$@)
+endif
+
+ifneq (,$(findstring arm,$(ARCHES)))
+$(STAMPDIR)/$(1).stamp: $(LIBDIR)/$(TOOLCHAIN)_arm/$(CONFIG)/lib$(1).a
+install: $(LIBDIR)/$(TOOLCHAIN)_arm/$(CONFIG)/lib$(1).a
+$(LIBDIR)/$(TOOLCHAIN)_arm/$(CONFIG)/lib$(1).a: $(2)
+	$(MKDIR) -p $$(dir $$@)
+	$(call LOG,CP  ,$$@,$(OSHELPERS) cp $$^ $$@)
+endif
+
+ifeq ($(TOOLCHAIN),glibc)
+ifneq (,$(findstring x86_32,$(ARCHES)))
+$(STAMPDIR)/$(1).stamp: $(LIBDIR)/$(TOOLCHAIN)_x86_32/$(CONFIG)/lib$(1).so
+install: $(LIBDIR)/$(TOOLCHAIN)_x86_32/$(CONFIG)/lib$(1).so
+$(LIBDIR)/$(TOOLCHAIN)_x86_32/$(CONFIG)/lib$(1).so: $(3)
+	$(MKDIR) -p $$(dir $$@)
+	$(call LOG,CP  ,$$@,$(OSHELPERS) cp $$^ $$@)
+endif
+
+ifneq (,$(findstring x86_64,$(ARCHES)))
+$(STAMPDIR)/$(1).stamp: $(LIBDIR)/$(TOOLCHAIN)_x86_64/$(CONFIG)/lib$(1).so
+install: $(LIBDIR)/$(TOOLCHAIN)_x86_64/$(CONFIG)/lib$(1).so
+$(LIBDIR)/$(TOOLCHAIN)_x86_64/$(CONFIG)/lib$(1).so: $(3)
+	$(MKDIR) -p $$(dir $$@)
+	$(call LOG,CP  ,$$@,$(OSHELPERS) cp $$^ $$@)
+endif
+
+ifneq (,$(findstring arm,$(ARCHES)))
+$(STAMPDIR)/$(1).stamp: $(LIBDIR)/$(TOOLCHAIN)_arm/$(CONFIG)/lib$(1).so
+install: $(LIBDIR)/$(TOOLCHAIN)_arm/$(CONFIG)/lib$(1).so
+$(LIBDIR)/$(TOOLCHAIN)_arm/$(CONFIG)/lib$(1).so: $(3)
+	$(MKDIR) -p $$(dir $$@)
+	$(call LOG,CP  ,$$@,$(OSHELPERS) cp $$^ $$@)
+endif
+endif
 endef
 
 
@@ -478,6 +532,7 @@ endef
 #
 NMF := python $(NACL_SDK_ROOT)/tools/create_nmf.py
 NMF_FLAGS += --config=$(CONFIG_DIR)
+SEL_LDR_ARGS += --config=$(CONFIG_DIR)
 
 EXECUTABLES = $(GLIBC_SO_LIST)
 ifneq (,$(findstring x86_32,$(ARCHES)))
@@ -535,22 +590,21 @@ endef
 
 
 #
-# Determine which executable to pass into the debugger.  For newlib
-# this is the NEXE which will actually be used.  For glibc, runnable-ld.so
-# is the "app", and the "app" is actual an .so we load.
+# Determine which executable to pass into the debugger.
+# For glibc, runnable-ld.so is the executable, and the "app" is an .so that
+# it loads.
 #
 ifeq (x86_32,$(SYSARCH))
 LIB_NAME = lib32
-else
+ifeq (x86_64,$(SYSARCH))
 LIB_NAME = lib64
-endif
-
-
-ifeq (newlib,$(TOOLCHAIN))
-GDB_DEBUG_TARGET = $(abspath $(OUTDIR))/$(TARGET)_$(SYSARCH).nexe
 else
-GDB_DEBUG_TARGET = $(abspath $(OUTDIR))/$(LIB_NAME)/runnable-ld.so
+LIB_NAME = lib
 endif
+endif
+
+
+GDB_DEBUG_TARGET = $(abspath $(OUTDIR))/$(LIB_NAME)/runnable-ld.so
 
 ifdef STANDALONE
 run: all

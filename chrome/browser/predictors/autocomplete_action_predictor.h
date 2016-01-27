@@ -7,7 +7,6 @@
 
 #include <map>
 
-#include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -114,6 +113,9 @@ class AutocompleteActionPredictor
   // abandoned.
   bool IsPrerenderAbandonedForTesting();
 
+  // Should be called when a URL is opened from the omnibox.
+  void OnOmniboxOpenedUrl(const OmniboxLog& log);
+
  private:
   friend class AutocompleteActionPredictorTest;
   friend class ::PredictorsHandler;
@@ -170,9 +172,6 @@ class AutocompleteActionPredictor
 
   // Removes rows from the database and caches that contain a URL in |rows|.
   void DeleteRowsWithURLs(const history::URLRows& rows);
-
-  // Called when NOTIFICATION_OMNIBOX_OPENED_URL is observed.
-  void OnOmniboxOpenedUrl(const OmniboxLog& log);
 
   // Adds and updates rows in the database and caches.
   void AddAndUpdateRows(

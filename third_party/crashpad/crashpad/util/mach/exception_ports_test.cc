@@ -64,13 +64,12 @@ void TestGetExceptionPorts(const ExceptionPorts& exception_ports,
                                             ? THREAD_STATE_NONE
                                             : MACHINE_THREAD_STATE;
 
-  std::vector<ExceptionPorts::ExceptionHandler> crash_handler;
+  ExceptionPorts::ExceptionHandlerVector crash_handler;
   ASSERT_TRUE(
       exception_ports.GetExceptionPorts(kExceptionMask, &crash_handler));
 
   if (expect_port != MACH_PORT_NULL) {
     ASSERT_EQ(1u, crash_handler.size());
-    base::mac::ScopedMachSendRight port_owner(crash_handler[0].port);
 
     EXPECT_EQ(kExceptionMask, crash_handler[0].mask);
     EXPECT_EQ(expect_port, crash_handler[0].port);
@@ -80,16 +79,13 @@ void TestGetExceptionPorts(const ExceptionPorts& exception_ports,
     EXPECT_TRUE(crash_handler.empty());
   }
 
-  std::vector<ExceptionPorts::ExceptionHandler> handlers;
-  ASSERT_TRUE(exception_ports.GetExceptionPorts(
-      ExcMaskAll() | EXC_MASK_CRASH, &handlers));
+  ExceptionPorts::ExceptionHandlerVector handlers;
+  ASSERT_TRUE(exception_ports.GetExceptionPorts(ExcMaskValid(), &handlers));
 
   EXPECT_GE(handlers.size(), crash_handler.size());
   bool found = false;
   for (const ExceptionPorts::ExceptionHandler& handler : handlers) {
     if ((handler.mask & kExceptionMask) != 0) {
-      base::mac::ScopedMachSendRight port_owner(handler.port);
-
       EXPECT_FALSE(found);
       found = true;
       EXPECT_EQ(expect_port, handler.port);
@@ -200,7 +196,9 @@ class TestExceptionPorts : public MachMultiprocess,
 
     EXPECT_EQ(0, AuditPIDFromMachMessageTrailer(trailer));
 
-    return ExcServerSuccessfulReturnValue(behavior, false);
+    ExcServerCopyState(
+        behavior, old_state, old_state_count, new_state, new_state_count);
+    return ExcServerSuccessfulReturnValue(exception, behavior, false);
   }
 
  private:
@@ -361,7 +359,7 @@ class TestExceptionPorts : public MachMultiprocess,
 
     // Get an ExceptionPorts object for the task and each of its threads.
     ExceptionPorts task_ports(ExceptionPorts::kTargetTypeTask, ChildTask());
-    EXPECT_EQ("task", task_ports.TargetTypeName());
+    EXPECT_STREQ("task", task_ports.TargetTypeName());
 
     // Hopefully the threads returned by task_threads() are in order, with the
     // main thread first and the other thread second. This is currently always
@@ -378,11 +376,11 @@ class TestExceptionPorts : public MachMultiprocess,
     threads_need_owners.Disarm();
 
     ExceptionPorts main_thread_ports(ExceptionPorts::kTargetTypeThread,
-                                     main_thread);
+                                     main_thread.get());
     ExceptionPorts other_thread_ports(ExceptionPorts::kTargetTypeThread,
-                                      other_thread);
-    EXPECT_EQ("thread", main_thread_ports.TargetTypeName());
-    EXPECT_EQ("thread", other_thread_ports.TargetTypeName());
+                                      other_thread.get());
+    EXPECT_STREQ("thread", main_thread_ports.TargetTypeName());
+    EXPECT_STREQ("thread", other_thread_ports.TargetTypeName());
 
     if (set_type_ == kSetOutOfProcess) {
       // Test ExceptionPorts::SetExceptionPorts() being called from
@@ -585,30 +583,28 @@ TEST(ExceptionPorts, HostExceptionPorts) {
   // host_set_exception_ports() is not tested, because if the test were running
   // as root and the call succeeded, it would have global effects.
 
-  base::mac::ScopedMachSendRight host(mach_host_self());
-  ExceptionPorts explicit_host_ports(ExceptionPorts::kTargetTypeHost, host);
-  EXPECT_EQ("host", explicit_host_ports.TargetTypeName());
+  const bool expect_success = geteuid() == 0;
 
-  std::vector<ExceptionPorts::ExceptionHandler> handlers;
-  bool rv = explicit_host_ports.GetExceptionPorts(
-      ExcMaskAll() | EXC_MASK_CRASH, &handlers);
-  if (geteuid() == 0) {
-    EXPECT_TRUE(rv);
-  } else {
-    EXPECT_FALSE(rv);
-  }
+  base::mac::ScopedMachSendRight host(mach_host_self());
+  ExceptionPorts explicit_host_ports(ExceptionPorts::kTargetTypeHost,
+                                     host.get());
+  EXPECT_STREQ("host", explicit_host_ports.TargetTypeName());
+
+  ExceptionPorts::ExceptionHandlerVector explicit_handlers;
+  bool rv =
+      explicit_host_ports.GetExceptionPorts(ExcMaskValid(), &explicit_handlers);
+  EXPECT_EQ(expect_success, rv);
 
   ExceptionPorts implicit_host_ports(ExceptionPorts::kTargetTypeHost,
                                      HOST_NULL);
-  EXPECT_EQ("host", implicit_host_ports.TargetTypeName());
+  EXPECT_STREQ("host", implicit_host_ports.TargetTypeName());
 
-  rv = implicit_host_ports.GetExceptionPorts(
-      ExcMaskAll() | EXC_MASK_CRASH, &handlers);
-  if (geteuid() == 0) {
-    EXPECT_TRUE(rv);
-  } else {
-    EXPECT_FALSE(rv);
-  }
+  ExceptionPorts::ExceptionHandlerVector implicit_handlers;
+  rv =
+      implicit_host_ports.GetExceptionPorts(ExcMaskValid(), &implicit_handlers);
+  EXPECT_EQ(expect_success, rv);
+
+  EXPECT_EQ(explicit_handlers.size(), implicit_handlers.size());
 }
 
 }  // namespace

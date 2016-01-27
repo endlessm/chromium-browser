@@ -44,6 +44,7 @@ class PagePopupController;
 
 class CORE_EXPORT DOMWindowPagePopup final : public NoBaseWillBeGarbageCollected<DOMWindowPagePopup>, public WillBeHeapSupplement<LocalDOMWindow> {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(DOMWindowPagePopup);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(DOMWindowPagePopup);
 public:
     static PagePopupController* pagePopupController(DOMWindow&);
     static void install(LocalDOMWindow&, PagePopup&, PagePopupClient*);

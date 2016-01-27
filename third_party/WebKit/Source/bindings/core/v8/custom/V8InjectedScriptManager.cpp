@@ -35,10 +35,10 @@
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/V8ScriptRunner.h"
 #include "bindings/core/v8/V8Window.h"
-#include "bindings/core/v8/inspector/V8InjectedScriptHost.h"
 #include "core/frame/LocalDOMWindow.h"
 #include "core/inspector/InjectedScriptHost.h"
 #include "core/inspector/InjectedScriptNative.h"
+#include "core/inspector/v8/V8InjectedScriptHost.h"
 #include "wtf/RefPtr.h"
 
 namespace blink {
@@ -91,7 +91,7 @@ bool InjectedScriptManager::canAccessInspectedWindow(ScriptState* scriptState)
         return false;
     LocalFrame* frame = toLocalDOMWindow(V8Window::toImpl(holder))->frame();
 
-    return BindingSecurity::shouldAllowAccessToFrame(scriptState->isolate(), frame, DoNotReportSecurityError);
+    return BindingSecurity::shouldAllowAccessToFrame(scriptState->isolate(), callingDOMWindow(scriptState->isolate()), frame, DoNotReportSecurityError);
 }
 
 } // namespace blink

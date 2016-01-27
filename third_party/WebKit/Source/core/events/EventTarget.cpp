@@ -48,6 +48,25 @@
 using namespace WTF;
 
 namespace blink {
+namespace {
+
+void setDefaultEventListenerOptionsLegacy(EventListenerOptions& options, bool useCapture)
+{
+    options.setCapture(useCapture);
+}
+
+void setDefaultEventListenerOptions(EventListenerOptions& options)
+{
+    // The default for capture is based on whether the eventListenerOptions
+    // runtime setting is enabled. That is
+    // addEventListener('type', function(e) {}, {});
+    // behaves differently under the setting. With the setting off
+    // capture is true; with the setting on capture is false.
+    if (!options.hasCapture())
+        options.setCapture(!RuntimeEnabledFeatures::eventListenerOptionsEnabled());
+}
+
+} // namespace
 
 EventTargetData::EventTargetData()
 {
@@ -55,6 +74,11 @@ EventTargetData::EventTargetData()
 
 EventTargetData::~EventTargetData()
 {
+}
+
+DEFINE_TRACE(EventTargetData)
+{
+    visitor->trace(eventListenerMap);
 }
 
 EventTarget::EventTarget()
@@ -67,27 +91,51 @@ EventTarget::~EventTarget()
 
 Node* EventTarget::toNode()
 {
-    return 0;
+    return nullptr;
 }
 
 LocalDOMWindow* EventTarget::toDOMWindow()
 {
-    return 0;
+    return nullptr;
 }
 
 MessagePort* EventTarget::toMessagePort()
 {
-    return 0;
+    return nullptr;
 }
 
 inline LocalDOMWindow* EventTarget::executingWindow()
 {
     if (ExecutionContext* context = executionContext())
         return context->executingWindow();
-    return 0;
+    return nullptr;
 }
 
-bool EventTarget::addEventListener(const AtomicString& eventType, PassRefPtr<EventListener> listener, bool useCapture)
+bool EventTarget::addEventListener(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener> listener, bool useCapture)
+{
+    EventListenerOptions options;
+    setDefaultEventListenerOptionsLegacy(options, useCapture);
+    return addEventListenerInternal(eventType, listener, options);
+}
+
+bool EventTarget::addEventListener(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener> listener, const EventListenerOptionsOrBoolean& optionsUnion)
+{
+    if (optionsUnion.isBoolean())
+        return addEventListener(eventType, listener, optionsUnion.getAsBoolean());
+    if (optionsUnion.isEventListenerOptions()) {
+        EventListenerOptions options = optionsUnion.getAsEventListenerOptions();
+        return addEventListener(eventType, listener, options);
+    }
+    return addEventListener(eventType, listener);
+}
+
+bool EventTarget::addEventListener(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener> listener, EventListenerOptions& options)
+{
+    setDefaultEventListenerOptions(options);
+    return addEventListenerInternal(eventType, listener, options);
+}
+
+bool EventTarget::addEventListenerInternal(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener> listener, const EventListenerOptions& options)
 {
     if (!listener)
         return false;
@@ -100,10 +148,34 @@ bool EventTarget::addEventListener(const AtomicString& eventType, PassRefPtr<Eve
         activityLogger->logEvent("blinkAddEventListener", argv.size(), argv.data());
     }
 
-    return ensureEventTargetData().eventListenerMap.add(eventType, listener, useCapture);
+    return ensureEventTargetData().eventListenerMap.add(eventType, listener, options);
 }
 
-bool EventTarget::removeEventListener(const AtomicString& eventType, PassRefPtr<EventListener> listener, bool useCapture)
+bool EventTarget::removeEventListener(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener> listener, bool useCapture)
+{
+    EventListenerOptions options;
+    setDefaultEventListenerOptionsLegacy(options, useCapture);
+    return removeEventListenerInternal(eventType, listener, options);
+}
+
+bool EventTarget::removeEventListener(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener> listener, const EventListenerOptionsOrBoolean& optionsUnion)
+{
+    if (optionsUnion.isBoolean())
+        return removeEventListener(eventType, listener, optionsUnion.getAsBoolean());
+    if (optionsUnion.isEventListenerOptions()) {
+        EventListenerOptions options = optionsUnion.getAsEventListenerOptions();
+        return removeEventListener(eventType, listener, options);
+    }
+    return removeEventListener(eventType, listener);
+}
+
+bool EventTarget::removeEventListener(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener> listener, EventListenerOptions& options)
+{
+    setDefaultEventListenerOptions(options);
+    return removeEventListenerInternal(eventType, listener, options);
+}
+
+bool EventTarget::removeEventListenerInternal(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener> listener, const EventListenerOptions& options)
 {
     if (!listener)
         return false;
@@ -114,7 +186,7 @@ bool EventTarget::removeEventListener(const AtomicString& eventType, PassRefPtr<
 
     size_t indexOfRemovedListener;
 
-    if (!d->eventListenerMap.remove(eventType, listener.get(), useCapture, indexOfRemovedListener))
+    if (!d->eventListenerMap.remove(eventType, listener.get(), options, indexOfRemovedListener))
         return false;
 
     // Notify firing events planning to invoke the listener at 'index' that
@@ -130,14 +202,18 @@ bool EventTarget::removeEventListener(const AtomicString& eventType, PassRefPtr<
             continue;
 
         --firingIterator.end;
-        if (indexOfRemovedListener <= firingIterator.iterator)
+        // Note that when firing an event listener,
+        // firingIterator.iterator indicates the next event listener
+        // that would fire, not the currently firing event
+        // listener. See EventTarget::fireEventListeners.
+        if (indexOfRemovedListener < firingIterator.iterator)
             --firingIterator.iterator;
     }
 
     return true;
 }
 
-bool EventTarget::setAttributeEventListener(const AtomicString& eventType, PassRefPtr<EventListener> listener)
+bool EventTarget::setAttributeEventListener(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener> listener)
 {
     clearAttributeEventListener(eventType);
     if (!listener)
@@ -147,13 +223,15 @@ bool EventTarget::setAttributeEventListener(const AtomicString& eventType, PassR
 
 EventListener* EventTarget::getAttributeEventListener(const AtomicString& eventType)
 {
-    const EventListenerVector& entry = getEventListeners(eventType);
-    for (const auto& eventListener : entry) {
+    EventListenerVector* listenerVector = getEventListeners(eventType);
+    if (!listenerVector)
+        return nullptr;
+    for (const auto& eventListener : *listenerVector) {
         EventListener* listener = eventListener.listener.get();
         if (listener->isAttribute() && listener->belongsToTheCurrentWorld())
             return listener;
     }
-    return 0;
+    return nullptr;
 }
 
 bool EventTarget::clearAttributeEventListener(const AtomicString& eventType)
@@ -164,7 +242,7 @@ bool EventTarget::clearAttributeEventListener(const AtomicString& eventType)
     return removeEventListener(eventType, listener, false);
 }
 
-bool EventTarget::dispatchEvent(PassRefPtrWillBeRawPtr<Event> event, ExceptionState& exceptionState)
+bool EventTarget::dispatchEventForBindings(PassRefPtrWillBeRawPtr<Event> event, ExceptionState& exceptionState)
 {
     if (!event) {
         exceptionState.throwDOMException(InvalidStateError, "The event provided is null.");
@@ -182,10 +260,17 @@ bool EventTarget::dispatchEvent(PassRefPtrWillBeRawPtr<Event> event, ExceptionSt
     if (!executionContext())
         return false;
 
-    return dispatchEvent(event);
+    event->setTrusted(false);
+    return dispatchEventInternal(event);
 }
 
 bool EventTarget::dispatchEvent(PassRefPtrWillBeRawPtr<Event> event)
+{
+    event->setTrusted(true);
+    return dispatchEventInternal(event);
+}
+
+bool EventTarget::dispatchEventInternal(PassRefPtrWillBeRawPtr<Event> event)
 {
     event->setTarget(this);
     event->setCurrentTarget(this);
@@ -265,7 +350,7 @@ bool EventTarget::fireEventListeners(Event* event)
     if (!d)
         return true;
 
-    EventListenerVector* legacyListenersVector = 0;
+    EventListenerVector* legacyListenersVector = nullptr;
     AtomicString legacyTypeName = legacyType(event);
     if (!legacyTypeName.isEmpty())
         legacyListenersVector = d->eventListenerMap.find(legacyTypeName);
@@ -321,8 +406,14 @@ void EventTarget::fireEventListeners(Event* event, EventTargetData* d, EventList
     if (!d->firingEventIterators)
         d->firingEventIterators = adoptPtr(new FiringEventIteratorVector);
     d->firingEventIterators->append(FiringEventIterator(event->type(), i, size));
-    for ( ; i < size; ++i) {
+    while (i < size) {
         RegisteredEventListener& registeredListener = entry[i];
+
+        // Move the iterator past this event listener. This must match
+        // the handling of the FiringEventIterator::iterator in
+        // EventTarget::removeEventListener.
+        ++i;
+
         if (event->eventPhase() == Event::CAPTURING_PHASE && !registeredListener.useCapture)
             continue;
         if (event->eventPhase() == Event::BUBBLING_PHASE && registeredListener.useCapture)
@@ -338,27 +429,23 @@ void EventTarget::fireEventListeners(Event* event, EventTargetData* d, EventList
             break;
 
         InspectorInstrumentationCookie cookie = InspectorInstrumentation::willHandleEvent(this, event, registeredListener.listener.get(), registeredListener.useCapture);
+
         // To match Mozilla, the AT_TARGET phase fires both capturing and bubbling
         // event listeners, even though that violates some versions of the DOM spec.
         registeredListener.listener->handleEvent(context, event);
+        RELEASE_ASSERT(i <= size);
+
         InspectorInstrumentation::didHandleEvent(cookie);
     }
     d->firingEventIterators->removeLast();
 }
 
-const EventListenerVector& EventTarget::getEventListeners(const AtomicString& eventType)
+EventListenerVector* EventTarget::getEventListeners(const AtomicString& eventType)
 {
-    AtomicallyInitializedStaticReference(EventListenerVector, emptyVector, new EventListenerVector);
-
-    EventTargetData* d = eventTargetData();
-    if (!d)
-        return emptyVector;
-
-    EventListenerVector* listenerVector = d->eventListenerMap.find(eventType);
-    if (!listenerVector)
-        return emptyVector;
-
-    return *listenerVector;
+    EventTargetData* data = eventTargetData();
+    if (!data)
+        return nullptr;
+    return data->eventListenerMap.find(eventType);
 }
 
 Vector<AtomicString> EventTarget::eventTypes()

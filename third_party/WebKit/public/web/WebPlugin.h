@@ -61,14 +61,21 @@ template <typename T> class WebVector;
 
 class WebPlugin {
 public:
+    // Perform any initialization work given the container this plugin will use to
+    // communicate with renderer code. Plugins that return false here must
+    // subsequently return nullptr for the container() method.
     virtual bool initialize(WebPluginContainer*) = 0;
+
+    // Plugins must arrange for themselves to be deleted sometime during or after this
+    // method is called.
     virtual void destroy() = 0;
 
-    virtual WebPluginContainer* container() const { return 0; }
+    // Must return null container when the initialize() method returns false.
+    virtual WebPluginContainer* container() const { return nullptr; }
     virtual void containerDidDetachFromParent() { }
 
-    virtual NPObject* scriptableObject() { return 0; }
-    virtual struct _NPP* pluginNPP() { return 0; }
+    virtual NPObject* scriptableObject() { return nullptr; }
+    virtual struct _NPP* pluginNPP() { return nullptr; }
 
     // The same as scriptableObject() but allows to expose scriptable interface
     // through plain v8 object instead of NPObject.
@@ -156,9 +163,6 @@ public:
     // Otherwise an empty url is returned.
     virtual WebURL linkAtPosition(const WebPoint& position) const { return WebURL(); }
 
-    // Used for zooming of full page plugins.
-    virtual void setZoomLevel(double level, bool textOnly) { }
-
     // Find interface.
     // Start a new search.  The plugin should search for a little bit at a time so that it
     // doesn't block the thread in case of a large document.  The results, along with the
@@ -181,7 +185,6 @@ public:
     virtual void rotateView(RotationType type) { }
 
     virtual bool isPlaceholder() { return true; }
-    virtual bool shouldPersist() const { return false; }
 
 protected:
     ~WebPlugin() { }

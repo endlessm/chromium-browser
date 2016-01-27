@@ -22,8 +22,6 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-using android_webview::InputStream;
-using android_webview::InputStreamReader;
 using net::TestDelegate;
 using net::TestJobInterceptor;
 using net::TestNetworkDelegate;
@@ -44,6 +42,10 @@ using testing::Test;
 using testing::WithArg;
 using testing::WithArgs;
 using testing::_;
+
+namespace android_webview {
+
+namespace {
 
 // Some of the classes will DCHECK on a null InputStream (which is desirable).
 // The workaround is to use this class. None of the methods need to be
@@ -179,6 +181,9 @@ class TestStreamReaderJob : public AndroidStreamReaderURLRequestJob {
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
 };
 
+}  // namespace
+
+
 class AndroidStreamReaderURLRequestJobTest : public Test {
  public:
   AndroidStreamReaderURLRequestJobTest() {}
@@ -218,12 +223,14 @@ class AndroidStreamReaderURLRequestJobTest : public Test {
     // The Interceptor is owned by the |factory_|.
     TestJobInterceptor* protocol_handler = new TestJobInterceptor;
     protocol_handler->set_main_intercept_job(test_stream_reader_job);
-    bool set_protocol = factory_.SetProtocolHandler("http", protocol_handler);
+    bool set_protocol =
+        factory_.SetProtocolHandler("http", make_scoped_ptr(protocol_handler));
     DCHECK(set_protocol);
 
     protocol_handler = new TestJobInterceptor;
     protocol_handler->set_main_intercept_job(test_stream_reader_job);
-    set_protocol = factory_.SetProtocolHandler("content", protocol_handler);
+    set_protocol = factory_.SetProtocolHandler(
+        "content", make_scoped_ptr(protocol_handler));
     DCHECK(set_protocol);
   }
 
@@ -413,3 +420,5 @@ TEST_F(AndroidStreamReaderURLRequestJobTest, DeleteJobMidWayRead) {
   req_->Cancel();
   EXPECT_EQ(1, network_delegate_.completed_requests());
 }
+
+}  // namespace android_webview

@@ -54,7 +54,7 @@ class MockAutofillDriver : public TestAutofillDriver {
   DISALLOW_COPY_AND_ASSIGN(MockAutofillDriver);
 };
 
-class MockAutofillClient : public autofill::TestAutofillClient {
+class MockAutofillClient : public TestAutofillClient {
  public:
   MockAutofillClient() {}
 
@@ -356,7 +356,7 @@ TEST_F(AutofillExternalDelegateUnitTest, ExternalDelegateClearPreviewedForm) {
 TEST_F(AutofillExternalDelegateUnitTest,
        ExternalDelegateHidePopupAfterEditing) {
   EXPECT_CALL(autofill_client_, ShowAutofillPopup(_, _, _, _));
-  autofill::GenerateTestAutofillPopup(external_delegate_.get());
+  GenerateTestAutofillPopup(external_delegate_.get());
 
   EXPECT_CALL(autofill_client_, HideAutofillPopup());
   external_delegate_->DidEndTextFieldEditing();
@@ -514,9 +514,12 @@ TEST_F(AutofillExternalDelegateUnitTest, ExternalDelegateFillFieldWithValue) {
   base::string16 dummy_string(ASCIIToUTF16("baz foo"));
   EXPECT_CALL(*autofill_driver_,
               RendererShouldFillFieldWithValue(dummy_string));
+  base::HistogramTester histogram_tester;
   external_delegate_->DidAcceptSuggestion(dummy_string,
                                           POPUP_ITEM_ID_AUTOCOMPLETE_ENTRY,
                                           0);
+  histogram_tester.ExpectUniqueSample(
+      "Autofill.SuggestionAcceptedIndex.Autocomplete", 0, 1);
 }
 
 }  // namespace autofill

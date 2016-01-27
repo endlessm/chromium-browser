@@ -23,7 +23,6 @@
 #include "third_party/WebKit/public/web/WebElement.h"
 #include "third_party/WebKit/public/web/WebFrame.h"
 #include "third_party/WebKit/public/web/WebNode.h"
-#include "third_party/WebKit/public/web/WebNodeList.h"
 #include "ui/gfx/geometry/size.h"
 #include "url/gurl.h"
 
@@ -31,7 +30,6 @@ using blink::WebDocument;
 using blink::WebElement;
 using blink::WebFrame;
 using blink::WebNode;
-using blink::WebNodeList;
 using blink::WebString;
 
 namespace web_apps {
@@ -39,7 +37,7 @@ namespace {
 
 // Sizes a single size (the width or height) from a 'sizes' attribute. A size
 // matches must match the following regex: [1-9][0-9]*.
-int ParseSingleIconSize(const base::string16& text) {
+int ParseSingleIconSize(const base::StringPiece16& text) {
   // Size must not start with 0, and be between 0 and 9.
   if (text.empty() || !(text[0] >= L'1' && text[0] <= L'9'))
     return 0;
@@ -59,8 +57,9 @@ int ParseSingleIconSize(const base::string16& text) {
 // [1-9][0-9]*x[1-9][0-9]*.
 // If the input couldn't be parsed, a size with a width/height == 0 is returned.
 gfx::Size ParseIconSize(const base::string16& text) {
-  std::vector<base::string16> sizes;
-  base::SplitStringDontTrim(text, L'x', &sizes);
+  std::vector<base::StringPiece16> sizes = base::SplitStringPiece(
+      text, base::string16(1, 'x'),
+      base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
   if (sizes.size() != 2)
     return gfx::Size();
 
@@ -99,8 +98,9 @@ bool ParseIconSizes(const base::string16& text,
                     std::vector<gfx::Size>* sizes,
                     bool* is_any) {
   *is_any = false;
-  std::vector<base::string16> size_strings;
-  base::SplitStringAlongWhitespace(text, &size_strings);
+  std::vector<base::string16> size_strings = base::SplitString(
+      text, base::kWhitespaceASCIIAs16,
+      base::KEEP_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
   for (size_t i = 0; i < size_strings.size(); ++i) {
     if (base::EqualsASCII(size_strings[i], "any")) {
       *is_any = true;
@@ -129,9 +129,8 @@ void ParseWebAppFromWebDocument(WebFrame* frame,
     return;
 
   GURL document_url = document.url();
-  WebNodeList children = head.childNodes();
-  for (unsigned i = 0; i < children.length(); ++i) {
-    WebNode child = children.item(i);
+  for (WebNode child = head.firstChild(); !child.isNull();
+      child = child.nextSibling()) {
     if (!child.isElementNode())
       continue;
     WebElement elem = child.to<WebElement>();
@@ -173,10 +172,12 @@ void ParseWebAppFromWebDocument(WebFrame* frame,
         if (!app_info->app_url.is_valid())
           app_info->app_url = GURL();
       } else if (name == "mobile-web-app-capable" &&
-                 base::LowerCaseEqualsASCII(content, "yes")) {
+                 base::LowerCaseEqualsASCII(base::StringPiece16(content),
+                                            "yes")) {
         app_info->mobile_capable = WebApplicationInfo::MOBILE_CAPABLE;
       } else if (name == "apple-mobile-web-app-capable" &&
-                 base::LowerCaseEqualsASCII(content, "yes") &&
+                 base::LowerCaseEqualsASCII(
+                     base::StringPiece16(content), "yes") &&
                  app_info->mobile_capable ==
                      WebApplicationInfo::MOBILE_CAPABLE_UNSPECIFIED) {
         app_info->mobile_capable = WebApplicationInfo::MOBILE_CAPABLE_APPLE;

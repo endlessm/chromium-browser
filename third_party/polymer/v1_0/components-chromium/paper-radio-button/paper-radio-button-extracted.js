@@ -1,9 +1,8 @@
-
-    Polymer({
+Polymer({
       is: 'paper-radio-button',
 
       behaviors: [
-        Polymer.PaperInkyFocusBehavior
+        Polymer.PaperCheckedElementBehavior
       ],
 
       hostAttributes: {
@@ -25,50 +24,15 @@
          * @event iron-change
          */
 
-        /**
-         * Gets or sets the state, `true` is checked and `false` is unchecked.
-         */
-        checked: {
-          type: Boolean,
-          value: false,
-          reflectToAttribute: true,
-          notify: true,
-          observer: '_checkedChanged'
-        },
-
-        /**
-         * If true, the button toggles the active state with each tap or press
-         * of the spacebar.
-         */
-        toggles: {
-          type: Boolean,
-          value: true,
-          reflectToAttribute: true
+        ariaActiveAttribute: {
+          type: String,
+          value: 'aria-checked'
         }
       },
 
-      ready: function() {
-        if (Polymer.dom(this).textContent == '') {
-          this.$.radioLabel.hidden = true;
-        } else {
-          this.setAttribute('aria-label', Polymer.dom(this).textContent);
-        }
-        this._isReady = true;
-      },
-
-      _buttonStateChanged: function() {
-        if (this.disabled) {
-          return;
-        }
-        if (this._isReady) {
-          this.checked = this.active;
-        }
-      },
-
-      _checkedChanged: function() {
-        this.setAttribute('aria-checked', this.checked ? 'true' : 'false');
-        this.active = this.checked;
-        this.fire('iron-change');
+      // create the element ripple inside the `radioContainer`
+      _createRipple: function() {
+        this._rippleContainer = this.$.radioContainer;
+        return Polymer.PaperInkyFocusBehaviorImpl._createRipple.call(this);
       }
-    })
-  
+    });

@@ -9,7 +9,6 @@
 #include "base/base64.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
-#include "base/memory/scoped_vector.h"
 #include "base/strings/string_number_conversions.h"
 #include "cc/layers/layer.h"
 #include "content/common/input/synthetic_gesture_params.h"
@@ -457,6 +456,8 @@ gin::ObjectTemplateBuilder GpuBenchmarking::GetObjectTemplateBuilder(
       //                 stable.
       .SetValue("newPinchInterface", true)
       .SetMethod("pinchBy", &GpuBenchmarking::PinchBy)
+      .SetMethod("visualViewportHeight", &GpuBenchmarking::VisualViewportHeight)
+      .SetMethod("visualViewportWidth", &GpuBenchmarking::VisualViewportWidth)
       .SetMethod("tap", &GpuBenchmarking::Tap)
       .SetMethod("clearImageCache", &GpuBenchmarking::ClearImageCache)
       .SetMethod("runMicroBenchmark", &GpuBenchmarking::RunMicroBenchmark)
@@ -743,6 +744,20 @@ bool GpuBenchmarking::PinchBy(gin::Arguments* args) {
       base::Bind(&OnSyntheticGestureCompleted, callback_and_context));
 
   return true;
+}
+
+float GpuBenchmarking::VisualViewportHeight() {
+  GpuBenchmarkingContext context;
+  if (!context.Init(false))
+    return 0.0;
+  return context.web_view()->visualViewportSize().height;
+}
+
+float GpuBenchmarking::VisualViewportWidth() {
+  GpuBenchmarkingContext context;
+  if (!context.Init(false))
+    return 0.0;
+  return context.web_view()->visualViewportSize().width;
 }
 
 bool GpuBenchmarking::Tap(gin::Arguments* args) {

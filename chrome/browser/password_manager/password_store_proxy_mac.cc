@@ -178,6 +178,13 @@ PasswordStoreChangeList PasswordStoreProxyMac::RemoveLoginsSyncedBetweenImpl(
   return GetBackend()->RemoveLoginsSyncedBetweenImpl(delete_begin, delete_end);
 }
 
+bool PasswordStoreProxyMac::RemoveStatisticsCreatedBetweenImpl(
+    base::Time delete_begin,
+    base::Time delete_end) {
+  return GetBackend()->RemoveStatisticsCreatedBetweenImpl(delete_begin,
+                                                          delete_end);
+}
+
 ScopedVector<autofill::PasswordForm> PasswordStoreProxyMac::FillMatchingLogins(
     const autofill::PasswordForm& form,
     AuthorizationPromptPolicy prompt_policy) {
@@ -203,7 +210,7 @@ void PasswordStoreProxyMac::RemoveSiteStatsImpl(const GURL& origin_domain) {
   GetBackend()->RemoveSiteStatsImpl(origin_domain);
 }
 
-scoped_ptr<password_manager::InteractionsStats>
+ScopedVector<password_manager::InteractionsStats>
 PasswordStoreProxyMac::GetSiteStatsImpl(const GURL& origin_domain) {
   return GetBackend()->GetSiteStatsImpl(origin_domain);
 }

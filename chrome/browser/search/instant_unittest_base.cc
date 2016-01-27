@@ -15,9 +15,10 @@
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/search_engines/ui_thread_search_terms_data.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
-#include "chrome/test/base/ui_test_utils.h"
+#include "chrome/test/base/search_test_utils.h"
 #include "components/google/core/browser/google_pref_names.h"
 #include "components/google/core/browser/google_url_tracker.h"
+#include "components/search/search.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/variations/entropy_provider.h"
@@ -31,7 +32,7 @@ InstantUnitTestBase::~InstantUnitTestBase() {
 }
 
 void InstantUnitTestBase::SetUp() {
-  chrome::EnableQueryExtractionForTesting();
+  search::EnableQueryExtractionForTesting();
   SetUpHelper();
 }
 
@@ -92,7 +93,7 @@ void InstantUnitTestBase::SetUpHelper() {
   BrowserWithTestWindowTest::SetUp();
 
   template_url_service_ = TemplateURLServiceFactory::GetForProfile(profile());
-  ui_test_utils::WaitForTemplateURLServiceToLoad(template_url_service_);
+  search_test_utils::WaitForTemplateURLServiceToLoad(template_url_service_);
 
   UIThreadSearchTermsData::SetGoogleBaseURL("https://www.google.com/");
   SetUserSelectedDefaultSearchProvider("{google:baseURL}");

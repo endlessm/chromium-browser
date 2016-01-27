@@ -152,7 +152,7 @@ bool IoThreadClientThrottle::ShouldBlockRequest() {
     return false;
 
   // Part of implementation of WebSettings.allowContentAccess.
-  if (request_->url().SchemeIs(android_webview::kContentScheme) &&
+  if (request_->url().SchemeIs(url::kContentScheme) &&
       io_client->ShouldBlockContentUrls()) {
     return true;
   }
@@ -160,13 +160,8 @@ bool IoThreadClientThrottle::ShouldBlockRequest() {
   // Part of implementation of WebSettings.allowFileAccess.
   if (request_->url().SchemeIsFile() &&
       io_client->ShouldBlockFileUrls()) {
-    const GURL& url = request_->url();
-    if (!url.has_path() ||
-        // Application's assets and resources are always available.
-        (url.path().find(android_webview::kAndroidResourcePath) != 0 &&
-         url.path().find(android_webview::kAndroidAssetPath) != 0)) {
-      return true;
-    }
+    // Application's assets and resources are always available.
+    return !IsAndroidSpecialFileUrl(request_->url());
   }
 
   if (io_client->ShouldBlockNetworkLoads()) {
@@ -226,15 +221,8 @@ void AwResourceDispatcherHostDelegate::RequestBeginning(
   throttles->push_back(new IoThreadClientThrottle(
       request_info->GetChildID(), request_info->GetRenderFrameID(), request));
 
-  // We allow intercepting only navigations within main frames. This
-  // is used to post onPageStarted. We handle shouldOverrideUrlLoading
-  // via a sync IPC.
-  if (resource_type == content::RESOURCE_TYPE_MAIN_FRAME) {
-    throttles->push_back(InterceptNavigationDelegate::CreateThrottleFor(
-        request));
-  } else {
+  if (resource_type != content::RESOURCE_TYPE_MAIN_FRAME)
     InterceptNavigationDelegate::UpdateUserGestureCarryoverInfo(request);
-  }
 }
 
 void AwResourceDispatcherHostDelegate::OnRequestRedirected(

@@ -34,8 +34,8 @@ std::vector<DisplayInfo> CreateDisplayInfoListFromString(
     const std::string specs,
     DisplayManager* display_manager) {
   std::vector<DisplayInfo> display_info_list;
-  std::vector<std::string> parts;
-  base::SplitString(specs, ',', &parts);
+  std::vector<std::string> parts = base::SplitString(
+      specs, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   size_t index = 0;
 
   DisplayManager::DisplayList list =
@@ -60,55 +60,24 @@ bool DisplayManagerTestApi::TestIfMouseWarpsAt(
     ui::test::EventGenerator& event_generator,
     const gfx::Point& point_in_screen) {
   aura::Window* context = Shell::GetAllRootWindows()[0];
-  DisplayManager* display_manager = Shell::GetInstance()->display_manager();
-  if (display_manager->IsInUnifiedMode()) {
-    static_cast<UnifiedMouseWarpController*>(
-        Shell::GetInstance()
-            ->mouse_cursor_filter()
-            ->mouse_warp_controller_for_test())
-        ->allow_non_native_event_for_test();
-    int orig_index = FindDisplayIndexContainingPoint(
-        display_manager->software_mirroring_display_list(), point_in_screen);
-    if (orig_index < 0)
-      return false;
-    event_generator.MoveMouseTo(point_in_screen);
-
-    int new_index = FindDisplayIndexContainingPoint(
-        display_manager->software_mirroring_display_list(),
-        aura::Env::GetInstance()->last_mouse_location());
-    if (new_index < 0)
-      return false;
-    return orig_index != new_index;
-  } else {
-    static_cast<ExtendedMouseWarpController*>(
-        Shell::GetInstance()
-            ->mouse_cursor_filter()
-            ->mouse_warp_controller_for_test())
-        ->allow_non_native_event_for_test();
-    gfx::Screen* screen = gfx::Screen::GetScreenFor(context);
-    gfx::Display original_display =
-        screen->GetDisplayNearestPoint(point_in_screen);
-    event_generator.MoveMouseTo(point_in_screen);
-    return original_display.id() !=
-           screen->GetDisplayNearestPoint(
-                       aura::Env::GetInstance()->last_mouse_location()).id();
-  }
+  DCHECK(!Shell::GetInstance()->display_manager()->IsInUnifiedMode());
+  static_cast<ExtendedMouseWarpController*>(
+      Shell::GetInstance()
+          ->mouse_cursor_filter()
+          ->mouse_warp_controller_for_test())
+      ->allow_non_native_event_for_test();
+  gfx::Screen* screen = gfx::Screen::GetScreenFor(context);
+  gfx::Display original_display =
+      screen->GetDisplayNearestPoint(point_in_screen);
+  event_generator.MoveMouseTo(point_in_screen);
+  return original_display.id() !=
+         screen->GetDisplayNearestPoint(
+                   aura::Env::GetInstance()->last_mouse_location())
+             .id();
 }
 
-// static
-void DisplayManagerTestApi::EnableUnifiedDesktopForTest() {
-#if defined(OS_CHROMEOS)
-  base::CommandLine::ForCurrentProcess()->AppendSwitch(
-      switches::kAshEnableUnifiedDesktop);
-  Shell::GetInstance()
-      ->display_manager()
-      ->layout_store()
-      ->SetDefaultDisplayLayout(DisplayLayout());
-#endif
-}
-
-DisplayManagerTestApi::DisplayManagerTestApi(DisplayManager* display_manager)
-    : display_manager_(display_manager) {}
+DisplayManagerTestApi::DisplayManagerTestApi()
+    : display_manager_(Shell::GetInstance()->display_manager()) {}
 
 DisplayManagerTestApi::~DisplayManagerTestApi() {}
 
@@ -145,6 +114,7 @@ void DisplayManagerTestApi::UpdateDisplay(
 
   display_manager_->OnNativeDisplaysChanged(display_info_list);
   display_manager_->UpdateInternalDisplayModeListForTest();
+  display_manager_->RunPendingTasksForTest();
 }
 
 int64 DisplayManagerTestApi::SetFirstDisplayAsInternalDisplay() {
@@ -167,6 +137,31 @@ void DisplayManagerTestApi::SetAvailableColorProfiles(
     const std::vector<ui::ColorCalibrationProfile>& profiles) {
   display_manager_->display_info_[display_id].set_available_color_profiles(
       profiles);
+}
+
+ScopedDisable125DSFForUIScaling::ScopedDisable125DSFForUIScaling() {
+  DisplayInfo::SetUse125DSFForUIScalingForTest(false);
+}
+
+ScopedDisable125DSFForUIScaling::~ScopedDisable125DSFForUIScaling() {
+  DisplayInfo::SetUse125DSFForUIScalingForTest(true);
+}
+
+ScopedSetInternalDisplayId::ScopedSetInternalDisplayId(int64 id) {
+  DisplayManagerTestApi().SetInternalDisplayId(id);
+}
+
+ScopedSetInternalDisplayId::~ScopedSetInternalDisplayId() {
+  gfx::Display::SetInternalDisplayId(gfx::Display::kInvalidDisplayID);
+}
+
+bool SetDisplayResolution(int64 display_id, const gfx::Size& resolution) {
+  DisplayManager* display_manager = Shell::GetInstance()->display_manager();
+  const DisplayInfo& info = display_manager->GetDisplayInfo(display_id);
+  DisplayMode mode;
+  if (!GetDisplayModeForResolution(info, resolution, &mode))
+    return false;
+  return display_manager->SetDisplayMode(display_id, mode);
 }
 
 }  // namespace test

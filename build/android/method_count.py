@@ -8,12 +8,12 @@ import os
 import re
 import sys
 
+from devil.android.sdk import dexdump
 from pylib import constants
-from pylib.sdk import dexdump
 
 sys.path.append(os.path.join(constants.DIR_SOURCE_ROOT, 'build', 'util', 'lib',
                              'common'))
-import perf_tests_results_helper
+import perf_tests_results_helper # pylint: disable=import-error
 
 
 _METHOD_IDS_SIZE_RE = re.compile(r'^method_ids_size +: +(\d+)$')

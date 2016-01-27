@@ -61,8 +61,11 @@
 #include "talk/app/webrtc/java/jni/classreferenceholder.h"
 #include "talk/app/webrtc/java/jni/jni_helpers.h"
 #include "talk/app/webrtc/java/jni/native_handle_impl.h"
+#include "talk/app/webrtc/dtlsidentitystore.h"
 #include "talk/app/webrtc/mediaconstraintsinterface.h"
 #include "talk/app/webrtc/peerconnectioninterface.h"
+#include "talk/app/webrtc/rtpreceiverinterface.h"
+#include "talk/app/webrtc/rtpsenderinterface.h"
 #include "talk/app/webrtc/videosourceinterface.h"
 #include "talk/media/base/videocapturer.h"
 #include "talk/media/base/videorenderer.h"
@@ -72,11 +75,13 @@
 #include "webrtc/base/bind.h"
 #include "webrtc/base/checks.h"
 #include "webrtc/base/logging.h"
+#include "webrtc/base/logsinks.h"
+#include "webrtc/base/networkmonitor.h"
 #include "webrtc/base/messagequeue.h"
 #include "webrtc/base/ssladapter.h"
 #include "webrtc/base/stringutils.h"
-#include "webrtc/system_wrappers/interface/field_trial_default.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/field_trial_default.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/voice_engine/include/voe_base.h"
 
 #if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
@@ -84,11 +89,14 @@
 #include "talk/app/webrtc/java/jni/androidmediadecoder_jni.h"
 #include "talk/app/webrtc/java/jni/androidmediaencoder_jni.h"
 #include "talk/app/webrtc/java/jni/androidvideocapturer_jni.h"
+#include "talk/app/webrtc/java/jni/androidnetworkmonitor_jni.h"
 #include "webrtc/modules/video_render/video_render_internal.h"
-#include "webrtc/system_wrappers/interface/logcat_trace_context.h"
+#include "webrtc/system_wrappers/include/logcat_trace_context.h"
 using webrtc::LogcatTraceContext;
 #endif
 
+using cricket::WebRtcVideoDecoderFactory;
+using cricket::WebRtcVideoEncoderFactory;
 using rtc::Bind;
 using rtc::Thread;
 using rtc::ThreadManager;
@@ -109,6 +117,8 @@ using webrtc::MediaStreamTrackInterface;
 using webrtc::PeerConnectionFactoryInterface;
 using webrtc::PeerConnectionInterface;
 using webrtc::PeerConnectionObserver;
+using webrtc::RtpReceiverInterface;
+using webrtc::RtpSenderInterface;
 using webrtc::SessionDescriptionInterface;
 using webrtc::SetSessionDescriptionObserver;
 using webrtc::StatsObserver;
@@ -128,7 +138,7 @@ static char *field_trials_init_string = NULL;
 #if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
 // Set in PeerConnectionFactory_initializeAndroidGlobals().
 static bool factory_static_initialized = false;
-static bool vp8_hw_acceleration_enabled = true;
+static bool video_hw_acceleration_enabled = true;
 #endif
 
 extern "C" jint JNIEXPORT JNICALL JNI_OnLoad(JavaVM *jvm, void *reserved) {
@@ -136,7 +146,7 @@ extern "C" jint JNIEXPORT JNICALL JNI_OnLoad(JavaVM *jvm, void *reserved) {
   if (ret < 0)
     return -1;
 
-  CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
+  RTC_CHECK(rtc::InitializeSSL()) << "Failed to InitializeSSL()";
   LoadGlobalClassReferenceHolder();
 
   return ret;
@@ -144,7 +154,7 @@ extern "C" jint JNIEXPORT JNICALL JNI_OnLoad(JavaVM *jvm, void *reserved) {
 
 extern "C" void JNIEXPORT JNICALL JNI_OnUnLoad(JavaVM *jvm, void *reserved) {
   FreeGlobalClassReferenceHolder();
-  CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
+  RTC_CHECK(rtc::CleanupSSL()) << "Failed to CleanupSSL()";
 }
 
 // Return the (singleton) Java Enum object corresponding to |index|;
@@ -206,12 +216,16 @@ class PCOJava : public PeerConnectionObserver {
             jni, *j_data_channel_class_, "<init>", "(J)V")) {
   }
 
-  virtual ~PCOJava() {}
+  virtual ~PCOJava() {
+    ScopedLocalRefFrame local_ref_frame(jni());
+    while (!remote_streams_.empty())
+      DisposeRemoteStream(remote_streams_.begin());
+  }
 
   void OnIceCandidate(const IceCandidateInterface* candidate) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     std::string sdp;
-    CHECK(candidate->ToString(&sdp)) << "got so far: " << sdp;
+    RTC_CHECK(candidate->ToString(&sdp)) << "got so far: " << sdp;
     jclass candidate_class = FindClass(jni(), "org/webrtc/IceCandidate");
     jmethodID ctor = GetMethodID(jni(), candidate_class,
         "<init>", "(Ljava/lang/String;ILjava/lang/String;)V");
@@ -272,16 +286,22 @@ class PCOJava : public PeerConnectionObserver {
 
   void OnAddStream(MediaStreamInterface* stream) override {
     ScopedLocalRefFrame local_ref_frame(jni());
-    jobject j_stream = jni()->NewObject(
-        *j_media_stream_class_, j_media_stream_ctor_, (jlong)stream);
+    // Java MediaStream holds one reference. Corresponding Release() is in
+    // MediaStream_free, triggered by MediaStream.dispose().
+    stream->AddRef();
+    jobject j_stream =
+        jni()->NewObject(*j_media_stream_class_, j_media_stream_ctor_,
+                         reinterpret_cast<jlong>(stream));
     CHECK_EXCEPTION(jni()) << "error during NewObject";
 
-    AudioTrackVector audio_tracks = stream->GetAudioTracks();
-    for (size_t i = 0; i < audio_tracks.size(); ++i) {
-      AudioTrackInterface* track = audio_tracks[i];
+    for (const auto& track : stream->GetAudioTracks()) {
       jstring id = JavaStringFromStdString(jni(), track->id());
-      jobject j_track = jni()->NewObject(
-          *j_audio_track_class_, j_audio_track_ctor_, (jlong)track, id);
+      // Java AudioTrack holds one reference. Corresponding Release() is in
+      // MediaStreamTrack_free, triggered by AudioTrack.dispose().
+      track->AddRef();
+      jobject j_track =
+          jni()->NewObject(*j_audio_track_class_, j_audio_track_ctor_,
+                           reinterpret_cast<jlong>(track.get()), id);
       CHECK_EXCEPTION(jni()) << "error during NewObject";
       jfieldID audio_tracks_id = GetFieldID(jni(),
                                             *j_media_stream_class_,
@@ -294,15 +314,17 @@ class PCOJava : public PeerConnectionObserver {
                                   "(Ljava/lang/Object;)Z");
       jboolean added = jni()->CallBooleanMethod(audio_tracks, add, j_track);
       CHECK_EXCEPTION(jni()) << "error during CallBooleanMethod";
-      CHECK(added);
+      RTC_CHECK(added);
     }
 
-    VideoTrackVector video_tracks = stream->GetVideoTracks();
-    for (size_t i = 0; i < video_tracks.size(); ++i) {
-      VideoTrackInterface* track = video_tracks[i];
+    for (const auto& track : stream->GetVideoTracks()) {
       jstring id = JavaStringFromStdString(jni(), track->id());
-      jobject j_track = jni()->NewObject(
-          *j_video_track_class_, j_video_track_ctor_, (jlong)track, id);
+      // Java VideoTrack holds one reference. Corresponding Release() is in
+      // MediaStreamTrack_free, triggered by VideoTrack.dispose().
+      track->AddRef();
+      jobject j_track =
+          jni()->NewObject(*j_video_track_class_, j_video_track_ctor_,
+                           reinterpret_cast<jlong>(track.get()), id);
       CHECK_EXCEPTION(jni()) << "error during NewObject";
       jfieldID video_tracks_id = GetFieldID(jni(),
                                             *j_media_stream_class_,
@@ -315,10 +337,9 @@ class PCOJava : public PeerConnectionObserver {
                                   "(Ljava/lang/Object;)Z");
       jboolean added = jni()->CallBooleanMethod(video_tracks, add, j_track);
       CHECK_EXCEPTION(jni()) << "error during CallBooleanMethod";
-      CHECK(added);
+      RTC_CHECK(added);
     }
-    streams_[stream] = jni()->NewWeakGlobalRef(j_stream);
-    CHECK_EXCEPTION(jni()) << "error during NewWeakGlobalRef";
+    remote_streams_[stream] = NewGlobalRef(jni(), j_stream);
 
     jmethodID m = GetMethodID(jni(), *j_observer_class_, "onAddStream",
                               "(Lorg/webrtc/MediaStream;)V");
@@ -328,18 +349,15 @@ class PCOJava : public PeerConnectionObserver {
 
   void OnRemoveStream(MediaStreamInterface* stream) override {
     ScopedLocalRefFrame local_ref_frame(jni());
-    NativeToJavaStreamsMap::iterator it = streams_.find(stream);
-    CHECK(it != streams_.end()) << "unexpected stream: " << std::hex << stream;
-
-    WeakRef s(jni(), it->second);
-    streams_.erase(it);
-    if (!s.obj())
-      return;
-
+    NativeToJavaStreamsMap::iterator it = remote_streams_.find(stream);
+    RTC_CHECK(it != remote_streams_.end()) << "unexpected stream: " << std::hex
+                                           << stream;
+    jobject j_stream = it->second;
     jmethodID m = GetMethodID(jni(), *j_observer_class_, "onRemoveStream",
                               "(Lorg/webrtc/MediaStream;)V");
-    jni()->CallVoidMethod(*j_observer_global_, m, s.obj());
+    jni()->CallVoidMethod(*j_observer_global_, m, j_stream);
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
+    DisposeRemoteStream(it);
   }
 
   void OnDataChannel(DataChannelInterface* channel) override {
@@ -357,7 +375,7 @@ class PCOJava : public PeerConnectionObserver {
     // CallVoidMethod above as Java code might call back into native code and be
     // surprised to see a refcount of 2.
     int bumped_count = channel->AddRef();
-    CHECK(bumped_count == 2) << "Unexpected refcount OnDataChannel";
+    RTC_CHECK(bumped_count == 2) << "Unexpected refcount OnDataChannel";
 
     CHECK_EXCEPTION(jni()) << "error during CallVoidMethod";
   }
@@ -371,13 +389,24 @@ class PCOJava : public PeerConnectionObserver {
   }
 
   void SetConstraints(ConstraintsWrapper* constraints) {
-    CHECK(!constraints_.get()) << "constraints already set!";
+    RTC_CHECK(!constraints_.get()) << "constraints already set!";
     constraints_.reset(constraints);
   }
 
   const ConstraintsWrapper* constraints() { return constraints_.get(); }
 
  private:
+  typedef std::map<MediaStreamInterface*, jobject> NativeToJavaStreamsMap;
+
+  void DisposeRemoteStream(const NativeToJavaStreamsMap::iterator& it) {
+    jobject j_stream = it->second;
+    remote_streams_.erase(it);
+    jni()->CallVoidMethod(
+        j_stream, GetMethodID(jni(), *j_media_stream_class_, "dispose", "()V"));
+    CHECK_EXCEPTION(jni()) << "error during MediaStream.dispose()";
+    DeleteGlobalRef(jni(), j_stream);
+  }
+
   JNIEnv* jni() {
     return AttachCurrentThreadIfNeeded();
   }
@@ -392,8 +421,9 @@ class PCOJava : public PeerConnectionObserver {
   const jmethodID j_video_track_ctor_;
   const ScopedGlobalRef<jclass> j_data_channel_class_;
   const jmethodID j_data_channel_ctor_;
-  typedef std::map<void*, jweak> NativeToJavaStreamsMap;
-  NativeToJavaStreamsMap streams_;  // C++ -> Java streams.
+  // C++ -> Java remote streams. The stored jobects are global refs and must be
+  // manually deleted upon removal. Use DisposeRemoteStream().
+  NativeToJavaStreamsMap remote_streams_;
   scoped_ptr<ConstraintsWrapper> constraints_;
 };
 
@@ -458,7 +488,7 @@ class ConstraintsWrapper : public MediaConstraintsInterface {
 static jobject JavaSdpFromNativeSdp(
     JNIEnv* jni, const SessionDescriptionInterface* desc) {
   std::string sdp;
-  CHECK(desc->ToString(&sdp)) << "got so far: " << sdp;
+  RTC_CHECK(desc->ToString(&sdp)) << "got so far: " << sdp;
   jstring j_description = JavaStringFromStdString(jni, sdp);
 
   jclass j_type_class = FindClass(
@@ -578,7 +608,7 @@ class DataChannelObserverWrapper : public DataChannelObserver {
 
   virtual ~DataChannelObserverWrapper() {}
 
-  void OnBufferedAmountChange(uint64 previous_amount) override {
+  void OnBufferedAmountChange(uint64_t previous_amount) override {
     ScopedLocalRefFrame local_ref_frame(jni());
     jni()->CallVoidMethod(*j_observer_global_, j_on_buffered_amount_change_mid_,
                           previous_amount);
@@ -721,9 +751,6 @@ class VideoRendererWrapper : public VideoRendererInterface {
     renderer_->RenderFrame(frame);
   }
 
-  // TODO(guoweis): Remove this once chrome code base is updated.
-  bool CanApplyRotation() override { return true; }
-
  private:
   explicit VideoRendererWrapper(cricket::VideoRenderer* renderer)
     : width_(0), height_(0), renderer_(renderer) {}
@@ -740,19 +767,14 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
         j_render_frame_id_(GetMethodID(
             jni, GetObjectClass(jni, j_callbacks), "renderFrame",
             "(Lorg/webrtc/VideoRenderer$I420Frame;)V")),
-        j_can_apply_rotation_id_(GetMethodID(
-            jni, GetObjectClass(jni, j_callbacks),
-            "canApplyRotation", "()Z")),
         j_frame_class_(jni,
                        FindClass(jni, "org/webrtc/VideoRenderer$I420Frame")),
         j_i420_frame_ctor_id_(GetMethodID(
-            jni, *j_frame_class_, "<init>", "(III[I[Ljava/nio/ByteBuffer;)V")),
+            jni, *j_frame_class_, "<init>", "(III[I[Ljava/nio/ByteBuffer;J)V")),
         j_texture_frame_ctor_id_(GetMethodID(
             jni, *j_frame_class_, "<init>",
-            "(IIILjava/lang/Object;I)V")),
-        j_byte_buffer_class_(jni, FindClass(jni, "java/nio/ByteBuffer")),
-        can_apply_rotation_set_(false),
-        can_apply_rotation_(false) {
+            "(IIII[FJ)V")),
+        j_byte_buffer_class_(jni, FindClass(jni, "java/nio/ByteBuffer")) {
     CHECK_EXCEPTION(jni);
   }
 
@@ -760,40 +782,23 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
 
   void RenderFrame(const cricket::VideoFrame* video_frame) override {
     ScopedLocalRefFrame local_ref_frame(jni());
-
-    // Calling CanApplyRotation here to ensure can_apply_rotation_ is set.
-    CanApplyRotation();
-
-    const cricket::VideoFrame* frame =
-        can_apply_rotation_ ? video_frame
-                            : video_frame->GetCopyWithRotationApplied();
-    if (frame->GetNativeHandle() != NULL) {
-      jobject j_frame = CricketToJavaTextureFrame(frame);
-      jni()->CallVoidMethod(*j_callbacks_, j_render_frame_id_, j_frame);
-      CHECK_EXCEPTION(jni());
-    } else {
-      jobject j_frame = CricketToJavaI420Frame(frame);
-      jni()->CallVoidMethod(*j_callbacks_, j_render_frame_id_, j_frame);
-      CHECK_EXCEPTION(jni());
-    }
-  }
-
-  // TODO(guoweis): Report that rotation is supported as RenderFrame calls
-  // GetCopyWithRotationApplied.
-  virtual bool CanApplyRotation() override {
-    if (can_apply_rotation_set_) {
-      return can_apply_rotation_;
-    }
-    ScopedLocalRefFrame local_ref_frame(jni());
-    jboolean ret =
-        jni()->CallBooleanMethod(*j_callbacks_, j_can_apply_rotation_id_);
+    jobject j_frame = (video_frame->GetNativeHandle() != nullptr)
+                          ? CricketToJavaTextureFrame(video_frame)
+                          : CricketToJavaI420Frame(video_frame);
+    // |j_callbacks_| is responsible for releasing |j_frame| with
+    // VideoRenderer.renderFrameDone().
+    jni()->CallVoidMethod(*j_callbacks_, j_render_frame_id_, j_frame);
     CHECK_EXCEPTION(jni());
-    can_apply_rotation_ = ret;
-    can_apply_rotation_set_ = true;
-    return ret;
   }
 
  private:
+  // Make a shallow copy of |frame| to be used with Java. The callee has
+  // ownership of the frame, and the frame should be released with
+  // VideoRenderer.releaseNativeFrame().
+  static jlong javaShallowCopy(const cricket::VideoFrame* frame) {
+    return jlongFromPointer(frame->Copy());
+  }
+
   // Return a VideoRenderer.I420Frame referring to the data in |frame|.
   jobject CricketToJavaI420Frame(const cricket::VideoFrame* frame) {
     jintArray strides = jni()->NewIntArray(3);
@@ -803,13 +808,13 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
     strides_array[2] = frame->GetVPitch();
     jni()->ReleaseIntArrayElements(strides, strides_array, 0);
     jobjectArray planes = jni()->NewObjectArray(3, *j_byte_buffer_class_, NULL);
-    jobject y_buffer = jni()->NewDirectByteBuffer(
-        const_cast<uint8*>(frame->GetYPlane()),
-        frame->GetYPitch() * frame->GetHeight());
+    jobject y_buffer =
+        jni()->NewDirectByteBuffer(const_cast<uint8_t*>(frame->GetYPlane()),
+                                   frame->GetYPitch() * frame->GetHeight());
     jobject u_buffer = jni()->NewDirectByteBuffer(
-        const_cast<uint8*>(frame->GetUPlane()), frame->GetChromaSize());
+        const_cast<uint8_t*>(frame->GetUPlane()), frame->GetChromaSize());
     jobject v_buffer = jni()->NewDirectByteBuffer(
-        const_cast<uint8*>(frame->GetVPlane()), frame->GetChromaSize());
+        const_cast<uint8_t*>(frame->GetVPlane()), frame->GetChromaSize());
     jni()->SetObjectArrayElement(planes, 0, y_buffer);
     jni()->SetObjectArrayElement(planes, 1, u_buffer);
     jni()->SetObjectArrayElement(planes, 2, v_buffer);
@@ -817,20 +822,20 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
         *j_frame_class_, j_i420_frame_ctor_id_,
         frame->GetWidth(), frame->GetHeight(),
         static_cast<int>(frame->GetVideoRotation()),
-        strides, planes);
+        strides, planes, javaShallowCopy(frame));
   }
 
   // Return a VideoRenderer.I420Frame referring texture object in |frame|.
   jobject CricketToJavaTextureFrame(const cricket::VideoFrame* frame) {
     NativeHandleImpl* handle =
         reinterpret_cast<NativeHandleImpl*>(frame->GetNativeHandle());
-    jobject texture_object = reinterpret_cast<jobject>(handle->GetHandle());
-    int texture_id = handle->GetTextureId();
+    jfloatArray sampling_matrix = jni()->NewFloatArray(16);
+    jni()->SetFloatArrayRegion(sampling_matrix, 0, 16, handle->sampling_matrix);
     return jni()->NewObject(
         *j_frame_class_, j_texture_frame_ctor_id_,
         frame->GetWidth(), frame->GetHeight(),
         static_cast<int>(frame->GetVideoRotation()),
-        texture_object, texture_id);
+        handle->oes_texture_id, sampling_matrix, javaShallowCopy(frame));
   }
 
   JNIEnv* jni() {
@@ -839,13 +844,10 @@ class JavaVideoRendererWrapper : public VideoRendererInterface {
 
   ScopedGlobalRef<jobject> j_callbacks_;
   jmethodID j_render_frame_id_;
-  jmethodID j_can_apply_rotation_id_;
   ScopedGlobalRef<jclass> j_frame_class_;
   jmethodID j_i420_frame_ctor_id_;
   jmethodID j_texture_frame_ctor_id_;
   ScopedGlobalRef<jclass> j_byte_buffer_class_;
-  bool can_apply_rotation_set_;
-  bool can_apply_rotation_;
 };
 
 
@@ -880,8 +882,8 @@ JOW(jobject, DataChannel_state)(JNIEnv* jni, jobject j_dc) {
 }
 
 JOW(jlong, DataChannel_bufferedAmount)(JNIEnv* jni, jobject j_dc) {
-  uint64 buffered_amount = ExtractNativeDC(jni, j_dc)->buffered_amount();
-  CHECK_LE(buffered_amount, std::numeric_limits<int64>::max())
+  uint64_t buffered_amount = ExtractNativeDC(jni, j_dc)->buffered_amount();
+  RTC_CHECK_LE(buffered_amount, std::numeric_limits<int64_t>::max())
       << "buffered_amount overflowed jlong!";
   return static_cast<jlong>(buffered_amount);
 }
@@ -913,7 +915,7 @@ JOW(void, Logging_nativeEnableTracing)(
 #if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
     if (path != "logcat:") {
 #endif
-      CHECK_EQ(0, webrtc::Trace::SetTraceFile(path.c_str(), false))
+      RTC_CHECK_EQ(0, webrtc::Trace::SetTraceFile(path.c_str(), false))
           << "SetTraceFile failed";
 #if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
     } else {
@@ -927,6 +929,21 @@ JOW(void, Logging_nativeEnableTracing)(
     rtc::LogMessage::LogToDebug(
         static_cast<rtc::LoggingSeverity>(nativeSeverity));
   }
+}
+
+JOW(void, Logging_nativeEnableLogThreads)(JNIEnv* jni, jclass) {
+  rtc::LogMessage::LogThreads(true);
+}
+
+JOW(void, Logging_nativeEnableLogTimeStamps)(JNIEnv* jni, jclass) {
+  rtc::LogMessage::LogTimestamps(true);
+}
+
+JOW(void, Logging_nativeLog)(
+    JNIEnv* jni, jclass, jint j_severity, jstring j_tag, jstring j_message) {
+  std::string message = JavaToStdString(jni, j_message);
+  std::string tag = JavaToStdString(jni, j_tag);
+  LOG_TAG(static_cast<rtc::LoggingSeverity>(j_severity), tag) << message;
 }
 
 JOW(void, PeerConnection_freePeerConnection)(JNIEnv*, jclass, jlong j_p) {
@@ -954,8 +971,13 @@ JOW(void, VideoRenderer_freeWrappedVideoRenderer)(JNIEnv*, jclass, jlong j_p) {
   delete reinterpret_cast<JavaVideoRendererWrapper*>(j_p);
 }
 
+JOW(void, VideoRenderer_releaseNativeFrame)(
+    JNIEnv* jni, jclass, jlong j_frame_ptr) {
+  delete reinterpret_cast<const cricket::VideoFrame*>(j_frame_ptr);
+}
+
 JOW(void, MediaStreamTrack_free)(JNIEnv*, jclass, jlong j_p) {
-  CHECK_RELEASE(reinterpret_cast<MediaStreamTrackInterface*>(j_p));
+  reinterpret_cast<MediaStreamTrackInterface*>(j_p)->Release();
 }
 
 JOW(jboolean, MediaStream_nativeAddAudioTrack)(
@@ -1000,9 +1022,10 @@ JOW(jlong, PeerConnectionFactory_nativeCreateObserver)(
 JOW(jboolean, PeerConnectionFactory_initializeAndroidGlobals)(
     JNIEnv* jni, jclass, jobject context,
     jboolean initialize_audio, jboolean initialize_video,
-    jboolean vp8_hw_acceleration, jobject render_egl_context) {
+    jboolean video_hw_acceleration) {
   bool failure = false;
-  vp8_hw_acceleration_enabled = vp8_hw_acceleration;
+  video_hw_acceleration_enabled = video_hw_acceleration;
+  AndroidNetworkMonitor::SetAndroidContext(jni, context);
   if (!factory_static_initialized) {
     if (initialize_video) {
       failure |= webrtc::SetRenderAndroidVM(GetJVM());
@@ -1011,10 +1034,6 @@ JOW(jboolean, PeerConnectionFactory_initializeAndroidGlobals)(
     if (initialize_audio)
       failure |= webrtc::VoiceEngine::SetAndroidObjects(GetJVM(), context);
     factory_static_initialized = true;
-  }
-  if (initialize_video) {
-    failure |= MediaCodecVideoDecoderFactory::SetAndroidObjects(jni,
-        render_egl_context);
   }
   return !failure;
 }
@@ -1045,20 +1064,71 @@ class OwnedFactoryAndThreads {
  public:
   OwnedFactoryAndThreads(Thread* worker_thread,
                          Thread* signaling_thread,
+                         WebRtcVideoEncoderFactory* encoder_factory,
+                         WebRtcVideoDecoderFactory* decoder_factory,
+                         rtc::NetworkMonitorFactory* network_monitor_factory,
                          PeerConnectionFactoryInterface* factory)
       : worker_thread_(worker_thread),
         signaling_thread_(signaling_thread),
+        encoder_factory_(encoder_factory),
+        decoder_factory_(decoder_factory),
+        network_monitor_factory_(network_monitor_factory),
         factory_(factory) {}
 
-  ~OwnedFactoryAndThreads() { CHECK_RELEASE(factory_); }
+  ~OwnedFactoryAndThreads() {
+    CHECK_RELEASE(factory_);
+    if (network_monitor_factory_ != nullptr) {
+      rtc::NetworkMonitorFactory::ReleaseFactory(network_monitor_factory_);
+    }
+  }
 
   PeerConnectionFactoryInterface* factory() { return factory_; }
+  WebRtcVideoEncoderFactory* encoder_factory() { return encoder_factory_; }
+  WebRtcVideoDecoderFactory* decoder_factory() { return decoder_factory_; }
+  rtc::NetworkMonitorFactory* network_monitor_factory() {
+    return network_monitor_factory_;
+  }
+  void clear_network_monitor_factory() { network_monitor_factory_ = nullptr; }
+  void InvokeJavaCallbacksOnFactoryThreads();
 
  private:
+  void JavaCallbackOnFactoryThreads();
+
   const scoped_ptr<Thread> worker_thread_;
   const scoped_ptr<Thread> signaling_thread_;
+  WebRtcVideoEncoderFactory* encoder_factory_;
+  WebRtcVideoDecoderFactory* decoder_factory_;
+  rtc::NetworkMonitorFactory* network_monitor_factory_;
   PeerConnectionFactoryInterface* factory_;  // Const after ctor except dtor.
 };
+
+void OwnedFactoryAndThreads::JavaCallbackOnFactoryThreads() {
+  JNIEnv* jni = AttachCurrentThreadIfNeeded();
+  ScopedLocalRefFrame local_ref_frame(jni);
+  jclass j_factory_class = FindClass(jni, "org/webrtc/PeerConnectionFactory");
+  jmethodID m = nullptr;
+  if (Thread::Current() == worker_thread_) {
+    LOG(LS_INFO) << "Worker thread JavaCallback";
+    m = GetStaticMethodID(jni, j_factory_class, "onWorkerThreadReady", "()V");
+  }
+  if (Thread::Current() == signaling_thread_) {
+    LOG(LS_INFO) << "Signaling thread JavaCallback";
+    m = GetStaticMethodID(
+        jni, j_factory_class, "onSignalingThreadReady", "()V");
+  }
+  if (m != nullptr) {
+    jni->CallStaticVoidMethod(j_factory_class, m);
+    CHECK_EXCEPTION(jni) << "error during JavaCallback::CallStaticVoidMethod";
+  }
+}
+
+void OwnedFactoryAndThreads::InvokeJavaCallbacksOnFactoryThreads() {
+  LOG(LS_INFO) << "InvokeJavaCallbacksOnFactoryThreads.";
+  worker_thread_->Invoke<void>(
+      Bind(&OwnedFactoryAndThreads::JavaCallbackOnFactoryThreads, this));
+  signaling_thread_->Invoke<void>(
+      Bind(&OwnedFactoryAndThreads::JavaCallbackOnFactoryThreads, this));
+}
 
 JOW(jlong, PeerConnectionFactory_nativeCreatePeerConnectionFactory)(
     JNIEnv* jni, jclass) {
@@ -1073,28 +1143,37 @@ JOW(jlong, PeerConnectionFactory_nativeCreatePeerConnectionFactory)(
   worker_thread->SetName("worker_thread", NULL);
   Thread* signaling_thread = new Thread();
   signaling_thread->SetName("signaling_thread", NULL);
-  CHECK(worker_thread->Start() && signaling_thread->Start())
+  RTC_CHECK(worker_thread->Start() && signaling_thread->Start())
       << "Failed to start threads";
-  scoped_ptr<cricket::WebRtcVideoEncoderFactory> encoder_factory;
-  scoped_ptr<cricket::WebRtcVideoDecoderFactory> decoder_factory;
+  WebRtcVideoEncoderFactory* encoder_factory = nullptr;
+  WebRtcVideoDecoderFactory* decoder_factory = nullptr;
+  rtc::NetworkMonitorFactory* network_monitor_factory = nullptr;
+
 #if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
-  if (vp8_hw_acceleration_enabled) {
-    encoder_factory.reset(new MediaCodecVideoEncoderFactory());
-    decoder_factory.reset(new MediaCodecVideoDecoderFactory());
+  if (video_hw_acceleration_enabled) {
+    encoder_factory = new MediaCodecVideoEncoderFactory();
+    decoder_factory = new MediaCodecVideoDecoderFactory();
   }
+  network_monitor_factory = new AndroidNetworkMonitorFactory();
+  rtc::NetworkMonitorFactory::SetFactory(network_monitor_factory);
 #endif
   rtc::scoped_refptr<PeerConnectionFactoryInterface> factory(
       webrtc::CreatePeerConnectionFactory(worker_thread,
                                           signaling_thread,
                                           NULL,
-                                          encoder_factory.release(),
-                                          decoder_factory.release()));
+                                          encoder_factory,
+                                          decoder_factory));
+  RTC_CHECK(factory) << "Failed to create the peer connection factory; "
+                     << "WebRTC/libjingle init likely failed on this device";
   OwnedFactoryAndThreads* owned_factory = new OwnedFactoryAndThreads(
-      worker_thread, signaling_thread, factory.release());
+      worker_thread, signaling_thread,
+      encoder_factory, decoder_factory,
+      network_monitor_factory, factory.release());
+  owned_factory->InvokeJavaCallbacksOnFactoryThreads();
   return jlongFromPointer(owned_factory);
 }
 
-JOW(void, PeerConnectionFactory_freeFactory)(JNIEnv*, jclass, jlong j_p) {
+JOW(void, PeerConnectionFactory_nativeFreeFactory)(JNIEnv*, jclass, jlong j_p) {
   delete reinterpret_cast<OwnedFactoryAndThreads*>(j_p);
   if (field_trials_init_string) {
     webrtc::field_trial::InitFieldTrialsFromString(NULL);
@@ -1106,6 +1185,13 @@ JOW(void, PeerConnectionFactory_freeFactory)(JNIEnv*, jclass, jlong j_p) {
 
 static PeerConnectionFactoryInterface* factoryFromJava(jlong j_p) {
   return reinterpret_cast<OwnedFactoryAndThreads*>(j_p)->factory();
+}
+
+JOW(void, PeerConnectionFactory_nativeThreadsCallbacks)(
+    JNIEnv*, jclass, jlong j_p) {
+  OwnedFactoryAndThreads *factory =
+      reinterpret_cast<OwnedFactoryAndThreads*>(j_p);
+  factory->InvokeJavaCallbacksOnFactoryThreads();
 }
 
 JOW(jlong, PeerConnectionFactory_nativeCreateLocalMediaStream)(
@@ -1180,14 +1266,46 @@ JOW(void, PeerConnectionFactory_nativeSetOptions)(
   bool disable_encryption =
       jni->GetBooleanField(options, disable_encryption_field);
 
+  jfieldID disable_network_monitor_field =
+      jni->GetFieldID(options_class, "disableNetworkMonitor", "Z");
+  bool disable_network_monitor =
+      jni->GetBooleanField(options, disable_network_monitor_field);
+
   PeerConnectionFactoryInterface::Options options_to_set;
 
   // This doesn't necessarily match the c++ version of this struct; feel free
   // to add more parameters as necessary.
   options_to_set.network_ignore_mask = network_ignore_mask;
   options_to_set.disable_encryption = disable_encryption;
+  options_to_set.disable_network_monitor = disable_network_monitor;
   factory->SetOptions(options_to_set);
+
+  if (disable_network_monitor) {
+    OwnedFactoryAndThreads* owner =
+        reinterpret_cast<OwnedFactoryAndThreads*>(native_factory);
+    if (owner->network_monitor_factory()) {
+      rtc::NetworkMonitorFactory::ReleaseFactory(
+          owner->network_monitor_factory());
+      owner->clear_network_monitor_factory();
+    }
+  }
 }
+
+JOW(void, PeerConnectionFactory_nativeSetVideoHwAccelerationOptions)(
+    JNIEnv* jni, jclass, jlong native_factory, jobject render_egl_context) {
+#if defined(ANDROID) && !defined(WEBRTC_CHROMIUM_BUILD)
+  OwnedFactoryAndThreads* owned_factory =
+      reinterpret_cast<OwnedFactoryAndThreads*>(native_factory);
+  MediaCodecVideoDecoderFactory* decoder_factory =
+      static_cast<MediaCodecVideoDecoderFactory*>
+          (owned_factory->decoder_factory());
+  if (decoder_factory) {
+    LOG(LS_INFO) << "Set EGL context for HW acceleration.";
+    decoder_factory->SetEGLContext(jni, render_egl_context);
+  }
+#endif
+}
+
 
 static std::string
 GetJavaEnumName(JNIEnv* jni, const std::string& className, jobject j_enum) {
@@ -1219,7 +1337,7 @@ JavaIceTransportsTypeToNativeType(JNIEnv* jni, jobject j_ice_transports_type) {
   if (enum_name == "NONE")
     return PeerConnectionInterface::kNone;
 
-  CHECK(false) << "Unexpected IceTransportsType enum_name " << enum_name;
+  RTC_CHECK(false) << "Unexpected IceTransportsType enum_name " << enum_name;
   return PeerConnectionInterface::kAll;
 }
 
@@ -1238,7 +1356,7 @@ JavaBundlePolicyToNativeType(JNIEnv* jni, jobject j_bundle_policy) {
   if (enum_name == "MAXCOMPAT")
     return PeerConnectionInterface::kBundlePolicyMaxCompat;
 
-  CHECK(false) << "Unexpected BundlePolicy enum_name " << enum_name;
+  RTC_CHECK(false) << "Unexpected BundlePolicy enum_name " << enum_name;
   return PeerConnectionInterface::kBundlePolicyBalanced;
 }
 
@@ -1254,7 +1372,7 @@ JavaRtcpMuxPolicyToNativeType(JNIEnv* jni, jobject j_rtcp_mux_policy) {
   if (enum_name == "REQUIRE")
     return PeerConnectionInterface::kRtcpMuxPolicyRequire;
 
-  CHECK(false) << "Unexpected RtcpMuxPolicy enum_name " << enum_name;
+  RTC_CHECK(false) << "Unexpected RtcpMuxPolicy enum_name " << enum_name;
   return PeerConnectionInterface::kRtcpMuxPolicyNegotiate;
 }
 
@@ -1271,8 +1389,38 @@ JavaTcpCandidatePolicyToNativeType(
   if (enum_name == "DISABLED")
     return PeerConnectionInterface::kTcpCandidatePolicyDisabled;
 
-  CHECK(false) << "Unexpected TcpCandidatePolicy enum_name " << enum_name;
+  RTC_CHECK(false) << "Unexpected TcpCandidatePolicy enum_name " << enum_name;
   return PeerConnectionInterface::kTcpCandidatePolicyEnabled;
+}
+
+static rtc::KeyType JavaKeyTypeToNativeType(JNIEnv* jni, jobject j_key_type) {
+  std::string enum_name = GetJavaEnumName(
+      jni, "org/webrtc/PeerConnection$KeyType", j_key_type);
+
+  if (enum_name == "RSA")
+    return rtc::KT_RSA;
+  if (enum_name == "ECDSA")
+    return rtc::KT_ECDSA;
+
+  RTC_CHECK(false) << "Unexpected KeyType enum_name " << enum_name;
+  return rtc::KT_ECDSA;
+}
+
+static PeerConnectionInterface::ContinualGatheringPolicy
+    JavaContinualGatheringPolicyToNativeType(
+        JNIEnv* jni, jobject j_gathering_policy) {
+  std::string enum_name = GetJavaEnumName(
+      jni, "org/webrtc/PeerConnection$ContinualGatheringPolicy",
+      j_gathering_policy);
+  if (enum_name == "GATHER_ONCE")
+    return PeerConnectionInterface::GATHER_ONCE;
+
+  if (enum_name == "GATHER_CONTINUALLY")
+    return PeerConnectionInterface::GATHER_CONTINUALLY;
+
+  RTC_CHECK(false) << "Unexpected ContinualGatheringPolicy enum name "
+                   << enum_name;
+  return PeerConnectionInterface::GATHER_ONCE;
 }
 
 static void JavaIceServersToJsepIceServers(
@@ -1313,13 +1461,10 @@ static void JavaIceServersToJsepIceServers(
   CHECK_EXCEPTION(jni) << "error during CallBooleanMethod";
 }
 
-JOW(jlong, PeerConnectionFactory_nativeCreatePeerConnection)(
-    JNIEnv *jni, jclass, jlong factory, jobject j_rtc_config,
-    jobject j_constraints, jlong observer_p) {
-  rtc::scoped_refptr<PeerConnectionFactoryInterface> f(
-      reinterpret_cast<PeerConnectionFactoryInterface*>(
-          factoryFromJava(factory)));
-
+static void JavaRTCConfigurationToJsepRTCConfiguration(
+    JNIEnv* jni,
+    jobject j_rtc_config,
+    PeerConnectionInterface::RTCConfiguration* rtc_config) {
   jclass j_rtc_config_class = GetObjectClass(jni, j_rtc_config);
 
   jfieldID j_ice_transports_type_id = GetFieldID(
@@ -1347,29 +1492,73 @@ JOW(jlong, PeerConnectionFactory_nativeCreatePeerConnection)(
       jni, j_rtc_config, j_tcp_candidate_policy_id);
 
   jfieldID j_ice_servers_id = GetFieldID(
-      jni, j_rtc_config_class, "iceServers",
-      "Ljava/util/List;");
+      jni, j_rtc_config_class, "iceServers", "Ljava/util/List;");
   jobject j_ice_servers = GetObjectField(jni, j_rtc_config, j_ice_servers_id);
 
-  jfieldID j_audio_jitter_buffer_max_packets_id = GetFieldID(
-      jni, j_rtc_config_class, "audioJitterBufferMaxPackets",
-      "I");
+  jfieldID j_audio_jitter_buffer_max_packets_id =
+      GetFieldID(jni, j_rtc_config_class, "audioJitterBufferMaxPackets", "I");
   jfieldID j_audio_jitter_buffer_fast_accelerate_id = GetFieldID(
       jni, j_rtc_config_class, "audioJitterBufferFastAccelerate", "Z");
-  PeerConnectionInterface::RTCConfiguration rtc_config;
 
-  rtc_config.type =
+  jfieldID j_ice_connection_receiving_timeout_id =
+      GetFieldID(jni, j_rtc_config_class, "iceConnectionReceivingTimeout", "I");
+
+  jfieldID j_continual_gathering_policy_id =
+      GetFieldID(jni, j_rtc_config_class, "continualGatheringPolicy",
+                 "Lorg/webrtc/PeerConnection$ContinualGatheringPolicy;");
+  jobject j_continual_gathering_policy =
+      GetObjectField(jni, j_rtc_config, j_continual_gathering_policy_id);
+
+  rtc_config->type =
       JavaIceTransportsTypeToNativeType(jni, j_ice_transports_type);
-  rtc_config.bundle_policy = JavaBundlePolicyToNativeType(jni, j_bundle_policy);
-  rtc_config.rtcp_mux_policy =
+  rtc_config->bundle_policy =
+      JavaBundlePolicyToNativeType(jni, j_bundle_policy);
+  rtc_config->rtcp_mux_policy =
       JavaRtcpMuxPolicyToNativeType(jni, j_rtcp_mux_policy);
-  rtc_config.tcp_candidate_policy =
+  rtc_config->tcp_candidate_policy =
       JavaTcpCandidatePolicyToNativeType(jni, j_tcp_candidate_policy);
-  JavaIceServersToJsepIceServers(jni, j_ice_servers, &rtc_config.servers);
-  rtc_config.audio_jitter_buffer_max_packets =
+  JavaIceServersToJsepIceServers(jni, j_ice_servers, &rtc_config->servers);
+  rtc_config->audio_jitter_buffer_max_packets =
       GetIntField(jni, j_rtc_config, j_audio_jitter_buffer_max_packets_id);
-  rtc_config.audio_jitter_buffer_fast_accelerate = GetBooleanField(
+  rtc_config->audio_jitter_buffer_fast_accelerate = GetBooleanField(
       jni, j_rtc_config, j_audio_jitter_buffer_fast_accelerate_id);
+  rtc_config->ice_connection_receiving_timeout =
+      GetIntField(jni, j_rtc_config, j_ice_connection_receiving_timeout_id);
+  rtc_config->continual_gathering_policy =
+      JavaContinualGatheringPolicyToNativeType(
+          jni, j_continual_gathering_policy);
+}
+
+JOW(jlong, PeerConnectionFactory_nativeCreatePeerConnection)(
+    JNIEnv *jni, jclass, jlong factory, jobject j_rtc_config,
+    jobject j_constraints, jlong observer_p) {
+  rtc::scoped_refptr<PeerConnectionFactoryInterface> f(
+      reinterpret_cast<PeerConnectionFactoryInterface*>(
+          factoryFromJava(factory)));
+
+  PeerConnectionInterface::RTCConfiguration rtc_config;
+  JavaRTCConfigurationToJsepRTCConfiguration(jni, j_rtc_config, &rtc_config);
+
+  jclass j_rtc_config_class = GetObjectClass(jni, j_rtc_config);
+  jfieldID j_key_type_id = GetFieldID(jni, j_rtc_config_class, "keyType",
+                                      "Lorg/webrtc/PeerConnection$KeyType;");
+  jobject j_key_type = GetObjectField(jni, j_rtc_config, j_key_type_id);
+
+  // Create ECDSA certificate.
+  if (JavaKeyTypeToNativeType(jni, j_key_type) == rtc::KT_ECDSA) {
+    scoped_ptr<rtc::SSLIdentity> ssl_identity(
+        rtc::SSLIdentity::Generate(webrtc::kIdentityName, rtc::KT_ECDSA));
+    if (ssl_identity.get()) {
+      rtc_config.certificates.push_back(
+          rtc::RTCCertificate::Create(ssl_identity.Pass()));
+      LOG(LS_INFO) << "ECDSA certificate created.";
+    } else {
+      // Failing to create certificate should not abort peer connection
+      // creation. Instead default encryption (currently RSA) will be used.
+      LOG(LS_WARNING) <<
+          "Failed to generate SSLIdentity. Default encryption will be used.";
+    }
+  }
 
   PCOJava* observer = reinterpret_cast<PCOJava*>(observer_p);
   observer->SetConstraints(new ConstraintsWrapper(jni, j_constraints));
@@ -1409,7 +1598,7 @@ JOW(jobject, PeerConnection_createDataChannel)(
   // vararg parameter as 64-bit and reading memory that doesn't belong to the
   // 32-bit parameter.
   jlong nativeChannelPtr = jlongFromPointer(channel.get());
-  CHECK(nativeChannelPtr) << "Failed to create DataChannel";
+  RTC_CHECK(nativeChannelPtr) << "Failed to create DataChannel";
   jclass j_data_channel_class = FindClass(jni, "org/webrtc/DataChannel");
   jmethodID j_data_channel_ctor = GetMethodID(
       jni, j_data_channel_class, "<init>", "(J)V");
@@ -1418,7 +1607,7 @@ JOW(jobject, PeerConnection_createDataChannel)(
   CHECK_EXCEPTION(jni) << "error during NewObject";
   // Channel is now owned by Java object, and will be freed from there.
   int bumped_count = channel->AddRef();
-  CHECK(bumped_count == 2) << "Unexpected refcount";
+  RTC_CHECK(bumped_count == 2) << "Unexpected refcount";
   return j_channel;
 }
 
@@ -1486,13 +1675,11 @@ JOW(void, PeerConnection_setRemoteDescription)(
       observer, JavaSdpToNativeSdp(jni, j_sdp));
 }
 
-JOW(jboolean, PeerConnection_updateIce)(
-    JNIEnv* jni, jobject j_pc, jobject j_ice_servers, jobject j_constraints) {
-  PeerConnectionInterface::IceServers ice_servers;
-  JavaIceServersToJsepIceServers(jni, j_ice_servers, &ice_servers);
-  scoped_ptr<ConstraintsWrapper> constraints(
-      new ConstraintsWrapper(jni, j_constraints));
-  return ExtractNativePC(jni, j_pc)->UpdateIce(ice_servers, constraints.get());
+JOW(jboolean, PeerConnection_setConfiguration)(
+    JNIEnv* jni, jobject j_pc, jobject j_rtc_config) {
+  PeerConnectionInterface::RTCConfiguration rtc_config;
+  JavaRTCConfigurationToJsepRTCConfiguration(jni, j_rtc_config, &rtc_config);
+  return ExtractNativePC(jni, j_pc)->SetConfiguration(rtc_config);
 }
 
 JOW(jboolean, PeerConnection_nativeAddIceCandidate)(
@@ -1515,6 +1702,60 @@ JOW(void, PeerConnection_nativeRemoveLocalStream)(
     JNIEnv* jni, jobject j_pc, jlong native_stream) {
   ExtractNativePC(jni, j_pc)->RemoveStream(
       reinterpret_cast<MediaStreamInterface*>(native_stream));
+}
+
+JOW(jobject, PeerConnection_nativeGetSenders)(JNIEnv* jni, jobject j_pc) {
+  jclass j_array_list_class = FindClass(jni, "java/util/ArrayList");
+  jmethodID j_array_list_ctor =
+      GetMethodID(jni, j_array_list_class, "<init>", "()V");
+  jmethodID j_array_list_add =
+      GetMethodID(jni, j_array_list_class, "add", "(Ljava/lang/Object;)Z");
+  jobject j_senders = jni->NewObject(j_array_list_class, j_array_list_ctor);
+  CHECK_EXCEPTION(jni) << "error during NewObject";
+
+  jclass j_rtp_sender_class = FindClass(jni, "org/webrtc/RtpSender");
+  jmethodID j_rtp_sender_ctor =
+      GetMethodID(jni, j_rtp_sender_class, "<init>", "(J)V");
+
+  auto senders = ExtractNativePC(jni, j_pc)->GetSenders();
+  for (const auto& sender : senders) {
+    jlong nativeSenderPtr = jlongFromPointer(sender.get());
+    jobject j_sender =
+        jni->NewObject(j_rtp_sender_class, j_rtp_sender_ctor, nativeSenderPtr);
+    CHECK_EXCEPTION(jni) << "error during NewObject";
+    // Sender is now owned by Java object, and will be freed from there.
+    sender->AddRef();
+    jni->CallBooleanMethod(j_senders, j_array_list_add, j_sender);
+    CHECK_EXCEPTION(jni) << "error during CallBooleanMethod";
+  }
+  return j_senders;
+}
+
+JOW(jobject, PeerConnection_nativeGetReceivers)(JNIEnv* jni, jobject j_pc) {
+  jclass j_array_list_class = FindClass(jni, "java/util/ArrayList");
+  jmethodID j_array_list_ctor =
+      GetMethodID(jni, j_array_list_class, "<init>", "()V");
+  jmethodID j_array_list_add =
+      GetMethodID(jni, j_array_list_class, "add", "(Ljava/lang/Object;)Z");
+  jobject j_receivers = jni->NewObject(j_array_list_class, j_array_list_ctor);
+  CHECK_EXCEPTION(jni) << "error during NewObject";
+
+  jclass j_rtp_receiver_class = FindClass(jni, "org/webrtc/RtpReceiver");
+  jmethodID j_rtp_receiver_ctor =
+      GetMethodID(jni, j_rtp_receiver_class, "<init>", "(J)V");
+
+  auto receivers = ExtractNativePC(jni, j_pc)->GetReceivers();
+  for (const auto& receiver : receivers) {
+    jlong nativeReceiverPtr = jlongFromPointer(receiver.get());
+    jobject j_receiver = jni->NewObject(j_rtp_receiver_class,
+                                        j_rtp_receiver_ctor, nativeReceiverPtr);
+    CHECK_EXCEPTION(jni) << "error during NewObject";
+    // Receiver is now owned by Java object, and will be freed from there.
+    receiver->AddRef();
+    jni->CallBooleanMethod(j_receivers, j_array_list_add, j_receiver);
+    CHECK_EXCEPTION(jni) << "error during CallBooleanMethod";
+  }
+  return j_receivers;
 }
 
 JOW(bool, PeerConnection_nativeGetStats)(
@@ -1563,24 +1804,28 @@ JOW(jobject, VideoCapturer_nativeCreateVideoCapturer)(
 #if defined(ANDROID)
   jclass j_video_capturer_class(
       FindClass(jni, "org/webrtc/VideoCapturerAndroid"));
-  const jmethodID j_videocapturer_ctor(GetMethodID(
-      jni, j_video_capturer_class, "<init>", "()V"));
-  jobject j_video_capturer = jni->NewObject(j_video_capturer_class,
-                                            j_videocapturer_ctor);
-  CHECK_EXCEPTION(jni) << "error during NewObject";
-
-  rtc::scoped_refptr<AndroidVideoCapturerJni> delegate =
-      AndroidVideoCapturerJni::Create(jni, j_video_capturer, j_device_name);
-  if (!delegate.get())
+  const int camera_id = jni->CallStaticIntMethod(
+      j_video_capturer_class,
+      GetStaticMethodID(jni, j_video_capturer_class, "lookupDeviceName",
+                        "(Ljava/lang/String;)I"),
+      j_device_name);
+  CHECK_EXCEPTION(jni) << "error during VideoCapturerAndroid.lookupDeviceName";
+  if (camera_id == -1)
     return nullptr;
-  rtc::scoped_ptr<webrtc::AndroidVideoCapturer> capturer(
+  jobject j_video_capturer = jni->NewObject(
+      j_video_capturer_class,
+      GetMethodID(jni, j_video_capturer_class, "<init>", "(I)V"), camera_id);
+  CHECK_EXCEPTION(jni) << "error during creation of VideoCapturerAndroid";
+  rtc::scoped_refptr<webrtc::AndroidVideoCapturerDelegate> delegate =
+      new rtc::RefCountedObject<AndroidVideoCapturerJni>(jni, j_video_capturer);
+  rtc::scoped_ptr<cricket::VideoCapturer> capturer(
       new webrtc::AndroidVideoCapturer(delegate));
 
 #else
   std::string device_name = JavaToStdString(jni, j_device_name);
   scoped_ptr<cricket::DeviceManagerInterface> device_manager(
       cricket::DeviceManagerFactory::Create());
-  CHECK(device_manager->Init()) << "DeviceManager::Init() failed";
+  RTC_CHECK(device_manager->Init()) << "DeviceManager::Init() failed";
   cricket::Device device;
   if (!device_manager->GetVideoCaptureDevice(device_name, &device)) {
     LOG(LS_ERROR) << "GetVideoCaptureDevice failed for " << device_name;
@@ -1603,7 +1848,7 @@ JOW(jobject, VideoCapturer_nativeCreateVideoCapturer)(
       jni, j_video_capturer_class, "setNativeCapturer", "(J)V"));
   jni->CallVoidMethod(j_video_capturer,
                       j_videocapturer_set_native_capturer,
-                      (jlong)capturer.release());
+                      jlongFromPointer(capturer.release()));
   CHECK_EXCEPTION(jni) << "error during setNativeCapturer";
   return j_video_capturer;
 }
@@ -1627,11 +1872,11 @@ JOW(void, VideoRenderer_nativeCopyPlane)(
     jint src_stride, jobject j_dst_buffer, jint dst_stride) {
   size_t src_size = jni->GetDirectBufferCapacity(j_src_buffer);
   size_t dst_size = jni->GetDirectBufferCapacity(j_dst_buffer);
-  CHECK(src_stride >= width) << "Wrong source stride " << src_stride;
-  CHECK(dst_stride >= width) << "Wrong destination stride " << dst_stride;
-  CHECK(src_size >= src_stride * height)
+  RTC_CHECK(src_stride >= width) << "Wrong source stride " << src_stride;
+  RTC_CHECK(dst_stride >= width) << "Wrong destination stride " << dst_stride;
+  RTC_CHECK(src_size >= src_stride * height)
       << "Insufficient source buffer capacity " << src_size;
-  CHECK(dst_size >= dst_stride * height)
+  RTC_CHECK(dst_size >= dst_stride * height)
       << "Isufficient destination buffer capacity " << dst_size;
   uint8_t *src =
       reinterpret_cast<uint8_t*>(jni->GetDirectBufferAddress(j_src_buffer));
@@ -1704,6 +1949,107 @@ JOW(void, VideoTrack_nativeRemoveRenderer)(
     jlong j_video_track_pointer, jlong j_renderer_pointer) {
   reinterpret_cast<VideoTrackInterface*>(j_video_track_pointer)->RemoveRenderer(
       reinterpret_cast<VideoRendererInterface*>(j_renderer_pointer));
+}
+
+JOW(jlong, CallSessionFileRotatingLogSink_nativeAddSink)(
+    JNIEnv* jni, jclass,
+    jstring j_dirPath, jint j_maxFileSize, jint j_severity) {
+  std::string dir_path = JavaToStdString(jni, j_dirPath);
+  rtc::CallSessionFileRotatingLogSink* sink =
+      new rtc::CallSessionFileRotatingLogSink(dir_path, j_maxFileSize);
+  if (!sink->Init()) {
+    LOG_V(rtc::LoggingSeverity::LS_WARNING) <<
+        "Failed to init CallSessionFileRotatingLogSink for path " << dir_path;
+    delete sink;
+    return 0;
+  }
+  rtc::LogMessage::AddLogToStream(
+      sink, static_cast<rtc::LoggingSeverity>(j_severity));
+  return (jlong) sink;
+}
+
+JOW(void, CallSessionFileRotatingLogSink_nativeDeleteSink)(
+    JNIEnv* jni, jclass, jlong j_sink) {
+  rtc::CallSessionFileRotatingLogSink* sink =
+      reinterpret_cast<rtc::CallSessionFileRotatingLogSink*>(j_sink);
+  rtc::LogMessage::RemoveLogToStream(sink);
+  delete sink;
+}
+
+JOW(jbyteArray, CallSessionFileRotatingLogSink_nativeGetLogData)(
+    JNIEnv* jni, jclass, jstring j_dirPath) {
+  std::string dir_path = JavaToStdString(jni, j_dirPath);
+  rtc::scoped_ptr<rtc::CallSessionFileRotatingStream> stream(
+      new rtc::CallSessionFileRotatingStream(dir_path));
+  if (!stream->Open()) {
+    LOG_V(rtc::LoggingSeverity::LS_WARNING) <<
+        "Failed to open CallSessionFileRotatingStream for path " << dir_path;
+    return jni->NewByteArray(0);
+  }
+  size_t log_size = 0;
+  if (!stream->GetSize(&log_size) || log_size == 0) {
+    LOG_V(rtc::LoggingSeverity::LS_WARNING) <<
+        "CallSessionFileRotatingStream returns 0 size for path " << dir_path;
+    return jni->NewByteArray(0);
+  }
+
+  size_t read = 0;
+  rtc::scoped_ptr<jbyte> buffer(static_cast<jbyte*>(malloc(log_size)));
+  stream->ReadAll(buffer.get(), log_size, &read, nullptr);
+
+  jbyteArray result = jni->NewByteArray(read);
+  jni->SetByteArrayRegion(result, 0, read, buffer.get());
+
+  return result;
+}
+
+JOW(void, RtpSender_nativeSetTrack)(JNIEnv* jni,
+                                    jclass,
+                                    jlong j_rtp_sender_pointer,
+                                    jlong j_track_pointer) {
+  reinterpret_cast<RtpSenderInterface*>(j_rtp_sender_pointer)
+      ->SetTrack(reinterpret_cast<MediaStreamTrackInterface*>(j_track_pointer));
+}
+
+JOW(jlong, RtpSender_nativeGetTrack)(JNIEnv* jni,
+                                  jclass,
+                                  jlong j_rtp_sender_pointer,
+                                  jlong j_track_pointer) {
+  return jlongFromPointer(
+      reinterpret_cast<RtpSenderInterface*>(j_rtp_sender_pointer)
+          ->track()
+          .release());
+}
+
+JOW(jstring, RtpSender_nativeId)(
+    JNIEnv* jni, jclass, jlong j_rtp_sender_pointer) {
+  return JavaStringFromStdString(
+      jni, reinterpret_cast<RtpSenderInterface*>(j_rtp_sender_pointer)->id());
+}
+
+JOW(void, RtpSender_free)(JNIEnv* jni, jclass, jlong j_rtp_sender_pointer) {
+  reinterpret_cast<RtpSenderInterface*>(j_rtp_sender_pointer)->Release();
+}
+
+JOW(jlong, RtpReceiver_nativeGetTrack)(JNIEnv* jni,
+                                    jclass,
+                                    jlong j_rtp_receiver_pointer,
+                                    jlong j_track_pointer) {
+  return jlongFromPointer(
+      reinterpret_cast<RtpReceiverInterface*>(j_rtp_receiver_pointer)
+          ->track()
+          .release());
+}
+
+JOW(jstring, RtpReceiver_nativeId)(
+    JNIEnv* jni, jclass, jlong j_rtp_receiver_pointer) {
+  return JavaStringFromStdString(
+      jni,
+      reinterpret_cast<RtpReceiverInterface*>(j_rtp_receiver_pointer)->id());
+}
+
+JOW(void, RtpReceiver_free)(JNIEnv* jni, jclass, jlong j_rtp_receiver_pointer) {
+  reinterpret_cast<RtpReceiverInterface*>(j_rtp_receiver_pointer)->Release();
 }
 
 }  // namespace webrtc_jni

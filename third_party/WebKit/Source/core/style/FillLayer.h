@@ -31,11 +31,13 @@
 #include "platform/Length.h"
 #include "platform/LengthSize.h"
 #include "platform/graphics/GraphicsTypes.h"
+#include "wtf/Allocator.h"
 #include "wtf/RefPtr.h"
 
 namespace blink {
 
 struct FillSize {
+    STACK_ALLOCATED();
     FillSize()
         : type(SizeLength)
     {
@@ -60,8 +62,9 @@ struct FillSize {
     LengthSize size;
 };
 
+// FIXME(Oilpan): Move FillLayer to Oilpan's heap.
 class CORE_EXPORT FillLayer {
-    WTF_MAKE_FAST_ALLOCATED(FillLayer);
+    USING_FAST_MALLOC(FillLayer);
 public:
     FillLayer(EFillLayerType, bool useInitialValues = false);
     ~FillLayer();
@@ -107,7 +110,7 @@ public:
     bool isSizeSet() const { return m_sizeType != SizeNone; }
     bool isMaskSourceTypeSet() const { return m_maskSourceTypeSet; }
 
-    void setImage(PassRefPtr<StyleImage> i) { m_image = i; m_imageSet = true; }
+    void setImage(PassRefPtrWillBeRawPtr<StyleImage> i) { m_image = i; m_imageSet = true; }
     void setXPosition(const Length& position) { m_xPosition = position; m_xPosSet = true; m_backgroundXOriginSet = false; m_backgroundXOrigin = LeftEdge; }
     void setYPosition(const Length& position) { m_yPosition = position; m_yPosSet = true; m_backgroundYOriginSet = false; m_backgroundYOrigin = TopEdge; }
     void setBackgroundXOrigin(BackgroundEdgeOrigin origin) { m_backgroundXOrigin = origin; m_backgroundXOriginSet = true; }
@@ -181,6 +184,8 @@ public:
     void fillUnsetProperties();
     void cullEmptyLayers();
 
+    static bool imagesIdentical(const FillLayer*, const FillLayer*);
+
     EFillBox thisOrNextLayersClipMax() const { computeCachedPropertiesIfNeeded(); return static_cast<EFillBox>(m_thisOrNextLayersClipMax); }
     bool thisOrNextLayersUseContentBox() const { computeCachedPropertiesIfNeeded(); return m_thisOrNextLayersUseContentBox; }
     bool thisOrNextLayersHaveLocalAttachment() const { computeCachedPropertiesIfNeeded(); return m_thisOrNextLayersHaveLocalAttachment; }
@@ -208,7 +213,7 @@ private:
 
     FillLayer* m_next;
 
-    RefPtr<StyleImage> m_image;
+    RefPtrWillBePersistent<StyleImage> m_image;
 
     Length m_xPosition;
     Length m_yPosition;

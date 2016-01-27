@@ -112,8 +112,12 @@ bool WebCursor::Deserialize(base::PickleIterator* iter) {
     if (size_x > 0 && size_y > 0) {
       // The * 4 is because the expected format is an array of RGBA pixel
       // values.
-      if (size_x * size_y * 4 > data_len)
+      if (size_x * size_y * 4 != data_len) {
+        LOG(WARNING) << "WebCursor's data length and image size mismatch: "
+                     << size_x << "x" << size_y << "x4 != "
+                     << data_len;
         return false;
+      }
 
       hotspot_.set_x(hotspot_x);
       hotspot_.set_y(hotspot_y);
@@ -231,10 +235,12 @@ void WebCursor::SetCustomData(const SkBitmap& bitmap) {
     return;
 
   // Fill custom_data_ directly with the NativeImage pixels.
-  SkAutoLockPixels bitmap_lock(bitmap);
   custom_data_.resize(bitmap.getSize());
-  if (!custom_data_.empty())
-    memcpy(&custom_data_[0], bitmap.getPixels(), bitmap.getSize());
+  if (!custom_data_.empty()) {
+    //This will divide color values by alpha (un-premultiply) if necessary
+    SkImageInfo dstInfo = bitmap.info().makeAlphaType(kUnpremul_SkAlphaType);
+    bitmap.readPixels(dstInfo, &custom_data_[0], dstInfo.minRowBytes(), 0, 0);
+  }
   custom_size_.set_width(bitmap.width());
   custom_size_.set_height(bitmap.height());
 }
@@ -243,7 +249,10 @@ void WebCursor::ImageFromCustomData(SkBitmap* image) const {
   if (custom_data_.empty())
     return;
 
-  if (!image->tryAllocN32Pixels(custom_size_.width(), custom_size_.height()))
+  SkImageInfo image_info = SkImageInfo::MakeN32(custom_size_.width(),
+                                                custom_size_.height(),
+                                                kUnpremul_SkAlphaType);
+  if (!image->tryAllocPixels(image_info))
     return;
   memcpy(image->getPixels(), &custom_data_[0], custom_data_.size());
 }

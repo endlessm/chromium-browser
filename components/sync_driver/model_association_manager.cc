@@ -11,6 +11,7 @@
 #include "base/message_loop/message_loop.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/trace_event/trace_event.h"
+#include "sync/api/sync_merge_result.h"
 #include "sync/internal_api/public/base/model_type.h"
 
 using syncer::ModelTypeSet;
@@ -418,8 +419,7 @@ void ModelAssociationManager::ModelAssociationDone(State new_state) {
   delegate_->OnModelAssociationDone(result);
 }
 
-base::OneShotTimer<ModelAssociationManager>*
-    ModelAssociationManager::GetTimerForTesting() {
+base::OneShotTimer* ModelAssociationManager::GetTimerForTesting() {
   return &timer_;
 }
 

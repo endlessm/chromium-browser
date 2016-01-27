@@ -55,15 +55,12 @@
 #include "WebVector.h"
 #include "WebWaitableEvent.h"
 
-#include <vector>
-
 class GrContext;
 
 namespace blink {
 
 class WebAudioBus;
 class WebBlobRegistry;
-class WebBluetooth;
 class WebClipboard;
 class WebCompositorSupport;
 class WebConvertableToTraceFormat;
@@ -82,6 +79,7 @@ class WebGraphicsContext3DProvider;
 class WebIDBFactory;
 class WebMIDIAccessor;
 class WebMIDIAccessorClient;
+class WebMediaRecorderHandler;
 class WebMediaStreamCenter;
 class WebMediaStreamCenterClient;
 class WebMemoryDumpProvider;
@@ -95,6 +93,7 @@ class WebPrescientNetworking;
 class WebProcessMemoryDump;
 class WebPublicSuffixList;
 class WebPushProvider;
+class WebRTCCertificateGenerator;
 class WebRTCPeerConnectionHandler;
 class WebRTCPeerConnectionHandlerClient;
 class WebSandboxSupport;
@@ -271,6 +270,9 @@ public:
     // zero, if there is no limit.
     virtual size_t virtualMemoryLimitMB() { return 0; }
 
+    // True when Blink runs on low end devices.
+    virtual bool isLowEndDeviceMode() { return false; }
+
     // Return the number of of processors of the current machine.
     virtual size_t numberOfProcessors() { return 0; }
 
@@ -372,9 +374,7 @@ public:
     // WaitableEvent -------------------------------------------------------
 
     // Creates an embedder-defined waitable event object.
-    // TODO(toyoshim): Remove "virtual" from the no arguments version API once
-    // the embedder drops the override implementation.
-    virtual WebWaitableEvent* createWaitableEvent() { return createWaitableEvent(WebWaitableEvent::ResetPolicy::Auto, WebWaitableEvent::InitialState::NonSignaled); }
+    WebWaitableEvent* createWaitableEvent() { return createWaitableEvent(WebWaitableEvent::ResetPolicy::Auto, WebWaitableEvent::InitialState::NonSignaled); }
     virtual WebWaitableEvent* createWaitableEvent(WebWaitableEvent::ResetPolicy, WebWaitableEvent::InitialState) { return nullptr; }
 
     // Waits on multiple events and returns the event object that has been
@@ -426,12 +426,12 @@ public:
     virtual WebString defaultLocale() { return WebString(); }
 
     // Wall clock time in seconds since the epoch.
-    virtual double currentTime() { return 0; }
+    virtual double currentTimeSeconds() { return 0; }
 
     // Monotonically increasing time in seconds from an arbitrary fixed point in the past.
     // This function is expected to return at least millisecond-precision values. For this reason,
     // it is recommended that the fixed point be no further in the past than the epoch.
-    virtual double monotonicallyIncreasingTime() { return 0; }
+    virtual double monotonicallyIncreasingTimeSeconds() { return 0; }
 
     // System trace time in seconds. For example, on Chrome OS, this timestamp should be
     // synchronized with ftrace timestamps.
@@ -544,13 +544,14 @@ public:
         const unsigned char* categoryEnabledFlag,
         const char* name,
         unsigned long long id,
+        unsigned long long bindId,
         double timestamp,
         int numArgs,
         const char** argNames,
         const unsigned char* argTypes,
         const unsigned long long* argValues,
         WebConvertableToTraceFormat* convertableValues,
-        unsigned char flags)
+        unsigned flags)
     {
         return 0;
     }
@@ -573,9 +574,10 @@ public:
 
     // Registers a memory dump provider. The WebMemoryDumpProvider::onMemoryDump
     // method will be called on the same thread that called the
-    // registerMemoryDumpProvider() method.
+    // registerMemoryDumpProvider() method. |name| is used for debugging
+    // (duplicates are allowed) and must be a long-lived C string.
     // See crbug.com/458295 for design docs.
-    virtual void registerMemoryDumpProvider(blink::WebMemoryDumpProvider*) { }
+    virtual void registerMemoryDumpProvider(blink::WebMemoryDumpProvider*, const char* name) { }
 
     // Must be called on the thread that called registerMemoryDumpProvider().
     virtual void unregisterMemoryDumpProvider(blink::WebMemoryDumpProvider*) { }
@@ -595,7 +597,7 @@ public:
     // Returns newly allocated and initialized offscreen WebGraphicsContext3D instance.
     // Passing an existing context to shareContext will create the new context in the same share group as the passed context.
     virtual WebGraphicsContext3D* createOffscreenGraphicsContext3D(const WebGraphicsContext3D::Attributes&, WebGraphicsContext3D* shareContext) { return nullptr; }
-    virtual WebGraphicsContext3D* createOffscreenGraphicsContext3D(const WebGraphicsContext3D::Attributes&, WebGraphicsContext3D* shareContext, WebGLInfo* glInfo) { return nullptr; }
+    virtual WebGraphicsContext3D* createOffscreenGraphicsContext3D(const WebGraphicsContext3D::Attributes&, WebGraphicsContext3D* shareContext, WebGraphicsContext3D::WebGraphicsInfo* glInfo) { return nullptr; }
     virtual WebGraphicsContext3D* createOffscreenGraphicsContext3D(const WebGraphicsContext3D::Attributes&) { return nullptr; }
 
     // Returns a newly allocated and initialized offscreen context provider. The provider may return a null
@@ -610,6 +612,7 @@ public:
     virtual bool canAccelerate2dCanvas() { return false; }
 
     virtual bool isThreadedCompositingEnabled() { return false; }
+    virtual bool isThreadedAnimationEnabled() { return true; }
 
     virtual WebCompositorSupport* compositorSupport() { return nullptr; }
 
@@ -622,12 +625,18 @@ public:
     // WebRTC ----------------------------------------------------------
 
     // Creates an WebRTCPeerConnectionHandler for RTCPeerConnection.
-    // May return null if WebRTC functionality is not avaliable or out of resources.
+    // May return null if WebRTC functionality is not avaliable or if it's out of resources.
     virtual WebRTCPeerConnectionHandler* createRTCPeerConnectionHandler(WebRTCPeerConnectionHandlerClient*) { return nullptr; }
+
+    // Creates an WebMediaRecorderHandler to record MediaStreams.
+    // May return null if the functionality is not available or out of resources.
+    virtual WebMediaRecorderHandler* createMediaRecorderHandler() { return nullptr; }
+
+    // May return null if WebRTC functionality is not avaliable or out of resources.
+    virtual WebRTCCertificateGenerator* createRTCCertificateGenerator() { return nullptr; }
 
     // May return null if WebRTC functionality is not avaliable or out of resources.
     virtual WebMediaStreamCenter* createMediaStreamCenter(WebMediaStreamCenterClient*) { return nullptr; }
-
 
     // WebWorker ----------------------------------------------------------
 
@@ -700,12 +709,6 @@ public:
     // Geofencing ---------------------------------------------------------
 
     virtual WebGeofencingProvider* geofencingProvider() { return nullptr; }
-
-
-    // Bluetooth ----------------------------------------------------------
-
-    // Returns pointer to client owned WebBluetooth implementation.
-    virtual WebBluetooth* bluetooth() { return nullptr; }
 
 
     // Push API------------------------------------------------------------

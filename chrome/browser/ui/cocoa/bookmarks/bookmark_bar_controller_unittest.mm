@@ -8,6 +8,7 @@
 #include "base/command_line.h"
 #include "base/mac/mac_util.h"
 #include "base/mac/scoped_nsobject.h"
+#include "base/run_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
@@ -24,12 +25,12 @@
 #include "chrome/browser/ui/cocoa/cocoa_profile_test.h"
 #import "chrome/browser/ui/cocoa/view_resizer_pong.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/pref_names.h"
-#include "chrome/test/base/testing_pref_service_syncable.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
+#include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
+#include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #import "testing/gtest_mac.h"
 #include "testing/platform_test.h"
@@ -350,6 +351,13 @@ class BookmarkBarControllerTest : public BookmarkBarControllerTestBase {
     }
 
     InstallAndToggleBar(bar_.get());
+
+    // AppKit methods are not guaranteed to complete synchronously. Some of them
+    // have asynchronous side effects, such as invoking -[NSViewController
+    // viewDidAppear]. Spinning the run loop until it's idle ensures that there
+    // are no outstanding references to bar_, and that calling bar_.reset() will
+    // synchronously destroy bar_.
+    base::RunLoop().RunUntilIdle();
   }
 
   virtual void AddCommandLineSwitches() {}
@@ -1570,21 +1578,23 @@ TEST_F(BookmarkBarControllerTest, LastBookmarkResizeBehavior) {
   bookmarks::test::AddNodesFromModelString(model, root, model_string);
   [bar_ frameDidChange];
 
-  // The default font changed between OSX Mavericks and OSX Yosemite, so this
-  // test requires different widths to trigger the appropriate results.
+  // The default font changed between OSX Mavericks, OSX Yosemite, and
+  // OSX El Capitan, so this test requires different widths to trigger the
+  // appropriate results. The Mavericks and El Capitan font widths are close
+  // enough to use the same sizes.
   CGFloat viewWidthsYosemite[] = { 121.0, 122.0, 148.0, 149.0, 150.0, 151.0,
                                    152.0, 200.0, 152.0, 151.0, 150.0, 149.0,
                                    148.0, 122.0, 121.0 };
-  CGFloat viewWidthsMavericks[] = { 123.0, 124.0, 151.0, 152.0, 153.0, 154.0,
-                                    155.0, 200.0, 155.0, 154.0, 153.0, 152.0,
-                                    151.0, 124.0, 123.0 };
+  CGFloat viewWidthsRest[] = { 123.0, 124.0, 151.0, 152.0, 153.0, 154.0,
+                               155.0, 200.0, 155.0, 154.0, 153.0, 152.0,
+                               151.0, 124.0, 123.0 };
+  CGFloat* viewWidths = base::mac::IsOSYosemite() ? viewWidthsYosemite :
+                                                    viewWidthsRest;
+
   BOOL offTheSideButtonIsHiddenResults[] = { NO, NO, NO, NO, YES, YES, YES, YES,
                                              YES, YES, YES, NO, NO, NO, NO};
   int displayedButtonCountResults[] = { 1, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 2, 2,
                                         2, 1 };
-  CGFloat* viewWidths = base::mac::IsOSYosemiteOrLater() ? viewWidthsYosemite
-                                                         : viewWidthsMavericks;
-
   for (unsigned int i = 0; i < arraysize(viewWidthsYosemite); ++i) {
     NSRect frame = [[bar_ view] frame];
     frame.size.width = viewWidths[i] + bookmarks::kBookmarkRightMargin;
@@ -1646,7 +1656,8 @@ TEST_F(BookmarkBarControllerTest, BookmarksWithoutAppsPageShortcut) {
 
 TEST_F(BookmarkBarControllerTest, ManagedShowAppsShortcutInBookmarksBar) {
   // By default the pref is not managed and the apps shortcut is shown.
-  TestingPrefServiceSyncable* prefs = profile()->GetTestingPrefService();
+  syncable_prefs::TestingPrefServiceSyncable* prefs =
+      profile()->GetTestingPrefService();
   EXPECT_FALSE(prefs->IsManagedPreference(
       bookmarks::prefs::kShowAppsShortcutInBookmarkBar));
   EXPECT_FALSE([bar_ appsPageShortcutButtonIsHidden]);
@@ -2076,30 +2087,39 @@ TEST_F(BookmarkBarControllerDragDropTest, PulseButton) {
 
   BookmarkButton* button = [[bar_ buttons] objectAtIndex:0];
   EXPECT_FALSE([button isContinuousPulsing]);
-
-  NSValue *value = [NSValue valueWithPointer:node];
-  NSDictionary *dict = [NSDictionary
-                         dictionaryWithObjectsAndKeys:value,
-                         bookmark_button::kBookmarkKey,
-                         [NSNumber numberWithBool:YES],
-                         bookmark_button::kBookmarkPulseFlagKey,
-                         nil];
-  [[NSNotificationCenter defaultCenter]
-        postNotificationName:bookmark_button::kPulseBookmarkButtonNotification
-                      object:nil
-                    userInfo:dict];
+  [bar_ startPulsingBookmarkNode:node];
   EXPECT_TRUE([button isContinuousPulsing]);
-
-  dict = [NSDictionary dictionaryWithObjectsAndKeys:value,
-                       bookmark_button::kBookmarkKey,
-                       [NSNumber numberWithBool:NO],
-                       bookmark_button::kBookmarkPulseFlagKey,
-                       nil];
-  [[NSNotificationCenter defaultCenter]
-        postNotificationName:bookmark_button::kPulseBookmarkButtonNotification
-                      object:nil
-                    userInfo:dict];
+  [bar_ stopPulsingBookmarkNode];
   EXPECT_FALSE([button isContinuousPulsing]);
+
+  // Pulsing a node within a folder should pulse the folder button.
+  const BookmarkNode* folder =
+      model->AddFolder(root, root->child_count(), ASCIIToUTF16("folder"));
+  const BookmarkNode* inner =
+      model->AddURL(folder, folder->child_count(), ASCIIToUTF16("inner"), gurl);
+
+  BookmarkButton* folder_button = [[bar_ buttons] objectAtIndex:1];
+  EXPECT_FALSE([folder_button isContinuousPulsing]);
+  [bar_ startPulsingBookmarkNode:inner];
+  EXPECT_TRUE([folder_button isContinuousPulsing]);
+  [bar_ stopPulsingBookmarkNode];
+  EXPECT_FALSE([folder_button isContinuousPulsing]);
+
+  // Stop pulsing if the node moved.
+  [bar_ startPulsingBookmarkNode:inner];
+  EXPECT_TRUE([folder_button isContinuousPulsing]);
+  const BookmarkNode* folder2 =
+      model->AddFolder(root, root->child_count(), ASCIIToUTF16("folder2"));
+  model->Move(inner, folder2, 0);
+  EXPECT_FALSE([folder_button isContinuousPulsing]);
+
+  // Removing a pulsing folder is allowed.
+  [bar_ startPulsingBookmarkNode:inner];
+  BookmarkButton* folder2_button = [[bar_ buttons] objectAtIndex:2];
+  EXPECT_TRUE([folder2_button isContinuousPulsing]);
+  model->Remove(folder2);
+  EXPECT_FALSE([folder2_button isContinuousPulsing]);
+  [bar_ stopPulsingBookmarkNode];  // Should not crash.
 }
 
 TEST_F(BookmarkBarControllerDragDropTest, DragBookmarkDataToTrash) {

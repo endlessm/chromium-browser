@@ -7,7 +7,9 @@
 #include "src/compiler/code-generator-impl.h"
 #include "src/compiler/gap-resolver.h"
 #include "src/compiler/node-matchers.h"
+#include "src/compiler/osr.h"
 #include "src/ia32/assembler-ia32.h"
+#include "src/ia32/frames-ia32.h"
 #include "src/ia32/macro-assembler-ia32.h"
 #include "src/scopes.h"
 
@@ -46,10 +48,10 @@ class IA32OperandConverter : public InstructionOperandConverter {
       return Operand(ToDoubleRegister(op));
     }
     DCHECK(op->IsStackSlot() || op->IsDoubleStackSlot());
-    // The linkage computes where all spill slots are located.
-    FrameOffset offset = linkage()->GetFrameOffset(
-        AllocatedOperand::cast(op)->index(), frame(), extra);
-    return Operand(offset.from_stack_pointer() ? esp : ebp, offset.offset());
+    FrameOffset offset =
+        linkage()->GetFrameOffset(AllocatedOperand::cast(op)->index(), frame());
+    return Operand(offset.from_stack_pointer() ? esp : ebp,
+                   offset.offset() + extra);
   }
 
   Operand HighOperand(InstructionOperand* op) {
@@ -215,6 +217,46 @@ class OutOfLineTruncateDoubleToI final : public OutOfLineCode {
   XMMRegister const input_;
 };
 
+
+class OutOfLineRecordWrite final : public OutOfLineCode {
+ public:
+  OutOfLineRecordWrite(CodeGenerator* gen, Register object, Operand operand,
+                       Register value, Register scratch0, Register scratch1,
+                       RecordWriteMode mode)
+      : OutOfLineCode(gen),
+        object_(object),
+        operand_(operand),
+        value_(value),
+        scratch0_(scratch0),
+        scratch1_(scratch1),
+        mode_(mode) {}
+
+  void Generate() final {
+    if (mode_ > RecordWriteMode::kValueIsPointer) {
+      __ JumpIfSmi(value_, exit());
+    }
+    if (mode_ > RecordWriteMode::kValueIsMap) {
+      __ CheckPageFlag(value_, scratch0_,
+                       MemoryChunk::kPointersToHereAreInterestingMask, zero,
+                       exit());
+    }
+    SaveFPRegsMode const save_fp_mode =
+        frame()->DidAllocateDoubleRegisters() ? kSaveFPRegs : kDontSaveFPRegs;
+    RecordWriteStub stub(isolate(), object_, scratch0_, scratch1_,
+                         EMIT_REMEMBERED_SET, save_fp_mode);
+    __ lea(scratch1_, operand_);
+    __ CallStub(&stub);
+  }
+
+ private:
+  Register const object_;
+  Operand const operand_;
+  Register const value_;
+  Register const scratch0_;
+  Register const scratch1_;
+  RecordWriteMode const mode_;
+};
+
 }  // namespace
 
 
@@ -306,7 +348,8 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
         __ call(code, RelocInfo::CODE_TARGET);
       } else {
         Register reg = i.InputRegister(0);
-        __ call(Operand(reg, Code::kHeaderSize - kHeapObjectTag));
+        __ add(reg, Immediate(Code::kHeaderSize - kHeapObjectTag));
+        __ call(reg);
       }
       RecordCallPosition(instr);
       break;
@@ -318,7 +361,8 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
         __ jmp(code, RelocInfo::CODE_TARGET);
       } else {
         Register reg = i.InputRegister(0);
-        __ jmp(Operand(reg, Code::kHeaderSize - kHeapObjectTag));
+        __ add(reg, Immediate(Code::kHeaderSize - kHeapObjectTag));
+        __ jmp(reg);
       }
       break;
     }
@@ -343,6 +387,11 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       }
       AssembleDeconstructActivationRecord();
       __ jmp(FieldOperand(func, JSFunction::kCodeEntryOffset));
+      break;
+    }
+    case kArchLazyBailout: {
+      EnsureSpaceForLazyDeopt();
+      RecordCallPosition(instr);
       break;
     }
     case kArchPrepareCallCFunction: {
@@ -395,6 +444,24 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       __ cvttsd2si(result, Operand(input));
       __ cmp(result, 1);
       __ j(overflow, ool->entry());
+      __ bind(ool->exit());
+      break;
+    }
+    case kArchStoreWithWriteBarrier: {
+      RecordWriteMode mode =
+          static_cast<RecordWriteMode>(MiscField::decode(instr->opcode()));
+      Register object = i.InputRegister(0);
+      size_t index = 0;
+      Operand operand = i.MemoryOperand(&index);
+      Register value = i.InputRegister(index);
+      Register scratch0 = i.TempRegister(0);
+      Register scratch1 = i.TempRegister(1);
+      auto ool = new (zone()) OutOfLineRecordWrite(this, object, operand, value,
+                                                   scratch0, scratch1, mode);
+      __ mov(operand, value);
+      __ CheckPageFlag(object, scratch0,
+                       MemoryChunk::kPointersFromHereAreInterestingMask,
+                       not_zero, ool->entry());
       __ bind(ool->exit());
       break;
     }
@@ -504,6 +571,12 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       break;
     case kIA32Lzcnt:
       __ Lzcnt(i.OutputRegister(), i.InputOperand(0));
+      break;
+    case kIA32Tzcnt:
+      __ Tzcnt(i.OutputRegister(), i.InputOperand(0));
+      break;
+    case kIA32Popcnt:
+      __ Popcnt(i.OutputRegister(), i.InputOperand(0));
       break;
     case kSSEFloat32Cmp:
       __ ucomiss(i.InputDoubleRegister(0), i.InputOperand(1));
@@ -837,6 +910,20 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
         __ movss(operand, i.InputDoubleRegister(index));
       }
       break;
+    case kIA32BitcastFI:
+      if (instr->InputAt(0)->IsDoubleStackSlot()) {
+        __ mov(i.OutputRegister(), i.InputOperand(0));
+      } else {
+        __ movd(i.OutputRegister(), i.InputDoubleRegister(0));
+      }
+      break;
+    case kIA32BitcastIF:
+      if (instr->InputAt(0)->IsRegister()) {
+        __ movd(i.OutputDoubleRegister(), i.InputRegister(0));
+      } else {
+        __ movss(i.OutputDoubleRegister(), i.InputOperand(0));
+      }
+      break;
     case kIA32Lea: {
       AddressingMode mode = AddressingModeField::decode(instr->opcode());
       // Shorten "leal" to "addl", "subl" or "shll" if the register allocation
@@ -873,7 +960,10 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       break;
     }
     case kIA32Push:
-      if (HasImmediateInput(instr, 0)) {
+      if (instr->InputAt(0)->IsDoubleRegister()) {
+        __ sub(esp, Immediate(kDoubleSize));
+        __ movsd(Operand(esp, 0), i.InputDoubleRegister(0));
+      } else if (HasImmediateInput(instr, 0)) {
         __ push(i.InputImmediate(0));
       } else {
         __ push(i.InputOperand(0));
@@ -885,24 +975,6 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
         __ mov(Operand(esp, slot * kPointerSize), i.InputImmediate(0));
       } else {
         __ mov(Operand(esp, slot * kPointerSize), i.InputRegister(0));
-      }
-      break;
-    }
-    case kIA32StoreWriteBarrier: {
-      Register object = i.InputRegister(0);
-      Register value = i.InputRegister(2);
-      SaveFPRegsMode mode =
-          frame()->DidAllocateDoubleRegisters() ? kSaveFPRegs : kDontSaveFPRegs;
-      if (HasImmediateInput(instr, 1)) {
-        int index = i.InputInt32(1);
-        Register scratch = i.TempRegister(1);
-        __ mov(Operand(object, index), value);
-        __ RecordWriteContextSlot(object, index, value, scratch, mode);
-      } else {
-        Register index = i.InputRegister(1);
-        __ mov(Operand(object, index, times_1, 0), value);
-        __ lea(index, Operand(object, index, times_1, 0));
-        __ RecordWrite(object, index, value, mode);
       }
       break;
     }
@@ -948,6 +1020,10 @@ void CodeGenerator::AssembleArchInstruction(Instruction* instr) {
       __ cmp(esp, Operand::StaticVariable(stack_limit));
       break;
     }
+    case kCheckedLoadWord64:
+    case kCheckedStoreWord64:
+      UNREACHABLE();  // currently unsupported checked int64 load/store.
+      break;
   }
 }  // NOLINT(readability/fn_size)
 
@@ -1001,6 +1077,9 @@ void CodeGenerator::AssembleArchBranch(Instruction* instr, BranchInfo* branch) {
       break;
     case kNotOverflow:
       __ j(no_overflow, tlabel);
+      break;
+    default:
+      UNREACHABLE();
       break;
   }
   // Add a jump if not falling through to the next block.
@@ -1071,6 +1150,9 @@ void CodeGenerator::AssembleArchBoolean(Instruction* instr,
       break;
     case kNotOverflow:
       cc = no_overflow;
+      break;
+    default:
+      UNREACHABLE();
       break;
   }
   __ bind(&check);
@@ -1255,34 +1337,22 @@ void CodeGenerator::AssembleDeoptimizerCall(
 
 void CodeGenerator::AssemblePrologue() {
   CallDescriptor* descriptor = linkage()->GetIncomingDescriptor();
-  int stack_slots = frame()->GetSpillSlotCount();
   if (descriptor->kind() == CallDescriptor::kCallAddress) {
     // Assemble a prologue similar the to cdecl calling convention.
     __ push(ebp);
     __ mov(ebp, esp);
-    const RegList saves = descriptor->CalleeSavedRegisters();
-    if (saves != 0) {  // Save callee-saved registers.
-      int register_save_area_size = 0;
-      for (int i = Register::kNumRegisters - 1; i >= 0; i--) {
-        if (!((1 << i) & saves)) continue;
-        __ push(Register::from_code(i));
-        register_save_area_size += kPointerSize;
-      }
-      frame()->SetRegisterSaveAreaSize(register_save_area_size);
-    }
   } else if (descriptor->IsJSFunctionCall()) {
     // TODO(turbofan): this prologue is redundant with OSR, but needed for
     // code aging.
     CompilationInfo* info = this->info();
     __ Prologue(info->IsCodePreAgingActive());
-    frame()->SetRegisterSaveAreaSize(
-        StandardFrameConstants::kFixedFrameSizeFromFp);
   } else if (needs_frame_) {
     __ StubPrologue();
-    frame()->SetRegisterSaveAreaSize(
-        StandardFrameConstants::kFixedFrameSizeFromFp);
+  } else {
+    frame()->SetElidedFrameSizeInSlots(kPCOnStackSize / kPointerSize);
   }
 
+  int stack_shrink_slots = frame()->GetSpillSlotCount();
   if (info()->is_osr()) {
     // TurboFan OSR-compiled functions cannot be entered directly.
     __ Abort(kShouldNotDirectlyEnterOsrFunction);
@@ -1295,64 +1365,57 @@ void CodeGenerator::AssemblePrologue() {
     osr_pc_offset_ = __ pc_offset();
     // TODO(titzer): cannot address target function == local #-1
     __ mov(edi, Operand(ebp, JavaScriptFrameConstants::kFunctionOffset));
-    DCHECK(stack_slots >= frame()->GetOsrStackSlotCount());
-    stack_slots -= frame()->GetOsrStackSlotCount();
+    stack_shrink_slots -= OsrHelper(info()).UnoptimizedFrameSlots();
   }
 
-  if (stack_slots > 0) {
-    // Allocate the stack slots used by this frame.
-    __ sub(esp, Immediate(stack_slots * kPointerSize));
+  const RegList saves = descriptor->CalleeSavedRegisters();
+  if (stack_shrink_slots > 0) {
+    __ sub(esp, Immediate(stack_shrink_slots * kPointerSize));
+  }
+
+  if (saves != 0) {  // Save callee-saved registers.
+    DCHECK(!info()->is_osr());
+    int pushed = 0;
+    for (int i = Register::kNumRegisters - 1; i >= 0; i--) {
+      if (!((1 << i) & saves)) continue;
+      __ push(Register::from_code(i));
+      ++pushed;
+    }
+    frame()->AllocateSavedCalleeRegisterSlots(pushed);
   }
 }
 
 
 void CodeGenerator::AssembleReturn() {
   CallDescriptor* descriptor = linkage()->GetIncomingDescriptor();
-  int stack_slots = frame()->GetSpillSlotCount();
-  if (descriptor->kind() == CallDescriptor::kCallAddress) {
-    const RegList saves = descriptor->CalleeSavedRegisters();
-    if (frame()->GetRegisterSaveAreaSize() > 0) {
-      // Remove this frame's spill slots first.
-      if (stack_slots > 0) {
-        __ add(esp, Immediate(stack_slots * kPointerSize));
-      }
-      // Restore registers.
-      if (saves != 0) {
-        for (int i = 0; i < Register::kNumRegisters; i++) {
-          if (!((1 << i) & saves)) continue;
-          __ pop(Register::from_code(i));
-        }
-      }
-      __ pop(ebp);  // Pop caller's frame pointer.
-      __ ret(0);
-    } else {
-      // No saved registers.
-      __ mov(esp, ebp);  // Move stack pointer back to frame pointer.
-      __ pop(ebp);       // Pop caller's frame pointer.
-      __ ret(0);
+
+  const RegList saves = descriptor->CalleeSavedRegisters();
+  // Restore registers.
+  if (saves != 0) {
+    for (int i = 0; i < Register::kNumRegisters; i++) {
+      if (!((1 << i) & saves)) continue;
+      __ pop(Register::from_code(i));
     }
+  }
+
+  if (descriptor->kind() == CallDescriptor::kCallAddress) {
+    __ mov(esp, ebp);  // Move stack pointer back to frame pointer.
+    __ pop(ebp);       // Pop caller's frame pointer.
   } else if (descriptor->IsJSFunctionCall() || needs_frame_) {
     // Canonicalize JSFunction return sites for now.
     if (return_label_.is_bound()) {
       __ jmp(&return_label_);
+      return;
     } else {
       __ bind(&return_label_);
       __ mov(esp, ebp);  // Move stack pointer back to frame pointer.
       __ pop(ebp);       // Pop caller's frame pointer.
-      int pop_count = descriptor->IsJSFunctionCall()
-                          ? static_cast<int>(descriptor->JSParameterCount())
-                          : (info()->IsStub()
-                                 ? info()->code_stub()->GetStackParameterCount()
-                                 : 0);
-      if (pop_count == 0) {
-        __ ret(0);
-      } else {
-        __ Ret(pop_count * kPointerSize, ebx);
-      }
     }
-  } else {
-    __ ret(0);
   }
+  size_t pop_size = descriptor->StackParameterCount() * kPointerSize;
+  // Might need ecx for scratch if pop_size is too big.
+  DCHECK_EQ(0u, descriptor->CalleeSavedRegisters() & ecx.bit());
+  __ Ret(static_cast<int>(pop_size), ecx);
 }
 
 
@@ -1531,15 +1594,17 @@ void CodeGenerator::AddNopForSmiCodeInlining() { __ nop(); }
 
 
 void CodeGenerator::EnsureSpaceForLazyDeopt() {
+  if (!info()->ShouldEnsureSpaceForLazyDeopt()) {
+    return;
+  }
+
   int space_needed = Deoptimizer::patch_size();
-  if (!info()->IsStub()) {
-    // Ensure that we have enough space after the previous lazy-bailout
-    // instruction for patching the code here.
-    int current_pc = masm()->pc_offset();
-    if (current_pc < last_lazy_deopt_pc_ + space_needed) {
-      int padding_size = last_lazy_deopt_pc_ + space_needed - current_pc;
-      __ Nop(padding_size);
-    }
+  // Ensure that we have enough space after the previous lazy-bailout
+  // instruction for patching the code here.
+  int current_pc = masm()->pc_offset();
+  if (current_pc < last_lazy_deopt_pc_ + space_needed) {
+    int padding_size = last_lazy_deopt_pc_ + space_needed - current_pc;
+    __ Nop(padding_size);
   }
 }
 

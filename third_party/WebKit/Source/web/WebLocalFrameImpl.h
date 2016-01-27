@@ -31,6 +31,7 @@
 #ifndef WebLocalFrameImpl_h
 #define WebLocalFrameImpl_h
 
+#include "core/editing/VisiblePosition.h"
 #include "core/frame/LocalFrame.h"
 #include "platform/geometry/FloatRect.h"
 #include "public/platform/WebFileSystemType.h"
@@ -46,7 +47,6 @@ namespace blink {
 
 class ChromePrintContext;
 class GeolocationClientProxy;
-class InspectorOverlay;
 class IntSize;
 class KURL;
 class Range;
@@ -57,7 +57,7 @@ class WebDataSourceImpl;
 class WebDevToolsAgentImpl;
 class WebDevToolsFrontendImpl;
 class WebFrameClient;
-class WebFrameWidgetImpl;
+class WebFrameWidget;
 class WebNode;
 class WebPerformance;
 class WebPlugin;
@@ -89,8 +89,6 @@ public:
     void setSharedWorkerRepositoryClient(WebSharedWorkerRepositoryClient*) override;
     WebSize scrollOffset() const override;
     void setScrollOffset(const WebSize&) override;
-    WebSize minimumScrollOffset() const override;
-    WebSize maximumScrollOffset() const override;
     WebSize contentsSize() const override;
     bool hasVisibleContent() const override;
     WebRect visibleContentRect() const override;
@@ -235,11 +233,12 @@ public:
     v8::Local<v8::Value> createTestInterface(const AtomicString& name);
 
     // WebLocalFrame methods:
-    void initializeToReplaceRemoteFrame(WebRemoteFrame*, const WebString& name, WebSandboxFlags) override;
+    void initializeToReplaceRemoteFrame(WebRemoteFrame*, const WebString& name, WebSandboxFlags, const WebFrameOwnerProperties&) override;
     void setAutofillClient(WebAutofillClient*) override;
     WebAutofillClient* autofillClient() override;
     void setDevToolsAgentClient(WebDevToolsAgentClient*) override;
     WebDevToolsAgent* devToolsAgent() override;
+    void setFrameOwnerProperties(const WebFrameOwnerProperties&) override;
     void sendPings(const WebNode& contextNode, const WebURL& destinationURL) override;
     WebURLRequest requestFromHistoryItem(const WebHistoryItem&, WebURLRequest::CachePolicy)
         const override;
@@ -248,11 +247,14 @@ public:
         WebHistoryLoadType) override;
     bool isLoading() const override;
     bool isResourceLoadInProgress() const override;
+    bool isNavigationScheduled() const override;
     void setCommittedFirstRealLoad() override;
     void sendOrientationChangeEvent() override;
     void willShowInstallBannerPrompt(int requestId, const WebVector<WebString>& platforms, WebAppBannerPromptReply*) override;
     WebSandboxFlags effectiveSandboxFlags() const override;
     void requestRunTask(WebSuspendableTask*) const override;
+    void didCallAddSearchProvider() override;
+    void didCallIsSearchProviderInstalled() override;
 
     void willBeDetached();
     void willDetachParent();
@@ -285,7 +287,6 @@ public:
 
     FrameView* frameView() const { return frame() ? frame()->view() : 0; }
 
-    InspectorOverlay* inspectorOverlay();
     WebDevToolsAgentImpl* devToolsAgentImpl() const { return m_devToolsAgent.get(); }
 
     // Getters for the impls corresponding to Get(Provisional)DataSource. They
@@ -335,8 +336,8 @@ public:
     // Returns a hit-tested VisiblePosition for the given point
     VisiblePosition visiblePositionForViewportPoint(const WebPoint&);
 
-    void setFrameWidget(WebFrameWidgetImpl*);
-    WebFrameWidgetImpl* frameWidget() const;
+    void setFrameWidget(WebFrameWidget*);
+    WebFrameWidget* frameWidget() const;
 
     // DevTools front-end bindings.
     void setDevToolsFrontend(WebDevToolsFrontendImpl* frontend) { m_webDevToolsFrontend = frontend; }
@@ -359,18 +360,17 @@ private:
     WebPlugin* focusedPluginIfInputMethodSupported();
     ScrollableArea* layoutViewportScrollableArea() const;
 
-    FrameLoaderClientImpl m_frameLoaderClientImpl;
+    OwnPtrWillBeMember<FrameLoaderClientImpl> m_frameLoaderClientImpl;
 
     // The embedder retains a reference to the WebCore LocalFrame while it is active in the DOM. This
     // reference is released when the frame is removed from the DOM or the entire page is closed.
     // FIXME: These will need to change to WebFrame when we introduce WebFrameProxy.
     RefPtrWillBeMember<LocalFrame> m_frame;
 
-    OwnPtrWillBeMember<InspectorOverlay> m_inspectorOverlay;
     OwnPtrWillBeMember<WebDevToolsAgentImpl> m_devToolsAgent;
 
     // This is set if the frame is the root of a local frame tree, and requires a widget for layout.
-    WebFrameWidgetImpl* m_frameWidget;
+    WebFrameWidget* m_frameWidget;
 
     WebFrameClient* m_client;
     WebAutofillClient* m_autofillClient;
@@ -397,14 +397,10 @@ private:
     HashMap<AtomicString, OwnPtr<WebTestInterfaceFactory>> m_testInterfaces;
 
 #if ENABLE(OILPAN)
-    // Oilpan: to provide the guarantee of having the frame live until
-    // close() is called, an instance keep a self-persistent. It is
-    // cleared upon calling close(). This avoids having to assume that
-    // an embedder's WebFrame references are all discovered via thread
-    // state (stack, registers) should an Oilpan GC strike while we're
-    // in the process of detaching.
-    GC_PLUGIN_IGNORE("340522")
-    Persistent<WebLocalFrameImpl> m_selfKeepAlive;
+    // Oilpan: WebLocalFrameImpl must remain alive until close() is called.
+    // Accomplish that by keeping a self-referential Persistent<>. It is
+    // cleared upon close().
+    SelfKeepAlive<WebLocalFrameImpl> m_selfKeepAlive;
 #endif
 };
 

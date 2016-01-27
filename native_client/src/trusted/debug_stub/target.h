@@ -111,6 +111,7 @@ class Target {
   void CopyFaultSignalFromAppThread(port::Thread *thread);
   void RemoveInitialBreakpoint();
   bool IsInitialBreakpointActive();
+  bool IsOnValidInstBoundary(uint32_t addr);
   void EraseBreakpointsFromCopyOfMemory(uint32_t user_address,
                                         uint8_t *data, uint32_t size);
 
@@ -122,6 +123,8 @@ class Target {
   void ProcessCommands();
   void WaitForDebugEvent();
   void ProcessDebugEvent();
+
+  void MaskAlwaysValidRegisters();
 
  private:
   struct NaClApp *nap_;

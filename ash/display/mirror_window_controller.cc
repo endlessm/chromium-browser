@@ -13,11 +13,11 @@
 #endif
 
 #include "ash/display/cursor_window_controller.h"
-#include "ash/display/display_controller.h"
 #include "ash/display/display_info.h"
 #include "ash/display/display_manager.h"
 #include "ash/display/root_window_transformers.h"
 #include "ash/display/screen_position_controller.h"
+#include "ash/display/window_tree_host_manager.h"
 #include "ash/host/ash_window_tree_host.h"
 #include "ash/host/ash_window_tree_host_init_params.h"
 #include "ash/host/root_window_transformer.h"
@@ -163,18 +163,14 @@ void MirrorWindowController::UpdateWindow(
 
   multi_display_mode_ = GetCurrentMultiDisplayMode();
 
-  gfx::Point mirroring_origin;
   for (const DisplayInfo& display_info : display_info_list) {
     scoped_ptr<RootWindowTransformer> transformer;
     if (display_manager->IsInMirrorMode()) {
       transformer.reset(CreateRootWindowTransformerForMirroredDisplay(
           source_display_info, display_info));
     } else if (display_manager->IsInUnifiedMode()) {
-      gfx::Display display;
-      display.SetScaleAndBounds(
-          1.0f,
-          gfx::Rect(mirroring_origin, display_info.bounds_in_native().size()));
-      mirroring_origin.SetPoint(display.bounds().right(), 0);
+      gfx::Display display =
+          display_manager->GetMirroringDisplayById(display_info.id());
       transformer.reset(CreateRootWindowTransformerForUnifiedDesktop(
           primary.bounds(), display));
     } else {
@@ -191,14 +187,15 @@ void MirrorWindowController::UpdateWindow(
 
       aura::WindowTreeHost* host = host_info->ash_host->AsWindowTreeHost();
       host->SetSharedInputMethod(
-          Shell::GetInstance()->display_controller()->input_method());
+          Shell::GetInstance()->window_tree_host_manager()->input_method());
       host->window()->SetName(
           base::StringPrintf("MirrorRootWindow-%d", mirror_host_count++));
       host->compositor()->SetBackgroundColor(SK_ColorBLACK);
-      // No need to remove the observer because the DisplayController outlives
+      // No need to remove the observer because the WindowTreeHostManager
+      // outlives
       // the
       // host.
-      host->AddObserver(Shell::GetInstance()->display_controller());
+      host->AddObserver(Shell::GetInstance()->window_tree_host_manager());
       host->AddObserver(this);
       // TODO(oshima): TouchHUD is using idkey.
       InitRootWindowSettings(host->window())->display_id = display_info.id();
@@ -213,7 +210,7 @@ void MirrorWindowController::UpdateWindow(
         host_info->ash_host->ConfineCursorToRootWindow();
         AshWindowTreeHost* unified_ash_host =
             Shell::GetInstance()
-                ->display_controller()
+                ->window_tree_host_manager()
                 ->GetAshWindowTreeHostForDisplayId(
                     Shell::GetScreen()->GetPrimaryDisplay().id());
         unified_ash_host->RegisterMirroringHost(host_info->ash_host.get());
@@ -307,7 +304,7 @@ void MirrorWindowController::OnHostResized(const aura::WindowTreeHost* host) {
       // No need to update the transformer as new transformer is already set
       // in UpdateWindow.
       Shell::GetInstance()
-          ->display_controller()
+          ->window_tree_host_manager()
           ->cursor_window_controller()
           ->UpdateLocation();
       return;
@@ -370,7 +367,7 @@ void MirrorWindowController::CloseAndDeleteHost(MirroringHostInfo* host_info,
   aura::client::SetCaptureClient(host->window(), nullptr);
   delete capture_client;
 
-  host->RemoveObserver(Shell::GetInstance()->display_controller());
+  host->RemoveObserver(Shell::GetInstance()->window_tree_host_manager());
   host->RemoveObserver(this);
   host_info->ash_host->PrepareForShutdown();
   reflector_->RemoveMirroringLayer(host_info->mirror_window->layer());

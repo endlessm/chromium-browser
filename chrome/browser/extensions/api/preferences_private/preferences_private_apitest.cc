@@ -21,15 +21,18 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
-#include "chrome/browser/sync/profile_sync_components_factory_mock.h"
-#include "chrome/browser/sync/profile_sync_service.h"
+#include "chrome/browser/sync/chrome_sync_client.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
-#include "chrome/browser/sync/supervised_user_signin_manager_wrapper.h"
+#include "chrome/browser/sync/profile_sync_test_util.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/bookmarks/common/bookmark_constants.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/sync_driver/signin_manager_wrapper.h"
+#include "components/sync_driver/sync_api_component_factory_mock.h"
 #include "components/sync_driver/sync_prefs.h"
 #include "content/public/browser/browser_context.h"
 #include "extensions/test/extension_test_message_listener.h"
@@ -46,12 +49,22 @@ class FakeProfileSyncService : public ProfileSyncService {
  public:
   explicit FakeProfileSyncService(Profile* profile)
       : ProfileSyncService(
-            scoped_ptr<ProfileSyncComponentsFactory>(
-                new ProfileSyncComponentsFactoryMock()),
-            profile,
-            make_scoped_ptr<SupervisedUserSigninManagerWrapper>(NULL),
+            make_scoped_ptr(new browser_sync::ChromeSyncClient(
+                profile,
+                make_scoped_ptr(new SyncApiComponentFactoryMock()))),
+            make_scoped_ptr<SigninManagerWrapper>(NULL),
             ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
-            browser_sync::MANUAL_START),
+            browser_sync::MANUAL_START,
+            base::Bind(&EmptyNetworkTimeUpdate),
+            profile->GetPath(),
+            profile->GetRequestContext(),
+            profile->GetDebugName(),
+            chrome::GetChannel(),
+            content::BrowserThread::GetMessageLoopProxyForThread(
+                content::BrowserThread::DB),
+            content::BrowserThread::GetMessageLoopProxyForThread(
+                content::BrowserThread::FILE),
+            content::BrowserThread::GetBlockingPool()),
         sync_initialized_(true),
         initialized_state_violation_(false) {}
 

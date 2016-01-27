@@ -78,28 +78,28 @@ class MockHttpServer {
                               std::string* headers,
                               std::string* body) {
     const char ok_headers[] =
-        "HTTP/1.1 200 OK\0"
-        "\0";
+        "HTTP/1.1 200 OK\n"
+        "\n";
     const char error_headers[] =
-        "HTTP/1.1 500 BOO HOO\0"
-        "\0";
+        "HTTP/1.1 500 BOO HOO\n"
+        "\n";
     const char manifest_headers[] =
-        "HTTP/1.1 200 OK\0"
-        "Content-type: text/cache-manifest\0"
-        "\0";
+        "HTTP/1.1 200 OK\n"
+        "Content-type: text/cache-manifest\n"
+        "\n";
     const char not_modified_headers[] =
-        "HTTP/1.1 304 NOT MODIFIED\0"
-        "\0";
+        "HTTP/1.1 304 NOT MODIFIED\n"
+        "\n";
     const char gone_headers[] =
-        "HTTP/1.1 410 GONE\0"
-        "\0";
+        "HTTP/1.1 410 GONE\n"
+        "\n";
     const char not_found_headers[] =
-        "HTTP/1.1 404 NOT FOUND\0"
-        "\0";
+        "HTTP/1.1 404 NOT FOUND\n"
+        "\n";
     const char no_store_headers[] =
-        "HTTP/1.1 200 OK\0"
-        "Cache-Control: no-store\0"
-        "\0";
+        "HTTP/1.1 200 OK\n"
+        "Cache-Control: no-store\n"
+        "\n";
 
     if (path == "/files/missing-mime-manifest") {
       (*headers) = std::string(ok_headers, arraysize(ok_headers));
@@ -410,16 +410,16 @@ class RetryRequestTestJob : public net::URLRequestTestJob {
 
   static std::string retry_headers() {
     const char no_retry_after[] =
-        "HTTP/1.1 503 BOO HOO\0"
-        "\0";
+        "HTTP/1.1 503 BOO HOO\n"
+        "\n";
     const char nonzero[] =
-        "HTTP/1.1 503 BOO HOO\0"
-        "Retry-After: 60\0"
-        "\0";
+        "HTTP/1.1 503 BOO HOO\n"
+        "Retry-After: 60\n"
+        "\n";
     const char retry_after_0[] =
-        "HTTP/1.1 503 BOO HOO\0"
-        "Retry-After: 0\0"
-        "\0";
+        "HTTP/1.1 503 BOO HOO\n"
+        "Retry-After: 0\n"
+        "\n";
 
     switch (retry_after_) {
       case NO_RETRY_AFTER:
@@ -434,9 +434,9 @@ class RetryRequestTestJob : public net::URLRequestTestJob {
 
   static std::string manifest_headers() {
     const char headers[] =
-        "HTTP/1.1 200 OK\0"
-        "Content-type: text/cache-manifest\0"
-        "\0";
+        "HTTP/1.1 200 OK\n"
+        "Content-type: text/cache-manifest\n"
+        "\n";
     return std::string(headers, arraysize(headers));
   }
 
@@ -574,8 +574,10 @@ class IOThread : public base::Thread {
   void Init() override {
     scoped_ptr<net::URLRequestJobFactoryImpl> factory(
         new net::URLRequestJobFactoryImpl());
-    factory->SetProtocolHandler("http", new MockHttpServerJobFactory);
-    factory->SetProtocolHandler("https", new MockHttpServerJobFactory);
+    factory->SetProtocolHandler("http",
+                                make_scoped_ptr(new MockHttpServerJobFactory));
+    factory->SetProtocolHandler("https",
+                                make_scoped_ptr(new MockHttpServerJobFactory));
     job_factory_ = factory.Pass();
     request_context_.reset(new net::TestURLRequestContext());
     request_context_->set_job_factory(job_factory_.get());
@@ -796,7 +798,8 @@ class AppCacheUpdateJobTest : public testing::Test,
 
     net::URLRequestJobFactoryImpl* new_factory(
         new net::URLRequestJobFactoryImpl);
-    new_factory->SetProtocolHandler("http", new RedirectFactory);
+    new_factory->SetProtocolHandler("http",
+                                    make_scoped_ptr(new RedirectFactory));
     io_thread_->SetNewJobFactory(new_factory);
 
     MakeService();
@@ -1682,7 +1685,8 @@ class AppCacheUpdateJobTest : public testing::Test,
     RetryRequestTestJob::Initialize(5, RetryRequestTestJob::RETRY_AFTER_0, 4);
     net::URLRequestJobFactoryImpl* new_factory(
         new net::URLRequestJobFactoryImpl);
-    new_factory->SetProtocolHandler("http", new RetryRequestTestJobFactory);
+    new_factory->SetProtocolHandler(
+        "http", make_scoped_ptr(new RetryRequestTestJobFactory));
     io_thread_->SetNewJobFactory(new_factory);
 
     MakeService();
@@ -1715,7 +1719,8 @@ class AppCacheUpdateJobTest : public testing::Test,
     RetryRequestTestJob::Initialize(5, RetryRequestTestJob::NO_RETRY_AFTER, 1);
     net::URLRequestJobFactoryImpl* new_factory(
         new net::URLRequestJobFactoryImpl);
-    new_factory->SetProtocolHandler("http", new RetryRequestTestJobFactory);
+    new_factory->SetProtocolHandler(
+        "http", make_scoped_ptr(new RetryRequestTestJobFactory));
     io_thread_->SetNewJobFactory(new_factory);
 
     MakeService();
@@ -1749,7 +1754,8 @@ class AppCacheUpdateJobTest : public testing::Test,
         5, RetryRequestTestJob::NONZERO_RETRY_AFTER, 1);
     net::URLRequestJobFactoryImpl* new_factory(
         new net::URLRequestJobFactoryImpl);
-    new_factory->SetProtocolHandler("http", new RetryRequestTestJobFactory);
+    new_factory->SetProtocolHandler(
+        "http", make_scoped_ptr(new RetryRequestTestJobFactory));
     io_thread_->SetNewJobFactory(new_factory);
 
     MakeService();
@@ -1782,7 +1788,8 @@ class AppCacheUpdateJobTest : public testing::Test,
     RetryRequestTestJob::Initialize(2, RetryRequestTestJob::RETRY_AFTER_0, 5);
     net::URLRequestJobFactoryImpl* new_factory(
         new net::URLRequestJobFactoryImpl);
-    new_factory->SetProtocolHandler("http", new RetryRequestTestJobFactory);
+    new_factory->SetProtocolHandler(
+        "http", make_scoped_ptr(new RetryRequestTestJobFactory));
     io_thread_->SetNewJobFactory(new_factory);
 
     MakeService();
@@ -1815,7 +1822,8 @@ class AppCacheUpdateJobTest : public testing::Test,
     RetryRequestTestJob::Initialize(1, RetryRequestTestJob::RETRY_AFTER_0, 4);
     net::URLRequestJobFactoryImpl* new_factory(
         new net::URLRequestJobFactoryImpl);
-    new_factory->SetProtocolHandler("http", new RetryRequestTestJobFactory);
+    new_factory->SetProtocolHandler(
+        "http", make_scoped_ptr(new RetryRequestTestJobFactory));
     io_thread_->SetNewJobFactory(new_factory);
 
     MakeService();
@@ -2680,7 +2688,8 @@ class AppCacheUpdateJobTest : public testing::Test,
 
     net::URLRequestJobFactoryImpl* new_factory(
         new net::URLRequestJobFactoryImpl);
-    new_factory->SetProtocolHandler("http", new IfModifiedSinceJobFactory);
+    new_factory->SetProtocolHandler(
+        "http", make_scoped_ptr(new IfModifiedSinceJobFactory));
     io_thread_->SetNewJobFactory(new_factory);
 
     MakeService();
@@ -2751,7 +2760,8 @@ class AppCacheUpdateJobTest : public testing::Test,
                                           std::string());
     net::URLRequestJobFactoryImpl* new_factory(
         new net::URLRequestJobFactoryImpl);
-    new_factory->SetProtocolHandler("http", new IfModifiedSinceJobFactory);
+    new_factory->SetProtocolHandler(
+        "http", make_scoped_ptr(new IfModifiedSinceJobFactory));
     io_thread_->SetNewJobFactory(new_factory);
 
     MakeService();
@@ -2814,7 +2824,8 @@ class AppCacheUpdateJobTest : public testing::Test,
     HttpHeadersRequestTestJob::Initialize(std::string(), "\"LadeDade\"");
     net::URLRequestJobFactoryImpl* new_factory(
         new net::URLRequestJobFactoryImpl);
-    new_factory->SetProtocolHandler("http", new IfModifiedSinceJobFactory);
+    new_factory->SetProtocolHandler(
+        "http", make_scoped_ptr(new IfModifiedSinceJobFactory));
     io_thread_->SetNewJobFactory(new_factory);
 
     MakeService();
@@ -2877,7 +2888,8 @@ class AppCacheUpdateJobTest : public testing::Test,
     HttpHeadersRequestTestJob::Initialize(std::string(), "\"LadeDade\"");
     net::URLRequestJobFactoryImpl* new_factory(
         new net::URLRequestJobFactoryImpl);
-    new_factory->SetProtocolHandler("http", new IfModifiedSinceJobFactory);
+    new_factory->SetProtocolHandler(
+        "http", make_scoped_ptr(new IfModifiedSinceJobFactory));
     io_thread_->SetNewJobFactory(new_factory);
 
     MakeService();
@@ -2915,7 +2927,8 @@ class AppCacheUpdateJobTest : public testing::Test,
         "Sat, 29 Oct 1994 19:43:31 GMT", "\"LadeDade\"");
     net::URLRequestJobFactoryImpl* new_factory(
         new net::URLRequestJobFactoryImpl);
-    new_factory->SetProtocolHandler("http", new IfModifiedSinceJobFactory);
+    new_factory->SetProtocolHandler(
+        "http", make_scoped_ptr(new IfModifiedSinceJobFactory));
     io_thread_->SetNewJobFactory(new_factory);
 
     MakeService();

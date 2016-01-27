@@ -4,6 +4,7 @@
 
 #include "net/websockets/websocket_deflate_stream.h"
 
+#include <stdint.h>
 #include <algorithm>
 #include <string>
 
@@ -15,6 +16,7 @@
 #include "net/base/completion_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
+#include "net/websockets/websocket_deflate_parameters.h"
 #include "net/websockets/websocket_deflate_predictor.h"
 #include "net/websockets/websocket_deflater.h"
 #include "net/websockets/websocket_errors.h"
@@ -35,11 +37,10 @@ const size_t kChunkSize = 4 * 1024;
 
 WebSocketDeflateStream::WebSocketDeflateStream(
     scoped_ptr<WebSocketStream> stream,
-    WebSocketDeflater::ContextTakeOverMode mode,
-    int client_window_bits,
+    const WebSocketDeflateParameters& params,
     scoped_ptr<WebSocketDeflatePredictor> predictor)
     : stream_(stream.Pass()),
-      deflater_(mode),
+      deflater_(params.client_context_take_over_mode()),
       inflater_(kChunkSize, kChunkSize),
       reading_state_(NOT_READING),
       writing_state_(NOT_WRITING),
@@ -47,9 +48,13 @@ WebSocketDeflateStream::WebSocketDeflateStream(
       current_writing_opcode_(WebSocketFrameHeader::kOpCodeText),
       predictor_(predictor.Pass()) {
   DCHECK(stream_);
-  DCHECK_GE(client_window_bits, 8);
-  DCHECK_LE(client_window_bits, 15);
-  deflater_.Initialize(client_window_bits);
+  DCHECK(params.IsValidAsResponse());
+  int client_max_window_bits = 15;
+  if (params.is_client_max_window_bits_specified()) {
+    DCHECK(params.has_client_max_window_bits_value());
+    client_max_window_bits = params.client_max_window_bits();
+  }
+  deflater_.Initialize(client_max_window_bits);
   inflater_.Initialize(kWindowBits);
 }
 
@@ -238,7 +243,7 @@ int WebSocketDeflateStream::AppendPossiblyCompressedMessage(
     return ERR_WS_PROTOCOL_ERROR;
   }
 
-  uint64 original_payload_length = 0;
+  uint64_t original_payload_length = 0;
   for (size_t i = 0; i < frames->size(); ++i) {
     WebSocketFrame* frame = (*frames)[i];
     // Asserts checking that frames represent one whole data message.
@@ -250,7 +255,7 @@ int WebSocketDeflateStream::AppendPossiblyCompressedMessage(
     original_payload_length += frame->header.payload_length;
   }
   if (original_payload_length <=
-      static_cast<uint64>(compressed_payload->size())) {
+      static_cast<uint64_t>(compressed_payload->size())) {
     // Compression is not effective. Use the original frames.
     for (size_t i = 0; i < frames->size(); ++i) {
       WebSocketFrame* frame = (*frames)[i];

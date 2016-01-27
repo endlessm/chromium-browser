@@ -6,15 +6,25 @@
 #define GPU_COMMAND_BUFFER_CLIENT_CONTEXT_SUPPORT_H_
 
 #include "base/callback.h"
-#include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/overlay_transform.h"
 
+namespace gfx {
+class Rect;
+class RectF;
+}
+
 namespace gpu {
+
+struct SyncToken;
 
 class ContextSupport {
  public:
   // Runs |callback| when a sync point is reached.
   virtual void SignalSyncPoint(uint32 sync_point,
+                               const base::Closure& callback) = 0;
+
+  // Runs |callback| when a sync token is signalled.
+  virtual void SignalSyncToken(const SyncToken& sync_token,
                                const base::Closure& callback) = 0;
 
   // Runs |callback| when a query created via glCreateQueryEXT() has cleared
@@ -45,6 +55,10 @@ class ContextSupport {
 
   virtual uint32 InsertFutureSyncPointCHROMIUM() = 0;
   virtual void RetireSyncPointCHROMIUM(uint32 sync_point) = 0;
+
+  // Returns an ID that can be used to globally identify the share group that
+  // this context's resources belong to.
+  virtual uint64_t ShareGroupTracingGUID() const = 0;
 
  protected:
   ContextSupport() {}

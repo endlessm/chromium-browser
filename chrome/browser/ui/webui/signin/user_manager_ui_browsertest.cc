@@ -26,16 +26,6 @@ class UserManagerUIBrowserTest : public InProcessBrowserTest,
                                  public testing::WithParamInterface<bool> {
  public:
   UserManagerUIBrowserTest() {}
-
- protected:
-  void SetUp() override {
-    InProcessBrowserTest::SetUp();
-    DCHECK(switches::IsNewAvatarMenu());
-  }
-
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    switches::EnableNewAvatarMenuForTesting(command_line);
-  }
 };
 
 IN_PROC_BROWSER_TEST_F(UserManagerUIBrowserTest, PageLoads) {
@@ -91,7 +81,7 @@ IN_PROC_BROWSER_TEST_F(UserManagerUIBrowserTest, PageRedirectsToAboutChrome) {
   content::WebContents* about_chrome_contents =
       browser()->tab_strip_model()->GetActiveWebContents();
   GURL current_URL = about_chrome_contents->GetVisibleURL();
-  EXPECT_EQ(GURL(chrome::kChromeUIUberURL), current_URL);
+  EXPECT_EQ(GURL(chrome::kChromeUIHelpURL), current_URL);
 }
 
 // TODO(mlerman): Test that unlocking a locked profile causes the extensions

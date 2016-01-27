@@ -11,7 +11,7 @@ import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.test.util.browser.sync.SyncTestUtil;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
-import org.chromium.sync.internal_api.pub.base.ModelType;
+import org.chromium.sync.ModelType;
 import org.chromium.sync.protocol.AutofillProfileSpecifics;
 import org.chromium.sync.protocol.EntitySpecifics;
 import org.json.JSONException;
@@ -57,7 +57,7 @@ public class AutofillTest extends SyncTestBase {
     @Override
     protected void setUp() throws Exception {
         super.setUp();
-        setupTestAccountAndSignInToSync(CLIENT_ID);
+        setUpTestAccountAndSignInToSync();
         // Make sure the initial state is clean.
         assertClientAutofillProfileCount(0);
         assertServerAutofillProfileCountWithName(0, STREET);

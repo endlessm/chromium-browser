@@ -5,6 +5,7 @@
 #ifndef EXTENSIONS_BROWSER_API_SOCKETS_UDP_SOCKETS_UDP_API_H_
 #define EXTENSIONS_BROWSER_API_SOCKETS_UDP_SOCKETS_UDP_API_H_
 
+#include "base/gtest_prod_util.h"
 #include "extensions/browser/api/socket/socket_api.h"
 #include "extensions/common/api/sockets_udp.h"
 
@@ -13,7 +14,7 @@ class ResumableUDPSocket;
 }
 
 namespace extensions {
-namespace core_api {
+namespace api {
 
 class UDPSocketEventDispatcher;
 
@@ -291,7 +292,7 @@ class SocketsUdpSetBroadcastFunction : public UDPSocketAsyncApiFunction {
   scoped_ptr<sockets_udp::SetBroadcast::Params> params_;
 };
 
-}  // namespace core_api
+}  // namespace api
 }  // namespace extensions
 
 #endif  // EXTENSIONS_BROWSER_API_SOCKETS_UDP_SOCKETS_UDP_API_H_

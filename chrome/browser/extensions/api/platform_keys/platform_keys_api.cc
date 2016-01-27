@@ -15,7 +15,7 @@
 #include "chrome/browser/chromeos/platform_keys/platform_keys_service_factory.h"
 #include "chrome/browser/extensions/api/platform_keys/verify_trust_api.h"
 #include "chrome/common/extensions/api/platform_keys_internal.h"
-#include "components/web_modal/popup_manager.h"
+#include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/net_errors.h"
 #include "net/cert/x509_certificate.h"
@@ -197,6 +197,23 @@ PlatformKeysInternalSelectClientCertificatesFunction::Run() {
         NOTREACHED();
     }
   }
+
+  scoped_ptr<net::CertificateList> client_certs;
+  if (params->details.client_certs) {
+    client_certs.reset(new net::CertificateList);
+    for (const std::vector<char>& client_cert_der :
+         *params->details.client_certs) {
+      if (client_cert_der.empty())
+        return RespondNow(Error(platform_keys::kErrorInvalidX509Cert));
+      scoped_refptr<net::X509Certificate> client_cert_x509 =
+          net::X509Certificate::CreateFromBytes(
+              vector_as_array(&client_cert_der), client_cert_der.size());
+      if (!client_cert_x509)
+        return RespondNow(Error(platform_keys::kErrorInvalidX509Cert));
+      client_certs->push_back(client_cert_x509);
+    }
+  }
+
   content::WebContents* web_contents = nullptr;
   if (params->details.interactive) {
     web_contents = GetSenderWebContents();
@@ -204,13 +221,14 @@ PlatformKeysInternalSelectClientCertificatesFunction::Run() {
     // Ensure that this function is called in a context that allows opening
     // dialogs.
     if (!web_contents ||
-        !web_modal::PopupManager::FromWebContents(web_contents)) {
+        !web_modal::WebContentsModalDialogManager::FromWebContents(
+            web_contents)) {
       return RespondNow(Error(kErrorInteractiveCallFromBackground));
     }
   }
 
   service->SelectClientCertificates(
-      request, params->details.interactive, extension_id(),
+      request, client_certs.Pass(), params->details.interactive, extension_id(),
       base::Bind(&PlatformKeysInternalSelectClientCertificatesFunction::
                      OnSelectedCertificates,
                  this),

@@ -29,7 +29,7 @@
 #include "config.h"
 #include "modules/indexeddb/WebIDBCallbacksImpl.h"
 
-#include "core/dom/DOMError.h"
+#include "core/dom/DOMException.h"
 #include "core/inspector/InspectorInstrumentation.h"
 #include "modules/indexeddb/IDBMetadata.h"
 #include "modules/indexeddb/IDBRequest.h"
@@ -72,7 +72,7 @@ WebIDBCallbacksImpl::~WebIDBCallbacksImpl()
 void WebIDBCallbacksImpl::onError(const WebIDBDatabaseError& error)
 {
     InspectorInstrumentationCookie cookie = InspectorInstrumentation::traceAsyncCallbackStarting(m_request->executionContext(), m_asyncOperationId);
-    m_request->onError(DOMError::create(error.code(), error.message()));
+    m_request->onError(DOMException::create(error.code(), error.message()));
     InspectorInstrumentation::traceAsyncCallbackCompleted(cookie);
 }
 
@@ -86,10 +86,10 @@ void WebIDBCallbacksImpl::onSuccess(const WebVector<WebString>& webStringList)
     InspectorInstrumentation::traceAsyncCallbackCompleted(cookie);
 }
 
-void WebIDBCallbacksImpl::onSuccess(WebIDBCursor* cursor, const WebIDBKey& key, const WebIDBKey& primaryKey, const WebData& value, const WebVector<WebBlobInfo>& webBlobInfo)
+void WebIDBCallbacksImpl::onSuccess(WebIDBCursor* cursor, const WebIDBKey& key, const WebIDBKey& primaryKey, const WebIDBValue& value)
 {
     InspectorInstrumentationCookie cookie = InspectorInstrumentation::traceAsyncCallbackStarting(m_request->executionContext(), m_asyncOperationId);
-    m_request->onSuccess(adoptPtr(cursor), key, primaryKey, IDBValue::create(value, webBlobInfo));
+    m_request->onSuccess(adoptPtr(cursor), key, primaryKey, IDBValue::create(value));
     InspectorInstrumentation::traceAsyncCallbackCompleted(cookie);
 }
 
@@ -107,17 +107,10 @@ void WebIDBCallbacksImpl::onSuccess(const WebIDBKey& key)
     InspectorInstrumentation::traceAsyncCallbackCompleted(cookie);
 }
 
-void WebIDBCallbacksImpl::onSuccess(const WebData& value, const WebVector<WebBlobInfo>& webBlobInfo)
-{
-    InspectorInstrumentationCookie cookie = InspectorInstrumentation::traceAsyncCallbackStarting(m_request->executionContext(), m_asyncOperationId);
-    m_request->onSuccess(IDBValue::create(value, webBlobInfo));
-    InspectorInstrumentation::traceAsyncCallbackCompleted(cookie);
-}
-
 void WebIDBCallbacksImpl::onSuccess(const WebIDBValue& value)
 {
     InspectorInstrumentationCookie cookie = InspectorInstrumentation::traceAsyncCallbackStarting(m_request->executionContext(), m_asyncOperationId);
-    m_request->onSuccess(IDBValue::create(value.data, value.webBlobInfo, value.primaryKey, value.keyPath));
+    m_request->onSuccess(IDBValue::create(value));
     InspectorInstrumentation::traceAsyncCallbackCompleted(cookie);
 }
 
@@ -125,19 +118,9 @@ void WebIDBCallbacksImpl::onSuccess(const WebVector<WebIDBValue>& values)
 {
     InspectorInstrumentationCookie cookie = InspectorInstrumentation::traceAsyncCallbackStarting(m_request->executionContext(), m_asyncOperationId);
     Vector<RefPtr<IDBValue>> idbValues(values.size());
-    for (size_t i = 0; i < values.size(); ++i) {
-        const WebIDBValue& value = values[i];
-        idbValues[i] = IDBValue::create(value.data, value.webBlobInfo, value.primaryKey, value.keyPath);
-    }
+    for (size_t i = 0; i < values.size(); ++i)
+        idbValues[i] = IDBValue::create(values[i]);
     m_request->onSuccess(idbValues);
-    InspectorInstrumentation::traceAsyncCallbackCompleted(cookie);
-}
-
-void WebIDBCallbacksImpl::onSuccess(const WebData& value, const WebVector<WebBlobInfo>& webBlobInfo, const WebIDBKey& key, const WebIDBKeyPath& keyPath)
-{
-    InspectorInstrumentationCookie cookie = InspectorInstrumentation::traceAsyncCallbackStarting(m_request->executionContext(), m_asyncOperationId);
-    IDBKey* idbKey = key;
-    m_request->onSuccess(IDBValue::create(value, webBlobInfo, idbKey, keyPath));
     InspectorInstrumentation::traceAsyncCallbackCompleted(cookie);
 }
 
@@ -155,10 +138,10 @@ void WebIDBCallbacksImpl::onSuccess()
     InspectorInstrumentation::traceAsyncCallbackCompleted(cookie);
 }
 
-void WebIDBCallbacksImpl::onSuccess(const WebIDBKey& key, const WebIDBKey& primaryKey, const WebData& value, const WebVector<WebBlobInfo>& webBlobInfo)
+void WebIDBCallbacksImpl::onSuccess(const WebIDBKey& key, const WebIDBKey& primaryKey, const WebIDBValue& value)
 {
     InspectorInstrumentationCookie cookie = InspectorInstrumentation::traceAsyncCallbackStarting(m_request->executionContext(), m_asyncOperationId);
-    m_request->onSuccess(key, primaryKey, IDBValue::create(value, webBlobInfo));
+    m_request->onSuccess(key, primaryKey, IDBValue::create(value));
     InspectorInstrumentation::traceAsyncCallbackCompleted(cookie);
 }
 

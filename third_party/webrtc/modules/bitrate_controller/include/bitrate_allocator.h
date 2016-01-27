@@ -21,7 +21,7 @@
 
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/thread_annotations.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 
 namespace webrtc {
 
@@ -31,21 +31,22 @@ class BitrateAllocator {
  public:
   BitrateAllocator();
 
-  void OnNetworkChanged(uint32_t target_bitrate,
-                        uint8_t fraction_loss,
-                        int64_t rtt);
+  // Allocate target_bitrate across the registered BitrateObservers.
+  // Returns actual bitrate allocated (might be higher than target_bitrate if
+  // for instance EnforceMinBitrate() is enabled.
+  uint32_t OnNetworkChanged(uint32_t target_bitrate,
+                            uint8_t fraction_loss,
+                            int64_t rtt);
 
   // Set the start and max send bitrate used by the bandwidth management.
   //
-  // observer, updates bitrates if already in use.
-  // min_bitrate_bps = 0 equals no min bitrate.
-  // max_bitrate_bps = 0 equals no max bitrate.
-  // TODO(holmer): Remove start_bitrate_bps when old API is gone.
+  // |observer| updates bitrates if already in use.
+  // |min_bitrate_bps| = 0 equals no min bitrate.
+  // |max_bitrate_bps| = 0 equals no max bitrate.
+  // Returns bitrate allocated for the bitrate observer.
   int AddBitrateObserver(BitrateObserver* observer,
-                         uint32_t start_bitrate_bps,
                          uint32_t min_bitrate_bps,
-                         uint32_t max_bitrate_bps,
-                         int* new_observer_bitrate_bps);
+                         uint32_t max_bitrate_bps);
 
   void RemoveBitrateObserver(BitrateObserver* observer);
 
@@ -61,21 +62,16 @@ class BitrateAllocator {
 
  private:
   struct BitrateConfiguration {
-    BitrateConfiguration(uint32_t start_bitrate,
-                         uint32_t min_bitrate,
-                         uint32_t max_bitrate)
-        : start_bitrate_(start_bitrate),
-          min_bitrate_(min_bitrate),
-          max_bitrate_(max_bitrate) {}
-    uint32_t start_bitrate_;
-    uint32_t min_bitrate_;
-    uint32_t max_bitrate_;
+    BitrateConfiguration(uint32_t min_bitrate, uint32_t max_bitrate)
+        : min_bitrate(min_bitrate), max_bitrate(max_bitrate) {}
+    uint32_t min_bitrate;
+    uint32_t max_bitrate;
   };
   struct ObserverConfiguration {
     ObserverConfiguration(BitrateObserver* observer, uint32_t bitrate)
-        : observer_(observer), min_bitrate_(bitrate) {}
-    BitrateObserver* observer_;
-    uint32_t min_bitrate_;
+        : observer(observer), min_bitrate(bitrate) {}
+    BitrateObserver* const observer;
+    uint32_t min_bitrate;
   };
   typedef std::pair<BitrateObserver*, BitrateConfiguration>
       BitrateObserverConfiguration;

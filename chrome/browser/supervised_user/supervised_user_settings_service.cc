@@ -50,8 +50,9 @@ bool SettingShouldApplyToPrefs(const std::string& name) {
 
 }  // namespace
 
-SupervisedUserSettingsService::SupervisedUserSettingsService()
-    : active_(false),
+SupervisedUserSettingsService::SupervisedUserSettingsService(Profile* profile)
+    : profile_(profile),
+      active_(false),
       initialization_failed_(false),
       local_settings_(new base::DictionaryValue) {
 }
@@ -85,14 +86,19 @@ void SupervisedUserSettingsService::Init(
   store_->AddObserver(this);
 }
 
-void SupervisedUserSettingsService::Subscribe(
+scoped_ptr<SupervisedUserSettingsService::SettingsCallbackList::Subscription>
+    SupervisedUserSettingsService::Subscribe(
     const SettingsCallback& callback) {
   if (IsReady()) {
     scoped_ptr<base::DictionaryValue> settings = GetSettings();
     callback.Run(settings.get());
   }
 
-  subscribers_.push_back(callback);
+  return callback_list_.Add(callback);
+}
+
+Profile* SupervisedUserSettingsService::GetProfile(){
+  return profile_;
 }
 
 void SupervisedUserSettingsService::SetActive(bool active) {
@@ -190,8 +196,8 @@ SyncMergeResult SupervisedUserSettingsService::MergeDataAndStartSyncing(
     DCHECK_EQ(SUPERVISED_USER_SETTINGS, sync_data.GetDataType());
     const ::sync_pb::ManagedUserSettingSpecifics& supervised_user_setting =
         sync_data.GetSpecifics().managed_user_setting();
-    scoped_ptr<base::Value> value(
-        JSONReader::DeprecatedRead(supervised_user_setting.value()));
+    scoped_ptr<base::Value> value =
+        JSONReader::Read(supervised_user_setting.value());
     std::string name_suffix = supervised_user_setting.name();
     base::DictionaryValue* dict = GetDictionaryAndSplitKey(&name_suffix);
     dict->SetWithoutPathExpansion(name_suffix, value.release());
@@ -274,8 +280,8 @@ SyncError SupervisedUserSettingsService::ProcessSyncChanges(
     switch (change_type) {
       case SyncChange::ACTION_ADD:
       case SyncChange::ACTION_UPDATE: {
-        scoped_ptr<base::Value> value(
-            JSONReader::DeprecatedRead(supervised_user_setting.value()));
+        scoped_ptr<base::Value> value =
+            JSONReader::Read(supervised_user_setting.value());
         if (dict->HasKey(key)) {
           DLOG_IF(WARNING, change_type == SyncChange::ACTION_ADD)
               << "Value for key " << key << " already exists";
@@ -406,6 +412,5 @@ void SupervisedUserSettingsService::InformSubscribers() {
     return;
 
   scoped_ptr<base::DictionaryValue> settings = GetSettings();
-  for (const auto& callback : subscribers_)
-    callback.Run(settings.get());
+  callback_list_.Notify(settings.get());
 }

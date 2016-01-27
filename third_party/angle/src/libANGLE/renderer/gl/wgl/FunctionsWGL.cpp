@@ -8,6 +8,10 @@
 
 #include "libANGLE/renderer/gl/wgl/FunctionsWGL.h"
 
+#include <algorithm>
+
+#include "common/string_utils.h"
+
 namespace rx
 {
 
@@ -30,12 +34,15 @@ static void GetWGLProcAddress(HMODULE glModule, PFNWGLGETPROCADDRESSPROC getProc
 }
 
 template <typename T>
-static void GetWGLExtensionProcAddress(HMODULE glModule, PFNWGLGETPROCADDRESSPROC getProcAddressWGL,
-                                       const std::string &extensions, const std::string &extensionName,
-                                       const std::string &procName, T *outProcAddress)
+static void GetWGLExtensionProcAddress(HMODULE glModule,
+                                       PFNWGLGETPROCADDRESSPROC getProcAddressWGL,
+                                       const std::vector<std::string> &extensions,
+                                       const std::string &extensionName,
+                                       const std::string &procName,
+                                       T *outProcAddress)
 {
     T proc = nullptr;
-    if (extensions.find(extensionName) != std::string::npos)
+    if (std::find(extensions.begin(), extensions.end(), extensionName) != extensions.end())
     {
         GetWGLProcAddress(glModule, getProcAddressWGL, procName, &proc);
     }
@@ -64,10 +71,12 @@ FunctionsWGL::FunctionsWGL()
       realizeLayerPalette(nullptr),
       swapLayerBuffers(nullptr),
       swapMultipleBuffers(nullptr),
-      createContextAttribsARB(nullptr),
-      getPixelFormatAttribivARB(nullptr),
       getExtensionStringEXT(nullptr),
       getExtensionStringARB(nullptr),
+      createContextAttribsARB(nullptr),
+      getPixelFormatAttribivARB(nullptr),
+      getPixelFormatAttribfvARB(nullptr),
+      choosePixelFormatARB(nullptr),
       swapIntervalEXT(nullptr),
       createPbufferARB(nullptr),
       getPbufferDCARB(nullptr),
@@ -110,19 +119,28 @@ void FunctionsWGL::initialize(HMODULE glModule, HDC context)
     GetWGLProcAddress(glModule, getProcAddress, "wglGetExtensionsStringEXT", &getExtensionStringEXT);
     GetWGLProcAddress(glModule, getProcAddress, "wglGetExtensionsStringARB", &getExtensionStringARB);
 
-    std::string extensions = "";
+    std::string extensionString = "";
     if (getExtensionStringEXT)
     {
-        extensions = getExtensionStringEXT();
+        extensionString = getExtensionStringEXT();
     }
     else if (getExtensionStringARB && context)
     {
-        extensions = getExtensionStringARB(context);
+        extensionString = getExtensionStringARB(context);
     }
+    angle::SplitStringAlongWhitespace(extensionString, &extensions);
 
     // Load the wgl extension functions by checking if the context supports the extension first
+
+    // WGL_ARB_create_context
     GetWGLExtensionProcAddress(glModule, getProcAddress, extensions, "WGL_ARB_create_context", "wglCreateContextAttribsARB", &createContextAttribsARB);
+
+    // WGL_ARB_pixel_format
     GetWGLExtensionProcAddress(glModule, getProcAddress, extensions, "WGL_ARB_pixel_format", "wglGetPixelFormatAttribivARB", &getPixelFormatAttribivARB);
+    GetWGLExtensionProcAddress(glModule, getProcAddress, extensions, "WGL_ARB_pixel_format", "wglGetPixelFormatAttribfvARB", &getPixelFormatAttribfvARB);
+    GetWGLExtensionProcAddress(glModule, getProcAddress, extensions, "WGL_ARB_pixel_format", "wglChoosePixelFormatARB", &choosePixelFormatARB);
+
+    // WGL_EXT_swap_control
     GetWGLExtensionProcAddress(glModule, getProcAddress, extensions, "WGL_EXT_swap_control", "wglSwapIntervalEXT", &swapIntervalEXT);
 
     // WGL_ARB_pbuffer
@@ -138,4 +156,8 @@ void FunctionsWGL::initialize(HMODULE glModule, HDC context)
     GetWGLExtensionProcAddress(glModule, getProcAddress, extensions, "WGL_ARB_render_texture", "wglSetPbufferAttribARB", &setPbufferAttribARB);
 }
 
+bool FunctionsWGL::hasExtension(const std::string &ext) const
+{
+    return std::find(extensions.begin(), extensions.end(), ext) != extensions.end();
+}
 }

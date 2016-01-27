@@ -51,10 +51,8 @@ Timing::FillMode resolvedFillMode(Timing::FillMode fillMode, bool isAnimation)
 
 } // namespace
 
-AnimationEffect::AnimationEffect(const Timing& timing, PassOwnPtrWillBeRawPtr<EventDelegate> eventDelegate)
-    : m_parent(nullptr)
-    , m_startTime(0)
-    , m_animation(nullptr)
+AnimationEffect::AnimationEffect(const Timing& timing, EventDelegate* eventDelegate)
+    : m_animation(nullptr)
     , m_timing(timing)
     , m_eventDelegate(eventDelegate)
     , m_calculated()
@@ -100,7 +98,7 @@ void AnimationEffect::updateSpecifiedTiming(const Timing& timing)
 void AnimationEffect::computedTiming(ComputedTimingProperties& computedTiming)
 {
     // ComputedTimingProperties members.
-    computedTiming.setStartTime(startTimeInternal() * 1000);
+    computedTiming.setStartTime(0);
     computedTiming.setEndTime(endTimeInternal() * 1000);
     computedTiming.setActiveDuration(activeDurationInternal() * 1000);
 
@@ -115,7 +113,7 @@ void AnimationEffect::computedTiming(ComputedTimingProperties& computedTiming)
     // KeyframeEffectOptions members.
     computedTiming.setDelay(specifiedTiming().startDelay * 1000);
     computedTiming.setEndDelay(specifiedTiming().endDelay * 1000);
-    computedTiming.setFill(Timing::fillModeString(resolvedFillMode(specifiedTiming().fillMode, isAnimation())));
+    computedTiming.setFill(Timing::fillModeString(resolvedFillMode(specifiedTiming().fillMode, isKeyframeEffect())));
     computedTiming.setIterationStart(specifiedTiming().iterationStart);
     computedTiming.setIterations(specifiedTiming().iterationCount);
 
@@ -142,7 +140,7 @@ void AnimationEffect::updateInheritedTime(double inheritedTime, TimingUpdateReas
     m_needsUpdate = false;
     m_lastUpdateTime = inheritedTime;
 
-    const double localTime = inheritedTime - m_startTime;
+    const double localTime = inheritedTime;
     double timeToNextIteration = std::numeric_limits<double>::infinity();
     if (needsUpdate) {
         const double activeDuration = this->activeDurationInternal();
@@ -150,7 +148,7 @@ void AnimationEffect::updateInheritedTime(double inheritedTime, TimingUpdateReas
         const Phase currentPhase = calculatePhase(activeDuration, localTime, m_timing);
         // FIXME: parentPhase depends on groups being implemented.
         const AnimationEffect::Phase parentPhase = AnimationEffect::PhaseActive;
-        const double activeTime = calculateActiveTime(activeDuration, resolvedFillMode(m_timing.fillMode, isAnimation()), localTime, parentPhase, currentPhase, m_timing);
+        const double activeTime = calculateActiveTime(activeDuration, resolvedFillMode(m_timing.fillMode, isKeyframeEffect()), localTime, parentPhase, currentPhase, m_timing);
 
         double currentIteration;
         double timeFraction;
@@ -176,7 +174,7 @@ void AnimationEffect::updateInheritedTime(double inheritedTime, TimingUpdateReas
             ASSERT(localActiveDuration >= 0);
             const double localLocalTime = localTime < m_timing.startDelay ? localTime : localActiveDuration + m_timing.startDelay;
             const AnimationEffect::Phase localCurrentPhase = calculatePhase(localActiveDuration, localLocalTime, m_timing);
-            const double localActiveTime = calculateActiveTime(localActiveDuration, resolvedFillMode(m_timing.fillMode, isAnimation()), localLocalTime, parentPhase, localCurrentPhase, m_timing);
+            const double localActiveTime = calculateActiveTime(localActiveDuration, resolvedFillMode(m_timing.fillMode, isKeyframeEffect()), localLocalTime, parentPhase, localCurrentPhase, m_timing);
             const double startOffset = m_timing.iterationStart * localIterationDuration;
             ASSERT(startOffset >= 0);
             const double scaledActiveTime = calculateScaledActiveTime(localActiveDuration, localActiveTime, startOffset, m_timing);
@@ -191,9 +189,9 @@ void AnimationEffect::updateInheritedTime(double inheritedTime, TimingUpdateReas
 
         m_calculated.phase = currentPhase;
         m_calculated.isInEffect = !isNull(activeTime);
-        m_calculated.isInPlay = phase() == PhaseActive && (!m_parent || m_parent->isInPlay());
-        m_calculated.isCurrent = phase() == PhaseBefore || isInPlay() || (m_parent && m_parent->isCurrent());
-        m_calculated.localTime = m_lastUpdateTime - m_startTime;
+        m_calculated.isInPlay = phase() == PhaseActive;
+        m_calculated.isCurrent = phase() == PhaseBefore || isInPlay();
+        m_calculated.localTime = m_lastUpdateTime;
     }
 
     // Test for events even if timing didn't need an update as the animation may have gained a start time.
@@ -221,14 +219,13 @@ const AnimationEffect::CalculatedTiming& AnimationEffect::ensureCalculated() con
     return m_calculated;
 }
 
-PassRefPtrWillBeRawPtr<AnimationEffectTiming> AnimationEffect::timing()
+AnimationEffectTiming* AnimationEffect::timing()
 {
     return AnimationEffectTiming::create(this);
 }
 
 DEFINE_TRACE(AnimationEffect)
 {
-    visitor->trace(m_parent);
     visitor->trace(m_animation);
     visitor->trace(m_eventDelegate);
 }

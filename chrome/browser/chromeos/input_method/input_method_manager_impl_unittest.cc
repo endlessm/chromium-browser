@@ -14,7 +14,6 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
-#include "chrome/browser/chromeos/input_method/input_method_engine_interface.h"
 #include "chrome/browser/chromeos/input_method/mock_candidate_window_controller.h"
 #include "chrome/browser/chromeos/input_method/mock_input_method_engine.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -29,6 +28,7 @@
 #include "ui/base/ime/chromeos/fake_input_method_delegate.h"
 #include "ui/base/ime/chromeos/mock_component_extension_ime_manager_delegate.h"
 #include "ui/base/ime/chromeos/mock_ime_engine_handler.h"
+#include "ui/base/ime/ime_bridge.h"
 #include "ui/base/ime/input_method_initializer.h"
 #include "ui/chromeos/ime/input_method_menu_item.h"
 #include "ui/chromeos/ime/input_method_menu_manager.h"
@@ -140,8 +140,8 @@ class InputMethodManagerImplTest :  public BrowserWithTestWindowTest {
     keyboard_ = new FakeImeKeyboard;
     manager_->SetImeKeyboardForTesting(keyboard_);
     mock_engine_handler_.reset(new MockInputMethodEngine());
-    IMEBridge::Initialize();
-    IMEBridge::Get()->SetCurrentEngineHandler(mock_engine_handler_.get());
+    ui::IMEBridge::Initialize();
+    ui::IMEBridge::Get()->SetCurrentEngineHandler(mock_engine_handler_.get());
 
     menu_manager_ = ui::ime::InputMethodMenuManager::GetInstance();
 

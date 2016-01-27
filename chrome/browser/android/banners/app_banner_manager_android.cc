@@ -6,12 +6,10 @@
 
 #include "base/android/jni_android.h"
 #include "base/android/jni_string.h"
-#include "base/command_line.h"
-#include "base/metrics/field_trial.h"
 #include "chrome/browser/android/banners/app_banner_data_fetcher_android.h"
+#include "chrome/browser/android/shortcut_helper.h"
 #include "chrome/browser/banners/app_banner_metrics.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/render_messages.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/frame_navigate_params.h"
 #include "jni/AppBannerManager_jni.h"
@@ -22,15 +20,20 @@ using base::android::ConvertUTF8ToJavaString;
 using base::android::ConvertUTF16ToJavaString;
 
 namespace {
+
 const char kPlayPlatform[] = "play";
+const char kReferrerName[] = "referrer";
+const char kIdName[] = "id";
+const char kPlayInlineReferrer[] = "playinline=chrome_inline";
+
 }  // anonymous namespace
 
 namespace banners {
 
-AppBannerManagerAndroid::AppBannerManagerAndroid(JNIEnv* env,
-                                                 jobject obj,
-                                                 int icon_size)
-    : AppBannerManager(icon_size),
+AppBannerManagerAndroid::AppBannerManagerAndroid(
+    JNIEnv* env,
+    jobject obj)
+    : AppBannerManager(),
       weak_java_banner_view_manager_(env, obj) {
 }
 
@@ -63,12 +66,33 @@ bool AppBannerManagerAndroid::HandleNonWebApp(const std::string& platform,
   if (jobj.is_null())
     return false;
 
+  std::string id_from_app_url = ExtractQueryValueForName(url, kIdName);
+  if (id_from_app_url.size() && id != id_from_app_url) {
+    banners::OutputDeveloperDebugMessage(web_contents(),
+                                         banners::kIgnoredIdsDoNotMatch);
+    return false;
+  }
+
+  std::string referrer =
+      ExtractQueryValueForName(url, kReferrerName);
+
+  // Attach the chrome_inline referrer value, prefixed with "&" if the referrer
+  // is non empty.
+  if (referrer.empty())
+    referrer = kPlayInlineReferrer;
+  else
+    referrer.append("&").append(kPlayInlineReferrer);
+
   ScopedJavaLocalRef<jstring> jurl(
       ConvertUTF8ToJavaString(env, data_fetcher()->validated_url().spec()));
   ScopedJavaLocalRef<jstring> jpackage(
       ConvertUTF8ToJavaString(env, id));
+  ScopedJavaLocalRef<jstring> jreferrer(
+      ConvertUTF8ToJavaString(env, referrer));
   Java_AppBannerManager_fetchAppDetails(
-      env, jobj.obj(), jurl.obj(), jpackage.obj(), ideal_icon_size());
+      env, jobj.obj(), jurl.obj(),
+      jpackage.obj(), jreferrer.obj(),
+      ShortcutHelper::GetIdealHomescreenIconSizeInDp());
   return true;
 }
 
@@ -87,9 +111,9 @@ bool AppBannerManagerAndroid::CheckPlatformAndId(const std::string& platform,
 }
 
 bool AppBannerManagerAndroid::CheckFetcherMatchesContents() {
-  if (!web_contents()) {
+  if (!web_contents())
     return false;
-  }
+
   if (!data_fetcher() ||
       data_fetcher()->validated_url() != web_contents()->GetURL()) {
     banners::OutputDeveloperNotShownMessage(
@@ -99,11 +123,31 @@ bool AppBannerManagerAndroid::CheckFetcherMatchesContents() {
   return true;
 }
 
+std::string AppBannerManagerAndroid::ExtractQueryValueForName(
+    const GURL& url,
+    const std::string& name) {
+  url::Component query = url.parsed_for_possibly_invalid_spec().query;
+  url::Component key, value;
+  const char* url_spec = url.spec().c_str();
+
+  while (url::ExtractQueryKeyValue(url_spec, &query, &key, &value)) {
+    std::string key_str(url_spec, key.begin, key.len);
+    std::string value_str(url_spec, value.begin, value.len);
+    if (key_str == name)
+      return value_str;
+  }
+  return "";
+}
+
 AppBannerDataFetcher* AppBannerManagerAndroid::CreateAppBannerDataFetcher(
-    base::WeakPtr<Delegate> weak_delegate,
-    const int ideal_icon_size) {
-  return new AppBannerDataFetcherAndroid(web_contents(), weak_delegate,
-                                         ideal_icon_size);
+    base::WeakPtr<Delegate> weak_delegate) {
+  return new AppBannerDataFetcherAndroid(
+      web_contents(),
+      weak_delegate,
+      ShortcutHelper::GetIdealHomescreenIconSizeInDp(),
+      ShortcutHelper::GetMinimumHomescreenIconSizeInDp(),
+      ShortcutHelper::GetIdealSplashImageSizeInDp(),
+      ShortcutHelper::GetMinimumSplashImageSizeInDp());
 }
 
 bool AppBannerManagerAndroid::OnAppDetailsRetrieved(JNIEnv* env,
@@ -136,22 +180,29 @@ bool AppBannerManagerAndroid::Register(JNIEnv* env) {
   return RegisterNativesImpl(env);
 }
 
-jlong Init(JNIEnv* env, jobject obj, jint icon_size) {
-  AppBannerManagerAndroid* manager =
-      new AppBannerManagerAndroid(env, obj, icon_size);
+jlong Init(JNIEnv* env,
+           const JavaParamRef<jobject>& obj) {
+  AppBannerManagerAndroid* manager = new AppBannerManagerAndroid(env, obj);
   return reinterpret_cast<intptr_t>(manager);
 }
 
-void SetTimeDeltaForTesting(JNIEnv* env, jclass clazz, jint days) {
+void SetTimeDeltaForTesting(JNIEnv* env,
+                            const JavaParamRef<jclass>& clazz,
+                            jint days) {
   AppBannerDataFetcher::SetTimeDeltaForTesting(days);
 }
 
-void DisableSecureSchemeCheckForTesting(JNIEnv* env, jclass clazz) {
+void DisableSecureSchemeCheckForTesting(JNIEnv* env,
+                                        const JavaParamRef<jclass>& clazz) {
   AppBannerManager::DisableSecureSchemeCheckForTesting();
 }
 
-jboolean IsEnabled(JNIEnv* env, jclass clazz) {
-  return base::FieldTrialList::FindFullName("AppBanners") == "Enabled";
+void SetEngagementWeights(JNIEnv* env,
+                          const JavaParamRef<jclass>& clazz,
+                          jdouble direct_engagement,
+                          jdouble indirect_engagement) {
+  AppBannerManager::SetEngagementWeights(direct_engagement,
+                                         indirect_engagement);
 }
 
 }  // namespace banners

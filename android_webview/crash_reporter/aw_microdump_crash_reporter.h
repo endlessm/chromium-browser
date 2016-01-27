@@ -5,11 +5,15 @@
 #ifndef ANDROID_WEBVIEW_CRASH_REPORTER_AW_MICRODUMP_CRASH_REPORTER_H_
 #define ANDROID_WEBVIEW_CRASH_REPORTER_AW_MICRODUMP_CRASH_REPORTER_H_
 
+#include <string>
+
 namespace android_webview {
 namespace crash_reporter {
 
 void EnableMicrodumpCrashReporter();
-
+void AddGpuFingerprintToMicrodumpCrashHandler(
+    const std::string& gpu_fingerprint);
+bool DumpWithoutCrashingToFd(int fd);
 }  // namespace crash_reporter
 }  // namespace android_webview
 

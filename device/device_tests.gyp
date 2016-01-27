@@ -36,29 +36,30 @@
         'battery/battery_status_manager_win_unittest.cc',
         'battery/battery_status_service_unittest.cc',
         'bluetooth/bluetooth_adapter_mac_unittest.mm',
-        'bluetooth/bluetooth_adapter_profile_chromeos_unittest.cc',
         'bluetooth/bluetooth_adapter_unittest.cc',
         'bluetooth/bluetooth_adapter_win_unittest.cc',
-        'bluetooth/bluetooth_advertisement_chromeos_unittest.cc',
-        'bluetooth/bluetooth_audio_sink_chromeos_unittest.cc',
-        'bluetooth/bluetooth_chromeos_unittest.cc',
+        'bluetooth/bluetooth_advertisement_unittest.cc',
         'bluetooth/bluetooth_device_unittest.cc',
         'bluetooth/bluetooth_device_win_unittest.cc',
         'bluetooth/bluetooth_discovery_filter_unittest.cc',
-        'bluetooth/bluetooth_gatt_chromeos_unittest.cc',
+        'bluetooth/bluetooth_gatt_characteristic_unittest.cc',
+        'bluetooth/bluetooth_gatt_service_unittest.cc',
         'bluetooth/bluetooth_low_energy_win_unittest.cc',
         'bluetooth/bluetooth_service_record_win_unittest.cc',
-        'bluetooth/bluetooth_socket_chromeos_unittest.cc',
         'bluetooth/bluetooth_task_manager_win_unittest.cc',
         'bluetooth/bluetooth_uuid_unittest.cc',
         'bluetooth/test/bluetooth_test.cc',
         'bluetooth/test/bluetooth_test.h',
         'bluetooth/test/bluetooth_test_android.cc',
         'bluetooth/test/bluetooth_test_android.h',
+        'bluetooth/test/bluetooth_test_mac.h',
+        'bluetooth/test/bluetooth_test_mac.mm',
         'bluetooth/test/test_bluetooth_adapter_observer.cc',
         'bluetooth/test/test_bluetooth_adapter_observer.h',
         'devices_app/usb/device_impl_unittest.cc',
         'devices_app/usb/device_manager_impl_unittest.cc',
+        'devices_app/usb/fake_permission_provider.cc',
+        'devices_app/usb/fake_permission_provider.h',
         'hid/hid_connection_unittest.cc',
         'hid/hid_device_filter_unittest.cc',
         'hid/hid_report_descriptor_unittest.cc',
@@ -70,8 +71,11 @@
         'serial/data_sink_unittest.cc',
         'serial/data_source_unittest.cc',
         'serial/serial_connection_unittest.cc',
+        "serial/serial_io_handler_posix_unittest.cc",
         'serial/serial_service_unittest.cc',
         'test/run_all_unittests.cc',
+        'test/test_device_client.cc',
+        'test/test_device_client.h',
         'test/usb_test_gadget_impl.cc',
         'usb/usb_context_unittest.cc',
         'usb/usb_descriptors_unittest.cc',
@@ -79,22 +83,36 @@
         'usb/usb_device_handle_unittest.cc',
         'usb/usb_ids_unittest.cc',
         'usb/usb_service_unittest.cc',
+        'usb/webusb_descriptors_unittest.cc',
       ],
       'conditions': [
         ['chromeos==1', {
           'dependencies': [
-            '../build/linux/system.gyp:dbus',
             '../chromeos/chromeos.gyp:chromeos_test_support',
             '../chromeos/chromeos.gyp:chromeos_test_support_without_gmock',
-            '../dbus/dbus.gyp:dbus',
           ],
           'sources!': [
             'battery/battery_status_manager_linux_unittest.cc',
           ],
         }],
+        ['chromeos==1 or OS=="linux"', {
+          'dependencies': [
+            '../build/linux/system.gyp:dbus',
+            '../dbus/dbus.gyp:dbus',
+          ],
+          'sources': [
+            'bluetooth/bluetooth_adapter_profile_bluez_unittest.cc',
+            'bluetooth/bluetooth_advertisement_bluez_unittest.cc',
+            'bluetooth/bluetooth_audio_sink_bluez_unittest.cc',
+            'bluetooth/bluetooth_bluez_unittest.cc',
+            'bluetooth/bluetooth_gatt_bluez_unittest.cc',
+            'bluetooth/bluetooth_socket_bluez_unittest.cc',
+          ],
+        }],
         ['OS=="android"', {
           'dependencies!': [
             '../tools/usb_gadget/usb_gadget.gyp:usb_gadget',
+            'battery/battery.gyp:device_battery',
             'devices_app/devices_app.gyp:devices_app_lib',
             'usb/usb.gyp:device_usb',
             'usb/usb.gyp:device_usb_mocks',
@@ -112,11 +130,22 @@
             ['exclude', '(^|/)serial'],
             ['exclude', '(^|/)usb'],
           ],
+          'sources!': [
+            'battery/battery_status_service_unittest.cc',
+          ],
         }],
         ['OS=="mac"', {
+          'dependencies': [
+            '../third_party/ocmock/ocmock.gyp:ocmock',
+          ],
           'link_settings': {
             'libraries': [
               '$(SDKROOT)/System/Library/Frameworks/IOBluetooth.framework',
+            ],
+          },
+          'xcode_settings' : {
+            'OTHER_LDFLAGS' : [
+              '-ObjC',
             ],
           },
         }],
@@ -194,6 +223,25 @@
           },
           'includes': [ '../build/java.gypi' ],
         },
+      ],
+      'conditions': [
+        ['test_isolation_mode != "noop"', {
+          'targets': [
+            {
+              'target_name': 'device_unittests_apk_run',
+              'type': 'none',
+              'dependencies': [
+                'device_unittests_apk',
+              ],
+              'includes': [
+                '../build/isolate.gypi',
+              ],
+              'sources': [
+                'device_unittests_apk.isolate',
+              ],
+            },
+          ],
+        }],
       ],
     }],
     ['test_isolation_mode != "noop"', {

@@ -74,9 +74,6 @@ LIBRARY_DEPENDENCIES_DEFAULT = {
         # For CHECK(...)
         'platform',
         ],
-    'untrusted_crash_dump': [
-        'nacl_exception',
-        ],
     'irt_support_private': [
         'srpc',
         'platform',
@@ -88,6 +85,10 @@ LIBRARY_DEPENDENCIES_DEFAULT = {
 UNTRUSTED_LIBRARY_DEPENDENCIES = {
     'ppapi_cpp': [
         'ppapi',
+        ],
+    'srpc': [
+        'platform',
+        'imc_syscalls',
         ],
     }
 

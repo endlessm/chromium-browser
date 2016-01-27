@@ -64,6 +64,7 @@ class CORE_EXPORT PageSerializer final {
     STACK_ALLOCATED();
 public:
     class Delegate {
+        USING_FAST_MALLOC(Delegate);
     public:
         virtual ~Delegate() { }
         virtual bool shouldIgnoreAttribute(const Attribute&) = 0;
@@ -82,6 +83,8 @@ public:
     KURL urlForBlankFrame(LocalFrame*);
 
     Delegate* delegate();
+
+    static String markOfTheWebDeclaration(const KURL&);
 
 private:
     void serializeFrame(LocalFrame*);

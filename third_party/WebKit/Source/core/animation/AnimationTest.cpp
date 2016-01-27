@@ -38,6 +38,7 @@
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/QualifiedName.h"
+#include "core/testing/DummyPageHolder.h"
 #include "platform/weborigin/KURL.h"
 #include <gtest/gtest.h>
 
@@ -53,12 +54,14 @@ protected:
 
     void setUpWithoutStartingTimeline()
     {
-        document = Document::create();
+        pageHolder = DummyPageHolder::create();
+        document = &pageHolder->document();
         document->animationClock().resetTimeForTesting();
         timeline = AnimationTimeline::create(document.get());
+        timeline->resetForTesting();
         animation = timeline->play(0);
         animation->setStartTime(0);
-        animation->setEffect(makeAnimation().get());
+        animation->setEffect(makeAnimation());
     }
 
     void startTimeline()
@@ -66,7 +69,7 @@ protected:
         simulateFrame(0);
     }
 
-    PassRefPtrWillBeRawPtr<KeyframeEffect> makeAnimation(double duration = 30, double playbackRate = 1)
+    KeyframeEffect* makeAnimation(double duration = 30, double playbackRate = 1)
     {
         Timing timing;
         timing.iterationDuration = duration;
@@ -83,9 +86,10 @@ protected:
     }
 
     RefPtrWillBePersistent<Document> document;
-    RefPtrWillBePersistent<AnimationTimeline> timeline;
-    RefPtrWillBePersistent<Animation> animation;
+    Persistent<AnimationTimeline> timeline;
+    Persistent<Animation> animation;
     TrackExceptionState exceptionState;
+    OwnPtr<DummyPageHolder> pageHolder;
 };
 
 TEST_F(AnimationAnimationTest, InitialState)
@@ -181,26 +185,6 @@ TEST_F(AnimationAnimationTest, SetCurrentTimePastContentEnd)
     EXPECT_EQ(Animation::Running, animation->playStateInternal());
     simulateFrame(40);
     EXPECT_EQ(10, animation->currentTimeInternal());
-}
-
-TEST_F(AnimationAnimationTest, SetCurrentTimeBeforeTimelineStarted)
-{
-    setUpWithoutStartingTimeline();
-    animation->setCurrentTimeInternal(5);
-    EXPECT_EQ(5, animation->currentTimeInternal());
-    startTimeline();
-    simulateFrame(10);
-    EXPECT_EQ(15, animation->currentTimeInternal());
-}
-
-TEST_F(AnimationAnimationTest, SetCurrentTimePastContentEndBeforeTimelineStarted)
-{
-    setUpWithoutStartingTimeline();
-    animation->setCurrentTime(250 * 1000);
-    EXPECT_EQ(250, animation->currentTimeInternal());
-    startTimeline();
-    simulateFrame(10);
-    EXPECT_EQ(250, animation->currentTimeInternal());
 }
 
 TEST_F(AnimationAnimationTest, SetCurrentTimeMax)
@@ -318,21 +302,6 @@ TEST_F(AnimationAnimationTest, PausePlay)
     EXPECT_EQ(10, animation->currentTimeInternal());
     simulateFrame(30);
     EXPECT_EQ(20, animation->currentTimeInternal());
-}
-
-TEST_F(AnimationAnimationTest, PauseBeforeTimelineStarted)
-{
-    setUpWithoutStartingTimeline();
-    animation->pause();
-    EXPECT_TRUE(animation->paused());
-    animation->play();
-    EXPECT_FALSE(animation->paused());
-
-    animation->pause();
-    startTimeline();
-    simulateFrame(100);
-    EXPECT_TRUE(animation->paused());
-    EXPECT_EQ(0, animation->currentTimeInternal());
 }
 
 TEST_F(AnimationAnimationTest, PlayRewindsToStart)
@@ -504,7 +473,7 @@ TEST_F(AnimationAnimationTest, FinishRaisesException)
     Timing timing;
     timing.iterationDuration = 1;
     timing.iterationCount = std::numeric_limits<double>::infinity();
-    animation->setEffect(KeyframeEffect::create(0, nullptr, timing).get());
+    animation->setEffect(KeyframeEffect::create(0, nullptr, timing));
     animation->setCurrentTimeInternal(10);
 
     animation->finish(exceptionState);
@@ -551,17 +520,6 @@ TEST_F(AnimationAnimationTest, SetPlaybackRate)
     simulateFrame(0);
     EXPECT_EQ(2, animation->playbackRate());
     EXPECT_EQ(0, animation->currentTimeInternal());
-    simulateFrame(10);
-    EXPECT_EQ(20, animation->currentTimeInternal());
-}
-
-TEST_F(AnimationAnimationTest, SetPlaybackRateBeforeTimelineStarted)
-{
-    setUpWithoutStartingTimeline();
-    animation->setPlaybackRate(2);
-    EXPECT_EQ(2, animation->playbackRate());
-    EXPECT_EQ(0, animation->currentTimeInternal());
-    startTimeline();
     simulateFrame(10);
     EXPECT_EQ(20, animation->currentTimeInternal());
 }
@@ -621,23 +579,23 @@ TEST_F(AnimationAnimationTest, SetEffect)
 {
     animation = timeline->play(0);
     animation->setStartTime(0);
-    RefPtrWillBeRawPtr<AnimationEffect> effect1 = makeAnimation();
-    RefPtrWillBeRawPtr<AnimationEffect> effect2 = makeAnimation();
-    animation->setEffect(effect1.get());
+    AnimationEffect* effect1 = makeAnimation();
+    AnimationEffect* effect2 = makeAnimation();
+    animation->setEffect(effect1);
     EXPECT_EQ(effect1, animation->effect());
     EXPECT_EQ(0, animation->currentTimeInternal());
     animation->setCurrentTimeInternal(15);
-    animation->setEffect(effect2.get());
+    animation->setEffect(effect2);
     EXPECT_EQ(15, animation->currentTimeInternal());
     EXPECT_EQ(0, effect1->animation());
-    EXPECT_EQ(animation.get(), effect2->animation());
+    EXPECT_EQ(animation, effect2->animation());
     EXPECT_EQ(effect2, animation->effect());
 }
 
 TEST_F(AnimationAnimationTest, SetEffectLimitsAnimation)
 {
     animation->setCurrentTimeInternal(20);
-    animation->setEffect(makeAnimation(10).get());
+    animation->setEffect(makeAnimation(10));
     EXPECT_EQ(20, animation->currentTimeInternal());
     EXPECT_TRUE(animation->limited());
     simulateFrame(10);
@@ -647,7 +605,7 @@ TEST_F(AnimationAnimationTest, SetEffectLimitsAnimation)
 TEST_F(AnimationAnimationTest, SetEffectUnlimitsAnimation)
 {
     animation->setCurrentTimeInternal(40);
-    animation->setEffect(makeAnimation(60).get());
+    animation->setEffect(makeAnimation(60));
     EXPECT_FALSE(animation->limited());
     EXPECT_EQ(40, animation->currentTimeInternal());
     simulateFrame(10);
@@ -680,8 +638,8 @@ TEST_F(AnimationAnimationTest, AnimationsReturnTimeToNextEffect)
     timing.startDelay = 1;
     timing.iterationDuration = 1;
     timing.endDelay = 1;
-    RefPtrWillBeRawPtr<KeyframeEffect> keyframeEffect = KeyframeEffect::create(0, nullptr, timing);
-    animation = timeline->play(keyframeEffect.get());
+    KeyframeEffect* keyframeEffect = KeyframeEffect::create(0, nullptr, timing);
+    animation = timeline->play(keyframeEffect);
     animation->setStartTime(0);
 
     simulateFrame(0);
@@ -781,22 +739,21 @@ TEST_F(AnimationAnimationTest, AttachedAnimations)
     RefPtrWillBePersistent<Element> element = document->createElement("foo", ASSERT_NO_EXCEPTION);
 
     Timing timing;
-    RefPtrWillBeRawPtr<KeyframeEffect> keyframeEffect = KeyframeEffect::create(element.get(), nullptr, timing);
-    RefPtrWillBeRawPtr<Animation> animation = timeline->play(keyframeEffect.get());
+    KeyframeEffect* keyframeEffect = KeyframeEffect::create(element.get(), nullptr, timing);
+    Animation* animation = timeline->play(keyframeEffect);
     simulateFrame(0);
     timeline->serviceAnimations(TimingUpdateForAnimationFrame);
-    EXPECT_EQ(1U, element->elementAnimations()->animations().find(animation.get())->value);
+    EXPECT_EQ(1U, element->elementAnimations()->animations().find(animation)->value);
 
-    animation.release();
     Heap::collectAllGarbage();
     EXPECT_TRUE(element->elementAnimations()->animations().isEmpty());
 }
 
 TEST_F(AnimationAnimationTest, HasLowerPriority)
 {
-    RefPtrWillBeRawPtr<Animation> animation1 = timeline->play(0);
-    RefPtrWillBeRawPtr<Animation> animation2 = timeline->play(0);
-    EXPECT_TRUE(Animation::hasLowerPriority(animation1.get(), animation2.get()));
+    Animation* animation1 = timeline->play(0);
+    Animation* animation2 = timeline->play(0);
+    EXPECT_TRUE(Animation::hasLowerPriority(animation1, animation2));
 }
 
 TEST_F(AnimationAnimationTest, PlayAfterCancel)

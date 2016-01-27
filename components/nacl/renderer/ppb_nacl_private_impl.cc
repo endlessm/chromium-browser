@@ -610,7 +610,8 @@ std::string PnaclComponentURLToFilename(const std::string& url) {
   // generated from ManifestResolveKey or PnaclResources::ReadResourceInfo.
   // So, it's safe to just use string parsing operations here instead of
   // URL-parsing ones.
-  DCHECK(base::StartsWithASCII(url, kPNaClTranslatorBaseUrl, true));
+  DCHECK(base::StartsWith(url, kPNaClTranslatorBaseUrl,
+                          base::CompareCase::SENSITIVE));
   std::string r = url.substr(std::string(kPNaClTranslatorBaseUrl).length());
 
   // Use white-listed-chars.
@@ -1221,14 +1222,8 @@ PP_Bool GetPNaClResourceInfo(PP_Instance instance,
     *ld_tool_name = ppapi::StringVar::StringToPPVar(pnacl_ld_name);
 
   std::string pnacl_sz_name;
-  if (json_dict->GetString("pnacl-sz-name", &pnacl_sz_name)) {
+  if (json_dict->GetString("pnacl-sz-name", &pnacl_sz_name))
     *subzero_tool_name = ppapi::StringVar::StringToPPVar(pnacl_sz_name);
-  } else {
-    // TODO(jvoung): remove fallback after one chrome release
-    // or when we bump the kMinPnaclVersion.
-    // TODO(jvoung): Just use strings instead of PP_Var!
-    *subzero_tool_name = ppapi::StringVar::StringToPPVar("pnacl-sz.nexe");
-  }
 
   return PP_TRUE;
 }
@@ -1540,8 +1535,8 @@ class PexeDownloader : public blink::WebURLLoaderClient {
   }
 
  private:
-  virtual void didReceiveResponse(blink::WebURLLoader* loader,
-                                  const blink::WebURLResponse& response) {
+  void didReceiveResponse(blink::WebURLLoader* loader,
+                          const blink::WebURLResponse& response) override {
     success_ = (response.httpStatusCode() == 200);
     if (!success_)
       return;
@@ -1562,12 +1557,9 @@ class PexeDownloader : public blink::WebURLLoaderClient {
     std::string cache_control =
         response.httpHeaderField("cache-control").utf8();
 
-    std::vector<std::string> values;
-    base::SplitString(cache_control, ',', &values);
-    for (std::vector<std::string>::const_iterator it = values.begin();
-         it != values.end();
-         ++it) {
-      if (base::StringToLowerASCII(*it) == "no-store")
+    for (const std::string& cur : base::SplitString(
+             cache_control, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)) {
+      if (base::ToLowerASCII(cur) == "no-store")
         has_no_store_header = true;
     }
 
@@ -1577,9 +1569,9 @@ class PexeDownloader : public blink::WebURLLoaderClient {
         base::Bind(&PexeDownloader::didGetNexeFd, weak_factory_.GetWeakPtr()));
   }
 
-  virtual void didGetNexeFd(int32_t pp_error,
-                            bool cache_hit,
-                            PP_FileHandle file_handle) {
+  void didGetNexeFd(int32_t pp_error,
+                    bool cache_hit,
+                    PP_FileHandle file_handle) {
     if (!content::PepperPluginInstance::Get(instance_)) {
       delete this;
       return;
@@ -1606,10 +1598,10 @@ class PexeDownloader : public blink::WebURLLoaderClient {
     url_loader_->setDefersLoading(false);
   }
 
-  virtual void didReceiveData(blink::WebURLLoader* loader,
-                              const char* data,
-                              int data_length,
-                              int encoded_data_length) {
+  void didReceiveData(blink::WebURLLoader* loader,
+                      const char* data,
+                      int data_length,
+                      int encoded_data_length) override {
     if (content::PepperPluginInstance::Get(instance_)) {
       // Stream the data we received to the stream callback.
       stream_handler_->DidStreamData(stream_handler_user_data_,
@@ -1618,9 +1610,9 @@ class PexeDownloader : public blink::WebURLLoaderClient {
     }
   }
 
-  virtual void didFinishLoading(blink::WebURLLoader* loader,
-                                double finish_time,
-                                int64_t total_encoded_data_length) {
+  void didFinishLoading(blink::WebURLLoader* loader,
+                        double finish_time,
+                        int64_t total_encoded_data_length) override {
     int32_t result = success_ ? PP_OK : PP_ERROR_FAILED;
 
     if (content::PepperPluginInstance::Get(instance_))
@@ -1628,9 +1620,12 @@ class PexeDownloader : public blink::WebURLLoaderClient {
     delete this;
   }
 
-  virtual void didFail(blink::WebURLLoader* loader,
-                       const blink::WebURLError& error) {
-    success_ = false;
+  void didFail(blink::WebURLLoader* loader,
+               const blink::WebURLError& error) override {
+    if (content::PepperPluginInstance::Get(instance_))
+      stream_handler_->DidFinishStream(stream_handler_user_data_,
+                                       PP_ERROR_FAILED);
+    delete this;
   }
 
   PP_Instance instance_;

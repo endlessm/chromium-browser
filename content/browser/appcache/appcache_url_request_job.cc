@@ -36,7 +36,8 @@ AppCacheURLRequestJob::AppCacheURLRequestJob(
     net::NetworkDelegate* network_delegate,
     AppCacheStorage* storage,
     AppCacheHost* host,
-    bool is_main_resource)
+    bool is_main_resource,
+    const OnPrepareToRestartCallback& restart_callback)
     : net::URLRequestJob(request, network_delegate),
       host_(host),
       storage_(storage),
@@ -45,6 +46,7 @@ AppCacheURLRequestJob::AppCacheURLRequestJob(
       group_id_(0), cache_id_(kAppCacheNoCacheId), is_fallback_(false),
       is_main_resource_(is_main_resource),
       cache_entry_not_found_(false),
+      on_prepare_to_restart_callback_(restart_callback),
       weak_factory_(this) {
   DCHECK(storage_);
 }
@@ -75,6 +77,10 @@ void AppCacheURLRequestJob::DeliverErrorResponse() {
   delivery_type_ = ERROR_DELIVERY;
   storage_ = NULL;  // not needed
   MaybeBeginDelivery();
+}
+
+base::WeakPtr<AppCacheURLRequestJob> AppCacheURLRequestJob::GetWeakPtr() {
+  return weak_factory_.GetWeakPtr();
 }
 
 void AppCacheURLRequestJob::MaybeBeginDelivery() {
@@ -272,7 +278,6 @@ AppCacheURLRequestJob::~AppCacheURLRequestJob() {
 void AppCacheURLRequestJob::OnResponseInfoLoaded(
       AppCacheResponseInfo* response_info, int64 response_id) {
   DCHECK(is_delivering_appcache_response());
-  scoped_refptr<AppCacheURLRequestJob> protect(this);
   if (response_info) {
     info_ = response_info;
     reader_.reset(storage_->CreateResponseReader(
@@ -419,15 +424,16 @@ int AppCacheURLRequestJob::GetResponseCode() const {
   return http_info()->headers->response_code();
 }
 
-bool AppCacheURLRequestJob::ReadRawData(net::IOBuffer* buf, int buf_size,
-                                        int *bytes_read) {
+bool AppCacheURLRequestJob::ReadRawData(net::IOBuffer* buf,
+                                        int buf_size,
+                                        int* bytes_read) {
   DCHECK(is_delivering_appcache_response());
   DCHECK_NE(buf_size, 0);
   DCHECK(bytes_read);
   DCHECK(!reader_->IsReadPending());
-  reader_->ReadData(
-      buf, buf_size, base::Bind(&AppCacheURLRequestJob::OnReadComplete,
-                                base::Unretained(this)));
+  reader_->ReadData(buf, buf_size,
+                    base::Bind(&AppCacheURLRequestJob::OnReadComplete,
+                               base::Unretained(this)));
   SetStatus(net::URLRequestStatus(net::URLRequestStatus::IO_PENDING, 0));
   return false;
 }
@@ -445,6 +451,11 @@ void AppCacheURLRequestJob::SetExtraRequestHeaders(
   // return the entire response with 200 OK.
   if (ranges.size() == 1U)
     range_requested_ = ranges[0];
+}
+
+void AppCacheURLRequestJob::NotifyRestartRequired() {
+  on_prepare_to_restart_callback_.Run();
+  URLRequestJob::NotifyRestartRequired();
 }
 
 }  // namespace content

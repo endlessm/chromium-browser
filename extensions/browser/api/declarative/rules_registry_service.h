@@ -40,9 +40,8 @@ class RulesRegistryService : public BrowserContextKeyedAPI,
   struct RulesRegistryKey {
     std::string event_name;
     int rules_registry_id;
-    RulesRegistryKey(const std::string event_name, int rules_registry_id)
-        : event_name(event_name),
-          rules_registry_id(rules_registry_id) {}
+    RulesRegistryKey(const std::string& event_name, int rules_registry_id)
+        : event_name(event_name), rules_registry_id(rules_registry_id) {}
     bool operator<(const RulesRegistryKey& other) const {
       return (event_name < other.event_name) ||
              ((event_name == other.event_name) &&
@@ -61,8 +60,14 @@ class RulesRegistryService : public BrowserContextKeyedAPI,
   static BrowserContextKeyedAPIFactory<RulesRegistryService>*
       GetFactoryInstance();
 
-  // Convenience method to get the RulesRegistryService for a context.
+  // Convenience method to get the RulesRegistryService for a context. If a
+  // RulesRegistryService does not already exist for |context|, one will be
+  // created and returned.
   static RulesRegistryService* Get(content::BrowserContext* context);
+
+  // The same as Get(), except that if a RulesRegistryService does not already
+  // exist for |context|, nullptr is returned.
+  static RulesRegistryService* GetIfExists(content::BrowserContext* context);
 
   int GetNextRulesRegistryID();
 

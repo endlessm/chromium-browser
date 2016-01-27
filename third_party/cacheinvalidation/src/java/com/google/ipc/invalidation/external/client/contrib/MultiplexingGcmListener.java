@@ -22,6 +22,8 @@ import com.google.android.gcm.GCMRegistrar;
 import com.google.ipc.invalidation.external.client.SystemResources.Logger;
 import com.google.ipc.invalidation.external.client.android.service.AndroidLogger;
 import com.google.ipc.invalidation.ticl.android2.WakeLockManager;
+import com.google.ipc.invalidation.ticl.android2.channel.AndroidChannelPreferences;
+import com.google.ipc.invalidation.ticl.android2.channel.AndroidChannelPreferences.GcmChannelType;
 
 import android.app.IntentService;
 import android.content.BroadcastReceiver;
@@ -264,11 +266,7 @@ public class MultiplexingGcmListener extends GCMBaseIntentService {
   protected void onMessage(Context context, Intent intent) {
     Intent newIntent = new Intent();
     newIntent.putExtra(Intents.EXTRA_OP_MESSAGE, true);
-
-    // Copy the extra keys containing the message payload into the new Intent.
-    for (String extraKey : intent.getExtras().keySet()) {
-      newIntent.putExtra(extraKey, intent.getStringExtra(extraKey));
-    }
+    newIntent.putExtras(intent);
     rebroadcast(newIntent);
   }
 
@@ -326,6 +324,7 @@ public class MultiplexingGcmListener extends GCMBaseIntentService {
    * @throws IllegalStateException if the manifest is not correctly configured
    */
   public static String initializeGcm(Context context) {
+    AndroidChannelPreferences.setGcmChannelType(context, GcmChannelType.DEFAULT);
     GCMRegistrar.checkDevice(context);
     GCMRegistrar.checkManifest(context);
     final String regId = GCMRegistrar.getRegistrationId(context);

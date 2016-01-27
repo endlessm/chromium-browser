@@ -40,6 +40,7 @@ class SuggestionsStore;
 extern const char kSuggestionsURL[];
 extern const char kSuggestionsBlacklistURLPrefix[];
 extern const char kSuggestionsBlacklistURLParam[];
+extern const char kSuggestionsBlacklistClearURL[];
 extern const int64 kDefaultExpiryUsec;
 
 // An interface to fetch server suggestions asynchronously.
@@ -72,7 +73,15 @@ class SuggestionsService : public KeyedService, public net::URLFetcherDelegate {
   // |callback| with Bitmap pointer if found, and NULL otherwise.
   void GetPageThumbnail(
       const GURL& url,
-      base::Callback<void(const GURL&, const SkBitmap*)> callback);
+      const base::Callback<void(const GURL&, const SkBitmap*)>& callback);
+
+  // A version of |GetPageThumbnail| that explicitly supplies the download URL
+  // for the thumbnail. Replaces any pre-existing thumbnail URL with the
+  // supplied one.
+  void GetPageThumbnailWithURL(
+      const GURL& url,
+      const GURL& thumbnail_url,
+      const base::Callback<void(const GURL&, const SkBitmap*)>& callback);
 
   // Adds a URL to the blacklist cache, invoking |callback| on success or
   // |fail_callback| otherwise. The URL will eventually be uploaded to the
@@ -86,6 +95,9 @@ class SuggestionsService : public KeyedService, public net::URLFetcherDelegate {
   void UndoBlacklistURL(const GURL& url,
                         const ResponseCallback& callback,
                         const base::Closure& fail_callback);
+
+  // Removes all URLs from the blacklist then invokes |callback|.
+  void ClearBlacklist(const ResponseCallback& callback);
 
   // Determines which URL a blacklist request was for, irrespective of the
   // request's status. Returns false if |request| is not a blacklist request.
@@ -106,6 +118,7 @@ class SuggestionsService : public KeyedService, public net::URLFetcherDelegate {
   friend class SuggestionsServiceTest;
   FRIEND_TEST_ALL_PREFIXES(SuggestionsServiceTest, BlacklistURL);
   FRIEND_TEST_ALL_PREFIXES(SuggestionsServiceTest, BlacklistURLRequestFails);
+  FRIEND_TEST_ALL_PREFIXES(SuggestionsServiceTest, ClearBlacklist);
   FRIEND_TEST_ALL_PREFIXES(SuggestionsServiceTest, UndoBlacklistURL);
   FRIEND_TEST_ALL_PREFIXES(SuggestionsServiceTest, UndoBlacklistURLFailsHelper);
   FRIEND_TEST_ALL_PREFIXES(SuggestionsServiceTest, UpdateBlacklistDelay);
@@ -137,6 +150,9 @@ class SuggestionsService : public KeyedService, public net::URLFetcherDelegate {
 
   // Updates |scheduling_delay_| based on the success of the last request.
   void UpdateBlacklistDelay(bool last_request_successful);
+
+  // Adds extra data to suggestions profile.
+  void PopulateExtraData(SuggestionsProfile* suggestions);
 
   // Test seams.
   base::TimeDelta blacklist_delay() const { return scheduling_delay_; }

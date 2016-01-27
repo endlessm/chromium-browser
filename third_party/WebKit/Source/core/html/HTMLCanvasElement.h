@@ -31,8 +31,10 @@
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/UnionTypesCore.h"
 #include "core/CoreExport.h"
+#include "core/dom/DOMTypedArray.h"
 #include "core/dom/Document.h"
 #include "core/dom/DocumentVisibilityObserver.h"
+#include "core/fileapi/FileCallback.h"
 #include "core/html/HTMLElement.h"
 #include "core/html/canvas/CanvasImageSource.h"
 #include "platform/geometry/FloatRect.h"
@@ -55,19 +57,8 @@ class HTMLCanvasElement;
 class Image;
 class ImageBuffer;
 class ImageBufferSurface;
+class ImageData;
 class IntSize;
-
-class CORE_EXPORT CanvasObserver : public WillBeGarbageCollectedMixin {
-    DECLARE_EMPTY_VIRTUAL_DESTRUCTOR_WILL_BE_REMOVED(CanvasObserver);
-public:
-    virtual void canvasChanged(HTMLCanvasElement*, const FloatRect& changedRect) = 0;
-    virtual void canvasResized(HTMLCanvasElement*) = 0;
-#if !ENABLE(OILPAN)
-    virtual void canvasDestroyed(HTMLCanvasElement*) = 0;
-#endif
-
-    DEFINE_INLINE_VIRTUAL_TRACE() { }
-};
 
 class CORE_EXPORT HTMLCanvasElement final : public HTMLElement, public DocumentVisibilityObserver, public CanvasImageSource, public ImageBufferClient {
     DEFINE_WRAPPERTYPEINFO();
@@ -75,9 +66,6 @@ class CORE_EXPORT HTMLCanvasElement final : public HTMLElement, public DocumentV
 public:
     DECLARE_NODE_FACTORY(HTMLCanvasElement);
     ~HTMLCanvasElement() override;
-
-    void addObserver(CanvasObserver*);
-    void removeObserver(CanvasObserver*);
 
     // Attributes and functions exposed to script
     int width() const { return size().width(); }
@@ -87,8 +75,6 @@ public:
 
     void setWidth(int);
     void setHeight(int);
-    void setAccelerationDisabled(bool accelerationDisabled) { m_accelerationDisabled = accelerationDisabled; }
-    bool accelerationDisabled() const { return m_accelerationDisabled; }
 
     void setSize(const IntSize& newSize)
     {
@@ -112,13 +98,16 @@ public:
     String toDataURL(const String& mimeType, const ScriptValue& qualityArgument, ExceptionState&) const;
     String toDataURL(const String& mimeType, ExceptionState& exceptionState) const { return toDataURL(mimeType, ScriptValue(), exceptionState); }
 
+    void toBlob(FileCallback*, const String& mimeType, const ScriptValue& qualityArgument, ExceptionState&);
+    void toBlob(FileCallback* callback, const String& mimeType, ExceptionState& exceptionState) { return toBlob(callback, mimeType, ScriptValue(), exceptionState); }
+
     // Used for rendering
     void didDraw(const FloatRect&);
-    void notifyObserversCanvasChanged(const FloatRect&);
 
     void paint(GraphicsContext*, const LayoutRect&);
 
     SkCanvas* drawingCanvas() const;
+    void disableDeferral() const;
     SkCanvas* existingDrawingCanvas() const;
 
     void setRenderingContext(PassOwnPtrWillBeRawPtr<CanvasRenderingContext>);
@@ -126,7 +115,7 @@ public:
 
     void ensureUnacceleratedImageBuffer();
     ImageBuffer* buffer() const;
-    PassRefPtr<Image> copiedImage(SourceDrawingBuffer) const;
+    PassRefPtr<Image> copiedImage(SourceDrawingBuffer, AccelerationHint) const;
     void clearCopiedImage();
 
     SecurityOrigin* securityOrigin() const;
@@ -136,6 +125,7 @@ public:
     AffineTransform baseTransform() const;
 
     bool is3D() const;
+    bool isAnimated2D() const;
 
     bool hasImageBuffer() const { return m_imageBuffer; }
     void discardImageBuffer();
@@ -143,6 +133,8 @@ public:
     bool shouldAccelerate(const IntSize&) const;
 
     bool shouldBeDirectComposited() const;
+
+    void prepareSurfaceForPaintingIfNeeded() const;
 
     const AtomicString imageSourceURL() const override;
 
@@ -152,7 +144,7 @@ public:
     void didChangeVisibilityState(PageVisibilityState) override;
 
     // CanvasImageSource implementation
-    PassRefPtr<Image> getSourceImageForCanvas(SourceImageMode, SourceImageStatus*) const override;
+    PassRefPtr<Image> getSourceImageForCanvas(SourceImageStatus*, AccelerationHint) const override;
     bool wouldTaintOrigin(SecurityOrigin*) const override;
     FloatSize elementSize() const override;
     bool isCanvasElement() const override { return true; }
@@ -162,7 +154,7 @@ public:
     void notifySurfaceInvalid() override;
     bool isDirty() override { return !m_dirtyRect.isEmpty(); }
     void didFinalizeFrame() override;
-    void restoreCanvasMatrixClipStack() override;
+    void restoreCanvasMatrixClipStack(SkCanvas*) const override;
 
     void doDeferredPaintInvalidation();
 
@@ -172,6 +164,8 @@ public:
 
     static void registerRenderingContextFactory(PassOwnPtr<CanvasRenderingContextFactory>);
     void updateExternallyAllocatedMemory() const;
+
+    void styleDidChange(const ComputedStyle* oldStyle, const ComputedStyle& newStyle);
 
 protected:
     void didMoveToNewDocument(Document& oldDocument) override;
@@ -199,16 +193,14 @@ private:
 
     bool paintsIntoCanvasBuffer() const;
 
-    String toDataURLInternal(const String& mimeType, const double* quality, SourceDrawingBuffer) const;
-
-    WillBeHeapHashSet<RawPtrWillBeWeakMember<CanvasObserver>> m_observers;
+    ImageData* toImageData(SourceDrawingBuffer) const;
+    String toDataURLInternal(const String& mimeType, const double& quality, SourceDrawingBuffer) const;
 
     IntSize m_size;
 
     OwnPtrWillBeMember<CanvasRenderingContext> m_context;
 
     bool m_ignoreReset;
-    bool m_accelerationDisabled;
     FloatRect m_dirtyRect;
 
     mutable intptr_t m_externallyAllocatedMemory;

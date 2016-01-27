@@ -29,7 +29,8 @@
 #include <algorithm>
 #include "platform/PlatformGestureEvent.h"
 #include "platform/PlatformMouseEvent.h"
-#include "platform/scroll/ScrollAnimator.h"
+#include "platform/graphics/paint/CullRect.h"
+#include "platform/scroll/ScrollAnimatorBase.h"
 #include "platform/scroll/ScrollableArea.h"
 #include "platform/scroll/ScrollbarTheme.h"
 
@@ -67,6 +68,8 @@ Scrollbar::Scrollbar(ScrollableArea* scrollableArea, ScrollbarOrientation orient
     , m_suppressInvalidation(false)
     , m_isAlphaLocked(false)
     , m_elasticOverscroll(0)
+    , m_trackNeedsRepaint(true)
+    , m_thumbNeedsRepaint(true)
 {
     if (!m_theme)
         m_theme = ScrollbarTheme::theme();
@@ -176,13 +179,13 @@ void Scrollbar::updateThumbProportion()
     updateThumb();
 }
 
-void Scrollbar::paint(GraphicsContext* context, const IntRect& damageRect)
+void Scrollbar::paint(GraphicsContext* context, const CullRect& cullRect) const
 {
-    if (!frameRect().intersects(damageRect))
+    if (!cullRect.intersectsCullRect(frameRect()))
         return;
 
-    if (!theme()->paint(this, context, damageRect))
-        Widget::paint(context, damageRect);
+    if (!theme()->paint(this, context, cullRect))
+        Widget::paint(context, cullRect);
 }
 
 void Scrollbar::autoscrollTimerFired(Timer<Scrollbar>*)
@@ -239,7 +242,7 @@ void Scrollbar::startTimerIfNeeded(double delay)
             return;
     }
 
-    m_scrollTimer.startOneShot(delay, FROM_HERE);
+    m_scrollTimer.startOneShot(delay, BLINK_FROM_HERE);
 }
 
 void Scrollbar::stopTimerIfNeeded()
@@ -477,6 +480,12 @@ void Scrollbar::mouseDown(const PlatformMouseEvent& evt)
     autoscrollPressedPart(theme()->initialAutoscrollTimerDelay());
 }
 
+void Scrollbar::visibilityChanged()
+{
+    if (m_scrollableArea)
+        m_scrollableArea->scrollbarVisibilityChanged();
+}
+
 void Scrollbar::setEnabled(bool e)
 {
     if (m_enabled == e)
@@ -509,6 +518,10 @@ void Scrollbar::invalidateRect(const IntRect& rect)
     if (suppressInvalidation())
         return;
 
+    if (m_theme->shouldRepaintAllPartsOnInvalidation()) {
+        m_trackNeedsRepaint = true;
+        m_thumbNeedsRepaint = true;
+    }
     if (m_scrollableArea)
         m_scrollableArea->invalidateScrollbar(this, rect);
 }

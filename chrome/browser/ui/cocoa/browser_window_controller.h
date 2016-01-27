@@ -17,7 +17,6 @@
 #include "chrome/browser/translate/chrome_translate_client.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_controller.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bubble_controller.h"
-#import "chrome/browser/ui/cocoa/browser_command_executor.h"
 #import "chrome/browser/ui/cocoa/exclusive_access_bubble_window_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_strip_controller.h"
 #import "chrome/browser/ui/cocoa/tabs/tab_window_controller.h"
@@ -29,10 +28,11 @@
 #include "ui/gfx/geometry/rect.h"
 
 @class AvatarBaseController;
+class BookmarkBubbleObserverCocoa;
 class Browser;
 class BrowserWindow;
 class BrowserWindowCocoa;
-@class BrowserWindowEnterFullscreenTransition;
+@class BrowserWindowFullscreenTransition;
 @class DevToolsController;
 @class DownloadShelfController;
 class ExtensionKeybindingRegistryCocoa;
@@ -58,12 +58,10 @@ namespace extensions {
 class Command;
 }
 
-@interface BrowserWindowController :
-  TabWindowController<NSUserInterfaceValidations,
-                      BookmarkBarControllerDelegate,
-                      BrowserCommandExecutor,
-                      ViewResizer,
-                      TabStripControllerDelegate> {
+@interface BrowserWindowController
+    : TabWindowController<BookmarkBarControllerDelegate,
+                          ViewResizer,
+                          TabStripControllerDelegate> {
  @private
   // The ordering of these members is important as it determines the order in
   // which they are destroyed. |browser_| needs to be destroyed last as most of
@@ -84,8 +82,8 @@ class Command;
   base::scoped_nsobject<PresentationModeController> presentationModeController_;
   base::scoped_nsobject<ExclusiveAccessBubbleWindowController>
       exclusiveAccessBubbleWindowController_;
-  base::scoped_nsobject<BrowserWindowEnterFullscreenTransition>
-      enterFullscreenTransition_;
+  base::scoped_nsobject<BrowserWindowFullscreenTransition>
+      fullscreenTransition_;
 
   // Strong. StatusBubble is a special case of a strong reference that
   // we don't wrap in a scoped_ptr because it is acting the same
@@ -93,6 +91,7 @@ class Command;
   // be shut down before our destructors are called.
   StatusBubbleMac* statusBubble_;
 
+  scoped_ptr<BookmarkBubbleObserverCocoa> bookmarkBubbleObserver_;
   BookmarkBubbleController* bookmarkBubbleController_;  // Weak.
   BOOL initializing_;  // YES while we are currently in initWithBrowser:
   BOOL ownsBrowser_;  // Only ever NO when testing
@@ -134,6 +133,11 @@ class Command;
   // AppKit fullscreen mode.
   BOOL enteringAppKitFullscreen_;
 
+  // True between |-windowWillExitFullScreen:| and |-windowDidExitFullScreen:|
+  // to indicate that the window is in the process of transitioning out of
+  // AppKit fullscreen mode.
+  BOOL exitingAppKitFullscreen_;
+
   // True between |enterImmersiveFullscreen| and |-windowDidEnterFullScreen:|
   // to indicate that the window is in the process of transitioning into
   // AppKit fullscreen mode.
@@ -148,6 +152,11 @@ class Command;
   // property indicates whether the window is being fullscreened on the
   // primary screen.
   BOOL enteringAppKitFullscreenOnPrimaryScreen_;
+
+  // This flag is set to true when |customWindowsToEnterFullScreenForWindow:|
+  // and |customWindowsToExitFullScreenForWindow:| are called and did not
+  // return nil.
+  BOOL isUsingCustomAnimation_;
 
   // The size of the original (non-fullscreen) window.  This is saved just
   // before entering fullscreen mode and is only valid when |-isFullscreen|
@@ -168,6 +177,11 @@ class Command;
   // in visible state when the following is |YES|.
   BOOL barVisibilityUpdatesEnabled_;
 
+  // If this ivar is set to YES, layoutSubviews calls will be ignored. This is
+  // used in fullscreen transition to prevent spurious resize messages from
+  // being sent to the renderer, which causes the transition to be janky.
+  BOOL blockLayoutSubviews_;
+
   // When going fullscreen for a tab, we need to store the URL and the
   // fullscreen type, since we can't show the bubble until
   // -windowDidEnterFullScreen: gets called.
@@ -177,9 +191,6 @@ class Command;
   // The Extension Command Registry used to determine which keyboard events to
   // handle.
   scoped_ptr<ExtensionKeybindingRegistryCocoa> extension_keybinding_registry_;
-
-  // Whether the root view of the window is layer backed.
-  BOOL windowViewWantsLayer_;
 }
 
 // A convenience class method which gets the |BrowserWindowController| for a
@@ -315,11 +326,6 @@ class Command;
 // The user changed the theme.
 - (void)userChangedTheme;
 
-// Executes the command in the context of the current browser.
-// |command| is an integer value containing one of the constants defined in the
-// "chrome/app/chrome_command_ids.h" file.
-- (void)executeCommand:(int)command;
-
 // Consults the Command Registry to see if this |event| needs to be handled as
 // an extension command and returns YES if so (NO otherwise).
 // Only extensions with the given |priority| are considered.
@@ -361,6 +367,9 @@ class Command;
 // Return the point to which a bubble window's arrow should point, in window
 // coordinates.
 - (NSPoint)bookmarkBubblePoint;
+
+// Called by BookmarkBubbleObserverCocoa when the bubble is closed.
+- (void)bookmarkBubbleClosed;
 
 // Called when the Add Search Engine dialog is closed.
 - (void)sheetDidEnd:(NSWindow*)sheet
@@ -429,12 +438,14 @@ class Command;
 // invoked causes all fullscreen modes to exit.
 //
 // ----------------------------------------------------------------------------
-// There are 2 "styles" of omnibox sliding.
+// There are 3 "styles" of omnibox sliding.
 // + OMNIBOX_TABS_PRESENT: Both the omnibox and the tabstrip are present.
 // Moving the cursor to the top causes the menubar to appear, and everything
 // else to slide down.
 // + OMNIBOX_TABS_HIDDEN: Both tabstrip and omnibox are hidden. Moving cursor
 // to top shows tabstrip, omnibox, and menu bar.
+// + OMNIBOX_TABS_NONE: Both tabstrip and omnibox are hidden. Moving cursor
+// to top causes the menubar to appear, but not the tabstrip and omnibox.
 //
 // The omnibox sliding styles are used in conjunction with the fullscreen APIs.
 // There is exactly 1 sliding style active at a time. The sliding is mangaged

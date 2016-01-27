@@ -23,6 +23,7 @@
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
@@ -257,17 +258,13 @@ void PrivetNotificationService::PrivetNotify(int devices_active,
           IDS_LOCAL_DISCOVERY_NOTIFICATIONS_DISABLE_BUTTON_LABEL)));
 
   Notification notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE,
-      GURL(kPrivetNotificationOriginUrl),
-      title,
-      body,
+      message_center::NOTIFICATION_TYPE_SIMPLE, title, body,
       ui::ResourceBundle::GetSharedInstance().GetImageNamed(
           IDR_LOCAL_DISCOVERY_CLOUDPRINT_ICON),
-      message_center::NotifierId(GURL(kPrivetNotificationOriginUrl)),
-      product_name,
-      kPrivetNotificationID,
-      rich_notification_data,
-      new PrivetNotificationDelegate(profile_));
+      message_center::NotifierId(message_center::NotifierId::SYSTEM_COMPONENT,
+                                 kPrivetNotificationID),
+      product_name, GURL(kPrivetNotificationOriginUrl), kPrivetNotificationID,
+      rich_notification_data, new PrivetNotificationDelegate(profile_));
 
   bool updated = g_browser_process->notification_ui_manager()->Update(
       notification, profile_object);

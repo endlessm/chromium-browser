@@ -37,7 +37,6 @@
 #include "platform/geometry/LayoutRect.h"
 #include "platform/graphics/Color.h"
 #include "wtf/Forward.h"
-#include "wtf/RefPtr.h"
 #include "wtf/Vector.h"
 
 namespace blink {
@@ -48,6 +47,7 @@ class AXObjectCacheImpl;
 class Element;
 class FrameView;
 class IntPoint;
+class NameSource;
 class Node;
 class LayoutObject;
 class ScrollableArea;
@@ -198,7 +198,6 @@ enum AccessibilityState {
     AXFocusedState,
     AXHaspopupState,
     AXHoveredState,
-    AXIndeterminateState,
     AXInvisibleState,
     AXLinkedState,
     AXMultilineState,
@@ -214,20 +213,20 @@ enum AccessibilityState {
     AXVisitedState
 };
 
-class AccessibilityText final : public NoBaseWillBeGarbageCollectedFinalized<AccessibilityText> {
+class AccessibilityText final : public GarbageCollectedFinalized<AccessibilityText> {
 public:
-    static PassOwnPtrWillBeRawPtr<AccessibilityText> create(const String& text, const AccessibilityTextSource& source)
+    static AccessibilityText* create(const String& text, const AccessibilityTextSource& source)
     {
-        return adoptPtrWillBeNoop(new AccessibilityText(text, source, nullptr));
+        return new AccessibilityText(text, source, nullptr);
     }
-    static PassOwnPtrWillBeRawPtr<AccessibilityText> create(const String& text, const AccessibilityTextSource& source, const RefPtrWillBeRawPtr<AXObject> element)
+    static AccessibilityText* create(const String& text, const AccessibilityTextSource& source, AXObject* element)
     {
-        return adoptPtrWillBeNoop(new AccessibilityText(text, source, nullptr));
+        return new AccessibilityText(text, source, element);
     }
 
     String text() const { return m_text; }
     AccessibilityTextSource textSource() const { return m_textSource; }
-    AXObject* textElement() const { return m_textElement.get(); }
+    AXObject* textElement() const { return m_textElement; }
 
     DEFINE_INLINE_TRACE()
     {
@@ -235,7 +234,7 @@ public:
     }
 
 private:
-    AccessibilityText(const String& text, const AccessibilityTextSource& source, const RefPtrWillBeRawPtr<AXObject> element)
+    AccessibilityText(const String& text, const AccessibilityTextSource& source, AXObject* element)
     : m_text(text)
     , m_textSource(source)
     , m_textElement(element)
@@ -243,7 +242,7 @@ private:
 
     String m_text;
     AccessibilityTextSource m_textSource;
-    RefPtrWillBeMember<AXObject> m_textElement;
+    Member<AXObject> m_textElement;
 };
 
 enum AccessibilityOrientation {
@@ -317,18 +316,37 @@ enum TextUnderElementMode {
 // because on some platforms this determines how the accessible name
 // is exposed.
 enum AXNameFrom {
+    AXNameFromUninitialized = -1,
     AXNameFromAttribute = 0,
+    AXNameFromCaption,
     AXNameFromContents,
     AXNameFromPlaceholder,
     AXNameFromRelatedElement,
+    AXNameFromValue,
+    AXNameFromTitle,
+};
+
+// The potential native HTML-based text (name, description or placeholder) sources for an element.
+// See http://rawgit.com/w3c/aria/master/html-aam/html-aam.html#accessible-name-and-description-calculation
+enum AXTextFromNativeHTML {
+    AXTextFromNativeHTMLUninitialized = -1,
+    AXTextFromNativeHTMLFigcaption,
+    AXTextFromNativeHTMLLabel,
+    AXTextFromNativeHTMLLabelFor,
+    AXTextFromNativeHTMLLabelWrapped,
+    AXTextFromNativeHTMLLegend,
+    AXTextFromNativeHTMLTableCaption,
 };
 
 // The source of the accessible description of an element. This is needed
 // because on some platforms this determines how the accessible description
 // is exposed.
 enum AXDescriptionFrom {
+    AXDescriptionFromUninitialized = -1,
+    AXDescriptionFromAttribute = 0,
+    AXDescriptionFromContents,
     AXDescriptionFromPlaceholder,
-    AXDescriptionFromRelatedElement
+    AXDescriptionFromRelatedElement,
 };
 
 enum AXIgnoredReason {
@@ -351,9 +369,11 @@ enum AXIgnoredReason {
     AXUninteresting
 };
 
-struct IgnoredReason {
+class IgnoredReason {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+public:
     AXIgnoredReason reason;
-    const AXObject* relatedObject;
+    Member<const AXObject> relatedObject;
 
     explicit IgnoredReason(AXIgnoredReason reason)
         : reason(reason)
@@ -364,28 +384,144 @@ struct IgnoredReason {
         : reason(r)
         , relatedObject(obj)
     { }
+
+    DEFINE_INLINE_TRACE()
+    {
+        visitor->trace(relatedObject);
+    }
 };
 
-class MODULES_EXPORT AXObject : public RefCountedWillBeGarbageCollectedFinalized<AXObject> {
+class NameSourceRelatedObject : public GarbageCollectedFinalized<NameSourceRelatedObject> {
 public:
-    typedef WillBeHeapVector<RefPtrWillBeMember<AXObject>> AccessibilityChildrenVector;
+    WeakMember<AXObject> object;
+    String text;
 
-    struct PlainTextRange {
+    NameSourceRelatedObject(AXObject* object, String text)
+        : object(object)
+        , text(text)
+    {
+    }
 
-        unsigned start;
-        unsigned length;
+    DEFINE_INLINE_TRACE()
+    {
+        visitor->trace(object);
+    }
+};
 
-        PlainTextRange()
-            : start(0)
-            , length(0)
+typedef HeapVector<Member<NameSourceRelatedObject>> AXRelatedObjectVector;
+class NameSource {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+public:
+    String text;
+    bool superseded = false;
+    bool invalid = false;
+    AXNameFrom type = AXNameFromUninitialized;
+    const QualifiedName& attribute;
+    AtomicString attributeValue;
+    AXTextFromNativeHTML nativeSource = AXTextFromNativeHTMLUninitialized;
+    AXRelatedObjectVector relatedObjects;
+
+    NameSource(bool superseded, const QualifiedName& attr)
+        : superseded(superseded)
+        , attribute(attr)
+    {
+    }
+
+    explicit NameSource(bool superseded)
+        : superseded(superseded)
+        , attribute(QualifiedName::null())
+    {
+    }
+
+    DEFINE_INLINE_TRACE()
+    {
+        visitor->trace(relatedObjects);
+    }
+};
+
+class DescriptionSource {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+public:
+    String text;
+    bool superseded = false;
+    bool invalid = false;
+    AXDescriptionFrom type = AXDescriptionFromUninitialized;
+    const QualifiedName& attribute;
+    AtomicString attributeValue;
+    AXTextFromNativeHTML nativeSource = AXTextFromNativeHTMLUninitialized;
+    AXRelatedObjectVector relatedObjects;
+
+    DescriptionSource(bool superseded, const QualifiedName& attr)
+        : superseded(superseded)
+        , attribute(attr)
+    {
+    }
+
+    explicit DescriptionSource(bool superseded)
+        : superseded(superseded)
+        , attribute(QualifiedName::null())
+    {
+    }
+
+    DEFINE_INLINE_TRACE()
+    {
+        visitor->trace(relatedObjects);
+    }
+};
+
+class MODULES_EXPORT AXObject : public GarbageCollectedFinalized<AXObject> {
+public:
+    typedef HeapVector<Member<AXObject>> AXObjectVector;
+
+    struct AXRange {
+        DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+        // The deepest descendant in which the range starts.
+        // (nullptr means the current object.)
+        Persistent<AXObject> anchorObject;
+        // The number of characters and child objects in the anchor object
+        // before the range starts.
+        int anchorOffset;
+        // The deepest descendant in which the range ends.
+        // (nullptr means the current object.)
+        Persistent<AXObject> focusObject;
+        // The number of characters and child objects in the focus object
+        // before the range ends.
+        int focusOffset;
+
+        AXRange()
+            : anchorObject(nullptr)
+            , anchorOffset(-1)
+            , focusObject(nullptr)
+            , focusOffset(-1)
         { }
 
-        PlainTextRange(unsigned s, unsigned l)
-            : start(s)
-            , length(l)
+        AXRange(int startOffset, int endOffset)
+            : anchorObject(nullptr)
+            , anchorOffset(startOffset)
+            , focusObject(nullptr)
+            , focusOffset(endOffset)
         { }
 
-        bool isNull() const { return !start && !length; }
+        AXRange(AXObject* anchorObject, int anchorOffset,
+            AXObject* focusObject, int focusOffset)
+            : anchorObject(anchorObject)
+            , anchorOffset(anchorOffset)
+            , focusObject(focusObject)
+            , focusOffset(focusOffset)
+        { }
+
+        bool isValid() const
+        {
+            return ((anchorObject && focusObject)
+                || (!anchorObject && !focusObject))
+                && anchorOffset >= 0 && focusOffset >= 0;
+        }
+
+        // Determines if the range only refers to text offsets under the current object.
+        bool isSimple() const
+        {
+            return anchorObject == focusObject || !anchorObject || !focusObject;
+        }
     };
 
 protected:
@@ -470,6 +606,7 @@ public:
     bool isPresentational() const { return roleValue() == NoneRole || roleValue() == PresentationalRole; }
     virtual bool isProgressIndicator() const { return false; }
     bool isRadioButton() const { return roleValue() == RadioButtonRole; }
+    bool isRange() const { return roleValue() == ProgressIndicatorRole || roleValue() == ScrollBarRole || roleValue() == SliderRole || roleValue() == SpinButtonRole; }
     bool isScrollbar() const { return roleValue() == ScrollBarRole; }
     virtual bool isSlider() const { return false; }
     virtual bool isNativeSlider() const { return false; }
@@ -492,7 +629,6 @@ public:
     virtual AccessibilityExpanded isExpanded() const { return ExpandedUndefined; }
     virtual bool isFocused() const { return false; }
     virtual bool isHovered() const { return false; }
-    virtual bool isIndeterminate() const { return false; }
     virtual bool isLinked() const { return false; }
     virtual bool isLoaded() const { return false; }
     virtual bool isMultiSelectable() const { return false; }
@@ -512,7 +648,7 @@ public:
 
     // Whether objects are ignored, i.e. not included in the tree.
     bool accessibilityIsIgnored() const;
-    typedef Vector<IgnoredReason> IgnoredReasons;
+    typedef HeapVector<IgnoredReason> IgnoredReasons;
     virtual bool computeAccessibilityIsIgnored(IgnoredReasons* = nullptr) const { return true; }
     bool accessibilityIsIgnoredByDefault(IgnoredReasons* = nullptr) const;
     AXObjectInclusion accessibilityPlatformIncludesObject() const;
@@ -537,8 +673,8 @@ public:
     virtual bool deprecatedExposesTitleUIElement() const { return true; }
     virtual AXObject* deprecatedTitleUIElement() const { return 0; }
     virtual String deprecatedPlaceholder() const { return String(); }
-    virtual void deprecatedAriaDescribedbyElements(AccessibilityChildrenVector& describedby) const { }
-    virtual void deprecatedAriaLabelledbyElements(AccessibilityChildrenVector& labelledby) const { }
+    virtual void deprecatedAriaDescribedbyElements(AXObjectVector& describedby) const { }
+    virtual void deprecatedAriaLabelledbyElements(AXObjectVector& labelledby) const { }
     virtual String deprecatedAccessibilityDescription() const { return String(); }
     virtual String deprecatedTitle(TextUnderElementMode mode = TextUnderElementAll) const { return String(); }
     virtual String deprecatedHelpText() const { return String(); }
@@ -550,13 +686,22 @@ public:
 
     // Retrieves the accessible name of the object, an enum indicating where the name
     // was derived from, and a list of objects that were used to derive the name, if any.
-    virtual String name(AXNameFrom&, WillBeHeapVector<RawPtrWillBeMember<AXObject>>& nameObjects);
+    virtual String name(AXNameFrom&, AXObjectVector* nameObjects) const;
 
+    typedef HeapVector<NameSource> NameSources;
+    // Retrieves the accessible name of the object and a list of all potential sources
+    // for the name, indicating which were used.
+    virtual String name(NameSources*) const;
+
+    typedef HeapVector<DescriptionSource> DescriptionSources;
     // Takes the result of nameFrom from calling |name|, above, and retrieves the
     // accessible description of the object, which is secondary to |name|, an enum indicating
     // where the description was derived from, and a list of objects that were used to
     // derive the description, if any.
-    virtual String description(AXNameFrom, AXDescriptionFrom&, WillBeHeapVector<RawPtrWillBeMember<AXObject>>& descriptionObjects) { return String(); }
+    virtual String description(AXNameFrom, AXDescriptionFrom&, AXObjectVector* descriptionObjects) const { return String(); }
+
+    // Same as above, but returns a list of all potential sources for the description, indicating which were used.
+    virtual String description(AXNameFrom, AXDescriptionFrom&, DescriptionSources*, AXRelatedObjectVector*) const { return String(); }
 
     // Takes the result of nameFrom and descriptionFrom from calling |name| and |description|,
     // above, and retrieves the placeholder of the object, if present and if it wasn't already
@@ -564,7 +709,8 @@ public:
     virtual String placeholder(AXNameFrom, AXDescriptionFrom) { return String(); }
 
     // Internal function used by name and description, above.
-    virtual String textAlternative(bool recursive, bool inAriaLabelledByTraversal, WillBeHeapHashSet<RawPtrWillBeMember<AXObject>>& visited, AXNameFrom*, WillBeHeapVector<RawPtrWillBeMember<AXObject>>* nameObjects) { return String(); }
+    typedef HeapHashSet<Member<const AXObject>> AXObjectSet;
+    virtual String textAlternative(bool recursive, bool inAriaLabelledByTraversal, AXObjectSet& visited, AXNameFrom& nameFrom, AXRelatedObjectVector* relatedObjects, NameSources* nameSources) const { return String(); }
 
     // Returns result of Accessible Name Calculation algorithm.
     // This is a simpler high-level interface to |name| used by Inspector.
@@ -605,7 +751,7 @@ public:
     // The integer horizontal pixel offset of each character in the string; negative values for RTL.
     virtual void textCharacterOffsets(Vector<int>&) const { }
     // The start and end character offset of each word in the inline text box.
-    virtual void wordBoundaries(Vector<PlainTextRange>& words) const { }
+    virtual void wordBoundaries(Vector<AXRange>& words) const { }
 
     // Properties of interactive elements.
     virtual String actionVerb() const;
@@ -623,13 +769,14 @@ public:
     virtual AXObject* activeDescendant() const { return 0; }
     virtual String ariaAutoComplete() const { return String(); }
     virtual String ariaDescribedByAttribute() const { return String(); }
-    virtual void ariaFlowToElements(AccessibilityChildrenVector&) const { }
-    virtual void ariaControlsElements(AccessibilityChildrenVector&) const { }
-    virtual void ariaOwnsElements(AccessibilityChildrenVector& owns) const { }
+    virtual void ariaFlowToElements(AXObjectVector&) const { }
+    virtual void ariaControlsElements(AXObjectVector&) const { }
+    virtual void ariaOwnsElements(AXObjectVector& owns) const { }
     virtual bool ariaHasPopup() const { return false; }
+    virtual bool isEditable() const { return false; }
     bool isMultiline() const;
     virtual bool isRichlyEditable() const { return false; }
-    virtual String ariaLabeledByAttribute() const { return String(); }
+    virtual String ariaLabelledbyAttribute() const { return String(); }
     bool ariaPressedIsPresent() const;
     virtual AccessibilityRole ariaRoleAttribute() const { return UnknownRole; }
     virtual bool ariaRoleHasPresentationalChildren() const { return false; }
@@ -653,7 +800,7 @@ public:
 
     // ARIA trees.
     // Used by an ARIA tree to get all its rows.
-    void ariaTreeRows(AccessibilityChildrenVector&);
+    void ariaTreeRows(AXObjectVector&);
 
     // ARIA live-region features.
     bool isLiveRegion() const;
@@ -681,7 +828,7 @@ public:
     virtual AXObject* elementAccessibilityHitTest(const IntPoint&) const;
 
     // High-level accessibility tree access. Other modules should only use these functions.
-    const AccessibilityChildrenVector& children();
+    const AXObjectVector& children();
     AXObject* parentObject() const;
     AXObject* parentObjectIfExists() const;
     virtual AXObject* computeParent() const = 0;
@@ -719,8 +866,15 @@ public:
     bool hasAttribute(const QualifiedName&) const;
     const AtomicString& getAttribute(const QualifiedName&) const;
 
-    // Selected text.
-    virtual PlainTextRange selectedTextRange() const { return PlainTextRange(); }
+    // Methods that retrieve or manipulate the current selection.
+
+    // Get the current selection from anywhere in the accessibility tree.
+    virtual AXRange selection() const { return AXRange(); }
+    // Gets only the start and end offsets of the selection computed using the
+    // current object as the starting point. Returns a null selection if there is
+    // no selection in the subtree rooted at this object.
+    virtual AXRange selectionUnderObject() const { return AXRange(); }
+    virtual void setSelection(const AXRange&) { }
 
     // Scrollable containers.
     bool isScrollableContainer() const;
@@ -746,7 +900,6 @@ public:
     virtual void setFocused(bool) { }
     virtual void setSelected(bool) { }
     void setSelectedText(const String&) { }
-    virtual void setSelectedTextRange(const PlainTextRange&) { }
     virtual void setValue(const String&) { }
     virtual void setValue(float) { }
 
@@ -776,11 +929,14 @@ public:
 
 protected:
     AXID m_id;
-    AccessibilityChildrenVector m_children;
+    AXObjectVector m_children;
     mutable bool m_haveChildren;
     AccessibilityRole m_role;
     AXObjectInclusion m_lastKnownIsIgnoredValue;
     LayoutRect m_explicitElementRect;
+
+    // Used only in recursive calls from textAlternative()
+    static String recursiveTextAlternative(const AXObject&, bool inAriaLabelledByTraversal, AXObjectSet& visited);
 
     virtual const AXObject* inheritsPresentationalRoleFrom() const { return 0; }
 
@@ -792,7 +948,7 @@ protected:
 
     bool m_detached;
 
-    mutable RawPtrWillBeMember<AXObject> m_parent;
+    mutable Member<AXObject> m_parent;
 
     // The following cached attribute values (the ones starting with m_cached*)
     // are only valid if m_lastModificationCount matches AXObjectCacheImpl::modificationCount().
@@ -803,9 +959,9 @@ protected:
     mutable bool m_cachedIsDescendantOfDisabledNode : 1;
     mutable bool m_cachedHasInheritedPresentationalRole : 1;
     mutable bool m_cachedIsPresentationalChild : 1;
-    mutable RawPtrWillBeMember<const AXObject> m_cachedLiveRegionRoot;
+    mutable Member<const AXObject> m_cachedLiveRegionRoot;
 
-    RawPtrWillBeMember<AXObjectCacheImpl> m_axObjectCache;
+    Member<AXObjectCacheImpl> m_axObjectCache;
 
     // Updates the cached attribute values. This may be recursive, so to prevent deadlocks,
     // functions called here may only search up the tree (ancestors), not down.
@@ -822,5 +978,9 @@ private:
     DEFINE_TYPE_CASTS(thisType, AXObject, object, object->predicate, object.predicate)
 
 } // namespace blink
+
+WTF_ALLOW_INIT_WITH_MEM_FUNCTIONS(blink::IgnoredReason);
+WTF_ALLOW_INIT_WITH_MEM_FUNCTIONS(blink::NameSource);
+WTF_ALLOW_INIT_WITH_MEM_FUNCTIONS(blink::DescriptionSource);
 
 #endif // AXObject_h

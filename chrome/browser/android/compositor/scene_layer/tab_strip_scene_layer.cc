@@ -5,34 +5,35 @@
 #include "chrome/browser/android/compositor/scene_layer/tab_strip_scene_layer.h"
 
 #include "base/android/jni_android.h"
+#include "cc/resources/scoped_ui_resource.h"
 #include "chrome/browser/android/compositor/layer/tab_handle_layer.h"
 #include "chrome/browser/android/compositor/layer_title_cache.h"
 #include "content/public/browser/android/compositor.h"
 #include "jni/TabStripSceneLayer_jni.h"
 #include "ui/android/resources/resource_manager_impl.h"
-#include "ui/android/resources/ui_resource_android.h"
 
 namespace chrome {
 namespace android {
 
 TabStripSceneLayer::TabStripSceneLayer(JNIEnv* env, jobject jobj)
     : SceneLayer(env, jobj),
-      background_layer_(
+      tab_strip_layer_(
           cc::SolidColorLayer::Create(content::Compositor::LayerSettings())),
       new_tab_button_(
           cc::UIResourceLayer::Create(content::Compositor::LayerSettings())),
       model_selector_button_(
           cc::UIResourceLayer::Create(content::Compositor::LayerSettings())),
-      strip_brightness_(1.f),
+      background_tab_brightness_(1.f),
+      brightness_(1.f),
       write_index_(0),
       content_tree_(nullptr) {
-  background_layer_->SetBackgroundColor(SK_ColorBLACK);
-  background_layer_->SetIsDrawable(true);
   new_tab_button_->SetIsDrawable(true);
   model_selector_button_->SetIsDrawable(true);
-  layer()->AddChild(background_layer_);
-  layer()->AddChild(new_tab_button_);
-  layer()->AddChild(model_selector_button_);
+  tab_strip_layer_->SetBackgroundColor(SK_ColorBLACK);
+  tab_strip_layer_->SetIsDrawable(true);
+  tab_strip_layer_->AddChild(new_tab_button_);
+  tab_strip_layer_->AddChild(model_selector_button_);
+  layer()->AddChild(tab_strip_layer_);
 }
 
 TabStripSceneLayer::~TabStripSceneLayer() {
@@ -59,11 +60,17 @@ void TabStripSceneLayer::SetContentTree(JNIEnv* env,
   }
 }
 
-void TabStripSceneLayer::BeginBuildingFrame(JNIEnv* env, jobject jobj) {
+void TabStripSceneLayer::BeginBuildingFrame(JNIEnv* env,
+                                            jobject jobj,
+                                            jboolean visible) {
   write_index_ = 0;
+  tab_strip_layer_->SetHideLayerAndSubtree(!visible);
 }
 
 void TabStripSceneLayer::FinishBuildingFrame(JNIEnv* env, jobject jobj) {
+  if (tab_strip_layer_->hide_layer_and_subtree())
+    return;
+
   for (unsigned i = write_index_; i < tab_handle_layers_.size(); ++i)
     tab_handle_layers_[i]->layer()->RemoveFromParent();
 
@@ -76,13 +83,39 @@ void TabStripSceneLayer::UpdateTabStripLayer(JNIEnv* env,
                                              jfloat width,
                                              jfloat height,
                                              jfloat y_offset,
-                                             jfloat strip_brightness) {
-  strip_brightness_ = strip_brightness;
+                                             jfloat background_tab_brightness,
+                                             jfloat brightness,
+                                             jboolean should_readd_background) {
+  background_tab_brightness_ = background_tab_brightness;
   gfx::RectF content(0, y_offset, width, height);
   layer()->SetPosition(gfx::PointF(0, y_offset));
-  background_layer_->SetBounds(gfx::Size(width, height));
+  tab_strip_layer_->SetBounds(gfx::Size(width, height));
+
+  if (brightness != brightness_) {
+    brightness_ = brightness;
+    cc::FilterOperations filters;
+    if (brightness_ < 1.f)
+      filters.Append(cc::FilterOperation::CreateBrightnessFilter(brightness_));
+    tab_strip_layer_->SetFilters(filters);
+  }
+
+  // Content tree should not be affected by tab strip scene layer visibility.
   if (content_tree_)
     content_tree_->layer()->SetPosition(gfx::PointF(0, -y_offset));
+
+  // Make sure tab strip changes are committed after rotating the device.
+  // See https://crbug.com/503930 for more details.
+  // InsertChild() forces the tree sync, which seems to fix the problem.
+  // Note that this is a workaround.
+  // TODO(changwan): find out why the update is not committed after rotation.
+  if (should_readd_background) {
+    int background_index = 0;
+    if (content_tree_ && content_tree_->layer()) {
+      background_index = 1;
+    }
+    DCHECK(layer()->children()[background_index] == tab_strip_layer_);
+    layer()->InsertChild(tab_strip_layer_, background_index);
+  }
 }
 
 void TabStripSceneLayer::UpdateNewTabButton(JNIEnv* env,
@@ -166,7 +199,8 @@ void TabStripSceneLayer::PutStripTabLayer(JNIEnv* env,
   layer->SetProperties(id, close_button_resource, tab_handle_resource,
                        foreground, close_pressed, toolbar_width, x, y, width,
                        height, content_offset_x, close_button_alpha, is_loading,
-                       spinner_rotation, strip_brightness_, border_opacity);
+                       spinner_rotation, background_tab_brightness_,
+                       border_opacity);
 }
 
 scoped_refptr<TabHandleLayer> TabStripSceneLayer::GetNextLayer(
@@ -177,12 +211,12 @@ scoped_refptr<TabHandleLayer> TabStripSceneLayer::GetNextLayer(
   scoped_refptr<TabHandleLayer> layer_tree =
       TabHandleLayer::Create(layer_title_cache);
   tab_handle_layers_.push_back(layer_tree);
-  this->layer()->AddChild(layer_tree->layer());
+  tab_strip_layer_->AddChild(layer_tree->layer());
   write_index_++;
   return layer_tree;
 }
 
-static jlong Init(JNIEnv* env, jobject jobj) {
+static jlong Init(JNIEnv* env, const JavaParamRef<jobject>& jobj) {
   // This will automatically bind to the Java object and pass ownership there.
   TabStripSceneLayer* scene_layer = new TabStripSceneLayer(env, jobj);
   return reinterpret_cast<intptr_t>(scene_layer);

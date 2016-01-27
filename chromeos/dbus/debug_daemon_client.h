@@ -83,17 +83,6 @@ class CHROMEOS_EXPORT DebugDaemonClient : public DBusClient {
   virtual void GetNetworkInterfaces(
       const GetNetworkInterfacesCallback& callback) = 0;
 
-  // Called once GetPerfData() is complete only if the the data is successfully
-  // obtained from debugd.
-  typedef base::Callback<void(const std::vector<uint8>& data)>
-      GetPerfDataCallback;
-
-  // Runs perf for |duration| seconds and returns data collected.
-  // TODO(sque): This is being replaced by GetPerfOutput(). Remove this function
-  // and the above callback typedef when the new function is running.
-  virtual void GetPerfData(uint32_t duration,
-                           const GetPerfDataCallback& callback) = 0;
-
   // Called once GetPerfOutput() is complete only if the the data is
   // successfully obtained from debugd.
   // Arguments:
@@ -106,7 +95,13 @@ class CHROMEOS_EXPORT DebugDaemonClient : public DBusClient {
                           const std::vector<uint8>& perf_stat)>;
 
   // Runs perf for |duration| seconds and returns data collected.
+  // TODO(dhsharp): Remove this overload.
   virtual void GetPerfOutput(uint32_t duration,
+                             const GetPerfOutputCallback& callback) = 0;
+
+  // Runs perf with arguments for |duration| seconds and returns data collected.
+  virtual void GetPerfOutput(uint32_t duration,
+                             const std::vector<std::string>& perf_args,
                              const GetPerfOutputCallback& callback) = 0;
 
   // Callback type for GetScrubbedLogs(), GetAllLogs() or GetUserLogFiles().

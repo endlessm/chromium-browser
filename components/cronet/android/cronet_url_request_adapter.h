@@ -9,6 +9,7 @@
 #include <string>
 
 #include "base/android/jni_android.h"
+#include "base/android/jni_array.h"
 #include "base/android/jni_string.h"
 #include "base/android/scoped_java_ref.h"
 #include "base/callback.h"
@@ -27,6 +28,8 @@ class SingleThreadTaskRunner;
 namespace net {
 class HttpRequestHeaders;
 class HttpResponseHeaders;
+class SSLCertRequestInfo;
+class SSLInfo;
 class UploadDataStream;
 }  // namespace net
 
@@ -85,12 +88,9 @@ class CronetURLRequestAdapter : public net::URLRequest::Delegate {
                     jint jcapacity);
 
   // Releases all resources for the request and deletes the object itself.
-  void Destroy(JNIEnv* env, jobject jcaller);
-
-  // Populate response headers on network thread.
-  void PopulateResponseHeaders(JNIEnv* env,
-                               jobject jcaller,
-                               jobject jheaders_list);
+  // |jsend_on_canceled| indicates if Java onCanceled callback should be
+  // issued to indicate when no more callbacks will be issued.
+  void Destroy(JNIEnv* env, jobject jcaller, jboolean jsend_on_canceled);
 
   // When called during a OnRedirect or OnResponseStarted callback, these
   // methods return the corresponding response information. These methods
@@ -119,6 +119,12 @@ class CronetURLRequestAdapter : public net::URLRequest::Delegate {
   void OnReceivedRedirect(net::URLRequest* request,
                           const net::RedirectInfo& redirect_info,
                           bool* defer_redirect) override;
+  void OnCertificateRequested(
+      net::URLRequest* request,
+      net::SSLCertRequestInfo* cert_request_info) override;
+  void OnSSLCertificateError(net::URLRequest* request,
+                             const net::SSLInfo& ssl_info,
+                             bool fatal) override;
   void OnResponseStarted(net::URLRequest* request) override;
   void OnReadCompleted(net::URLRequest* request, int bytes_read) override;
 
@@ -129,11 +135,14 @@ class CronetURLRequestAdapter : public net::URLRequest::Delegate {
   void GetStatusOnNetworkThread(
       const base::android::ScopedJavaGlobalRef<jobject>& jstatus_listener_ref)
       const;
+  // Gets response headers on network thread.
+  base::android::ScopedJavaLocalRef<jobjectArray> GetResponseHeaders(
+      JNIEnv* env);
   void FollowDeferredRedirectOnNetworkThread();
   void ReadDataOnNetworkThread(
       scoped_refptr<IOBufferWithByteBuffer> read_buffer,
       int buffer_size);
-  void DestroyOnNetworkThread();
+  void DestroyOnNetworkThread(bool send_on_canceled);
 
   // Checks status of the request_adapter, return false if |is_success()| is
   // true, otherwise report error and cancel request_adapter.

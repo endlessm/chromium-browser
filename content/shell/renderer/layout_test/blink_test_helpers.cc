@@ -7,7 +7,6 @@
 #include "base/command_line.h"
 #include "base/files/file_util.h"
 #include "base/path_service.h"
-#include "base/strings/string_split.h"
 #include "base/strings/utf_string_conversions.h"
 #include "components/test_runner/test_preferences.h"
 #include "content/public/common/content_switches.h"
@@ -32,7 +31,6 @@ void ExportLayoutTestSpecificPreferences(
   to->supports_multiple_windows = from.supports_multiple_windows;
   to->loads_images_automatically = from.loads_images_automatically;
   to->plugins_enabled = from.plugins_enabled;
-  to->java_enabled = from.java_enabled;
   to->application_cache_enabled = from.offline_web_application_cache_enabled;
   to->tabs_to_links = from.tabs_to_links;
   to->experimental_webgl_enabled = from.experimental_webgl_enabled;
@@ -73,7 +71,6 @@ void ApplyLayoutTestDefaultPreferences(WebPreferences* prefs) {
 #else
   prefs->editing_behavior = EDITING_BEHAVIOR_WIN;
 #endif
-  prefs->java_enabled = false;
   prefs->application_cache_enabled = true;
   prefs->tabs_to_links = false;
   prefs->hyperlink_auditing_enabled = false;
@@ -119,19 +116,6 @@ base::FilePath GetWebKitRootDirFilePath() {
   base::FilePath base_path;
   PathService::Get(base::DIR_SOURCE_ROOT, &base_path);
   return base_path.Append(FILE_PATH_LITERAL("third_party/WebKit"));
-}
-
-std::vector<std::string> GetSideloadFontFiles() {
-  std::vector<std::string> files;
-  const base::CommandLine& command_line =
-      *base::CommandLine::ForCurrentProcess();
-  if (command_line.HasSwitch(switches::kRegisterFontFiles)) {
-    base::SplitString(
-        command_line.GetSwitchValueASCII(switches::kRegisterFontFiles),
-        ';',
-        &files);
-  }
-  return files;
 }
 
 }  // namespace content

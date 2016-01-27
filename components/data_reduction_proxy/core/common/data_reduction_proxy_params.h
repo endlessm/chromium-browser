@@ -43,6 +43,26 @@ bool IsIncludedInHoldbackFieldTrial();
 // a promotion for the data reduction proxy on Android One devices.
 bool IsIncludedInAndroidOnePromoFieldTrial(const char* build_fingerprint);
 
+// Returns the name of the Lo-Fi field trial.
+std::string GetLoFiFieldTrialName();
+
+// Returns the name of the Lo-Fi field trial that configures LoFi flags when it
+// is force enabled through flags.
+std::string GetLoFiFlagFieldTrialName();
+
+// Returns true if this client is part of the "Enabled" group of the Lo-Fi field
+// trial.
+bool IsIncludedInLoFiEnabledFieldTrial();
+
+// Returns true if this client is part of the "Control" group of the Lo-Fi field
+// trial.
+bool IsIncludedInLoFiControlFieldTrial();
+
+// Returns true if this client has any of the values to enable Lo-Fi mode for
+// the "data-reduction-proxy-lo-fi" command line switch. This includes the
+// "always-on", "cellular-only", and "slow-connections-only" values.
+bool IsLoFiOnViaFlags();
+
 // Returns true if this client has the command line switch to enable Lo-Fi
 // mode always on.
 bool IsLoFiAlwaysOnViaFlags();
@@ -50,6 +70,10 @@ bool IsLoFiAlwaysOnViaFlags();
 // Returns true if this client has the command line switch to enable Lo-Fi
 // mode only on cellular connections.
 bool IsLoFiCellularOnlyViaFlags();
+
+// Returns true if this client has the command line switch to enable Lo-Fi
+// mode only on slow connections.
+bool IsLoFiSlowConnectionsOnlyViaFlags();
 
 // Returns true if this client has the command line switch to disable Lo-Fi
 // mode.
@@ -63,14 +87,14 @@ bool WarnIfNoDataReductionProxy();
 // proxy server as quic://proxy.googlezip.net.
 bool IsIncludedInQuicFieldTrial();
 
-// Returns the name of the Lo-Fi field trial.
-std::string GetLoFiFieldTrialName();
+// Returns true if dev rollout is enabled on this client either through command
+// line switch or as a part of field trial.
+bool IsDevRolloutEnabled();
 
 std::string GetQuicFieldTrialName();
 
-// Returns true if this client is part of a field trial that allows Data Saver
-// to be used on VPN.
-bool IsIncludedInUseDataSaverOnVPNFieldTrial();
+// Returns the name of the client config field trial.
+std::string GetClientConfigFieldTrialName();
 
 // Returns true if the Data Reduction Proxy config client should be used.
 bool IsConfigClientEnabled();
@@ -94,6 +118,12 @@ int GetFieldTrialParameterAsInteger(const std::string& group,
                                     const std::string& param_name,
                                     int default_value,
                                     int min_value);
+
+// Returns true if the list of Data Reduction Proxies to use for HTTP requests
+// has been overridden on the command line, and if so, returns the override
+// proxy list in |override_proxies_for_http|.
+bool GetOverrideProxiesForHttpFromCommandLine(
+    std::vector<net::ProxyServer>* override_proxies_for_http);
 
 }  // namespace params
 
@@ -169,6 +199,13 @@ class DataReductionProxyParams : public DataReductionProxyConfigValues {
 
   bool holdback() const override;
 
+  bool quic_enabled() const { return quic_enabled_; }
+
+  // Returns the corresponding string from preprocessor constants if defined,
+  // and an empty string otherwise.
+  virtual std::string GetDefaultDevOrigin() const;
+  virtual std::string GetDefaultDevFallbackOrigin() const;
+
  protected:
   // Test constructor that optionally won't call Init();
   DataReductionProxyParams(int flags,
@@ -185,8 +222,6 @@ class DataReductionProxyParams : public DataReductionProxyConfigValues {
 
   // Returns the corresponding string from preprocessor constants if defined,
   // and an empty string otherwise.
-  virtual std::string GetDefaultDevOrigin() const;
-  virtual std::string GetDefaultDevFallbackOrigin() const;
   virtual std::string GetDefaultOrigin() const;
   virtual std::string GetDefaultFallbackOrigin() const;
   virtual std::string GetDefaultSSLOrigin() const;
@@ -212,6 +247,9 @@ class DataReductionProxyParams : public DataReductionProxyConfigValues {
   std::string override_quic_origin_;
 
   bool configured_on_command_line_;
+
+  bool use_override_proxies_for_http_;
+  std::vector<net::ProxyServer> override_proxies_for_http_;
 
   DISALLOW_COPY_AND_ASSIGN(DataReductionProxyParams);
 };

@@ -6,7 +6,6 @@
 
 #include "base/logging.h"
 #include "base/macros.h"
-#include "chrome/browser/bookmarks/enhanced_bookmarks_features.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "extensions/common/constants.h"
 #include "grit/browser_resources.h"
@@ -43,11 +42,6 @@ bool IsComponentExtensionWhitelisted(const std::string& extension_id) {
     if (extension_id == allowed[i])
       return true;
   }
-
-  std::string bookmark_extension_id;
-  if (IsEnhancedBookmarksEnabled(&bookmark_extension_id) &&
-      bookmark_extension_id == extension_id)
-    return true;
 
 #if defined(ENABLE_APP_LIST) && defined(OS_CHROMEOS)
   std::string google_now_extension_id;
@@ -107,7 +101,6 @@ bool IsComponentExtensionWhitelisted(int manifest_resource_id) {
     IDR_HELP_MANIFEST,
     IDR_KEYBOARD_MANIFEST,
     IDR_MOBILE_MANIFEST,
-    IDR_NETWORK_CONFIGURATION_MANIFEST,
     IDR_QUICKOFFICE_MANIFEST,
     IDR_VIDEO_PLAYER_MANIFEST,
     IDR_WALLPAPERMANAGER_MANIFEST,

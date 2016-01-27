@@ -67,7 +67,8 @@ const int kCPBWindowSizeMs = 1500;
 // UMA errors that the VaapiVideoEncodeAccelerator class reports.
 enum VAVEAEncoderFailure {
   VAAPI_ERROR = 0,
-  VAVEA_ENCODER_FAILURES_MAX,
+  // UMA requires that max must be greater than 1.
+  VAVEA_ENCODER_FAILURES_MAX = 2,
 };
 
 }
@@ -151,7 +152,7 @@ VaapiVideoEncodeAccelerator::~VaapiVideoEncodeAccelerator() {
 }
 
 bool VaapiVideoEncodeAccelerator::Initialize(
-    media::VideoFrame::Format format,
+    media::VideoPixelFormat format,
     const gfx::Size& input_visible_size,
     media::VideoCodecProfile output_profile,
     uint32 initial_bitrate,
@@ -161,7 +162,7 @@ bool VaapiVideoEncodeAccelerator::Initialize(
   DCHECK_EQ(state_, kUninitialized);
 
   DVLOGF(1) << "Initializing VAVEA, input_format: "
-            << media::VideoFrame::FormatToString(format)
+            << media::VideoPixelFormatToString(format)
             << ", input_visible_size: " << input_visible_size.ToString()
             << ", output_profile: " << output_profile
             << ", initial_bitrate: " << initial_bitrate;
@@ -175,9 +176,9 @@ bool VaapiVideoEncodeAccelerator::Initialize(
     return false;
   }
 
-  if (format != media::VideoFrame::I420) {
+  if (format != media::PIXEL_FORMAT_I420) {
     DVLOGF(1) << "Unsupported input format: "
-              << media::VideoFrame::FormatToString(format);
+              << media::VideoPixelFormatToString(format);
     return false;
   }
 
@@ -225,8 +226,9 @@ void VaapiVideoEncodeAccelerator::InitializeTask() {
       base::Bind(&VaapiVideoEncodeAccelerator::RecycleVASurfaceID,
                  base::Unretained(this)));
 
-  if (!vaapi_wrapper_->CreateSurfaces(
-          coded_size_, kNumSurfaces, &available_va_surface_ids_)) {
+  if (!vaapi_wrapper_->CreateSurfaces(VA_RT_FORMAT_YUV420, coded_size_,
+                                      kNumSurfaces,
+                                      &available_va_surface_ids_)) {
     NOTIFY_ERROR(kPlatformFailureError, "Failed creating VASurfaces");
     return;
   }
@@ -582,11 +584,13 @@ bool VaapiVideoEncodeAccelerator::PrepareNextJob() {
   }
 
   current_encode_job_->input_surface = new VASurface(
-      available_va_surface_ids_.back(), coded_size_, va_surface_release_cb_);
+      available_va_surface_ids_.back(), coded_size_,
+      vaapi_wrapper_->va_surface_format(), va_surface_release_cb_);
   available_va_surface_ids_.pop_back();
 
   current_encode_job_->recon_surface = new VASurface(
-      available_va_surface_ids_.back(), coded_size_, va_surface_release_cb_);
+      available_va_surface_ids_.back(), coded_size_,
+      vaapi_wrapper_->va_surface_format(), va_surface_release_cb_);
   available_va_surface_ids_.pop_back();
 
   // Reference surfaces are needed until the job is done, but they get

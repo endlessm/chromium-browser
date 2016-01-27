@@ -6,11 +6,11 @@
 #define REMOTING_PROTOCOL_JINGLE_SESSION_H_
 
 #include <list>
-#include <map>
 #include <set>
 #include <string>
 
 #include "base/memory/ref_counted.h"
+#include "base/threading/non_thread_safe.h"
 #include "base/timer/timer.h"
 #include "crypto/rsa_private_key.h"
 #include "net/base/completion_callback.h"
@@ -22,25 +22,17 @@
 #include "remoting/protocol/transport.h"
 #include "remoting/signaling/iq_sender.h"
 
-namespace net {
-class Socket;
-class StreamSocket;
-}  // namespace net
-
 namespace remoting {
 namespace protocol {
 
-class SecureChannelFactory;
-class ChannelMultiplexer;
 class JingleSessionManager;
-class PseudoTcpChannelFactory;
+class QuicChannelFactory;
 
 // JingleSessionManager and JingleSession implement the subset of the
 // Jingle protocol used in Chromoting. Instances of this class are
 // created by the JingleSessionManager.
 class JingleSession : public base::NonThreadSafe,
                       public Session,
-                      public DatagramChannelFactory,
                       public Transport::EventHandler {
  public:
   ~JingleSession() override;
@@ -49,45 +41,21 @@ class JingleSession : public base::NonThreadSafe,
   void SetEventHandler(Session::EventHandler* event_handler) override;
   ErrorCode error() override;
   const std::string& jid() override;
-  const CandidateSessionConfig* candidate_config() override;
   const SessionConfig& config() override;
-  void set_config(scoped_ptr<SessionConfig> config) override;
-  StreamChannelFactory* GetTransportChannelFactory() override;
-  StreamChannelFactory* GetMultiplexedChannelFactory() override;
-  void Close() override;
-
-  // DatagramChannelFactory interface.
-  void CreateChannel(const std::string& name,
-                     const ChannelCreatedCallback& callback) override;
-  void CancelChannelCreation(const std::string& name) override;
-
-  // Transport::EventHandler interface.
-  void OnTransportIceCredentials(Transport* transport,
-                                 const std::string& ufrag,
-                                 const std::string& password) override;
-  void OnTransportCandidate(Transport* transport,
-                            const cricket::Candidate& candidate) override;
-  void OnTransportRouteChange(Transport* transport,
-                              const TransportRoute& route) override;
-  void OnTransportFailed(Transport* transport) override;
-  void OnTransportDeleted(Transport* transport) override;
+  Transport* GetTransport() override;
+  StreamChannelFactory* GetQuicChannelFactory() override;
+  void Close(protocol::ErrorCode error) override;
 
  private:
   friend class JingleSessionManager;
 
-  typedef std::map<std::string, Transport*> ChannelsMap;
   typedef base::Callback<void(JingleMessageReply::ErrorType)> ReplyCallback;
 
   explicit JingleSession(JingleSessionManager* session_manager);
 
   // Start connection by sending session-initiate message.
   void StartConnection(const std::string& peer_jid,
-                       scoped_ptr<Authenticator> authenticator,
-                       scoped_ptr<CandidateSessionConfig> config);
-
-  // Passes transport info to a new |channel| in case it was received before the
-  // channel was created.
-  void AddPendingRemoteTransportInfo(Transport* channel);
+                       scoped_ptr<Authenticator> authenticator);
 
   // Called by JingleSessionManager for incoming connections.
   void InitializeIncomingConnection(const JingleMessage& initiate_message,
@@ -104,12 +72,12 @@ class JingleSession : public base::NonThreadSafe,
                          IqRequest* request,
                          const buzz::XmlElement* response);
 
-  // Creates empty |pending_transport_info_message_| and schedules timer for
-  // SentTransportInfo() to sent the message later.
-  void EnsurePendingTransportInfoMessage();
-
-  // Sends transport-info message with candidates from |pending_candidates_|.
-  void SendTransportInfo();
+  // Transport::EventHandler interface.
+  void OnOutgoingTransportInfo(
+    scoped_ptr<buzz::XmlElement> transport_info) override;
+  void OnTransportRouteChange(const std::string& component,
+                              const TransportRoute& route) override;
+  void OnTransportError(ErrorCode error) override;
 
   // Response handler for transport-info responses. Transport-info timeouts are
   // ignored and don't terminate connection.
@@ -129,7 +97,6 @@ class JingleSession : public base::NonThreadSafe,
                      const ReplyCallback& reply_callback);
   void OnTerminate(const JingleMessage& message,
                    const ReplyCallback& reply_callback);
-  void ProcessTransportInfo(const JingleMessage& message);
 
   // Called from OnAccept() to initialize session config.
   bool InitializeConfigFromDescription(const ContentDescription* description);
@@ -146,11 +113,6 @@ class JingleSession : public base::NonThreadSafe,
   // Called when authentication is finished.
   void OnAuthenticated();
 
-  // Terminates the session and sends session-terminate if it is
-  // necessary. |error| specifies the error code in case when the
-  // session is being closed due to an error.
-  void CloseInternal(ErrorCode error);
-
   // Sets |state_| to |new_state| and calls state change callback.
   void SetState(State new_state);
 
@@ -159,7 +121,6 @@ class JingleSession : public base::NonThreadSafe,
 
   JingleSessionManager* session_manager_;
   std::string peer_jid_;
-  scoped_ptr<CandidateSessionConfig> candidate_config_;
   Session::EventHandler* event_handler_;
 
   std::string session_id_;
@@ -170,24 +131,15 @@ class JingleSession : public base::NonThreadSafe,
 
   scoped_ptr<Authenticator> authenticator_;
 
+  scoped_ptr<Transport> transport_;
+
   // Pending Iq requests. Used for all messages except transport-info.
   std::set<IqRequest*> pending_requests_;
 
   // Pending transport-info requests.
   std::list<IqRequest*> transport_info_requests_;
 
-  ChannelsMap channels_;
-  scoped_ptr<PseudoTcpChannelFactory> pseudotcp_channel_factory_;
-  scoped_ptr<SecureChannelFactory> secure_channel_factory_;
-  scoped_ptr<ChannelMultiplexer> channel_multiplexer_;
-
-  scoped_ptr<JingleMessage> pending_transport_info_message_;
-  base::OneShotTimer<JingleSession> transport_info_timer_;
-
-  // Pending remote transport info received before the local channels were
-  // created.
-  std::list<JingleMessage::IceCredentials> pending_remote_ice_credentials_;
-  std::list<JingleMessage::NamedCandidate> pending_remote_candidates_;
+  scoped_ptr<QuicChannelFactory> quic_channel_factory_;
 
   base::WeakPtrFactory<JingleSession> weak_factory_;
 

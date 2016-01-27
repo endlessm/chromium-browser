@@ -9,6 +9,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/views/profiles/profile_chooser_view.h"
@@ -59,8 +60,7 @@ void ProfileSigninConfirmationDialogViews::ShowDialog(
   // bubble.
   // TODO(guohui): removes the workaround once the profile confirmation dialog
   // is fixed.
-  if (switches::IsNewAvatarMenu() && ProfileChooserView::IsShowing())
-    ProfileChooserView::Hide();
+  ProfileChooserView::Hide();
 
   ProfileSigninConfirmationDialogViews* dialog =
       new ProfileSigninConfirmationDialogViews(

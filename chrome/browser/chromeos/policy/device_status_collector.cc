@@ -12,6 +12,7 @@
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
+#include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
 #include "base/location.h"
@@ -22,16 +23,17 @@
 #include "base/prefs/pref_service.h"
 #include "base/prefs/scoped_user_pref_update.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/sys_info.h"
 #include "base/task_runner_util.h"
 #include "base/values.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/app_mode/kiosk_app_manager.h"
+#include "chrome/browser/chromeos/login/users/chrome_user_manager.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/policy/device_local_account.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/chromeos/settings/cros_settings.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/disks/disk_mount_manager.h"
 #include "chromeos/network/device_state.h"
@@ -44,6 +46,7 @@
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/user_manager/user_type.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/common/extension.h"
@@ -84,6 +87,12 @@ const char kTimestamp[] = "timestamp";
 
 // The location we read our CPU statistics from.
 const char kProcStat[] = "/proc/stat";
+
+// The location we read our CPU temperature and channel label from.
+const char kHwmonDir[] = "/sys/class/hwmon/";
+const char kDeviceDir[] = "device";
+const char kHwmonDirectoryPattern[] = "hwmon*";
+const char kCPUTempFilePattern[] = "temp*_input";
 
 // Determine the day key (milliseconds since epoch for corresponding day in UTC)
 // for a given |timestamp|.
@@ -139,6 +148,64 @@ std::string ReadCPUStatistics() {
   return std::string();
 }
 
+// Reads the CPU temperature info from
+// /sys/class/hwmon/hwmon*/device/temp*_input and
+// /sys/class/hwmon/hwmon*/device/temp*_label files.
+//
+// temp*_input contains CPU temperature in millidegree Celsius
+// temp*_label contains appropriate temperature channel label.
+std::vector<em::CPUTempInfo> ReadCPUTempInfo() {
+  std::vector<em::CPUTempInfo> contents;
+  // Get directories /sys/class/hwmon/hwmon*
+  base::FileEnumerator hwmon_enumerator(base::FilePath(kHwmonDir), false,
+                                        base::FileEnumerator::DIRECTORIES,
+                                        kHwmonDirectoryPattern);
+
+  for (base::FilePath hwmon_path = hwmon_enumerator.Next(); !hwmon_path.empty();
+       hwmon_path = hwmon_enumerator.Next()) {
+    // Get files /sys/class/hwmon/hwmon*/device/temp*_input
+    const base::FilePath hwmon_device_dir = hwmon_path.Append(kDeviceDir);
+    base::FileEnumerator enumerator(hwmon_device_dir, false,
+                                    base::FileEnumerator::FILES,
+                                    kCPUTempFilePattern);
+    for (base::FilePath temperature_path = enumerator.Next();
+         !temperature_path.empty(); temperature_path = enumerator.Next()) {
+      // Get appropriate temp*_label file.
+      std::string label_path = temperature_path.MaybeAsASCII();
+      if (label_path.empty()) {
+        LOG(WARNING) << "Unable to parse a path to temp*_input file as ASCII";
+        continue;
+      }
+      base::ReplaceSubstringsAfterOffset(&label_path, 0, "input", "label");
+
+      // Read label.
+      std::string label;
+      if (!base::PathExists(base::FilePath(label_path)) ||
+          !base::ReadFileToString(base::FilePath(label_path), &label)) {
+        label = std::string();
+      }
+
+      // Read temperature in millidegree Celsius.
+      std::string temperature_string;
+      int32 temperature = 0;
+      if (base::ReadFileToString(temperature_path, &temperature_string) &&
+          sscanf(temperature_string.c_str(), "%d", &temperature) == 1) {
+        // CPU temp in millidegree Celsius to Celsius
+        temperature /= 1000;
+
+        em::CPUTempInfo info;
+        info.set_cpu_label(label);
+        info.set_cpu_temp(temperature);
+        contents.push_back(info);
+      } else {
+        LOG(WARNING) << "Unable to read CPU temp from "
+                     << temperature_path.MaybeAsASCII();
+      }
+    }
+  }
+  return contents;
+}
+
 // Returns the DeviceLocalAccount associated with the current kiosk session.
 // Returns null if there is no active kiosk session, or if that kiosk
 // session has been removed from policy since the session started, in which
@@ -149,12 +216,12 @@ GetCurrentKioskDeviceLocalAccount(chromeos::CrosSettings* settings) {
     return scoped_ptr<policy::DeviceLocalAccount>();
   const user_manager::User* const user =
       user_manager::UserManager::Get()->GetActiveUser();
-  const std::string user_id = user->GetUserID();
   const std::vector<policy::DeviceLocalAccount> accounts =
       policy::GetDeviceLocalAccounts(settings);
 
   for (const auto& device_local_account : accounts) {
-    if (device_local_account.user_id == user_id) {
+    if (AccountId::FromUserEmail(device_local_account.user_id) ==
+        user->GetAccountId()) {
       return make_scoped_ptr(
           new policy::DeviceLocalAccount(device_local_account)).Pass();
     }
@@ -172,7 +239,8 @@ DeviceStatusCollector::DeviceStatusCollector(
     chromeos::system::StatisticsProvider* provider,
     const LocationUpdateRequester& location_update_requester,
     const VolumeInfoFetcher& volume_info_fetcher,
-    const CPUStatisticsFetcher& cpu_statistics_fetcher)
+    const CPUStatisticsFetcher& cpu_statistics_fetcher,
+    const CPUTempFetcher& cpu_temp_fetcher)
     : max_stored_past_activity_days_(kMaxStoredPastActivityDays),
       max_stored_future_activity_days_(kMaxStoredFutureActivityDays),
       local_state_(local_state),
@@ -182,6 +250,7 @@ DeviceStatusCollector::DeviceStatusCollector(
       geolocation_update_in_progress_(false),
       volume_info_fetcher_(volume_info_fetcher),
       cpu_statistics_fetcher_(cpu_statistics_fetcher),
+      cpu_temp_fetcher_(cpu_temp_fetcher),
       statistics_provider_(provider),
       last_cpu_active_(0),
       last_cpu_idle_(0),
@@ -200,6 +269,9 @@ DeviceStatusCollector::DeviceStatusCollector(
 
   if (cpu_statistics_fetcher_.is_null())
     cpu_statistics_fetcher_ = base::Bind(&ReadCPUStatistics);
+
+  if (cpu_temp_fetcher_.is_null())
+    cpu_temp_fetcher_ = base::Bind(&ReadCPUTempInfo);
 
   idle_poll_timer_.Start(FROM_HERE,
                          TimeDelta::FromSeconds(kIdlePollIntervalSeconds),
@@ -492,7 +564,7 @@ void DeviceStatusCollector::SampleHardwareStatus() {
     mount_points.push_back(mount_info.first);
   }
 
-  // Call out to the blocking pool to measure disk and CPU usage.
+  // Call out to the blocking pool to measure disk, CPU usage and CPU temp.
   base::PostTaskAndReplyWithResult(
       content::BrowserThread::GetBlockingPool(),
       FROM_HERE,
@@ -504,6 +576,11 @@ void DeviceStatusCollector::SampleHardwareStatus() {
       content::BrowserThread::GetBlockingPool(), FROM_HERE,
       cpu_statistics_fetcher_,
       base::Bind(&DeviceStatusCollector::ReceiveCPUStatistics,
+                 weak_factory_.GetWeakPtr()));
+
+  base::PostTaskAndReplyWithResult(
+      content::BrowserThread::GetBlockingPool(), FROM_HERE, cpu_temp_fetcher_,
+      base::Bind(&DeviceStatusCollector::StoreCPUTempInfo,
                  weak_factory_.GetWeakPtr()));
 }
 
@@ -560,6 +637,16 @@ void DeviceStatusCollector::ReceiveCPUStatistics(const std::string& stats) {
     resource_usage_.pop_front();
 }
 
+void DeviceStatusCollector::StoreCPUTempInfo(
+    const std::vector<em::CPUTempInfo>& info) {
+  if (info.empty()) {
+    DLOG(WARNING) << "Unable to read CPU temp information.";
+  }
+
+  if (report_hardware_status_)
+    cpu_temp_info_ = info;
+}
+
 void DeviceStatusCollector::GetActivityTimes(
     em::DeviceStatusReportRequest* request) {
   DictionaryPrefUpdate update(local_state_, prefs::kDeviceActivityTimes);
@@ -592,8 +679,7 @@ void DeviceStatusCollector::GetActivityTimes(
 
 void DeviceStatusCollector::GetVersionInfo(
     em::DeviceStatusReportRequest* request) {
-  chrome::VersionInfo version_info;
-  request->set_browser_version(version_info.Version());
+  request->set_browser_version(version_info::GetVersionNumber());
   request->set_os_version(os_version_);
   request->set_firmware_version(firmware_version_);
 }
@@ -717,8 +803,9 @@ void DeviceStatusCollector::GetNetworkInterfaces(
       interface->set_device_path((*device)->path());
   }
 
-  // Don't write any network state if we aren't in a kiosk session.
-  if (!GetAutoLaunchedKioskSessionInfo())
+  // Don't write any network state if we aren't in a kiosk or public session.
+  if (!GetAutoLaunchedKioskSessionInfo() &&
+      !user_manager::UserManager::Get()->IsLoggedInAsPublicAccount())
     return;
 
   // Walk the various networks and store their state in the status report.
@@ -770,21 +857,18 @@ void DeviceStatusCollector::GetNetworkInterfaces(
 }
 
 void DeviceStatusCollector::GetUsers(em::DeviceStatusReportRequest* request) {
-  policy::BrowserPolicyConnectorChromeOS* connector =
-      g_browser_process->platform_part()->browser_policy_connector_chromeos();
   const user_manager::UserList& users =
-      user_manager::UserManager::Get()->GetUsers();
-  user_manager::UserList::const_iterator user;
-  for (user = users.begin(); user != users.end(); ++user) {
+      chromeos::ChromeUserManager::Get()->GetUsers();
+
+  for (const auto& user : users) {
     // Only users with gaia accounts (regular) are reported.
-    if (!(*user)->HasGaiaAccount())
+    if (!user->HasGaiaAccount())
       continue;
 
     em::DeviceUser* device_user = request->add_user();
-    const std::string& email = (*user)->email();
-    if (connector->GetUserAffiliation(email) == USER_AFFILIATION_MANAGED) {
+    if (chromeos::ChromeUserManager::Get()->ShouldReportUser(user->email())) {
       device_user->set_type(em::DeviceUser::USER_TYPE_MANAGED);
-      device_user->set_email(email);
+      device_user->set_email(user->email());
     } else {
       device_user->set_type(em::DeviceUser::USER_TYPE_UNMANAGED);
       // Do not report the email address of unmanaged users.
@@ -806,6 +890,12 @@ void DeviceStatusCollector::GetHardwareStatus(
   for (const ResourceUsage& usage : resource_usage_) {
     status->add_cpu_utilization_pct(usage.cpu_usage_percent);
     status->add_system_ram_free(usage.bytes_of_ram_free);
+  }
+
+  // Add CPU temp info.
+  status->clear_cpu_temp_info();
+  for (const em::CPUTempInfo& info : cpu_temp_info_) {
+    *status->add_cpu_temp_info() = info;
   }
 }
 

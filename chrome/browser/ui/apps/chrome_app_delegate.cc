@@ -10,7 +10,7 @@
 #include "chrome/browser/apps/scoped_keep_alive.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/extensions/chrome_extension_web_contents_observer.h"
-#include "chrome/browser/favicon/favicon_helper.h"
+#include "chrome/browser/favicon/favicon_utils.h"
 #include "chrome/browser/file_select_helper.h"
 #include "chrome/browser/media/media_capture_devices_dispatcher.h"
 #include "chrome/browser/platform_util.h"
@@ -18,6 +18,7 @@
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_dialogs.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/scoped_tabbed_browser_displayer.h"
@@ -304,6 +305,8 @@ int ChromeAppDelegate::PreferredIconSize() {
 void ChromeAppDelegate::SetWebContentsBlocked(
     content::WebContents* web_contents,
     bool blocked) {
+  if (!blocked)
+    web_contents->Focus();
   // RenderViewHost may be NULL during shutdown.
   content::RenderViewHost* host = web_contents->GetRenderViewHost();
   if (host) {

@@ -189,19 +189,19 @@ void PepperCompositorHost::ImageReleased(
     int32_t id,
     scoped_ptr<base::SharedMemory> shared_memory,
     scoped_ptr<cc::SharedBitmap> bitmap,
-    uint32_t sync_point,
+    const gpu::SyncToken& sync_token,
     bool is_lost) {
   bitmap.reset();
   shared_memory.reset();
-  ResourceReleased(id, sync_point, is_lost);
+  ResourceReleased(id, sync_token, is_lost);
 }
 
 void PepperCompositorHost::ResourceReleased(int32_t id,
-                                            uint32_t sync_point,
+                                            const gpu::SyncToken& sync_token,
                                             bool is_lost) {
   host()->SendUnsolicitedReply(
       pp_resource(),
-      PpapiPluginMsg_Compositor_ReleaseResource(id, sync_point, is_lost));
+      PpapiPluginMsg_Compositor_ReleaseResource(id, sync_token, is_lost));
 }
 
 void PepperCompositorHost::SendCommitLayersReplyIfNecessary() {
@@ -245,14 +245,15 @@ void PepperCompositorHost::UpdateLayer(
       layer_->ReplaceChild(layer.get(), clip_parent);
       clip_parent->AddChild(layer);
     }
-    gfx::Point position = PP_ToGfxPoint(new_layer->common.clip_rect.point);
+    auto position =
+        gfx::PointF(PP_ToGfxPoint(new_layer->common.clip_rect.point));
     clip_parent->SetPosition(position);
     clip_parent->SetBounds(PP_ToGfxSize(new_layer->common.clip_rect.size));
-    layer->SetPosition(gfx::Point(-position.x(), -position.y()));
+    layer->SetPosition(gfx::PointF(-position.x(), -position.y()));
   } else if (layer->parent() != layer_.get()) {
     // Remove the clip parent layer.
     layer_->ReplaceChild(layer->parent(), layer);
-    layer->SetPosition(gfx::Point());
+    layer->SetPosition(gfx::PointF());
   }
 
   if (new_layer->color) {
@@ -270,8 +271,8 @@ void PepperCompositorHost::UpdateLayer(
     if (!old_layer ||
         new_layer->common.resource_id != old_layer->common.resource_id) {
       cc::TextureMailbox mailbox(new_layer->texture->mailbox,
-                                 new_layer->texture->target,
-                                 new_layer->texture->sync_point);
+                                 new_layer->texture->sync_token,
+                                 new_layer->texture->target);
       texture_layer->SetTextureMailbox(mailbox,
           cc::SingleReleaseCallback::Create(
               base::Bind(&PepperCompositorHost::ResourceReleased,

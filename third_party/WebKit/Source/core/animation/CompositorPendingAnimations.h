@@ -45,7 +45,7 @@ namespace blink {
 // with compositor animations when both classes of CSS Animations are triggered
 // by the same recalc
 class CORE_EXPORT CompositorPendingAnimations final {
-    DISALLOW_ALLOCATION();
+    DISALLOW_NEW();
 public:
 
     CompositorPendingAnimations()
@@ -64,8 +64,8 @@ public:
 private:
     void timerFired(Timer<CompositorPendingAnimations>*) { update(false); }
 
-    WillBeHeapVector<RefPtrWillBeMember<Animation>> m_pending;
-    WillBeHeapVector<RefPtrWillBeMember<Animation>> m_waitingForCompositorAnimationStart;
+    PersistentHeapVectorWillBeHeapVector<Member<Animation>> m_pending;
+    PersistentHeapVectorWillBeHeapVector<Member<Animation>> m_waitingForCompositorAnimationStart;
     Timer<CompositorPendingAnimations> m_timer;
     int m_compositorGroup;
 };

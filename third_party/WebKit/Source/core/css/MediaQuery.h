@@ -39,10 +39,10 @@
 namespace blink {
 class MediaQueryExp;
 
-typedef WillBeHeapVector<OwnPtrWillBeMember<MediaQueryExp>> ExpressionHeapVector;
+using ExpressionHeapVector = WillBeHeapVector<OwnPtrWillBeMember<MediaQueryExp>>;
 
 class CORE_EXPORT MediaQuery : public NoBaseWillBeGarbageCollectedFinalized<MediaQuery> {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(MediaQuery);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(MediaQuery);
 public:
     enum Restrictor {
         Only, Not, None

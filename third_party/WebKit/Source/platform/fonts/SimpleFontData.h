@@ -39,10 +39,6 @@
 #include "wtf/PassOwnPtr.h"
 #include "wtf/text/StringHash.h"
 
-#if OS(MACOSX)
-#include "wtf/RetainPtr.h"
-#endif
-
 namespace blink {
 
 class FontDescription;
@@ -85,6 +81,7 @@ public:
 
     bool hasVerticalGlyphs() const { return m_hasVerticalGlyphs; }
     bool isTextOrientationFallback() const { return m_isTextOrientationFallback; }
+    bool isTextOrientationFallbackOf(const SimpleFontData*) const;
 
     FontMetrics& fontMetrics() { return m_fontMetrics; }
     const FontMetrics& fontMetrics() const { return m_fontMetrics; }
@@ -185,7 +182,6 @@ private:
     mutable OwnPtr<DerivedFontData> m_derivedFontData;
 
     RefPtr<CustomFontData> m_customFontData;
-    mutable OwnPtr<HashMap<String, bool>> m_combiningCharacterSequenceSupport;
 };
 
 ALWAYS_INLINE FloatRect SimpleFontData::boundsForGlyph(Glyph glyph) const

@@ -41,7 +41,6 @@ class WebUILoginDisplay : public LoginDisplay,
                  int login_attempts,
                  HelpAppLauncher::HelpTopic help_topic_id) override;
   void ShowErrorScreen(LoginDisplay::SigninError error_id) override;
-  void ShowGaiaPasswordChanged(const std::string& username) override;
   void ShowPasswordChangedDialog(bool show_password_error,
                                  const std::string& email) override;
   void ShowSigninUI(const std::string& email) override;
@@ -59,7 +58,6 @@ class WebUILoginDisplay : public LoginDisplay,
              const SigninSpecifics& specifics) override;
   bool IsSigninInProgress() const override;
   void Signout() override;
-  void CreateAccount() override;
   void CompleteLogin(const UserContext& user_context) override;
 
   void OnSigninScreenReady() override;
@@ -81,7 +79,6 @@ class WebUILoginDisplay : public LoginDisplay,
 
   void HandleGetUsers() override;
   void CheckUserStatus(const std::string& user_id) override;
-  const user_manager::UserList& GetUsers() const override;
   bool IsUserWhitelisted(const std::string& user_id) override;
 
   // ui::UserActivityDetector implementation:

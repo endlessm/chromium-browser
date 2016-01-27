@@ -31,9 +31,14 @@ class EventMatcher {
   int GetURLFilterCount() const;
   bool GetURLFilter(int i, base::DictionaryValue** url_filter_out);
 
+  int GetWindowTypeCount() const;
+  bool GetWindowType(int i, std::string* window_type_out) const;
+
   std::string GetServiceTypeFilter() const;
 
-  int HasURLFilters() const;
+  bool HasURLFilters() const;
+
+  bool HasWindowTypes() const;
 
   int GetInstanceID() const;
 

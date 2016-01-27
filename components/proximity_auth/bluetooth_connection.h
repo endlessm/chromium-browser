@@ -35,13 +35,17 @@ class BluetoothConnection : public Connection,
                       const device::BluetoothUUID& uuid);
   ~BluetoothConnection() override;
 
- protected:
   // Connection:
   void Connect() override;
   void Disconnect() override;
+
+ protected:
+  // Connection:
   void SendMessageImpl(scoped_ptr<WireMessage> message) override;
 
   // BluetoothAdapter::Observer:
+  void DeviceChanged(device::BluetoothAdapter* adapter,
+                     device::BluetoothDevice* device) override;
   void DeviceRemoved(device::BluetoothAdapter* adapter,
                      device::BluetoothDevice* device) override;
 

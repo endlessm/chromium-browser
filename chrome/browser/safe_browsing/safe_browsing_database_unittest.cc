@@ -27,6 +27,8 @@
 using base::Time;
 using base::TimeDelta;
 
+namespace safe_browsing {
+
 namespace {
 
 const TimeDelta kCacheLifetime = TimeDelta::FromMinutes(45);
@@ -61,11 +63,12 @@ std::string HashedIpPrefix(const std::string& ip_prefix, size_t prefix_size) {
 
 // Helper to build a chunk.  Caller takes ownership.
 SBChunkData* BuildChunk(int chunk_number,
-                        safe_browsing::ChunkData::ChunkType chunk_type,
-                        safe_browsing::ChunkData::PrefixType prefix_type,
-                        const void* data, size_t data_size,
+                        ChunkData::ChunkType chunk_type,
+                        ChunkData::PrefixType prefix_type,
+                        const void* data,
+                        size_t data_size,
                         const std::vector<int>& add_chunk_numbers) {
-  scoped_ptr<safe_browsing::ChunkData> raw_data(new safe_browsing::ChunkData);
+  scoped_ptr<ChunkData> raw_data(new ChunkData);
   raw_data->set_chunk_number(chunk_number);
   raw_data->set_chunk_type(chunk_type);
   raw_data->set_prefix_type(prefix_type);
@@ -80,10 +83,8 @@ SBChunkData* BuildChunk(int chunk_number,
 
 // Create add chunk with a single prefix.
 SBChunkData* AddChunkPrefix(int chunk_number, SBPrefix prefix) {
-  return BuildChunk(chunk_number, safe_browsing::ChunkData::ADD,
-                    safe_browsing::ChunkData::PREFIX_4B,
-                    &prefix, sizeof(prefix),
-                    std::vector<int>());
+  return BuildChunk(chunk_number, ChunkData::ADD, ChunkData::PREFIX_4B, &prefix,
+                    sizeof(prefix), std::vector<int>());
 }
 
 // Create add chunk with a single prefix generated from |value|.
@@ -100,10 +101,8 @@ SBChunkData* AddChunkPrefix2Value(int chunk_number,
     SBPrefixForString(value1),
     SBPrefixForString(value2),
   };
-  return BuildChunk(chunk_number, safe_browsing::ChunkData::ADD,
-                    safe_browsing::ChunkData::PREFIX_4B,
-                    &prefixes[0], sizeof(prefixes),
-                    std::vector<int>());
+  return BuildChunk(chunk_number, ChunkData::ADD, ChunkData::PREFIX_4B,
+                    &prefixes[0], sizeof(prefixes), std::vector<int>());
 }
 
 // Generate an add chunk with four prefixes.
@@ -118,24 +117,21 @@ SBChunkData* AddChunkPrefix4Value(int chunk_number,
     SBPrefixForString(value3),
     SBPrefixForString(value4),
   };
-  return BuildChunk(chunk_number, safe_browsing::ChunkData::ADD,
-                    safe_browsing::ChunkData::PREFIX_4B,
-                    &prefixes[0], sizeof(prefixes),
-                    std::vector<int>());
+  return BuildChunk(chunk_number, ChunkData::ADD, ChunkData::PREFIX_4B,
+                    &prefixes[0], sizeof(prefixes), std::vector<int>());
 }
 
 // Generate an add chunk with a full hash.
 SBChunkData* AddChunkFullHash(int chunk_number, SBFullHash full_hash) {
-  return BuildChunk(chunk_number, safe_browsing::ChunkData::ADD,
-                    safe_browsing::ChunkData::FULL_32B,
-                    &full_hash, sizeof(full_hash),
-                    std::vector<int>());
+  return BuildChunk(chunk_number, ChunkData::ADD, ChunkData::FULL_32B,
+                    &full_hash, sizeof(full_hash), std::vector<int>());
 }
 
 // Generate an add chunk with a full hash generated from |value|.
 SBChunkData* AddChunkFullHashValue(int chunk_number,
                                    const std::string& value) {
-  return AddChunkFullHash(chunk_number, SBFullHashForString(value));
+  return AddChunkFullHash(chunk_number,
+                          SBFullHashForString(value));
 }
 
 // Generate an add chunk with two full hashes.
@@ -146,10 +142,8 @@ SBChunkData* AddChunkFullHash2Value(int chunk_number,
     SBFullHashForString(value1),
     SBFullHashForString(value2),
   };
-  return BuildChunk(chunk_number, safe_browsing::ChunkData::ADD,
-                    safe_browsing::ChunkData::FULL_32B,
-                    &full_hashes[0], sizeof(full_hashes),
-                    std::vector<int>());
+  return BuildChunk(chunk_number, ChunkData::ADD, ChunkData::FULL_32B,
+                    &full_hashes[0], sizeof(full_hashes), std::vector<int>());
 }
 
 // Generate a sub chunk with a prefix generated from |value|.
@@ -157,10 +151,8 @@ SBChunkData* SubChunkPrefixValue(int chunk_number,
                                  const std::string& value,
                                  int add_chunk_number) {
   const SBPrefix prefix = SBPrefixForString(value);
-  return BuildChunk(chunk_number, safe_browsing::ChunkData::SUB,
-                    safe_browsing::ChunkData::PREFIX_4B,
-                    &prefix, sizeof(prefix),
-                    std::vector<int>(1, add_chunk_number));
+  return BuildChunk(chunk_number, ChunkData::SUB, ChunkData::PREFIX_4B, &prefix,
+                    sizeof(prefix), std::vector<int>(1, add_chunk_number));
 }
 
 // Generate a sub chunk with two prefixes.
@@ -176,18 +168,15 @@ SBChunkData* SubChunkPrefix2Value(int chunk_number,
   std::vector<int> add_chunk_numbers;
   add_chunk_numbers.push_back(add_chunk_number1);
   add_chunk_numbers.push_back(add_chunk_number2);
-  return BuildChunk(chunk_number, safe_browsing::ChunkData::SUB,
-                    safe_browsing::ChunkData::PREFIX_4B,
-                    &prefixes[0], sizeof(prefixes),
-                    add_chunk_numbers);
+  return BuildChunk(chunk_number, ChunkData::SUB, ChunkData::PREFIX_4B,
+                    &prefixes[0], sizeof(prefixes), add_chunk_numbers);
 }
 
 // Generate a sub chunk with a full hash.
 SBChunkData* SubChunkFullHash(int chunk_number,
                               SBFullHash full_hash,
                               int add_chunk_number) {
-  return BuildChunk(chunk_number, safe_browsing::ChunkData::SUB,
-                    safe_browsing::ChunkData::FULL_32B,
+  return BuildChunk(chunk_number, ChunkData::SUB, ChunkData::FULL_32B,
                     &full_hash, sizeof(full_hash),
                     std::vector<int>(1, add_chunk_number));
 }
@@ -209,10 +198,8 @@ SBChunkData* AddChunkHashedIpValue(int chunk_number,
   EXPECT_EQ(sizeof(SBFullHash), full_hash_str.size());
   SBFullHash full_hash;
   std::memcpy(&(full_hash.full_hash), full_hash_str.data(), sizeof(SBFullHash));
-  return BuildChunk(chunk_number, safe_browsing::ChunkData::ADD,
-                    safe_browsing::ChunkData::FULL_32B,
-                    &full_hash, sizeof(full_hash),
-                    std::vector<int>());
+  return BuildChunk(chunk_number, ChunkData::ADD, ChunkData::FULL_32B,
+                    &full_hash, sizeof(full_hash), std::vector<int>());
 }
 
 // Prevent DCHECK from killing tests.
@@ -351,12 +338,12 @@ TEST_F(SafeBrowsingDatabaseTest, BrowseListsInfo) {
   chunks.push_back(AddChunkPrefixValue(3, "www.whatever.com/malware.html"));
 
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   GetListsInfo(&lists);
   ASSERT_LE(1U, lists.size());
-  EXPECT_EQ(safe_browsing_util::kMalwareList, lists[0].name);
+  EXPECT_EQ(kMalwareList, lists[0].name);
   EXPECT_EQ("1-3", lists[0].adds);
   EXPECT_TRUE(lists[0].subs.empty());
 
@@ -365,19 +352,19 @@ TEST_F(SafeBrowsingDatabaseTest, BrowseListsInfo) {
   chunks.push_back(SubChunkPrefixValue(7, "www.subbed.com/noteveil1.html", 19));
 
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   GetListsInfo(&lists);
   ASSERT_LE(1U, lists.size());
-  EXPECT_EQ(safe_browsing_util::kMalwareList, lists[0].name);
+  EXPECT_EQ(kMalwareList, lists[0].name);
   EXPECT_EQ("1-3", lists[0].adds);
   EXPECT_EQ("7", lists[0].subs);
   if (lists.size() == 2) {
     // Old style database won't have the second entry since it creates the lists
     // when it receives an update containing that list. The filter-based
     // database has these values hard coded.
-    EXPECT_EQ(safe_browsing_util::kPhishingList, lists[1].name);
+    EXPECT_EQ(kPhishingList, lists[1].name);
     EXPECT_TRUE(lists[1].adds.empty());
     EXPECT_TRUE(lists[1].subs.empty());
   }
@@ -391,15 +378,15 @@ TEST_F(SafeBrowsingDatabaseTest, BrowseListsInfo) {
       SubChunkPrefixValue(201, "www.phishy2.com/notevil1.html", 1999));
 
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kPhishingList, chunks.get());
+  database_->InsertChunks(kPhishingList, chunks.get());
   database_->UpdateFinished(true);
 
   GetListsInfo(&lists);
   ASSERT_LE(2U, lists.size());
-  EXPECT_EQ(safe_browsing_util::kMalwareList, lists[0].name);
+  EXPECT_EQ(kMalwareList, lists[0].name);
   EXPECT_EQ("1-3", lists[0].adds);
   EXPECT_EQ("7", lists[0].subs);
-  EXPECT_EQ(safe_browsing_util::kPhishingList, lists[1].name);
+  EXPECT_EQ(kPhishingList, lists[1].name);
   EXPECT_EQ("47", lists[1].adds);
   EXPECT_EQ("200-201", lists[1].subs);
 }
@@ -412,73 +399,73 @@ TEST_F(SafeBrowsingDatabaseTest, ListNames) {
 
   // Insert malware, phish, binurl and bindownload add chunks.
   chunks.push_back(AddChunkPrefixValue(1, "www.evil.com/malware.html"));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
 
   chunks.clear();
   chunks.push_back(AddChunkPrefixValue(2, "www.foo.com/malware.html"));
-  database_->InsertChunks(safe_browsing_util::kPhishingList, chunks.get());
+  database_->InsertChunks(kPhishingList, chunks.get());
 
   chunks.clear();
   chunks.push_back(AddChunkPrefixValue(3, "www.whatever.com/download.html"));
-  database_->InsertChunks(safe_browsing_util::kBinUrlList, chunks.get());
+  database_->InsertChunks(kBinUrlList, chunks.get());
 
   chunks.clear();
   chunks.push_back(AddChunkFullHashValue(5, "www.forwhitelist.com/a.html"));
-  database_->InsertChunks(safe_browsing_util::kCsdWhiteList, chunks.get());
+  database_->InsertChunks(kCsdWhiteList, chunks.get());
 
   chunks.clear();
   chunks.push_back(AddChunkFullHashValue(6, "www.download.com/"));
-  database_->InsertChunks(safe_browsing_util::kDownloadWhiteList, chunks.get());
+  database_->InsertChunks(kDownloadWhiteList, chunks.get());
 
   chunks.clear();
   chunks.push_back(AddChunkFullHashValue(7, "www.inclusion.com/"));
-  database_->InsertChunks(safe_browsing_util::kInclusionWhitelist,
+  database_->InsertChunks(kInclusionWhitelist,
                           chunks.get());
 
   chunks.clear();
   chunks.push_back(AddChunkFullHashValue(8,
                                          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                                          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
-  database_->InsertChunks(safe_browsing_util::kExtensionBlacklist,
+  database_->InsertChunks(kExtensionBlacklist,
                           chunks.get());
 
   chunks.clear();
   chunks.push_back(AddChunkHashedIpValue(10, "::ffff:192.168.1.0", 120));
-  database_->InsertChunks(safe_browsing_util::kIPBlacklist, chunks.get());
+  database_->InsertChunks(kIPBlacklist, chunks.get());
 
   chunks.clear();
   chunks.push_back(AddChunkPrefixValue(11, "www.unwanted.com/software.html"));
-  database_->InsertChunks(safe_browsing_util::kUnwantedUrlList, chunks.get());
+  database_->InsertChunks(kUnwantedUrlList, chunks.get());
 
   database_->UpdateFinished(true);
 
   GetListsInfo(&lists);
   ASSERT_EQ(9U, lists.size());
-  EXPECT_EQ(safe_browsing_util::kMalwareList, lists[0].name);
+  EXPECT_EQ(kMalwareList, lists[0].name);
   EXPECT_EQ("1", lists[0].adds);
   EXPECT_TRUE(lists[0].subs.empty());
-  EXPECT_EQ(safe_browsing_util::kPhishingList, lists[1].name);
+  EXPECT_EQ(kPhishingList, lists[1].name);
   EXPECT_EQ("2", lists[1].adds);
   EXPECT_TRUE(lists[1].subs.empty());
-  EXPECT_EQ(safe_browsing_util::kBinUrlList, lists[2].name);
+  EXPECT_EQ(kBinUrlList, lists[2].name);
   EXPECT_EQ("3", lists[2].adds);
   EXPECT_TRUE(lists[2].subs.empty());
-  EXPECT_EQ(safe_browsing_util::kCsdWhiteList, lists[3].name);
+  EXPECT_EQ(kCsdWhiteList, lists[3].name);
   EXPECT_EQ("5", lists[3].adds);
   EXPECT_TRUE(lists[3].subs.empty());
-  EXPECT_EQ(safe_browsing_util::kDownloadWhiteList, lists[4].name);
+  EXPECT_EQ(kDownloadWhiteList, lists[4].name);
   EXPECT_EQ("6", lists[4].adds);
   EXPECT_TRUE(lists[4].subs.empty());
-  EXPECT_EQ(safe_browsing_util::kInclusionWhitelist, lists[5].name);
+  EXPECT_EQ(kInclusionWhitelist, lists[5].name);
   EXPECT_EQ("7", lists[5].adds);
   EXPECT_TRUE(lists[5].subs.empty());
-  EXPECT_EQ(safe_browsing_util::kExtensionBlacklist, lists[6].name);
+  EXPECT_EQ(kExtensionBlacklist, lists[6].name);
   EXPECT_EQ("8", lists[6].adds);
   EXPECT_TRUE(lists[6].subs.empty());
-  EXPECT_EQ(safe_browsing_util::kIPBlacklist, lists[7].name);
+  EXPECT_EQ(kIPBlacklist, lists[7].name);
   EXPECT_EQ("10", lists[7].adds);
   EXPECT_TRUE(lists[7].subs.empty());
-  EXPECT_EQ(safe_browsing_util::kUnwantedUrlList, lists[8].name);
+  EXPECT_EQ(kUnwantedUrlList, lists[8].name);
   EXPECT_EQ("11", lists[8].adds);
   EXPECT_TRUE(lists[8].subs.empty());
 
@@ -496,13 +483,11 @@ TEST_F(SafeBrowsingDatabaseTest, BrowseAndUnwantedDatabasesAndPrefixSets) {
     const char* test_list_name;
     size_t expected_list_index;
     TestListContainsBadUrl test_list_contains_bad_url;
-  } const kTestCases[] {
-    { safe_browsing_util::kMalwareList, 0U,
-      &SafeBrowsingDatabase::ContainsBrowseUrl },
-    { safe_browsing_util::kPhishingList, 1U,
-      &SafeBrowsingDatabase::ContainsBrowseUrl },
-    { safe_browsing_util::kUnwantedUrlList, 8U,
-      &SafeBrowsingDatabase::ContainsUnwantedSoftwareUrl },
+  } const kTestCases[]{
+      {kMalwareList, 0U, &SafeBrowsingDatabase::ContainsBrowseUrl},
+      {kPhishingList, 1U, &SafeBrowsingDatabase::ContainsBrowseUrl},
+      {kUnwantedUrlList, 8U,
+       &SafeBrowsingDatabase::ContainsUnwantedSoftwareUrl},
   };
 
   for (const auto& test_case : kTestCases) {
@@ -757,31 +742,29 @@ TEST_F(SafeBrowsingDatabaseTest, ZeroSizeChunk) {
                                         "www.random.com/random2.html"));
 
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   // Add an empty ADD and SUB chunk.
   GetListsInfo(&lists);
   ASSERT_LE(1U, lists.size());
-  EXPECT_EQ(safe_browsing_util::kMalwareList, lists[0].name);
+  EXPECT_EQ(kMalwareList, lists[0].name);
   EXPECT_EQ("1,10", lists[0].adds);
   EXPECT_TRUE(lists[0].subs.empty());
 
   chunks.clear();
-  chunks.push_back(BuildChunk(19, safe_browsing::ChunkData::ADD,
-                              safe_browsing::ChunkData::PREFIX_4B,
-                              NULL, 0, std::vector<int>()));
-  chunks.push_back(BuildChunk(7, safe_browsing::ChunkData::SUB,
-                              safe_browsing::ChunkData::PREFIX_4B,
-                              NULL, 0, std::vector<int>()));
+  chunks.push_back(BuildChunk(19, ChunkData::ADD, ChunkData::PREFIX_4B, NULL, 0,
+                              std::vector<int>()));
+  chunks.push_back(BuildChunk(7, ChunkData::SUB, ChunkData::PREFIX_4B, NULL, 0,
+                              std::vector<int>()));
 
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   GetListsInfo(&lists);
   ASSERT_LE(1U, lists.size());
-  EXPECT_EQ(safe_browsing_util::kMalwareList, lists[0].name);
+  EXPECT_EQ(kMalwareList, lists[0].name);
   EXPECT_EQ("1,10,19", lists[0].adds);
   EXPECT_EQ("7", lists[0].subs);
 
@@ -789,13 +772,12 @@ TEST_F(SafeBrowsingDatabaseTest, ZeroSizeChunk) {
   // result in the chunk range being reduced in size.
   chunks.clear();
   chunks.push_back(AddChunkPrefixValue(20, "www.notempty.com/full1.html"));
-  chunks.push_back(BuildChunk(21, safe_browsing::ChunkData::ADD,
-                              safe_browsing::ChunkData::PREFIX_4B,
-                              NULL, 0, std::vector<int>()));
+  chunks.push_back(BuildChunk(21, ChunkData::ADD, ChunkData::PREFIX_4B, NULL, 0,
+                              std::vector<int>()));
   chunks.push_back(AddChunkPrefixValue(22, "www.notempty.com/full2.html"));
 
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   std::vector<SBPrefix> prefix_hits;
@@ -807,28 +789,28 @@ TEST_F(SafeBrowsingDatabaseTest, ZeroSizeChunk) {
 
   GetListsInfo(&lists);
   ASSERT_LE(1U, lists.size());
-  EXPECT_EQ(safe_browsing_util::kMalwareList, lists[0].name);
+  EXPECT_EQ(kMalwareList, lists[0].name);
   EXPECT_EQ("1,10,19-22", lists[0].adds);
   EXPECT_EQ("7", lists[0].subs);
 
   // Handle AddDel and SubDel commands for empty chunks.
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  AddDelChunk(safe_browsing_util::kMalwareList, 21);
+  AddDelChunk(kMalwareList, 21);
   database_->UpdateFinished(true);
 
   GetListsInfo(&lists);
   ASSERT_LE(1U, lists.size());
-  EXPECT_EQ(safe_browsing_util::kMalwareList, lists[0].name);
+  EXPECT_EQ(kMalwareList, lists[0].name);
   EXPECT_EQ("1,10,19-20,22", lists[0].adds);
   EXPECT_EQ("7", lists[0].subs);
 
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  SubDelChunk(safe_browsing_util::kMalwareList, 7);
+  SubDelChunk(kMalwareList, 7);
   database_->UpdateFinished(true);
 
   GetListsInfo(&lists);
   ASSERT_LE(1U, lists.size());
-  EXPECT_EQ(safe_browsing_util::kMalwareList, lists[0].name);
+  EXPECT_EQ(kMalwareList, lists[0].name);
   EXPECT_EQ("1,10,19-20,22", lists[0].adds);
   EXPECT_TRUE(lists[0].subs.empty());
 }
@@ -843,7 +825,7 @@ void SafeBrowsingDatabaseTest::PopulateDatabaseForCacheTest() {
 
   std::vector<SBListChunkRanges> lists;
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   // Cache should be cleared after updating.
@@ -851,17 +833,19 @@ void SafeBrowsingDatabaseTest::PopulateDatabaseForCacheTest() {
       database_->GetUnsynchronizedPrefixGetHashCacheForTesting()->empty());
 
   SBFullHashResult full_hash;
-  full_hash.list_id = safe_browsing_util::MALWARE;
+  full_hash.list_id = MALWARE;
 
   std::vector<SBFullHashResult> results;
   std::vector<SBPrefix> prefixes;
 
   // Add a fullhash result for each prefix.
-  full_hash.hash = SBFullHashForString("www.evil.com/phishing.html");
+  full_hash.hash =
+      SBFullHashForString("www.evil.com/phishing.html");
   results.push_back(full_hash);
   prefixes.push_back(full_hash.hash.prefix);
 
-  full_hash.hash = SBFullHashForString("www.evil.com/malware.html");
+  full_hash.hash =
+      SBFullHashForString("www.evil.com/malware.html");
   results.push_back(full_hash);
   prefixes.push_back(full_hash.hash.prefix);
 
@@ -883,7 +867,8 @@ TEST_F(SafeBrowsingDatabaseTest, HashCaching) {
   EXPECT_TRUE(prefix_hits.empty());
   ASSERT_EQ(1U, cache_hits.size());
   EXPECT_TRUE(SBFullHashEqual(
-      cache_hits[0].hash, SBFullHashForString("www.evil.com/phishing.html")));
+      cache_hits[0].hash,
+      SBFullHashForString("www.evil.com/phishing.html")));
 
   prefix_hits.clear();
   cache_hits.clear();
@@ -894,7 +879,8 @@ TEST_F(SafeBrowsingDatabaseTest, HashCaching) {
   EXPECT_TRUE(prefix_hits.empty());
   ASSERT_EQ(1U, cache_hits.size());
   EXPECT_TRUE(SBFullHashEqual(
-      cache_hits[0].hash, SBFullHashForString("www.evil.com/malware.html")));
+      cache_hits[0].hash,
+      SBFullHashForString("www.evil.com/malware.html")));
 
   prefix_hits.clear();
   cache_hits.clear();
@@ -905,7 +891,7 @@ TEST_F(SafeBrowsingDatabaseTest, HashCaching) {
 
   std::vector<SBListChunkRanges> lists;
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   // This prefix should still be there, but cached fullhash should be gone.
@@ -925,7 +911,7 @@ TEST_F(SafeBrowsingDatabaseTest, HashCaching) {
 
   // Test that an AddDel for the original chunk removes the last cached entry.
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  AddDelChunk(safe_browsing_util::kMalwareList, 1);
+  AddDelChunk(kMalwareList, 1);
   database_->UpdateFinished(true);
   EXPECT_FALSE(database_->ContainsBrowseUrl(
       GURL("http://www.evil.com/malware.html"), &prefix_hits, &cache_hits));
@@ -967,7 +953,7 @@ TEST_F(SafeBrowsingDatabaseTest, HashCaching) {
   // Since PopulateDatabaseForCacheTest() doesn't handle adding duplicate
   // chunks.
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  AddDelChunk(safe_browsing_util::kMalwareList, 1);
+  AddDelChunk(kMalwareList, 1);
   database_->UpdateFinished(true);
 
   // Cache should be cleared after updating.
@@ -1016,7 +1002,7 @@ TEST_F(SafeBrowsingDatabaseTest, HashCaching) {
                                           "www.fullevil.com/bad1.html",
                                           "www.fullevil.com/bad2.html"));
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   EXPECT_TRUE(database_->ContainsBrowseUrl(
@@ -1041,7 +1027,7 @@ TEST_F(SafeBrowsingDatabaseTest, HashCaching) {
                                          "www.fullevil.com/bad1.html",
                                          20));
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   EXPECT_FALSE(database_->ContainsBrowseUrl(
@@ -1058,7 +1044,7 @@ TEST_F(SafeBrowsingDatabaseTest, HashCaching) {
 
   // Now test an AddDel for the remaining full add.
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  AddDelChunk(safe_browsing_util::kMalwareList, 20);
+  AddDelChunk(kMalwareList, 20);
   database_->UpdateFinished(true);
 
   EXPECT_FALSE(database_->ContainsBrowseUrl(
@@ -1076,7 +1062,7 @@ TEST_F(SafeBrowsingDatabaseTest, HashCaching) {
   {
     ScopedVector<SBChunkData> chunks;
     chunks.push_back(AddChunkPrefixValue(21, kExampleCollision));
-    database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+    database_->InsertChunks(kMalwareList, chunks.get());
   }
   database_->UpdateFinished(true);
 
@@ -1092,7 +1078,7 @@ TEST_F(SafeBrowsingDatabaseTest, HashCaching) {
   {
     SBFullHashResult result;
     result.hash = SBFullHashForString(kExampleCollision);
-    result.list_id = safe_browsing_util::MALWARE;
+    result.list_id = MALWARE;
     database_->CacheHashResults(std::vector<SBPrefix>(1, result.hash.prefix),
                                 std::vector<SBFullHashResult>(1, result),
                                 kCacheLifetime);
@@ -1145,7 +1131,7 @@ TEST_F(SafeBrowsingDatabaseTest, DISABLED_FileCorruptionHandling) {
 
     // Start an update.  The insert will fail due to corruption.
     ASSERT_TRUE(database_->UpdateStarted(&lists));
-    database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+    database_->InsertChunks(kMalwareList, chunks.get());
     database_->UpdateFinished(true);
 
     // Database file still exists until the corruption handler has run.
@@ -1161,7 +1147,7 @@ TEST_F(SafeBrowsingDatabaseTest, DISABLED_FileCorruptionHandling) {
 
   // Run the update again successfully.
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
   EXPECT_TRUE(base::PathExists(database_filename_));
 
@@ -1179,7 +1165,7 @@ TEST_F(SafeBrowsingDatabaseTest, ContainsDownloadUrlPrefixes) {
 
   std::vector<SBListChunkRanges> lists;
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kBinUrlList, chunks.get());
+  database_->InsertChunks(kBinUrlList, chunks.get());
   database_->UpdateFinished(true);
 
   std::vector<SBPrefix> prefix_hits;
@@ -1276,13 +1262,13 @@ TEST_F(SafeBrowsingDatabaseTest, Whitelists) {
     // for strings.
     TestListContainsWhitelistedString test_list_contains_whitelisted_string;
   } const kTestCases[]{
-      {safe_browsing_util::kCsdWhiteList,
+      {kCsdWhiteList,
        &SafeBrowsingDatabase::ContainsCsdWhitelistedUrl,
        nullptr},
-      {safe_browsing_util::kDownloadWhiteList,
+      {kDownloadWhiteList,
        &SafeBrowsingDatabase::ContainsDownloadWhitelistedUrl,
        &SafeBrowsingDatabase::ContainsDownloadWhitelistedString},
-      {safe_browsing_util::kInclusionWhitelist,
+      {kInclusionWhitelist,
        &SafeBrowsingDatabase::ContainsInclusionWhitelistedUrl,
        nullptr},
   };
@@ -1417,7 +1403,7 @@ TEST_F(SafeBrowsingDatabaseTest, Whitelists) {
             GURL(std::string("http://www.google.com/"))));
 
     // The malware kill switch is for the CSD whitelist only.
-    if (test_case.test_list_name == safe_browsing_util::kCsdWhiteList) {
+    if (test_case.test_list_name == kCsdWhiteList) {
       // The CSD whitelist killswitch is not present.
       EXPECT_FALSE(database_->IsCsdWhitelistKillSwitchOn());
 
@@ -1427,7 +1413,7 @@ TEST_F(SafeBrowsingDatabaseTest, Whitelists) {
           15, "sb-ssl.google.com/safebrowsing/csd/killswitch_malware"));
 
       ASSERT_TRUE(database_->UpdateStarted(&lists));
-      database_->InsertChunks(safe_browsing_util::kCsdWhiteList, chunks.get());
+      database_->InsertChunks(kCsdWhiteList, chunks.get());
       database_->UpdateFinished(true);
 
       EXPECT_TRUE(database_->IsMalwareIPMatchKillSwitchOn());
@@ -1446,7 +1432,7 @@ TEST_F(SafeBrowsingDatabaseTest, Whitelists) {
     database_->UpdateFinished(true);
 
     // Test CSD whitelist specific methods.
-    if (test_case.test_list_name == safe_browsing_util::kCsdWhiteList) {
+    if (test_case.test_list_name == kCsdWhiteList) {
       // The CSD whitelist killswitch is present.
       EXPECT_TRUE(database_->IsCsdWhitelistKillSwitchOn());
       EXPECT_TRUE(database_->IsMalwareIPMatchKillSwitchOn());
@@ -1476,7 +1462,7 @@ TEST_F(SafeBrowsingDatabaseTest, Whitelists) {
     lists.clear();
     chunks.push_back(SubChunkFullHashValue(
         1, "sb-ssl.google.com/safebrowsing/csd/killswitch", 5));
-    if (test_case.test_list_name == safe_browsing_util::kCsdWhiteList) {
+    if (test_case.test_list_name == kCsdWhiteList) {
       chunks.push_back(SubChunkFullHashValue(
           10, "sb-ssl.google.com/safebrowsing/csd/killswitch_malware", 15));
     }
@@ -1485,7 +1471,7 @@ TEST_F(SafeBrowsingDatabaseTest, Whitelists) {
     database_->InsertChunks(test_case.test_list_name, chunks.get());
     database_->UpdateFinished(true);
 
-    if (test_case.test_list_name == safe_browsing_util::kCsdWhiteList) {
+    if (test_case.test_list_name == kCsdWhiteList) {
       EXPECT_FALSE(database_->IsMalwareIPMatchKillSwitchOn());
       EXPECT_FALSE(database_->IsCsdWhitelistKillSwitchOn());
     }
@@ -1528,12 +1514,12 @@ TEST_F(SafeBrowsingDatabaseTest, SameHostEntriesOkay) {
   // Insert the testing chunks into database.
   std::vector<SBListChunkRanges> lists;
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   GetListsInfo(&lists);
   ASSERT_LE(1U, lists.size());
-  EXPECT_EQ(safe_browsing_util::kMalwareList, lists[0].name);
+  EXPECT_EQ(kMalwareList, lists[0].name);
   EXPECT_EQ("1", lists[0].adds);
   EXPECT_TRUE(lists[0].subs.empty());
 
@@ -1544,15 +1530,15 @@ TEST_F(SafeBrowsingDatabaseTest, SameHostEntriesOkay) {
                                         "www.evil.com/phishing2.html"));
 
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kPhishingList, chunks.get());
+  database_->InsertChunks(kPhishingList, chunks.get());
   database_->UpdateFinished(true);
 
   GetListsInfo(&lists);
   ASSERT_LE(2U, lists.size());
-  EXPECT_EQ(safe_browsing_util::kMalwareList, lists[0].name);
+  EXPECT_EQ(kMalwareList, lists[0].name);
   EXPECT_EQ("1", lists[0].adds);
   EXPECT_TRUE(lists[0].subs.empty());
-  EXPECT_EQ(safe_browsing_util::kPhishingList, lists[1].name);
+  EXPECT_EQ(kPhishingList, lists[1].name);
   EXPECT_EQ("47", lists[1].adds);
   EXPECT_TRUE(lists[1].subs.empty());
 
@@ -1573,14 +1559,14 @@ TEST_F(SafeBrowsingDatabaseTest, SameHostEntriesOkay) {
   chunks.clear();
   chunks.push_back(SubChunkPrefixValue(4, "www.evil.com/malware1.html", 1));
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   // Remove the prefix that added last.
   chunks.clear();
   chunks.push_back(SubChunkPrefixValue(5, "www.evil.com/phishing2.html", 47));
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kPhishingList, chunks.get());
+  database_->InsertChunks(kPhishingList, chunks.get());
   database_->UpdateFinished(true);
 
   // Verify that the database contains urls expected.
@@ -1606,7 +1592,7 @@ TEST_F(SafeBrowsingDatabaseTest, EmptyUpdate) {
   std::vector<SBListChunkRanges> lists;
   ASSERT_TRUE(database_->UpdateStarted(&lists));
   chunks.push_back(AddChunkPrefixValue(1, "www.evil.com/malware.html"));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   // Get an older time to reset the lastmod time for detecting whether
@@ -1623,7 +1609,7 @@ TEST_F(SafeBrowsingDatabaseTest, EmptyUpdate) {
   ASSERT_TRUE(base::GetFileInfo(filename, &before_info));
   ASSERT_TRUE(database_->UpdateStarted(&lists));
   chunks.push_back(AddChunkPrefixValue(2, "www.foo.com/malware.html"));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
   ASSERT_TRUE(base::GetFileInfo(filename, &after_info));
   EXPECT_LT(before_info.last_modified, after_info.last_modified);
@@ -1632,7 +1618,7 @@ TEST_F(SafeBrowsingDatabaseTest, EmptyUpdate) {
   ASSERT_TRUE(base::TouchFile(filename, old_last_modified, old_last_modified));
   ASSERT_TRUE(base::GetFileInfo(filename, &before_info));
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  AddDelChunk(safe_browsing_util::kMalwareList, 2);
+  AddDelChunk(kMalwareList, 2);
   database_->UpdateFinished(true);
   ASSERT_TRUE(base::GetFileInfo(filename, &after_info));
   EXPECT_LT(before_info.last_modified, after_info.last_modified);
@@ -1658,7 +1644,7 @@ TEST_F(SafeBrowsingDatabaseTest, FilterFile) {
 
     ScopedVector<SBChunkData> chunks;
     chunks.push_back(AddChunkPrefixValue(1, "www.evil.com/malware.html"));
-    database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+    database_->InsertChunks(kMalwareList, chunks.get());
     database_->UpdateFinished(true);
   }
 
@@ -1708,7 +1694,7 @@ TEST_F(SafeBrowsingDatabaseTest, CachedFullMiss) {
 
   std::vector<SBListChunkRanges> lists;
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   {
@@ -1763,7 +1749,7 @@ TEST_F(SafeBrowsingDatabaseTest, CachedPrefixHitFullMiss) {
 
   std::vector<SBListChunkRanges> lists;
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   {
@@ -1807,7 +1793,7 @@ TEST_F(SafeBrowsingDatabaseTest, CachedPrefixHitFullMiss) {
     std::vector<SBFullHashResult> cache_results;
 
     SBFullHashResult full_hash_result;
-    full_hash_result.list_id = safe_browsing_util::MALWARE;
+    full_hash_result.list_id = MALWARE;
 
     full_hash_result.hash = kFullHash1_1;
     cache_results.push_back(full_hash_result);
@@ -1827,7 +1813,8 @@ TEST_F(SafeBrowsingDatabaseTest, CachedPrefixHitFullMiss) {
         full_hashes, &prefix_hits, &cache_hits));
     EXPECT_TRUE(prefix_hits.empty());
     ASSERT_EQ(1U, cache_hits.size());
-    EXPECT_TRUE(SBFullHashEqual(kFullHash1_1, cache_hits[0].hash));
+    EXPECT_TRUE(SBFullHashEqual(
+        kFullHash1_1, cache_hits[0].hash));
 
     // Adding kFullHash2_1 will see the existing cache hit plus the prefix hit
     // for kPrefix2.
@@ -1839,7 +1826,8 @@ TEST_F(SafeBrowsingDatabaseTest, CachedPrefixHitFullMiss) {
     ASSERT_EQ(1U, prefix_hits.size());
     EXPECT_EQ(kPrefix2, prefix_hits[0]);
     ASSERT_EQ(1U, cache_hits.size());
-    EXPECT_TRUE(SBFullHashEqual(kFullHash1_1, cache_hits[0].hash));
+    EXPECT_TRUE(SBFullHashEqual(
+        kFullHash1_1, cache_hits[0].hash));
 
     // kFullHash1_3 also gets a cache hit.
     full_hashes.push_back(kFullHash1_3);
@@ -1850,8 +1838,10 @@ TEST_F(SafeBrowsingDatabaseTest, CachedPrefixHitFullMiss) {
     ASSERT_EQ(1U, prefix_hits.size());
     EXPECT_EQ(kPrefix2, prefix_hits[0]);
     ASSERT_EQ(2U, cache_hits.size());
-    EXPECT_TRUE(SBFullHashEqual(kFullHash1_1, cache_hits[0].hash));
-    EXPECT_TRUE(SBFullHashEqual(kFullHash1_3, cache_hits[1].hash));
+    EXPECT_TRUE(SBFullHashEqual(
+        kFullHash1_1, cache_hits[0].hash));
+    EXPECT_TRUE(SBFullHashEqual(
+        kFullHash1_3, cache_hits[1].hash));
   }
 
   {
@@ -1863,7 +1853,8 @@ TEST_F(SafeBrowsingDatabaseTest, CachedPrefixHitFullMiss) {
         full_hashes, &prefix_hits, &cache_hits));
     EXPECT_TRUE(prefix_hits.empty());
     ASSERT_EQ(1U, cache_hits.size());
-    EXPECT_TRUE(SBFullHashEqual(kFullHash1_3, cache_hits[0].hash));
+    EXPECT_TRUE(SBFullHashEqual(
+        kFullHash1_3, cache_hits[0].hash));
   }
 
   {
@@ -1903,7 +1894,7 @@ TEST_F(SafeBrowsingDatabaseTest, BrowseFullHashMatching) {
 
   std::vector<SBListChunkRanges> lists;
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   {
@@ -1938,7 +1929,7 @@ TEST_F(SafeBrowsingDatabaseTest, BrowseFullHashMatching) {
   {
     // Cache a gethash result for kFullHash1_2.
     SBFullHashResult full_hash_result;
-    full_hash_result.list_id = safe_browsing_util::MALWARE;
+    full_hash_result.list_id = MALWARE;
     full_hash_result.hash = kFullHash1_2;
 
     std::vector<SBPrefix> prefixes(1, kPrefix1);
@@ -1972,7 +1963,8 @@ TEST_F(SafeBrowsingDatabaseTest, BrowseFullHashMatching) {
         full_hashes, &prefix_hits, &cache_hits));
     EXPECT_TRUE(prefix_hits.empty());
     ASSERT_EQ(1U, cache_hits.size());
-    EXPECT_TRUE(SBFullHashEqual(kFullHash1_2, cache_hits[0].hash));
+    EXPECT_TRUE(SBFullHashEqual(
+        kFullHash1_2, cache_hits[0].hash));
   }
 
   // Remove kFullHash1_1 from the database.
@@ -1980,7 +1972,7 @@ TEST_F(SafeBrowsingDatabaseTest, BrowseFullHashMatching) {
   chunks.push_back(SubChunkFullHash(11, kFullHash1_1, 1));
 
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   // Cache should be cleared after updating.
@@ -2018,7 +2010,7 @@ TEST_F(SafeBrowsingDatabaseTest, BrowseFullHashMatching) {
   chunks.push_back(SubChunkFullHash(12, kFullHash1_2, 2));
 
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   // Cache should be cleared after updating.
@@ -2050,7 +2042,7 @@ TEST_F(SafeBrowsingDatabaseTest, BrowseFullHashAndPrefixMatching) {
 
   std::vector<SBListChunkRanges> lists;
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   {
@@ -2067,7 +2059,7 @@ TEST_F(SafeBrowsingDatabaseTest, BrowseFullHashAndPrefixMatching) {
   chunks.push_back(AddChunkPrefix(2, kPrefix1));
 
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   {
@@ -2087,7 +2079,7 @@ TEST_F(SafeBrowsingDatabaseTest, BrowseFullHashAndPrefixMatching) {
   chunks.push_back(SubChunkFullHash(11, kFullHash1_1, 1));
 
   ASSERT_TRUE(database_->UpdateStarted(&lists));
-  database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+  database_->InsertChunks(kMalwareList, chunks.get());
   database_->UpdateFinished(true);
 
   {
@@ -2127,7 +2119,7 @@ TEST_F(SafeBrowsingDatabaseTest, MalwareIpBlacklist) {
   // IPv4 prefix match for ::ffff:192.1.128.0/113.
   chunks.push_back(AddChunkHashedIpValue(6, "::ffff:192.1.128.0", 113));
 
-  database_->InsertChunks(safe_browsing_util::kIPBlacklist, chunks.get());
+  database_->InsertChunks(kIPBlacklist, chunks.get());
   database_->UpdateFinished(true);
 
   EXPECT_FALSE(database_->ContainsMalwareIP("192.168.0.255"));
@@ -2177,7 +2169,7 @@ TEST_F(SafeBrowsingDatabaseTest, ContainsBrowseURL) {
   {
     ScopedVector<SBChunkData> chunks;
     chunks.push_back(AddChunkPrefixValue(1, "www.evil.com/"));
-    database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+    database_->InsertChunks(kMalwareList, chunks.get());
   }
 
   // Add a specific fullhash.
@@ -2185,7 +2177,7 @@ TEST_F(SafeBrowsingDatabaseTest, ContainsBrowseURL) {
   {
     ScopedVector<SBChunkData> chunks;
     chunks.push_back(AddChunkFullHashValue(2, kWhateverMalware));
-    database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+    database_->InsertChunks(kMalwareList, chunks.get());
   }
 
   // Add a fullhash which has a prefix collision for a known url.
@@ -2197,7 +2189,7 @@ TEST_F(SafeBrowsingDatabaseTest, ContainsBrowseURL) {
   {
     ScopedVector<SBChunkData> chunks;
     chunks.push_back(AddChunkFullHashValue(3, kExampleCollision));
-    database_->InsertChunks(safe_browsing_util::kMalwareList, chunks.get());
+    database_->InsertChunks(kMalwareList, chunks.get());
   }
 
   database_->UpdateFinished(true);
@@ -2238,3 +2230,5 @@ TEST_F(SafeBrowsingDatabaseTest, ContainsBrowseURL) {
   EXPECT_FALSE(database_->ContainsBrowseUrl(
       GURL(std::string("http://") + kExampleFine), &prefix_hits, &cache_hits));
 }
+
+}  // namespace safe_browsing

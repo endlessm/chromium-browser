@@ -8,7 +8,7 @@
 #include "cc/layers/layer_impl.h"
 #include "cc/output/filter_operation.h"
 #include "cc/output/filter_operations.h"
-#include "cc/test/fake_impl_proxy.h"
+#include "cc/test/fake_impl_task_runner_provider.h"
 #include "cc/test/fake_layer_tree_host_impl.h"
 #include "cc/test/geometry_test_utils.h"
 #include "cc/test/test_shared_bitmap_manager.h"
@@ -79,7 +79,9 @@ void EmulateDrawingOneFrame(LayerImpl* root) {
 class DamageTrackerTest : public testing::Test {
  public:
   DamageTrackerTest()
-      : host_impl_(&proxy_, &shared_bitmap_manager_, &task_graph_runner_) {}
+      : host_impl_(&task_runner_provider_,
+                   &shared_bitmap_manager_,
+                   &task_graph_runner_) {}
 
   scoped_ptr<LayerImpl> CreateTestTreeWithOneSurface() {
     scoped_ptr<LayerImpl> root =
@@ -172,7 +174,7 @@ class DamageTrackerTest : public testing::Test {
   }
 
  protected:
-  FakeImplProxy proxy_;
+  FakeImplTaskRunnerProvider task_runner_provider_;
   TestSharedBitmapManager shared_bitmap_manager_;
   TestTaskGraphRunner task_graph_runner_;
   FakeLayerTreeHostImpl host_impl_;
@@ -266,7 +268,7 @@ TEST_F(DamageTrackerTest, VerifyDamageForLayerDamageRects) {
   // CASE 1: Adding the layer damage rect should cause the corresponding damage
   // to the surface.
   ClearDamageForAllSurfaces(root.get());
-  child->AddDamageRect(gfx::RectF(10.f, 11.f, 12.f, 13.f));
+  child->AddDamageRect(gfx::Rect(10, 11, 12, 13));
   EmulateDrawingOneFrame(root.get());
 
   // Damage position on the surface should be: position of layer damage_rect
@@ -278,7 +280,7 @@ TEST_F(DamageTrackerTest, VerifyDamageForLayerDamageRects) {
   // CASE 2: The same layer damage rect twice in a row still produces the same
   // damage.
   ClearDamageForAllSurfaces(root.get());
-  child->AddDamageRect(gfx::RectF(10.f, 11.f, 12.f, 13.f));
+  child->AddDamageRect(gfx::Rect(10, 11, 12, 13));
   EmulateDrawingOneFrame(root.get());
   root_damage_rect =
       root->render_surface()->damage_tracker()->current_damage_rect();
@@ -287,7 +289,7 @@ TEST_F(DamageTrackerTest, VerifyDamageForLayerDamageRects) {
   // CASE 3: Adding a different layer damage rect should cause damage on the
   // new damaged region, but no additional exposed old region.
   ClearDamageForAllSurfaces(root.get());
-  child->AddDamageRect(gfx::RectF(20.f, 25.f, 1.f, 2.f));
+  child->AddDamageRect(gfx::Rect(20, 25, 1, 2));
   EmulateDrawingOneFrame(root.get());
 
   // Damage position on the surface should be: position of layer damage_rect
@@ -299,8 +301,8 @@ TEST_F(DamageTrackerTest, VerifyDamageForLayerDamageRects) {
   // CASE 4: Adding multiple layer damage rects should cause a unified
   // damage on root damage rect.
   ClearDamageForAllSurfaces(root.get());
-  child->AddDamageRect(gfx::RectF(20.f, 25.f, 1.f, 2.f));
-  child->AddDamageRect(gfx::RectF(10.f, 15.f, 3.f, 4.f));
+  child->AddDamageRect(gfx::Rect(20, 25, 1, 2));
+  child->AddDamageRect(gfx::Rect(10, 15, 3, 4));
   EmulateDrawingOneFrame(root.get());
 
   // Damage position on the surface should be: position of layer damage_rect
@@ -318,7 +320,7 @@ TEST_F(DamageTrackerTest, VerifyDamageForLayerUpdateAndDamageRects) {
   // CASE 1: Adding the layer damage rect and update rect should cause the
   // corresponding damage to the surface.
   ClearDamageForAllSurfaces(root.get());
-  child->AddDamageRect(gfx::RectF(5.f, 6.f, 12.f, 13.f));
+  child->AddDamageRect(gfx::Rect(5, 6, 12, 13));
   child->SetUpdateRect(gfx::Rect(15, 16, 14, 10));
   EmulateDrawingOneFrame(root.get());
 
@@ -332,7 +334,7 @@ TEST_F(DamageTrackerTest, VerifyDamageForLayerUpdateAndDamageRects) {
   // CASE 2: The same layer damage rect and update rect twice in a row still
   // produces the same damage.
   ClearDamageForAllSurfaces(root.get());
-  child->AddDamageRect(gfx::RectF(10.f, 11.f, 12.f, 13.f));
+  child->AddDamageRect(gfx::Rect(10, 11, 12, 13));
   child->SetUpdateRect(gfx::Rect(10, 11, 14, 15));
   EmulateDrawingOneFrame(root.get());
   root_damage_rect =
@@ -342,7 +344,7 @@ TEST_F(DamageTrackerTest, VerifyDamageForLayerUpdateAndDamageRects) {
   // CASE 3: Adding a different layer damage rect and update rect should cause
   // damage on the new damaged region, but no additional exposed old region.
   ClearDamageForAllSurfaces(root.get());
-  child->AddDamageRect(gfx::RectF(20.f, 25.f, 2.f, 3.f));
+  child->AddDamageRect(gfx::Rect(20, 25, 2, 3));
   child->SetUpdateRect(gfx::Rect(5, 10, 7, 8));
   EmulateDrawingOneFrame(root.get());
 
@@ -535,6 +537,8 @@ TEST_F(DamageTrackerTest, VerifyDamageForImageFilter) {
       SkBlurImageFilter::Create(SkIntToScalar(2), SkIntToScalar(2)));
   FilterOperations filters;
   filters.Append(FilterOperation::CreateReferenceFilter(filter));
+  int outset_top, outset_right, outset_bottom, outset_left;
+  filters.GetOutsets(&outset_top, &outset_right, &outset_bottom, &outset_left);
 
   // Setting the filter will damage the whole surface.
   ClearDamageForAllSurfaces(root.get());
@@ -547,7 +551,11 @@ TEST_F(DamageTrackerTest, VerifyDamageForImageFilter) {
           child->render_surface()->damage_tracker()->current_damage_rect();
   EXPECT_EQ(gfx::Rect(100, 100, 30, 30).ToString(),
             root_damage_rect.ToString());
-  EXPECT_EQ(gfx::Rect(30, 30).ToString(), child_damage_rect.ToString());
+  EXPECT_EQ(
+      gfx::Rect(-outset_left, -outset_top, 30 + (outset_left + outset_right),
+                30 + (outset_top + outset_bottom))
+          .ToString(),
+      child_damage_rect.ToString());
 
   // CASE 1: Setting the update rect should damage the whole surface (for now)
   ClearDamageForAllSurfaces(root.get());
@@ -558,9 +566,16 @@ TEST_F(DamageTrackerTest, VerifyDamageForImageFilter) {
           root->render_surface()->damage_tracker()->current_damage_rect();
   child_damage_rect =
           child->render_surface()->damage_tracker()->current_damage_rect();
-  EXPECT_EQ(gfx::Rect(100, 100, 30, 30).ToString(),
+
+  int expect_width = 1 + outset_left + outset_right;
+  int expect_height = 1 + outset_top + outset_bottom;
+  EXPECT_EQ(gfx::Rect(100 - outset_left, 100 - outset_top, expect_width,
+                      expect_height)
+                .ToString(),
             root_damage_rect.ToString());
-  EXPECT_EQ(gfx::Rect(30.f, 30.f).ToString(), child_damage_rect.ToString());
+  EXPECT_EQ(gfx::Rect(-outset_left, -outset_top, expect_width, expect_height)
+                .ToString(),
+            child_damage_rect.ToString());
 }
 
 TEST_F(DamageTrackerTest, VerifyDamageForBackgroundBlurredChild) {

@@ -16,12 +16,12 @@ import optparse
 import sys
 import time
 
+from devil.android import device_blacklist
+from devil.android import device_errors
+from devil.android import device_utils
+from devil.utils import run_tests_helper
 from pylib import constants
 from pylib import forwarder
-from pylib.device import adb_wrapper
-from pylib.device import device_errors
-from pylib.device import device_utils
-from pylib.utils import run_tests_helper
 
 
 def main(argv):
@@ -36,6 +36,7 @@ def main(argv):
                     help='Verbose level (multiple times for more)')
   parser.add_option('--device',
                     help='Serial number of device we should use.')
+  parser.add_option('--blacklist-file', help='Device blacklist JSON file.')
   parser.add_option('--debug', action='store_const', const='Debug',
                     dest='build_type', default='Release',
                     help='Use Debug build of host tools instead of Release.')
@@ -48,13 +49,16 @@ def main(argv):
     sys.exit(1)
 
   try:
-    port_pairs = map(int, args[1:])
+    port_pairs = [int(a) for a in args[1:]]
     port_pairs = zip(port_pairs[::2], port_pairs[1::2])
   except ValueError:
     parser.error('Bad port number')
     sys.exit(1)
 
-  devices = device_utils.DeviceUtils.HealthyDevices()
+  blacklist = (device_blacklist.Blacklist(options.blacklist_file)
+               if options.blacklist_file
+               else None)
+  devices = device_utils.DeviceUtils.HealthyDevices(blacklist)
 
   if options.device:
     device = next((d for d in devices if d == options.device), None)

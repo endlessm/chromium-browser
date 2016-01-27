@@ -48,13 +48,13 @@ class BASE_EXPORT SysInfo {
   // or -1 on failure.
   static int64 AmountOfFreeDiskSpace(const FilePath& path);
 
-  // Returns system uptime in milliseconds.
-  static int64 Uptime();
+  // Returns system uptime.
+  static TimeDelta Uptime();
 
   // Returns a descriptive string for the current machine model or an empty
-  // string if machime model is unknown or an error occured.
-  // e.g. MacPro1,1 on Mac.
-  // Only implemented on OS X, will return an empty string on other platforms.
+  // string if the machine model is unknown or an error occured.
+  // e.g. "MacPro1,1" on Mac, or "Nexus 5" on Android. Only implemented on OS X,
+  // Android, and Chrome OS. This returns an empty string on other platforms.
   static std::string HardwareModelName();
 
   // Returns the name of the host operating system.
@@ -128,9 +128,6 @@ class BASE_EXPORT SysInfo {
 
   // Returns the Android build ID.
   static std::string GetAndroidBuildID();
-
-  // Returns the device's name.
-  static std::string GetDeviceName();
 
   static int DalvikHeapSizeMB();
   static int DalvikHeapGrowthLimitMB();

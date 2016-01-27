@@ -21,7 +21,7 @@ namespace rtc {
 // for rtc::Worker.
 class SoundInputStreamInterface {
  public:
-  virtual ~SoundInputStreamInterface() {}
+  virtual ~SoundInputStreamInterface();
 
   // Starts the reading of samples on the current thread.
   virtual bool StartReading() = 0;
@@ -57,10 +57,10 @@ class SoundInputStreamInterface {
       SoundInputStreamInterface *> SignalSamplesRead;
 
  protected:
-  SoundInputStreamInterface() {}
+  SoundInputStreamInterface();
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(SoundInputStreamInterface);
+  RTC_DISALLOW_COPY_AND_ASSIGN(SoundInputStreamInterface);
 };
 
 }  // namespace rtc

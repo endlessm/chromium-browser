@@ -27,7 +27,13 @@ namespace {
 
 // Indicate whether we should enable idle socket cleanup timer. When timer is
 // disabled, sockets are closed next time a socket request is made.
+// Keep this enabled for windows as long as we support Windows XP, see the note
+// in kCleanupInterval below.
+#if defined(OS_WIN)
 bool g_cleanup_timer_enabled = true;
+#else
+bool g_cleanup_timer_enabled = false;
+#endif
 
 // The timeout value, in seconds, used to clean up idle sockets that can't be
 // reused.
@@ -313,9 +319,8 @@ void ClientSocketPoolBaseHelper::RequestSockets(
     num_sockets = max_sockets_per_group_;
   }
 
-  request.net_log().BeginEvent(
-      NetLog::TYPE_SOCKET_POOL_CONNECTING_N_SOCKETS,
-      NetLog::IntegerCallback("num_sockets", num_sockets));
+  request.net_log().BeginEvent(NetLog::TYPE_SOCKET_POOL_CONNECTING_N_SOCKETS,
+                               NetLog::IntCallback("num_sockets", num_sockets));
 
   Group* group = GetOrCreateGroup(group_name);
 
@@ -1007,8 +1012,8 @@ void ClientSocketPoolBaseHelper::HandOutSocket(
   if (handle->is_reused()) {
     net_log.AddEvent(
         NetLog::TYPE_SOCKET_POOL_REUSED_AN_EXISTING_SOCKET,
-        NetLog::IntegerCallback(
-            "idle_ms", static_cast<int>(idle_time.InMilliseconds())));
+        NetLog::IntCallback("idle_ms",
+                            static_cast<int>(idle_time.InMilliseconds())));
   }
 
   net_log.AddEvent(

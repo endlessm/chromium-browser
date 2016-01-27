@@ -13,7 +13,7 @@
 #include <vector>
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module.h"
 #include "webrtc/modules/audio_coding/main/test/APITest.h"
 #include "webrtc/modules/audio_coding/main/test/EncodeDecodeTest.h"
 #include "webrtc/modules/audio_coding/main/test/iSACTest.h"
@@ -24,7 +24,7 @@
 #include "webrtc/modules/audio_coding/main/test/TestStereo.h"
 #include "webrtc/modules/audio_coding/main/test/TestVADDTX.h"
 #include "webrtc/modules/audio_coding/main/test/TwoWayCommunication.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/test/testsupport/fileutils.h"
 #include "webrtc/test/testsupport/gtest_disable.h"
 
@@ -50,7 +50,13 @@ TEST(AudioCodingModuleTest, DISABLED_ON_ANDROID(TestEncodeDecode)) {
   Trace::ReturnTrace();
 }
 
-TEST(AudioCodingModuleTest, DISABLED_ON_ANDROID(TestRedFec)) {
+#ifdef WEBRTC_CODEC_RED
+#define IF_RED(x) x
+#else
+#define IF_RED(x) DISABLED_##x
+#endif
+
+TEST(AudioCodingModuleTest, DISABLED_ON_ANDROID(IF_RED(TestRedFec))) {
   Trace::CreateTrace();
   Trace::SetTraceFile((webrtc::test::OutputPath() +
       "acm_fec_trace.txt").c_str());
@@ -58,7 +64,13 @@ TEST(AudioCodingModuleTest, DISABLED_ON_ANDROID(TestRedFec)) {
   Trace::ReturnTrace();
 }
 
-TEST(AudioCodingModuleTest, DISABLED_ON_ANDROID(TestIsac)) {
+#if defined(WEBRTC_CODEC_ISAC) || defined(WEBRTC_CODEC_ISACFX)
+#define IF_ISAC(x) x
+#else
+#define IF_ISAC(x) DISABLED_##x
+#endif
+
+TEST(AudioCodingModuleTest, DISABLED_ON_ANDROID(IF_ISAC(TestIsac))) {
   Trace::CreateTrace();
   Trace::SetTraceFile((webrtc::test::OutputPath() +
       "acm_isac_trace.txt").c_str());
@@ -66,7 +78,15 @@ TEST(AudioCodingModuleTest, DISABLED_ON_ANDROID(TestIsac)) {
   Trace::ReturnTrace();
 }
 
-TEST(AudioCodingModuleTest, DISABLED_ON_ANDROID(TwoWayCommunication)) {
+#if (defined(WEBRTC_CODEC_ISAC) || defined(WEBRTC_CODEC_ISACFX)) && \
+    defined(WEBRTC_CODEC_ILBC) && defined(WEBRTC_CODEC_G722)
+#define IF_ALL_CODECS(x) x
+#else
+#define IF_ALL_CODECS(x) DISABLED_##x
+#endif
+
+TEST(AudioCodingModuleTest,
+     DISABLED_ON_ANDROID(IF_ALL_CODECS(TwoWayCommunication))) {
   Trace::CreateTrace();
   Trace::SetTraceFile((webrtc::test::OutputPath() +
       "acm_twowaycom_trace.txt").c_str());

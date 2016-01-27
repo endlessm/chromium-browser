@@ -31,30 +31,8 @@
 #include "core/fetch/ResourceClientWalker.h"
 #include "core/fetch/ResourceFetcher.h"
 #include "core/fetch/ResourceLoader.h"
-#include "core/fetch/SubstituteData.h"
-#include "platform/SharedBuffer.h"
 
 namespace blink {
-
-void RawResource::preCacheSubstituteDataForMainResource(const FetchRequest& request, ResourceFetcher* fetcher, const SubstituteData& substituteData)
-{
-    const String cacheIdentifier = fetcher->getCacheIdentifier();
-    const KURL& url = request.url();
-    if (Resource* oldResource = memoryCache()->resourceForURL(url, cacheIdentifier))
-        memoryCache()->remove(oldResource);
-
-    ResourceResponse response(url, substituteData.mimeType(), substituteData.content()->size(), substituteData.textEncoding(), emptyString());
-    ResourcePtr<Resource> resource = new RawResource(request.resourceRequest(), Resource::MainResource);
-    resource->setNeedsSynchronousCacheHit(substituteData.forceSynchronousLoad());
-    resource->setOptions(request.options());
-    resource->setDataBufferingPolicy(BufferData);
-    resource->responseReceived(response, nullptr);
-    if (substituteData.content()->size())
-        resource->setResourceBuffer(substituteData.content());
-    resource->setCacheIdentifier(cacheIdentifier);
-    resource->finish();
-    memoryCache()->add(resource.get());
-}
 
 ResourcePtr<Resource> RawResource::fetchSynchronously(FetchRequest& request, ResourceFetcher* fetcher)
 {
@@ -85,9 +63,7 @@ ResourcePtr<RawResource> RawResource::fetchMainResource(FetchRequest& request, R
     ASSERT(request.resourceRequest().frameType() != WebURLRequest::FrameTypeNone);
     ASSERT(request.resourceRequest().requestContext() == WebURLRequest::RequestContextForm || request.resourceRequest().requestContext() == WebURLRequest::RequestContextFrame || request.resourceRequest().requestContext() == WebURLRequest::RequestContextHyperlink || request.resourceRequest().requestContext() == WebURLRequest::RequestContextIframe || request.resourceRequest().requestContext() == WebURLRequest::RequestContextInternal || request.resourceRequest().requestContext() == WebURLRequest::RequestContextLocation);
 
-    if (substituteData.isValid())
-        preCacheSubstituteDataForMainResource(request, fetcher, substituteData);
-    return toRawResource(fetcher->requestResource(request, RawResourceFactory(Resource::MainResource)));
+    return toRawResource(fetcher->requestResource(request, RawResourceFactory(Resource::MainResource), substituteData));
 }
 
 ResourcePtr<RawResource> RawResource::fetchMedia(FetchRequest& request, ResourceFetcher* fetcher)
@@ -169,13 +145,26 @@ void RawResource::updateRequest(const ResourceRequest& request)
 void RawResource::responseReceived(const ResourceResponse& response, PassOwnPtr<WebDataConsumerHandle> handle)
 {
     InternalResourcePtr protect(this);
+
+    bool isSuccessfulRevalidation = isCacheValidator() && response.httpStatusCode() == 304;
     Resource::responseReceived(response, nullptr);
+
     ResourceClientWalker<RawResourceClient> w(m_clients);
     ASSERT(count() <= 1 || !handle);
     while (RawResourceClient* c = w.next()) {
         // |handle| is cleared when passed, but it's not a problem because
         // |handle| is null when there are two or more clients, as asserted.
         c->responseReceived(this, m_response, handle);
+    }
+
+    // If we successfully revalidated, we won't get appendData() calls.
+    // Forward the data to clients now instead.
+    // Note: |m_data| can be null when no data is appended to the original
+    // resource.
+    if (isSuccessfulRevalidation && m_data) {
+        ResourceClientWalker<RawResourceClient> w(m_clients);
+        while (RawResourceClient* c = w.next())
+            c->dataReceived(this, m_data->data(), m_data->size());
     }
 }
 
@@ -190,6 +179,7 @@ void RawResource::setSerializedCachedMetadata(const char* data, size_t size)
 
 void RawResource::didSendData(unsigned long long bytesSent, unsigned long long totalBytesToBeSent)
 {
+    ResourcePtr<RawResource> protect(this);
     ResourceClientWalker<RawResourceClient> w(m_clients);
     while (RawResourceClient* c = w.next())
         c->dataSent(this, bytesSent, totalBytesToBeSent);
@@ -197,6 +187,7 @@ void RawResource::didSendData(unsigned long long bytesSent, unsigned long long t
 
 void RawResource::didDownloadData(int dataLength)
 {
+    ResourcePtr<RawResource> protect(this);
     ResourceClientWalker<RawResourceClient> w(m_clients);
     while (RawResourceClient* c = w.next())
         c->dataDownloaded(this, dataLength);

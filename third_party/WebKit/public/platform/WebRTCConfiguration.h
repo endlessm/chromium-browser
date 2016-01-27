@@ -40,6 +40,7 @@ namespace blink {
 
 class RTCIceServer;
 class RTCConfiguration;
+class WebRTCCertificate;
 class WebString;
 class WebURL;
 
@@ -106,14 +107,16 @@ public:
     BLINK_PLATFORM_EXPORT void reset();
     bool isNull() const { return m_private.isNull(); }
 
-    BLINK_PLATFORM_EXPORT size_t numberOfServers() const;
-    BLINK_PLATFORM_EXPORT WebRTCICEServer server(size_t index) const;
-
     BLINK_PLATFORM_EXPORT WebRTCIceTransports iceTransports() const;
 
     BLINK_PLATFORM_EXPORT WebRTCBundlePolicy bundlePolicy() const;
 
     BLINK_PLATFORM_EXPORT WebRTCRtcpMuxPolicy rtcpMuxPolicy() const;
+    BLINK_PLATFORM_EXPORT size_t numberOfServers() const;
+    BLINK_PLATFORM_EXPORT WebRTCICEServer server(size_t index) const;
+
+    BLINK_PLATFORM_EXPORT size_t numberOfCertificates() const;
+    BLINK_PLATFORM_EXPORT WebRTCCertificate* certificate(size_t index) const;
 
 #if INSIDE_BLINK
     BLINK_PLATFORM_EXPORT WebRTCConfiguration(RTCConfiguration*);

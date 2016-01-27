@@ -33,6 +33,7 @@
 #include "platform/geometry/IntRect.h"
 #include "platform/network/NetworkHints.h"
 #include "public/platform/WebScreenInfo.h"
+#include "wtf/Utility.h"
 #include <algorithm>
 
 namespace blink {
@@ -77,14 +78,14 @@ void ChromeClient::setWindowFeatures(const WindowFeatures& features)
     setResizable(features.resizable);
 }
 
-template<typename... Params>
+template<typename... DelegateArgs, typename... Args>
 bool openJavaScriptDialog(
     ChromeClient* chromeClient,
-    bool(ChromeClient::*function)(LocalFrame*, const String& message, Params&...),
+    bool(ChromeClient::*function)(LocalFrame*, const String& message, DelegateArgs...),
     LocalFrame& frame,
     const String& message,
     ChromeClient::DialogType dialogType,
-    Params&... parameters)
+    Args&&... args)
 {
     // Defer loads in case the client method runs a new event loop that would
     // otherwise cause the load to continue while we're in the middle of
@@ -92,15 +93,15 @@ bool openJavaScriptDialog(
     ScopedPageLoadDeferrer deferrer;
 
     InspectorInstrumentationCookie cookie = InspectorInstrumentation::willRunJavaScriptDialog(&frame, message, dialogType);
-    bool result = (chromeClient->*function)(&frame, message, parameters...);
+    bool result = (chromeClient->*function)(&frame, message, WTF::forward<Args>(args)...);
     InspectorInstrumentation::didRunJavaScriptDialog(cookie, result);
     return result;
 }
 
-bool ChromeClient::openBeforeUnloadConfirmPanel(const String& message, LocalFrame* frame)
+bool ChromeClient::openBeforeUnloadConfirmPanel(const String& message, LocalFrame* frame, bool isReload)
 {
     ASSERT(frame);
-    return openJavaScriptDialog(this, &ChromeClient::openBeforeUnloadConfirmPanelDelegate, *frame, message, ChromeClient::HTMLDialog);
+    return openJavaScriptDialog(this, &ChromeClient::openBeforeUnloadConfirmPanelDelegate, *frame, message, ChromeClient::HTMLDialog, isReload);
 }
 
 bool ChromeClient::openJavaScriptAlert(LocalFrame* frame, const String& message)
@@ -166,7 +167,18 @@ void ChromeClient::setToolTip(const HitTestResult& result)
         }
     }
 
+    if (m_lastToolTipPoint == result.hitTestLocation().point() && m_lastToolTipText == toolTip)
+        return;
+    m_lastToolTipPoint = result.hitTestLocation().point();
+    m_lastToolTipText = toolTip;
     setToolTip(toolTip, toolTipDirection);
+}
+
+void ChromeClient::clearToolTip()
+{
+    // Do not check m_lastToolTip* and do not update them intentionally.
+    // We don't want to show tooltips with same content after clearToolTip().
+    setToolTip(String(), LTR);
 }
 
 void ChromeClient::print(LocalFrame* frame)

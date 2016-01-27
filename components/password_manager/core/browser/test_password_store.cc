@@ -6,6 +6,7 @@
 
 #include "base/thread_task_runner_handle.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/password_manager/core/browser/statistics_table.h"
 
 namespace password_manager {
 
@@ -37,15 +38,6 @@ bool TestPasswordStore::IsEmpty() const {
   return number_of_passwords == 0u;
 }
 
-bool TestPasswordStore::FormsAreEquivalent(const autofill::PasswordForm& lhs,
-                                           const autofill::PasswordForm& rhs) {
-  return lhs.origin == rhs.origin &&
-      lhs.username_element == rhs.username_element &&
-      lhs.username_value == rhs.username_value &&
-      lhs.password_element == rhs.password_element &&
-      lhs.signon_realm == rhs.signon_realm;
-}
-
 PasswordStoreChangeList TestPasswordStore::AddLoginImpl(
     const autofill::PasswordForm& form) {
   PasswordStoreChangeList changes;
@@ -61,7 +53,7 @@ PasswordStoreChangeList TestPasswordStore::UpdateLoginImpl(
       stored_passwords_[form.signon_realm];
   for (std::vector<autofill::PasswordForm>::iterator it = forms.begin();
        it != forms.end(); ++it) {
-    if (FormsAreEquivalent(form, *it)) {
+    if (ArePasswordFormUniqueKeyEqual(form, *it)) {
       *it = form;
       changes.push_back(PasswordStoreChange(PasswordStoreChange::UPDATE, form));
     }
@@ -76,7 +68,7 @@ PasswordStoreChangeList TestPasswordStore::RemoveLoginImpl(
       stored_passwords_[form.signon_realm];
   std::vector<autofill::PasswordForm>::iterator it = forms.begin();
   while (it != forms.end()) {
-    if (FormsAreEquivalent(form, *it)) {
+    if (ArePasswordFormUniqueKeyEqual(form, *it)) {
       it = forms.erase(it);
       changes.push_back(PasswordStoreChange(PasswordStoreChange::REMOVE, form));
     } else {
@@ -116,6 +108,12 @@ PasswordStoreChangeList TestPasswordStore::RemoveLoginsSyncedBetweenImpl(
   return changes;
 }
 
+bool TestPasswordStore::RemoveStatisticsCreatedBetweenImpl(
+    base::Time delete_begin,
+    base::Time delete_end) {
+  return false;
+}
+
 bool TestPasswordStore::FillAutofillableLogins(
     ScopedVector<autofill::PasswordForm>* forms) {
   for (const auto& forms_for_realm : stored_passwords_) {
@@ -136,9 +134,9 @@ void TestPasswordStore::AddSiteStatsImpl(const InteractionsStats& stats) {
 void TestPasswordStore::RemoveSiteStatsImpl(const GURL& origin_domain) {
 }
 
-scoped_ptr<InteractionsStats> TestPasswordStore::GetSiteStatsImpl(
+ScopedVector<InteractionsStats> TestPasswordStore::GetSiteStatsImpl(
     const GURL& origin_domain) {
-  return scoped_ptr<InteractionsStats>();
+  return ScopedVector<InteractionsStats>();
 }
 
 }  // namespace password_manager

@@ -78,6 +78,7 @@ component("app_list") {
     "//sync",
     "//third_party/icu",
     "//ui/accessibility",
+    "//ui/app_list/resources",
     "//ui/base",
     "//ui/base/ime",
     "//ui/compositor",
@@ -223,7 +224,6 @@ static_library("test_support") {
     "//base",
     "//ui/gfx",
     "//ui/gfx/geometry",
-    "//ui/resources",
   ]
 }
 
@@ -241,6 +241,7 @@ if (is_linux && !is_chromeos) {
         ":app_list",
         ":test_support",
         "//base",
+        "//build/config/sanitizers:deps",
         "//content",
         "//content/public/browser",
         "//skia",
@@ -259,11 +260,20 @@ if (is_linux && !is_chromeos) {
 
         deps += [
           "//sandbox",
-          "//content:content_startup_helper_win",
+          "//content:sandbox_helper_win",
         ]
       }
     }
   }
+}
+
+# TODO(GYP): Delete this after we've converted everything to GN.
+# The _run targets exist only for compatibility w/ GYP.
+group("app_list_unittests_run") {
+  testonly = true
+  deps = [
+    ":app_list_unittests",
+  ]
 }
 
 test("app_list_unittests") {
@@ -279,6 +289,11 @@ test("app_list_unittests") {
     "search/tokenized_string_match_unittest.cc",
     "search/tokenized_string_unittest.cc",
     "test/run_all_unittests.cc",
+  ]
+
+  # TODO: Add to data_deps instead once GN has rolled past #339778.
+  data = [
+    "$root_out_dir/ui_test.pak",
   ]
 
   configs += [ "//build/config/compiler:no_size_t_to_int_warning" ]
@@ -299,6 +314,10 @@ test("app_list_unittests") {
     "//ui/resources:ui_test_pak",
   ]
 
+  data_deps = [
+    "//third_party/mesa:osmesa",
+  ]
+
   if (toolkit_views) {
     sources += [
       "views/app_list_main_view_unittest.cc",
@@ -308,6 +327,7 @@ test("app_list_unittests") {
       "views/image_shadow_animator_unittest.cc",
       "views/search_box_view_unittest.cc",
       "views/search_result_list_view_unittest.cc",
+      "views/search_result_page_view_unittest.cc",
       "views/speech_view_unittest.cc",
       "views/test/apps_grid_view_test_api.cc",
       "views/test/apps_grid_view_test_api.h",

@@ -1,0 +1,246 @@
+// Copyright 2015 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+package org.chromium.chrome.browser.infobar;
+
+import android.content.Context;
+import android.content.res.Resources;
+import android.support.v7.widget.SwitchCompat;
+import android.text.method.LinkMovementMethod;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewGroup.LayoutParams;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.Spinner;
+import android.widget.TextView;
+
+import org.chromium.base.ApiCompatibilityUtils;
+import org.chromium.base.VisibleForTesting;
+import org.chromium.chrome.R;
+
+/**
+ * Lays out a group of controls (e.g. switches, spinners, or additional text) for InfoBars that need
+ * more than the normal pair of buttons.
+ *
+ * This class works with the {@link InfoBarLayout} to define a standard set of controls with
+ * standardized spacings and text styling that gets laid out in grid form: https://crbug.com/543205
+ *
+ * Manually specified margins on the children managed by this layout are EXPLICITLY ignored to
+ * enforce a uniform margin between controls across all InfoBar types.  Do NOT circumvent this
+ * restriction with creative layout definitions.  If the layout algorithm doesn't work for your new
+ * InfoBar, convince Chrome for Android's UX team to amend the master spec and then change the
+ * layout algorithm to match.
+ *
+ * TODO(dfalcantara): Standardize all the possible control types.
+ */
+public class InfoBarControlLayout extends ViewGroup {
+
+    /**
+     * Extends the regular LayoutParams by determining where a control should be located.
+     */
+    @VisibleForTesting
+    static final class ControlLayoutParams extends LayoutParams {
+        public int start;
+        public int top;
+        public int columnsRequired;
+
+        ControlLayoutParams() {
+            super(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT);
+        }
+    }
+
+    private final int mMaxInfoBarWidth;
+    private final int mMarginBetweenItems;
+
+    public InfoBarControlLayout(Context context) {
+        super(context);
+
+        Resources resources = context.getResources();
+        mMaxInfoBarWidth = resources.getDimensionPixelSize(R.dimen.infobar_max_width);
+        mMarginBetweenItems =
+                resources.getDimensionPixelSize(R.dimen.infobar_control_margin_between_items);
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        assert getLayoutParams().height == LayoutParams.WRAP_CONTENT
+                : "Height of this layout cannot be constrained.";
+
+        int fullWidth = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED
+                ? mMaxInfoBarWidth : MeasureSpec.getSize(widthMeasureSpec);
+        int columnWidth = Math.max(0, (fullWidth - mMarginBetweenItems) / 2);
+        int atMostFullWidthSpec = MeasureSpec.makeMeasureSpec(fullWidth, MeasureSpec.AT_MOST);
+        int exactlyFullWidthSpec = MeasureSpec.makeMeasureSpec(fullWidth, MeasureSpec.EXACTLY);
+        int exactlyColumnWidthSpec = MeasureSpec.makeMeasureSpec(columnWidth, MeasureSpec.EXACTLY);
+        int unspecifiedSpec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
+
+        // Figure out how many columns each child requires.
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            measureChild(child, atMostFullWidthSpec, unspecifiedSpec);
+
+            if (child.getMeasuredWidth() <= columnWidth) {
+                // Stretch out the control to take up a column width.
+                getControlLayoutParams(child).columnsRequired = 1;
+            } else {
+                getControlLayoutParams(child).columnsRequired = 2;
+            }
+        }
+
+        // Pack all the children as tightly into rows as possible without changing their ordering.
+        // Stretch out column-width controls if either it is the last control or the next one is
+        // a full-width control.
+        for (int i = 0; i < getChildCount(); i++) {
+            ControlLayoutParams lp = getControlLayoutParams(getChildAt(i));
+
+            if (i == getChildCount() - 1) {
+                lp.columnsRequired = 2;
+            } else {
+                ControlLayoutParams nextLp = getControlLayoutParams(getChildAt(i + 1));
+                if (lp.columnsRequired + nextLp.columnsRequired > 2) {
+                    // This control is too big to place with the next child.
+                    lp.columnsRequired = 2;
+                } else {
+                    // This and the next control fit on the same line.  Skip placing the next child.
+                    i++;
+                }
+            }
+        }
+
+        // Measure all children, assuming they all have to fit within the width of the layout.
+        // Height is unconstrained.
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            ControlLayoutParams lp = getControlLayoutParams(child);
+            int spec = lp.columnsRequired == 1 ? exactlyColumnWidthSpec : exactlyFullWidthSpec;
+            measureChild(child, spec, unspecifiedSpec);
+        }
+
+        // Pack all the children as tightly into rows as possible without changing their ordering.
+        int layoutHeight = 0;
+        int nextChildStart = 0;
+        int nextChildTop = 0;
+        int currentRowHeight = 0;
+        int columnsAvailable = 2;
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            ControlLayoutParams lp = getControlLayoutParams(child);
+
+            // If there isn't enough room left for the control, move to the next row.
+            if (columnsAvailable < lp.columnsRequired) {
+                layoutHeight += currentRowHeight + mMarginBetweenItems;
+                nextChildStart = 0;
+                nextChildTop = layoutHeight;
+                currentRowHeight = 0;
+                columnsAvailable = 2;
+            }
+
+            lp.top = nextChildTop;
+            lp.start = nextChildStart;
+            currentRowHeight = Math.max(currentRowHeight, child.getMeasuredHeight());
+            columnsAvailable -= lp.columnsRequired;
+            nextChildStart += lp.columnsRequired * (columnWidth + mMarginBetweenItems);
+        }
+
+        // Compute the ViewGroup's height, accounting for the final row's height.
+        layoutHeight += currentRowHeight;
+        setMeasuredDimension(resolveSize(fullWidth, widthMeasureSpec),
+                resolveSize(layoutHeight, heightMeasureSpec));
+    }
+
+    @Override
+    protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+        int width = right - left;
+        boolean isRtl = ApiCompatibilityUtils.isLayoutRtl(this);
+
+        // Child positions were already determined during the measurement pass.
+        for (int childIndex = 0; childIndex < getChildCount(); childIndex++) {
+            View child = getChildAt(childIndex);
+            int childLeft = getControlLayoutParams(child).start;
+            if (isRtl) childLeft = width - childLeft - child.getMeasuredWidth();
+
+            int childTop = getControlLayoutParams(child).top;
+            int childRight = childLeft + child.getMeasuredWidth();
+            int childBottom = childTop + child.getMeasuredHeight();
+            child.layout(childLeft, childTop, childRight, childBottom);
+        }
+    }
+
+    /**
+     * Creates a standard toggle switch and adds it to the layout.
+     *
+     * -------------------------------------------------
+     * | ICON | MESSAGE                       | TOGGLE |
+     * -------------------------------------------------
+     * If an icon is not provided, the ImageView that would normally show it is hidden.
+     *
+     * @param iconResourceId ID of the drawable to use for the icon, or 0 to hide the ImageView.
+     * @param toggleMessage  Message to display for the toggle.
+     * @param toggleId       ID to use for the toggle.
+     * @param isChecked      Whether the toggle should start off checked.
+     */
+    public View addSwitch(
+            int iconResourceId, CharSequence toggleMessage, int toggleId, boolean isChecked) {
+        LinearLayout switchLayout = (LinearLayout) LayoutInflater.from(getContext()).inflate(
+                R.layout.infobar_control_toggle, this, false);
+        addView(switchLayout, new ControlLayoutParams());
+
+        ImageView iconView = (ImageView) switchLayout.findViewById(R.id.control_toggle_icon);
+        if (iconResourceId == 0) {
+            switchLayout.removeView(iconView);
+        } else {
+            iconView.setImageResource(iconResourceId);
+        }
+
+        TextView messageView = (TextView) switchLayout.findViewById(R.id.control_toggle_message);
+        messageView.setText(toggleMessage);
+
+        SwitchCompat switchView =
+                (SwitchCompat) switchLayout.findViewById(R.id.control_toggle_switch);
+        switchView.setId(toggleId);
+        switchView.setChecked(isChecked);
+
+        return switchLayout;
+    }
+
+    /**
+     * Creates a standard spinner and adds it to the layout.
+     *
+     * The layout currently consists of just the Spinner control, but this may change as the spec
+     * is updated.
+     *
+     * TODO(dfalcantara): Standardize the spinner text colors and spacings by standardizing the
+     *                    ArrayAdapter that gets attached to the spinner.  https://crbug.com/543205
+     */
+    public View addSpinner(int spinnerId) {
+        Spinner spinner = (Spinner) LayoutInflater.from(getContext()).inflate(
+                R.layout.infobar_control_spinner, this, false);
+        addView(spinner, new ControlLayoutParams());
+        spinner.setId(spinnerId);
+        return spinner;
+    }
+
+    /**
+     * Creates and adds a control with additional text describing what an InfoBar is for.
+     */
+    public View addDescription(CharSequence message) {
+        TextView descriptionView = (TextView) LayoutInflater.from(getContext()).inflate(
+                R.layout.infobar_control_description, this, false);
+        addView(descriptionView, new ControlLayoutParams());
+        descriptionView.setText(message);
+        descriptionView.setMovementMethod(LinkMovementMethod.getInstance());
+        return descriptionView;
+    }
+
+    /**
+     * @return The {@link ControlLayoutParams} for the given child.
+     */
+    @VisibleForTesting
+    static ControlLayoutParams getControlLayoutParams(View child) {
+        return (ControlLayoutParams) child.getLayoutParams();
+    }
+
+}

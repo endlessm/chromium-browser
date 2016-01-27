@@ -27,7 +27,7 @@ QuicInMemoryCache::Response::~Response() {}
 
 // static
 QuicInMemoryCache* QuicInMemoryCache::GetInstance() {
-  return Singleton<QuicInMemoryCache>::get();
+  return base::Singleton<QuicInMemoryCache>::get();
 }
 
 const QuicInMemoryCache::Response* QuicInMemoryCache::GetResponse(
@@ -46,13 +46,9 @@ const QuicInMemoryCache::Response* QuicInMemoryCache::GetResponse(
 void QuicInMemoryCache::AddSimpleResponse(StringPiece host,
                                           StringPiece path,
                                           int response_code,
-                                          StringPiece response_detail,
                                           StringPiece body) {
   SpdyHeaderBlock response_headers;
-  response_headers[":version"] = "HTTP/1.1";
-  string status = IntToString(response_code) + " ";
-  response_detail.AppendToString(&status);
-  response_headers[":status"] = status;
+  response_headers[":status"] = IntToString(response_code);
   response_headers["content-length"] =
       IntToString(static_cast<int>(body.length()));
   AddResponse(host, path, response_headers, body);
@@ -145,16 +141,10 @@ void QuicInMemoryCache::InitializeFromDirectory(const string& cache_directory) {
     if (path[path.length() - 1] == ',') {
       path.remove_suffix(1);
     }
-
     StringPiece body(file_contents.data() + headers_end,
                      file_contents.size() - headers_end);
-    // QUIC_VERSION_24 and below use SPDY/3 headers, which includes the
-    // status reason in :status, and "HTTP/1.1" in :version. Since this
-    // format is a strict superset of SPDY/4 headers, the cache uses this
-    // format to store response. Once SPDY/3 responses are no longer
-    // required, the cache can store SPDY/4 headers.
     SpdyHeaderBlock header_block;
-    CreateSpdyHeadersFromHttpResponse(*response_headers, SPDY3, &header_block);
+    CreateSpdyHeadersFromHttpResponse(*response_headers, HTTP2, &header_block);
     AddResponse(host, path, header_block, body);
   }
 }

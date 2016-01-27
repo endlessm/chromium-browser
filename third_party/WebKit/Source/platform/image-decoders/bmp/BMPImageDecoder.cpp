@@ -31,6 +31,7 @@
 #include "config.h"
 #include "platform/image-decoders/bmp/BMPImageDecoder.h"
 
+#include "platform/image-decoders/FastSharedBufferReader.h"
 #include "wtf/PassOwnPtr.h"
 
 namespace blink {
@@ -40,18 +41,14 @@ namespace blink {
 // don't pack).
 static const size_t sizeOfFileHeader = 14;
 
-BMPImageDecoder::BMPImageDecoder(ImageSource::AlphaOption alphaOption, ImageSource::GammaAndColorProfileOption colorOptions, size_t maxDecodedBytes)
+BMPImageDecoder::BMPImageDecoder(AlphaOption alphaOption, GammaAndColorProfileOption colorOptions, size_t maxDecodedBytes)
     : ImageDecoder(alphaOption, colorOptions, maxDecodedBytes)
     , m_decodedOffset(0)
 {
 }
 
-void BMPImageDecoder::setData(SharedBuffer* data, bool allDataReceived)
+void BMPImageDecoder::onSetData(SharedBuffer* data)
 {
-    if (failed())
-        return;
-
-    ImageDecoder::setData(data, allDataReceived);
     if (m_reader)
         m_reader->setData(data);
 }
@@ -100,8 +97,12 @@ bool BMPImageDecoder::processFileHeader(size_t& imgDataOffset)
     ASSERT(!m_decodedOffset);
     if (m_data->size() < sizeOfFileHeader)
         return false;
-    const uint16_t fileType = (m_data->data()[0] << 8) | static_cast<uint8_t>(m_data->data()[1]);
-    imgDataOffset = readUint32(10);
+
+    char buffer[sizeOfFileHeader];
+    FastSharedBufferReader fastReader(m_data);
+    const char* fileHeader = fastReader.getConsecutiveData(0, sizeOfFileHeader, buffer);
+    const uint16_t fileType = (fileHeader[0] << 8) | static_cast<uint8_t>(fileHeader[1]);
+    imgDataOffset = BMPImageReader::readUint32(&fileHeader[10]);
     m_decodedOffset = sizeOfFileHeader;
 
     // See if this is a bitmap filetype we understand.

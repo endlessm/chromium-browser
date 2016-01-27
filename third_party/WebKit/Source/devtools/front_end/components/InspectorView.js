@@ -48,7 +48,10 @@ WebInspector.InspectorView = function()
     this._tabbedPane = new WebInspector.TabbedPane();
     this._tabbedPane.registerRequiredCSS("components/inspectorViewTabbedPane.css");
     this._tabbedPane.element.classList.add("inspector-view-tabbed-pane");
-    this._tabbedPane.setRetainTabOrder(true);
+    this._tabbedPane.setTabSlider(true);
+    this._tabbedPane.setAllowTabReorder(true, false, 200);
+    this._tabbedPane.addEventListener(WebInspector.TabbedPane.EventTypes.TabOrderChanged, this._persistPanelOrder, this);
+    this._tabOrderSetting = WebInspector.settings.createSetting("InspectorView.panelOrder", {});
     this._drawerSplitWidget.setMainWidget(this._tabbedPane);
     this._drawer = new WebInspector.Drawer(this._drawerSplitWidget);
 
@@ -70,15 +73,17 @@ WebInspector.InspectorView = function()
     this._closeBracketIdentifiers = ["U+005D", "U+00DD"].keySet();
     this._lastActivePanelSetting = WebInspector.settings.createSetting("lastActivePanel", "elements");
 
-    InspectorFrontendHost.events.addEventListener(InspectorFrontendHostAPI.Events.ShowConsole, showConsole.bind(this));
+    InspectorFrontendHost.events.addEventListener(InspectorFrontendHostAPI.Events.ShowPanel, showPanel.bind(this));
     this._loadPanelDesciptors();
 
     /**
      * @this {WebInspector.InspectorView}
+     * @param {!WebInspector.Event} event
      */
-    function showConsole()
+    function showPanel(event)
     {
-        this.showPanel("console");
+        var panelName = /** @type {string} */ (event.data);
+        this.showPanel(panelName);
     }
 
     WebInspector.targetManager.addEventListener(WebInspector.TargetManager.Events.SuspendStateChanged, this._onSuspendStateChanged.bind(this));
@@ -99,16 +104,37 @@ WebInspector.InspectorView.prototype = {
 
     _loadPanelDesciptors: function()
     {
-        WebInspector.startBatchUpdate();
-        self.runtime.extensions(WebInspector.PanelFactory).forEach(processPanelExtensions.bind(this));
         /**
          * @param {!Runtime.Extension} extension
          * @this {!WebInspector.InspectorView}
          */
         function processPanelExtensions(extension)
         {
-            this.addPanel(new WebInspector.RuntimeExtensionPanelDescriptor(extension));
+            var descriptor = new WebInspector.RuntimeExtensionPanelDescriptor(extension);
+            var weight = this._tabOrderSetting.get()[descriptor.name()];
+            if (weight === undefined)
+                weight = extension.descriptor()["order"];
+            if (weight === undefined)
+                weight = 10000;
+            panelWeights.set(descriptor, weight);
         }
+
+        /**
+         * @param {!WebInspector.PanelDescriptor} left
+         * @param {!WebInspector.PanelDescriptor} right
+         */
+        function orderComparator(left, right)
+        {
+            return panelWeights.get(left) > panelWeights.get(right);
+        }
+
+        WebInspector.startBatchUpdate();
+        /** @type {!Map.<!WebInspector.PanelDescriptor, number>} */
+        var panelWeights = new Map();
+        self.runtime.extensions(WebInspector.PanelFactory).forEach(processPanelExtensions.bind(this));
+        var sortedPanels = panelWeights.keysArray().sort(orderComparator);
+        for (var panelDescriptor of sortedPanels)
+            this._innerAddPanel(panelDescriptor);
         WebInspector.endBatchUpdate();
     },
 
@@ -129,14 +155,24 @@ WebInspector.InspectorView.prototype = {
 
     /**
      * @param {!WebInspector.PanelDescriptor} panelDescriptor
+     * @param {number=} index
      */
-    addPanel: function(panelDescriptor)
+    _innerAddPanel: function(panelDescriptor, index)
     {
         var panelName = panelDescriptor.name();
         this._panelDescriptors[panelName] = panelDescriptor;
-        this._tabbedPane.appendTab(panelName, panelDescriptor.title(), new WebInspector.Widget());
+        this._tabbedPane.appendTab(panelName, panelDescriptor.title(), new WebInspector.Widget(), undefined, undefined, undefined, index);
         if (this._lastActivePanelSetting.get() === panelName)
             this._tabbedPane.selectTab(panelName);
+    },
+
+    /**
+     * @param {!WebInspector.PanelDescriptor} panelDescriptor
+     */
+    addPanel: function(panelDescriptor)
+    {
+        var weight = this._tabOrderSetting.get()[panelDescriptor.name()];
+        this._innerAddPanel(panelDescriptor, weight);
     },
 
     /**
@@ -281,9 +317,10 @@ WebInspector.InspectorView.prototype = {
 
     /**
      * @param {!WebInspector.Panel} panel
+     * @param {boolean=} suppressBringToFront
      * @return {!WebInspector.Panel}
      */
-    setCurrentPanel: function(panel)
+    setCurrentPanel: function(panel, suppressBringToFront)
     {
         delete this._panelForShowPromise;
 
@@ -291,7 +328,9 @@ WebInspector.InspectorView.prototype = {
             console.error("Current panel is locked");
             return this._currentPanel;
         }
-        InspectorFrontendHost.bringToFront();
+
+        if (!suppressBringToFront)
+            InspectorFrontendHost.bringToFront();
 
         if (this._currentPanel === panel)
             return panel;
@@ -311,24 +350,6 @@ WebInspector.InspectorView.prototype = {
         return panel;
     },
 
-    /**
-     * @param {string} id
-     */
-    closeViewInDrawer: function(id)
-    {
-        this._drawer.closeView(id);
-    },
-
-    /**
-     * @param {string} id
-     * @param {string} title
-     * @param {!WebInspector.Widget} view
-     */
-    showCloseableViewInDrawer: function(id, title, view)
-    {
-        this._drawer.showCloseableView(id, title, view);
-    },
-
     showDrawer: function()
     {
         this._drawer.showDrawer();
@@ -345,10 +366,11 @@ WebInspector.InspectorView.prototype = {
     /**
      * @param {string} id
      * @param {boolean=} immediate
+     * @return {!Promise.<?WebInspector.Widget>}
      */
     showViewInDrawer: function(id, immediate)
     {
-        this._drawer.showView(id, immediate);
+        return this._drawer.showView(id, immediate);
     },
 
     /**
@@ -400,7 +422,7 @@ WebInspector.InspectorView.prototype = {
             if (panelIndex !== -1) {
                 var panelName = this._tabbedPane.allTabs()[panelIndex];
                 if (panelName) {
-                    if (!WebInspector.Dialog.currentInstance() && !this._currentPanelLocked)
+                    if (!WebInspector.Dialog.hasInstance() && !this._currentPanelLocked)
                         this.showPanel(panelName);
                     event.consume(true);
                 }
@@ -436,7 +458,7 @@ WebInspector.InspectorView.prototype = {
             return;
 
         if (!event.shiftKey && !event.altKey) {
-            if (!WebInspector.Dialog.currentInstance())
+            if (!WebInspector.Dialog.hasInstance())
                 this._changePanelInDirection(direction);
             event.consume(true);
             return;
@@ -468,7 +490,7 @@ WebInspector.InspectorView.prototype = {
 
         this._inHistory = true;
         this._historyIterator = newIndex;
-        if (!WebInspector.Dialog.currentInstance())
+        if (!WebInspector.Dialog.hasInstance())
             this.setCurrentPanel(this._panels[this._history[this._historyIterator]]);
         delete this._inHistory;
 
@@ -504,6 +526,18 @@ WebInspector.InspectorView.prototype = {
         this._tabbedPane.headerResized();
     },
 
+    /**
+     * @param {!WebInspector.Event} event
+     */
+    _persistPanelOrder: function(event)
+    {
+        var tabs = /** @type {!Array.<!WebInspector.TabbedPaneTab>} */(event.data);
+        var tabOrders = this._tabOrderSetting.get();
+        for (var i = 0; i < tabs.length; i++)
+            tabOrders[tabs[i].id] = (i + 1)* 10;
+        this._tabOrderSetting.set(tabOrders);
+    },
+
     __proto__: WebInspector.VBox.prototype
 };
 
@@ -525,6 +559,7 @@ WebInspector.InspectorView.DrawerToggleActionDelegate.prototype = {
      * @override
      * @param {!WebInspector.Context} context
      * @param {string} actionId
+     * @return {boolean}
      */
     handleAction: function(context, actionId)
     {
@@ -532,24 +567,6 @@ WebInspector.InspectorView.DrawerToggleActionDelegate.prototype = {
             WebInspector.inspectorView.closeDrawer();
         else
             WebInspector.inspectorView.showDrawer();
-    }
-}
-
-/**
- * @constructor
- * @implements {WebInspector.ToolbarItem.Provider}
- */
-WebInspector.InspectorView.ToggleDrawerButtonProvider = function()
-{
-}
-
-WebInspector.InspectorView.ToggleDrawerButtonProvider.prototype = {
-    /**
-     * @override
-     * @return {?WebInspector.ToolbarItem}
-     */
-    item: function()
-    {
-        return WebInspector.inspectorView._drawer.toggleButton();
+        return true;
     }
 }

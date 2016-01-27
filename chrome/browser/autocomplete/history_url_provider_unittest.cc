@@ -33,7 +33,7 @@
 #include "components/search_engines/search_terms_data.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
-#include "components/url_fixer/url_fixer.h"
+#include "components/url_formatter/url_fixer.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -248,7 +248,7 @@ class HistoryURLProviderTestNoSearchProvider : public HistoryURLProviderTest {
 
 void HistoryURLProviderTest::OnProviderUpdate(bool updated_matches) {
   if (autocomplete_->done())
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
 }
 
 bool HistoryURLProviderTest::SetUpImpl(bool no_db) {
@@ -728,7 +728,7 @@ TEST_F(HistoryURLProviderTest, IntranetURLsWithPaths) {
       RunTest(ASCIIToUTF16(test_cases[i].input), std::string(), false, NULL, 0);
     } else {
       const UrlAndLegalDefault output[] = {
-          {url_fixer::FixupURL(test_cases[i].input, std::string()).spec(),
+          {url_formatter::FixupURL(test_cases[i].input, std::string()).spec(),
            true}};
       ASSERT_NO_FATAL_FAILURE(RunTest(ASCIIToUTF16(test_cases[i].input),
                               std::string(), false, output, arraysize(output)));
@@ -753,7 +753,8 @@ TEST_F(HistoryURLProviderTest, IntranetURLCompletion) {
                                   expected1, arraysize(expected1)));
   EXPECT_LE(1410, matches_[0].relevance);
   EXPECT_LT(matches_[0].relevance, 1420);
-  EXPECT_EQ(matches_[0].relevance - 1, matches_[1].relevance);
+  // It uses the default scoring.
+  EXPECT_EQ(matches_[1].relevance, 1203);
 
   const UrlAndLegalDefault expected2[] = {
     { "http://moo/b", true },
@@ -1042,22 +1043,15 @@ TEST_F(HistoryURLProviderTest, HUPScoringExperiment) {
       if (test_cases[i].matches[max_matches].url == NULL)
         break;
       output[max_matches].url =
-          url_fixer::FixupURL(test_cases[i].matches[max_matches].url,
-                              std::string()).spec();
+          url_formatter::FixupURL(test_cases[i].matches[max_matches].url,
+                                  std::string())
+              .spec();
       output[max_matches].allowed_to_be_default_match = true;
     }
     autocomplete_->scoring_params_ = test_cases[i].scoring_params;
 
-    // Test the control (scoring disabled).
-    autocomplete_->scoring_params_.experimental_scoring_enabled = false;
-    ASSERT_NO_FATAL_FAILURE(RunTest(ASCIIToUTF16(test_cases[i].input),
-                                    std::string(), false, output, max_matches));
-    for (int j = 0; j < max_matches; ++j) {
-      EXPECT_EQ(test_cases[i].matches[j].control_relevance,
-                matches_[j].relevance);
-    }
-
-    // Test the experiment (scoring enabled).
+    // Test the experiment (scoring enabled). When scoring is disabled, it uses
+    // the default experimental scoring.
     autocomplete_->scoring_params_.experimental_scoring_enabled = true;
     ASSERT_NO_FATAL_FAILURE(RunTest(ASCIIToUTF16(test_cases[i].input),
                                     std::string(), false, output, max_matches));

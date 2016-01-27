@@ -23,7 +23,9 @@
 #include "cloud_print/common/win/cloud_print_utils.h"
 #include "cloud_print/service/service_constants.h"
 #include "cloud_print/service/win/service_utils.h"
+#include "components/browser_sync/common/browser_sync_switches.h"
 #include "components/cloud_devices/common/cloud_devices_urls.h"
+#include "content/public/common/content_switches.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/base/url_util.h"
 #include "url/gurl.h"
@@ -212,7 +214,6 @@ void ChromeLauncher::Run() {
       cmd.AppendSwitch(switches::kNoServiceAutorun);
 
       // Optional.
-      cmd.AppendSwitch(switches::kAutoLaunchAtStartup);
       cmd.AppendSwitch(switches::kDisableDefaultApps);
       cmd.AppendSwitch(switches::kDisableExtensions);
       cmd.AppendSwitch(switches::kDisableGpu);
@@ -278,7 +279,7 @@ std::string ChromeLauncher::CreateServiceStateFile(
   base::JSONWriter::Write(printer_list, &printers_json);
   size_t written = base::WriteFile(printers_file,
                                    printers_json.c_str(),
-                                   printers_json.size());
+                                   static_cast<int>(printers_json.size()));
   if (written != printers_json.size()) {
     LOG(ERROR) << "Can't write file.";
     return std::string();

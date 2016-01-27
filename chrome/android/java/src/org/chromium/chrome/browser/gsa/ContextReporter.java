@@ -9,18 +9,18 @@ import android.text.TextUtils;
 import org.chromium.base.Log;
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.Tab;
 import org.chromium.chrome.browser.UrlConstants;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchObserver;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabSelectionType;
 import org.chromium.chrome.browser.tabmodel.TabModelObserver;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelSelectorTabObserver;
-import org.chromium.sync.internal_api.pub.PassphraseType;
-import org.chromium.sync.internal_api.pub.base.ModelType;
+import org.chromium.sync.ModelType;
+import org.chromium.sync.PassphraseType;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -219,9 +219,9 @@ public class ContextReporter {
      * Records an appropriate status via UMA given the current sync status.
      */
     public static void reportSyncStatus(ProfileSyncService syncService) {
-        if (!syncService.isSyncInitialized()) {
+        if (!syncService.isBackendInitialized()) {
             reportStatus(STATUS_SYNC_NOT_INITIALIZED);
-        } else if (!syncService.getActiveDataTypes().contains(ModelType.TYPED_URL)) {
+        } else if (!syncService.getActiveDataTypes().contains(ModelType.TYPED_URLS)) {
             reportStatus(STATUS_SYNC_NOT_SYNCING_URLS);
         } else if (!syncService.getPassphraseType().equals(PassphraseType.KEYSTORE_PASSPHRASE)) {
             reportStatus(STATUS_SYNC_NOT_KEYSTORE_PASSPHRASE);

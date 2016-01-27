@@ -18,6 +18,7 @@
 #include "platform/ThreadSafeFunctional.h"
 #include "platform/TraceEvent.h"
 #include "public/platform/Platform.h"
+#include "public/platform/WebScheduler.h"
 #include "wtf/MainThread.h"
 #include "wtf/text/TextEncodingRegistry.h"
 
@@ -162,13 +163,15 @@ private:
 class SourceStream : public v8::ScriptCompiler::ExternalSourceStream {
     WTF_MAKE_NONCOPYABLE(SourceStream);
 public:
-    SourceStream()
+    explicit SourceStream(WebTaskRunner* loadingTaskRunner)
         : v8::ScriptCompiler::ExternalSourceStream()
         , m_cancelled(false)
         , m_finished(false)
         , m_queueLeadPosition(0)
         , m_queueTailPosition(0)
         , m_bookmarkPosition(0)
+        , m_lengthOfBOM(0)
+        , m_loadingTaskRunner(adoptPtr(loadingTaskRunner->clone()))
     {
     }
 
@@ -201,7 +204,7 @@ public:
     {
         ASSERT(!isMainThread());
         m_bookmarkPosition = m_queueLeadPosition;
-        return m_bookmarkPosition != 0; // Don't mess with BOM.
+        return true;
     }
 
     // Called by V8 on background thread.
@@ -211,13 +214,15 @@ public:
         {
             MutexLocker locker(m_mutex);
             m_queueLeadPosition = m_bookmarkPosition;
-            m_queueTailPosition = m_bookmarkPosition;
+            // See comments at m_lengthOfBOM declaration below for why
+            // we need this here.
+            m_queueTailPosition = m_bookmarkPosition + m_lengthOfBOM;
             m_dataQueue.clear();
         }
 
         // Inform main thread to re-queue the data.
-        Platform::current()->mainThread()->postTask(
-            FROM_HERE, bind(&SourceStream::fetchDataFromResourceBuffer, this, 0));
+        m_loadingTaskRunner->postTask(
+            BLINK_FROM_HERE, bind(&SourceStream::fetchDataFromResourceBuffer, this, 0));
     }
 
     void didFinishLoading()
@@ -308,6 +313,11 @@ private:
             }
         }
 
+        if (lengthOfBOM > 0) {
+            ASSERT(!m_lengthOfBOM); // There should be only one BOM.
+            m_lengthOfBOM = lengthOfBOM;
+        }
+
         // Copy the data chunks into a new buffer, since we're going to give the
         // data to a background thread.
         if (dataLength > lengthOfBOM) {
@@ -346,16 +356,34 @@ private:
     unsigned m_queueLeadPosition; // Only used by v8 thread.
     unsigned m_queueTailPosition; // Used by both threads; guarded by m_mutex.
     unsigned m_bookmarkPosition; // Only used by v8 thread.
+
+    // BOM (Unicode Byte Order Mark) handling:
+    // This class is responsible for stripping out the BOM, since Chrome
+    // delivers the input stream potentially with BOM, but V8 doesn't want
+    // to see the BOM. This is mostly easy to do, except for a funky edge
+    // condition with bookmarking:
+    // - m_queueLeadPosition counts the bytes that V8 has received
+    //   (i.e., without BOM)
+    // - m_queueTailPosition counts the bytes that Chrome has sent
+    //   (i.e., with BOM)
+    // So when resetting the bookmark, we have to adjust the lead position
+    // to account for the BOM (which happens implicitly in the regular
+    // streaming case).
+    // We store this separately, to avoid having to guard all
+    // m_queueLeadPosition references with a mutex.
+    unsigned m_lengthOfBOM; // Used by both threads; guarded by m_mutex.
+
+    OwnPtr<WebTaskRunner> m_loadingTaskRunner;
 };
 
 size_t ScriptStreamer::kSmallScriptThreshold = 30 * 1024;
 
-void ScriptStreamer::startStreaming(PendingScript& script, PendingScript::Type scriptType, Settings* settings, ScriptState* scriptState)
+void ScriptStreamer::startStreaming(PendingScript& script, PendingScript::Type scriptType, Settings* settings, ScriptState* scriptState, WebTaskRunner* loadingTaskRunner)
 {
     // We don't yet know whether the script will really be streamed. E.g.,
     // suppressing streaming for short scripts is done later. Record only the
     // sure negative cases here.
-    bool startedStreaming = startStreamingInternal(script, scriptType, settings, scriptState);
+    bool startedStreaming = startStreamingInternal(script, scriptType, settings, scriptState, loadingTaskRunner);
     if (!startedStreaming)
         Platform::current()->histogramEnumeration(startedStreamingHistogramName(scriptType), 0, 2);
 }
@@ -397,7 +425,7 @@ void ScriptStreamer::streamingCompleteOnBackgroundThread()
 
     // notifyFinished might already be called, or it might be called in the
     // future (if the parsing finishes earlier because of a parse error).
-    Platform::current()->mainThread()->postTask(FROM_HERE, threadSafeBind(&ScriptStreamer::streamingComplete, AllowCrossThreadAccess(this)));
+    m_loadingTaskRunner->postTask(BLINK_FROM_HERE, threadSafeBind(&ScriptStreamer::streamingComplete, AllowCrossThreadAccess(this)));
 
     // The task might delete ScriptStreamer, so it's not safe to do anything
     // after posting it. Note that there's no way to guarantee that this
@@ -489,7 +517,7 @@ void ScriptStreamer::notifyAppendData(ScriptResource* resource)
 
         ASSERT(!m_stream);
         ASSERT(!m_source);
-        m_stream = new SourceStream();
+        m_stream = new SourceStream(m_loadingTaskRunner.get());
         // m_source takes ownership of m_stream.
         m_source = adoptPtr(new v8::ScriptCompiler::StreamedSource(m_stream, m_encoding));
 
@@ -540,7 +568,7 @@ void ScriptStreamer::notifyFinished(Resource* resource)
     notifyFinishedToClient();
 }
 
-ScriptStreamer::ScriptStreamer(ScriptResource* resource, PendingScript::Type scriptType, ScriptState* scriptState, v8::ScriptCompiler::CompileOptions compileOptions)
+ScriptStreamer::ScriptStreamer(ScriptResource* resource, PendingScript::Type scriptType, ScriptState* scriptState, v8::ScriptCompiler::CompileOptions compileOptions, WebTaskRunner* loadingTaskRunner)
     : m_resource(resource)
     , m_detached(false)
     , m_stream(0)
@@ -553,6 +581,7 @@ ScriptStreamer::ScriptStreamer(ScriptResource* resource, PendingScript::Type scr
     , m_scriptState(scriptState)
     , m_scriptType(scriptType)
     , m_encoding(v8::ScriptCompiler::StreamedSource::TWO_BYTE) // Unfortunately there's no dummy encoding value in the enum; let's use one we don't stream.
+    , m_loadingTaskRunner(adoptPtr(loadingTaskRunner->clone()))
 {
 }
 
@@ -608,7 +637,7 @@ void ScriptStreamer::notifyFinishedToClient()
         m_client->notifyFinished(m_resource);
 }
 
-bool ScriptStreamer::startStreamingInternal(PendingScript& script, PendingScript::Type scriptType, Settings* settings, ScriptState* scriptState)
+bool ScriptStreamer::startStreamingInternal(PendingScript& script, PendingScript::Type scriptType, Settings* settings, ScriptState* scriptState, WebTaskRunner* loadingTaskRunner)
 {
     ASSERT(isMainThread());
     ASSERT(scriptState->contextIsValid());
@@ -621,7 +650,7 @@ bool ScriptStreamer::startStreamingInternal(PendingScript& script, PendingScript
         Platform::current()->histogramEnumeration(notStreamingReasonHistogramName(scriptType), NotHTTP, NotStreamingReasonEnd);
         return false;
     }
-    if (resource->resourceToRevalidate()) {
+    if (resource->isCacheValidator()) {
         Platform::current()->histogramEnumeration(notStreamingReasonHistogramName(scriptType), Reload, NotStreamingReasonEnd);
         // This happens e.g., during reloads. We're actually not going to load
         // the current Resource of the PendingScript but switch to another
@@ -641,7 +670,7 @@ bool ScriptStreamer::startStreamingInternal(PendingScript& script, PendingScript
     // The Resource might go out of scope if the script is no longer
     // needed. This makes PendingScript notify the ScriptStreamer when it is
     // destroyed.
-    script.setStreamer(ScriptStreamer::create(resource, scriptType, scriptState, compileOption));
+    script.setStreamer(ScriptStreamer::create(resource, scriptType, scriptState, compileOption, loadingTaskRunner));
 
     return true;
 }

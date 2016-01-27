@@ -48,6 +48,7 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       bool in_memory,
       content::ProtocolHandlerMap* protocol_handlers,
       content::URLRequestInterceptorScopedVector request_interceptors) override;
+  bool IsHandledURL(const GURL& url) override;
   std::string GetCanonicalEncodingNameByAliasName(
       const std::string& alias_name) override;
   void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
@@ -134,8 +135,15 @@ class AwContentBrowserClient : public content::ContentBrowserClient {
       const GURL& url,
       bool private_api,
       const content::SocketPermissionRequest* params) override;
+  void GetAdditionalMappedFilesForChildProcess(
+      const base::CommandLine& command_line,
+      int child_process_id,
+      content::FileDescriptorInfo* mappings,
+      std::map<int, base::MemoryMappedFile::Region>* regions) override;
   void OverrideWebkitPrefs(content::RenderViewHost* rvh,
                            content::WebPreferences* web_prefs) override;
+  ScopedVector<content::NavigationThrottle> CreateThrottlesForNavigation(
+      content::NavigationHandle* navigation_handle) override;
 #if defined(VIDEO_HOLE)
   content::ExternalVideoSurfaceContainer*
   OverrideCreateExternalVideoSurfaceContainer(

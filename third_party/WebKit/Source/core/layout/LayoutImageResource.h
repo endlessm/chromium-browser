@@ -34,14 +34,15 @@ namespace blink {
 
 class LayoutObject;
 
-class LayoutImageResource {
-    WTF_MAKE_NONCOPYABLE(LayoutImageResource); WTF_MAKE_FAST_ALLOCATED(LayoutImageResource);
+class LayoutImageResource : public NoBaseWillBeGarbageCollectedFinalized<LayoutImageResource> {
+    WTF_MAKE_NONCOPYABLE(LayoutImageResource);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(LayoutImageResource);
 public:
     virtual ~LayoutImageResource();
 
-    static PassOwnPtr<LayoutImageResource> create()
+    static PassOwnPtrWillBeRawPtr<LayoutImageResource> create()
     {
-        return adoptPtr(new LayoutImageResource);
+        return adoptPtrWillBeNoop(new LayoutImageResource);
     }
 
     virtual void initialize(LayoutObject*);
@@ -52,8 +53,9 @@ public:
     virtual bool hasImage() const { return m_cachedImage; }
 
     void resetAnimation();
+    bool maybeAnimated() const;
 
-    virtual PassRefPtr<Image> image(int /* width */ = 0, int /* height */ = 0) const
+    virtual PassRefPtr<Image> image(const IntSize&) const
     {
         return m_cachedImage ? m_cachedImage->imageForLayoutObject(m_layoutObject) : Image::nullImage();
     }
@@ -67,6 +69,8 @@ public:
     virtual LayoutSize intrinsicSize(float multiplier) const { return getImageSize(multiplier, ImageResource::IntrinsicSize); }
 
     virtual WrappedImagePtr imagePtr() const { return m_cachedImage.get(); }
+
+    DEFINE_INLINE_VIRTUAL_TRACE() { }
 
 protected:
     LayoutImageResource();

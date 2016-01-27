@@ -41,6 +41,11 @@ class ElementAnimations::ValueObserver : public LayerAnimationValueObserver {
     // PushProperties for AnimationTimelines for now.
   }
 
+  void OnTransformIsPotentiallyAnimatingChanged(bool is_animating) override {
+    element_animations_->SetTransformIsPotentiallyAnimatingChanged(
+        tree_type_, is_animating);
+  }
+
   bool IsActive() const override { return tree_type_ == LayerTreeType::ACTIVE; }
 
  private:
@@ -88,6 +93,11 @@ void ElementAnimations::CreateLayerAnimationController(int layer_id) {
 
 void ElementAnimations::DestroyLayerAnimationController() {
   DCHECK(animation_host_);
+
+  if (active_value_observer_)
+    SetTransformIsPotentiallyAnimatingChanged(LayerTreeType::ACTIVE, false);
+  if (pending_value_observer_)
+    SetTransformIsPotentiallyAnimatingChanged(LayerTreeType::PENDING, false);
 
   DestroyPendingValueObserver();
   DestroyActiveValueObserver();
@@ -182,6 +192,18 @@ void ElementAnimations::SetScrollOffsetMutated(
   DCHECK(animation_host()->mutator_host_client());
   animation_host()->mutator_host_client()->SetLayerScrollOffsetMutated(
       layer_id(), tree_type, scroll_offset);
+}
+
+void ElementAnimations::SetTransformIsPotentiallyAnimatingChanged(
+    LayerTreeType tree_type,
+    bool is_animating) {
+  DCHECK(layer_id());
+  DCHECK(animation_host());
+  DCHECK(animation_host()->mutator_host_client());
+  animation_host()
+      ->mutator_host_client()
+      ->LayerTransformIsPotentiallyAnimatingChanged(layer_id(), tree_type,
+                                                    is_animating);
 }
 
 void ElementAnimations::CreateActiveValueObserver() {

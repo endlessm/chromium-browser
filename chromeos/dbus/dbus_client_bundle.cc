@@ -12,19 +12,8 @@
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/dbus/amplifier_client.h"
 #include "chromeos/dbus/ap_manager_client.h"
+#include "chromeos/dbus/arc_bridge_client.h"
 #include "chromeos/dbus/audio_dsp_client.h"
-#include "chromeos/dbus/bluetooth_adapter_client.h"
-#include "chromeos/dbus/bluetooth_agent_manager_client.h"
-#include "chromeos/dbus/bluetooth_device_client.h"
-#include "chromeos/dbus/bluetooth_gatt_characteristic_client.h"
-#include "chromeos/dbus/bluetooth_gatt_descriptor_client.h"
-#include "chromeos/dbus/bluetooth_gatt_manager_client.h"
-#include "chromeos/dbus/bluetooth_gatt_service_client.h"
-#include "chromeos/dbus/bluetooth_input_client.h"
-#include "chromeos/dbus/bluetooth_le_advertising_manager_client.h"
-#include "chromeos/dbus/bluetooth_media_client.h"
-#include "chromeos/dbus/bluetooth_media_transport_client.h"
-#include "chromeos/dbus/bluetooth_profile_manager_client.h"
 #include "chromeos/dbus/cras_audio_client.h"
 #include "chromeos/dbus/cros_disks_client.h"
 #include "chromeos/dbus/cryptohome_client.h"
@@ -32,19 +21,8 @@
 #include "chromeos/dbus/easy_unlock_client.h"
 #include "chromeos/dbus/fake_amplifier_client.h"
 #include "chromeos/dbus/fake_ap_manager_client.h"
+#include "chromeos/dbus/fake_arc_bridge_client.h"
 #include "chromeos/dbus/fake_audio_dsp_client.h"
-#include "chromeos/dbus/fake_bluetooth_adapter_client.h"
-#include "chromeos/dbus/fake_bluetooth_agent_manager_client.h"
-#include "chromeos/dbus/fake_bluetooth_device_client.h"
-#include "chromeos/dbus/fake_bluetooth_gatt_characteristic_client.h"
-#include "chromeos/dbus/fake_bluetooth_gatt_descriptor_client.h"
-#include "chromeos/dbus/fake_bluetooth_gatt_manager_client.h"
-#include "chromeos/dbus/fake_bluetooth_gatt_service_client.h"
-#include "chromeos/dbus/fake_bluetooth_input_client.h"
-#include "chromeos/dbus/fake_bluetooth_le_advertising_manager_client.h"
-#include "chromeos/dbus/fake_bluetooth_media_client.h"
-#include "chromeos/dbus/fake_bluetooth_media_transport_client.h"
-#include "chromeos/dbus/fake_bluetooth_profile_manager_client.h"
 #include "chromeos/dbus/fake_cras_audio_client.h"
 #include "chromeos/dbus/fake_cryptohome_client.h"
 #include "chromeos/dbus/fake_debug_daemon_client.h"
@@ -107,6 +85,7 @@ const struct {
 } client_type_map[] = {
     { "amplifier",  DBusClientBundle::AMPLIFIER },
     { "ap",  DBusClientBundle::AP_MANAGER },
+    { "arc", DBusClientBundle::ARC_BRIDGE },
     { "audio_dsp",  DBusClientBundle::AUDIO_DSP },
     { "bluetooth",  DBusClientBundle::BLUETOOTH },
     { "cras",  DBusClientBundle::CRAS },
@@ -152,51 +131,15 @@ DBusClientBundle::DBusClientBundle(DBusClientTypeMask unstub_client_mask)
   else
     amplifier_client_.reset(new FakeAmplifierClient);
 
+  if (!IsUsingStub(ARC_BRIDGE))
+    arc_bridge_client_.reset(ArcBridgeClient::Create());
+  else
+    arc_bridge_client_.reset(new FakeArcBridgeClient);
+
   if (!IsUsingStub(AUDIO_DSP))
     audio_dsp_client_.reset(AudioDspClient::Create());
   else
     audio_dsp_client_.reset(new FakeAudioDspClient);
-
-  if (!IsUsingStub(BLUETOOTH)) {
-    bluetooth_adapter_client_.reset(BluetoothAdapterClient::Create());
-    bluetooth_le_advertising_manager_client_.reset(
-        BluetoothLEAdvertisingManagerClient::Create());
-    bluetooth_agent_manager_client_.reset(
-        BluetoothAgentManagerClient::Create());
-    bluetooth_device_client_.reset(BluetoothDeviceClient::Create());
-    bluetooth_input_client_.reset(BluetoothInputClient::Create());
-    bluetooth_media_client_.reset(BluetoothMediaClient::Create());
-    bluetooth_media_transport_client_.reset(
-        BluetoothMediaTransportClient::Create());
-    bluetooth_profile_manager_client_.reset(
-        BluetoothProfileManagerClient::Create());
-    bluetooth_gatt_characteristic_client_.reset(
-        BluetoothGattCharacteristicClient::Create());
-    bluetooth_gatt_descriptor_client_.reset(
-        BluetoothGattDescriptorClient::Create());
-    bluetooth_gatt_manager_client_.reset(
-        BluetoothGattManagerClient::Create());
-    bluetooth_gatt_service_client_.reset(
-        BluetoothGattServiceClient::Create());
-  } else {
-    bluetooth_adapter_client_.reset(new FakeBluetoothAdapterClient);
-    bluetooth_le_advertising_manager_client_.reset(
-        new FakeBluetoothLEAdvertisingManagerClient);
-    bluetooth_agent_manager_client_.reset(new FakeBluetoothAgentManagerClient);
-    bluetooth_device_client_.reset(new FakeBluetoothDeviceClient);
-    bluetooth_input_client_.reset(new FakeBluetoothInputClient);
-    bluetooth_media_client_.reset(new FakeBluetoothMediaClient);
-    bluetooth_media_transport_client_.reset(
-        new FakeBluetoothMediaTransportClient);
-    bluetooth_profile_manager_client_.reset(
-        new FakeBluetoothProfileManagerClient);
-    bluetooth_gatt_characteristic_client_.reset(
-        new FakeBluetoothGattCharacteristicClient);
-    bluetooth_gatt_descriptor_client_.reset(
-        new FakeBluetoothGattDescriptorClient);
-    bluetooth_gatt_manager_client_.reset(new FakeBluetoothGattManagerClient);
-    bluetooth_gatt_service_client_.reset(new FakeBluetoothGattServiceClient);
-  }
 
   if (!IsUsingStub(CRAS))
     cras_audio_client_.reset(CrasAudioClient::Create());
@@ -354,17 +297,14 @@ void DBusClientBundle::SetupDefaultEnvironment() {
 DBusClientBundle::DBusClientTypeMask DBusClientBundle::ParseUnstubList(
     const std::string& unstub_list) {
   DBusClientTypeMask unstub_mask = 0;
-  std::vector<std::string> unstub_components;
-  base::SplitString(unstub_list, ',', &unstub_components);
-  for (std::vector<std::string>::const_iterator iter =
-          unstub_components.begin();
-       iter != unstub_components.end(); ++iter) {
-    DBusClientBundle::DBusClientType client = GetDBusClientType(*iter);
+  for (const std::string& cur : base::SplitString(
+           unstub_list, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)) {
+    DBusClientBundle::DBusClientType client = GetDBusClientType(cur);
     if (client != NO_CLIENT) {
-      LOG(WARNING) << "Unstubbing dbus client for " << *iter;
+      LOG(WARNING) << "Unstubbing dbus client for " << cur;
       unstub_mask |= client;
     } else {
-      LOG(ERROR) << "Unknown dbus client: " << *iter;
+      LOG(ERROR) << "Unknown dbus client: " << cur;
     }
   }
 

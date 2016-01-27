@@ -10,6 +10,9 @@
 #include "gpu/gpu_export.h"
 
 namespace gpu {
+
+struct SyncToken;
+
 namespace gles2 {
 
 class Texture;
@@ -17,6 +20,8 @@ class Texture;
 // Manages resources scoped beyond the context or context group level.
 class GPU_EXPORT MailboxManager : public base::RefCounted<MailboxManager> {
  public:
+  static scoped_refptr<MailboxManager> Create();
+
   // Look up the texture definition from the named mailbox.
   virtual Texture* ConsumeTexture(const Mailbox& mailbox) = 0;
 
@@ -27,8 +32,8 @@ class GPU_EXPORT MailboxManager : public base::RefCounted<MailboxManager> {
   virtual bool UsesSync() = 0;
 
   // Used to synchronize texture state across share groups.
-  virtual void PushTextureUpdates(uint32 sync_point) = 0;
-  virtual void PullTextureUpdates(uint32 sync_point) = 0;
+  virtual void PushTextureUpdates(const SyncToken& token) = 0;
+  virtual void PullTextureUpdates(const SyncToken& token) = 0;
 
   // Destroy any mailbox that reference the given texture.
   virtual void TextureDeleted(Texture* texture) = 0;

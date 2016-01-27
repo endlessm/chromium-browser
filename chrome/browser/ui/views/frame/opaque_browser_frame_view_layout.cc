@@ -6,8 +6,8 @@
 
 #include "base/command_line.h"
 #include "chrome/browser/profiles/profiles_state.h"
+#include "chrome/browser/ui/views/layout_constants.h"
 #include "chrome/browser/ui/views/profiles/avatar_menu_button.h"
-#include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/common/chrome_switches.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "ui/gfx/font.h"
@@ -20,9 +20,9 @@
 
 namespace {
 
-// Besides the frame border, there's another 9 px of empty space atop the
-// window in restored mode, to use to drag the window around.
-const int kNonClientRestoredExtraThickness = 9;
+// Besides the frame border, there's empty space atop the window in restored
+// mode, to use to drag the window around.
+const int kNonClientRestoredExtraThickness = 11;
 
 // The titlebar never shrinks too short to show the caption button plus some
 // padding below it.
@@ -200,16 +200,15 @@ gfx::Rect OpaqueBrowserFrameViewLayout::GetWindowBoundsForClientBounds(
 }
 
 int OpaqueBrowserFrameViewLayout::FrameBorderThickness(bool restored) const {
-  return (!restored && (IsTitleBarCondensed() ||
-                        delegate_->IsFullscreen())) ?
+  return (!restored && (IsTitleBarCondensed() || delegate_->IsFullscreen())) ?
       0 : kFrameBorderThickness;
 }
 
 int OpaqueBrowserFrameViewLayout::NonClientBorderThickness() const {
+  const int frame = FrameBorderThickness(false);
   // When we fill the screen, we don't show a client edge.
-  return FrameBorderThickness(false) +
-      ((IsTitleBarCondensed() || delegate_->IsFullscreen()) ?
-       0 : views::NonClientFrameView::kClientEdgeThickness);
+  return (IsTitleBarCondensed() || delegate_->IsFullscreen()) ?
+      frame : (frame + views::NonClientFrameView::kClientEdgeThickness);
 }
 
 int OpaqueBrowserFrameViewLayout::NonClientTopBorderHeight(
@@ -221,34 +220,36 @@ int OpaqueBrowserFrameViewLayout::NonClientTopBorderHeight(
   }
 
   int thickness = FrameBorderThickness(restored);
-  if (!restored && delegate_->IsTabStripVisible() &&
-      (!delegate_->ShouldLeaveOffsetNearTopBorder() || IsTitleBarCondensed())) {
+  if (!restored && delegate_->IsTabStripVisible() && IsTitleBarCondensed())
     thickness -= kTabstripTopShadowThickness;
-  }
   return thickness;
 }
 
 int OpaqueBrowserFrameViewLayout::GetTabStripInsetsTop(bool restored) const {
-  return NonClientTopBorderHeight(restored) + ((!restored &&
-      (!delegate_->ShouldLeaveOffsetNearTopBorder() ||
-      IsTitleBarCondensed() ||
-      delegate_->IsFullscreen())) ?
-      0 : kNonClientRestoredExtraThickness);
+  const int top = NonClientTopBorderHeight(restored);
+  // Annoyingly, the pre-MD layout uses different heights for the hit-test
+  // exclusion region (which we want here, since we're trying to size the border
+  // so that the region above the tab's hit-test zone matches) versus the shadow
+  // thickness.
+  const int exclusion = GetLayoutConstant(TAB_TOP_EXCLUSION_HEIGHT);
+  return (!restored && (IsTitleBarCondensed() || delegate_->IsFullscreen())) ?
+      top : (top + kNonClientRestoredExtraThickness - exclusion);
 }
 
 int OpaqueBrowserFrameViewLayout::TitlebarBottomThickness(bool restored) const {
-  return kTitlebarTopAndBottomEdgeThickness +
-      ((!restored && IsTitleBarCondensed()) ? 0 :
-       views::NonClientFrameView::kClientEdgeThickness);
+  const int edge = kTitlebarTopAndBottomEdgeThickness;
+  return (!restored && IsTitleBarCondensed()) ?
+      edge : (edge + views::NonClientFrameView::kClientEdgeThickness);
 }
 
 int OpaqueBrowserFrameViewLayout::CaptionButtonY(bool restored) const {
   // Maximized buttons start at window top, since the window has no border. This
   // offset is for the image (the actual clickable bounds extend all the way to
   // the top to take Fitts' Law into account).
-  return ((!restored && IsTitleBarCondensed()) ?
+  const int frame = (!restored && IsTitleBarCondensed()) ?
       FrameBorderThickness(false) :
-          views::NonClientFrameView::kFrameShadowThickness) + extra_caption_y_;
+      views::NonClientFrameView::kFrameShadowThickness;
+  return frame + extra_caption_y_;
 }
 
 gfx::Rect OpaqueBrowserFrameViewLayout::IconBounds() const {
@@ -282,10 +283,10 @@ bool OpaqueBrowserFrameViewLayout::ShouldAvatarBeOnRight() const {
 }
 
 int OpaqueBrowserFrameViewLayout::NewTabCaptionSpacing() const {
-  return has_trailing_buttons_
-             ? (IsTitleBarCondensed() ? kNewTabCaptionCondensedSpacing
-                                      : kNewTabCaptionNormalSpacing)
-             : kNewTabNoCaptionButtonsSpacing;
+  if (!has_trailing_buttons_)
+    return kNewTabNoCaptionButtonsSpacing;
+  return IsTitleBarCondensed() ?
+      kNewTabCaptionCondensedSpacing : kNewTabCaptionNormalSpacing;
 }
 
 void OpaqueBrowserFrameViewLayout::LayoutWindowControls(views::View* host) {
@@ -391,7 +392,6 @@ void OpaqueBrowserFrameViewLayout::LayoutTitleBar(views::View* host) {
 }
 
 void OpaqueBrowserFrameViewLayout::LayoutNewStyleAvatar(views::View* host) {
-  DCHECK(switches::IsNewAvatarMenu());
   if (!new_avatar_button_)
     return;
 
@@ -409,7 +409,7 @@ void OpaqueBrowserFrameViewLayout::LayoutNewStyleAvatar(views::View* host) {
   // the avatar button.
   if (!IsTitleBarCondensed()) {
     trailing_button_start_ -=
-        TabStrip::kNewTabButtonAssetWidth + kNewTabCaptionNormalSpacing;
+        GetLayoutConstant(NEW_TAB_BUTTON_WIDTH) + kNewTabCaptionNormalSpacing;
   }
 
   // Do not include the 1px padding that is added for the caption buttons.
@@ -689,7 +689,7 @@ void OpaqueBrowserFrameViewLayout::Layout(views::View* host) {
   // on the trailing side.
   leading_button_start_++;
 
-  if (delegate_->IsRegularOrGuestSession() && switches::IsNewAvatarMenu())
+  if (delegate_->IsRegularOrGuestSession())
     LayoutNewStyleAvatar(host);
   else
     LayoutAvatar(host);

@@ -115,7 +115,7 @@ void LocalInputMonitorChromeos::Core::DidProcessEvent(
 
 void LocalInputMonitorChromeos::Core::HandleMouseMove(
     const ui::PlatformEvent& event) {
-  gfx::PointF mouse_position = ui::EventLocationFromNative(event);
+  auto mouse_position = gfx::PointF(ui::EventLocationFromNative(event));
   mouse_position = point_transformer_->FromScreenCoordinates(mouse_position);
 
   caller_task_runner_->PostTask(
@@ -133,7 +133,7 @@ void LocalInputMonitorChromeos::Core::HandleKeyPressed(
       key_event.key_code() == ui::VKEY_ESCAPE) {
     caller_task_runner_->PostTask(
         FROM_HERE, base::Bind(&ClientSessionControl::DisconnectSession,
-                              client_session_control_));
+                              client_session_control_, protocol::OK));
   }
 }
 

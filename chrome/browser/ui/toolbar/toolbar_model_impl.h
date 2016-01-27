@@ -10,7 +10,7 @@
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/strings/string16.h"
-#include "chrome/browser/ui/toolbar/toolbar_model.h"
+#include "chrome/browser/ui/toolbar/chrome_toolbar_model.h"
 #include "url/gurl.h"
 
 class Profile;
@@ -28,7 +28,7 @@ class X509Certificate;
 // This class is the model used by the toolbar, location bar and autocomplete
 // edit.  It populates its states from the current navigation entry retrieved
 // from the navigation controller returned by GetNavigationController().
-class ToolbarModelImpl : public ToolbarModel {
+class ToolbarModelImpl : public ChromeToolbarModel {
  public:
   explicit ToolbarModelImpl(ToolbarModelDelegate* delegate);
   ~ToolbarModelImpl() override;
@@ -40,11 +40,10 @@ class ToolbarModelImpl : public ToolbarModel {
   base::string16 GetCorpusNameForMobile() const override;
   GURL GetURL() const override;
   bool WouldPerformSearchTermReplacement(bool ignore_editing) const override;
-  connection_security::SecurityLevel GetSecurityLevel(
+  SecurityStateModel::SecurityLevel GetSecurityLevel(
       bool ignore_editing) const override;
   int GetIcon() const override;
-  int GetIconForSecurityLevel(
-      connection_security::SecurityLevel level) const override;
+  gfx::VectorIconId GetVectorIcon() const override;
   base::string16 GetEVCertName() const override;
   bool ShouldDisplayURL() const override;
 
@@ -56,7 +55,7 @@ class ToolbarModelImpl : public ToolbarModel {
   // Helper method to extract the profile from the navigation controller.
   Profile* GetProfile() const;
 
-  // Returns search terms as in chrome::GetSearchTerms() if such terms should
+  // Returns search terms as in search::GetSearchTerms() if such terms should
   // appear in the omnibox (i.e. the page is sufficiently secure, search term
   // replacement is enabled, editing is not in progress, etc.).  If
   // |ignore_editing| is true, the "editing not in progress" check is skipped.

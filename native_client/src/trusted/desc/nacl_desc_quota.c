@@ -50,7 +50,7 @@ int NaClDescQuotaCtor(struct NaClDescQuota           *self,
                       struct NaClDescQuotaInterface  *quota_interface) {
   int rv;
   if (!NaClDescCtor(&self->base)) {
-    NACL_VTBL(NaClDescQuota, self) = NULL;
+    NACL_VTBL(NaClDesc, self) = NULL;
     return 0;
   }
   rv = NaClDescQuotaSubclassCtor(self, desc, file_id, quota_interface);
@@ -105,12 +105,33 @@ ssize_t NaClDescQuotaRead(struct NaClDesc *vself,
   return (*NACL_VTBL(NaClDesc, self->desc)->Read)(self->desc, buf, len);
 }
 
+/*
+ * Cap the length of a write/pwrite to a safe length.  Write can
+ * always return a short, non-zero transfer count, so it's fine if
+ * the amount actually processed here is less than that requested.
+ * The quota APIs use int64_t for their length parameters, so the
+ * safe limit INT64_MAX.  But on 64-bit machines, size_t might go up
+ * to UINT64_MAX, which is too big.  This logic is a no-op for
+ * 32-bit machines and the compiler should just optimize it away.
+ * But the 32-bit Windows compiler complains about the code, so we
+ * #if it out when it's not needed.
+ */
+static size_t CapWriteLength(size_t len) {
+#if NACL_BUILD_SUBARCH == 64
+  uint64_t len_u64 = (uint64_t) len;
+  NACL_COMPILE_TIME_ASSERT(SIZE_T_MAX <= NACL_UMAX_VAL(uint64_t));
+  if (len_u64 > NACL_MAX_VAL(int64_t)) {
+    len = (size_t) NACL_MAX_VAL(int64_t);
+  }
+#endif
+  return len;
+}
+
 ssize_t NaClDescQuotaWrite(struct NaClDesc  *vself,
                            void const       *buf,
                            size_t           len) {
   struct NaClDescQuota  *self = (struct NaClDescQuota *) vself;
   nacl_off64_t          file_offset;
-  uint64_t              len_u64;
   int64_t               allowed;
   ssize_t               rv;
 
@@ -130,15 +151,7 @@ ssize_t NaClDescQuotaWrite(struct NaClDesc  *vself,
       goto abort;
     }
 
-    NACL_COMPILE_TIME_ASSERT(SIZE_T_MAX <= NACL_UMAX_VAL(uint64_t));
-    /*
-     * Write can always return a short, non-zero transfer count.
-     */
-    len_u64 = (uint64_t) len;
-    /* get rid of the always-true/always-false comparison warning */
-    if (len_u64 > NACL_MAX_VAL(int64_t)) {
-      len = (size_t) NACL_MAX_VAL(int64_t);
-    }
+    len = CapWriteLength(len);
 
     if (NULL == self->quota_interface) {
       /* If there is no quota_interface, do not allow writes. */
@@ -192,22 +205,13 @@ ssize_t NaClDescQuotaPWrite(struct NaClDesc *vself,
                             size_t len,
                             nacl_off64_t offset) {
   struct NaClDescQuota  *self = (struct NaClDescQuota *) vself;
-  uint64_t              len_u64;
   int64_t               allowed;
   ssize_t               rv;
 
   if (0 == len) {
     allowed = 0;
   } else {
-    NACL_COMPILE_TIME_ASSERT(SIZE_T_MAX <= NACL_UMAX_VAL(uint64_t));
-    /*
-     * Write can always return a short, non-zero transfer count.
-     */
-    len_u64 = (uint64_t) len;
-    /* get rid of the always-true/always-false comparison warning */
-    if (len_u64 > NACL_MAX_VAL(int64_t)) {
-      len = (size_t) NACL_MAX_VAL(int64_t);
-    }
+    len = CapWriteLength(len);
 
     if (NULL == self->quota_interface) {
       /* If there is no quota_interface, do not allow writes. */
@@ -264,6 +268,38 @@ int NaClDescQuotaFstat(struct NaClDesc      *vself,
   struct NaClDescQuota  *self = (struct NaClDescQuota *) vself;
 
   return (*NACL_VTBL(NaClDesc, self->desc)->Fstat)(self->desc, statbuf);
+}
+
+int NaClDescQuotaFchdir(struct NaClDesc *vself) {
+  struct NaClDescQuota  *self = (struct NaClDescQuota *) vself;
+
+  return (*NACL_VTBL(NaClDesc, self->desc)->Fchdir)(self->desc);
+}
+
+int NaClDescQuotaFchmod(struct NaClDesc *vself,
+                        int             mode) {
+  struct NaClDescQuota  *self = (struct NaClDescQuota *) vself;
+
+  return (*NACL_VTBL(NaClDesc, self->desc)->Fchmod)(self->desc, mode);
+}
+
+int NaClDescQuotaFsync(struct NaClDesc *vself) {
+  struct NaClDescQuota  *self = (struct NaClDescQuota *) vself;
+
+  return (*NACL_VTBL(NaClDesc, self->desc)->Fsync)(self->desc);
+}
+
+int NaClDescQuotaFdatasync(struct NaClDesc *vself) {
+  struct NaClDescQuota  *self = (struct NaClDescQuota *) vself;
+
+  return (*NACL_VTBL(NaClDesc, self->desc)->Fdatasync)(self->desc);
+}
+
+int NaClDescQuotaFtruncate(struct NaClDesc  *vself,
+                           nacl_abi_off_t   length) {
+  struct NaClDescQuota  *self = (struct NaClDescQuota *) vself;
+
+  return (*NACL_VTBL(NaClDesc, self->desc)->Ftruncate)(self->desc, length);
 }
 
 ssize_t NaClDescQuotaGetdents(struct NaClDesc *vself,
@@ -434,6 +470,11 @@ static struct NaClDescVtbl const kNaClDescQuotaVtbl = {
   NaClDescQuotaPRead,
   NaClDescQuotaPWrite,
   NaClDescQuotaFstat,
+  NaClDescQuotaFchdir,
+  NaClDescQuotaFchmod,
+  NaClDescQuotaFsync,
+  NaClDescQuotaFdatasync,
+  NaClDescQuotaFtruncate,
   NaClDescQuotaGetdents,
   NaClDescExternalizeSizeNotImplemented,
   NaClDescExternalizeNotImplemented,

@@ -13,16 +13,18 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_content_client.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/feedback/feedback_data.h"
 #include "components/feedback/feedback_util.h"
 #include "components/search_engines/template_url_service.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/extension_registry.h"
+#include "grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
 using feedback::FeedbackData;
@@ -254,11 +256,10 @@ scoped_ptr<base::ListValue> GetReadableFeedbackForSnapshot(
           l10n_util::GetStringUTF16(IDS_RESET_PROFILE_SETTINGS_LOCALE),
           g_browser_process->GetApplicationLocale());
   AddPair(list.get(),
-          l10n_util::GetStringUTF16(IDS_RESET_PROFILE_SETTINGS_USER_AGENT),
+          l10n_util::GetStringUTF16(IDS_VERSION_UI_USER_AGENT),
           GetUserAgent());
-  chrome::VersionInfo version_info;
-  std::string version = version_info.Version();
-  version += chrome::VersionInfo::GetVersionStringModifier();
+  std::string version = version_info::GetVersionNumber();
+  version += chrome::GetChannelString();
   AddPair(list.get(),
           l10n_util::GetStringUTF16(IDS_PRODUCT_NAME),
           version);
@@ -303,16 +304,16 @@ scoped_ptr<base::ListValue> GetReadableFeedbackForSnapshot(
             snapshot.homepage());
   }
 
-  int is_ntp_message_id = snapshot.homepage_is_ntp() ?
-      IDS_RESET_PROFILE_SETTINGS_HOMEPAGE_IS_NTP_TRUE :
-      IDS_RESET_PROFILE_SETTINGS_HOMEPAGE_IS_NTP_FALSE;
+  int is_ntp_message_id = snapshot.homepage_is_ntp()
+      ? IDS_RESET_PROFILE_SETTINGS_YES
+      : IDS_RESET_PROFILE_SETTINGS_NO;
   AddPair(list.get(),
           l10n_util::GetStringUTF16(IDS_RESET_PROFILE_SETTINGS_HOMEPAGE_IS_NTP),
           l10n_util::GetStringUTF16(is_ntp_message_id));
 
-  int show_home_button_id = snapshot.show_home_button() ?
-      IDS_RESET_PROFILE_SETTINGS_SHOW_HOME_BUTTON_TRUE :
-      IDS_RESET_PROFILE_SETTINGS_SHOW_HOME_BUTTON_FALSE;
+  int show_home_button_id = snapshot.show_home_button()
+      ? IDS_RESET_PROFILE_SETTINGS_YES
+      : IDS_RESET_PROFILE_SETTINGS_NO;
   AddPair(
       list.get(),
       l10n_util::GetStringUTF16(IDS_RESET_PROFILE_SETTINGS_SHOW_HOME_BUTTON),

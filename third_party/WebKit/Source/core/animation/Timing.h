@@ -32,12 +32,15 @@
 #define Timing_h
 
 #include "platform/animation/TimingFunction.h"
+#include "wtf/Allocator.h"
 #include "wtf/MathExtras.h"
 #include "wtf/RefPtr.h"
 
 namespace blink {
 
 struct Timing {
+    USING_FAST_MALLOC(Timing);
+public:
     enum FillMode {
         FillModeAuto,
         FillModeNone,

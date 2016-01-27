@@ -29,6 +29,8 @@ source_set("renderer") {
     "//cc",
     "//cc/blink",
     "//components/scheduler:scheduler",
+    "//components/url_formatter",
+    "//components/webusb",
     "//content:resources",
     "//content/common:mojo_bindings",
     "//content/public/child:child_sources",
@@ -46,15 +48,16 @@ source_set("renderer") {
     "//mojo/environment:chromium",
     "//mojo/common:url_type_converters",
     "//mojo/converters/geometry",
+    "//mojo/public/cpp/bindings",
+    "//mojo/public/js",
     "//net",
     "//skia",
     "//skia/public",
     "//storage/common",
     "//third_party/icu",
     "//third_party/libjingle",
+    "//third_party/libyuv",
     "//third_party/mojo/src/mojo/edk/js",
-    "//third_party/mojo/src/mojo/public/cpp/bindings",
-    "//third_party/mojo/src/mojo/public/js",
     "//third_party/npapi",
     "//third_party/WebKit/public:blink",
     "//third_party/widevine/cdm:version_h",
@@ -80,7 +83,15 @@ source_set("renderer") {
   }
 
   if (is_android) {
-    sources -= [ "media/audio_decoder.cc" ]
+    sources -= [
+      "media/audio_decoder.cc",
+      "usb/type_converters.cc",
+      "usb/type_converters.h",
+      "usb/web_usb_client_impl.cc",
+      "usb/web_usb_client_impl.h",
+      "usb/web_usb_device_impl.cc",
+      "usb/web_usb_device_impl.h",
+    ]
     sources += [
       "external_popup_menu.cc",
       "external_popup_menu.h",
@@ -94,6 +105,8 @@ source_set("renderer") {
       "//third_party/android_tools:cpu_features",
       "//third_party/libphonenumber",
     ]
+
+    deps -= [ "//components/webusb" ]
   } else {
     sources -= [
       "java/gin_java_bridge_dispatcher.cc",
@@ -104,6 +117,11 @@ source_set("renderer") {
       "java/gin_java_bridge_value_converter.h",
       "java/gin_java_function_invocation_helper.cc",
       "java/gin_java_function_invocation_helper.h",
+    ]
+
+    deps += [
+      "//device/devices_app/public/cpp",
+      "//device/devices_app/usb/public/interfaces",
     ]
   }
 
@@ -129,14 +147,22 @@ source_set("renderer") {
             content_renderer_gypi_values.private_renderer_webrtc_sources,
             ".",
             "//content")
+    if (is_android) {
+      sources -= [
+        "media/media_recorder_handler.cc",
+        "media/media_recorder_handler.h",
+        "media/video_track_recorder.cc",
+        "media/video_track_recorder.h",
+      ]
+    }
+
     deps += [
       "//crypto",
-      "//third_party/libyuv",
-      "//third_party/webrtc/modules/audio_device",
-      "//third_party/webrtc/modules/audio_processing",
       "//third_party/libjingle:libjingle_webrtc",
       "//third_party/libjingle:libpeerconnection",
       "//third_party/libjingle:libstunprober",
+      "//third_party/webrtc/modules/audio_device",
+      "//third_party/webrtc/modules/audio_processing",
     ]
   } else {
     sources += [
@@ -154,17 +180,8 @@ source_set("renderer") {
       "//ppapi/host",
       "//ppapi/proxy",
       "//ppapi/shared_impl",
-      "//third_party/libvpx",
-      "//third_party/libyuv",
+      "//third_party/libvpx_new",
     ]
-  } else {
-    # These files are in the WebRTC list, but also require plugins.
-    if (enable_webrtc) {
-      sources -= [
-        "media/webrtc/video_destination_handler.cc",
-        "media/webrtc/video_destination_handler.h",
-      ]
-    }
   }
 
   if (enable_plugins && enable_webrtc) {

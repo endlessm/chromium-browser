@@ -59,16 +59,16 @@ void ScaleTouchEvent(TouchEvent* event, const gfx::SizeF& size) {
   for (const auto& device :
        DeviceDataManager::GetInstance()->touchscreen_devices()) {
     if (device.id == event->source_device_id()) {
-      gfx::SizeF touchscreen_size = device.size;
+      gfx::SizeF touchscreen_size = gfx::SizeF(device.size);
       gfx::PointF location = event->location_f();
 
       location.Scale(size.width() / touchscreen_size.width(),
                      size.height() / touchscreen_size.height());
       double ratio = std::sqrt(size.GetArea() / touchscreen_size.GetArea());
 
-      event->set_location(location);
-      event->set_radius_x(event->radius_x() * ratio);
-      event->set_radius_y(event->radius_y() * ratio);
+      event->set_location_f(location);
+      event->set_radius_x(event->pointer_details().radius_x() * ratio);
+      event->set_radius_y(event->pointer_details().radius_y() * ratio);
       return;
     }
   }
@@ -85,6 +85,7 @@ class EgltestWindow : public PlatformWindow, public PlatformEventDispatcher {
   // PlatformWindow:
   gfx::Rect GetBounds() override;
   void SetBounds(const gfx::Rect& bounds) override;
+  void SetTitle(const base::string16& title) override;
   void Show() override;
   void Hide() override;
   void Close() override;
@@ -97,6 +98,7 @@ class EgltestWindow : public PlatformWindow, public PlatformEventDispatcher {
   void SetCursor(PlatformCursor cursor) override;
   void MoveCursorTo(const gfx::Point& location) override;
   void ConfineCursorToBounds(const gfx::Rect& bounds) override;
+  PlatformImeController* GetPlatformImeController() override;
 
   // PlatformEventDispatcher:
   bool CanDispatchEvent(const PlatformEvent& event) override;
@@ -141,6 +143,9 @@ void EgltestWindow::SetBounds(const gfx::Rect& bounds) {
   delegate_->OnBoundsChanged(bounds);
 }
 
+void EgltestWindow::SetTitle(const base::string16& title) {
+}
+
 void EgltestWindow::Show() {
 }
 
@@ -172,10 +177,14 @@ void EgltestWindow::SetCursor(PlatformCursor cursor) {
 }
 
 void EgltestWindow::MoveCursorTo(const gfx::Point& location) {
-  event_factory_->WarpCursorTo(window_id_, location);
+  event_factory_->WarpCursorTo(window_id_, gfx::PointF(location));
 }
 
 void EgltestWindow::ConfineCursorToBounds(const gfx::Rect& bounds) {
+}
+
+PlatformImeController* EgltestWindow::GetPlatformImeController() {
+  return nullptr;
 }
 
 bool EgltestWindow::CanDispatchEvent(const ui::PlatformEvent& ne) {
@@ -185,8 +194,10 @@ bool EgltestWindow::CanDispatchEvent(const ui::PlatformEvent& ne) {
 uint32_t EgltestWindow::DispatchEvent(const ui::PlatformEvent& native_event) {
   DCHECK(native_event);
   Event* event = static_cast<Event*>(native_event);
-  if (event->IsTouchEvent())
-    ScaleTouchEvent(static_cast<TouchEvent*>(event), bounds_.size());
+  if (event->IsTouchEvent()) {
+    ScaleTouchEvent(static_cast<TouchEvent*>(event),
+                    gfx::SizeF(bounds_.size()));
+  }
 
   DispatchEventFromNativeUiEvent(
       native_event, base::Bind(&PlatformWindowDelegate::DispatchEvent,
@@ -215,9 +226,8 @@ class SurfaceOzoneEgltest : public SurfaceOzoneEGL {
 
   bool OnSwapBuffers() override { return true; }
 
-  bool OnSwapBuffersAsync(const SwapCompletionCallback& callback) override {
+  void OnSwapBuffersAsync(const SwapCompletionCallback& callback) override {
     callback.Run(gfx::SwapResult::SWAP_ACK);
-    return true;
   }
 
   bool ResizeNativeWindow(const gfx::Size& viewport_size) override {
@@ -367,6 +377,9 @@ class OzonePlatformEgltest : public OzonePlatform {
   }
   scoped_ptr<NativeDisplayDelegate> CreateNativeDisplayDelegate() override {
     return make_scoped_ptr(new NativeDisplayDelegateOzone());
+  }
+  base::ScopedFD OpenClientNativePixmapDevice() const override {
+    return base::ScopedFD();
   }
 
   void InitializeUI() override {

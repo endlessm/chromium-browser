@@ -4,11 +4,11 @@
 
 /**
  * @constructor
- * @extends {WebInspector.StylesSidebarPane.BaseToolbarPaneWidget}
+ * @extends {WebInspector.ElementsPanel.BaseToolbarPaneWidget}
  */
 WebInspector.AnimationControlPane = function(toolbarItem)
 {
-    WebInspector.StylesSidebarPane.BaseToolbarPaneWidget.call(this, toolbarItem);
+    WebInspector.ElementsPanel.BaseToolbarPaneWidget.call(this, toolbarItem);
     this._animationsPaused = false;
     this._animationsPlaybackRate = 1;
 
@@ -43,14 +43,14 @@ WebInspector.AnimationControlPane.prototype = {
         this._animationsPlaybackRate = WebInspector.AnimationTimeline.GlobalPlaybackRates[event.target.value];
         WebInspector.AnimationModel.fromTarget(this._target).setPlaybackRate(this._animationsPaused ? 0 : this._animationsPlaybackRate);
         this._animationsPlaybackLabel.textContent = this._animationsPlaybackRate + "x";
-        WebInspector.userMetrics.AnimationsPlaybackRateChanged.record();
+        WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.AnimationsPlaybackRateChanged);
     },
 
     _pauseButtonHandler: function ()
     {
         this._animationsPaused = !this._animationsPaused;
         WebInspector.AnimationModel.fromTarget(this._target).setPlaybackRate(this._animationsPaused ? 0 : this._animationsPlaybackRate);
-        WebInspector.userMetrics.AnimationsPlaybackRateChanged.record();
+        WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.AnimationsPlaybackRateChanged);
         this._animationsPauseButton.element.classList.toggle("pause-toolbar-item");
         this._animationsPauseButton.element.classList.toggle("play-toolbar-item");
     },
@@ -61,18 +61,17 @@ WebInspector.AnimationControlPane.prototype = {
     _updateAnimationsPlaybackRate: function(event)
     {
         /**
-         * @param {?Protocol.Error} error
          * @param {number} playbackRate
          * @this {WebInspector.AnimationControlPane}
          */
-        function setPlaybackRate(error, playbackRate)
+        function setPlaybackRate(playbackRate)
         {
             this._animationsPlaybackSlider.value = WebInspector.AnimationTimeline.GlobalPlaybackRates.indexOf(playbackRate);
             this._animationsPlaybackLabel.textContent = playbackRate + "x";
         }
 
         if (this._target)
-            this._target.animationAgent().getPlaybackRate(setPlaybackRate.bind(this));
+            WebInspector.AnimationModel.fromTarget(this._target).playbackRatePromise().then(setPlaybackRate.bind(this));
     },
 
     /**
@@ -92,7 +91,7 @@ WebInspector.AnimationControlPane.prototype = {
         this._updateAnimationsPlaybackRate();
     },
 
-    __proto__: WebInspector.StylesSidebarPane.BaseToolbarPaneWidget.prototype
+    __proto__: WebInspector.ElementsPanel.BaseToolbarPaneWidget.prototype
 }
 
 /**
@@ -101,7 +100,7 @@ WebInspector.AnimationControlPane.prototype = {
  */
 WebInspector.AnimationControlPane.ButtonProvider = function()
 {
-    this._button = new WebInspector.ToolbarButton(WebInspector.UIString("Animations Controls"), "animation-toolbar-item");
+    this._button = new WebInspector.ToolbarButton(WebInspector.UIString("Toggle animation controls"), "animation-toolbar-item");
     this._button.addEventListener("click", this._clicked, this);
     WebInspector.context.addFlavorChangeListener(WebInspector.DOMNode, this._nodeChanged, this);
     this._nodeChanged();
@@ -127,8 +126,7 @@ WebInspector.AnimationControlPane.ButtonProvider.prototype = {
     {
         if (!this._animationsControlPane)
             this._animationsControlPane = new WebInspector.AnimationControlPane(this.item());
-        var stylesSidebarPane = WebInspector.ElementsPanel.instance().sidebarPanes.styles;
-        stylesSidebarPane.showToolbarPane(toggleOn ? this._animationsControlPane : null);
+        WebInspector.ElementsPanel.instance().showToolbarPane(toggleOn ? this._animationsControlPane : null);
     },
 
     _clicked: function()

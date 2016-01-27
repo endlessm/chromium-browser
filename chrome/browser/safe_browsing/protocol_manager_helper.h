@@ -13,7 +13,7 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 
-#include "base/gtest_prod_util.h"
+namespace safe_browsing {
 
 struct SafeBrowsingProtocolConfig {
   SafeBrowsingProtocolConfig();
@@ -25,9 +25,6 @@ struct SafeBrowsingProtocolConfig {
   std::string backup_network_error_url_prefix;
   std::string version;
   bool disable_auto_update;
-#if defined(OS_ANDROID)
-  bool disable_connection_check;
-#endif
 };
 
 class SafeBrowsingProtocolManagerHelper {
@@ -44,8 +41,19 @@ class SafeBrowsingProtocolManagerHelper {
                                 const std::string& version,
                                 const std::string& additional_query);
 
+  // Similar to above function, and appends "&ext=1" at the end of URL if
+  // |is_extended_reporting| is true, otherwise, appends "&ext=0".
+  static std::string ComposeUrl(const std::string& prefix,
+                                const std::string& method,
+                                const std::string& client_name,
+                                const std::string& version,
+                                const std::string& additional_query,
+                                bool is_extended_reporting);
+
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(SafeBrowsingProtocolManagerHelper);
 };
+
+}  // namespace safe_browsing
 
 #endif  // CHROME_BROWSER_SAFE_BROWSING_PROTOCOL_MANAGER_HELPER_H_

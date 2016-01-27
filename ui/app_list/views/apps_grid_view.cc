@@ -895,7 +895,7 @@ gfx::Size AppsGridView::GetPreferredSize() const {
 
 bool AppsGridView::GetDropFormats(
     int* formats,
-    std::set<OSExchangeData::CustomFormat>* custom_formats) {
+    std::set<ui::Clipboard::FormatType>* format_types) {
   // TODO(koz): Only accept a specific drag type for app shortcuts.
   *formats = OSExchangeData::FILE_NAME;
   return true;
@@ -985,7 +985,8 @@ bool AppsGridView::OnKeyReleased(const ui::KeyEvent& event) {
 
 bool AppsGridView::OnMouseWheel(const ui::MouseWheelEvent& event) {
   return pagination_controller_->OnScroll(
-      gfx::Vector2d(event.x_offset(), event.y_offset()));
+      gfx::Vector2d(event.x_offset(), event.y_offset()),
+      PaginationController::SCROLL_MOUSE_WHEEL);
 }
 
 void AppsGridView::ViewHierarchyChanged(
@@ -1016,7 +1017,8 @@ void AppsGridView::OnScrollEvent(ui::ScrollEvent* event) {
     return;
 
   gfx::Vector2dF offset(event->x_offset(), event->y_offset());
-  if (pagination_controller_->OnScroll(gfx::ToFlooredVector2d(offset))) {
+  if (pagination_controller_->OnScroll(gfx::ToFlooredVector2d(offset),
+                                       PaginationController::SCROLL_TOUCHPAD)) {
     event->SetHandled();
     event->StopPropagation();
   }

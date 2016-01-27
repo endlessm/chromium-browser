@@ -40,16 +40,16 @@ static bool isInitialOrInherit(const String& value)
 }
 
 StylePropertySerializer::StylePropertySetForSerializer::StylePropertySetForSerializer(const StylePropertySet& properties)
-    : m_propertySet(properties)
-    , m_allIndex(m_propertySet.findPropertyIndex(CSSPropertyAll))
+    : m_propertySet(&properties)
+    , m_allIndex(m_propertySet->findPropertyIndex(CSSPropertyAll))
     , m_needToExpandAll(false)
 {
     if (!hasAllProperty())
         return;
 
-    StylePropertySet::PropertyReference allProperty = m_propertySet.propertyAt(m_allIndex);
-    for (unsigned i = 0; i < m_propertySet.propertyCount(); ++i) {
-        StylePropertySet::PropertyReference property = m_propertySet.propertyAt(i);
+    StylePropertySet::PropertyReference allProperty = m_propertySet->propertyAt(m_allIndex);
+    for (unsigned i = 0; i < m_propertySet->propertyCount(); ++i) {
+        StylePropertySet::PropertyReference property = m_propertySet->propertyAt(i);
         if (CSSProperty::isAffectedByAllProperty(property.id())) {
             if (allProperty.isImportant() && !property.isImportant())
                 continue;
@@ -64,27 +64,32 @@ StylePropertySerializer::StylePropertySetForSerializer::StylePropertySetForSeria
     }
 }
 
+DEFINE_TRACE(StylePropertySerializer::StylePropertySetForSerializer)
+{
+    visitor->trace(m_propertySet);
+}
+
 unsigned StylePropertySerializer::StylePropertySetForSerializer::propertyCount() const
 {
     if (!hasExpandedAllProperty())
-        return m_propertySet.propertyCount();
+        return m_propertySet->propertyCount();
     return lastCSSProperty - firstCSSProperty + 1;
 }
 
 StylePropertySerializer::PropertyValueForSerializer StylePropertySerializer::StylePropertySetForSerializer::propertyAt(unsigned index) const
 {
     if (!hasExpandedAllProperty())
-        return StylePropertySerializer::PropertyValueForSerializer(m_propertySet.propertyAt(index));
+        return StylePropertySerializer::PropertyValueForSerializer(m_propertySet->propertyAt(index));
 
     CSSPropertyID propertyID = static_cast<CSSPropertyID>(index + firstCSSProperty);
     ASSERT(firstCSSProperty <= propertyID && propertyID <= lastCSSProperty);
     if (m_longhandPropertyUsed.get(index)) {
-        int index = m_propertySet.findPropertyIndex(propertyID);
+        int index = m_propertySet->findPropertyIndex(propertyID);
         ASSERT(index != -1);
-        return StylePropertySerializer::PropertyValueForSerializer(m_propertySet.propertyAt(index));
+        return StylePropertySerializer::PropertyValueForSerializer(m_propertySet->propertyAt(index));
     }
 
-    StylePropertySet::PropertyReference property = m_propertySet.propertyAt(m_allIndex);
+    StylePropertySet::PropertyReference property = m_propertySet->propertyAt(m_allIndex);
     return StylePropertySerializer::PropertyValueForSerializer(propertyID, property.value(), property.isImportant());
 }
 
@@ -97,7 +102,7 @@ bool StylePropertySerializer::StylePropertySetForSerializer::shouldProcessProper
     // If all is not expanded, we need to process "all" and properties which
     // are not overwritten by "all".
     if (!m_needToExpandAll) {
-        StylePropertySet::PropertyReference property = m_propertySet.propertyAt(index);
+        StylePropertySet::PropertyReference property = m_propertySet->propertyAt(index);
         if (property.id() == CSSPropertyAll || !CSSProperty::isAffectedByAllProperty(property.id()))
             return true;
         return m_longhandPropertyUsed.get(property.id() - firstCSSProperty);
@@ -124,7 +129,7 @@ bool StylePropertySerializer::StylePropertySetForSerializer::shouldProcessProper
 int StylePropertySerializer::StylePropertySetForSerializer::findPropertyIndex(CSSPropertyID propertyID) const
 {
     if (!hasExpandedAllProperty())
-        return m_propertySet.findPropertyIndex(propertyID);
+        return m_propertySet->findPropertyIndex(propertyID);
     return propertyID - firstCSSProperty;
 }
 
@@ -132,7 +137,7 @@ const CSSValue* StylePropertySerializer::StylePropertySetForSerializer::getPrope
 {
     int index = findPropertyIndex(propertyID);
     if (index == -1)
-        return 0;
+        return nullptr;
     StylePropertySerializer::PropertyValueForSerializer value = propertyAt(index);
     return value.value();
 }
@@ -140,7 +145,7 @@ const CSSValue* StylePropertySerializer::StylePropertySetForSerializer::getPrope
 String StylePropertySerializer::StylePropertySetForSerializer::getPropertyValue(CSSPropertyID propertyID) const
 {
     if (!hasExpandedAllProperty())
-        return m_propertySet.getPropertyValue(propertyID);
+        return m_propertySet->getPropertyValue(propertyID);
 
     const CSSValue* value = getPropertyCSSValue(propertyID);
     if (!value)
@@ -246,8 +251,9 @@ String StylePropertySerializer::asText() const
                     shorthandPropertyAppeared.set(CSSPropertyBorder - firstCSSProperty);
                 else
                     shorthandPropertyID = CSSPropertyBorder;
-            } else if (shorthandPropertyUsed.get(CSSPropertyBorder - firstCSSProperty))
+            } else if (shorthandPropertyUsed.get(CSSPropertyBorder - firstCSSProperty)) {
                 shorthandPropertyID = CSSPropertyBorder;
+            }
             if (!shorthandPropertyID)
                 shorthandPropertyID = borderFallbackShorthandProperty;
             break;
@@ -422,6 +428,8 @@ String StylePropertySerializer::getPropertyValue(CSSPropertyID propertyID) const
         return getShorthandValue(gridRowShorthand(), " / ");
     case CSSPropertyGridArea:
         return getShorthandValue(gridAreaShorthand(), " / ");
+    case CSSPropertyGridGap:
+        return getShorthandValue(gridGapShorthand());
     case CSSPropertyFont:
         return fontValue();
     case CSSPropertyMargin:
@@ -601,7 +609,7 @@ String StylePropertySerializer::getLayeredShorthandValue(const StylePropertyShor
     const unsigned size = shorthand.length();
 
     // Begin by collecting the properties into a vector.
-    WillBeHeapVector<const CSSValue*> values(size);
+    WillBeHeapVector<RawPtrWillBeMember<const CSSValue>> values(size);
     // If the below loop succeeds, there should always be at minimum 1 layer.
     size_t numLayers = 1U;
 
@@ -654,7 +662,7 @@ String StylePropertySerializer::getLayeredShorthandValue(const StylePropertyShor
                 ASSERT(shorthand.properties()[propertyIndex + 1] == CSSPropertyBackgroundRepeatY
                     || shorthand.properties()[propertyIndex + 1] == CSSPropertyWebkitMaskRepeatY);
                 const CSSValue* yValue = values[propertyIndex + 1]->isValueList() ?
-                    toCSSValueList(values[propertyIndex + 1])->item(layer) : values[propertyIndex + 1];
+                    toCSSValueList(values[propertyIndex + 1])->item(layer) : values[propertyIndex + 1].get();
 
 
                 // FIXME: At some point we need to fix this code to avoid returning an invalid shorthand,
@@ -807,7 +815,7 @@ String StylePropertySerializer::borderPropertyValue(CommonValueMode valueMode) c
 static void appendBackgroundRepeatValue(StringBuilder& builder, const CSSValue& repeatXCSSValue, const CSSValue& repeatYCSSValue)
 {
     // FIXME: Ensure initial values do not appear in CSS_VALUE_LISTS.
-    DEFINE_STATIC_REF_WILL_BE_PERSISTENT(CSSPrimitiveValue, initialRepeatValue, (CSSPrimitiveValue::create(CSSValueRepeat)));
+    DEFINE_STATIC_REF_WILL_BE_PERSISTENT(CSSPrimitiveValue, initialRepeatValue, (CSSPrimitiveValue::createIdentifier(CSSValueRepeat)));
     const CSSPrimitiveValue& repeatX = repeatXCSSValue.isInitialValue() ? *initialRepeatValue : toCSSPrimitiveValue(repeatXCSSValue);
     const CSSPrimitiveValue& repeatY = repeatYCSSValue.isInitialValue() ? *initialRepeatValue : toCSSPrimitiveValue(repeatYCSSValue);
     CSSValueID repeatXValueId = repeatX.getValueID();
@@ -903,7 +911,7 @@ void StylePropertySerializer::appendBackgroundPropertyAsText(StringBuilder& resu
     // FIXME: This is a not-so-nice way to turn x/y positions into single background-position in output.
     // It is required because background-position-x/y are non-standard properties and WebKit generated output
     // would not work in Firefox (<rdar://problem/5143183>)
-    // It would be a better solution if background-position was CSS_PAIR.
+    // It would be a better solution if background-position was UnitType::Pair.
     if (shorthandHasOnlyInitialOrInheritedValue(backgroundPositionShorthand())) {
         const CSSValue* value = m_propertySet.getPropertyCSSValue(CSSPropertyBackgroundPositionX);
         bool isImportant = m_propertySet.propertyIsImportant(CSSPropertyBackgroundPositionX);

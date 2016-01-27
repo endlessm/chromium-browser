@@ -21,13 +21,10 @@
 #include "content/plugin/webplugin_proxy.h"
 #include "content/public/common/content_switches.h"
 #include "ipc/message_filter.h"
-#include "third_party/WebKit/public/web/WebBindings.h"
 
 #if defined(OS_POSIX)
 #include "ipc/ipc_channel_posix.h"
 #endif
-
-using blink::WebBindings;
 
 namespace content {
 
@@ -141,8 +138,7 @@ class PluginChannel::MessageFilter : public IPC::MessageFilter {
 
 PluginChannel* PluginChannel::GetPluginChannel(
     int renderer_id,
-    base::SingleThreadTaskRunner* ipc_task_runner,
-    IPC::AttachmentBroker* broker) {
+    base::SingleThreadTaskRunner* ipc_task_runner) {
   // Map renderer ID to a (single) channel to that process.
   std::string channel_key = base::StringPrintf(
       "%d.r%d", base::GetCurrentProcId(), renderer_id);
@@ -150,7 +146,7 @@ PluginChannel* PluginChannel::GetPluginChannel(
   PluginChannel* channel =
       static_cast<PluginChannel*>(NPChannelBase::GetChannel(
           channel_key, IPC::Channel::MODE_SERVER, ClassFactory, ipc_task_runner,
-          false, ChildProcess::current()->GetShutDownEvent(), broker));
+          false, ChildProcess::current()->GetShutDownEvent()));
 
   if (channel)
     channel->renderer_id_ = renderer_id;
@@ -226,12 +222,9 @@ void PluginChannel::CleanUp() {
 
 bool PluginChannel::Init(base::SingleThreadTaskRunner* ipc_task_runner,
                          bool create_pipe_now,
-                         base::WaitableEvent* shutdown_event,
-                         IPC::AttachmentBroker* broker) {
-  if (!NPChannelBase::Init(ipc_task_runner, create_pipe_now, shutdown_event,
-                           broker)) {
+                         base::WaitableEvent* shutdown_event) {
+  if (!NPChannelBase::Init(ipc_task_runner, create_pipe_now, shutdown_event))
     return false;
-  }
 
   channel_->AddFilter(filter_.get());
   return true;
@@ -248,10 +241,8 @@ PluginChannel::PluginChannel()
       base::CommandLine::ForCurrentProcess();
   log_messages_ = command_line->HasSwitch(switches::kLogPluginMessages);
 
-  // Register |npp_| as the default owner for any object we receive via IPC,
-  // and register it with WebBindings as a valid owner.
+  // Register |npp_| as the default owner for any object we receive via IPC.
   SetDefaultNPObjectOwner(npp_.get());
-  WebBindings::registerObjectOwner(npp_.get());
 }
 
 bool PluginChannel::OnControlMessageReceived(const IPC::Message& msg) {

@@ -4,7 +4,6 @@
 
 #include "base/guid.h"
 #include "base/i18n/number_formatting.h"
-#include "base/memory/scoped_vector.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/sessions/session_service.h"
@@ -76,7 +75,7 @@ class TwoClientTypedUrlsSyncTest : public SyncTest {
 };
 
 // TCM: 3728323
-IN_PROC_BROWSER_TEST_F(TwoClientTypedUrlsSyncTest, E2ETestAdd) {
+IN_PROC_BROWSER_TEST_F(TwoClientTypedUrlsSyncTest, E2E_ENABLED(Add)) {
   // Use a randomized URL to prevent test collisions.
   const base::string16 kHistoryUrl = ASCIIToUTF16(base::StringPrintf(
       "http://www.add-history.google.com/%s", base::GenerateGUID().c_str()));
@@ -164,7 +163,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientTypedUrlsSyncTest, MAYBE_AddExpiredThenUpdate) {
 }
 
 // TCM: 3705291
-IN_PROC_BROWSER_TEST_F(TwoClientTypedUrlsSyncTest, E2ETestAddThenDelete) {
+IN_PROC_BROWSER_TEST_F(TwoClientTypedUrlsSyncTest, E2E_ENABLED(AddThenDelete)) {
   // Use a randomized URL to prevent test collisions.
   const base::string16 kHistoryUrl = ASCIIToUTF16(base::StringPrintf(
       "http://www.add-history.google.com/%s", base::GenerateGUID().c_str()));

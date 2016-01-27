@@ -17,7 +17,7 @@ const int kInvalidCharIndex = -1;
 
 // Given a language/region code of the form 'fr-FR', returns just the basic
 // language portion, e.g. 'fr'.
-std::string TrimLanguageCode(std::string lang) {
+std::string TrimLanguageCode(const std::string& lang) {
   if (lang.size() >= 5 && lang[2] == '-')
     return lang.substr(0, 2);
   else
@@ -111,7 +111,7 @@ TtsController* TtsController::GetInstance() {
 
 // static
 TtsControllerImpl* TtsControllerImpl::GetInstance() {
-  return Singleton<TtsControllerImpl>::get();
+  return base::Singleton<TtsControllerImpl>::get();
 }
 
 TtsControllerImpl::TtsControllerImpl()
@@ -301,9 +301,6 @@ void TtsControllerImpl::OnTtsEvent(int utterance_id,
 
 void TtsControllerImpl::GetVoices(content::BrowserContext* browser_context,
                               std::vector<VoiceData>* out_voices) {
-  if (browser_context && tts_engine_delegate_)
-    tts_engine_delegate_->GetVoices(browser_context, out_voices);
-
   TtsPlatformImpl* platform_impl = GetPlatformImpl();
   if (platform_impl) {
     // Ensure we have all built-in voices loaded. This is a no-op if already
@@ -312,6 +309,9 @@ void TtsControllerImpl::GetVoices(content::BrowserContext* browser_context,
     if (platform_impl->PlatformImplAvailable())
       platform_impl->GetVoices(out_voices);
   }
+
+  if (browser_context && tts_engine_delegate_)
+    tts_engine_delegate_->GetVoices(browser_context, out_voices);
 }
 
 bool TtsControllerImpl::IsSpeaking() {

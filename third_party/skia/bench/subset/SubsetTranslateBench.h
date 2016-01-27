@@ -23,20 +23,18 @@ public:
     SubsetTranslateBench(const SkString& path,
                          SkColorType colorType,
                          uint32_t subsetWidth,
-                         uint32_t subsetHeight,
-                         bool useCodec);
+                         uint32_t subsetHeight);
 
 protected:
     const char* onGetName() override;
     bool isSuitableFor(Backend backend) override;
-    void onDraw(const int n, SkCanvas* canvas) override;
+    void onDraw(int n, SkCanvas* canvas) override;
 
 private:
     SkString                      fName;
     SkColorType                   fColorType;
     const uint32_t                fSubsetWidth;
     const uint32_t                fSubsetHeight;
-    const bool                    fUseCodec;
     SkAutoTDelete<SkMemoryStream> fStream;
     typedef Benchmark INHERITED;
 };

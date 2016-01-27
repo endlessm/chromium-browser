@@ -28,6 +28,7 @@ WebInspector.ResponsiveDesignView = function(inspectedPagePlaceholder)
     this._viewport = { scrollX: 0, scrollY: 0, contentsWidth: 0, contentsHeight: 0, pageScaleFactor: 1, minimumPageScaleFactor: 1, maximumPageScaleFactor: 1 };
     this._drawContentsSize = true;
     this._deviceInsets = new Insets(0, 0, 0, 0);
+    this._pageContainerSrcset = "";
     this._viewportChangedThrottler = new WebInspector.Throttler(0);
     this._pageScaleFactorThrottler = new WebInspector.Throttler(50);
 
@@ -60,7 +61,8 @@ WebInspector.ResponsiveDesignView.prototype = {
         this._canvas = this._canvasContainer.element.createChild("canvas", "fill responsive-design-canvas");
 
         this._mediaInspectorContainer = this._canvasContainer.element.createChild("div", "responsive-design-media-container");
-        this._mediaInspector = new WebInspector.MediaQueryInspector();
+        WebInspector.Tooltip.addNativeOverrideContainer(this._mediaInspectorContainer);
+        this._mediaInspector = new WebInspector.MediaQueryInspector(WebInspector.overridesSupport.settings.deviceWidth);
         this._updateMediaQueryInspector();
 
         this._warningInfobar = new WebInspector.Infobar(WebInspector.Infobar.Type.Warning, WebInspector.moduleSetting("disableOverridesWarning"));
@@ -82,6 +84,9 @@ WebInspector.ResponsiveDesignView.prototype = {
         var cornerSlider = this._slidersContainer.createChild("div", "responsive-design-slider-corner");
         this._createResizer(cornerSlider, true, true);
         this._pageContainer = this._slidersContainer.createChild("div", "vbox flex-auto responsive-design-page-container");
+        this._pageContainerImage = this._pageContainer.createChild("img", "responsive-design-page-container-image hidden");
+        this._pageContainerImage.addEventListener("load", this._onPageContainerImageLoaded.bind(this, true), false);
+        this._pageContainerImage.addEventListener("error", this._onPageContainerImageLoaded.bind(this, false), false);
 
         // Page scale controls.
         this._pageScaleContainer = this._canvasContainer.element.createChild("div", "hbox responsive-design-page-scale-container");
@@ -91,7 +96,7 @@ WebInspector.ResponsiveDesignView.prototype = {
         this._decreasePageScaleButton.addEventListener("click", this._pageScaleButtonClicked.bind(this, false), false);
 
         this._pageScaleLabel = this._pageScaleContainer.createChild("label", "responsive-design-page-scale-label");
-        this._pageScaleLabel.title = WebInspector.UIString("For a simpler way to change the current page scale, hold down Shift and drag with your mouse.");
+        this._pageScaleLabel.title = WebInspector.UIString("Shift + drag to change page scale");
         this._pageScaleLabel.addEventListener("dblclick", this._resetPageScale.bind(this), false);
 
         this._increasePageScaleButton = this._pageScaleContainer.createChild("button", "responsive-design-page-scale-button responsive-design-page-scale-increase");
@@ -131,6 +136,8 @@ WebInspector.ResponsiveDesignView.prototype = {
         delete this._cachedCssCanvasHeight;
         delete this._cachedCssHeight;
         delete this._cachedCssWidth;
+        delete this._cachedCssPageWidth;
+        delete this._cachedCssPageHeight;
         delete this._cachedDeviceInsets;
         delete this._cachedZoomFactor;
         delete this._cachedViewport;
@@ -143,7 +150,7 @@ WebInspector.ResponsiveDesignView.prototype = {
     {
         var enabled = WebInspector.overridesSupport.emulationEnabled();
         if (enabled && !this._enabled) {
-            WebInspector.userMetrics.DeviceModeEnabled.record();
+            WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.DeviceModeEnabled);
             this._invalidateCache();
             this._ignoreResize = true;
             this._ensureUIInitialized();
@@ -174,12 +181,16 @@ WebInspector.ResponsiveDesignView.prototype = {
      * @param {number} dipWidth
      * @param {number} dipHeight
      * @param {number} scale
+     * @param {number} pageWidth
+     * @param {number} pageHeight
      */
-    update: function(dipWidth, dipHeight, scale)
+    update: function(dipWidth, dipHeight, scale, pageWidth, pageHeight)
     {
         this._scale = scale;
         this._dipWidth = dipWidth ? Math.max(dipWidth, 1) : 0;
         this._dipHeight = dipHeight ? Math.max(dipHeight, 1) : 0;
+        this._pageWidth = pageWidth ? Math.max(pageWidth, 1) : 0;
+        this._pageHeight = pageHeight ? Math.max(pageHeight, 1) : 0;
         this._updateUI();
     },
 
@@ -383,6 +394,7 @@ WebInspector.ResponsiveDesignView.prototype = {
 
         // Draw vertical ruler.
         context.save();
+        context.translate(0, this._deviceInsets.top);
         var minYIndex = Math.ceil(dipScrollY / rulerSubStep);
         var maxYIndex = Math.floor((dipScrollY + dipGridHeight) / rulerSubStep);
         context.translate(0, -dipScrollY);
@@ -411,8 +423,8 @@ WebInspector.ResponsiveDesignView.prototype = {
         context.restore();
 
         // Draw grid.
-        drawGrid(dipScrollX, dipScrollY, darkLineColor, gridSubStep);
-        drawGrid(dipScrollX, dipScrollY, lightLineColor, gridStep);
+        drawGrid(dipScrollX, dipScrollY + this._deviceInsets.top, darkLineColor, gridSubStep);
+        drawGrid(dipScrollX, dipScrollY + this._deviceInsets.top, lightLineColor, gridStep);
 
         /**
          * @param {number} scrollX
@@ -454,10 +466,13 @@ WebInspector.ResponsiveDesignView.prototype = {
         // Draw contents size.
         var pageScaleAvailable = WebInspector.overridesSupport.settings.emulateMobile.get() || WebInspector.overridesSupport.settings.emulateTouch.get();
         if (this._drawContentsSize && pageScaleAvailable) {
+            context.save();
             context.fillStyle = contentsSizeColor;
             var visibleContentsWidth = Math.max(0, Math.min(dipGridWidth, this._viewport.contentsWidth * scale - dipScrollX));
-            var visibleContentsHeight = Math.max(0, Math.min(dipGridHeight, this._viewport.contentsHeight * scale - dipScrollY));
-            context.fillRect(0, 0, visibleContentsWidth, visibleContentsHeight);
+            var visibleContentsHeight = Math.max(0, Math.min(dipGridHeight, this._viewport.contentsHeight * scale - dipScrollY + this._deviceInsets.top));
+            context.translate(0, this._deviceInsets.top);
+            context.fillRect(0, Math.max(-this._deviceInsets.top, -dipScrollY), visibleContentsWidth, visibleContentsHeight);
+            context.restore();
         }
     },
 
@@ -497,14 +512,18 @@ WebInspector.ResponsiveDesignView.prototype = {
             this._pageScaleContainer.style.top = cssCanvasOffset;
             this._mediaInspectorContainer.style.left = cssRulerWidth;
             this._mediaInspectorContainer.style.marginTop = cssRulerHeight;
+            this._warningInfobar.element.style.left = cssRulerWidth;
         }
 
         var cssWidth = (this._dipWidth ? this._dipWidth : availableDip.width) / zoomFactor;
         var cssHeight = (this._dipHeight ? this._dipHeight : availableDip.height) / zoomFactor;
+        var cssPageWidth = (this._pageWidth ? this._pageWidth : availableDip.width) / zoomFactor;
+        var cssPageHeight = (this._pageHeight ? this._pageHeight : availableDip.height) / zoomFactor;
         var deviceInsets = new Insets(this._deviceInsets.left * this._scale / zoomFactor, this._deviceInsets.top * this._scale / zoomFactor, this._deviceInsets.right * this._scale / zoomFactor, this._deviceInsets.bottom * this._scale / zoomFactor);
         cssWidth += deviceInsets.left + deviceInsets.right;
         cssHeight += deviceInsets.top + deviceInsets.bottom;
-        if (this._cachedCssWidth !== cssWidth || this._cachedCssHeight !== cssHeight || !deviceInsets.isEqual(this._cachedDeviceInsets)) {
+        var insetsChanged = !deviceInsets.isEqual(this._cachedDeviceInsets);
+        if (this._cachedCssWidth !== cssWidth || this._cachedCssHeight !== cssHeight || insetsChanged) {
             this._slidersContainer.style.width = cssWidth + "px";
             this._slidersContainer.style.height = cssHeight + "px";
             this._pageContainer.style.paddingLeft = deviceInsets.left + "px";
@@ -513,6 +532,13 @@ WebInspector.ResponsiveDesignView.prototype = {
             this._pageContainer.style.paddingBottom = deviceInsets.bottom + "px";
             this._inspectedPagePlaceholder.onResize();
         }
+
+        if (this._cachedCssPageWidth !== cssPageWidth || this._cachedCssPageHeight !== cssPageHeight) {
+            this._pageContainerImage.style.width = cssPageWidth + "px";
+            this._pageContainerImage.style.height = cssPageHeight + "px";
+        }
+
+        this._loadPageContainerImage();
 
         var pageScaleVisible = cssWidth + this._pageScaleContainerWidth + WebInspector.ResponsiveDesignView.RulerWidth / zoomFactor <= rect.width;
         this._pageScaleContainer.classList.toggle("hidden", !pageScaleVisible);
@@ -526,7 +552,7 @@ WebInspector.ResponsiveDesignView.prototype = {
 
         var canvasInvalidated = viewportChanged || this._drawContentsSize !== this._cachedDrawContentsSize || this._cachedScale !== this._scale ||
             this._cachedCssCanvasWidth !== cssCanvasWidth || this._cachedCssCanvasHeight !== cssCanvasHeight || this._cachedZoomFactor !== zoomFactor ||
-            this._cachedMediaInspectorHeight !== mediaInspectorHeight;
+            this._cachedMediaInspectorHeight !== mediaInspectorHeight || insetsChanged;
 
         if (canvasInvalidated)
             this._drawCanvas(cssCanvasWidth, cssCanvasHeight, rulerTotalHeight);
@@ -544,11 +570,30 @@ WebInspector.ResponsiveDesignView.prototype = {
         this._cachedCssCanvasHeight = cssCanvasHeight;
         this._cachedCssHeight = cssHeight;
         this._cachedCssWidth = cssWidth;
+        this._cachedCssPageWidth = cssPageWidth;
+        this._cachedCssPageHeight = cssPageHeight;
         this._cachedDeviceInsets = deviceInsets;
         this._cachedZoomFactor = zoomFactor;
         this._cachedViewport = this._viewport;
         this._cachedDrawContentsSize = this._drawContentsSize;
         this._cachedMediaInspectorHeight = mediaInspectorHeight;
+    },
+
+    _loadPageContainerImage: function()
+    {
+        if (this._pageContainerImage.getAttribute("srcset") === this._pageContainerSrcset)
+            return;
+        this._pageContainerImage.setAttribute("srcset", this._pageContainerSrcset);
+        if (!this._pageContainerSrcset)
+            this._pageContainerImage.classList.toggle("hidden", true);
+    },
+
+    /**
+     * @param {boolean} success
+     */
+    _onPageContainerImageLoaded: function(success)
+    {
+        this._pageContainerImage.classList.toggle("hidden", !success);
     },
 
     onResize: function()
@@ -597,7 +642,7 @@ WebInspector.ResponsiveDesignView.prototype = {
         buttonsToolbar.setToggledColor("rgb(105, 194, 236)");
         buttonsToolbar.element.classList.add("responsive-design-section", "responsive-design-section-buttons");
 
-        var resetButton = new WebInspector.ToolbarButton(WebInspector.UIString("Reset all overrides."), "clear-toolbar-item");
+        var resetButton = new WebInspector.ToolbarButton(WebInspector.UIString("Reset all overrides"), "clear-toolbar-item");
         buttonsToolbar.appendToolbarItem(resetButton);
         resetButton.addEventListener("click", WebInspector.overridesSupport.reset, WebInspector.overridesSupport);
 
@@ -676,17 +721,13 @@ WebInspector.ResponsiveDesignView.prototype = {
         var networkSection = this._toolbarElement.createChild("div", "responsive-design-section responsive-design-section-network");
         networkSection.createChild("div", "responsive-design-section-decorator");
 
-        // Bandwidth.
-        var bandwidthElement = networkSection.createChild("div", "responsive-design-suite responsive-design-suite-top").createChild("div");
-        var fieldsetElement = bandwidthElement.createChild("fieldset");
-        var networkCheckbox = fieldsetElement.createChild("label");
-        networkCheckbox.textContent = WebInspector.UIString("Network");
-        new WebInspector.NetworkConditionsSelector(fieldsetElement.createChild("select"));
+        var networkLabel = networkSection.createChild("div", "responsive-design-suite responsive-design-suite-top").createChild("div").createChild("label");
+        networkLabel.textContent = WebInspector.UIString("Network");
 
-        // User agent.
-        var userAgentElement = networkSection.createChild("div", "responsive-design-suite").createChild("div");
-        fieldsetElement = userAgentElement.createChild("fieldset");
-        fieldsetElement.appendChild(WebInspector.SettingsUI.createSettingInputField("UA", WebInspector.overridesSupport.settings.userAgent, false, 0, "", undefined, false, false, WebInspector.UIString("No override")));
+        var showDrawerButton = networkSection.createChild("div", "responsive-design-suite").createChild("a");
+        showDrawerButton.textContent = WebInspector.UIString("Configure throttling");
+        var action = WebInspector.actionRegistry.action("network.show-config");
+        showDrawerButton.addEventListener("click", action.execute.bind(action));
     },
 
     _onToggleMediaInspectorButtonClick: function()
@@ -735,10 +776,12 @@ WebInspector.ResponsiveDesignView.prototype = {
      */
     _deviceModeSelected: function(device, mode)
     {
+        this._pageContainerSrcset = "";
         if (device && mode) {
             var orientation = device.orientationByName(mode.orientation);
             this._deviceInsets = mode.insets;
             WebInspector.overridesSupport.settings.screenOrientationOverride.set(mode.orientation == WebInspector.EmulatedDevice.Horizontal ? "landscapePrimary" : "portraitPrimary");
+            this._pageContainerSrcset = device.modeImage(mode);
         } else {
             this._deviceInsets = new Insets(0, 0, 0, 0);
             WebInspector.overridesSupport.settings.screenOrientationOverride.set("");
@@ -762,12 +805,12 @@ WebInspector.ResponsiveDesignView.prototype = {
     },
 
     /**
-     * @param {!WebInspector.Throttler.FinishCallback} finishCallback
+     * @return {!Promise.<?>}
      */
-    _updateUIThrottled: function(finishCallback)
+    _updateUIThrottled: function()
     {
         this._updateUI();
-        finishCallback();
+        return Promise.resolve();
     },
 
     /**
@@ -779,10 +822,10 @@ WebInspector.ResponsiveDesignView.prototype = {
         this._pageScaleFactorThrottler.schedule(updatePageScaleFactor.bind(this));
 
         /**
-         * @param {!WebInspector.Throttler.FinishCallback} finishCallback
+         * @return {!Promise.<?>}
          * @this {WebInspector.ResponsiveDesignView}
          */
-        function updatePageScaleFactor(finishCallback)
+        function updatePageScaleFactor()
         {
             if (this._target && this._viewport) {
                 var value = this._viewport.pageScaleFactor;
@@ -791,7 +834,7 @@ WebInspector.ResponsiveDesignView.prototype = {
                 value = Math.max(this._viewport.minimumPageScaleFactor, value);
                 this._target.emulationAgent().setPageScaleFactor(value);
             }
-            finishCallback();
+            return Promise.resolve();
         }
     },
 
@@ -800,14 +843,14 @@ WebInspector.ResponsiveDesignView.prototype = {
         this._pageScaleFactorThrottler.schedule(updatePageScaleFactor.bind(this));
 
         /**
-         * @param {!WebInspector.Throttler.FinishCallback} finishCallback
+         * @return {!Promise.<?>}
          * @this {WebInspector.ResponsiveDesignView}
          */
-        function updatePageScaleFactor(finishCallback)
+        function updatePageScaleFactor()
         {
             if (this._target && this._viewport && this._viewport.minimumPageScaleFactor <= 1 && this._viewport.maximumPageScaleFactor >= 1)
                 this._target.emulationAgent().setPageScaleFactor(1);
-            finishCallback();
+            return Promise.resolve();
         }
     },
 

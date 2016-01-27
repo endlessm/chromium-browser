@@ -32,7 +32,7 @@ namespace blink {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wglobal-constructors"
 #endif
-const WrapperTypeInfo V8TestSpecialOperations::wrapperTypeInfo = { gin::kEmbedderBlink, V8TestSpecialOperations::domTemplate, V8TestSpecialOperations::refObject, V8TestSpecialOperations::derefObject, V8TestSpecialOperations::trace, 0, 0, V8TestSpecialOperations::preparePrototypeObject, V8TestSpecialOperations::installConditionallyEnabledProperties, "TestSpecialOperations", 0, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::NotInheritFromEventTarget, WrapperTypeInfo::Independent, WrapperTypeInfo::RefCountedObject };
+const WrapperTypeInfo V8TestSpecialOperations::wrapperTypeInfo = { gin::kEmbedderBlink, V8TestSpecialOperations::domTemplate, V8TestSpecialOperations::refObject, V8TestSpecialOperations::derefObject, V8TestSpecialOperations::trace, 0, 0, V8TestSpecialOperations::preparePrototypeAndInterfaceObject, V8TestSpecialOperations::installConditionallyEnabledProperties, "TestSpecialOperations", 0, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::NotInheritFromEventTarget, WrapperTypeInfo::Independent, WrapperTypeInfo::RefCountedObject };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
 #pragma clang diagnostic pop
 #endif
@@ -160,8 +160,8 @@ static void namedPropertyEnumeratorCallback(const v8::PropertyCallbackInfo<v8::A
 
 } // namespace TestSpecialOperationsV8Internal
 
-static const V8DOMConfiguration::MethodConfiguration V8TestSpecialOperationsMethods[] = {
-    {"namedItem", TestSpecialOperationsV8Internal::namedItemMethodCallback, 0, 1, V8DOMConfiguration::ExposedToAllScripts},
+const V8DOMConfiguration::MethodConfiguration V8TestSpecialOperationsMethods[] = {
+    {"namedItem", TestSpecialOperationsV8Internal::namedItemMethodCallback, 0, 1, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
 };
 
 static void installV8TestSpecialOperationsTemplate(v8::Local<v8::FunctionTemplate> functionTemplate, v8::Isolate* isolate)
@@ -177,11 +177,8 @@ static void installV8TestSpecialOperationsTemplate(v8::Local<v8::FunctionTemplat
     ALLOW_UNUSED_LOCAL(instanceTemplate);
     v8::Local<v8::ObjectTemplate> prototypeTemplate = functionTemplate->PrototypeTemplate();
     ALLOW_UNUSED_LOCAL(prototypeTemplate);
-    {
-        v8::NamedPropertyHandlerConfiguration config(TestSpecialOperationsV8Internal::namedPropertyGetterCallback, TestSpecialOperationsV8Internal::namedPropertySetterCallback, TestSpecialOperationsV8Internal::namedPropertyQueryCallback, 0, TestSpecialOperationsV8Internal::namedPropertyEnumeratorCallback);
-        config.flags = static_cast<v8::PropertyHandlerFlags>(static_cast<int>(config.flags) | static_cast<int>(v8::PropertyHandlerFlags::kOnlyInterceptStrings));
-        functionTemplate->InstanceTemplate()->SetHandler(config);
-    }
+    v8::NamedPropertyHandlerConfiguration namedPropertyHandlerConfig(TestSpecialOperationsV8Internal::namedPropertyGetterCallback, TestSpecialOperationsV8Internal::namedPropertySetterCallback, TestSpecialOperationsV8Internal::namedPropertyQueryCallback, 0, TestSpecialOperationsV8Internal::namedPropertyEnumeratorCallback, v8::Local<v8::Value>(), static_cast<v8::PropertyHandlerFlags>(int(v8::PropertyHandlerFlags::kOnlyInterceptStrings)));
+    instanceTemplate->SetHandler(namedPropertyHandlerConfig);
 
     // Custom toString template
     functionTemplate->Set(v8AtomicString(isolate, "toString"), V8PerIsolateData::from(isolate)->toStringTemplate());

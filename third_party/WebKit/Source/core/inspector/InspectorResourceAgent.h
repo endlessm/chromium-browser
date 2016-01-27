@@ -35,8 +35,10 @@
 #include "core/CoreExport.h"
 #include "core/InspectorFrontend.h"
 #include "core/inspector/InspectorBaseAgent.h"
+#include "core/inspector/InspectorPageAgent.h"
 #include "platform/Timer.h"
 #include "platform/heap/Handle.h"
+#include "platform/network/ResourceRequest.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/text/WTFString.h"
 
@@ -46,18 +48,17 @@ class Resource;
 struct FetchInitiatorInfo;
 class Document;
 class DocumentLoader;
+class EncodedFormData;
 class ExecutionContext;
-class FormData;
 class LocalFrame;
 class HTTPHeaderMap;
+class InspectedFrames;
 class InspectorFrontend;
-class InspectorPageAgent;
 class JSONObject;
 class KURL;
 class NetworkResourcesData;
 class ResourceError;
 class ResourceLoader;
-class ResourceRequest;
 class ResourceResponse;
 class ThreadableLoaderClient;
 class XHRReplayData;
@@ -70,19 +71,20 @@ typedef String ErrorString;
 
 class CORE_EXPORT InspectorResourceAgent final : public InspectorBaseAgent<InspectorResourceAgent, InspectorFrontend::Network>, public InspectorBackendDispatcher::NetworkCommandHandler {
 public:
-    static PassOwnPtrWillBeRawPtr<InspectorResourceAgent> create(InspectorPageAgent* pageAgent)
+    static PassOwnPtrWillBeRawPtr<InspectorResourceAgent> create(InspectedFrames* inspectedFrames)
     {
-        return adoptPtrWillBeNoop(new InspectorResourceAgent(pageAgent));
+        return adoptPtrWillBeNoop(new InspectorResourceAgent(inspectedFrames));
     }
 
     void disable(ErrorString*) override;
     void restore() override;
 
-    virtual ~InspectorResourceAgent();
+    ~InspectorResourceAgent() override;
     DECLARE_VIRTUAL_TRACE();
 
     // Called from instrumentation.
-    void willSendRequest(unsigned long identifier, DocumentLoader*, ResourceRequest&, const ResourceResponse& redirectResponse, const FetchInitiatorInfo&);
+    void didBlockRequest(LocalFrame*, const ResourceRequest&, DocumentLoader*, const FetchInitiatorInfo&, ResourceRequestBlockedReason);
+    void willSendRequest(LocalFrame*, unsigned long identifier, DocumentLoader*, ResourceRequest&, const ResourceResponse& redirectResponse, const FetchInitiatorInfo&);
     void markResourceAsCached(unsigned long identifier);
     void didReceiveResourceResponse(LocalFrame*, unsigned long identifier, DocumentLoader*, const ResourceResponse&, ResourceLoader*);
     void didReceiveData(LocalFrame*, unsigned long identifier, const char* data, int dataLength, int encodedDataLength);
@@ -95,9 +97,13 @@ public:
     bool shouldForceCORSPreflight();
 
     void documentThreadableLoaderStartedLoadingForClient(unsigned long identifier, ThreadableLoaderClient*);
-    void willLoadXHR(XMLHttpRequest*, ThreadableLoaderClient*, const AtomicString& method, const KURL&, bool async, PassRefPtr<FormData> body, const HTTPHeaderMap& headers, bool includeCrendentials);
+    void willLoadXHR(XMLHttpRequest*, ThreadableLoaderClient*, const AtomicString& method, const KURL&, bool async, PassRefPtr<EncodedFormData> body, const HTTPHeaderMap& headers, bool includeCrendentials);
     void didFailXHRLoading(ExecutionContext*, XMLHttpRequest*, ThreadableLoaderClient*, const AtomicString&, const String&);
     void didFinishXHRLoading(ExecutionContext*, XMLHttpRequest*, ThreadableLoaderClient*, const AtomicString&, const String&);
+
+    void willStartFetch(ThreadableLoaderClient*);
+    void didFailFetch(ThreadableLoaderClient*);
+    void didFinishFetch(ExecutionContext*, ThreadableLoaderClient*, const AtomicString& method, const String& url);
 
     void willSendEventSourceRequest(ThreadableLoaderClient*);
     void willDispachEventSourceEvent(ThreadableLoaderClient*, const AtomicString& eventName, const AtomicString& eventId, const Vector<UChar>& data);
@@ -126,61 +132,54 @@ public:
     void didReceiveWebSocketFrameError(unsigned long identifier, const String&);
 
     // Called from frontend
-    virtual void enable(ErrorString*) override;
-    virtual void setUserAgentOverride(ErrorString*, const String& userAgent) override;
-    virtual void setExtraHTTPHeaders(ErrorString*, const RefPtr<JSONObject>&) override;
-    virtual void getResponseBody(ErrorString*, const String& requestId, PassRefPtrWillBeRawPtr<GetResponseBodyCallback>) override;
+    void enable(ErrorString*) override;
+    void setUserAgentOverride(ErrorString*, const String& userAgent) override;
+    void setExtraHTTPHeaders(ErrorString*, const RefPtr<JSONObject>&) override;
+    void getResponseBody(ErrorString*, const String& requestId, PassRefPtrWillBeRawPtr<GetResponseBodyCallback>) override;
+    void addBlockedURL(ErrorString*, const String& url) override;
+    void removeBlockedURL(ErrorString*, const String& url) override;
 
-    virtual void replayXHR(ErrorString*, const String& requestId) override;
-    virtual void setMonitoringXHREnabled(ErrorString*, bool) override;
+    void replayXHR(ErrorString*, const String& requestId) override;
+    void setMonitoringXHREnabled(ErrorString*, bool) override;
 
-    virtual void canClearBrowserCache(ErrorString*, bool*) override;
-    virtual void canClearBrowserCookies(ErrorString*, bool*) override;
-    virtual void emulateNetworkConditions(ErrorString*, bool, double, double, double) override;
-    virtual void setCacheDisabled(ErrorString*, bool cacheDisabled) override;
+    void canClearBrowserCache(ErrorString*, bool*) override;
+    void canClearBrowserCookies(ErrorString*, bool*) override;
+    void emulateNetworkConditions(ErrorString*, bool, double, double, double) override;
+    void setCacheDisabled(ErrorString*, bool cacheDisabled) override;
 
-    virtual void setDataSizeLimitsForTest(ErrorString*, int maxTotal, int maxResource) override;
+    void setDataSizeLimitsForTest(ErrorString*, int maxTotal, int maxResource) override;
 
     // Called from other agents.
     void setHostId(const String&);
     bool fetchResourceContent(Document*, const KURL&, String* content, bool* base64Encoded);
+    bool shouldBlockRequest(const ResourceRequest&);
 
 private:
-    explicit InspectorResourceAgent(InspectorPageAgent*);
+    explicit InspectorResourceAgent(InspectedFrames*);
 
     void enable();
+    void willSendRequestInternal(LocalFrame*, unsigned long identifier, DocumentLoader*, const ResourceRequest&, const ResourceResponse& redirectResponse, const FetchInitiatorInfo&);
     void delayedRemoveReplayXHR(XMLHttpRequest*);
     void removeFinishedReplayXHRFired(Timer<InspectorResourceAgent>*);
     void didFinishXHRInternal(ExecutionContext*, XMLHttpRequest*, ThreadableLoaderClient*, const AtomicString&, const String&, bool);
 
     bool getResponseBodyBlob(const String& requestId, PassRefPtrWillBeRawPtr<GetResponseBodyCallback>);
 
-    RawPtrWillBeMember<InspectorPageAgent> m_pageAgent;
+    InspectedFrames* m_inspectedFrames;
     String m_userAgentOverride;
     String m_hostId;
-    OwnPtr<NetworkResourcesData> m_resourcesData;
+    OwnPtrWillBeMember<NetworkResourcesData> m_resourcesData;
 
     typedef HashMap<ThreadableLoaderClient*, unsigned long> ThreadableLoaderClientRequestIdMap;
 
-    // Stores the data for replaying XHR until an identifier for the load is
-    // generated by the loader and passed to the inspector via the
-    // documentThreadableLoaderStartedLoadingForClient() method.
-    ThreadableLoaderClient* m_pendingXHR;
-    RefPtrWillBeMember<XHRReplayData> m_pendingXHRReplayData;
-    ThreadableLoaderClientRequestIdMap m_xhrRequestIdMap;
+    // Stores the pending ThreadableLoaderClient till an identifier for
+    // the load is generated by the loader and passed to the inspector
+    // via the documentThreadableLoaderStartedLoadingForClient() method.
+    ThreadableLoaderClient* m_pendingRequest;
+    InspectorPageAgent::ResourceType m_pendingRequestType;
+    ThreadableLoaderClientRequestIdMap m_knownRequestIdMap;
 
-    // Stores the pointer to the ThreadableLoaderClient for an EventSource
-    // (actually, the EventSource instance itself) for which a loader is being
-    // initialized, until an identifier for the load is generated by the loader
-    // and passed to the inspector via the
-    // documentThreadableLoaderStartedLoadingForClient() method.
-    //
-    // Since the DocumentThreadableLoader may call
-    // documentThreadableLoaderStartedLoadingForClient() only synchronously to
-    // the creation of the loader, it's unnecessary to store the pointer to a
-    // map.
-    ThreadableLoaderClient* m_pendingEventSource;
-    ThreadableLoaderClientRequestIdMap m_eventSourceRequestIdMap;
+    RefPtrWillBeMember<XHRReplayData> m_pendingXHRReplayData;
 
     typedef HashMap<String, RefPtr<TypeBuilder::Network::Initiator> > FrameNavigationInitiatorMap;
     FrameNavigationInitiatorMap m_frameNavigationInitiatorMap;

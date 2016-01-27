@@ -64,12 +64,13 @@ void LayoutReplica::layout()
 
 void LayoutReplica::computePreferredLogicalWidths()
 {
-    m_minPreferredLogicalWidth = parentBox()->size().width();
-    m_maxPreferredLogicalWidth = m_minPreferredLogicalWidth;
+    // LayoutReplica is a synthetic object, PaintLayerReflectionInfo is what
+    // calls into it, so this should never be called.
+    ASSERT_NOT_REACHED();
     clearPreferredLogicalWidthsDirty();
 }
 
-void LayoutReplica::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+void LayoutReplica::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset) const
 {
     ReplicaPainter(*this).paint(paintInfo, paintOffset);
 }

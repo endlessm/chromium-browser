@@ -44,14 +44,12 @@ class ViewportStyleResolver;
 // This class selects a ComputedStyle for a given element based on a collection of stylesheets.
 class ScopedStyleResolver final : public NoBaseWillBeGarbageCollected<ScopedStyleResolver> {
     WTF_MAKE_NONCOPYABLE(ScopedStyleResolver);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(ScopedStyleResolver);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(ScopedStyleResolver);
 public:
     static PassOwnPtrWillBeRawPtr<ScopedStyleResolver> create(TreeScope& scope)
     {
         return adoptPtrWillBeNoop(new ScopedStyleResolver(scope));
     }
-
-    static TreeScope* treeScopeFor(Document&, const CSSStyleSheet*);
 
     const TreeScope& treeScope() const { return *m_scope; }
     ScopedStyleResolver* parent() const;
@@ -59,13 +57,14 @@ public:
     StyleRuleKeyframes* keyframeStylesForAnimation(const StringImpl* animationName);
 
     void appendCSSStyleSheet(CSSStyleSheet&, const MediaQueryEvaluator&);
-    void collectMatchingAuthorRules(ElementRuleCollector&, bool includeEmptyRules, CascadeOrder = ignoreCascadeOrder);
-    void collectMatchingShadowHostRules(ElementRuleCollector&, bool includeEmptyRules, CascadeOrder = ignoreCascadeOrder);
-    void collectMatchingTreeBoundaryCrossingRules(ElementRuleCollector&, bool includeEmptyRules, CascadeOrder);
+    void collectMatchingAuthorRules(ElementRuleCollector&, CascadeOrder = ignoreCascadeOrder);
+    void collectMatchingShadowHostRules(ElementRuleCollector&, CascadeOrder = ignoreCascadeOrder);
+    void collectMatchingTreeBoundaryCrossingRules(ElementRuleCollector&, CascadeOrder);
     void matchPageRules(PageRuleCollector&);
-    void collectFeaturesTo(RuleFeatureSet&, HashSet<const StyleSheetContents*>& visitedSharedStyleSheetContents) const;
+    void collectFeaturesTo(RuleFeatureSet&, WillBeHeapHashSet<RawPtrWillBeMember<const StyleSheetContents>>& visitedSharedStyleSheetContents) const;
     void resetAuthorStyle();
     void collectViewportRulesTo(ViewportStyleResolver*) const;
+    bool hasDeepOrShadowSelector() const { return m_hasDeepOrShadowSelector; }
 
     DECLARE_TRACE();
 
@@ -84,7 +83,7 @@ private:
 
     WillBeHeapVector<RawPtrWillBeMember<CSSStyleSheet>> m_authorStyleSheets;
 
-    typedef WillBeHeapHashMap<const StringImpl*, RefPtrWillBeMember<StyleRuleKeyframes>> KeyframesRuleMap;
+    using KeyframesRuleMap = WillBeHeapHashMap<const StringImpl*, RefPtrWillBeMember<StyleRuleKeyframes>>;
     KeyframesRuleMap m_keyframesRuleMap;
 
     class RuleSubSet final : public NoBaseWillBeGarbageCollected<RuleSubSet> {
@@ -94,7 +93,7 @@ private:
             return adoptPtrWillBeNoop(new RuleSubSet(sheet, index, rules));
         }
 
-        CSSStyleSheet* m_parentStyleSheet;
+        RawPtrWillBeMember<CSSStyleSheet> m_parentStyleSheet;
         unsigned m_parentIndex;
         OwnPtrWillBeMember<RuleSet> m_ruleSet;
 
@@ -108,9 +107,10 @@ private:
         {
         }
     };
-    typedef WillBeHeapVector<OwnPtrWillBeMember<RuleSubSet>> CSSStyleSheetRuleSubSet;
+    using CSSStyleSheetRuleSubSet = WillBeHeapVector<OwnPtrWillBeMember<RuleSubSet>>;
 
     OwnPtrWillBeMember<CSSStyleSheetRuleSubSet> m_treeBoundaryCrossingRuleSet;
+    bool m_hasDeepOrShadowSelector = false;
 };
 
 } // namespace blink

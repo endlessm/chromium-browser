@@ -57,6 +57,7 @@ class EventListener;
 class EventTarget;
 class ExceptionState;
 class ExecutionContext;
+class FlexibleArrayBufferView;
 class Frame;
 class LocalDOMWindow;
 class LocalFrame;
@@ -66,6 +67,7 @@ class XPathNSResolver;
 
 template <typename T>
 struct V8TypeOf {
+    STATIC_ONLY(V8TypeOf);
     // |Type| provides C++ -> V8 type conversion for DOM wrappers.
     // The Blink binding code generator will generate specialized version of
     // V8TypeOf for each wrapper class.
@@ -944,6 +946,8 @@ struct NativeValueTraits<JSONValuePtr> {
     CORE_EXPORT static JSONValuePtr nativeValue(v8::Isolate*, v8::Local<v8::Value>, ExceptionState&, int maxDepth = JSONValue::maxDepth);
 };
 
+JSONValuePtr toJSONValue(v8::Isolate*, v8::Local<v8::Value>, int maxDepth = JSONValue::maxDepth);
+
 CORE_EXPORT v8::Isolate* toIsolate(ExecutionContext*);
 CORE_EXPORT v8::Isolate* toIsolate(LocalFrame*);
 
@@ -951,7 +955,7 @@ DOMWindow* toDOMWindow(v8::Isolate*, v8::Local<v8::Value>);
 DOMWindow* toDOMWindow(v8::Local<v8::Context>);
 LocalDOMWindow* enteredDOMWindow(v8::Isolate*);
 CORE_EXPORT LocalDOMWindow* currentDOMWindow(v8::Isolate*);
-LocalDOMWindow* callingDOMWindow(v8::Isolate*);
+CORE_EXPORT LocalDOMWindow* callingDOMWindow(v8::Isolate*);
 CORE_EXPORT ExecutionContext* toExecutionContext(v8::Local<v8::Context>);
 CORE_EXPORT ExecutionContext* currentExecutionContext(v8::Isolate*);
 CORE_EXPORT ExecutionContext* callingExecutionContext(v8::Isolate*);
@@ -970,6 +974,11 @@ CORE_EXPORT v8::Local<v8::Context> toV8ContextEvenIfDetached(Frame*, DOMWrapperW
 CORE_EXPORT Frame* toFrameIfNotDetached(v8::Local<v8::Context>);
 
 CORE_EXPORT EventTarget* toEventTarget(v8::Isolate*, v8::Local<v8::Value>);
+
+// If 'storage' is non-null, it must be large enough to copy all bytes in the
+// array buffer view into it.  Use allocateFlexibleArrayBufferStorage(v8Value)
+// to allocate it using alloca() in the callers stack frame.
+CORE_EXPORT void toFlexibleArrayBufferView(v8::Isolate*, v8::Local<v8::Value>, FlexibleArrayBufferView&, void* storage = nullptr);
 
 // If the current context causes out of memory, JavaScript setting
 // is disabled and it returns true.
@@ -1018,7 +1027,8 @@ enum DeleteResult {
     DeleteUnknownProperty
 };
 
-class V8IsolateInterruptor : public ThreadState::Interruptor {
+class V8IsolateInterruptor : public BlinkGCInterruptor {
+    USING_FAST_MALLOC(V8IsolateInterruptor);
 public:
     explicit V8IsolateInterruptor(v8::Isolate* isolate)
         : m_isolate(isolate)
@@ -1041,6 +1051,7 @@ private:
 };
 
 class DevToolsFunctionInfo final {
+    STACK_ALLOCATED();
 public:
     explicit DevToolsFunctionInfo(v8::Local<v8::Function>& function)
         : m_scriptId(0)

@@ -117,6 +117,12 @@ v8::Local<v8::String> GenerateThumbnailURL(
           "chrome-search://thumb/%d/%d", render_view_id, most_visited_item_id));
 }
 
+v8::Local<v8::String> GenerateThumb2URL(v8::Isolate* isolate,
+                                        const std::string& url) {
+  return UTF8ToV8String(
+      isolate, base::StringPrintf("chrome-search://thumb2/%s", url.c_str()));
+}
+
 // Populates a Javascript MostVisitedItem object from |mv_item|.
 // NOTE: Includes "url", "title" and "domain" which are private data, so should
 // not be returned to the Instant page. These should be erased before returning
@@ -152,8 +158,38 @@ v8::Local<v8::Object> GenerateMostVisitedItem(
            v8::Int32::New(isolate, render_view_id));
   obj->Set(v8::String::NewFromUtf8(isolate, "rid"),
            v8::Int32::New(isolate, restricted_id));
-  obj->Set(v8::String::NewFromUtf8(isolate, "thumbnailUrl"),
-           GenerateThumbnailURL(isolate, render_view_id, restricted_id));
+
+  // If the suggestion already has a suggested thumbnail, we create an thumbnail
+  // array with both the local thumbnail and the proposed one.
+  // Otherwise, we just create an array with the generated one.
+  if (!mv_item.thumbnail.spec().empty()) {
+    v8::Local<v8::Array> thumbs = v8::Array::New(isolate, 2);
+    thumbs->Set(0, GenerateThumb2URL(isolate, mv_item.url.spec()));
+    thumbs->Set(1, UTF8ToV8String(isolate, mv_item.thumbnail.spec()));
+    obj->Set(v8::String::NewFromUtf8(isolate, "thumbnailUrls"), thumbs);
+  } else {
+    v8::Local<v8::Array> thumbs = v8::Array::New(isolate, 1);
+    thumbs->Set(0,
+                GenerateThumbnailURL(isolate, render_view_id, restricted_id));
+    obj->Set(v8::String::NewFromUtf8(isolate, "thumbnailUrls"), thumbs);
+  }
+
+  // If the suggestion already has a favicon, we populate the element with it.
+  if (!mv_item.favicon.spec().empty()) {
+    obj->Set(v8::String::NewFromUtf8(isolate, "faviconUrl"),
+             UTF8ToV8String(isolate, mv_item.favicon.spec()));
+  }
+  // If the suggestion has an impression url, we populate the element with it.
+  if (!mv_item.impression_url.spec().empty()) {
+    obj->Set(v8::String::NewFromUtf8(isolate, "impressionUrl"),
+             UTF8ToV8String(isolate, mv_item.impression_url.spec()));
+  }
+  // If the suggestion has a click url, we populate the element with it.
+  if (!mv_item.click_url.spec().empty()) {
+    obj->Set(v8::String::NewFromUtf8(isolate, "pingUrl"),
+             UTF8ToV8String(isolate, mv_item.click_url.spec()));
+  }
+
   if (IsIconNTPEnabled()) {
     // Update website http://www.chromium.org/embeddedsearch when we make this
     // permanent.
@@ -368,17 +404,6 @@ static const char kDispatchThemeChangeEventScript[] =
     "  true;"
     "}";
 
-static const char kDispatchToggleVoiceSearchScript[] =
-    "if (window.chrome &&"
-    "    window.chrome.embeddedSearch &&"
-    "    window.chrome.embeddedSearch.searchBox &&"
-    "    window.chrome.embeddedSearch.searchBox.ontogglevoicesearch &&"
-    "    typeof window.chrome.embeddedSearch.searchBox.ontogglevoicesearch =="
-    "         'function') {"
-    "  window.chrome.embeddedSearch.searchBox.ontogglevoicesearch();"
-    "  true;"
-    "}";
-
 // ----------------------------------------------------------------------------
 
 class SearchBoxExtensionWrapper : public v8::Extension {
@@ -478,10 +503,6 @@ class SearchBoxExtensionWrapper : public v8::Extension {
 
   // Pastes provided value or clipboard's content into the omnibox.
   static void Paste(const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // Indicates whether the page supports voice search.
-  static void SetVoiceSearchSupported(
-      const v8::FunctionCallbackInfo<v8::Value>& args);
 
   // Start capturing user key strokes.
   static void StartCapturingKeyStrokes(
@@ -591,12 +612,6 @@ void SearchBoxExtension::DispatchThemeChange(blink::WebFrame* frame) {
   Dispatch(frame, kDispatchThemeChangeEventScript);
 }
 
-// static
-void SearchBoxExtension::DispatchToggleVoiceSearch(
-    blink::WebFrame* frame) {
-  Dispatch(frame, kDispatchToggleVoiceSearchScript);
-}
-
 SearchBoxExtensionWrapper::SearchBoxExtensionWrapper(
     const base::StringPiece& code)
     : v8::Extension(kSearchBoxExtensionName, code.data(), 0, 0, code.size()) {
@@ -656,8 +671,6 @@ SearchBoxExtensionWrapper::GetNativeFunctionTemplate(
     return v8::FunctionTemplate::New(isolate, NavigateContentWindow);
   if (name->Equals(v8::String::NewFromUtf8(isolate, "Paste")))
     return v8::FunctionTemplate::New(isolate, Paste);
-  if (name->Equals(v8::String::NewFromUtf8(isolate, "SetVoiceSearchSupported")))
-    return v8::FunctionTemplate::New(isolate, SetVoiceSearchSupported);
   if (name->Equals(
           v8::String::NewFromUtf8(isolate, "StartCapturingKeyStrokes")))
     return v8::FunctionTemplate::New(isolate, StartCapturingKeyStrokes);
@@ -1221,22 +1234,6 @@ void SearchBoxExtensionWrapper::StopCapturingKeyStrokes(
 
   DVLOG(1) << render_view << " StopCapturingKeyStrokes";
   SearchBox::Get(render_view)->StopCapturingKeyStrokes();
-}
-
-// static
-void SearchBoxExtensionWrapper::SetVoiceSearchSupported(
-    const v8::FunctionCallbackInfo<v8::Value>& args) {
-  content::RenderView* render_view = GetRenderView();
-  if (!render_view) {
-    return;
-  }
-  if (!args.Length()) {
-    ThrowInvalidParameters(args);
-    return;
-  }
-
-  DVLOG(1) << render_view << " SetVoiceSearchSupported";
-  SearchBox::Get(render_view)->SetVoiceSearchSupported(args[0]->BooleanValue());
 }
 
 // static

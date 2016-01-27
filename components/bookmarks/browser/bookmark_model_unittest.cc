@@ -18,6 +18,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "components/bookmarks/browser/bookmark_model_observer.h"
+#include "components/bookmarks/browser/bookmark_undo_delegate.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/test/bookmark_test_helpers.h"
 #include "components/bookmarks/test/test_bookmark_client.h"
@@ -160,8 +161,9 @@ void PopulateNodeImpl(const std::vector<std::string>& description,
 // NOTE: each name must be unique, and folders are assigned a unique title by
 // way of an increasing integer.
 void PopulateNodeFromString(const std::string& description, TestNode* parent) {
-  std::vector<std::string> elements;
-  base::SplitStringAlongWhitespace(description, &elements);
+  std::vector<std::string> elements = base::SplitString(
+      description, base::kWhitespaceASCII,
+      base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
   size_t index = 0;
   PopulateNodeImpl(elements, &index, parent);
 }
@@ -210,7 +212,8 @@ void VerifyNoDuplicateIDs(BookmarkModel* model) {
 }
 
 class BookmarkModelTest : public testing::Test,
-                          public BookmarkModelObserver {
+                          public BookmarkModelObserver,
+                          public BookmarkUndoDelegate {
  public:
   struct ObserverDetails {
     ObserverDetails() {
@@ -242,6 +245,23 @@ class BookmarkModelTest : public testing::Test,
     const BookmarkNode* node2_;
     int index1_;
     int index2_;
+  };
+
+  struct NodeRemovalDetail {
+    NodeRemovalDetail(const BookmarkNode* parent,
+                      int index,
+                      const BookmarkNode* node)
+        : parent_node_id(parent->id()), index(index), node_id(node->id()) {}
+
+    bool operator==(const NodeRemovalDetail& other) const {
+      return parent_node_id == other.parent_node_id &&
+             index == other.index &&
+             node_id == other.node_id;
+    }
+
+    int64_t parent_node_id;
+    int index;
+    int64_t node_id;
   };
 
   BookmarkModelTest() : model_(client_.CreateModel()) {
@@ -276,6 +296,8 @@ class BookmarkModelTest : public testing::Test,
                              const BookmarkNode* node) override {
     ++before_remove_count_;
   }
+
+  void SetUndoProvider(BookmarkUndoProvider* provider) override {}
 
   void BookmarkNodeRemoved(BookmarkModel* model,
                            const BookmarkNode* parent,
@@ -331,12 +353,29 @@ class BookmarkModelTest : public testing::Test,
     ++before_remove_all_count_;
   }
 
+  void GroupedBookmarkChangesBeginning(BookmarkModel* model) override {
+    ++grouped_changes_beginning_count_;
+  }
+
+  void GroupedBookmarkChangesEnded(BookmarkModel* model) override {
+    ++grouped_changes_ended_count_;
+  }
+
+  void OnBookmarkNodeRemoved(BookmarkModel* model,
+                             const BookmarkNode* parent,
+                             int index,
+                             scoped_ptr<BookmarkNode> node) override {
+    node_removal_details_.push_back(
+        NodeRemovalDetail(parent, index, node.get()));
+  }
+
   void ClearCounts() {
     added_count_ = moved_count_ = removed_count_ = changed_count_ =
         reordered_count_ = extensive_changes_beginning_count_ =
         extensive_changes_ended_count_ = all_bookmarks_removed_ =
         before_remove_count_ = before_change_count_ = before_reorder_count_ =
-        before_remove_all_count_ = 0;
+        before_remove_all_count_ = grouped_changes_beginning_count_ =
+        grouped_changes_ended_count_ = 0;
   }
 
   void AssertObserverCount(int added_count,
@@ -367,6 +406,14 @@ class BookmarkModelTest : public testing::Test,
     EXPECT_EQ(extensive_changes_ended_count, extensive_changes_ended_count_);
   }
 
+  void AssertGroupedChangesObserverCount(
+      int grouped_changes_beginning_count,
+      int grouped_changes_ended_count) {
+    EXPECT_EQ(grouped_changes_beginning_count,
+              grouped_changes_beginning_count_);
+    EXPECT_EQ(grouped_changes_ended_count, grouped_changes_ended_count_);
+  }
+
   int AllNodesRemovedObserverCount() const { return all_bookmarks_removed_; }
 
   BookmarkPermanentNode* ReloadModelWithExtraNode() {
@@ -390,6 +437,7 @@ class BookmarkModelTest : public testing::Test,
   TestBookmarkClient client_;
   scoped_ptr<BookmarkModel> model_;
   ObserverDetails observer_details_;
+  std::vector<NodeRemovalDetail> node_removal_details_;
 
  private:
   int added_count_;
@@ -404,6 +452,8 @@ class BookmarkModelTest : public testing::Test,
   int before_change_count_;
   int before_reorder_count_;
   int before_remove_all_count_;
+  int grouped_changes_beginning_count_;
+  int grouped_changes_ended_count_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkModelTest);
 };
@@ -620,7 +670,8 @@ TEST_F(BookmarkModelTest, RemoveAllUserBookmarks) {
   // Add a url to bookmark bar.
   base::string16 title(ASCIIToUTF16("foo"));
   GURL url("http://foo.com");
-  model_->AddURL(bookmark_bar_node, 0, title, url);
+  const BookmarkNode* url_node =
+      model_->AddURL(bookmark_bar_node, 0, title, url);
 
   // Add a folder with child URL.
   const BookmarkNode* folder = model_->AddFolder(bookmark_bar_node, 0, title);
@@ -629,14 +680,29 @@ TEST_F(BookmarkModelTest, RemoveAllUserBookmarks) {
   AssertObserverCount(3, 0, 0, 0, 0, 0, 0, 0, 0);
   ClearCounts();
 
+  int permanent_node_count = model_->root_node()->child_count();
+
+  NodeRemovalDetail expected_node_removal_details[] = {
+    NodeRemovalDetail(bookmark_bar_node, 1, url_node),
+    NodeRemovalDetail(bookmark_bar_node, 0, folder),
+  };
+
+  model_->SetUndoDelegate(this);
   model_->RemoveAllUserBookmarks();
 
   EXPECT_EQ(0, bookmark_bar_node->child_count());
+  // No permanent node should be removed.
+  EXPECT_EQ(permanent_node_count, model_->root_node()->child_count());
   // No individual BookmarkNodeRemoved events are fired, so removed count
   // should be 0.
   AssertObserverCount(0, 0, 0, 0, 0, 0, 0, 0, 1);
   AssertExtensiveChangesObserverCount(1, 1);
+  AssertGroupedChangesObserverCount(1, 1);
   EXPECT_EQ(1, AllNodesRemovedObserverCount());
+  EXPECT_EQ(1, AllNodesRemovedObserverCount());
+  ASSERT_EQ(2u, node_removal_details_.size());
+  EXPECT_EQ(expected_node_removal_details[0], node_removal_details_[0]);
+  EXPECT_EQ(expected_node_removal_details[1], node_removal_details_[1]);
 }
 
 TEST_F(BookmarkModelTest, SetTitle) {

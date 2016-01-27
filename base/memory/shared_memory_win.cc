@@ -27,6 +27,13 @@ size_t GetMemorySectionSize(void* address) {
 
 namespace base {
 
+SharedMemoryCreateOptions::SharedMemoryCreateOptions()
+    : name_deprecated(nullptr),
+      open_existing_deprecated(false),
+      size(0),
+      executable(false),
+      share_read_only(false) {}
+
 SharedMemory::SharedMemory()
     : mapped_file_(NULL),
       mapped_size_(0),
@@ -45,11 +52,12 @@ SharedMemory::SharedMemory(const std::wstring& name)
 }
 
 SharedMemory::SharedMemory(const SharedMemoryHandle& handle, bool read_only)
-    : mapped_file_(handle),
+    : mapped_file_(handle.GetHandle()),
       mapped_size_(0),
       memory_(NULL),
       read_only_(read_only),
       requested_size_(0) {
+  DCHECK(!handle.IsValid() || handle.BelongsToCurrentProcess());
 }
 
 SharedMemory::SharedMemory(const SharedMemoryHandle& handle,
@@ -60,11 +68,9 @@ SharedMemory::SharedMemory(const SharedMemoryHandle& handle,
       memory_(NULL),
       read_only_(read_only),
       requested_size_(0) {
-  ::DuplicateHandle(process, handle,
-                    GetCurrentProcess(), &mapped_file_,
-                    read_only_ ? FILE_MAP_READ : FILE_MAP_READ |
-                        FILE_MAP_WRITE,
-                    FALSE, 0);
+  ::DuplicateHandle(
+      process, handle.GetHandle(), GetCurrentProcess(), &mapped_file_,
+      read_only_ ? FILE_MAP_READ : FILE_MAP_READ | FILE_MAP_WRITE, FALSE, 0);
 }
 
 SharedMemory::~SharedMemory() {
@@ -74,18 +80,17 @@ SharedMemory::~SharedMemory() {
 
 // static
 bool SharedMemory::IsHandleValid(const SharedMemoryHandle& handle) {
-  return handle != NULL;
+  return handle.IsValid();
 }
 
 // static
 SharedMemoryHandle SharedMemory::NULLHandle() {
-  return NULL;
+  return SharedMemoryHandle();
 }
 
 // static
 void SharedMemory::CloseHandle(const SharedMemoryHandle& handle) {
-  DCHECK(handle != NULL);
-  ::CloseHandle(handle);
+  handle.Close();
 }
 
 // static
@@ -98,13 +103,15 @@ size_t SharedMemory::GetHandleLimit() {
 // static
 SharedMemoryHandle SharedMemory::DuplicateHandle(
     const SharedMemoryHandle& handle) {
+  DCHECK(handle.BelongsToCurrentProcess());
+  HANDLE duped_handle;
   ProcessHandle process = GetCurrentProcess();
-  SharedMemoryHandle duped_handle;
-  BOOL success = ::DuplicateHandle(process, handle, process, &duped_handle, 0,
-                                   FALSE, DUPLICATE_SAME_ACCESS);
+  BOOL success =
+      ::DuplicateHandle(process, handle.GetHandle(), process, &duped_handle, 0,
+                        FALSE, DUPLICATE_SAME_ACCESS);
   if (success)
-    return duped_handle;
-  return NULLHandle();
+    return SharedMemoryHandle(duped_handle, GetCurrentProcId());
+  return SharedMemoryHandle();
 }
 
 bool SharedMemory::CreateAndMapAnonymous(size_t size) {
@@ -146,7 +153,7 @@ bool SharedMemory::Create(const SharedMemoryCreateOptions& options) {
     // So, we generate a random name when we need to enforce read-only.
     uint64_t rand_values[4];
     RandBytes(&rand_values, sizeof(rand_values));
-    name_ = StringPrintf(L"CrSharedMem_%016x%016x%016x%016x",
+    name_ = StringPrintf(L"CrSharedMem_%016llx%016llx%016llx%016llx",
                          rand_values[0], rand_values[1],
                          rand_values[2], rand_values[3]);
   }
@@ -230,7 +237,7 @@ bool SharedMemory::ShareToProcessCommon(ProcessHandle process,
                                         SharedMemoryHandle* new_handle,
                                         bool close_self,
                                         ShareMode share_mode) {
-  *new_handle = 0;
+  *new_handle = SharedMemoryHandle();
   DWORD access = FILE_MAP_READ;
   DWORD options = 0;
   HANDLE mapped_file = mapped_file_;
@@ -245,7 +252,7 @@ bool SharedMemory::ShareToProcessCommon(ProcessHandle process,
   }
 
   if (process == GetCurrentProcess() && close_self) {
-    *new_handle = mapped_file;
+    *new_handle = SharedMemoryHandle(mapped_file, base::GetCurrentProcId());
     return true;
   }
 
@@ -253,20 +260,20 @@ bool SharedMemory::ShareToProcessCommon(ProcessHandle process,
                          access, FALSE, options)) {
     return false;
   }
-  *new_handle = result;
+  *new_handle = SharedMemoryHandle(result, base::GetProcId(process));
   return true;
 }
 
 
 void SharedMemory::Close() {
   if (mapped_file_ != NULL) {
-    CloseHandle(mapped_file_);
+    ::CloseHandle(mapped_file_);
     mapped_file_ = NULL;
   }
 }
 
 SharedMemoryHandle SharedMemory::handle() const {
-  return mapped_file_;
+  return SharedMemoryHandle(mapped_file_, base::GetCurrentProcId());
 }
 
 }  // namespace base

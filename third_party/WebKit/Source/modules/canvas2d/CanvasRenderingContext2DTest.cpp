@@ -36,7 +36,7 @@ class FakeImageSource : public CanvasImageSource {
 public:
     FakeImageSource(IntSize, BitmapOpacity);
 
-    PassRefPtr<Image> getSourceImageForCanvas(SourceImageMode, SourceImageStatus*) const override;
+    PassRefPtr<Image> getSourceImageForCanvas(SourceImageStatus*, AccelerationHint) const override;
 
     bool wouldTaintOrigin(SecurityOrigin* destinationSecurityOrigin) const override { return false; }
     FloatSize elementSize() const override { return FloatSize(m_size); }
@@ -60,7 +60,7 @@ FakeImageSource::FakeImageSource(IntSize size, BitmapOpacity opacity)
     m_image = StaticBitmapImage::create(image);
 }
 
-PassRefPtr<Image> FakeImageSource::getSourceImageForCanvas(SourceImageMode, SourceImageStatus* status) const
+PassRefPtr<Image> FakeImageSource::getSourceImageForCanvas(SourceImageStatus* status, AccelerationHint) const
 {
     if (status)
         *status = NormalSourceImageStatus;
@@ -170,30 +170,6 @@ public:
     bool isRecording() const override { return true; } // otherwise overwrites are not tracked
 
     MOCK_METHOD0(willOverwriteCanvas, void());
-};
-
-//============================================================================
-
-class MockCanvasObserver final : public NoBaseWillBeGarbageCollectedFinalized<MockCanvasObserver>, public CanvasObserver {
-    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(MockCanvasObserver);
-public:
-    static PassOwnPtrWillBeRawPtr<MockCanvasObserver> create()
-    {
-        return adoptPtrWillBeNoop(new MockCanvasObserver);
-    }
-
-    DEFINE_INLINE_VIRTUAL_TRACE()
-    {
-        CanvasObserver::trace(visitor);
-    }
-
-
-    virtual ~MockCanvasObserver() { }
-    MOCK_METHOD2(canvasChanged, void(HTMLCanvasElement*, const FloatRect&));
-    MOCK_METHOD1(canvasResized, void(HTMLCanvasElement*));
-#if !ENABLE(OILPAN)
-    void canvasDestroyed(HTMLCanvasElement*) override { }
-#endif
 };
 
 //============================================================================
@@ -350,16 +326,25 @@ TEST_F(CanvasRenderingContext2DTest, detectOverdrawWithDrawImage)
 TEST_F(CanvasRenderingContext2DTest, detectOverdrawWithPutImageData)
 {
     createContext(NonOpaque);
+    NonThrowableExceptionState exceptionState;
 
     // Test putImageData
-    TEST_OVERDRAW_1(1, putImageData(m_fullImageData.get(), 0, 0));
-    TEST_OVERDRAW_1(1, putImageData(m_fullImageData.get(), 0, 0, 0, 0, 10, 10));
-    TEST_OVERDRAW_1(0, putImageData(m_fullImageData.get(), 0, 0, 1, 1, 8, 8));
-    TEST_OVERDRAW_2(1, setGlobalAlpha(0.5f), putImageData(m_fullImageData.get(), 0, 0)); // alpha has no effect
-    TEST_OVERDRAW_1(0, putImageData(m_partialImageData.get(), 0, 0));
-    TEST_OVERDRAW_2(1, translate(1, 1), putImageData(m_fullImageData.get(), 0, 0)); // ignores tranforms
-    TEST_OVERDRAW_1(0, putImageData(m_fullImageData.get(), 1, 0));
-    TEST_OVERDRAW_3(1, rect(0, 0, 5, 5), clip(), putImageData(m_fullImageData.get(), 0, 0)); // ignores clip
+    TEST_OVERDRAW_1(1, putImageData(m_fullImageData.get(), 0, 0, exceptionState));
+    EXPECT_FALSE(exceptionState.hadException());
+    TEST_OVERDRAW_1(1, putImageData(m_fullImageData.get(), 0, 0, 0, 0, 10, 10, exceptionState));
+    EXPECT_FALSE(exceptionState.hadException());
+    TEST_OVERDRAW_1(0, putImageData(m_fullImageData.get(), 0, 0, 1, 1, 8, 8, exceptionState));
+    EXPECT_FALSE(exceptionState.hadException());
+    TEST_OVERDRAW_2(1, setGlobalAlpha(0.5f), putImageData(m_fullImageData.get(), 0, 0, exceptionState)); // alpha has no effect
+    EXPECT_FALSE(exceptionState.hadException());
+    TEST_OVERDRAW_1(0, putImageData(m_partialImageData.get(), 0, 0, exceptionState));
+    EXPECT_FALSE(exceptionState.hadException());
+    TEST_OVERDRAW_2(1, translate(1, 1), putImageData(m_fullImageData.get(), 0, 0, exceptionState)); // ignores tranforms
+    EXPECT_FALSE(exceptionState.hadException());
+    TEST_OVERDRAW_1(0, putImageData(m_fullImageData.get(), 1, 0, exceptionState));
+    EXPECT_FALSE(exceptionState.hadException());
+    TEST_OVERDRAW_3(1, rect(0, 0, 5, 5), clip(), putImageData(m_fullImageData.get(), 0, 0, exceptionState)); // ignores clip
+    EXPECT_FALSE(exceptionState.hadException());
 }
 
 TEST_F(CanvasRenderingContext2DTest, detectOverdrawWithCompositeOperations)
@@ -613,21 +598,6 @@ TEST_F(CanvasRenderingContext2DTest, FallbackWithLargeState)
         context2d()->translate(1.0f, 0.0f);
     }
     canvasElement().doDeferredPaintInvalidation(); // To close the current frame
-}
-
-TEST_F(CanvasRenderingContext2DTest, CanvasObserver)
-{
-    createContext(NonOpaque);
-    OwnPtrWillBeRawPtr<MockCanvasObserver> observer = MockCanvasObserver::create();
-    canvasElement().addObserver(observer.get());
-
-    // The canvasChanged notification must be immediate, and not deferred until paint time
-    // because offscreen canvases, which are not painted, also need to emit notifications.
-    EXPECT_CALL(*observer, canvasChanged(&canvasElement(), FloatRect(0, 0, 1, 1))).Times(1);
-    context2d()->fillRect(0, 0, 1, 1);
-    Mock::VerifyAndClearExpectations(observer.get());
-
-    canvasElement().removeObserver(observer.get());
 }
 
 } // namespace blink

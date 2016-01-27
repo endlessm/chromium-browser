@@ -70,6 +70,14 @@
 #include "../internal.h"
 
 
+#define V1_ROOT (EXFLAG_V1|EXFLAG_SS)
+#define ku_reject(x, usage) \
+	(((x)->ex_flags & EXFLAG_KUSAGE) && !((x)->ex_kusage & (usage)))
+#define xku_reject(x, usage) \
+	(((x)->ex_flags & EXFLAG_XKUSAGE) && !((x)->ex_xkusage & (usage)))
+#define ns_reject(x, usage) \
+	(((x)->ex_flags & EXFLAG_NSCERT) && !((x)->ex_nscert & (usage)))
+
 static void x509v3_cache_extensions(X509 *x);
 
 static int check_ssl_ca(const X509 *x);
@@ -128,7 +136,7 @@ int X509_check_purpose(X509 *x, int id, int ca)
 int X509_PURPOSE_set(int *p, int purpose)
 {
 	if(X509_PURPOSE_get_by_id(purpose) == -1) {
-		OPENSSL_PUT_ERROR(X509V3, X509_PURPOSE_set, X509V3_R_INVALID_PURPOSE);
+		OPENSSL_PUT_ERROR(X509V3, X509V3_R_INVALID_PURPOSE);
 		return 0;
 	}
 	*p = purpose;
@@ -191,7 +199,7 @@ int X509_PURPOSE_add(int id, int trust, int flags,
 	/* Need a new entry */
 	if(idx == -1) {
 		if(!(ptmp = OPENSSL_malloc(sizeof(X509_PURPOSE)))) {
-			OPENSSL_PUT_ERROR(X509V3, X509_PURPOSE_add, ERR_R_MALLOC_FAILURE);
+			OPENSSL_PUT_ERROR(X509V3, ERR_R_MALLOC_FAILURE);
 			return 0;
 		}
 		ptmp->flags = X509_PURPOSE_DYNAMIC;
@@ -201,7 +209,7 @@ int X509_PURPOSE_add(int id, int trust, int flags,
 	name_dup = BUF_strdup(name);
 	sname_dup = BUF_strdup(sname);
 	if (name_dup == NULL || sname_dup == NULL) {
-		OPENSSL_PUT_ERROR(X509V3, X509_PURPOSE_add, ERR_R_MALLOC_FAILURE);
+		OPENSSL_PUT_ERROR(X509V3, ERR_R_MALLOC_FAILURE);
 		if (name_dup != NULL)
 			OPENSSL_free(name_dup);
 		if (sname_dup != NULL)
@@ -232,12 +240,12 @@ int X509_PURPOSE_add(int id, int trust, int flags,
 	/* If its a new entry manage the dynamic table */
 	if(idx == -1) {
 		if(!xptable && !(xptable = sk_X509_PURPOSE_new(xp_cmp))) {
-			OPENSSL_PUT_ERROR(X509V3, X509_PURPOSE_add, ERR_R_MALLOC_FAILURE);
+			OPENSSL_PUT_ERROR(X509V3, ERR_R_MALLOC_FAILURE);
 			xptable_free(ptmp);
 			return 0;
 		}
 		if (!sk_X509_PURPOSE_push(xptable, ptmp)) {
-			OPENSSL_PUT_ERROR(X509V3, X509_PURPOSE_add, ERR_R_MALLOC_FAILURE);
+			OPENSSL_PUT_ERROR(X509V3, ERR_R_MALLOC_FAILURE);
 			xptable_free(ptmp);
 			return 0;
 		}
@@ -494,7 +502,8 @@ static void x509v3_cache_extensions(X509 *x)
 			{
 			x->ex_flags |= EXFLAG_SI;
 			/* If SKID matches AKID also indicate self signed */
-			if (X509_check_akid(x, x->akid) == X509_V_OK)
+			if (X509_check_akid(x, x->akid) == X509_V_OK &&
+				!ku_reject(x, KU_KEY_CERT_SIGN))
 				x->ex_flags |= EXFLAG_SS;
 			}
 	x->altname = X509_get_ext_d2i(x, NID_subject_alt_name, NULL, NULL);
@@ -530,14 +539,6 @@ static void x509v3_cache_extensions(X509 *x)
  * 3 basicConstraints absent but self signed V1.
  * 4 basicConstraints absent but keyUsage present and keyCertSign asserted.
  */
-
-#define V1_ROOT (EXFLAG_V1|EXFLAG_SS)
-#define ku_reject(x, usage) \
-	(((x)->ex_flags & EXFLAG_KUSAGE) && !((x)->ex_kusage & (usage)))
-#define xku_reject(x, usage) \
-	(((x)->ex_flags & EXFLAG_XKUSAGE) && !((x)->ex_xkusage & (usage)))
-#define ns_reject(x, usage) \
-	(((x)->ex_flags & EXFLAG_NSCERT) && !((x)->ex_nscert & (usage)))
 
 static int check_ca(const X509 *x)
 {

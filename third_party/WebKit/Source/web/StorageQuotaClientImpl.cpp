@@ -69,13 +69,13 @@ void StorageQuotaClientImpl::requestQuota(ExecutionContext* executionContext, We
         webFrame->client()->requestStorageQuota(webFrame, storageType, newQuotaInBytes, callbacks);
     } else {
         // Requesting quota in Worker is not supported.
-        executionContext->postTask(FROM_HERE, StorageErrorCallback::CallbackTask::create(errorCallback, NotSupportedError));
+        executionContext->postTask(BLINK_FROM_HERE, StorageErrorCallback::CallbackTask::create(errorCallback, NotSupportedError));
     }
 }
 
 ScriptPromise StorageQuotaClientImpl::requestPersistentQuota(ScriptState* scriptState, unsigned long long newQuotaInBytes)
 {
-    RefPtrWillBeRawPtr<ScriptPromiseResolver> resolver = ScriptPromiseResolver::create(scriptState);
+    ScriptPromiseResolver* resolver = ScriptPromiseResolver::create(scriptState);
     ScriptPromise promise = resolver->promise();
 
     if (scriptState->executionContext()->isDocument()) {

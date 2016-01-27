@@ -29,7 +29,7 @@ MediaRoute::Id CreateRouteId(const char* presentation_url,
 }
 
 MATCHER_P(PresentationSessionInfoEquals, expected, "") {
-  return arg.presentation_url == expected.presentation_url &
+  return arg.presentation_url == expected.presentation_url &&
          arg.presentation_id == expected.presentation_id;
 }
 
@@ -62,7 +62,7 @@ class PresentationSessionStateObserverTest : public testing::Test {
 
   MOCK_METHOD2(OnSessionStateChanged,
                void(const content::PresentationSessionInfo& session_info,
-                    content::PresentationSessionState new_state));
+                    content::PresentationConnectionState new_state));
 
   MockMediaRouter router_;
   MediaRouteIdToPresentationSessionMapping route_id_to_presentation_;
@@ -74,7 +74,7 @@ TEST_F(PresentationSessionStateObserverTest, InvokeCallbackWithConnected) {
       *this, OnSessionStateChanged(
                  PresentationSessionInfoEquals(content::PresentationSessionInfo(
                      kPresentationUrl, kPresentationId)),
-                 content::PRESENTATION_SESSION_STATE_CONNECTED));
+                 content::PRESENTATION_CONNECTION_STATE_CONNECTED));
   MediaRoute::Id route_id(CreateRouteId(kPresentationUrl, kPresentationId));
   observer_->OnPresentationSessionConnected(route_id);
 }
@@ -84,21 +84,21 @@ TEST_F(PresentationSessionStateObserverTest, InvokeCallbackWithDisconnected) {
                                                 kPresentationId);
   EXPECT_CALL(*this, OnSessionStateChanged(
                          PresentationSessionInfoEquals(session_info),
-                         content::PRESENTATION_SESSION_STATE_CONNECTED));
+                         content::PRESENTATION_CONNECTION_STATE_CONNECTED));
   MediaRoute::Id route_id(CreateRouteId(kPresentationUrl, kPresentationId));
   observer_->OnPresentationSessionConnected(route_id);
 
   // Route list update is expected to follow creation of route.
   std::vector<MediaRoute> routes;
-  routes.push_back(
-      MediaRoute(route_id, MediaSourceForPresentationUrl(kPresentationUrl),
-                 MediaSink("sinkId", "A sink"), "Description", true));
+  routes.push_back(MediaRoute(route_id,
+                              MediaSourceForPresentationUrl(kPresentationUrl),
+                              "sinkId", "Description", true, "", false));
   observer_->OnRoutesUpdated(routes);
 
   // New route list does not contain |route_id|, which means it is disconnected.
   EXPECT_CALL(*this, OnSessionStateChanged(
                          PresentationSessionInfoEquals(session_info),
-                         content::PRESENTATION_SESSION_STATE_DISCONNECTED));
+                         content::PRESENTATION_CONNECTION_STATE_CLOSED));
   observer_->OnRoutesUpdated(std::vector<MediaRoute>());
 
   // Note that it is normally not possible for |route_id| to reappear. But in
@@ -112,15 +112,15 @@ TEST_F(PresentationSessionStateObserverTest, Reset) {
                                                 kPresentationId);
   EXPECT_CALL(*this, OnSessionStateChanged(
                          PresentationSessionInfoEquals(session_info),
-                         content::PRESENTATION_SESSION_STATE_CONNECTED));
+                         content::PRESENTATION_CONNECTION_STATE_CONNECTED));
   MediaRoute::Id route_id(CreateRouteId(kPresentationUrl, kPresentationId));
   observer_->OnPresentationSessionConnected(route_id);
 
   // Route list update is expected to follow creation of route.
   std::vector<MediaRoute> routes;
-  routes.push_back(
-      MediaRoute(route_id, MediaSourceForPresentationUrl(kPresentationUrl),
-                 MediaSink("sinkId", "A sink"), "Description", true));
+  routes.push_back(MediaRoute(route_id,
+                              MediaSourceForPresentationUrl(kPresentationUrl),
+                              "sinkId", "Description", true, "", false));
   observer_->OnRoutesUpdated(routes);
 
   // |route_id| is no longer being tracked.

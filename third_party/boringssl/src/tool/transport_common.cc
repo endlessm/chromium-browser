@@ -133,19 +133,19 @@ out:
 }
 
 bool Accept(int *out_sock, const std::string &port) {
-  struct sockaddr_in addr, cli_addr;
+  struct sockaddr_in6 addr, cli_addr;
   socklen_t cli_addr_len = sizeof(cli_addr);
   memset(&addr, 0, sizeof(addr));
 
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = INADDR_ANY;
-  addr.sin_port = htons(atoi(port.c_str()));
+  addr.sin6_family = AF_INET6;
+  addr.sin6_addr = in6addr_any;
+  addr.sin6_port = htons(atoi(port.c_str()));
 
   bool ok = false;
   int server_sock = -1;
 
   server_sock =
-      socket(addr.sin_family, SOCK_STREAM, 0);
+      socket(addr.sin6_family, SOCK_STREAM, 0);
   if (server_sock < 0) {
     perror("socket");
     goto out;
@@ -169,6 +169,8 @@ void PrintConnectionInfo(const SSL *ssl) {
   const SSL_CIPHER *cipher = SSL_get_current_cipher(ssl);
 
   fprintf(stderr, "  Version: %s\n", SSL_get_version(ssl));
+  fprintf(stderr, "  Resumed session: %s\n",
+          SSL_session_reused(ssl) ? "yes" : "no");
   fprintf(stderr, "  Cipher: %s\n", SSL_CIPHER_get_name(cipher));
   fprintf(stderr, "  Secure renegotiation: %s\n",
           SSL_get_secure_renegotiation_support(ssl) ? "yes" : "no");

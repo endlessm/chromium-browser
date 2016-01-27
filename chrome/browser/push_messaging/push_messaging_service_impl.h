@@ -7,12 +7,15 @@
 
 #include <stdint.h>
 #include <set>
+#include <vector>
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
 #include "base/memory/weak_ptr.h"
+#include "chrome/browser/background/background_trigger.h"
 #include "components/content_settings/core/browser/content_settings_observer.h"
 #include "components/content_settings/core/common/content_settings.h"
+#include "components/gcm_driver/common/gcm_messages.h"
 #include "components/gcm_driver/gcm_app_handler.h"
 #include "components/gcm_driver/gcm_client.h"
 #include "components/keyed_service/core/keyed_service.h"
@@ -40,11 +43,9 @@ class PrefRegistrySyncable;
 class PushMessagingServiceImpl : public content::PushMessagingService,
                                  public gcm::GCMAppHandler,
                                  public content_settings::Observer,
-                                 public KeyedService {
+                                 public KeyedService,
+                                 public BackgroundTrigger {
  public:
-  // Register profile-specific prefs for GCM.
-  static void RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry);
-
   // If any Service Workers are using push, starts GCM and adds an app handler.
   static void InitializeForProfile(Profile* profile);
 
@@ -54,7 +55,7 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
   // gcm::GCMAppHandler implementation.
   void ShutdownHandler() override;
   void OnMessage(const std::string& app_id,
-                 const gcm::GCMClient::IncomingMessage& message) override;
+                 const gcm::IncomingMessage& message) override;
   void OnMessagesDeleted(const std::string& app_id) override;
   void OnSendError(
       const std::string& app_id,
@@ -67,7 +68,7 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
   GURL GetPushEndpoint() override;
   void SubscribeFromDocument(
       const GURL& requesting_origin,
-      int64 service_worker_registration_id,
+      int64_t service_worker_registration_id,
       const std::string& sender_id,
       int renderer_id,
       int render_frame_id,
@@ -75,13 +76,18 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
       const content::PushMessagingService::RegisterCallback& callback) override;
   void SubscribeFromWorker(
       const GURL& requesting_origin,
-      int64 service_worker_registration_id,
+      int64_t service_worker_registration_id,
       const std::string& sender_id,
       bool user_visible,
       const content::PushMessagingService::RegisterCallback& callback) override;
+  void GetPublicEncryptionKey(
+      const GURL& origin,
+      int64_t service_worker_registration_id,
+      const content::PushMessagingService::PublicKeyCallback&
+          callback) override;
   void Unsubscribe(
       const GURL& requesting_origin,
-      int64 service_worker_registration_id,
+      int64_t service_worker_registration_id,
       const std::string& sender_id,
       const content::PushMessagingService::UnregisterCallback&) override;
   blink::WebPushPermissionStatus GetPermissionStatus(
@@ -100,6 +106,11 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
   // KeyedService implementation.
   void Shutdown() override;
 
+  // BackgroundTrigger implementation.
+  base::string16 GetName() override;
+  gfx::ImageSkia* GetIcon() override;
+  void OnMenuClick() override;
+
   void SetMessageCallbackForTesting(const base::Closure& callback);
   void SetContentSettingChangedCallbackForTesting(
       const base::Closure& callback);
@@ -114,7 +125,7 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
   void DeliverMessageCallback(const std::string& app_id,
                               const GURL& requesting_origin,
                               int64 service_worker_registration_id,
-                              const gcm::GCMClient::IncomingMessage& message,
+                              const gcm::IncomingMessage& message,
                               const base::Closure& message_handled_closure,
                               content::PushDeliveryStatus status);
 
@@ -123,6 +134,11 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
   void SubscribeEnd(
       const content::PushMessagingService::RegisterCallback& callback,
       const std::string& subscription_id,
+      const std::vector<uint8_t>& p256dh,
+      content::PushRegistrationStatus status);
+
+  void SubscribeEndWithError(
+      const content::PushMessagingService::RegisterCallback& callback,
       content::PushRegistrationStatus status);
 
   void DidSubscribe(
@@ -131,11 +147,24 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
       const std::string& subscription_id,
       gcm::GCMClient::Result result);
 
+  void DidSubscribeWithPublicKey(
+      const PushMessagingAppIdentifier& app_identifier,
+      const content::PushMessagingService::RegisterCallback& callback,
+      const std::string& subscription_id,
+      const std::string& public_key);
+
   void DidRequestPermission(
       const PushMessagingAppIdentifier& app_identifier,
       const std::string& sender_id,
       const content::PushMessagingService::RegisterCallback& callback,
       content::PermissionStatus permission_status);
+
+  // GetPublicEncryptionKey method ---------------------------------------------
+
+  void DidGetPublicKey(
+      const PushMessagingService::PublicKeyCallback& callback,
+      const std::string& public_key) const;
+
 
   // Unsubscribe methods -------------------------------------------------------
 
@@ -160,6 +189,9 @@ class PushMessagingServiceImpl : public content::PushMessagingService,
 
   // Checks if a given origin is allowed to use Push.
   bool IsPermissionSet(const GURL& origin);
+
+  // Returns whether incoming messages should support payloads.
+  bool AreMessagePayloadsEnabled() const;
 
   gcm::GCMDriver* GetGCMDriver() const;
 

@@ -65,7 +65,7 @@ def run_build(tempdir, options):
     shutil.copy2(temp_gn, out_gn)
   else:
     print 'Building gn using itself to %s...' % build_rel
-    build_gn_with_gn(temp_gn, build_rel, options)
+    build_gn_with_gn(temp_gn, build_root, options)
 
   if options.output:
     # Preserve the executable permission bit.
@@ -83,6 +83,7 @@ def main(argv):
   parser.add_option('--no-clean', action='store_true',
                     help='Re-used build directory instead of using new '
                          'temporary location each time')
+  parser.add_option('--gn-gen-args', help='Args to pass to gn gen --args')
   parser.add_option('-v', '--verbose', action='store_true',
                     help='Log more details')
   options, args = parser.parse_args(argv)
@@ -132,7 +133,7 @@ def write_ninja(path, options):
       cflags.extend(['-O2', '-g0'])
 
     cflags.extend(['-D_FILE_OFFSET_BITS=64', '-pthread', '-pipe'])
-    cflags_cc.extend(['-std=gnu++11', '-Wno-c++11-narrowing'])
+    cflags_cc.extend(['-std=c++11', '-Wno-c++11-narrowing'])
 
   static_libraries = {
       'base': {'sources': [], 'tool': 'cxx'},
@@ -156,6 +157,7 @@ def write_ninja(path, options):
       'base/third_party/superfasthash/superfasthash.c',
   ])
   static_libraries['base']['sources'].extend([
+      'base/allocator/allocator_extension_thunks.cc',
       'base/at_exit.cc',
       'base/base_paths.cc',
       'base/base_switches.cc',
@@ -210,6 +212,7 @@ def write_ninja(path, options):
       'base/sequence_checker_impl.cc',
       'base/sequenced_task_runner.cc',
       'base/sha1_portable.cc',
+      'base/strings/pattern.cc',
       'base/strings/string16.cc',
       'base/strings/string_number_conversions.cc',
       'base/strings/string_piece.cc',
@@ -232,6 +235,7 @@ def write_ninja(path, options):
       'base/threading/post_task_and_reply_impl.cc',
       'base/threading/sequenced_worker_pool.cc',
       'base/threading/simple_thread.cc',
+      'base/threading/thread.cc',
       'base/threading/thread_checker_impl.cc',
       'base/threading/thread_collision_warner.cc',
       'base/threading/thread_id_name_manager.cc',
@@ -241,24 +245,26 @@ def write_ninja(path, options):
       'base/time/time.cc',
       'base/timer/elapsed_timer.cc',
       'base/timer/timer.cc',
-      'base/trace_event/malloc_dump_provider.cc',
       'base/trace_event/memory_allocator_dump.cc',
       'base/trace_event/memory_allocator_dump_guid.cc',
       'base/trace_event/memory_dump_manager.cc',
       'base/trace_event/memory_dump_request_args.cc',
       'base/trace_event/memory_dump_session_state.cc',
+      'base/trace_event/memory_profiler_allocation_context.cc',
       'base/trace_event/process_memory_dump.cc',
       'base/trace_event/process_memory_maps.cc',
-      'base/trace_event/process_memory_maps_dump_provider.cc',
       'base/trace_event/process_memory_totals.cc',
       'base/trace_event/process_memory_totals_dump_provider.cc',
+      'base/trace_event/trace_buffer.cc',
       'base/trace_event/trace_config.cc',
       'base/trace_event/trace_event_argument.cc',
       'base/trace_event/trace_event_impl.cc',
-      'base/trace_event/trace_event_impl_constants.cc',
       'base/trace_event/trace_event_memory.cc',
       'base/trace_event/trace_event_memory_overhead.cc',
       'base/trace_event/trace_event_synthetic_delay.cc',
+      'base/trace_event/trace_log.cc',
+      'base/trace_event/trace_log_constants.cc',
+      'base/trace_event/trace_sampling_thread.cc',
       'base/tracked_objects.cc',
       'base/tracking_info.cc',
       'base/values.cc',
@@ -333,6 +339,8 @@ def write_ninja(path, options):
         'base/strings/sys_string_conversions_posix.cc',
         'base/sys_info_linux.cc',
         'base/threading/platform_thread_linux.cc',
+        'base/trace_event/malloc_dump_provider.cc',
+        'base/trace_event/process_memory_maps_dump_provider.cc',
     ])
     static_libraries['libevent']['include_dirs'].extend([
         os.path.join(SRC_ROOT, 'third_party', 'libevent', 'linux')
@@ -347,6 +355,8 @@ def write_ninja(path, options):
         'base/base_paths_mac.mm',
         'base/files/file_util_mac.mm',
         'base/mac/bundle_locations.mm',
+        'base/mac/call_with_eh_frame.cc',
+        'base/mac/call_with_eh_frame_asm.S',
         'base/mac/foundation_util.mm',
         'base/mac/mach_logging.cc',
         'base/mac/scoped_mach_port.cc',
@@ -354,6 +364,7 @@ def write_ninja(path, options):
         'base/message_loop/message_pump_mac.mm',
         'base/process/process_handle_mac.cc',
         'base/process/process_iterator_mac.cc',
+        'base/process/process_metrics_mac.cc',
         'base/strings/sys_string_conversions_mac.mm',
         'base/time/time_mac.cc',
         'base/threading/platform_thread_mac.mm',
@@ -426,9 +437,10 @@ def write_ninja(path, options):
 
 
 def build_gn_with_gn(temp_gn, build_dir, options):
-  cmd = [temp_gn, 'gen', build_dir]
+  gn_gen_args = options.gn_gen_args or ''
   if not options.debug:
-    cmd.append('--args=is_debug=false')
+    gn_gen_args += ' is_debug=false'
+  cmd = [temp_gn, 'gen', build_dir, '--args=%s' % gn_gen_args]
   check_call(cmd)
 
   cmd = ['ninja', '-C', build_dir]

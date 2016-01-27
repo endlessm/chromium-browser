@@ -64,10 +64,59 @@ targets = {
     'uniformbuffers': 'functional.gles3.es3fUniformBlockTests',
     'vertexarrays': 'functional.gles3.es3fVertexArrayTests',
     'shaderlibrary': 'modules.shared.glsShaderLibrary',
+    'negativebuffer': 'functional.gles3.es3fNegativeBufferApiTests',
     'sglrReferenceContextTest': 'framework.opengl.simplereference.sglrReferenceContextTest',
     'lifetime': 'functional.gles3.es3fLifetimeTests',
+    'draw': 'functional.gles3.es3fDrawTests',
     'attriblocation': 'functional.gles3.es3fAttribLocationTests',
-    'texturewrap': 'functional.gles3.es3fTextureWrapTests'
+    'textureShadowTests': 'functional.gles3.es3fTextureShadowTests',
+    'texturewrap': 'functional.gles3.es3fTextureWrapTests',
+    'negativetextureapi': 'functional.gles3.es3fNegativeTextureApiTests',
+    'multisample': 'functional.gles3.es3fMultisampleTests',
+    'negativefragmentapi': 'functional.gles3.es3fNegativeFragmentApiTests',
+    'negativevertexarrayapi': 'functional.gles3.es3fNegativeVertexArrayApiTests',
+    'negativestateapi' : 'functional.gles3.es3fNegativeStateApiTests',
+    'negativeshaderapi' : 'functional.gles3.es3fNegativeShaderApiTests',
+    'rasterizerdiscard' : 'functional.gles3.es3fRasterizerDiscardTests',
+    'buffercopy' : 'functional.gles3.es3fBufferCopyTests',
+    'shaderindexing' : 'functional.gles3.es3fShaderIndexingTests',
+    'shaderloop' : 'functional.gles3.es3fShaderLoopTests',
+    'shaderstruct' : 'functional.gles3.es3fShaderStructTests',
+    'shaderswitch' : 'functional.gles3.es3fShaderSwitchTests',
+    'fborender' : 'functional.gles3.es3fFboRenderTest',
+    'shaderderivate' : 'functional.gles3.es3fShaderDerivateTests',
+    'builtinprecision' : 'functional.gles3.es3fBuiltinPrecisionTests',
+    'shaderbuiltinvar' : 'functional.gles3.es3fShaderBuiltinVarTests',
+    'texturefiltering' : 'functional.gles3.es3fTextureFilteringTests',
+    'fbocolor' : 'functional.gles3.es3fFboColorbufferTests',
+    'fragdepth' : 'functional.gles3.es3fFragDepthTests',
+    'shaderop' : 'functional.gles3.es3fShaderOperatorTests',
+    'vao' : 'functional.gles3.es3fVertexArrayObjectTests',
+    'clip' : 'functional.gles3.es3fClippingTests',
+    'inv' : 'functional.gles3.es3fFboInvalidateTests',
+    'defvertattr' : 'functional.gles3.es3fDefaultVertexAttributeTests',
+    'occlusion' : 'functional.gles3.es3fOcclusionQueryTests',
+    'shaderapi' : 'functional.gles3.es3fShaderApiTests',
+    'shaderpackingfunction' : 'functional.gles3.es3fShaderPackingFunctionTests',
+    'shadercommonfunction' : 'functional.gles3.es3fShaderCommonFunctionTests',
+    'shadermatrix' : 'functional.gles3.es3fShaderMatrixTest',
+    'shaderprecision' : 'functional.gles3.es3fShaderPrecisionTests',
+    'bstate': 'functional.gles3.es3fBooleanStateQuery',
+    'shaderstate': 'functional.gles3.es3fShaderStateQueryTests',
+    'fbostate' : 'functional.gles3.es3fFboStateQueryTests',
+    'rbostate' : 'functional.gles3.es3fRboStateQueryTests',
+    'bufferstate' : 'functional.gles3.es3fBufferObjectQueryTests',
+    'samplerstate' : 'functional.gles3.es3fSamplerStateQueryTests',
+    'texstate' : 'functional.gles3.es3fTextureStateQuery',
+    'internalformatstate' : 'functional.gles3.es3fInternalFormatQueryTests',
+    'texturespecification' : 'functional.gles3.es3fTextureSpecificationTests',
+    'shadertexturefunction' : 'functional.gles3.es3fShaderTextureFunctionTests',
+    'sync' : 'functional.gles3.es3fSyncTests',
+    'readpixel' : 'functional.gles3.es3fReadPixelTests',
+    'stringquery' : 'functional.gles3.es3fStringQueryTests',
+    'indexedstate' : 'functional.gles3.es3fIndexedStateQueryTests',
+    'integerstate' : 'functional.gles3.es3fIntegerStateQueryTests',
+    'floatstate' : 'functional.gles3.es3fFloatStateQueryTests'
 }
 
 total_errors = 0
@@ -91,7 +140,7 @@ def write_to_file(outfile, cmdLine, redirect_stderr):
             while proc.poll() is None:
                 line = proc.stdout.readline()
                 out_file.write(line)
-            
+
             out_file.flush()
             proc.wait()
 
@@ -161,7 +210,7 @@ def build_all_targets():
 
 def format_target(target):
     deps = read_file(dep_filename(target))
-    fixjsstyle = 'fixjsstyle-script.py'
+    fixjsstyle = 'fixjsstyle.py'
     reformat = 'reformatting_tool.py'
     for dep in deps.split('\n'):
         dep = dep.strip()
@@ -192,7 +241,7 @@ def pass_or_fail():
             warnings = failed[target][1]
             print "{0:>30}\tErrors: {1:4}\tWarnings: {2:4}".format(target+":", errors, warnings)
         print "Compilation failed: {} error(s), {} warning(s).".format(total_errors, total_warnings)
-   
+
 def main(argv):
     if len(argv) == 0:
         build_all_deps()
@@ -230,6 +279,5 @@ def main(argv):
         build_target(target, targets[target])
         pass_or_fail()
 
-if __name__ == '__main__': 
+if __name__ == '__main__':
     main(sys.argv[1:])
-

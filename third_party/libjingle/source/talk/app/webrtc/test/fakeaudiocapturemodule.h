@@ -40,32 +40,28 @@
 #include "webrtc/base/basictypes.h"
 #include "webrtc/base/criticalsection.h"
 #include "webrtc/base/messagehandler.h"
+#include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/scoped_ref_ptr.h"
 #include "webrtc/common_types.h"
 #include "webrtc/modules/audio_device/include/audio_device.h"
 
 namespace rtc {
-
 class Thread;
-
 }  // namespace rtc
 
 class FakeAudioCaptureModule
     : public webrtc::AudioDeviceModule,
       public rtc::MessageHandler {
  public:
-  typedef uint16 Sample;
+  typedef uint16_t Sample;
 
   // The value for the following constants have been derived by running VoE
   // using a real ADM. The constants correspond to 10ms of mono audio at 44kHz.
-  static const int kNumberSamples = 440;
-  static const int kNumberBytesPerSample = sizeof(Sample);
+  static const size_t kNumberSamples = 440;
+  static const size_t kNumberBytesPerSample = sizeof(Sample);
 
   // Creates a FakeAudioCaptureModule or returns NULL on failure.
-  // |process_thread| is used to push and pull audio frames to and from the
-  // returned instance. Note: ownership of |process_thread| is not handed over.
-  static rtc::scoped_refptr<FakeAudioCaptureModule> Create(
-      rtc::Thread* process_thread);
+  static rtc::scoped_refptr<FakeAudioCaptureModule> Create();
 
   // Returns the number of frames that have been successfully pulled by the
   // instance. Note that correctly detecting success can only be done if the
@@ -195,6 +191,10 @@ class FakeAudioCaptureModule
   int32_t GetLoudspeakerStatus(bool* enabled) const override;
   virtual bool BuiltInAECIsAvailable() const { return false; }
   virtual int32_t EnableBuiltInAEC(bool enable) { return -1; }
+  virtual bool BuiltInAGCIsAvailable() const { return false; }
+  virtual int32_t EnableBuiltInAGC(bool enable) { return -1; }
+  virtual bool BuiltInNSIsAvailable() const { return false; }
+  virtual int32_t EnableBuiltInNS(bool enable) { return -1; }
   // End of functions inherited from webrtc::AudioDeviceModule.
 
   // The following function is inherited from rtc::MessageHandler.
@@ -206,7 +206,7 @@ class FakeAudioCaptureModule
   // exposed in which case the burden of proper instantiation would be put on
   // the creator of a FakeAudioCaptureModule instance. To create an instance of
   // this class use the Create(..) API.
-  explicit FakeAudioCaptureModule(rtc::Thread* process_thread);
+  explicit FakeAudioCaptureModule();
   // The destructor is protected because it is reference counted and should not
   // be deleted directly.
   virtual ~FakeAudioCaptureModule();
@@ -239,12 +239,10 @@ class FakeAudioCaptureModule
   void ReceiveFrameP();
   // Pushes frames to the registered webrtc::AudioTransport.
   void SendFrameP();
-  // Stops the periodic calling of ProcessFrame() in a thread safe way.
-  void StopProcessP();
 
   // The time in milliseconds when Process() was last called or 0 if no call
   // has been made.
-  uint32 last_process_time_ms_;
+  uint32_t last_process_time_ms_;
 
   // Callback for playout and recording.
   webrtc::AudioTransport* audio_callback_;
@@ -264,10 +262,9 @@ class FakeAudioCaptureModule
   // wall clock time the next frame should be generated and received. started_
   // ensures that next_frame_time_ can be initialized properly on first call.
   bool started_;
-  uint32 next_frame_time_;
+  uint32_t next_frame_time_;
 
-  // User provided thread context.
-  rtc::Thread* process_thread_;
+  rtc::scoped_ptr<rtc::Thread> process_thread_;
 
   // Buffer for storing samples received from the webrtc::AudioTransport.
   char rec_buffer_[kNumberSamples * kNumberBytesPerSample];

@@ -12,6 +12,7 @@
 #include "base/memory/scoped_vector.h"
 
 namespace net {
+class CertVerifier;
 class URLRequestContextBuilder;
 }  // namespace net
 
@@ -74,13 +75,21 @@ struct URLRequestContextConfig {
   std::string user_agent;
   // App-provided list of servers that support QUIC.
   ScopedVector<QuicHint> quic_hints;
-  // Comma-separted list of QUIC connection options.
-  std::string quic_connection_options;
+  // Experimental options encoded as a string in a JSON format containing
+  // experiments and their corresponding configuration options. The format
+  // is a JSON object with the name of the experiment as the key, and the
+  // configuration options as the value. An example:
+  //   {"experiment1": {"option1": "option_value1", "option2": "option_value2",
+  //    ...}, "experiment2: {"option3", "option_value3", ...}, ...}
+  std::string experimental_options;
   // Enable Data Reduction Proxy with authentication key.
   std::string data_reduction_proxy_key;
   std::string data_reduction_primary_proxy;
   std::string data_reduction_fallback_proxy;
   std::string data_reduction_secure_proxy_check_url;
+
+  // Certificate verifier for testing.
+  scoped_ptr<net::CertVerifier> mock_cert_verifier;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(URLRequestContextConfig);

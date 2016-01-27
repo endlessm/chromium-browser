@@ -85,17 +85,17 @@ std::string GetRedirects(const MostVisitedURL& url) {
   std::vector<std::string> redirects;
   for (size_t i = 0; i < url.redirects.size(); i++)
     redirects.push_back(url.redirects[i].spec());
-  return JoinString(redirects, ' ');
+  return base::JoinString(redirects, " ");
 }
 
 // Decodes redirects from a string and sets them for the url.
 void SetRedirects(const std::string& redirects, MostVisitedURL* url) {
-  std::vector<std::string> redirects_vector;
-  base::SplitStringAlongWhitespace(redirects, &redirects_vector);
-  for (size_t i = 0; i < redirects_vector.size(); ++i) {
-    GURL redirects_url(redirects_vector[i]);
-    if (redirects_url.is_valid())
-      url->redirects.push_back(redirects_url);
+  for (const std::string& redirect : base::SplitString(
+           redirects, base::kWhitespaceASCII,
+           base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
+    GURL redirect_url(redirect);
+    if (redirect_url.is_valid())
+      url->redirects.push_back(redirect_url);
   }
 }
 

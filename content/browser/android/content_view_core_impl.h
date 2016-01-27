@@ -13,12 +13,12 @@
 #include "base/i18n/rtl.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/process/process.h"
-#include "content/browser/android/overscroll_refresh.h"
 #include "content/browser/renderer_host/render_widget_host_view_android.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/android/content_view_core.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "third_party/WebKit/public/web/WebInputEvent.h"
+#include "ui/android/overscroll_refresh.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_f.h"
 #include "url/gurl.h"
@@ -36,7 +36,7 @@ class RenderWidgetHostViewAndroid;
 struct MenuItem;
 
 class ContentViewCoreImpl : public ContentViewCore,
-                            public OverscrollRefreshHandler,
+                            public ui::OverscrollRefreshHandler,
                             public WebContentsObserver {
  public:
   static ContentViewCoreImpl* FromWebContents(WebContents* web_contents);
@@ -58,7 +58,7 @@ class ContentViewCoreImpl : public ContentViewCore,
       float scale,
       SkColorType preferred_color_type,
       const gfx::Rect& src_subrect,
-      ReadbackRequestCallback& result_callback) override;
+      const ReadbackRequestCallback& result_callback) override;
   float GetDpiScale() const override;
   void PauseOrResumeGeolocation(bool should_pause) override;
   void RequestTextSurroundingSelection(
@@ -105,6 +105,8 @@ class ContentViewCoreImpl : public ContentViewCore,
                         jfloat touch_minor_1,
                         jfloat orientation_0,
                         jfloat orientation_1,
+                        jfloat tilt_0,
+                        jfloat tilt_1,
                         jfloat raw_pos_x,
                         jfloat raw_pos_y,
                         jint android_tool_type_0,
@@ -122,8 +124,9 @@ class ContentViewCoreImpl : public ContentViewCore,
                                jlong time_ms,
                                jfloat x,
                                jfloat y,
-                               jfloat vertical_axis,
-                               jfloat horizontal_axis);
+                               jfloat ticks_x,
+                               jfloat ticks_y,
+                               jfloat pixels_per_tick);
   void ScrollBegin(JNIEnv* env,
                    jobject obj,
                    jlong time_ms,
@@ -147,7 +150,7 @@ class ContentViewCoreImpl : public ContentViewCore,
   void SingleTap(JNIEnv* env, jobject obj, jlong time_ms,
                  jfloat x, jfloat y);
   void DoubleTap(JNIEnv* env, jobject obj, jlong time_ms,
-                 jfloat x, jfloat y) ;
+                 jfloat x, jfloat y);
   void LongPress(JNIEnv* env, jobject obj, jlong time_ms,
                  jfloat x, jfloat y);
   void PinchBegin(JNIEnv* env, jobject obj, jlong time_ms, jfloat x, jfloat y);
@@ -206,7 +209,6 @@ class ContentViewCoreImpl : public ContentViewCore,
                             jint height);
 
   void SetBackgroundOpaque(JNIEnv* env, jobject jobj, jboolean opaque);
-  void SetDrawsContent(JNIEnv* env, jobject jobj, jboolean draws);
 
   jint GetCurrentRenderProcessId(JNIEnv* env, jobject obj);
 
@@ -226,7 +228,8 @@ class ContentViewCoreImpl : public ContentViewCore,
                            const gfx::Rect& bounds,
                            const std::vector<MenuItem>& items,
                            int selected_item,
-                           bool multiple);
+                           bool multiple,
+                           bool right_aligned);
   // Hides a visible popup menu.
   void HideSelectPopupMenu();
 
@@ -263,9 +266,8 @@ class ContentViewCoreImpl : public ContentViewCore,
   void OnSelectionEvent(ui::SelectionEventType event,
                         const gfx::PointF& selection_anchor,
                         const gfx::RectF& selection_rect);
-  scoped_ptr<ui::TouchHandleDrawable> CreatePopupTouchHandleDrawable();
 
-  void StartContentIntent(const GURL& content_url);
+  void StartContentIntent(const GURL& content_url, bool is_main_frame);
 
   // Shows the disambiguation popup
   // |rect_pixels|   --> window coordinates which |zoomed_bitmap| represents
@@ -366,15 +368,15 @@ class ContentViewCoreImpl : public ContentViewCore,
   // A compositor layer containing any layer that should be shown.
   scoped_refptr<cc::Layer> root_layer_;
 
-  // Device scale factor.
-  float dpi_scale_;
-
   // Page scale factor.
   float page_scale_;
 
   // The Android view that can be used to add and remove decoration layers
   // like AutofillPopup.
   scoped_ptr<ui::ViewAndroid> view_android_;
+
+  // Device scale factor.
+  const float dpi_scale_;
 
   // The owning window that has a hold of main application activity.
   ui::WindowAndroid* window_android_;

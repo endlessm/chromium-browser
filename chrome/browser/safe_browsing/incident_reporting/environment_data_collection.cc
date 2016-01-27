@@ -8,8 +8,9 @@
 
 #include "base/cpu.h"
 #include "base/sys_info.h"
-#include "chrome/common/chrome_version_info.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
+#include "components/version_info/version_info.h"
 
 namespace safe_browsing {
 
@@ -18,20 +19,22 @@ namespace safe_browsing {
 void CollectPlatformProcessData(
     ClientIncidentReport_EnvironmentData_Process* process);
 
+// Populates |os_data| with platform-specific data related to the OS.
+void CollectPlatformOSData(ClientIncidentReport_EnvironmentData_OS* os_data);
+
 namespace {
 
 ClientIncidentReport_EnvironmentData_Process_Channel MapChannelToProtobuf(
-    chrome::VersionInfo::Channel channel) {
-  typedef chrome::VersionInfo VersionInfo;
+    version_info::Channel channel) {
   typedef ClientIncidentReport_EnvironmentData_Process Process;
   switch (channel) {
-    case VersionInfo::CHANNEL_CANARY:
+    case version_info::Channel::CANARY:
       return Process::CHANNEL_CANARY;
-    case VersionInfo::CHANNEL_DEV:
+    case version_info::Channel::DEV:
       return Process::CHANNEL_DEV;
-    case VersionInfo::CHANNEL_BETA:
+    case version_info::Channel::BETA:
       return Process::CHANNEL_BETA;
-    case VersionInfo::CHANNEL_STABLE:
+    case version_info::Channel::STABLE:
       return Process::CHANNEL_STABLE;
     default:
       return Process::CHANNEL_UNKNOWN;
@@ -40,19 +43,18 @@ ClientIncidentReport_EnvironmentData_Process_Channel MapChannelToProtobuf(
 
 // Populates |process| with data related to the chrome browser process.
 void CollectProcessData(ClientIncidentReport_EnvironmentData_Process* process) {
-  chrome::VersionInfo version_info;
   // TODO(grt): Move this logic into VersionInfo (it also appears in
   // ChromeMetricsServiceClient).
-  std::string version(version_info.Version());
+  std::string version(version_info::GetVersionNumber());
 #if defined(ARCH_CPU_64_BITS)
   version += "-64";
 #endif  // defined(ARCH_CPU_64_BITS)
-  if (!version_info.IsOfficialBuild())
+  if (!version_info::IsOfficialBuild())
     version += "-devel";
   process->set_version(version);
 
   process->set_chrome_update_channel(
-      MapChannelToProtobuf(chrome::VersionInfo::GetChannel()));
+      MapChannelToProtobuf(chrome::GetChannel()));
 
   CollectPlatformProcessData(process);
 }
@@ -65,6 +67,7 @@ void CollectEnvironmentData(ClientIncidentReport_EnvironmentData* data) {
     ClientIncidentReport_EnvironmentData_OS* os = data->mutable_os();
     os->set_os_name(base::SysInfo::OperatingSystemName());
     os->set_os_version(base::SysInfo::OperatingSystemVersion());
+    CollectPlatformOSData(os);
   }
 
   // Machine
@@ -84,6 +87,11 @@ void CollectEnvironmentData(ClientIncidentReport_EnvironmentData* data) {
 #if !defined(OS_WIN)
 void CollectPlatformProcessData(
     ClientIncidentReport_EnvironmentData_Process* process) {
+  // Empty implementation for platforms that do not (yet) have their own
+  // implementations.
+}
+
+void CollectPlatformOSData(ClientIncidentReport_EnvironmentData_OS* os_data) {
   // Empty implementation for platforms that do not (yet) have their own
   // implementations.
 }

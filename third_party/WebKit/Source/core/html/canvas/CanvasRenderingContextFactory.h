@@ -9,6 +9,7 @@
 #include "core/dom/Document.h"
 #include "core/html/canvas/CanvasContextCreationAttributes.h"
 #include "core/html/canvas/CanvasRenderingContext.h"
+#include "wtf/Allocator.h"
 #include "wtf/PassRefPtr.h"
 
 namespace blink {
@@ -16,7 +17,10 @@ namespace blink {
 class HTMLCanvasElement;
 
 class CORE_EXPORT CanvasRenderingContextFactory {
+    USING_FAST_MALLOC(CanvasRenderingContextFactory);
+    WTF_MAKE_NONCOPYABLE(CanvasRenderingContextFactory);
 public:
+    CanvasRenderingContextFactory() = default;
     virtual ~CanvasRenderingContextFactory() { }
 
     virtual PassOwnPtrWillBeRawPtr<CanvasRenderingContext> create(HTMLCanvasElement*, const CanvasContextCreationAttributes&, Document&) = 0;

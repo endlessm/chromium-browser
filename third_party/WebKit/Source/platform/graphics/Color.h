@@ -27,7 +27,7 @@
 #define Color_h
 
 #include "platform/animation/AnimationUtilities.h"
-#include "wtf/FastAllocBase.h"
+#include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 #include "wtf/text/Unicode.h"
 
@@ -56,10 +56,10 @@ struct NamedColor {
     unsigned ARGBValue;
 };
 
-const NamedColor* findColor(register const char* str, register unsigned len);
+PLATFORM_EXPORT const NamedColor* findColor(register const char* str, register unsigned len);
 
 class PLATFORM_EXPORT Color {
-    WTF_MAKE_FAST_ALLOCATED(Color);
+    USING_FAST_MALLOC(Color);
 public:
     Color() : m_color(Color::transparent) { }
     Color(RGBA32 color) : m_color(color) { }

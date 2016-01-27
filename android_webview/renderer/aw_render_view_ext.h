@@ -54,16 +54,16 @@ class AwRenderViewExt : public content::RenderViewObserver {
 
   void OnSetBackgroundColor(SkColor c);
 
-  void UpdatePageScaleFactor();
+  void OnSmoothScroll(int target_x, int target_y, long duration_ms);
 
   void CheckContentsSize();
 
+  void PostCheckContentsSize();
+
   bool capture_picture_enabled_;
 
-  float page_scale_factor_;
-
   gfx::Size last_sent_contents_size_;
-  base::OneShotTimer<AwRenderViewExt> check_contents_size_timer_;
+  base::OneShotTimer check_contents_size_timer_;
 
   DISALLOW_COPY_AND_ASSIGN(AwRenderViewExt);
 };

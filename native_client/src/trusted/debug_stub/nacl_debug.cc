@@ -44,9 +44,10 @@ using gdb_rsp::Target;
 
 static Target *g_target = NULL;
 static SocketBinding *g_socket_binding = NULL;
+static ITransport* g_transport = NULL;
 
 int NaClDebugBindSocket() {
-  if (g_socket_binding == NULL) {
+  if (g_transport == NULL) {
     NaClDebugStubInit();
     // Try port 4014 first for compatibility.
     g_socket_binding = SocketBinding::Bind("127.0.0.1:4014");
@@ -59,6 +60,7 @@ int NaClDebugBindSocket() {
               "NaClDebugStubBindSocket: Failed to bind any TCP port\n");
       return 0;
     }
+    g_transport = g_socket_binding->CreateTransport();
     NaClLog(LOG_WARNING,
             "nacl_debug(%d) : Connect GDB with 'target remote :%d\n",
             __LINE__, g_socket_binding->GetBoundPort());
@@ -69,18 +71,22 @@ int NaClDebugBindSocket() {
 void NaClDebugSetBoundSocket(NaClSocketHandle bound_socket) {
   CHECK(g_socket_binding == NULL);
   g_socket_binding = new SocketBinding(bound_socket);
+  g_transport = g_socket_binding->CreateTransport();
+}
+
+void NaClDebugStubSetPipe(NaClHandle handle) {
+  CHECK(g_transport == NULL);
+  g_transport = port::CreateTransportIPC(handle);
 }
 
 void WINAPI NaClStubThread(void *thread_arg) {
   UNREFERENCED_PARAMETER(thread_arg);
-
   while (1) {
     // Wait for a connection.
-    nacl::scoped_ptr<ITransport> trans(g_socket_binding->AcceptConnection());
-    if (NULL == trans.get()) continue;
+    if (!g_transport->AcceptConnection()) continue;
 
     // Create a new session for this connection
-    Session ses(trans.get());
+    Session ses(g_transport);
     ses.SetFlags(Session::DEBUG_MASK);
 
     NaClLog(LOG_WARNING, "nacl_debug(%d) : Connected, happy debugging!\n",
@@ -129,9 +135,6 @@ int NaClDebugInit(struct NaClApp *nap) {
   if (!NaClDebugBindSocket()) {
     return 0;
   }
-#if NACL_WINDOWS
-  nap->debug_stub_port = g_socket_binding->GetBoundPort();
-#endif
 
   NaClThread *thread = new NaClThread;
   CHECK(thread != NULL);
@@ -141,3 +144,11 @@ int NaClDebugInit(struct NaClApp *nap) {
 
   return 1;
 }
+
+#if NACL_WINDOWS
+// TODO(leslieb): Remove when windows doesn't need the port.
+uint16_t NaClDebugGetBoundPort() {
+  CHECK(g_socket_binding != NULL);
+  return g_socket_binding->GetBoundPort();
+}
+#endif

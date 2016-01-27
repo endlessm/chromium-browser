@@ -7,6 +7,7 @@
 #include "cc/surfaces/surface.h"
 #include "cc/surfaces/surface_manager.h"
 #include "content/browser/compositor/surface_utils.h"
+#include "content/browser/frame_host/frame_tree.h"
 #include "content/browser/frame_host/frame_tree_node.h"
 #include "content/browser/frame_host/render_frame_host_manager.h"
 #include "content/browser/frame_host/render_frame_proxy_host.h"
@@ -41,6 +42,7 @@ bool CrossProcessFrameConnector::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_HANDLER(FrameHostMsg_ReclaimCompositorResources,
                         OnReclaimCompositorResources)
     IPC_MESSAGE_HANDLER(FrameHostMsg_ForwardInputEvent, OnForwardInputEvent)
+    IPC_MESSAGE_HANDLER(FrameHostMsg_FrameRectChanged, OnFrameRectChanged)
     IPC_MESSAGE_HANDLER(FrameHostMsg_InitializeChildFrame,
                         OnInitializeChildFrame)
     IPC_MESSAGE_HANDLER(FrameHostMsg_SatisfySequence, OnSatisfySequence)
@@ -152,6 +154,7 @@ void CrossProcessFrameConnector::GetScreenInfo(blink::WebScreenInfo* results) {
   if (frame_proxy_in_parent_renderer_->frame_tree_node()
           ->render_manager()
           ->ForInnerDelegate()) {
+    DCHECK(frame_proxy_in_parent_renderer_->frame_tree_node()->IsMainFrame());
     return;
   }
 
@@ -161,40 +164,56 @@ void CrossProcessFrameConnector::GetScreenInfo(blink::WebScreenInfo* results) {
     static_cast<RenderWidgetHostViewBase*>(rwhv)->GetScreenInfo(results);
 }
 
+void CrossProcessFrameConnector::UpdateCursor(const WebCursor& cursor) {
+  RenderWidgetHostViewBase* root_view = GetRootRenderWidgetHostView();
+  if (root_view)
+    root_view->UpdateCursor(cursor);
+}
+
+bool CrossProcessFrameConnector::HasFocus() {
+  RenderWidgetHostViewBase* root_view = GetRootRenderWidgetHostView();
+  if (root_view)
+    return root_view->HasFocus();
+  return false;
+}
+
 void CrossProcessFrameConnector::OnForwardInputEvent(
     const blink::WebInputEvent* event) {
   if (!view_)
     return;
 
-  RenderWidgetHostImpl* child_widget =
-      RenderWidgetHostImpl::From(view_->GetRenderWidgetHost());
   RenderFrameHostManager* manager =
       frame_proxy_in_parent_renderer_->frame_tree_node()->render_manager();
   RenderWidgetHostImpl* parent_widget =
       manager->ForInnerDelegate()
           ? manager->GetOuterRenderWidgetHostForKeyboardInput()
-          : frame_proxy_in_parent_renderer_->GetRenderViewHost();
+          : frame_proxy_in_parent_renderer_->GetRenderViewHost()->GetWidget();
 
   if (blink::WebInputEvent::isKeyboardEventType(event->type)) {
     if (!parent_widget->GetLastKeyboardEvent())
       return;
     NativeWebKeyboardEvent keyboard_event(
         *parent_widget->GetLastKeyboardEvent());
-    child_widget->ForwardKeyboardEvent(keyboard_event);
+    view_->ProcessKeyboardEvent(keyboard_event);
     return;
   }
 
   if (blink::WebInputEvent::isMouseEventType(event->type)) {
-    child_widget->ForwardMouseEvent(
-        *static_cast<const blink::WebMouseEvent*>(event));
+    view_->ProcessMouseEvent(*static_cast<const blink::WebMouseEvent*>(event));
     return;
   }
 
   if (event->type == blink::WebInputEvent::MouseWheel) {
-    child_widget->ForwardWheelEvent(
+    view_->ProcessMouseWheelEvent(
         *static_cast<const blink::WebMouseWheelEvent*>(event));
     return;
   }
+}
+
+void CrossProcessFrameConnector::OnFrameRectChanged(
+    const gfx::Rect& frame_rect) {
+  if (!frame_rect.size().IsEmpty())
+    SetSize(frame_rect);
 }
 
 void CrossProcessFrameConnector::SetDeviceScaleFactor(float scale_factor) {
@@ -211,6 +230,21 @@ void CrossProcessFrameConnector::SetSize(gfx::Rect frame_rect) {
   child_frame_rect_ = frame_rect;
   if (view_)
     view_->SetSize(frame_rect.size());
+}
+
+RenderWidgetHostViewBase*
+CrossProcessFrameConnector::GetRootRenderWidgetHostView() {
+  RenderFrameHostImpl* top_host = frame_proxy_in_parent_renderer_->
+      frame_tree_node()->frame_tree()->root()->current_frame_host();
+
+  // This method should return the root RWHV from the top-level WebContents,
+  // in the case of nested WebContents.
+  while (top_host->frame_tree_node()->render_manager()->ForInnerDelegate()) {
+    top_host = top_host->frame_tree_node()->render_manager()->
+        GetOuterDelegateNode()->frame_tree()->root()->current_frame_host();
+  }
+
+  return static_cast<RenderWidgetHostViewBase*>(top_host->GetView());
 }
 
 }  // namespace content

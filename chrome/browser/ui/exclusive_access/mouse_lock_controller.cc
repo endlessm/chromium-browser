@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/exclusive_access/mouse_lock_controller.h"
 
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
@@ -13,6 +14,7 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/web_contents.h"
 
@@ -137,10 +139,9 @@ bool MouseLockController::OnAcceptExclusiveAccessPermission() {
   if (mouse_lock && !IsMouseLocked()) {
     DCHECK(IsMouseLockRequested());
 
-    HostContentSettingsMap* settings_map = exclusive_access_manager()
-                                               ->context()
-                                               ->GetProfile()
-                                               ->GetHostContentSettingsMap();
+    HostContentSettingsMap* settings_map =
+        HostContentSettingsMapFactory::GetForProfile(
+            exclusive_access_manager()->context()->GetProfile());
 
     GURL url = GetExclusiveAccessBubbleURL();
     ContentSettingsPattern pattern = ContentSettingsPattern::FromURL(url);
@@ -221,7 +222,7 @@ void MouseLockController::UnlockMouse() {
   if (!mouse_lock_view) {
     RenderViewHost* const rvh = exclusive_access_tab()->GetRenderViewHost();
     if (rvh)
-      mouse_lock_view = rvh->GetView();
+      mouse_lock_view = rvh->GetWidget()->GetView();
   }
 
   if (mouse_lock_view)
@@ -229,10 +230,15 @@ void MouseLockController::UnlockMouse() {
 }
 
 ContentSetting MouseLockController::GetMouseLockSetting(const GURL& url) const {
+  // If simplified UI is enabled, never ask the user, just auto-allow. (Always
+  // return CONTENT_SETTING_ALLOW in favour of CONTENT_SETTING_ASK.)
+  bool simplified_ui =
+      ExclusiveAccessManager::IsSimplifiedFullscreenUIEnabled();
+
   // Always ask on file:// URLs, since we can't meaningfully make the
   // decision stick for a particular origin.
   // TODO(estark): Revisit this when crbug.com/455882 is fixed.
-  if (url.SchemeIsFile())
+  if (url.SchemeIsFile() && !simplified_ui)
     return CONTENT_SETTING_ASK;
 
   if (exclusive_access_manager()
@@ -240,10 +246,14 @@ ContentSetting MouseLockController::GetMouseLockSetting(const GURL& url) const {
           ->IsPrivilegedFullscreenForTab())
     return CONTENT_SETTING_ALLOW;
 
-  HostContentSettingsMap* settings_map = exclusive_access_manager()
-                                             ->context()
-                                             ->GetProfile()
-                                             ->GetHostContentSettingsMap();
-  return settings_map->GetContentSetting(
+  HostContentSettingsMap* settings_map =
+      HostContentSettingsMapFactory::GetForProfile(
+          exclusive_access_manager()->context()->GetProfile());
+  ContentSetting setting = settings_map->GetContentSetting(
       url, url, CONTENT_SETTINGS_TYPE_MOUSELOCK, std::string());
+
+  if (simplified_ui && setting == CONTENT_SETTING_ASK)
+    return CONTENT_SETTING_ALLOW;
+
+  return setting;
 }

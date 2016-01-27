@@ -29,7 +29,7 @@
 #ifndef WTF_Collator_h
 #define WTF_Collator_h
 
-#include "wtf/FastAllocBase.h"
+#include "wtf/Allocator.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/WTFExport.h"
@@ -39,32 +39,34 @@ struct UCollator;
 
 namespace WTF {
 
-    class WTF_EXPORT Collator {
-        WTF_MAKE_NONCOPYABLE(Collator); WTF_MAKE_FAST_ALLOCATED(Collator);
-    public:
-        enum Result { Equal = 0, Greater = 1, Less = -1 };
+class WTF_EXPORT Collator {
+    WTF_MAKE_NONCOPYABLE(Collator);
+    USING_FAST_MALLOC(Collator);
+public:
+    enum Result { Equal = 0, Greater = 1, Less = -1 };
 
-        // From ICU's uloc.h (ULOC_FULLNAME_CAPACITY)
-        static const size_t ulocFullnameCapacity = 157;
+    // From ICU's uloc.h (ULOC_FULLNAME_CAPACITY)
+    static const size_t ulocFullnameCapacity = 157;
 
-        Collator(const char* locale); // Parsing is lenient; e.g. language identifiers (such as "en-US") are accepted, too.
-        ~Collator();
-        void setOrderLowerFirst(bool);
+    Collator(const char* locale); // Parsing is lenient; e.g. language identifiers (such as "en-US") are accepted, too.
+    ~Collator();
+    void setOrderLowerFirst(bool);
 
-        static PassOwnPtr<Collator> userDefault();
+    static PassOwnPtr<Collator> userDefault();
 
-        Result collate(const ::UChar*, size_t, const ::UChar*, size_t) const;
+    Result collate(const ::UChar*, size_t, const ::UChar*, size_t) const;
 
-    private:
-        void createCollator() const;
-        void releaseCollator();
-        void setEquivalentLocale(const char*, char*);
-        mutable UCollator* m_collator;
+private:
+    void createCollator() const;
+    void releaseCollator();
+    void setEquivalentLocale(const char*, char*);
+    mutable UCollator* m_collator;
 
-        char* m_locale;
-        char m_equivalentLocale[ulocFullnameCapacity];
-        bool m_lowerFirst;
-    };
+    char* m_locale;
+    char m_equivalentLocale[ulocFullnameCapacity];
+    bool m_lowerFirst;
+};
+
 }
 
 using WTF::Collator;

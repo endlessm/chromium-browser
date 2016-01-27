@@ -31,7 +31,7 @@ class ToolbarActionViewController {
 
   // Returns the unique ID of this particular action. For extensions, this is
   // the extension id; for component actions, this is the name of the component.
-  virtual const std::string& GetId() const = 0;
+  virtual std::string GetId() const = 0;
 
   // Sets the view delegate, which can handle most of the front-end logic.
   virtual void SetDelegate(ToolbarActionViewDelegate* delegate) = 0;
@@ -74,12 +74,6 @@ class ToolbarActionViewController {
   // Called when a context menu has closed so the controller can perform any
   // necessary cleanup.
   virtual void OnContextMenuClosed() {}
-
-  // Returns true if this view can be dragged. This should only be true for
-  // extensions right now, since they are the only ones the model currently
-  // supports.
-  // TODO(devlin): Tweak the model so that it supports generic actions.
-  virtual bool CanDrag() const = 0;
 
   // Executes the default action (which is typically showing the popup). If
   // |by_user| is true, then this was through a direct user action (as oppposed

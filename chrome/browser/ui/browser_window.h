@@ -7,7 +7,8 @@
 
 #include "base/callback_forward.h"
 #include "chrome/browser/lifetime/browser_close_manager.h"
-#include "chrome/browser/signin/signin_header_helper.h"
+#include "chrome/browser/signin/chrome_signin_helper.h"
+#include "chrome/browser/ssl/security_state_model.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/ui/bookmarks/bookmark_bar.h"
 #include "chrome/browser/ui/browser.h"
@@ -15,6 +16,7 @@
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/sync/one_click_signin_sync_starter.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/signin/core/browser/signin_header_helper.h"
 #include "components/translate/core/common/translate_errors.h"
 #include "ui/base/base_window.h"
 #include "ui/base/window_open_disposition.h"
@@ -31,13 +33,18 @@ class Profile;
 class ProfileResetGlobalError;
 class StatusBubble;
 class TemplateURL;
+class ToolbarActionsBar;
 
 struct WebApplicationInfo;
+
+namespace autofill {
+class SaveCardBubbleController;
+class SaveCardBubbleView;
+}
 
 namespace content {
 class WebContents;
 struct NativeWebKeyboardEvent;
-struct SSLStatus;
 }
 
 namespace extensions {
@@ -178,6 +185,9 @@ class BrowserWindow : public ui::BaseWindow {
   // Focuses the toolbar (for accessibility).
   virtual void FocusToolbar() = 0;
 
+  // Returns the ToolbarActionsBar associated with the window, if any.
+  virtual ToolbarActionsBar* GetToolbarActionsBar() = 0;
+
   // Called from toolbar subviews during their show/hide animations.
   virtual void ToolbarSizeChanged(bool is_animating) = 0;
 
@@ -240,6 +250,12 @@ class BrowserWindow : public ui::BaseWindow {
       const WebApplicationInfo& web_app_info,
       const ShowBookmarkAppBubbleCallback& callback) = 0;
 
+  // Shows the "Save credit card" bubble.
+  virtual autofill::SaveCardBubbleView* ShowSaveCreditCardBubble(
+      content::WebContents* contents,
+      autofill::SaveCardBubbleController* controller,
+      bool is_user_gesture) = 0;
+
   // Shows the translate bubble.
   //
   // |is_user_gesture| is true when the bubble is shown on the user's deliberate
@@ -249,11 +265,6 @@ class BrowserWindow : public ui::BaseWindow {
       translate::TranslateStep step,
       translate::TranslateErrors::Type error_type,
       bool is_user_gesture) = 0;
-
-  // Create a session recovery bubble if the last session crashed. It also
-  // offers the option to enable metrics reporting if it's not already enabled.
-  // Returns true if a bubble is created, returns false if nothing is created.
-  virtual bool ShowSessionCrashedBubble() = 0;
 
   // Shows the profile reset bubble on the platforms that support it.
   virtual bool IsProfileResetBubbleSupported() const = 0;
@@ -305,10 +316,11 @@ class BrowserWindow : public ui::BaseWindow {
   // url of the page/frame the info applies to, |ssl| is the SSL information for
   // that page/frame.  If |show_history| is true, a section showing how many
   // times that URL has been visited is added to the page info.
-  virtual void ShowWebsiteSettings(Profile* profile,
-                                   content::WebContents* web_contents,
-                                   const GURL& url,
-                                   const content::SSLStatus& ssl) = 0;
+  virtual void ShowWebsiteSettings(
+      Profile* profile,
+      content::WebContents* web_contents,
+      const GURL& url,
+      const SecurityStateModel::SecurityInfo& security_info) = 0;
 
   // Shows the app menu (for accessibility).
   virtual void ShowAppMenu() = 0;

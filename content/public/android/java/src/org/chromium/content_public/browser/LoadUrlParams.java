@@ -4,7 +4,8 @@
 
 package org.chromium.content_public.browser;
 
-import org.chromium.base.JNINamespace;
+import org.chromium.base.VisibleForTesting;
+import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.content_public.browser.navigation_controller.LoadURLType;
 import org.chromium.content_public.browser.navigation_controller.UserAgentOverrideOption;
@@ -37,7 +38,9 @@ public class LoadUrlParams {
     String mVirtualUrlForDataUrl;
     boolean mCanLoadLocalResources;
     boolean mIsRendererInitiated;
+    boolean mShouldReplaceCurrentEntry;
     long mIntentReceivedTimestamp;
+    boolean mHasUserGesture;
 
     /**
      * Creates an instance with default page transition type.
@@ -159,6 +162,7 @@ public class LoadUrlParams {
      * @param url URL of the load.
      * @param postData Post data of the load. Can be null.
      */
+    @VisibleForTesting
     public static LoadUrlParams createLoadHttpPostParams(
             String url, byte[] postData) {
         LoadUrlParams params = new LoadUrlParams(url);
@@ -391,6 +395,26 @@ public class LoadUrlParams {
     }
 
     /**
+     * @param shouldReplaceCurrentEntry Whether this navigation should replace
+     * the current navigation entry.
+     *
+     * Don't use this. This is a temporary hack that will be removed.
+     * TODO(lizeb): Remove this and {@link getShouldReplaceCurrentEntry} once
+     * crbug.com/521729 is fixed.
+     */
+    public void setShouldReplaceCurrentEntry(boolean shouldReplaceCurrentEntry) {
+        mShouldReplaceCurrentEntry = shouldReplaceCurrentEntry;
+    }
+
+    /**
+     * @return Whether this navigation should replace the current navigation
+     * entry.
+     */
+    public boolean getShouldReplaceCurrentEntry() {
+        return mShouldReplaceCurrentEntry;
+    }
+
+    /**
      * @param intentReceivedTimestamp the timestamp at which Chrome received the intent that
      *                                triggered this URL load, as returned by System.currentMillis.
      */
@@ -403,6 +427,22 @@ public class LoadUrlParams {
      */
     public long getIntentReceivedTimestamp() {
         return mIntentReceivedTimestamp;
+    }
+
+    /**
+     * Set whether the load is initiated by a user gesture.
+     *
+     * @param hasUserGesture True if load is initiated by user gesture, or false otherwise.
+     */
+    public void setHasUserGesture(boolean hasUserGesture) {
+        mHasUserGesture = hasUserGesture;
+    }
+
+    /**
+     * @return Whether or not this load was initiated with a user gesture.
+     */
+    public boolean getHasUserGesture() {
+        return mHasUserGesture;
     }
 
     public boolean isBaseUrlDataScheme() {

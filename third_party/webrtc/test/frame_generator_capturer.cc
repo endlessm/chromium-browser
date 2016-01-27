@@ -12,10 +12,10 @@
 
 #include "webrtc/base/criticalsection.h"
 #include "webrtc/test/frame_generator.h"
-#include "webrtc/system_wrappers/interface/clock.h"
-#include "webrtc/system_wrappers/interface/event_wrapper.h"
-#include "webrtc/system_wrappers/interface/sleep.h"
-#include "webrtc/system_wrappers/interface/thread_wrapper.h"
+#include "webrtc/system_wrappers/include/clock.h"
+#include "webrtc/system_wrappers/include/event_wrapper.h"
+#include "webrtc/system_wrappers/include/sleep.h"
+#include "webrtc/system_wrappers/include/thread_wrapper.h"
 #include "webrtc/video_send_stream.h"
 
 namespace webrtc {
@@ -128,6 +128,10 @@ void FrameGeneratorCapturer::Start() {
 void FrameGeneratorCapturer::Stop() {
   rtc::CritScope cs(&lock_);
   sending_ = false;
+}
+
+void FrameGeneratorCapturer::ForceFrame() {
+  tick_->Set();
 }
 }  // test
 }  // webrtc

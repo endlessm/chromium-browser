@@ -199,7 +199,7 @@
       # Mac OS X 64-bit - http://crbug.com/128122.
       'sources': [
         '../third_party/jsoncpp/overrides/src/lib_json/json_value.cpp',
-        '../third_party/jsoncpp/source/src/lib_json/json_reader.cpp',
+        '../third_party/jsoncpp/overrides/src/lib_json/json_reader.cpp',
         '../third_party/jsoncpp/source/src/lib_json/json_writer.cpp',
         '../third_party/modp_b64/modp_b64.cc',
         'host/constants_mac.cc',

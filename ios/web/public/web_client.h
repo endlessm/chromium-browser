@@ -33,7 +33,6 @@ class BrowserState;
 class BrowserURLRewriter;
 class WebClient;
 class WebMainParts;
-class WebViewFactory;
 
 // Setter and getter for the client.  The client should be set early, before any
 // web code is called.
@@ -57,9 +56,6 @@ class WebClient {
   // it in the UI.
   virtual void PostWebViewCreation(UIWebView* web_view) const {}
 
-  // Returns a factory that vends WebViews.
-  virtual WebViewFactory* GetWebViewFactory() const;
-
   // Returns the languages used in the Accept-Languages HTTP header.
   // Used to decide URL formating.
   virtual std::string GetAcceptLangs(BrowserState* state) const;
@@ -71,6 +67,23 @@ class WebClient {
   // true for every custom app specific schema it supports. For example Chromium
   // browser would return true for "chrome://about" URL.
   virtual bool IsAppSpecificURL(const GURL& url) const;
+
+  // Returns true if web views can be created using an alloc, init call.
+  // Web view creation using an alloc, init call is disabled by default.
+  // If this is disallowed all web view creation must happen through the
+  // web view creation utils methods that vend a web view.
+  // This is called once (only in debug builds) before the first web view is
+  // created and not called repeatedly.
+  virtual bool AllowWebViewAllocInit() const;
+
+  // Returns true if all web views that are created need to be associated with
+  // a BrowserState.
+  // This method is only called if the |AllowWebViewAllocInit| returns false.
+  // If this method returns true, web views can only be created
+  // with the BrowserState whose ActiveStateManager is active.
+  // This is called once (only in debug builds) when the first web view is
+  // created and not called repeatedly.
+  virtual bool WebViewsNeedActiveStateManager() const;
 
   // Returns text to be displayed for an unsupported plugin.
   virtual base::string16 GetPluginNotSupportedText() const;

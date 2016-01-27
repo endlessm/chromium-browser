@@ -40,8 +40,8 @@
 #include "core/dom/Document.h"
 #include "core/events/EventListener.h"
 #include "core/frame/LocalFrame.h"
+#include "core/inspector/InspectedFrames.h"
 #include "core/inspector/InspectorState.h"
-#include "core/page/Page.h"
 #include "modules/IndexedDBNames.h"
 #include "modules/indexeddb/DOMWindowIndexedDatabase.h"
 #include "modules/indexeddb/IDBCursor.h"
@@ -89,14 +89,14 @@ namespace {
 class GetDatabaseNamesCallback final : public EventListener {
     WTF_MAKE_NONCOPYABLE(GetDatabaseNamesCallback);
 public:
-    static PassRefPtr<GetDatabaseNamesCallback> create(PassRefPtrWillBeRawPtr<RequestDatabaseNamesCallback> requestCallback, const String& securityOrigin)
+    static PassRefPtrWillBeRawPtr<GetDatabaseNamesCallback> create(PassRefPtrWillBeRawPtr<RequestDatabaseNamesCallback> requestCallback, const String& securityOrigin)
     {
-        return adoptRef(new GetDatabaseNamesCallback(requestCallback, securityOrigin));
+        return adoptRefWillBeNoop(new GetDatabaseNamesCallback(requestCallback, securityOrigin));
     }
 
     ~GetDatabaseNamesCallback() override { }
 
-    bool operator==(const EventListener& other) override
+    bool operator==(const EventListener& other) const override
     {
         return this == &other;
     }
@@ -124,12 +124,18 @@ public:
         m_requestCallback->sendSuccess(databaseNames.release());
     }
 
+    DEFINE_INLINE_VIRTUAL_TRACE()
+    {
+        visitor->trace(m_requestCallback);
+        EventListener::trace(visitor);
+    }
+
 private:
     GetDatabaseNamesCallback(PassRefPtrWillBeRawPtr<RequestDatabaseNamesCallback> requestCallback, const String& securityOrigin)
         : EventListener(EventListener::CPPEventListenerType)
         , m_requestCallback(requestCallback)
         , m_securityOrigin(securityOrigin) { }
-    RefPtrWillBePersistent<RequestDatabaseNamesCallback> m_requestCallback;
+    RefPtrWillBeMember<RequestDatabaseNamesCallback> m_requestCallback;
     String m_securityOrigin;
 };
 
@@ -149,14 +155,14 @@ private:
 
 class OpenDatabaseCallback final : public EventListener {
 public:
-    static PassRefPtr<OpenDatabaseCallback> create(ExecutableWithDatabase* executableWithDatabase)
+    static PassRefPtrWillBeRawPtr<OpenDatabaseCallback> create(ExecutableWithDatabase* executableWithDatabase)
     {
-        return adoptRef(new OpenDatabaseCallback(executableWithDatabase));
+        return adoptRefWillBeNoop(new OpenDatabaseCallback(executableWithDatabase));
     }
 
     ~OpenDatabaseCallback() override { }
 
-    bool operator==(const EventListener& other) override
+    bool operator==(const EventListener& other) const override
     {
         return this == &other;
     }
@@ -188,16 +194,55 @@ private:
     RefPtr<ExecutableWithDatabase> m_executableWithDatabase;
 };
 
+class UpgradeDatabaseCallback final : public EventListener {
+public:
+    static PassRefPtrWillBeRawPtr<UpgradeDatabaseCallback> create(ExecutableWithDatabase* executableWithDatabase)
+    {
+        return adoptRefWillBeNoop(new UpgradeDatabaseCallback(executableWithDatabase));
+    }
+
+    ~UpgradeDatabaseCallback() override { }
+
+    bool operator==(const EventListener& other) const override
+    {
+        return this == &other;
+    }
+
+    void handleEvent(ExecutionContext* context, Event* event) override
+    {
+        if (event->type() != EventTypeNames::upgradeneeded) {
+            m_executableWithDatabase->requestCallback()->sendFailure("Unexpected event type.");
+            return;
+        }
+
+        // If an "upgradeneeded" event comes through then the database that
+        // had previously been enumerated was deleted. We don't want to
+        // implicitly re-create it here, so abort the transaction.
+        IDBOpenDBRequest* idbOpenDBRequest = static_cast<IDBOpenDBRequest*>(event->target());
+        NonThrowableExceptionState exceptionState;
+        idbOpenDBRequest->transaction()->abort(exceptionState);
+        m_executableWithDatabase->requestCallback()->sendFailure("Aborted upgrade.");
+    }
+
+private:
+    UpgradeDatabaseCallback(ExecutableWithDatabase* executableWithDatabase)
+        : EventListener(EventListener::CPPEventListenerType)
+        , m_executableWithDatabase(executableWithDatabase) { }
+    RefPtr<ExecutableWithDatabase> m_executableWithDatabase;
+};
+
 void ExecutableWithDatabase::start(IDBFactory* idbFactory, SecurityOrigin*, const String& databaseName)
 {
-    RefPtr<OpenDatabaseCallback> callback = OpenDatabaseCallback::create(this);
+    RefPtrWillBeRawPtr<OpenDatabaseCallback> openCallback = OpenDatabaseCallback::create(this);
+    RefPtrWillBeRawPtr<UpgradeDatabaseCallback> upgradeCallback = UpgradeDatabaseCallback::create(this);
     TrackExceptionState exceptionState;
     IDBOpenDBRequest* idbOpenDBRequest = idbFactory->open(scriptState(), databaseName, exceptionState);
     if (exceptionState.hadException()) {
         requestCallback()->sendFailure("Could not open database.");
         return;
     }
-    idbOpenDBRequest->addEventListener(EventTypeNames::success, callback, false);
+    idbOpenDBRequest->addEventListener(EventTypeNames::upgradeneeded, upgradeCallback, false);
+    idbOpenDBRequest->addEventListener(EventTypeNames::success, openCallback, false);
 }
 
 static IDBTransaction* transactionForDatabase(ScriptState* scriptState, IDBDatabase* idbDatabase, const String& objectStoreName, const String& mode = IndexedDBNames::readonly)
@@ -389,14 +434,14 @@ class DataLoader;
 
 class OpenCursorCallback final : public EventListener {
 public:
-    static PassRefPtr<OpenCursorCallback> create(ScriptState* scriptState, PassRefPtrWillBeRawPtr<RequestDataCallback> requestCallback, int skipCount, unsigned pageSize)
+    static PassRefPtrWillBeRawPtr<OpenCursorCallback> create(ScriptState* scriptState, PassRefPtrWillBeRawPtr<RequestDataCallback> requestCallback, int skipCount, unsigned pageSize)
     {
-        return adoptRef(new OpenCursorCallback(scriptState, requestCallback, skipCount, pageSize));
+        return adoptRefWillBeNoop(new OpenCursorCallback(scriptState, requestCallback, skipCount, pageSize));
     }
 
     ~OpenCursorCallback() override { }
 
-    bool operator==(const EventListener& other) override
+    bool operator==(const EventListener& other) const override
     {
         return this == &other;
     }
@@ -473,6 +518,12 @@ public:
         m_requestCallback->sendSuccess(m_result.release(), hasMore);
     }
 
+    DEFINE_INLINE_VIRTUAL_TRACE()
+    {
+        visitor->trace(m_requestCallback);
+        EventListener::trace(visitor);
+    }
+
 private:
     OpenCursorCallback(ScriptState* scriptState, PassRefPtrWillBeRawPtr<RequestDataCallback> requestCallback, int skipCount, unsigned pageSize)
         : EventListener(EventListener::CPPEventListenerType)
@@ -485,7 +536,7 @@ private:
     }
 
     RefPtr<ScriptState> m_scriptState;
-    RefPtrWillBePersistent<RequestDataCallback> m_requestCallback;
+    RefPtrWillBeMember<RequestDataCallback> m_requestCallback;
     int m_skipCount;
     unsigned m_pageSize;
     RefPtr<Array<DataEntry>> m_result;
@@ -515,7 +566,7 @@ public:
             return;
         }
 
-        RefPtr<OpenCursorCallback> openCursorCallback = OpenCursorCallback::create(scriptState(), m_requestCallback, m_skipCount, m_pageSize);
+        RefPtrWillBeRawPtr<OpenCursorCallback> openCursorCallback = OpenCursorCallback::create(scriptState(), m_requestCallback, m_skipCount, m_pageSize);
 
         IDBRequest* idbRequest;
         if (!m_indexName.isEmpty()) {
@@ -552,29 +603,17 @@ public:
     unsigned m_pageSize;
 };
 
-LocalFrame* findFrameWithSecurityOrigin(Page* page, const String& securityOrigin)
-{
-    for (Frame* frame = page->mainFrame(); frame; frame = frame->tree().traverseNext()) {
-        if (!frame->isLocalFrame())
-            continue;
-        RefPtr<SecurityOrigin> documentOrigin = toLocalFrame(frame)->document()->securityOrigin();
-        if (documentOrigin->toRawString() == securityOrigin)
-            return toLocalFrame(frame);
-    }
-    return nullptr;
-}
-
 } // namespace
 
 // static
-PassOwnPtrWillBeRawPtr<InspectorIndexedDBAgent> InspectorIndexedDBAgent::create(Page* page)
+PassOwnPtrWillBeRawPtr<InspectorIndexedDBAgent> InspectorIndexedDBAgent::create(InspectedFrames* inspectedFrames)
 {
-    return adoptPtrWillBeNoop(new InspectorIndexedDBAgent(page));
+    return adoptPtrWillBeNoop(new InspectorIndexedDBAgent(inspectedFrames));
 }
 
-InspectorIndexedDBAgent::InspectorIndexedDBAgent(Page* page)
+InspectorIndexedDBAgent::InspectorIndexedDBAgent(InspectedFrames* inspectedFrames)
     : InspectorBaseAgent<InspectorIndexedDBAgent, InspectorFrontend::IndexedDB>("IndexedDB")
-    , m_page(page)
+    , m_inspectedFrames(inspectedFrames)
 {
 }
 
@@ -627,7 +666,7 @@ static IDBFactory* assertIDBFactory(ErrorString* errorString, Document* document
 
 void InspectorIndexedDBAgent::requestDatabaseNames(ErrorString* errorString, const String& securityOrigin, PassRefPtrWillBeRawPtr<RequestDatabaseNamesCallback> requestCallback)
 {
-    LocalFrame* frame = findFrameWithSecurityOrigin(m_page, securityOrigin);
+    LocalFrame* frame = m_inspectedFrames->frameWithSecurityOrigin(securityOrigin);
     Document* document = assertDocument(errorString, frame);
     if (!document)
         return;
@@ -648,7 +687,7 @@ void InspectorIndexedDBAgent::requestDatabaseNames(ErrorString* errorString, con
 
 void InspectorIndexedDBAgent::requestDatabase(ErrorString* errorString, const String& securityOrigin, const String& databaseName, PassRefPtrWillBeRawPtr<RequestDatabaseCallback> requestCallback)
 {
-    LocalFrame* frame = findFrameWithSecurityOrigin(m_page, securityOrigin);
+    LocalFrame* frame = m_inspectedFrames->frameWithSecurityOrigin(securityOrigin);
     Document* document = assertDocument(errorString, frame);
     if (!document)
         return;
@@ -664,7 +703,7 @@ void InspectorIndexedDBAgent::requestDatabase(ErrorString* errorString, const St
 
 void InspectorIndexedDBAgent::requestData(ErrorString* errorString, const String& securityOrigin, const String& databaseName, const String& objectStoreName, const String& indexName, int skipCount, int pageSize, const RefPtr<JSONObject>* keyRange, const PassRefPtrWillBeRawPtr<RequestDataCallback> requestCallback)
 {
-    LocalFrame* frame = findFrameWithSecurityOrigin(m_page, securityOrigin);
+    LocalFrame* frame = m_inspectedFrames->frameWithSecurityOrigin(securityOrigin);
     Document* document = assertDocument(errorString, frame);
     if (!document)
         return;
@@ -687,14 +726,14 @@ void InspectorIndexedDBAgent::requestData(ErrorString* errorString, const String
 class ClearObjectStoreListener final : public EventListener {
     WTF_MAKE_NONCOPYABLE(ClearObjectStoreListener);
 public:
-    static PassRefPtr<ClearObjectStoreListener> create(PassRefPtrWillBeRawPtr<ClearObjectStoreCallback> requestCallback)
+    static PassRefPtrWillBeRawPtr<ClearObjectStoreListener> create(PassRefPtrWillBeRawPtr<ClearObjectStoreCallback> requestCallback)
     {
-        return adoptRef(new ClearObjectStoreListener(requestCallback));
+        return adoptRefWillBeNoop(new ClearObjectStoreListener(requestCallback));
     }
 
     ~ClearObjectStoreListener() override { }
 
-    bool operator==(const EventListener& other) override
+    bool operator==(const EventListener& other) const override
     {
         return this == &other;
     }
@@ -710,6 +749,13 @@ public:
 
         m_requestCallback->sendSuccess();
     }
+
+    DEFINE_INLINE_VIRTUAL_TRACE()
+    {
+        visitor->trace(m_requestCallback);
+        EventListener::trace(visitor);
+    }
+
 private:
     ClearObjectStoreListener(PassRefPtrWillBeRawPtr<ClearObjectStoreCallback> requestCallback)
         : EventListener(EventListener::CPPEventListenerType)
@@ -717,7 +763,7 @@ private:
     {
     }
 
-    RefPtrWillBePersistent<ClearObjectStoreCallback> m_requestCallback;
+    RefPtrWillBeMember<ClearObjectStoreCallback> m_requestCallback;
 };
 
 
@@ -769,7 +815,7 @@ private:
 
 void InspectorIndexedDBAgent::clearObjectStore(ErrorString* errorString, const String& securityOrigin, const String& databaseName, const String& objectStoreName, PassRefPtrWillBeRawPtr<ClearObjectStoreCallback> requestCallback)
 {
-    LocalFrame* frame = findFrameWithSecurityOrigin(m_page, securityOrigin);
+    LocalFrame* frame = m_inspectedFrames->frameWithSecurityOrigin(securityOrigin);
     Document* document = assertDocument(errorString, frame);
     if (!document)
         return;
@@ -785,7 +831,6 @@ void InspectorIndexedDBAgent::clearObjectStore(ErrorString* errorString, const S
 
 DEFINE_TRACE(InspectorIndexedDBAgent)
 {
-    visitor->trace(m_page);
     InspectorBaseAgent::trace(visitor);
 }
 

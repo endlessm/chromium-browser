@@ -11,12 +11,18 @@
 #include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/memory/scoped_ptr.h"
+#include "base/trace_event/memory_dump_provider.h"
 #include "extensions/browser/value_store/value_store.h"
 #include "third_party/leveldatabase/src/include/leveldb/db.h"
 
+namespace base {
+class HistogramBase;
+}  // namespace base
+
 // Value store area, backed by a leveldb database.
 // All methods must be run on the FILE thread.
-class LeveldbValueStore : public ValueStore {
+class LeveldbValueStore : public ValueStore,
+                          public base::trace_event::MemoryDumpProvider {
  public:
   // Creates a database bound to |path|. The underlying database won't be
   // opened (i.e. may not be created) until one of the get/set/etc methods are
@@ -24,7 +30,8 @@ class LeveldbValueStore : public ValueStore {
   // need to be notified of that, but we don't want to permanently give up.
   //
   // Must be created on the FILE thread.
-  explicit LeveldbValueStore(const base::FilePath& path);
+  LeveldbValueStore(const std::string& uma_client_name,
+                    const base::FilePath& path);
 
   // Must be deleted on the FILE thread.
   ~LeveldbValueStore() override;
@@ -50,6 +57,10 @@ class LeveldbValueStore : public ValueStore {
   // Write directly to the backing levelDB. Only used for testing to cause
   // corruption in the database.
   bool WriteToDbForTest(leveldb::WriteBatch* batch);
+
+  // base::trace_event::MemoryDumpProvider implementation.
+  bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
+                    base::trace_event::ProcessMemoryDump* pmd) override;
 
  private:
   // Tries to open the database if it hasn't been opened already.
@@ -81,7 +92,7 @@ class LeveldbValueStore : public ValueStore {
 
   // Removes the on-disk database at |db_path_|. Any file system locks should
   // be released before calling this method.
-  void DeleteDbFile();
+  bool DeleteDbFile();
 
   // Returns whether the database is empty.
   bool IsEmpty();
@@ -91,6 +102,8 @@ class LeveldbValueStore : public ValueStore {
 
   // leveldb backend.
   scoped_ptr<leveldb::DB> db_;
+  base::HistogramBase* open_histogram_;
+  base::HistogramBase* restore_histogram_;
 
   DISALLOW_COPY_AND_ASSIGN(LeveldbValueStore);
 };

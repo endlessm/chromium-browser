@@ -25,7 +25,7 @@ class FramebufferAttachment;
 namespace rx
 {
 class RenderTarget11;
-struct Workarounds;
+struct WorkaroundsD3D;
 struct Renderer11DeviceCaps;
 
 namespace gl_d3d11
@@ -52,8 +52,13 @@ D3D11_QUERY ConvertQueryType(GLenum queryType);
 namespace d3d11_gl
 {
 
+unsigned int GetReservedVertexUniformVectors(D3D_FEATURE_LEVEL featureLevel);
+
+unsigned int GetReservedFragmentUniformVectors(D3D_FEATURE_LEVEL featureLevel);
+
 GLint GetMaximumClientVersion(D3D_FEATURE_LEVEL featureLevel);
-void GenerateCaps(ID3D11Device *device, ID3D11DeviceContext *deviceContext, const Renderer11DeviceCaps &renderer11DeviceCaps, gl::Caps *caps, gl::TextureCapsMap *textureCapsMap, gl::Extensions *extensions);
+void GenerateCaps(ID3D11Device *device, ID3D11DeviceContext *deviceContext, const Renderer11DeviceCaps &renderer11DeviceCaps, gl::Caps *caps,
+                  gl::TextureCapsMap *textureCapsMap, gl::Extensions *extensions, gl::Limitations *limitations);
 
 }
 
@@ -65,6 +70,8 @@ void MakeValidSize(bool isImage, DXGI_FORMAT format, GLsizei *requestWidth, GLsi
 void GenerateInitialTextureData(GLint internalFormat, const Renderer11DeviceCaps &renderer11DeviceCaps, GLuint width, GLuint height, GLuint depth,
                                 GLuint mipLevels, std::vector<D3D11_SUBRESOURCE_DATA> *outSubresourceData,
                                 std::vector< std::vector<BYTE> > *outData);
+
+UINT GetPrimitiveRestartIndex();
 
 struct PositionTexCoordVertex
 {
@@ -334,8 +341,7 @@ void SetBufferData(ID3D11DeviceContext *context, ID3D11Buffer *constantBuffer, c
     }
 }
 
-Workarounds GenerateWorkarounds(D3D_FEATURE_LEVEL featureLevel);
-
+WorkaroundsD3D GenerateWorkarounds(D3D_FEATURE_LEVEL featureLevel);
 }
 
 }

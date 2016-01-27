@@ -12,7 +12,6 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/constrained_window/constrained_window_views.h"
-#include "components/web_modal/popup_manager.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/web_contents_delegate.h"
@@ -207,11 +206,12 @@ DesktopMediaListView::DesktopMediaListView(
       media_list_(media_list.Pass()),
       weak_factory_(this) {
   media_list_->SetThumbnailSize(gfx::Size(kThumbnailWidth, kThumbnailHeight));
+  SetFocusable(true);
 }
 
 DesktopMediaListView::~DesktopMediaListView() {}
 
-void DesktopMediaListView::StartUpdating(DesktopMediaID::Id dialog_window_id) {
+void DesktopMediaListView::StartUpdating(DesktopMediaID dialog_window_id) {
   media_list_->SetViewDialogWindowId(dialog_window_id);
   media_list_->StartUpdating(this);
 }
@@ -426,18 +426,19 @@ DesktopMediaPickerDialogView::DesktopMediaPickerDialogView(
   // in its own top-level window, so in that case it needs to be filtered out of
   // the list of top-level windows available for capture, and to achieve that
   // the Id is passed to DesktopMediaList.
-  DesktopMediaID::Id dialog_window_id = 0;
+  DesktopMediaID dialog_window_id;
   if (!modal_dialog) {
+    dialog_window_id = DesktopMediaID::RegisterAuraWindow(
+        DesktopMediaID::TYPE_WINDOW, widget->GetNativeWindow());
+
+    bool is_ash_window = false;
 #if defined(USE_ASH)
-    if (chrome::IsNativeWindowInAsh(widget->GetNativeWindow())) {
-      dialog_window_id =
-          DesktopMediaID::RegisterAuraWindow(widget->GetNativeWindow()).id;
-      DCHECK_NE(dialog_window_id, 0);
-    }
+    is_ash_window = chrome::IsNativeWindowInAsh(widget->GetNativeWindow());
 #endif
 
-    if (dialog_window_id == 0) {
-      dialog_window_id = AcceleratedWidgetToDesktopMediaId(
+    // Set native window ID if the windows is outside Ash.
+    if (!is_ash_window) {
+      dialog_window_id.id = AcceleratedWidgetToDesktopMediaId(
           widget->GetNativeWindow()->GetHost()->GetAcceleratedWidget());
     }
   }
@@ -495,6 +496,10 @@ bool DesktopMediaPickerDialogView::IsDialogButtonEnabled(
   return true;
 }
 
+views::View* DesktopMediaPickerDialogView::GetInitiallyFocusedView() {
+  return list_view_;
+}
+
 base::string16 DesktopMediaPickerDialogView::GetDialogButtonLabel(
     ui::DialogButton button) const {
   return l10n_util::GetStringUTF16(button == ui::DIALOG_BUTTON_OK ?
@@ -541,6 +546,11 @@ void DesktopMediaPickerDialogView::OnMediaListRowsChanged() {
       scroll_view_->GetPreferredSize().height();
 
   GetWidget()->CenterWindow(gfx::Size(widget_bound.width(), new_height));
+}
+
+DesktopMediaListView* DesktopMediaPickerDialogView::GetMediaListViewForTesting()
+    const {
+  return list_view_;
 }
 
 DesktopMediaSourceView*

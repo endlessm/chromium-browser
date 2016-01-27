@@ -9,7 +9,7 @@
 #include "bindings/core/v8/ScriptSourceCode.h"
 #include "core/animation/Animation.h"
 #include "core/animation/KeyframeEffect.h"
-#include "core/css/invalidation/DescendantInvalidationSet.h"
+#include "core/css/invalidation/InvalidationSet.h"
 #include "core/dom/DOMNodeIds.h"
 #include "core/dom/StyleChangeReason.h"
 #include "core/events/Event.h"
@@ -22,7 +22,7 @@
 #include "core/layout/LayoutImage.h"
 #include "core/layout/LayoutObject.h"
 #include "core/page/Page.h"
-#include "core/paint/DeprecatedPaintLayer.h"
+#include "core/paint/PaintLayer.h"
 #include "core/workers/WorkerThread.h"
 #include "core/xmlhttprequest/XMLHttpRequest.h"
 #include "platform/JSONValues.h"
@@ -32,6 +32,7 @@
 #include "platform/network/ResourceResponse.h"
 #include "platform/weborigin/KURL.h"
 #include "wtf/Vector.h"
+#include "wtf/text/TextPosition.h"
 #include <inttypes.h>
 #include <v8.h>
 
@@ -49,10 +50,10 @@ void setCallStack(TracedValue* value)
     static const unsigned char* traceCategoryEnabled = 0;
     WTF_ANNOTATE_BENIGN_RACE(&traceCategoryEnabled, "trace_event category");
     if (!traceCategoryEnabled)
-        traceCategoryEnabled = TRACE_EVENT_API_GET_CATEGORY_ENABLED(TRACE_DISABLED_BY_DEFAULT("devtools.timeline.stack"));
+        traceCategoryEnabled = TRACE_EVENT_API_GET_CATEGORY_GROUP_ENABLED(TRACE_DISABLED_BY_DEFAULT("devtools.timeline.stack"));
     if (!*traceCategoryEnabled)
         return;
-    RefPtrWillBeRawPtr<ScriptCallStack> scriptCallStack = createScriptCallStack(ScriptCallStack::maxCallStackSizeToCapture, true);
+    RefPtrWillBeRawPtr<ScriptCallStack> scriptCallStack = currentScriptCallStack(ScriptCallStack::maxCallStackSizeToCapture);
     if (scriptCallStack)
         scriptCallStack->toTracedValue(value, "stackTrace");
 }
@@ -99,6 +100,7 @@ const char* pseudoTypeToString(CSSSelector::PseudoType pseudoType)
         DEFINE_STRING_MAPPING(PseudoDefault)
         DEFINE_STRING_MAPPING(PseudoDisabled)
         DEFINE_STRING_MAPPING(PseudoOptional)
+        DEFINE_STRING_MAPPING(PseudoPlaceholderShown)
         DEFINE_STRING_MAPPING(PseudoRequired)
         DEFINE_STRING_MAPPING(PseudoReadOnly)
         DEFINE_STRING_MAPPING(PseudoReadWrite)
@@ -136,7 +138,6 @@ const char* pseudoTypeToString(CSSSelector::PseudoType pseudoType)
         DEFINE_STRING_MAPPING(PseudoRightPage)
         DEFINE_STRING_MAPPING(PseudoFirstPage)
         DEFINE_STRING_MAPPING(PseudoFullScreen)
-        DEFINE_STRING_MAPPING(PseudoFullScreenDocument)
         DEFINE_STRING_MAPPING(PseudoFullScreenAncestor)
         DEFINE_STRING_MAPPING(PseudoInRange)
         DEFINE_STRING_MAPPING(PseudoOutOfRange)
@@ -160,52 +161,54 @@ const char* pseudoTypeToString(CSSSelector::PseudoType pseudoType)
 
 }
 
-PassRefPtr<TracedValue> InspectorScheduleStyleInvalidationTrackingEvent::fillCommonPart(Element& element, const DescendantInvalidationSet& invalidationSet, const char* invalidatedSelector)
+namespace InspectorScheduleStyleInvalidationTrackingEvent {
+PassRefPtr<TracedValue> fillCommonPart(Element& element, const InvalidationSet& invalidationSet, const char* invalidatedSelector)
 {
     RefPtr<TracedValue> value = TracedValue::create();
     value->setString("frame", toHexString(element.document().frame()));
     setNodeInfo(value.get(), &element, "nodeId", "nodeName");
     value->setString("invalidationSet", descendantInvalidationSetToIdString(invalidationSet));
     value->setString("invalidatedSelectorId", invalidatedSelector);
-    if (RefPtrWillBeRawPtr<ScriptCallStack> stackTrace = createScriptCallStack(maxInvalidationTrackingCallstackSize, true))
+    if (RefPtrWillBeRawPtr<ScriptCallStack> stackTrace = currentScriptCallStack(maxInvalidationTrackingCallstackSize))
         stackTrace->toTracedValue(value.get(), "stackTrace");
     return value.release();
 }
+} // namespace InspectorScheduleStyleInvalidationTrackingEvent
 
 const char InspectorScheduleStyleInvalidationTrackingEvent::Attribute[] = "attribute";
 const char InspectorScheduleStyleInvalidationTrackingEvent::Class[] = "class";
 const char InspectorScheduleStyleInvalidationTrackingEvent::Id[] = "id";
 const char InspectorScheduleStyleInvalidationTrackingEvent::Pseudo[] = "pseudo";
 
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorScheduleStyleInvalidationTrackingEvent::idChange(Element& element, const DescendantInvalidationSet& invalidationSet, const AtomicString& id)
+PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorScheduleStyleInvalidationTrackingEvent::idChange(Element& element, const InvalidationSet& invalidationSet, const AtomicString& id)
 {
     RefPtr<TracedValue> value = fillCommonPart(element, invalidationSet, Id);
     value->setString("changedId", id);
     return value.release();
 }
 
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorScheduleStyleInvalidationTrackingEvent::classChange(Element& element, const DescendantInvalidationSet& invalidationSet, const AtomicString& className)
+PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorScheduleStyleInvalidationTrackingEvent::classChange(Element& element, const InvalidationSet& invalidationSet, const AtomicString& className)
 {
     RefPtr<TracedValue> value = fillCommonPart(element, invalidationSet, Class);
     value->setString("changedClass", className);
     return value.release();
 }
 
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorScheduleStyleInvalidationTrackingEvent::attributeChange(Element& element, const DescendantInvalidationSet& invalidationSet, const QualifiedName& attributeName)
+PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorScheduleStyleInvalidationTrackingEvent::attributeChange(Element& element, const InvalidationSet& invalidationSet, const QualifiedName& attributeName)
 {
     RefPtr<TracedValue> value = fillCommonPart(element, invalidationSet, Attribute);
     value->setString("changedAttribute", attributeName.toString());
     return value.release();
 }
 
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorScheduleStyleInvalidationTrackingEvent::pseudoChange(Element& element, const DescendantInvalidationSet& invalidationSet, CSSSelector::PseudoType pseudoType)
+PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorScheduleStyleInvalidationTrackingEvent::pseudoChange(Element& element, const InvalidationSet& invalidationSet, CSSSelector::PseudoType pseudoType)
 {
     RefPtr<TracedValue> value = fillCommonPart(element, invalidationSet, Attribute);
     value->setString("changedPseudo", pseudoTypeToString(pseudoType));
     return value.release();
 }
 
-String descendantInvalidationSetToIdString(const DescendantInvalidationSet& set)
+String descendantInvalidationSetToIdString(const InvalidationSet& set)
 {
     return toHexString(&set);
 }
@@ -218,7 +221,8 @@ const char InspectorStyleInvalidatorInvalidateEvent::InvalidationSetMatchedId[] 
 const char InspectorStyleInvalidatorInvalidateEvent::InvalidationSetMatchedTagName[] = "Invalidation set matched tagName";
 const char InspectorStyleInvalidatorInvalidateEvent::PreventStyleSharingForParent[] = "Prevent style sharing for parent";
 
-PassRefPtr<TracedValue> InspectorStyleInvalidatorInvalidateEvent::fillCommonPart(Element& element, const char* reason)
+namespace InspectorStyleInvalidatorInvalidateEvent {
+PassRefPtr<TracedValue> fillCommonPart(Element& element, const char* reason)
 {
     RefPtr<TracedValue> value = TracedValue::create();
     value->setString("frame", toHexString(element.document().frame()));
@@ -226,13 +230,14 @@ PassRefPtr<TracedValue> InspectorStyleInvalidatorInvalidateEvent::fillCommonPart
     value->setString("reason", reason);
     return value.release();
 }
+} // namespace InspectorStyleInvalidatorInvalidateEvent
 
 PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorStyleInvalidatorInvalidateEvent::data(Element& element, const char* reason)
 {
     return fillCommonPart(element, reason);
 }
 
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorStyleInvalidatorInvalidateEvent::selectorPart(Element& element, const char* reason, const DescendantInvalidationSet& invalidationSet, const String& selectorPart)
+PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorStyleInvalidatorInvalidateEvent::selectorPart(Element& element, const char* reason, const InvalidationSet& invalidationSet, const String& selectorPart)
 {
     RefPtr<TracedValue> value = fillCommonPart(element, reason);
     value->beginArray("invalidationList");
@@ -242,7 +247,7 @@ PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorStyleInvalidatorInvali
     return value.release();
 }
 
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorStyleInvalidatorInvalidateEvent::invalidationList(Element& element, const WillBeHeapVector<RefPtrWillBeMember<DescendantInvalidationSet> >& invalidationList)
+PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorStyleInvalidatorInvalidateEvent::invalidationList(Element& element, const Vector<RefPtr<InvalidationSet>>& invalidationList)
 {
     RefPtr<TracedValue> value = fillCommonPart(element, ElementHasPendingInvalidationList);
     value->beginArray("invalidationList");
@@ -261,7 +266,7 @@ PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorStyleRecalcInvalidatio
     setNodeInfo(value.get(), node, "nodeId", "nodeName");
     value->setString("reason", reason.reasonString());
     value->setString("extraData", reason.extraData());
-    if (RefPtrWillBeRawPtr<ScriptCallStack> stackTrace = createScriptCallStack(maxInvalidationTrackingCallstackSize, true))
+    if (RefPtrWillBeRawPtr<ScriptCallStack> stackTrace = currentScriptCallStack(maxInvalidationTrackingCallstackSize))
         stackTrace->toTracedValue(value.get(), "stackTrace");
     return value.release();
 }
@@ -365,7 +370,7 @@ PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorLayoutInvalidationTrac
     value->setString("frame", toHexString(layoutObject->frame()));
     setGeneratingNodeInfo(value.get(), layoutObject, "nodeId", "nodeName");
     value->setString("reason", reason);
-    if (RefPtrWillBeRawPtr<ScriptCallStack> stackTrace = createScriptCallStack(maxInvalidationTrackingCallstackSize, true))
+    if (RefPtrWillBeRawPtr<ScriptCallStack> stackTrace = currentScriptCallStack(maxInvalidationTrackingCallstackSize))
         stackTrace->toTracedValue(value.get(), "stackTrace");
     return value.release();
 }
@@ -388,56 +393,8 @@ PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorScrollInvalidationTrac
     value->setString("frame", toHexString(layoutObject.frame()));
     value->setString("reason", ScrollInvalidationReason);
     setGeneratingNodeInfo(value.get(), &layoutObject, "nodeId", "nodeName");
-    if (RefPtrWillBeRawPtr<ScriptCallStack> stackTrace = createScriptCallStack(maxInvalidationTrackingCallstackSize, true))
+    if (RefPtrWillBeRawPtr<ScriptCallStack> stackTrace = currentScriptCallStack(maxInvalidationTrackingCallstackSize))
         stackTrace->toTracedValue(value.get(), "stackTrace");
-    return value.release();
-}
-
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorSendRequestEvent::data(unsigned long identifier, LocalFrame* frame, const ResourceRequest& request)
-{
-    String requestId = IdentifiersFactory::requestId(identifier);
-
-    RefPtr<TracedValue> value = TracedValue::create();
-    value->setString("requestId", requestId);
-    value->setString("frame", toHexString(frame));
-    value->setString("url", request.url().string());
-    value->setString("requestMethod", request.httpMethod());
-    setCallStack(value.get());
-    return value.release();
-}
-
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorReceiveResponseEvent::data(unsigned long identifier, LocalFrame* frame, const ResourceResponse& response)
-{
-    String requestId = IdentifiersFactory::requestId(identifier);
-
-    RefPtr<TracedValue> value = TracedValue::create();
-    value->setString("requestId", requestId);
-    value->setString("frame", toHexString(frame));
-    value->setInteger("statusCode", response.httpStatusCode());
-    value->setString("mimeType", response.mimeType().string().isolatedCopy());
-    return value.release();
-}
-
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorReceiveDataEvent::data(unsigned long identifier, LocalFrame* frame, int encodedDataLength)
-{
-    String requestId = IdentifiersFactory::requestId(identifier);
-
-    RefPtr<TracedValue> value = TracedValue::create();
-    value->setString("requestId", requestId);
-    value->setString("frame", toHexString(frame));
-    value->setInteger("encodedDataLength", encodedDataLength);
-    return value.release();
-}
-
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorResourceFinishEvent::data(unsigned long identifier, double finishTime, bool didFail)
-{
-    String requestId = IdentifiersFactory::requestId(identifier);
-
-    RefPtr<TracedValue> value = TracedValue::create();
-    value->setString("requestId", requestId);
-    value->setBoolean("didFail", didFail);
-    if (finishTime)
-        value->setDouble("networkTime", finishTime);
     return value.release();
 }
 
@@ -489,6 +446,36 @@ PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorAnimationFrameEvent::d
     return value.release();
 }
 
+PassRefPtr<TracedValue> genericIdleCallbackEvent(ExecutionContext* context, int id)
+{
+    RefPtr<TracedValue> value = TracedValue::create();
+    value->setInteger("id", id);
+    if (LocalFrame* frame = frameForExecutionContext(context))
+        value->setString("frame", toHexString(frame));
+    setCallStack(value.get());
+    return value.release();
+}
+
+PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorIdleCallbackRequestEvent::data(ExecutionContext* context, int id, double timeout)
+{
+    RefPtr<TracedValue> value = genericIdleCallbackEvent(context, id);
+    value->setInteger("timeout", timeout);
+    return value;
+}
+
+PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorIdleCallbackCancelEvent::data(ExecutionContext* context, int id)
+{
+    return genericIdleCallbackEvent(context, id);
+}
+
+PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorIdleCallbackFireEvent::data(ExecutionContext* context, int id, double allottedMilliseconds, bool timedOut)
+{
+    RefPtr<TracedValue> value = genericIdleCallbackEvent(context, id);
+    value->setDouble("allottedMilliseconds", allottedMilliseconds);
+    value->setBoolean("timedOut", timedOut);
+    return value;
+}
+
 PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorParseHtmlEvent::beginData(Document* document, unsigned startLine)
 {
     RefPtr<TracedValue> value = TracedValue::create();
@@ -538,7 +525,7 @@ static void localToPageQuad(const LayoutObject& layoutObject, const LayoutRect& 
 {
     LocalFrame* frame = layoutObject.frame();
     FrameView* view = frame->view();
-    FloatQuad absolute = layoutObject.localToAbsoluteQuad(FloatQuad(rect));
+    FloatQuad absolute = layoutObject.localToAbsoluteQuad(FloatQuad(FloatRect(rect)));
     quad->setP1(view->contentsToRootFrame(roundedIntPoint(absolute.p1())));
     quad->setP2(view->contentsToRootFrame(roundedIntPoint(absolute.p2())));
     quad->setP3(view->contentsToRootFrame(roundedIntPoint(absolute.p3())));
@@ -551,7 +538,7 @@ const char InspectorLayerInvalidationTrackingEvent::RemovedFromSquashingLayer[] 
 const char InspectorLayerInvalidationTrackingEvent::ReflectionLayerChanged[] = "Reflection layer change";
 const char InspectorLayerInvalidationTrackingEvent::NewCompositedLayer[] = "Assigned a new composited layer";
 
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorLayerInvalidationTrackingEvent::data(const DeprecatedPaintLayer* layer, const char* reason)
+PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorLayerInvalidationTrackingEvent::data(const PaintLayer* layer, const char* reason)
 {
     const LayoutObject* paintInvalidationContainer = layer->layoutObject()->containerForPaintInvalidation();
 
@@ -612,14 +599,28 @@ PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorUpdateLayerTreeEvent::
     return value.release();
 }
 
-PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorEvaluateScriptEvent::data(LocalFrame* frame, const String& url, int lineNumber)
+namespace {
+PassRefPtr<TracedValue> fillLocation(const String& url, const TextPosition& textPosition)
 {
     RefPtr<TracedValue> value = TracedValue::create();
-    value->setString("frame", toHexString(frame));
     value->setString("url", url);
-    value->setInteger("lineNumber", lineNumber);
+    value->setInteger("lineNumber", textPosition.m_line.oneBasedInt());
+    value->setInteger("columnNumber", textPosition.m_column.oneBasedInt());
+    return value.release();
+}
+}
+
+PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorEvaluateScriptEvent::data(LocalFrame* frame, const String& url, const TextPosition& textPosition)
+{
+    RefPtr<TracedValue> value = fillLocation(url, textPosition);
+    value->setString("frame", toHexString(frame));
     setCallStack(value.get());
     return value.release();
+}
+
+PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorCompileScriptEvent::data(const String& url, const TextPosition& textPosition)
+{
+    return fillLocation(url, textPosition);
 }
 
 PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorFunctionCallEvent::data(ExecutionContext* context, int scriptId, const String& scriptName, int scriptLine)
@@ -744,7 +745,7 @@ PassRefPtr<TraceEvent::ConvertableToTraceFormat> InspectorAnimationEvent::data(c
     value->setString("state", player.playState());
     if (const AnimationEffect* effect = player.effect()) {
         value->setString("name", effect->name());
-        if (effect->isAnimation()) {
+        if (effect->isKeyframeEffect()) {
             if (Element* target = toKeyframeEffect(effect)->target())
                 setNodeInfo(value.get(), target, "nodeId", "nodeName");
         }

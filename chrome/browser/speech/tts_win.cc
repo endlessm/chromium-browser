@@ -57,7 +57,7 @@ class TtsPlatformImplWin : public TtsPlatformImpl {
   int char_position_;
   bool paused_;
 
-  friend struct DefaultSingletonTraits<TtsPlatformImplWin>;
+  friend struct base::DefaultSingletonTraits<TtsPlatformImplWin>;
 
   DISALLOW_COPY_AND_ASSIGN(TtsPlatformImplWin);
 };
@@ -220,6 +220,8 @@ void TtsPlatformImplWin::OnSpeechEvent() {
           utterance_id_, TTS_EVENT_SENTENCE, char_position_,
           std::string());
       break;
+    default:
+      break;
     }
   }
 }
@@ -246,8 +248,8 @@ TtsPlatformImplWin::TtsPlatformImplWin()
 
 // static
 TtsPlatformImplWin* TtsPlatformImplWin::GetInstance() {
-  return Singleton<TtsPlatformImplWin,
-                   LeakySingletonTraits<TtsPlatformImplWin> >::get();
+  return base::Singleton<TtsPlatformImplWin,
+                         base::LeakySingletonTraits<TtsPlatformImplWin>>::get();
 }
 
 // static

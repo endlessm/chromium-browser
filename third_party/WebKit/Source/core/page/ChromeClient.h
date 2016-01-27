@@ -22,10 +22,10 @@
 #ifndef ChromeClient_h
 #define ChromeClient_h
 
+#include "base/gtest_prod_util.h"
 #include "core/CoreExport.h"
 #include "core/dom/AXObjectCache.h"
 #include "core/frame/ConsoleTypes.h"
-#include "core/html/forms/PopupMenuClient.h"
 #include "core/inspector/ConsoleAPITypes.h"
 #include "core/loader/FrameLoader.h"
 #include "core/loader/NavigationPolicy.h"
@@ -57,13 +57,14 @@ class GraphicsLayerFactory;
 class HitTestResult;
 class HTMLFormControlElement;
 class HTMLInputElement;
+class HTMLSelectElement;
 class IntRect;
 class LocalFrame;
 class Node;
 class Page;
-class PopupMenuClient;
 class PopupOpeningObserver;
 class WebCompositorAnimationTimeline;
+class WebFrameScheduler;
 
 struct CompositedSelection;
 struct DateTimeChooserParameters;
@@ -89,8 +90,9 @@ public:
     virtual void takeFocus(WebFocusType) = 0;
 
     virtual void focusedNodeChanged(Node*, Node*) = 0;
-
     virtual void focusedFrameChanged(LocalFrame*) = 0;
+
+    virtual bool hadFormInteraction() const = 0;
 
     // The LocalFrame pointer provides the ChromeClient with context about which
     // LocalFrame wants to create the new Page. Also, the newly created window
@@ -98,7 +100,7 @@ public:
     // created Page has its show method called.
     // The FrameLoadRequest parameter is only for ChromeClient to check if the
     // request could be fulfilled. The ChromeClient should not load the request.
-    virtual Page* createWindow(LocalFrame*, const FrameLoadRequest&, const WindowFeatures&, NavigationPolicy, ShouldSendReferrer) = 0;
+    virtual Page* createWindow(LocalFrame*, const FrameLoadRequest&, const WindowFeatures&, NavigationPolicy, ShouldSetOpener) = 0;
     virtual void show(NavigationPolicy = NavigationPolicyIgnore) = 0;
 
     void setWindowFeatures(const WindowFeatures&);
@@ -123,7 +125,7 @@ public:
     virtual void addMessageToConsole(LocalFrame*, MessageSource, MessageLevel, const String& message, unsigned lineNumber, const String& sourceID, const String& stackTrace) = 0;
 
     virtual bool canOpenBeforeUnloadConfirmPanel() = 0;
-    bool openBeforeUnloadConfirmPanel(const String& message, LocalFrame*);
+    bool openBeforeUnloadConfirmPanel(const String& message, LocalFrame*, bool isReload);
 
     virtual void closeWindowSoon() = 0;
 
@@ -139,7 +141,7 @@ public:
 
     // Methods used by HostWindow.
     virtual WebScreenInfo screenInfo() const = 0;
-    virtual void setCursor(const Cursor&) = 0;
+    virtual void setCursor(const Cursor&, LocalFrame* localRoot) = 0;
     // End methods used by HostWindow.
     virtual Cursor lastSetCursorForTesting() const = 0;
 
@@ -154,6 +156,7 @@ public:
 
     void mouseDidMoveOverElement(const HitTestResult&);
     virtual void setToolTip(const String&, TextDirection) = 0;
+    void clearToolTip();
 
     void print(LocalFrame*);
 
@@ -167,7 +170,7 @@ public:
     //    returns true, if ENABLE(INPUT_MULTIPLE_FIELDS_UI)
     //  - <datalist> UI for date/time input types regardless of
     //    ENABLE(INPUT_MULTIPLE_FIELDS_UI)
-    virtual PassRefPtr<DateTimeChooser> openDateTimeChooser(DateTimeChooserClient*, const DateTimeChooserParameters&) = 0;
+    virtual PassRefPtrWillBeRawPtr<DateTimeChooser> openDateTimeChooser(DateTimeChooserClient*, const DateTimeChooserParameters&) = 0;
 
     virtual void openTextDataListChooser(HTMLInputElement&)= 0;
 
@@ -199,7 +202,7 @@ public:
 
     // Checks if there is an opened popup, called by LayoutMenuList::showPopup().
     virtual bool hasOpenedPopup() const = 0;
-    virtual PassRefPtrWillBeRawPtr<PopupMenu> openPopupMenu(LocalFrame&, PopupMenuClient*) = 0;
+    virtual PassRefPtrWillBeRawPtr<PopupMenu> openPopupMenu(LocalFrame&, HTMLSelectElement&) = 0;
     virtual DOMWindow* pagePopupWindowForTesting() const = 0;
 
     virtual void postAccessibilityNotification(AXObject*, AXObjectCache::AXNotification) { }
@@ -227,10 +230,9 @@ public:
     virtual void didEndEditingOnTextField(HTMLInputElement&) { }
     virtual void handleKeyboardEventOnTextField(HTMLInputElement&, KeyboardEvent&) { }
     virtual void textFieldDataListChanged(HTMLInputElement&) { }
-    virtual void xhrSucceeded(LocalFrame*) { }
     virtual void ajaxSucceeded(LocalFrame*) { }
 
-    // Input mehtod editor related functions.
+    // Input method editor related functions.
     virtual void didCancelCompositionOnSelectionChange() { }
     virtual void willSetInputMethodState() { }
     virtual void didUpdateTextOfFocusedElementByNonUserInput() { }
@@ -249,12 +251,19 @@ public:
 
     virtual FloatSize elasticOverscroll() const { return FloatSize(); }
 
+    // Called when observed XHR, fetch, and other fetch request with non-GET
+    // method is initiated from javascript. At this time, it is not guaranteed
+    // that this is comprehensive.
+    virtual void didObserveNonGetFetchFromScript() const {}
+
+    virtual PassOwnPtr<WebFrameScheduler> createFrameScheduler() = 0;
+
 protected:
-    virtual ~ChromeClient() { }
+    ~ChromeClient() override { }
 
     virtual void showMouseOverURL(const HitTestResult&) = 0;
     virtual void setWindowRect(const IntRect&) = 0;
-    virtual bool openBeforeUnloadConfirmPanelDelegate(LocalFrame*, const String& message) = 0;
+    virtual bool openBeforeUnloadConfirmPanelDelegate(LocalFrame*, const String& message, bool isReload) = 0;
     virtual bool openJavaScriptAlertDelegate(LocalFrame*, const String&) = 0;
     virtual bool openJavaScriptConfirmDelegate(LocalFrame*, const String&) = 0;
     virtual bool openJavaScriptPromptDelegate(LocalFrame*, const String& message, const String& defaultValue, String& result) = 0;
@@ -263,6 +272,11 @@ protected:
 private:
     bool canOpenModalIfDuringPageDismissal(Frame* mainFrame, DialogType, const String& message);
     void setToolTip(const HitTestResult&);
+
+    LayoutPoint m_lastToolTipPoint;
+    String m_lastToolTipText;
+
+    FRIEND_TEST_ALL_PREFIXES(ChromeClientTest, SetToolTipFlood);
 };
 
 } // namespace blink

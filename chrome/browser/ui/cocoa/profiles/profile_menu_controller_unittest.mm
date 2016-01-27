@@ -8,7 +8,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/threading/thread_restrictions.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/prefs/pref_service_syncable.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/cocoa/cocoa_profile_test.h"
@@ -17,6 +16,7 @@
 #include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/test_browser_window.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/syncable_prefs/pref_service_syncable.h"
 #include "testing/gtest_mac.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 
@@ -246,13 +246,10 @@ TEST_F(ProfileMenuControllerTest, DeleteActiveProfile) {
 
 TEST_F(ProfileMenuControllerTest, SupervisedProfile) {
   TestingProfileManager* manager = testing_profile_manager();
-  TestingProfile* supervised_profile =
-      manager->CreateTestingProfile("test1",
-                                    scoped_ptr<PrefServiceSyncable>(),
-                                    base::ASCIIToUTF16("Supervised User"),
-                                    0,
-                                    "TEST_ID",
-                                    TestingProfile::TestingFactories());
+  TestingProfile* supervised_profile = manager->CreateTestingProfile(
+      "test1", scoped_ptr<syncable_prefs::PrefServiceSyncable>(),
+      base::ASCIIToUTF16("Supervised User"), 0, "TEST_ID",
+      TestingProfile::TestingFactories());
   // The supervised profile is initially marked as omitted from the avatar menu
   // (in non-test code, until we have confirmation that it has actually been
   // created on the server). For the test, just tell the cache to un-hide it.

@@ -115,16 +115,9 @@ SkBitmap SkBitmapOperations::CreateMaskedBitmap(const SkBitmap& rgb,
     uint32* dst_row = masked.getAddr32(0, y);
 
     for (int x = 0; x < masked.width(); ++x) {
-      SkColor rgb_pixel = SkUnPreMultiply::PMColorToColor(rgb_row[x]);
-      SkColor alpha_pixel = SkUnPreMultiply::PMColorToColor(alpha_row[x]);
-      int alpha = SkAlphaMul(SkColorGetA(rgb_pixel),
-                             SkAlpha255To256(SkColorGetA(alpha_pixel)));
-      int alpha_256 = SkAlpha255To256(alpha);
-      dst_row[x] = SkColorSetARGB(alpha,
-                                  SkAlphaMul(SkColorGetR(rgb_pixel), alpha_256),
-                                  SkAlphaMul(SkColorGetG(rgb_pixel), alpha_256),
-                                  SkAlphaMul(SkColorGetB(rgb_pixel),
-                                             alpha_256));
+      unsigned alpha = SkGetPackedA32(alpha_row[x]);
+      unsigned scale = SkAlpha255To256(alpha);
+      dst_row[x] = SkAlphaMulQ(rgb_row[x], scale);
     }
   }
 
@@ -746,7 +739,7 @@ SkBitmap SkBitmapOperations::CreateDropShadow(
     // The blur is halved to produce a shadow that correctly fits within the
     // |shadow_margin|.
     SkScalar sigma = SkDoubleToScalar(shadow.blur() / 2);
-    skia::RefPtr<SkBlurImageFilter> filter =
+    skia::RefPtr<SkImageFilter> filter =
         skia::AdoptRef(SkBlurImageFilter::Create(sigma, sigma));
     paint.setImageFilter(filter.get());
 
@@ -764,6 +757,9 @@ SkBitmap SkBitmapOperations::CreateDropShadow(
 // static
 SkBitmap SkBitmapOperations::Rotate(const SkBitmap& source,
                                     RotationAmount rotation) {
+  // SkCanvas::drawBitmap() fails silently with unpremultiplied SkBitmap.
+  DCHECK_NE(source.info().alphaType(), kUnpremul_SkAlphaType);
+
   SkBitmap result;
   SkScalar angle = SkFloatToScalar(0.0f);
 

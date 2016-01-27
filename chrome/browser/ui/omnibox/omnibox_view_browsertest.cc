@@ -18,10 +18,9 @@
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
-#include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
-#include "chrome/browser/ui/omnibox/omnibox_view.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/test_toolbar_model.h"
 #include "chrome/common/chrome_paths.h"
@@ -29,6 +28,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
+#include "chrome/test/base/search_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
@@ -38,6 +38,8 @@
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/history_quick_provider.h"
+#include "components/omnibox/browser/omnibox_popup_model.h"
+#include "components/omnibox/browser/omnibox_view.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "content/public/browser/notification_service.h"
@@ -153,7 +155,7 @@ class OmniboxViewTest : public InProcessBrowserTest,
   // history::HisoryServiceObserver
   void OnHistoryServiceLoaded(
       history::HistoryService* history_service) override {
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
   }
 
  protected:
@@ -267,7 +269,7 @@ class OmniboxViewTest : public InProcessBrowserTest,
         TemplateURLServiceFactory::GetForProfile(profile);
     ASSERT_TRUE(model);
 
-    ui_test_utils::WaitForTemplateURLServiceToLoad(model);
+    search_test_utils::WaitForTemplateURLServiceToLoad(model);
 
     ASSERT_TRUE(model->loaded());
 
@@ -367,12 +369,12 @@ class OmniboxViewTest : public InProcessBrowserTest,
       default:
         FAIL() << "Unexpected notification type";
     }
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
   }
 
   void OnURLsModified(history::HistoryService* history_service,
                       const history::URLRows& changed_urls) override {
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
   }
 
  private:

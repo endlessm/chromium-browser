@@ -371,7 +371,7 @@ void TabDragController::Drag(const gfx::Point& point_in_screen) {
         // When all tabs in a maximized browser are dragged the browser gets
         // restored during the drag and maximized back when the drag ends.
         views::Widget* widget = GetAttachedBrowserWidget();
-        const int last_tabstrip_width = attached_tabstrip_->tab_area_width();
+        const int last_tabstrip_width = attached_tabstrip_->GetTabAreaWidth();
         std::vector<gfx::Rect> drag_bounds = CalculateBoundsForDraggedTabs();
         OffsetX(GetAttachedDragPoint(point_in_screen).x(), &drag_bounds);
         gfx::Rect new_bounds(CalculateDraggedBrowserBounds(source_tabstrip_,
@@ -701,9 +701,9 @@ void TabDragController::MoveAttached(const gfx::Point& point_in_screen) {
   // the threshold.
   int threshold = kHorizontalMoveThreshold;
   if (!attached_tabstrip_->touch_layout_.get()) {
-    double unselected, selected;
-    attached_tabstrip_->GetCurrentTabWidths(&unselected, &selected);
-    double ratio = unselected / Tab::GetStandardSize().width();
+    double ratio =
+        static_cast<double>(attached_tabstrip_->current_inactive_width()) /
+        Tab::GetStandardSize().width();
     threshold = static_cast<int>(ratio * kHorizontalMoveThreshold);
   }
   // else case: touch tabs never shrink.
@@ -1024,7 +1024,7 @@ void TabDragController::DetachIntoNewBrowserAndRunMoveLoop(
     return;
   }
 
-  const int last_tabstrip_width = attached_tabstrip_->tab_area_width();
+  const int last_tabstrip_width = attached_tabstrip_->GetTabAreaWidth();
   std::vector<gfx::Rect> drag_bounds = CalculateBoundsForDraggedTabs();
   OffsetX(GetAttachedDragPoint(point_in_screen).x(), &drag_bounds);
 
@@ -1288,10 +1288,8 @@ gfx::Rect TabDragController::GetDraggedViewTabStripBounds(
                      source_tab_drag_data()->attached_tab->height());
   }
 
-  double sel_width, unselected_width;
-  attached_tabstrip_->GetCurrentTabWidths(&sel_width, &unselected_width);
   return gfx::Rect(tab_strip_point.x(), tab_strip_point.y(),
-                   static_cast<int>(sel_width),
+                   attached_tabstrip_->current_active_width(),
                    Tab::GetStandardSize().height());
 }
 
@@ -1703,7 +1701,7 @@ void TabDragController::AdjustBrowserAndTabBoundsForDrag(
     std::vector<gfx::Rect>* drag_bounds) {
   attached_tabstrip_->InvalidateLayout();
   attached_tabstrip_->DoLayout();
-  const int dragged_tabstrip_width = attached_tabstrip_->tab_area_width();
+  const int dragged_tabstrip_width = attached_tabstrip_->GetTabAreaWidth();
 
   // If the new tabstrip is smaller than the old resize the tabs.
   if (dragged_tabstrip_width < last_tabstrip_width) {
@@ -1772,9 +1770,8 @@ gfx::Point TabDragController::GetCursorScreenPoint() {
     gfx::PointF touch_point_f;
     bool got_touch_point = ui::GestureRecognizer::Get()->
         GetLastTouchPointForTarget(widget_window, &touch_point_f);
-    // TODO(tdresser): Switch to using gfx::PointF. See crbug.com/337824.
+    CHECK(got_touch_point);
     gfx::Point touch_point = gfx::ToFlooredPoint(touch_point_f);
-    DCHECK(got_touch_point);
     wm::ConvertPointToScreen(widget_window->GetRootWindow(), &touch_point);
     return touch_point;
   }
@@ -1798,12 +1795,10 @@ gfx::NativeWindow TabDragController::GetLocalProcessWindow(
     const gfx::Point& screen_point,
     bool exclude_dragged_view) {
   std::set<gfx::NativeWindow> exclude;
-  if (exclude_dragged_view) {
-    gfx::NativeWindow dragged_window =
-        attached_tabstrip_->GetWidget()->GetNativeWindow();
-    if (dragged_window)
-      exclude.insert(dragged_window);
-  }
+  gfx::NativeWindow dragged_window =
+      attached_tabstrip_->GetWidget()->GetNativeWindow();
+  if (exclude_dragged_view && dragged_window)
+    exclude.insert(dragged_window);
 #if defined(OS_LINUX) && !defined(OS_CHROMEOS)
   // Exclude windows which are pending deletion via Browser::TabStripEmpty().
   // These windows can be returned in the Linux Aura port because the browser
@@ -1818,8 +1813,6 @@ gfx::NativeWindow TabDragController::GetLocalProcessWindow(
       exclude.insert((*it)->window()->GetNativeWindow());
   }
 #endif
-  return GetLocalProcessWindowAtPoint(host_desktop_type_,
-                                      screen_point,
-                                      exclude);
-
+  return GetLocalProcessWindowAtPoint(host_desktop_type_, screen_point, exclude,
+                                      dragged_window);
 }

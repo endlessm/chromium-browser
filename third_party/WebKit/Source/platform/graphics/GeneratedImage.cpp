@@ -33,6 +33,7 @@
 
 #include "platform/geometry/FloatRect.h"
 #include "platform/graphics/paint/SkPictureBuilder.h"
+#include "third_party/skia/include/core/SkImage.h"
 #include "third_party/skia/include/core/SkPicture.h"
 
 namespace blink {
@@ -51,8 +52,7 @@ void GeneratedImage::drawPattern(GraphicsContext* destContext, const FloatRect& 
     tileRect.expand(repeatSpacing);
 
     SkPictureBuilder builder(tileRect, nullptr, destContext);
-    if (RuntimeEnabledFeatures::slimmingPaintEnabled())
-        builder.context().beginRecording(tileRect);
+    builder.context().beginRecording(tileRect);
     drawTile(&builder.context(), srcRect);
     RefPtr<const SkPicture> tilePicture = builder.endRecording();
 
@@ -65,11 +65,16 @@ void GeneratedImage::drawPattern(GraphicsContext* destContext, const FloatRect& 
     picturePattern->setPatternSpaceTransform(patternTransform);
 
     SkPaint fillPaint = destContext->fillPaint();
-    fillPaint.setShader(picturePattern->shader());
+    picturePattern->applyToPaint(fillPaint);
     fillPaint.setColor(SK_ColorBLACK);
     fillPaint.setXfermodeMode(compositeOp);
 
     destContext->drawRect(destRect, fillPaint);
+}
+
+PassRefPtr<SkImage> GeneratedImage::imageForCurrentFrame()
+{
+    return nullptr;
 }
 
 } // namespace blink

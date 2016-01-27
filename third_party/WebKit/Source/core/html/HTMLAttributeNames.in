@@ -147,7 +147,6 @@ max
 maxlength
 mayscript
 media
-mediagroup
 method
 min
 minlength
@@ -263,6 +262,7 @@ onwheel
 open
 optimum
 pattern
+permissions
 placeholder
 ping
 poster
@@ -270,6 +270,7 @@ preload
 pseudo
 radiogroup
 readonly
+referrerpolicy
 rel
 required
 results

@@ -43,10 +43,10 @@ void CriticalSection::Enter() EXCLUSIVE_LOCK_FUNCTION() {
   pthread_mutex_lock(&mutex_);
 #if CS_DEBUG_CHECKS
   if (!recursion_count_) {
-    DCHECK(!thread_);
+    RTC_DCHECK(!thread_);
     thread_ = pthread_self();
   } else {
-    DCHECK(CurrentThreadIsOwner());
+    RTC_DCHECK(CurrentThreadIsOwner());
   }
   ++recursion_count_;
 #endif
@@ -61,10 +61,10 @@ bool CriticalSection::TryEnter() EXCLUSIVE_TRYLOCK_FUNCTION(true) {
     return false;
 #if CS_DEBUG_CHECKS
   if (!recursion_count_) {
-    DCHECK(!thread_);
+    RTC_DCHECK(!thread_);
     thread_ = pthread_self();
   } else {
-    DCHECK(CurrentThreadIsOwner());
+    RTC_DCHECK(CurrentThreadIsOwner());
   }
   ++recursion_count_;
 #endif
@@ -72,13 +72,13 @@ bool CriticalSection::TryEnter() EXCLUSIVE_TRYLOCK_FUNCTION(true) {
 #endif
 }
 void CriticalSection::Leave() UNLOCK_FUNCTION() {
-  DCHECK(CurrentThreadIsOwner());
+  RTC_DCHECK(CurrentThreadIsOwner());
 #if defined(WEBRTC_WIN)
   LeaveCriticalSection(&crit_);
 #else
 #if CS_DEBUG_CHECKS
   --recursion_count_;
-  DCHECK(recursion_count_ >= 0);
+  RTC_DCHECK(recursion_count_ >= 0);
   if (!recursion_count_)
     thread_ = 0;
 #endif
@@ -88,7 +88,12 @@ void CriticalSection::Leave() UNLOCK_FUNCTION() {
 
 bool CriticalSection::CurrentThreadIsOwner() const {
 #if defined(WEBRTC_WIN)
-  return crit_.OwningThread == reinterpret_cast<HANDLE>(GetCurrentThreadId());
+  // OwningThread has type HANDLE but actually contains the Thread ID:
+  // http://stackoverflow.com/questions/12675301/why-is-the-owningthread-member-of-critical-section-of-type-handle-when-it-is-de
+  // Converting through size_t avoids the VS 2015 warning C4312: conversion from
+  // 'type1' to 'type2' of greater size
+  return crit_.OwningThread ==
+         reinterpret_cast<HANDLE>(static_cast<size_t>(GetCurrentThreadId()));
 #else
 #if CS_DEBUG_CHECKS
   return pthread_equal(thread_, pthread_self());
@@ -119,7 +124,7 @@ TryCritScope::TryCritScope(CriticalSection* cs)
 }
 
 TryCritScope::~TryCritScope() {
-  CS_DEBUG_CODE(DCHECK(lock_was_called_));
+  CS_DEBUG_CODE(RTC_DCHECK(lock_was_called_));
   if (locked_)
     cs_->Leave();
 }
@@ -145,7 +150,7 @@ void GlobalLockPod::Lock() {
 
 void GlobalLockPod::Unlock() {
   int old_value = AtomicOps::CompareAndSwap(&lock_acquired, 1, 0);
-  DCHECK_EQ(1, old_value) << "Unlock called without calling Lock first";
+  RTC_DCHECK_EQ(1, old_value) << "Unlock called without calling Lock first";
 }
 
 GlobalLock::GlobalLock() {

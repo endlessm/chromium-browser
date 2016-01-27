@@ -6,17 +6,12 @@ package org.chromium.android_webview.test;
 
 import android.graphics.Picture;
 import android.net.http.SslError;
-import android.view.ActionMode;
-import android.view.View;
 import android.webkit.ConsoleMessage;
 import android.webkit.ValueCallback;
 
 import org.chromium.android_webview.AwContentsClient.AwWebResourceRequest;
 import org.chromium.android_webview.AwWebResourceResponse;
 import org.chromium.base.ThreadUtils;
-import org.chromium.content.browser.SelectActionMode;
-import org.chromium.content.browser.SelectActionModeCallback;
-import org.chromium.content.browser.SelectActionModeCallback.ActionHandler;
 import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer.OnEvaluateJavaScriptResultHelper;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer.OnPageCommitVisibleHelper;
@@ -219,16 +214,6 @@ public class TestAwContentsClient extends NullContentsClient {
     public void onReceivedSslError(ValueCallback<Boolean> callback, SslError error) {
         callback.onReceiveValue(mAllowSslError);
         mOnReceivedSslErrorHelper.notifyCalled();
-    }
-
-    @Override
-    public SelectActionMode startActionMode(
-            View view, ActionHandler actionHandler, boolean floating) {
-        if (floating) return null;
-        ActionMode.Callback callback =
-                new SelectActionModeCallback(view.getContext(), actionHandler);
-        ActionMode actionMode = view.startActionMode(callback);
-        return actionMode != null ? new SelectActionMode(actionMode) : null;
     }
 
     public void setAllowSslError(boolean allow) {
@@ -446,13 +431,12 @@ public class TestAwContentsClient extends NullContentsClient {
      */
     public static class ShouldOverrideUrlLoadingHelper extends CallbackHelper {
         private String mShouldOverrideUrlLoadingUrl;
-        private String mPreviousShouldOverrideUrlLoadingUrl;
         private boolean mShouldOverrideUrlLoadingReturnValue = false;
+        private boolean mIsRedirect;
+        private boolean mHasUserGesture;
+        private boolean mIsMainFrame;
         void setShouldOverrideUrlLoadingUrl(String url) {
             mShouldOverrideUrlLoadingUrl = url;
-        }
-        void setPreviousShouldOverrideUrlLoadingUrl(String url) {
-            mPreviousShouldOverrideUrlLoadingUrl = url;
         }
         void setShouldOverrideUrlLoadingReturnValue(boolean value) {
             mShouldOverrideUrlLoadingReturnValue = value;
@@ -461,26 +445,35 @@ public class TestAwContentsClient extends NullContentsClient {
             assert getCallCount() > 0;
             return mShouldOverrideUrlLoadingUrl;
         }
-        public String getPreviousShouldOverrideUrlLoadingUrl() {
-            assert getCallCount() > 1;
-            return mPreviousShouldOverrideUrlLoadingUrl;
-        }
         public boolean getShouldOverrideUrlLoadingReturnValue() {
             return mShouldOverrideUrlLoadingReturnValue;
         }
-        public void notifyCalled(String url) {
-            mPreviousShouldOverrideUrlLoadingUrl = mShouldOverrideUrlLoadingUrl;
+        public boolean isRedirect() {
+            return mIsRedirect;
+        }
+        public boolean hasUserGesture() {
+            return mHasUserGesture;
+        }
+        public boolean isMainFrame() {
+            return mIsMainFrame;
+        }
+        public void notifyCalled(
+                String url, boolean isRedirect, boolean hasUserGesture, boolean isMainFrame) {
             mShouldOverrideUrlLoadingUrl = url;
+            mIsRedirect = isRedirect;
+            mHasUserGesture = hasUserGesture;
+            mIsMainFrame = isMainFrame;
             notifyCalled();
         }
     }
 
     @Override
-    public boolean shouldOverrideUrlLoading(String url) {
-        super.shouldOverrideUrlLoading(url);
+    public boolean shouldOverrideUrlLoading(AwWebResourceRequest request) {
+        super.shouldOverrideUrlLoading(request);
         boolean returnValue =
                 mShouldOverrideUrlLoadingHelper.getShouldOverrideUrlLoadingReturnValue();
-        mShouldOverrideUrlLoadingHelper.notifyCalled(url);
+        mShouldOverrideUrlLoadingHelper.notifyCalled(
+                request.url, request.isRedirect, request.hasUserGesture, request.isMainFrame);
         return returnValue;
     }
 

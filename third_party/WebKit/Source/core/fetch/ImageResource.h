@@ -119,10 +119,9 @@ public:
 protected:
     bool isSafeToUnlock() const override;
     void destroyDecodedDataIfPossible() override;
+    void destroyDecodedDataForFailedRevalidation() override;
 
 private:
-    static void preCacheDataURIImage(const FetchRequest&, ResourceFetcher*);
-
     class ImageResourceFactory : public ResourceFactory {
     public:
         ImageResourceFactory()

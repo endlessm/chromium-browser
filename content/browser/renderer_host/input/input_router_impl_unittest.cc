@@ -80,12 +80,6 @@ WebInputEvent& GetEventWithType(WebInputEvent::Type type) {
   return *event;
 }
 
-bool GetIsShortcutFromHandleInputEventMessage(const IPC::Message* msg) {
-  InputMsg_HandleInputEvent::Schema::Param param;
-  InputMsg_HandleInputEvent::Read(msg, &param);
-  return base::get<2>(param);
-}
-
 template<typename MSG_T, typename ARG_T1>
 void ExpectIPCMessageWithArg1(const IPC::Message* msg, const ARG_T1& arg1) {
   ASSERT_EQ(MSG_T::ID, msg->type());
@@ -182,14 +176,12 @@ class InputRouterImplTest : public testing::Test {
     input_router()->NotifySiteIsMobileOptimized(false);
   }
 
-  void SimulateKeyboardEvent(WebInputEvent::Type type, bool is_shortcut) {
+  void SimulateKeyboardEvent(WebInputEvent::Type type) {
     WebKeyboardEvent event = SyntheticWebKeyboardEventBuilder::Build(type);
     NativeWebKeyboardEvent native_event;
     memcpy(&native_event, &event, sizeof(event));
-    input_router_->SendKeyboardEvent(
-        native_event,
-        ui::LatencyInfo(),
-        is_shortcut);
+    NativeWebKeyboardEventWithLatencyInfo key_event(native_event);
+    input_router_->SendKeyboardEvent(key_event);
   }
 
   void SimulateWheelEvent(float dX, float dY, int modifiers, bool precise) {
@@ -334,7 +326,7 @@ class InputRouterImplTest : public testing::Test {
 
   static void RunTasksAndWait(base::TimeDelta delay) {
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, base::MessageLoop::QuitClosure(), delay);
+        FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(), delay);
     base::MessageLoop::current()->Run();
   }
 
@@ -619,7 +611,7 @@ TEST_F(InputRouterImplTest, HandledInputEvent) {
   client_->set_filter_state(INPUT_EVENT_ACK_STATE_CONSUMED);
 
   // Simulate a keyboard event.
-  SimulateKeyboardEvent(WebInputEvent::RawKeyDown, false);
+  SimulateKeyboardEvent(WebInputEvent::RawKeyDown);
 
   // Make sure no input event is sent to the renderer.
   EXPECT_EQ(0u, GetSentMessageCountAndResetSink());
@@ -636,7 +628,7 @@ TEST_F(InputRouterImplTest, ClientCanceledKeyboardEvent) {
   client_->set_filter_state(INPUT_EVENT_ACK_STATE_NO_CONSUMER_EXISTS);
 
   // Simulate a keyboard event that has no consumer.
-  SimulateKeyboardEvent(WebInputEvent::RawKeyDown, false);
+  SimulateKeyboardEvent(WebInputEvent::RawKeyDown);
 
   // Make sure no input event is sent to the renderer.
   EXPECT_EQ(0u, GetSentMessageCountAndResetSink());
@@ -645,27 +637,15 @@ TEST_F(InputRouterImplTest, ClientCanceledKeyboardEvent) {
 
   // Simulate a keyboard event that should be dropped.
   client_->set_filter_state(INPUT_EVENT_ACK_STATE_UNKNOWN);
-  SimulateKeyboardEvent(WebInputEvent::RawKeyDown, false);
+  SimulateKeyboardEvent(WebInputEvent::RawKeyDown);
 
   // Make sure no input event is sent to the renderer, and no ack is sent.
   EXPECT_EQ(0u, GetSentMessageCountAndResetSink());
   EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
 }
 
-TEST_F(InputRouterImplTest, ShortcutKeyboardEvent) {
-  SimulateKeyboardEvent(WebInputEvent::RawKeyDown, true);
-  EXPECT_TRUE(GetIsShortcutFromHandleInputEventMessage(
-      process_->sink().GetMessageAt(0)));
-
-  process_->sink().ClearMessages();
-
-  SimulateKeyboardEvent(WebInputEvent::RawKeyDown, false);
-  EXPECT_FALSE(GetIsShortcutFromHandleInputEventMessage(
-      process_->sink().GetMessageAt(0)));
-}
-
 TEST_F(InputRouterImplTest, NoncorrespondingKeyEvents) {
-  SimulateKeyboardEvent(WebInputEvent::RawKeyDown, false);
+  SimulateKeyboardEvent(WebInputEvent::RawKeyDown);
 
   SendInputEventACK(WebInputEvent::KeyUp,
                     INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
@@ -676,7 +656,7 @@ TEST_F(InputRouterImplTest, NoncorrespondingKeyEvents) {
 
 TEST_F(InputRouterImplTest, HandleKeyEventsWeSent) {
   // Simulate a keyboard event.
-  SimulateKeyboardEvent(WebInputEvent::RawKeyDown, false);
+  SimulateKeyboardEvent(WebInputEvent::RawKeyDown);
   ASSERT_TRUE(input_router_->GetLastKeyboardEvent());
   EXPECT_EQ(WebInputEvent::RawKeyDown,
             input_router_->GetLastKeyboardEvent()->type);
@@ -878,8 +858,8 @@ TEST_F(InputRouterImplTest, AckedTouchEventState) {
   SetTouchTimestamp(timestamp);
   uint32 touch_press_event_id1 = SendTouchEvent();
   EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
-  expected_events.push_back(new ui::TouchEvent(ui::ET_TOUCH_PRESSED,
-      gfx::Point(1, 1), 0, timestamp));
+  expected_events.push_back(
+      new ui::TouchEvent(ui::ET_TOUCH_PRESSED, gfx::Point(1, 1), 0, timestamp));
 
   // Move the finger.
   timestamp += base::TimeDelta::FromSeconds(10);
@@ -887,8 +867,8 @@ TEST_F(InputRouterImplTest, AckedTouchEventState) {
   SetTouchTimestamp(timestamp);
   uint32 touch_move_event_id1 = SendTouchEvent();
   EXPECT_FALSE(TouchEventQueueEmpty());
-  expected_events.push_back(new ui::TouchEvent(ui::ET_TOUCH_MOVED,
-      gfx::Point(500, 500), 0, timestamp));
+  expected_events.push_back(new ui::TouchEvent(
+      ui::ET_TOUCH_MOVED, gfx::Point(500, 500), 0, timestamp));
 
   // Now press a second finger.
   timestamp += base::TimeDelta::FromSeconds(10);
@@ -896,8 +876,8 @@ TEST_F(InputRouterImplTest, AckedTouchEventState) {
   SetTouchTimestamp(timestamp);
   uint32 touch_press_event_id2 = SendTouchEvent();
   EXPECT_FALSE(TouchEventQueueEmpty());
-  expected_events.push_back(new ui::TouchEvent(ui::ET_TOUCH_PRESSED,
-      gfx::Point(2, 2), 1, timestamp));
+  expected_events.push_back(
+      new ui::TouchEvent(ui::ET_TOUCH_PRESSED, gfx::Point(2, 2), 1, timestamp));
 
   // Move both fingers.
   timestamp += base::TimeDelta::FromSeconds(10);
@@ -906,10 +886,10 @@ TEST_F(InputRouterImplTest, AckedTouchEventState) {
   SetTouchTimestamp(timestamp);
   uint32 touch_move_event_id2 = SendTouchEvent();
   EXPECT_FALSE(TouchEventQueueEmpty());
-  expected_events.push_back(new ui::TouchEvent(ui::ET_TOUCH_MOVED,
-      gfx::Point(10, 10), 0, timestamp));
-  expected_events.push_back(new ui::TouchEvent(ui::ET_TOUCH_MOVED,
-      gfx::Point(20, 20), 1, timestamp));
+  expected_events.push_back(
+      new ui::TouchEvent(ui::ET_TOUCH_MOVED, gfx::Point(10, 10), 0, timestamp));
+  expected_events.push_back(
+      new ui::TouchEvent(ui::ET_TOUCH_MOVED, gfx::Point(20, 20), 1, timestamp));
 
   // Receive the ACKs and make sure the generated events from the acked events
   // are correct.
@@ -1077,8 +1057,7 @@ TEST_F(InputRouterImplTest, MouseTypesIgnoringAck) {
             ? 0
             : 1;
 
-    // Note: Mouse event acks are never forwarded to the ack handler, so the key
-    // result here is that ignored ack types don't affect the in-flight count.
+    // Note: Only MouseMove ack is forwarded to the ack handler.
     SimulateMouseEvent(type, 0, 0);
     EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
     EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
@@ -1086,7 +1065,8 @@ TEST_F(InputRouterImplTest, MouseTypesIgnoringAck) {
     if (expected_in_flight_event_count) {
       SendInputEventACK(type, INPUT_EVENT_ACK_STATE_NOT_CONSUMED);
       EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
-      EXPECT_EQ(0U, ack_handler_->GetAndResetAckCount());
+      uint32 expected_ack_count = type == WebInputEvent::MouseMove ? 1 : 0;
+      EXPECT_EQ(expected_ack_count, ack_handler_->GetAndResetAckCount());
       EXPECT_EQ(0, client_->in_flight_event_count());
     }
   }

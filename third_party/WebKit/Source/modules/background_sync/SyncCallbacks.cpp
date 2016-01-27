@@ -6,7 +6,6 @@
 #include "modules/background_sync/SyncCallbacks.h"
 
 #include "bindings/core/v8/ScriptPromiseResolver.h"
-#include "modules/background_sync/PeriodicSyncRegistration.h"
 #include "modules/background_sync/SyncError.h"
 #include "modules/background_sync/SyncRegistration.h"
 #include "modules/serviceworkers/ServiceWorkerRegistration.h"
@@ -15,7 +14,7 @@
 
 namespace blink {
 
-SyncRegistrationCallbacks::SyncRegistrationCallbacks(PassRefPtrWillBeRawPtr<ScriptPromiseResolver> resolver, ServiceWorkerRegistration* serviceWorkerRegistration)
+SyncRegistrationCallbacks::SyncRegistrationCallbacks(ScriptPromiseResolver* resolver, ServiceWorkerRegistration* serviceWorkerRegistration)
     : m_resolver(resolver)
     , m_serviceWorkerRegistration(serviceWorkerRegistration)
 {
@@ -27,37 +26,58 @@ SyncRegistrationCallbacks::~SyncRegistrationCallbacks()
 {
 }
 
-void SyncRegistrationCallbacks::onSuccess(WebSyncRegistration* webSyncRegistration)
+void SyncRegistrationCallbacks::onSuccess(WebPassOwnPtr<WebSyncRegistration> webSyncRegistration)
 {
     if (!m_resolver->executionContext() || m_resolver->executionContext()->activeDOMObjectsAreStopped()) {
-        SyncRegistration::dispose(webSyncRegistration);
         return;
     }
 
-    if (!webSyncRegistration) {
+    OwnPtr<WebSyncRegistration> registration = webSyncRegistration.release();
+    if (!registration) {
         m_resolver->resolve(v8::Null(m_resolver->scriptState()->isolate()));
         return;
     }
-    switch (webSyncRegistration->periodicity) {
-    case WebSyncRegistration::PeriodicityPeriodic:
-        m_resolver->resolve(PeriodicSyncRegistration::take(m_resolver.get(), webSyncRegistration, m_serviceWorkerRegistration));
-        break;
-    case WebSyncRegistration::PeriodicityOneShot:
-        m_resolver->resolve(SyncRegistration::take(m_resolver.get(), webSyncRegistration, m_serviceWorkerRegistration));
-        break;
-    }
+    m_resolver->resolve(SyncRegistration::take(m_resolver.get(), registration.release(), m_serviceWorkerRegistration));
 }
 
-void SyncRegistrationCallbacks::onError(WebSyncError* error)
+void SyncRegistrationCallbacks::onError(const WebSyncError& error)
 {
     if (!m_resolver->executionContext() || m_resolver->executionContext()->activeDOMObjectsAreStopped()) {
-        SyncError::dispose(error);
         return;
     }
     m_resolver->reject(SyncError::take(m_resolver.get(), error));
 }
 
-SyncUnregistrationCallbacks::SyncUnregistrationCallbacks(PassRefPtrWillBeRawPtr<ScriptPromiseResolver> resolver, ServiceWorkerRegistration* serviceWorkerRegistration)
+SyncNotifyWhenFinishedCallbacks::SyncNotifyWhenFinishedCallbacks(ScriptPromiseResolver* resolver, ServiceWorkerRegistration* serviceWorkerRegistration)
+    : m_resolver(resolver)
+    , m_serviceWorkerRegistration(serviceWorkerRegistration)
+{
+    ASSERT(m_resolver);
+    ASSERT(m_serviceWorkerRegistration);
+}
+
+SyncNotifyWhenFinishedCallbacks::~SyncNotifyWhenFinishedCallbacks()
+{
+}
+
+void SyncNotifyWhenFinishedCallbacks::onSuccess()
+{
+    if (!m_resolver->executionContext() || m_resolver->executionContext()->activeDOMObjectsAreStopped()) {
+        return;
+    }
+
+    m_resolver->resolve();
+}
+
+void SyncNotifyWhenFinishedCallbacks::onError(const WebSyncError& error)
+{
+    if (!m_resolver->executionContext() || m_resolver->executionContext()->activeDOMObjectsAreStopped()) {
+        return;
+    }
+    m_resolver->reject(SyncError::take(m_resolver.get(), error));
+}
+
+SyncUnregistrationCallbacks::SyncUnregistrationCallbacks(ScriptPromiseResolver* resolver, ServiceWorkerRegistration* serviceWorkerRegistration)
     : m_resolver(resolver)
     , m_serviceWorkerRegistration(serviceWorkerRegistration)
 {
@@ -69,26 +89,24 @@ SyncUnregistrationCallbacks::~SyncUnregistrationCallbacks()
 {
 }
 
-void SyncUnregistrationCallbacks::onSuccess(bool* status)
+void SyncUnregistrationCallbacks::onSuccess(bool status)
 {
-    OwnPtr<bool> statusPtr = adoptPtr(status);
     if (!m_resolver->executionContext() || m_resolver->executionContext()->activeDOMObjectsAreStopped()) {
         return;
     }
 
-    m_resolver->resolve(*status);
+    m_resolver->resolve(status);
 }
 
-void SyncUnregistrationCallbacks::onError(WebSyncError* error)
+void SyncUnregistrationCallbacks::onError(const WebSyncError& error)
 {
     if (!m_resolver->executionContext() || m_resolver->executionContext()->activeDOMObjectsAreStopped()) {
-        SyncError::dispose(error);
         return;
     }
     m_resolver->reject(SyncError::take(m_resolver.get(), error));
 }
 
-SyncGetRegistrationsCallbacks::SyncGetRegistrationsCallbacks(PassRefPtrWillBeRawPtr<ScriptPromiseResolver> resolver, ServiceWorkerRegistration* serviceWorkerRegistration)
+SyncGetRegistrationsCallbacks::SyncGetRegistrationsCallbacks(ScriptPromiseResolver* resolver, ServiceWorkerRegistration* serviceWorkerRegistration)
     : m_resolver(resolver)
     , m_serviceWorkerRegistration(serviceWorkerRegistration)
 {
@@ -100,53 +118,27 @@ SyncGetRegistrationsCallbacks::~SyncGetRegistrationsCallbacks()
 {
 }
 
-void SyncGetRegistrationsCallbacks::onSuccess(WebVector<WebSyncRegistration*>* webSyncRegistrations)
+void SyncGetRegistrationsCallbacks::onSuccess(const WebVector<WebSyncRegistration*>& webSyncRegistrations)
 {
     if (!m_resolver->executionContext() || m_resolver->executionContext()->activeDOMObjectsAreStopped()) {
-        if (webSyncRegistrations) {
-            for (size_t i = 0; i < webSyncRegistrations->size(); ++i)
-                SyncRegistration::dispose((*webSyncRegistrations)[i]);
-            delete(webSyncRegistrations);
-        }
         return;
     }
-
-    if (!webSyncRegistrations) {
-        m_resolver->resolve(v8::Null(m_resolver->scriptState()->isolate()));
-        return;
+    Vector<String> tags;
+    for (const WebSyncRegistration* r : webSyncRegistrations) {
+        tags.append(r->tag);
     }
-
-    if (webSyncRegistrations->size() && (*webSyncRegistrations)[0]->periodicity == WebSyncRegistration::PeriodicityOneShot) {
-        Vector<SyncRegistration*> syncRegistrations;
-        for (size_t i = 0; i < webSyncRegistrations->size(); ++i) {
-            WebSyncRegistration* webSyncRegistration = (*webSyncRegistrations)[i];
-            SyncRegistration* reg = SyncRegistration::take(m_resolver.get(), webSyncRegistration, m_serviceWorkerRegistration);
-            syncRegistrations.append(reg);
-        }
-        delete(webSyncRegistrations);
-        m_resolver->resolve(syncRegistrations);
-    } else {
-        Vector<PeriodicSyncRegistration*> syncRegistrations;
-        for (size_t i = 0; i < webSyncRegistrations->size(); ++i) {
-            WebSyncRegistration* webSyncRegistration = (*webSyncRegistrations)[i];
-            PeriodicSyncRegistration* reg = PeriodicSyncRegistration::take(m_resolver.get(), webSyncRegistration, m_serviceWorkerRegistration);
-            syncRegistrations.append(reg);
-        }
-        delete(webSyncRegistrations);
-        m_resolver->resolve(syncRegistrations);
-    }
+    m_resolver->resolve(tags);
 }
 
-void SyncGetRegistrationsCallbacks::onError(WebSyncError* error)
+void SyncGetRegistrationsCallbacks::onError(const WebSyncError& error)
 {
     if (!m_resolver->executionContext() || m_resolver->executionContext()->activeDOMObjectsAreStopped()) {
-        SyncError::dispose(error);
         return;
     }
     m_resolver->reject(SyncError::take(m_resolver.get(), error));
 }
 
-SyncGetPermissionStatusCallbacks::SyncGetPermissionStatusCallbacks(PassRefPtrWillBeRawPtr<ScriptPromiseResolver> resolver, ServiceWorkerRegistration* serviceWorkerRegistration)
+SyncGetPermissionStatusCallbacks::SyncGetPermissionStatusCallbacks(ScriptPromiseResolver* resolver, ServiceWorkerRegistration* serviceWorkerRegistration)
     : m_resolver(resolver)
     , m_serviceWorkerRegistration(serviceWorkerRegistration)
 {
@@ -158,20 +150,18 @@ SyncGetPermissionStatusCallbacks::~SyncGetPermissionStatusCallbacks()
 {
 }
 
-void SyncGetPermissionStatusCallbacks::onSuccess(WebSyncPermissionStatus* status)
+void SyncGetPermissionStatusCallbacks::onSuccess(WebSyncPermissionStatus status)
 {
-    OwnPtr<WebSyncPermissionStatus> statusPtr = adoptPtr(status);
     if (!m_resolver->executionContext() || m_resolver->executionContext()->activeDOMObjectsAreStopped()) {
         return;
     }
 
-    m_resolver->resolve(permissionString(*statusPtr));
+    m_resolver->resolve(permissionString(status));
 }
 
-void SyncGetPermissionStatusCallbacks::onError(WebSyncError* error)
+void SyncGetPermissionStatusCallbacks::onError(const WebSyncError& error)
 {
     if (!m_resolver->executionContext() || m_resolver->executionContext()->activeDOMObjectsAreStopped()) {
-        SyncError::dispose(error);
         return;
     }
     m_resolver->reject(SyncError::take(m_resolver.get(), error));

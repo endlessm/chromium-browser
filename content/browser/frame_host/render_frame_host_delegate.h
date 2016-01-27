@@ -28,7 +28,9 @@ class Message;
 
 namespace content {
 class GeolocationServiceContext;
+class PageState;
 class RenderFrameHost;
+class WakeLockServiceContext;
 class WebContents;
 struct AXEventNotificationDetails;
 struct ContextMenuParams;
@@ -61,9 +63,6 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   // The RenderFrameHost has been swapped out.
   virtual void SwappedOut(RenderFrameHost* render_frame_host) {}
 
-  // Notification that a worker process has crashed.
-  virtual void WorkerCrashed(RenderFrameHost* render_frame_host) {}
-
   // A context menu should be shown, to be built using the context information
   // provided in the supplied params.
   virtual void ShowContextMenu(RenderFrameHost* render_frame_host,
@@ -93,6 +92,10 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   // The onload handler in the frame has completed. Only called for the top-
   // level frame.
   virtual void DocumentOnLoadCompleted(RenderFrameHost* render_frame_host) {}
+
+  // The state for the page changed and should be updated in session history.
+  virtual void UpdateStateForFrame(RenderFrameHost* render_frame_host,
+                                   const PageState& page_state) {}
 
   // The page's title was changed and should be updated. Only called for the
   // top-level frame.
@@ -139,6 +142,9 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
   // Gets the GeolocationServiceContext associated with this delegate.
   virtual GeolocationServiceContext* GetGeolocationServiceContext();
 
+  // Gets the WakeLockServiceContext associated with this delegate.
+  virtual WakeLockServiceContext* GetWakeLockServiceContext();
+
   // Notification that the frame wants to go into fullscreen mode.
   // |origin| represents the origin of the frame that requests fullscreen.
   virtual void EnterFullscreenMode(const GURL& origin) {}
@@ -155,8 +161,7 @@ class CONTENT_EXPORT RenderFrameHostDelegate {
 
   // Ensure that |source_rfh| has swapped-out RenderViews and
   // RenderFrameProxies for itself and for all frames on its opener chain in
-  // the current frame's SiteInstance. Returns the routing ID of the
-  // swapped-out RenderView corresponding to |source_rfh|.
+  // the current frame's SiteInstance.
   //
   // TODO(alexmos): This method currently supports cross-process postMessage,
   // where we may need to create any missing proxies for the message's source

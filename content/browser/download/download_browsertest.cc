@@ -48,7 +48,6 @@
 #include "content/browser/plugin_service_impl.h"
 #endif
 
-using ::net::test_server::EmbeddedTestServer;
 using ::testing::AllOf;
 using ::testing::Field;
 using ::testing::InSequence;
@@ -255,7 +254,7 @@ void DownloadFileWithDelayFactory::AddRenameCallback(base::Closure callback) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
   rename_callbacks_.push_back(callback);
   if (waiting_)
-    base::MessageLoopForUI::current()->Quit();
+    base::MessageLoopForUI::current()->QuitWhenIdle();
 }
 
 void DownloadFileWithDelayFactory::GetAllRenameCallbacks(
@@ -311,10 +310,9 @@ class CountingDownloadFile : public DownloadFileImpl {
   static int GetNumberActiveFilesFromFileThread() {
     int result = -1;
     BrowserThread::PostTaskAndReply(
-        BrowserThread::FILE,
-        FROM_HERE,
+        BrowserThread::FILE, FROM_HERE,
         base::Bind(&CountingDownloadFile::GetNumberActiveFiles, &result),
-        base::MessageLoop::current()->QuitClosure());
+        base::MessageLoop::current()->QuitWhenIdleClosure());
     base::MessageLoop::current()->Run();
     DCHECK_NE(-1, result);
     return result;
@@ -466,7 +464,7 @@ class DownloadCreateObserver : DownloadManager::Observer {
       item_ = download;
 
     if (waiting_)
-      base::MessageLoopForUI::current()->Quit();
+      base::MessageLoopForUI::current()->QuitWhenIdle();
   }
 
   DownloadItem* WaitForFinished() {
@@ -522,7 +520,7 @@ scoped_ptr<net::test_server::HttpResponse> HandleRequestAndSendRedirectResponse(
 
 // Creates a request handler for EmbeddedTestServer that responds with a HTTP
 // 302 redirect if the request URL matches |relative_url|.
-EmbeddedTestServer::HandleRequestCallback CreateRedirectHandler(
+net::EmbeddedTestServer::HandleRequestCallback CreateRedirectHandler(
     const std::string& relative_url,
     const GURL& target_url) {
   return base::Bind(
@@ -546,7 +544,7 @@ scoped_ptr<net::test_server::HttpResponse> HandleRequestAndSendBasicResponse(
 
 // Creates a request handler for an EmbeddedTestServer that response with an
 // HTTP 200 status code, a Content-Type header and a body.
-EmbeddedTestServer::HandleRequestCallback CreateBasicResponseHandler(
+net::EmbeddedTestServer::HandleRequestCallback CreateBasicResponseHandler(
     const std::string& relative_url,
     const std::string& content_type,
     const std::string& body) {
@@ -703,7 +701,7 @@ class DownloadContentTest : public ContentBrowserTest {
   void ReleaseRSTAndConfirmInterruptForResume(DownloadItem* download) {
     scoped_ptr<DownloadTestObserver> rst_observer(
         CreateInterruptedWaiter(shell(), 1));
-    NavigateToURL(shell(), test_server()->GetURL("download-finish"));
+    NavigateToURL(shell(), spawned_test_server()->GetURL("download-finish"));
     rst_observer->WaitForFinished();
     EXPECT_EQ(DownloadItem::INTERRUPTED, download->GetState());
   }
@@ -745,8 +743,8 @@ class DownloadContentTest : public ContentBrowserTest {
   static void EnsureNoPendingDownloadJobsOnIO(bool* result) {
     if (net::URLRequestSlowDownloadJob::NumberOutstandingRequests())
       *result = false;
-    BrowserThread::PostTask(
-        BrowserThread::UI, FROM_HERE, base::MessageLoop::QuitClosure());
+    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                            base::MessageLoop::QuitWhenIdleClosure());
   }
 
   // Location of the downloads directory for these tests
@@ -798,8 +796,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, MultiDownload) {
   DownloadItem* download1 = downloads[0];  // The only download.
 
   // Start the second download and wait until it's done.
-  base::FilePath file(FILE_PATH_LITERAL("download-test.lib"));
-  GURL url(net::URLRequestMockHTTPJob::GetMockUrl(file));
+  GURL url(net::URLRequestMockHTTPJob::GetMockUrl("download-test.lib"));
   // Download the file and wait.
   NavigateToURLAndWaitForDownload(shell(), url, DownloadItem::COMPLETE);
 
@@ -842,8 +839,6 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, MultiDownload) {
 // Content served with a MIME type of application/octet-stream should be
 // downloaded even when a plugin can be found that handles the file type.
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, DownloadOctetStream) {
-  const base::FilePath::CharType kTestFilePath[] =
-      FILE_PATH_LITERAL("octet-stream.abc");
   const char kTestPluginName[] = "TestPlugin";
   const char kTestMimeType[] = "application/x-test-mime-type";
   const char kTestFileType[] = "abc";
@@ -857,7 +852,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, DownloadOctetStream) {
 
   // The following is served with a Content-Type of application/octet-stream.
   GURL url(
-      net::URLRequestMockHTTPJob::GetMockUrl(base::FilePath(kTestFilePath)));
+      net::URLRequestMockHTTPJob::GetMockUrl("octet-stream.abc"));
   NavigateToURLAndWaitForDownload(shell(), url, DownloadItem::COMPLETE);
 }
 #endif
@@ -873,8 +868,8 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CancelAtFinalRename) {
       scoped_ptr<DownloadFileFactory>(file_factory).Pass());
 
   // Create a download
-  base::FilePath file(FILE_PATH_LITERAL("download-test.lib"));
-  NavigateToURL(shell(), net::URLRequestMockHTTPJob::GetMockUrl(file));
+  NavigateToURL(shell(),
+                net::URLRequestMockHTTPJob::GetMockUrl("download-test.lib"));
 
   // Wait until the first (intermediate file) rename and execute the callback.
   file_factory->WaitForSomeCallback();
@@ -922,8 +917,8 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CancelAtRelease) {
       scoped_ptr<DownloadFileFactory>(file_factory).Pass());
 
   // Create a download
-  base::FilePath file(FILE_PATH_LITERAL("download-test.lib"));
-  NavigateToURL(shell(), net::URLRequestMockHTTPJob::GetMockUrl(file));
+  NavigateToURL(shell(),
+                net::URLRequestMockHTTPJob::GetMockUrl("download-test.lib"));
 
   // Wait until the first (intermediate file) rename and execute the callback.
   file_factory->WaitForSomeCallback();
@@ -1032,8 +1027,8 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, ShutdownAtRelease) {
       scoped_ptr<DownloadFileFactory>(file_factory).Pass());
 
   // Create a download
-  base::FilePath file(FILE_PATH_LITERAL("download-test.lib"));
-  NavigateToURL(shell(), net::URLRequestMockHTTPJob::GetMockUrl(file));
+  NavigateToURL(shell(),
+                net::URLRequestMockHTTPJob::GetMockUrl("download-test.lib"));
 
   // Wait until the first (intermediate file) rename and execute the callback.
   file_factory->WaitForSomeCallback();
@@ -1076,11 +1071,11 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, ShutdownAtRelease) {
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, ResumeInterruptedDownload) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(spawned_test_server()->Start());
 
-  GURL url = test_server()->GetURL(
+  GURL url = spawned_test_server()->GetURL(
       base::StringPrintf("rangereset?size=%d&rst_boundary=%d",
-                   GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
+                         GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
 
   MockDownloadManagerObserver dm_observer(DownloadManagerForShell(shell()));
   EXPECT_CALL(dm_observer, OnDownloadCreated(_,_)).Times(1);
@@ -1143,15 +1138,14 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, ResumeInterruptedDownload) {
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, ResumeInterruptedDownloadNoRange) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(spawned_test_server()->Start());
 
   // Auto-restart if server doesn't handle ranges.
-  GURL url = test_server()->GetURL(
-      base::StringPrintf(
-          // First download hits an RST, rest don't, no ranges.
-          "rangereset?size=%d&rst_boundary=%d&"
-          "token=NoRange&rst_limit=1&bounce_range",
-          GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
+  GURL url = spawned_test_server()->GetURL(base::StringPrintf(
+      // First download hits an RST, rest don't, no ranges.
+      "rangereset?size=%d&rst_boundary=%d&"
+      "token=NoRange&rst_limit=1&bounce_range",
+      GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
 
   // Start the download and wait for first data chunk.
   DownloadItem* download(StartDownloadAndReturnItem(url));
@@ -1192,14 +1186,13 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
                        ResumeInterruptedDownloadBadPrecondition) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(spawned_test_server()->Start());
 
-  GURL url = test_server()->GetURL(base::StringPrintf(
+  GURL url = spawned_test_server()->GetURL(base::StringPrintf(
       // First download hits an RST, rest don't, precondition fail.
       "rangereset?size=%d&rst_boundary=%d&"
       "token=BadPrecondition&rst_limit=1&fail_precondition=2",
-      GetSafeBufferChunk() * 3,
-      GetSafeBufferChunk()));
+      GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
 
   // Start the download and wait for first data chunk.
   DownloadItem* download(StartDownloadAndReturnItem(url));
@@ -1244,14 +1237,13 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
                        ResumeInterruptedDownloadNoVerifiers) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(spawned_test_server()->Start());
 
-  GURL url = test_server()->GetURL(
-      base::StringPrintf(
-          // First download hits an RST, rest don't, no verifiers.
-          "rangereset?size=%d&rst_boundary=%d&"
-          "token=NoRange&rst_limit=1&no_verifiers",
-          GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
+  GURL url = spawned_test_server()->GetURL(base::StringPrintf(
+      // First download hits an RST, rest don't, no verifiers.
+      "rangereset?size=%d&rst_boundary=%d&"
+      "token=NoRange&rst_limit=1&no_verifiers",
+      GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
 
   // Start the download and wait for first data chunk.
   DownloadItem* download(StartDownloadAndReturnItem(url));
@@ -1288,14 +1280,13 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, ResumeWithDeletedFile) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(spawned_test_server()->Start());
 
-  GURL url = test_server()->GetURL(
-      base::StringPrintf(
-          // First download hits an RST, rest don't
-          "rangereset?size=%d&rst_boundary=%d&"
-          "token=NoRange&rst_limit=1",
-          GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
+  GURL url = spawned_test_server()->GetURL(base::StringPrintf(
+      // First download hits an RST, rest don't
+      "rangereset?size=%d&rst_boundary=%d&"
+      "token=NoRange&rst_limit=1",
+      GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
 
   // Start the download and wait for first data chunk.
   DownloadItem* download(StartDownloadAndReturnItem(url));
@@ -1339,8 +1330,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, ResumeWithDeletedFile) {
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, ResumeWithFileInitError) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
-  base::FilePath file(FILE_PATH_LITERAL("download-test.lib"));
-  GURL url(net::URLRequestMockHTTPJob::GetMockUrl(file));
+  GURL url(net::URLRequestMockHTTPJob::GetMockUrl("download-test.lib"));
 
   // Setup the error injector.
   scoped_refptr<TestFileErrorInjector> injector(
@@ -1390,8 +1380,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
                        ResumeWithFileIntermediateRenameError) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
-  base::FilePath file(FILE_PATH_LITERAL("download-test.lib"));
-  GURL url(net::URLRequestMockHTTPJob::GetMockUrl(file));
+  GURL url(net::URLRequestMockHTTPJob::GetMockUrl("download-test.lib"));
 
   // Setup the error injector.
   scoped_refptr<TestFileErrorInjector> injector(
@@ -1442,8 +1431,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, ResumeWithFileFinalRenameError) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
-  base::FilePath file(FILE_PATH_LITERAL("download-test.lib"));
-  GURL url(net::URLRequestMockHTTPJob::GetMockUrl(file));
+  GURL url(net::URLRequestMockHTTPJob::GetMockUrl("download-test.lib"));
 
   // Setup the error injector.
   scoped_refptr<TestFileErrorInjector> injector(
@@ -1495,9 +1483,9 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, ResumeWithFileFinalRenameError) {
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, CancelInterruptedDownload) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(spawned_test_server()->Start());
 
-  GURL url1 = test_server()->GetURL(
+  GURL url1 = spawned_test_server()->GetURL(
       base::StringPrintf("rangereset?size=%d&rst_boundary=%d",
                          GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
 
@@ -1525,12 +1513,12 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CancelInterruptedDownload) {
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, RemoveDownload) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(spawned_test_server()->Start());
 
   // An interrupted download should remove the intermediate file when it is
   // removed.
   {
-    GURL url1 = test_server()->GetURL(
+    GURL url1 = spawned_test_server()->GetURL(
         base::StringPrintf("rangereset?size=%d&rst_boundary=%d",
                            GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
 
@@ -1557,8 +1545,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, RemoveDownload) {
   // removed.
   {
     // Start the second download and wait until it's done.
-    base::FilePath file2(FILE_PATH_LITERAL("download-test.lib"));
-    GURL url2(net::URLRequestMockHTTPJob::GetMockUrl(file2));
+    GURL url2(net::URLRequestMockHTTPJob::GetMockUrl("download-test.lib"));
     scoped_ptr<DownloadTestObserver> completion_observer(
         CreateWaiter(shell(), 1));
     DownloadItem* download(StartDownloadAndReturnItem(url2));
@@ -1580,9 +1567,9 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, RemoveResumingDownload) {
   SetupEnsureNoPendingDownloads();
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(spawned_test_server()->Start());
 
-  GURL url = test_server()->GetURL(
+  GURL url = spawned_test_server()->GetURL(
       base::StringPrintf("rangereset?size=%d&rst_boundary=%d",
                          GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
 
@@ -1617,7 +1604,8 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, RemoveResumingDownload) {
   // Start the second download and wait until it's done. The test server is
   // single threaded. The response to this download request should follow the
   // response to the previous resumption request.
-  GURL url2(test_server()->GetURL("rangereset?size=100&rst_limit=0&token=x"));
+  GURL url2(
+      spawned_test_server()->GetURL("rangereset?size=100&rst_limit=0&token=x"));
   NavigateToURLAndWaitForDownload(shell(), url2, DownloadItem::COMPLETE);
 
   EXPECT_TRUE(EnsureNoPendingDownloads());
@@ -1627,9 +1615,9 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CancelResumingDownload) {
   SetupEnsureNoPendingDownloads();
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kEnableDownloadResumption);
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(spawned_test_server()->Start());
 
-  GURL url = test_server()->GetURL(
+  GURL url = spawned_test_server()->GetURL(
       base::StringPrintf("rangereset?size=%d&rst_boundary=%d",
                          GetSafeBufferChunk() * 3, GetSafeBufferChunk()));
 
@@ -1665,7 +1653,8 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CancelResumingDownload) {
   // Start the second download and wait until it's done. The test server is
   // single threaded. The response to this download request should follow the
   // response to the previous resumption request.
-  GURL url2(test_server()->GetURL("rangereset?size=100&rst_limit=0&token=x"));
+  GURL url2(
+      spawned_test_server()->GetURL("rangereset?size=100&rst_limit=0&token=x"));
   NavigateToURLAndWaitForDownload(shell(), url2, DownloadItem::COMPLETE);
 
   EXPECT_TRUE(EnsureNoPendingDownloads());
@@ -1674,8 +1663,8 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CancelResumingDownload) {
 // Check that the cookie policy is correctly updated when downloading a file
 // that redirects cross origin.
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, CookiePolicy) {
-  ASSERT_TRUE(test_server()->Start());
-  net::HostPortPair host_port = test_server()->host_port_pair();
+  ASSERT_TRUE(spawned_test_server()->Start());
+  net::HostPortPair host_port = spawned_test_server()->host_port_pair();
   DCHECK_EQ(host_port.host(), std::string("127.0.0.1"));
 
   // Block third-party cookies.
@@ -1685,7 +1674,7 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CookiePolicy) {
   // cookie.
   std::string download(base::StringPrintf(
       "http://localhost:%d/set-cookie?A=B", host_port.port()));
-  GURL url(test_server()->GetURL("server-redirect?" + download));
+  GURL url(spawned_test_server()->GetURL("server-redirect?" + download));
 
   // Download the file.
   SetupEnsureNoPendingDownloads();
@@ -1714,10 +1703,10 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest, CookiePolicy) {
 // download URL.
 IN_PROC_BROWSER_TEST_F(DownloadContentTest,
                        DownloadAttributeCrossOriginRedirect) {
-  EmbeddedTestServer origin_one;
-  EmbeddedTestServer origin_two;
-  ASSERT_TRUE(origin_one.InitializeAndWaitUntilReady());
-  ASSERT_TRUE(origin_two.InitializeAndWaitUntilReady());
+  net::EmbeddedTestServer origin_one;
+  net::EmbeddedTestServer origin_two;
+  ASSERT_TRUE(origin_one.Start());
+  ASSERT_TRUE(origin_two.Start());
 
   // The download-attribute.html page contains an anchor element whose href is
   // set to the value of the query parameter (specified as |target| in the URL
@@ -1759,10 +1748,10 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
 // of the redirect chain.
 IN_PROC_BROWSER_TEST_F(DownloadContentTest,
                        DownloadAttributeSameOriginRedirect) {
-  EmbeddedTestServer origin_one;
-  EmbeddedTestServer origin_two;
-  ASSERT_TRUE(origin_one.InitializeAndWaitUntilReady());
-  ASSERT_TRUE(origin_two.InitializeAndWaitUntilReady());
+  net::EmbeddedTestServer origin_one;
+  net::EmbeddedTestServer origin_two;
+  ASSERT_TRUE(origin_one.Start());
+  ASSERT_TRUE(origin_two.Start());
 
   // The download-attribute.html page contains an anchor element whose href is
   // set to the value of the query parameter (specified as |target| in the URL
@@ -1805,14 +1794,31 @@ IN_PROC_BROWSER_TEST_F(DownloadContentTest,
 // The content body is empty. Make sure this case is handled properly and we
 // don't regress on http://crbug.com/320394.
 IN_PROC_BROWSER_TEST_F(DownloadContentTest, DownloadGZipWithNoContent) {
-  EmbeddedTestServer test_server;
-  ASSERT_TRUE(test_server.InitializeAndWaitUntilReady());
+  net::EmbeddedTestServer test_server;
+  ASSERT_TRUE(test_server.Start());
 
   GURL url = test_server.GetURL("/empty.bin");
   test_server.ServeFilesFromDirectory(GetTestFilePath("download", ""));
 
   NavigateToURLAndWaitForDownload(shell(), url, DownloadItem::COMPLETE);
   // That's it. This should work without crashing.
+}
+
+IN_PROC_BROWSER_TEST_F(DownloadContentTest, Spam) {
+  ASSERT_TRUE(embedded_test_server()->Start());
+
+  NavigateToURLAndWaitForDownload(
+      shell(),
+      embedded_test_server()->GetURL(
+          "/download/double-content-disposition.txt"),
+      DownloadItem::COMPLETE);
+
+  std::vector<DownloadItem*> downloads;
+  DownloadManagerForShell(shell())->GetAllDownloads(&downloads);
+  ASSERT_EQ(1u, downloads.size());
+
+  EXPECT_EQ(FILE_PATH_LITERAL("Jumboshrimp.txt"),
+            downloads[0]->GetTargetFilePath().BaseName().value());
 }
 
 }  // namespace content

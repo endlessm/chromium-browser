@@ -11,7 +11,7 @@
 #ifndef WEBRTC_MODULES_VIDEO_CODING_CODEC_TIMER_H_
 #define WEBRTC_MODULES_VIDEO_CODING_CODEC_TIMER_H_
 
-#include "webrtc/modules/interface/module_common_types.h"
+#include "webrtc/modules/include/module_common_types.h"
 #include "webrtc/typedefs.h"
 
 namespace webrtc
@@ -35,8 +35,8 @@ class VCMCodecTimer
 public:
     VCMCodecTimer();
 
-    // Updates and returns the max filtered decode time.
-    int32_t StopTimer(int64_t startTimeMs, int64_t nowMs);
+    // Updates the max filtered decode time.
+    void MaxFilter(int32_t newDecodeTimeMs, int64_t nowMs);
 
     // Empty the list of timers.
     void Reset();
@@ -46,7 +46,6 @@ public:
 
 private:
     void UpdateMaxHistory(int32_t decodeTime, int64_t now);
-    void MaxFilter(int32_t newTime, int64_t nowMs);
     void ProcessHistory(int64_t nowMs);
 
     int32_t                     _filteredMax;

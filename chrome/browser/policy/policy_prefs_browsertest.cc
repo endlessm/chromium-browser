@@ -29,6 +29,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/base/search_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/external_data_fetcher.h"
@@ -36,6 +37,7 @@
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/core/common/policy_details.h"
 #include "components/policy/core/common/policy_map.h"
+#include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/schema.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
@@ -497,7 +499,7 @@ class PolicyPrefsTest : public InProcessBrowserTest {
   }
 
   void SetUpOnMainThread() override {
-    ui_test_utils::WaitForTemplateURLServiceToLoad(
+    search_test_utils::WaitForTemplateURLServiceToLoad(
         TemplateURLServiceFactory::GetForProfile(browser()->profile()));
   }
 
@@ -519,6 +521,7 @@ class PolicyPrefsTest : public InProcessBrowserTest {
           it.key(),
           level,
           POLICY_SCOPE_USER,
+          POLICY_SOURCE_CLOUD,
           it.value().DeepCopy(),
           policy_details->max_external_data_size ?
               new ExternalDataFetcher(base::WeakPtr<ExternalDataManager>(),

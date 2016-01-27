@@ -8,13 +8,17 @@
 #include <vector>
 
 #include "base/bind.h"
+#include "base/command_line.h"
 #include "base/location.h"
 #include "base/rand_util.h"
-#include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
+#include "chrome/browser/extensions/api/gcd_private/privet_v3_context_getter.h"
 #include "chrome/browser/local_discovery/privet_constants.h"
+#include "chrome/common/chrome_content_client.h"
+#include "chrome/common/chrome_switches.h"
+#include "chrome/common/cloud_print/cloud_print_constants.h"
 #include "net/base/url_util.h"
 #include "url/gurl.h"
 
@@ -26,13 +30,10 @@
 #include "ui/gfx/text_elider.h"
 #endif  // ENABLE_PRINT_PREVIEW
 
-namespace cloud_print {
-extern const char kContentTypeJSON[];
-}
-
 namespace local_discovery {
 
 namespace {
+
 const char kUrlPlaceHolder[] = "http://host/";
 const char kPrivetRegisterActionArgName[] = "action";
 const char kPrivetRegisterUserArgName[] = "user";
@@ -182,8 +183,8 @@ void PrivetRegisterOperationImpl::OnError(PrivetURLFetcher* fetcher,
     reason = FAILURE_MALFORMED_RESPONSE;
   } else if (error == PrivetURLFetcher::TOKEN_ERROR) {
     reason = FAILURE_TOKEN;
-  } else if (error == PrivetURLFetcher::RETRY_ERROR) {
-    reason = FAILURE_RETRY;
+  } else if (error == PrivetURLFetcher::UNKNOWN_ERROR) {
+    reason = FAILURE_UNKNOWN;
   }
 
   delegate_->OnPrivetRegisterError(this,
@@ -525,7 +526,8 @@ void PrivetLocalPrintOperationImpl::DoSubmitdoc() {
                                     pwg_file_path_);
   } else {
     // TODO(noamsml): Move to file-based upload data?
-    std::string data_str((const char*)data_->front(), data_->size());
+    std::string data_str(reinterpret_cast<const char*>(data_->front()),
+                         data_->size());
     url_fetcher_->SetUploadData(kPrivetContentTypePDF, data_str);
   }
 
@@ -693,8 +695,8 @@ void PrivetLocalPrintOperationImpl::SetPWGRasterConverterForTesting(
 PrivetHTTPClientImpl::PrivetHTTPClientImpl(
     const std::string& name,
     const net::HostPortPair& host_port,
-    net::URLRequestContextGetter* request_context)
-    : name_(name), request_context_(request_context), host_port_(host_port) {}
+    const scoped_refptr<net::URLRequestContextGetter>& context_getter)
+    : name_(name), context_getter_(context_getter), host_port_(host_port) {}
 
 PrivetHTTPClientImpl::~PrivetHTTPClientImpl() {
 }
@@ -714,14 +716,13 @@ scoped_ptr<PrivetURLFetcher> PrivetHTTPClientImpl::CreateURLFetcher(
     net::URLFetcher::RequestType request_type,
     PrivetURLFetcher::Delegate* delegate) {
   GURL::Replacements replacements;
-  replacements.SetHostStr(host_port_.host());
-  std::string port(base::IntToString(host_port_.port()));  // Keep string alive.
+  std::string host = host_port_.HostForURL();
+  replacements.SetHostStr(host);
+  std::string port = base::UintToString(host_port_.port());
   replacements.SetPortStr(port);
   return scoped_ptr<PrivetURLFetcher>(
-      new PrivetURLFetcher(url.ReplaceComponents(replacements),
-                           request_type,
-                           request_context_.get(),
-                           delegate));
+      new PrivetURLFetcher(url.ReplaceComponents(replacements), request_type,
+                           context_getter_, delegate));
 }
 
 void PrivetHTTPClientImpl::RefreshPrivetToken(

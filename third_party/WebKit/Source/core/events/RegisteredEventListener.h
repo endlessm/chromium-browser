@@ -29,25 +29,41 @@
 
 namespace blink {
 
-    class RegisteredEventListener {
-    public:
-        RegisteredEventListener(PassRefPtr<EventListener> listener, bool useCapture)
-            : listener(listener)
-            , useCapture(useCapture)
-        {
-        }
-
-        RefPtr<EventListener> listener;
-        bool useCapture;
-    };
-
-    inline bool operator==(const RegisteredEventListener& a, const RegisteredEventListener& b)
+class RegisteredEventListener {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
+public:
+    RegisteredEventListener(PassRefPtrWillBeRawPtr<EventListener> listener, const EventListenerOptions& options)
+        : listener(listener)
+        , useCapture(options.capture())
     {
-        ASSERT(a.listener);
-        ASSERT(b.listener);
-        return *a.listener == *b.listener && a.useCapture == b.useCapture;
     }
 
+    DEFINE_INLINE_TRACE()
+    {
+        visitor->trace(listener);
+    }
+
+    EventListenerOptions options() const
+    {
+        EventListenerOptions result;
+        result.setCapture(useCapture);
+        return result;
+    }
+
+    RefPtrWillBeMember<EventListener> listener;
+    unsigned useCapture : 1;
+};
+
+inline bool operator==(const RegisteredEventListener& a, const RegisteredEventListener& b)
+{
+
+    ASSERT(a.listener);
+    ASSERT(b.listener);
+    return *a.listener == *b.listener && a.useCapture == b.useCapture;
+}
+
 } // namespace blink
+
+WTF_ALLOW_CLEAR_UNUSED_SLOTS_WITH_MEM_FUNCTIONS(blink::RegisteredEventListener);
 
 #endif // RegisteredEventListener_h

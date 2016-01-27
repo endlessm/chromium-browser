@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "webrtc/base/constructormagic.h"
-#include "webrtc/modules/interface/module_common_types.h"
+#include "webrtc/modules/include/module_common_types.h"
 #include "webrtc/typedefs.h"
 
 namespace webrtc {
@@ -78,7 +78,7 @@ class PartitionTreeNode {
   int min_parent_size_;
   bool packet_start_;
 
-  DISALLOW_COPY_AND_ASSIGN(PartitionTreeNode);
+  RTC_DISALLOW_COPY_AND_ASSIGN(PartitionTreeNode);
 };
 
 // Class that calculates the optimal aggregation of VP8 partitions smaller than
@@ -130,7 +130,7 @@ class Vp8PartitionAggregator {
   size_t* size_vector_;
   size_t largest_partition_size_;
 
-  DISALLOW_COPY_AND_ASSIGN(Vp8PartitionAggregator);
+  RTC_DISALLOW_COPY_AND_ASSIGN(Vp8PartitionAggregator);
 };
 }  // namespace
 

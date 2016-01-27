@@ -1,5 +1,3 @@
-
-
 /**
 Use `Polymer.PaperDialogBehavior` and `paper-dialog-common.css` to implement a Material Design
 dialog.
@@ -38,7 +36,7 @@ Custom property | Description | Default
 ### Accessibility
 
 This element has `role="dialog"` by default. Depending on the context, it may be more appropriate
-to override this attribute with `role="alertdialog"`. The header (a `<h2>` element) will
+to override this attribute with `role="alertdialog"`.
 
 If `modal` is set, the element will set `aria-modal` and prevent the focus from exiting the element.
 It will also ensure that focus remains in the dialog.
@@ -90,7 +88,7 @@ The `aria-labelledby` attribute will be set to the header element, if one exists
     },
 
     listeners: {
-      'click': '_onDialogClick',
+      'tap': '_onDialogClick',
       'iron-overlay-opened': '_onIronOverlayOpened',
       'iron-overlay-closed': '_onIronOverlayClosed'
     },
@@ -159,15 +157,17 @@ The `aria-labelledby` attribute will be set to the header element, if one exists
 
     _onDialogClick: function(event) {
       var target = event.target;
-      while (target !== this) {
-        if (target.hasAttribute('dialog-dismiss')) {
-          this._updateClosingReasonConfirmed(false);
-          this.close();
-          break;
-        } else if (target.hasAttribute('dialog-confirm')) {
-          this._updateClosingReasonConfirmed(true);
-          this.close();
-          break;
+      while (target && target !== this) {
+        if (target.hasAttribute) {
+          if (target.hasAttribute('dialog-dismiss')) {
+            this._updateClosingReasonConfirmed(false);
+            this.close();
+            break;
+          } else if (target.hasAttribute('dialog-confirm')) {
+            this._updateClosingReasonConfirmed(true);
+            this.close();
+            break;
+          }
         }
         target = target.parentNode;
       }
@@ -219,4 +219,3 @@ The `aria-labelledby` attribute will be set to the header element, if one exists
 
   /** @polymerBehavior */
   Polymer.PaperDialogBehavior = [Polymer.IronOverlayBehavior, Polymer.PaperDialogBehaviorImpl];
-

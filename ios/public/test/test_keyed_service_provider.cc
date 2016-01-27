@@ -25,7 +25,7 @@ class MissingServiceKeyedServiceFactory
   static MissingServiceKeyedServiceFactory* GetInstance();
 
  private:
-  friend struct DefaultSingletonTraits<MissingServiceKeyedServiceFactory>;
+  friend struct base::DefaultSingletonTraits<MissingServiceKeyedServiceFactory>;
 
   MissingServiceKeyedServiceFactory();
   ~MissingServiceKeyedServiceFactory() override;
@@ -40,7 +40,7 @@ class MissingServiceKeyedServiceFactory
 // static
 MissingServiceKeyedServiceFactory*
 MissingServiceKeyedServiceFactory::GetInstance() {
-  return Singleton<MissingServiceKeyedServiceFactory>::get();
+  return base::Singleton<MissingServiceKeyedServiceFactory>::get();
 }
 
 MissingServiceKeyedServiceFactory::MissingServiceKeyedServiceFactory()
@@ -67,51 +67,18 @@ TestKeyedServiceProvider::TestKeyedServiceProvider() {
 TestKeyedServiceProvider::~TestKeyedServiceProvider() {
 }
 
-void TestKeyedServiceProvider::AssertKeyedFactoriesBuilt() {
-  FakeSyncServiceFactory::GetInstance();
-  MissingServiceKeyedServiceFactory::GetInstance();
-}
-
-KeyedServiceBaseFactory* TestKeyedServiceProvider::GetBookmarkModelFactory() {
-  return MissingServiceKeyedServiceFactory::GetInstance();
-}
-
-bookmarks::BookmarkModel*
-TestKeyedServiceProvider::GetBookmarkModelForBrowserState(
-    ChromeBrowserState* browser_state) {
-  return nullptr;
-}
-
+#if defined(ENABLE_CONFIGURATION_POLICY)
 KeyedServiceBaseFactory*
-TestKeyedServiceProvider::GetProfileOAuth2TokenServiceFactory() {
+TestKeyedServiceProvider::GetManagedBookmarkServiceFactory() {
   return MissingServiceKeyedServiceFactory::GetInstance();
 }
 
-ProfileOAuth2TokenService*
-TestKeyedServiceProvider::GetProfileOAuth2TokenServiceForBrowserState(
+bookmarks::ManagedBookmarkService*
+TestKeyedServiceProvider::GetManagedBookmarkServiceForBrowserState(
     ChromeBrowserState* browser_state) {
   return nullptr;
 }
-
-KeyedServiceBaseFactory* TestKeyedServiceProvider::GetSigninManagerFactory() {
-  return MissingServiceKeyedServiceFactory::GetInstance();
-}
-
-SigninManager* TestKeyedServiceProvider::GetSigninManagerForBrowserState(
-    ChromeBrowserState* browser_state) {
-  return nullptr;
-}
-
-KeyedServiceBaseFactory*
-TestKeyedServiceProvider::GetPersonalDataManagerFactory() {
-  return MissingServiceKeyedServiceFactory::GetInstance();
-}
-
-autofill::PersonalDataManager*
-TestKeyedServiceProvider::GetPersonalDataManagerForBrowserState(
-    ChromeBrowserState* browser_state) {
-  return nullptr;
-}
+#endif
 
 KeyedServiceBaseFactory* TestKeyedServiceProvider::GetSyncServiceFactory() {
   return FakeSyncServiceFactory::GetInstance();
@@ -121,6 +88,34 @@ sync_driver::SyncService*
 TestKeyedServiceProvider::GetSyncServiceForBrowserState(
     ChromeBrowserState* browser_state) {
   return FakeSyncServiceFactory::GetForBrowserState(browser_state);
+}
+
+sync_driver::SyncService*
+TestKeyedServiceProvider::GetSyncServiceForBrowserStateIfExists(
+    ChromeBrowserState* browser_state) {
+  return FakeSyncServiceFactory::GetForBrowserStateIfExists(browser_state);
+}
+
+KeyedServiceBaseFactory*
+TestKeyedServiceProvider::GetProfileInvalidationProviderFactory() {
+  return MissingServiceKeyedServiceFactory::GetInstance();
+}
+
+invalidation::ProfileInvalidationProvider*
+TestKeyedServiceProvider::GetProfileInvalidationProviderForBrowserState(
+    ios::ChromeBrowserState* browser_state) {
+  return nullptr;
+}
+
+KeyedServiceBaseFactory*
+TestKeyedServiceProvider::GetDataReductionProxySettingsFactory() {
+  return MissingServiceKeyedServiceFactory::GetInstance();
+}
+
+data_reduction_proxy::DataReductionProxySettings*
+TestKeyedServiceProvider::GetDataReductionProxySettingsForBrowserState(
+    ios::ChromeBrowserState* browser_state) {
+  return nullptr;
 }
 
 }  // namespace ios

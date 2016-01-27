@@ -27,6 +27,7 @@ class CONTENT_EXPORT SiteInstanceImpl : public SiteInstance,
   SiteInstance* GetRelatedSiteInstance(const GURL& url) override;
   bool IsRelatedSiteInstance(const SiteInstance* instance) override;
   size_t GetRelatedActiveContentsCount() override;
+  bool RequiresDedicatedProcess() override;
 
   // Set the web site that this SiteInstance is rendering pages for.
   // This includes the scheme and registered domain, but not the port.  If the
@@ -69,9 +70,9 @@ class CONTENT_EXPORT SiteInstanceImpl : public SiteInstance,
   void DecrementRelatedActiveContentsCount();
 
   // Sets the global factory used to create new RenderProcessHosts.  It may be
-  // NULL, in which case the default BrowserRenderProcessHost will be created
-  // (this is the behavior if you don't call this function).  The factory must
-  // be set back to NULL before it's destroyed; ownership is not transferred.
+  // NULL, in which case the default RenderProcessHost will be created (this is
+  // the behavior if you don't call this function).  The factory must be set
+  // back to NULL before it's destroyed; ownership is not transferred.
   static void set_render_process_host_factory(
       const RenderProcessHostFactory* rph_factory);
 
@@ -83,6 +84,15 @@ class CONTENT_EXPORT SiteInstanceImpl : public SiteInstance,
   // RenderFrameHostManager.
   static GURL GetEffectiveURL(BrowserContext* browser_context,
                               const GURL& url);
+
+  // Returns true if pages loaded from |effective_url| ought to be handled only
+  // by a renderer process isolated from other sites. If --site-per-process is
+  // on the command line, this is true for all sites. In other site isolation
+  // modes, only a subset of sites will require dedicated processes.
+  //
+  // |effective_url| must be an effective URL.
+  static bool DoesSiteRequireDedicatedProcess(BrowserContext* browser_context,
+                                              const GURL& effective_url);
 
  protected:
   friend class BrowsingInstance;

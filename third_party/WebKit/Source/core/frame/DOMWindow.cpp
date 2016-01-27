@@ -8,6 +8,7 @@
 #include "bindings/core/v8/ScriptCallStackFactory.h"
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
+#include "core/dom/ExecutionContext.h"
 #include "core/dom/SecurityContext.h"
 #include "core/events/MessageEvent.h"
 #include "core/frame/Frame.h"
@@ -120,7 +121,9 @@ DOMWindow* DOMWindow::anonymousIndexedGetter(uint32_t index) const
 
 bool DOMWindow::isCurrentlyDisplayedInFrame() const
 {
-    return frame() && frame()->domWindow() == this && frame()->host();
+    if (frame())
+        RELEASE_ASSERT_WITH_SECURITY_IMPLICATION(frame()->domWindow() == this);
+    return frame() && frame()->host();
 }
 
 bool DOMWindow::isInsecureScriptAccess(LocalDOMWindow& callingWindow, const String& urlString)
@@ -153,6 +156,15 @@ void DOMWindow::resetLocation()
         m_location->reset();
         m_location = nullptr;
     }
+}
+
+bool DOMWindow::isSecureContext() const
+{
+    if (!frame())
+        return false;
+
+    String unusedErrorMessage;
+    return document()->isSecureContext(unusedErrorMessage, ExecutionContext::StandardSecureContextCheck);
 }
 
 void DOMWindow::postMessage(PassRefPtr<SerializedScriptValue> message, const MessagePortArray* ports, const String& targetOrigin, LocalDOMWindow* source, ExceptionState& exceptionState)
@@ -188,6 +200,7 @@ void DOMWindow::postMessage(PassRefPtr<SerializedScriptValue> message, const Mes
     if (!sourceDocument)
         return;
     String sourceOrigin = sourceDocument->securityOrigin()->toString();
+    String sourceSuborigin = sourceDocument->securityOrigin()->suboriginName();
 
     // FIXME: MixedContentChecker needs to be refactored for OOPIF.  For now,
     // create the url using replicated origins for remote frames.
@@ -200,13 +213,13 @@ void DOMWindow::postMessage(PassRefPtr<SerializedScriptValue> message, const Mes
     // Give the embedder a chance to intercept this postMessage.  If the
     // target is a remote frame, the message will be forwarded through the
     // browser process.
-    RefPtrWillBeRawPtr<MessageEvent> event = MessageEvent::create(channels.release(), message, sourceOrigin, String(), source);
+    RefPtrWillBeRawPtr<MessageEvent> event = MessageEvent::create(channels.release(), message, sourceOrigin, String(), source, sourceSuborigin);
     bool didHandleMessageEvent = frame()->client()->willCheckAndDispatchMessageEvent(target.get(), event.get(), source->document()->frame());
     if (!didHandleMessageEvent) {
         // Capture stack trace only when inspector front-end is loaded as it may be time consuming.
         RefPtrWillBeRawPtr<ScriptCallStack> stackTrace = nullptr;
         if (InspectorInstrumentation::consoleAgentEnabled(sourceDocument))
-            stackTrace = createScriptCallStack(ScriptCallStack::maxCallStackSizeToCapture, true);
+            stackTrace = currentScriptCallStack(ScriptCallStack::maxCallStackSizeToCapture);
 
         toLocalDOMWindow(this)->schedulePostMessage(event, source, target.get(), stackTrace.release());
     }

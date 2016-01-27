@@ -31,6 +31,7 @@ class TestLauncher;
 
 // Constants for GTest command-line flags.
 extern const char kGTestFilterFlag[];
+extern const char kGTestFlagfileFlag[];
 extern const char kGTestHelpFlag[];
 extern const char kGTestListTestsFlag[];
 extern const char kGTestRepeatFlag[];
@@ -43,7 +44,7 @@ class TestLauncherDelegate {
  public:
   // Called to get names of tests available for running. The delegate
   // must put the result in |output| and return true on success.
-  virtual bool GetTests(std::vector<SplitTestName>* output) = 0;
+  virtual bool GetTests(std::vector<TestIdentifier>* output) = 0;
 
   // Called before a test is considered for running. If it returns false,
   // the test is not run. If it returns true, the test will be run provided
@@ -160,7 +161,7 @@ class TestLauncher {
   std::vector<std::string> negative_test_filter_;
 
   // Tests to use (cached result of TestLauncherDelegate::GetTests).
-  std::vector<SplitTestName> tests_;
+  std::vector<TestIdentifier> tests_;
 
   // Number of tests started in this iteration.
   size_t test_started_count_;
@@ -181,6 +182,10 @@ class TestLauncher {
   // Maximum number of retries per iteration.
   size_t retry_limit_;
 
+  // If true will not early exit nor skip retries even if too many tests are
+  // broken.
+  bool force_run_broken_tests_;
+
   // Tests to retry in this iteration.
   std::set<std::string> tests_to_retry_;
 
@@ -190,7 +195,7 @@ class TestLauncher {
   TestResultsTracker results_tracker_;
 
   // Watchdog timer to make sure we do not go without output for too long.
-  DelayTimer<TestLauncher> watchdog_timer_;
+  DelayTimer watchdog_timer_;
 
   // Number of jobs to run in parallel.
   size_t parallel_jobs_;

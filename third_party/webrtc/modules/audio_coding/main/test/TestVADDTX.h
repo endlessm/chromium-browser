@@ -14,8 +14,8 @@
 
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common_types.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module_typedefs.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module_typedefs.h"
 #include "webrtc/modules/audio_coding/main/test/ACMTest.h"
 #include "webrtc/modules/audio_coding/main/test/Channel.h"
 
@@ -29,7 +29,7 @@ class ActivityMonitor : public ACMVADCallback {
   void ResetStatistics();
   void GetStatistics(uint32_t* stats);
  private:
-  // 0 - kFrameEmpty
+  // 0 - kEmptyFrame
   // 1 - kAudioFrameSpeech
   // 2 - kAudioFrameCN
   // 3 - kVideoFrameKey (not used by audio)
@@ -60,7 +60,7 @@ class TestVadDtx : public ACMTest {
   // 0  : there have been no packets of type |x|,
   // 1  : there have been packets of type |x|,
   // with |x| indicates the following packet types
-  // 0 - kFrameEmpty
+  // 0 - kEmptyFrame
   // 1 - kAudioFrameSpeech
   // 2 - kAudioFrameCN
   // 3 - kVideoFrameKey (not used by audio)
@@ -88,7 +88,6 @@ class TestWebRtcVadDtx final : public TestVadDtx {
 
   bool vad_enabled_;
   bool dtx_enabled_;
-  bool use_webrtc_dtx_;
   int output_file_num_;
 };
 

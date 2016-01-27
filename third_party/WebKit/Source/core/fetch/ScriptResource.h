@@ -27,6 +27,7 @@
 #define ScriptResource_h
 
 #include "core/CoreExport.h"
+#include "core/fetch/IntegrityMetadata.h"
 #include "core/fetch/ResourceClient.h"
 #include "core/fetch/TextResource.h"
 
@@ -57,11 +58,21 @@ public:
     void didAddClient(ResourceClient*) override;
     void appendData(const char*, unsigned) override;
 
+    void onMemoryDump(WebMemoryDumpLevelOfDetail, WebProcessMemoryDump*) const override;
+
+    void destroyDecodedDataForFailedRevalidation() override;
+
     const String& script();
 
     AtomicString mimeType() const;
 
     bool mimeTypeAllowedByNosniff() const;
+
+    void setIntegrityMetadata(const IntegrityMetadataSet& metadata) { m_integrityMetadata = metadata; }
+    const IntegrityMetadataSet& integrityMetadata() const { return m_integrityMetadata; }
+    void setIntegrityAlreadyChecked(bool checked) { m_integrityChecked = checked; }
+    bool integrityAlreadyChecked() { return m_integrityChecked; }
+    bool mustRefetchDueToIntegrityMetadata(const FetchRequest&) const override;
 
 private:
     class ScriptResourceFactory : public ResourceFactory {
@@ -74,6 +85,9 @@ private:
             return new ScriptResource(request, charset);
         }
     };
+
+    bool m_integrityChecked;
+    IntegrityMetadataSet m_integrityMetadata;
 
     AtomicString m_script;
 };

@@ -5,6 +5,7 @@
 #ifndef CC_SCHEDULER_COMPOSITOR_TIMING_HISTORY_H_
 #define CC_SCHEDULER_COMPOSITOR_TIMING_HISTORY_H_
 
+#include "base/memory/scoped_ptr.h"
 #include "cc/base/rolling_time_delta_history.h"
 
 namespace base {
@@ -19,13 +20,29 @@ class RenderingStatsInstrumentation;
 
 class CC_EXPORT CompositorTimingHistory {
  public:
-  explicit CompositorTimingHistory(
+  enum UMACategory {
+    RENDERER_UMA,
+    BROWSER_UMA,
+    NULL_UMA,
+  };
+  class UMAReporter;
+
+  CompositorTimingHistory(
+      UMACategory uma_category,
       RenderingStatsInstrumentation* rendering_stats_instrumentation);
   virtual ~CompositorTimingHistory();
 
   void AsValueInto(base::trace_event::TracedValue* state) const;
 
+  // Deprecated: http://crbug.com/552004
   virtual base::TimeDelta BeginMainFrameToCommitDurationEstimate() const;
+
+  // The main thread responsiveness depends heavily on whether or not the
+  // on_critical_path flag is set, so we record response times separately.
+  virtual base::TimeDelta BeginMainFrameQueueDurationCriticalEstimate() const;
+  virtual base::TimeDelta BeginMainFrameQueueDurationNotCriticalEstimate()
+      const;
+  virtual base::TimeDelta BeginMainFrameStartToCommitDurationEstimate() const;
   virtual base::TimeDelta CommitToReadyToActivateDurationEstimate() const;
   virtual base::TimeDelta PrepareTilesDurationEstimate() const;
   virtual base::TimeDelta ActivateDurationEstimate() const;
@@ -33,7 +50,8 @@ class CC_EXPORT CompositorTimingHistory {
 
   void SetRecordingEnabled(bool enabled);
 
-  void WillBeginMainFrame();
+  void WillBeginMainFrame(bool on_critical_path);
+  void BeginMainFrameStarted(base::TimeTicks main_thread_start_time);
   void BeginMainFrameAborted();
   void DidCommit();
   void WillPrepareTiles();
@@ -45,25 +63,29 @@ class CC_EXPORT CompositorTimingHistory {
   void DidDraw();
 
  protected:
+  static scoped_ptr<UMAReporter> CreateUMAReporter(UMACategory category);
   virtual base::TimeTicks Now() const;
-
-  void AddDrawDurationUMA(base::TimeDelta draw_duration,
-                          base::TimeDelta draw_duration_estimate);
 
   bool enabled_;
 
-  RollingTimeDeltaHistory begin_main_frame_to_commit_duration_history_;
+  RollingTimeDeltaHistory begin_main_frame_sent_to_commit_duration_history_;
+  RollingTimeDeltaHistory begin_main_frame_queue_duration_critical_history_;
+  RollingTimeDeltaHistory begin_main_frame_queue_duration_not_critical_history_;
+  RollingTimeDeltaHistory begin_main_frame_start_to_commit_duration_history_;
   RollingTimeDeltaHistory commit_to_ready_to_activate_duration_history_;
   RollingTimeDeltaHistory prepare_tiles_duration_history_;
   RollingTimeDeltaHistory activate_duration_history_;
   RollingTimeDeltaHistory draw_duration_history_;
 
+  bool begin_main_frame_on_critical_path_;
   base::TimeTicks begin_main_frame_sent_time_;
+  base::TimeTicks begin_main_frame_start_time_;
   base::TimeTicks commit_time_;
   base::TimeTicks start_prepare_tiles_time_;
   base::TimeTicks start_activate_time_;
   base::TimeTicks start_draw_time_;
 
+  scoped_ptr<UMAReporter> uma_reporter_;
   RenderingStatsInstrumentation* rendering_stats_instrumentation_;
 
  private:

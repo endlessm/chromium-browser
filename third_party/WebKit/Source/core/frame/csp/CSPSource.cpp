@@ -5,6 +5,7 @@
 #include "config.h"
 #include "core/frame/csp/CSPSource.h"
 
+#include "core/frame/UseCounter.h"
 #include "core/frame/csp/ContentSecurityPolicy.h"
 #include "platform/weborigin/KURL.h"
 #include "platform/weborigin/KnownPorts.h"
@@ -38,16 +39,34 @@ bool CSPSource::schemeMatches(const KURL& url) const
 {
     if (m_scheme.isEmpty())
         return m_policy->protocolMatchesSelf(url);
+    if (equalIgnoringCase(m_scheme, "http"))
+        return equalIgnoringCase(url.protocol(), "http") || equalIgnoringCase(url.protocol(), "https");
+    if (equalIgnoringCase(m_scheme, "ws"))
+        return equalIgnoringCase(url.protocol(), "ws") || equalIgnoringCase(url.protocol(), "wss");
     return equalIgnoringCase(url.protocol(), m_scheme);
 }
 
 bool CSPSource::hostMatches(const KURL& url) const
 {
     const String& host = url.host();
-    if (equalIgnoringCase(host, m_host))
-        return true;
-    return m_hostWildcard == HasWildcard && host.endsWith("." + m_host, TextCaseInsensitive);
+    Document* document = m_policy->document();
+    bool match;
 
+    bool equalHosts = equalIgnoringCase(host, m_host);
+    if (m_hostWildcard == HasWildcard) {
+        match = host.endsWith("." + m_host, TextCaseInsensitive);
+
+        // Chrome used to, incorrectly, match *.x.y to x.y. This was fixed, but
+        // the following count measures when a match fails that would have
+        // passed the old, incorrect style, in case a lot of sites were
+        // relying on that behavior.
+        if (document && equalHosts)
+            UseCounter::count(*document, UseCounter::CSPSourceWildcardWouldMatchExactHost);
+    } else {
+        match = equalHosts;
+    }
+
+    return match;
 }
 
 bool CSPSource::pathMatches(const KURL& url) const

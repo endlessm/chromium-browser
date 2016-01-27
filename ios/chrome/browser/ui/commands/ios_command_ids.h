@@ -42,7 +42,6 @@
 #define IDC_SHARE_PAGE                                 40929
 #define IDC_BACK_FORWARD_IN_TAB_HISTORY                40930
 #define IDC_SHOW_GOOGLE_APPS_SETTINGS                  40931
-#define IDC_SHOW_TRANSLATE_SETTINGS                    40932
 #define IDC_SHOW_SIGN_IN_WITH_PRINT_ON_COMPLETION      40933
 #define IDC_SHOW_PRIVACY_SETTINGS                      40934
 #define IDC_HIDE_SETTINGS_AND_SHOW_PRIVACY_SETTINGS    40935
@@ -56,6 +55,7 @@
 #define IDC_CLOSE_SETTINGS                             40944
 #define IDC_SHOW_SAVE_PASSWORDS_SETTINGS               40945
 #define IDC_READER_MODE                                40947
+#define IDC_RATE_THIS_APP                              40948
 // Do not use IDs above 40999 while the iOS build still depends on //chrome, to
 // avoid conflicts.
 // TODO(droger): Remove this comment once iOS no longer depends on //chrome.

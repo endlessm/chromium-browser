@@ -26,7 +26,8 @@ def DriverClose(fp):
 
 def FixArch(arch):
   arch = arch.lower()
-  archfix = { 'x86-32': 'X8632',
+  archfix = { 'x86'   : 'X8632',
+              'x86-32': 'X8632',
               'x86_32': 'X8632',
               'x8632' : 'X8632',
               'i686'  : 'X8632',
@@ -35,6 +36,7 @@ def FixArch(arch):
               '686'   : 'X8632',
 
               'amd64' : 'X8664',
+              'x64'   : 'X8664',
               'x86_64': 'X8664',
               'x86-64': 'X8664',
               'x8664' : 'X8664',
@@ -141,25 +143,12 @@ class LogManager(object):
     for o in outs:
       print >> o, m
 
-def EscapeEcho(s):
-  """ Quick and dirty way of escaping characters that may otherwise be
-      interpreted by bash / the echo command (rather than preserved). """
-  return s.replace("\\", r"\\").replace("$", r"\$").replace('"', r"\"")
 
-
-def StringifyCommand(cmd, stdin_contents=None):
-  """ Return a string for reproducing the command "cmd", which will be
-      fed stdin_contents through stdin. """
-  stdin_str = ""
-  if stdin_contents:
-    stdin_str = "echo \"\"\"" + EscapeEcho(stdin_contents) + "\"\"\" | "
-  return stdin_str + PrettyStringify(cmd)
-
-
-def PrettyStringify(args):
+def StringifyCommand(cmd):
+  """ Return a string for reproducing the command "cmd". """
   ret = ''
   grouping = 0
-  for a in args:
+  for a in cmd:
     if grouping == 0 and len(ret) > 0:
       ret += " \\\n    "
     elif grouping > 0:

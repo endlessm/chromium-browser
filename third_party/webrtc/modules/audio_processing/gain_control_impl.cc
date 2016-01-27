@@ -14,7 +14,7 @@
 
 #include "webrtc/modules/audio_processing/audio_buffer.h"
 #include "webrtc/modules/audio_processing/agc/legacy/gain_control.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 
 namespace webrtc {
 
@@ -64,7 +64,7 @@ int GainControlImpl::ProcessRenderAudio(AudioBuffer* audio) {
     int err = WebRtcAgc_AddFarend(
         my_handle,
         audio->mixed_low_pass_data(),
-        static_cast<int16_t>(audio->num_frames_per_band()));
+        audio->num_frames_per_band());
 
     if (err != apm_->kNoError) {
       return GetHandleError(my_handle);
@@ -92,7 +92,7 @@ int GainControlImpl::AnalyzeCaptureAudio(AudioBuffer* audio) {
           my_handle,
           audio->split_bands(i),
           audio->num_bands(),
-          static_cast<int16_t>(audio->num_frames_per_band()));
+          audio->num_frames_per_band());
 
       if (err != apm_->kNoError) {
         return GetHandleError(my_handle);
@@ -108,7 +108,7 @@ int GainControlImpl::AnalyzeCaptureAudio(AudioBuffer* audio) {
           my_handle,
           audio->split_bands(i),
           audio->num_bands(),
-          static_cast<int16_t>(audio->num_frames_per_band()),
+          audio->num_frames_per_band(),
           analog_capture_level_,
           &capture_level_out);
 
@@ -146,7 +146,7 @@ int GainControlImpl::ProcessCaptureAudio(AudioBuffer* audio) {
         my_handle,
         audio->split_bands_const(i),
         audio->num_bands(),
-        static_cast<int16_t>(audio->num_frames_per_band()),
+        audio->num_frames_per_band(),
         audio->split_bands(i),
         capture_levels_[i],
         &capture_level_out,
@@ -296,7 +296,9 @@ int GainControlImpl::Initialize() {
     return err;
   }
 
-  capture_levels_.assign(num_handles(), analog_capture_level_);
+  const int n = num_handles();
+  RTC_CHECK_GE(n, 0) << "Bad number of handles: " << n;
+  capture_levels_.assign(n, analog_capture_level_);
   return apm_->kNoError;
 }
 

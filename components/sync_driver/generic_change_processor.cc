@@ -4,11 +4,15 @@
 
 #include "components/sync_driver/generic_change_processor.h"
 
+#include <algorithm>
+#include <string>
+
 #include "base/location.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
 #include "components/sync_driver/sync_api_component_factory.h"
+#include "components/sync_driver/sync_client.h"
 #include "sync/api/sync_change.h"
 #include "sync/api/sync_error.h"
 #include "sync/api/syncable_service.h"
@@ -94,7 +98,7 @@ GenericChangeProcessor::GenericChangeProcessor(
     const base::WeakPtr<syncer::SyncableService>& local_service,
     const base::WeakPtr<syncer::SyncMergeResult>& merge_result,
     syncer::UserShare* user_share,
-    SyncApiComponentFactory* sync_factory,
+    SyncClient* sync_client,
     scoped_ptr<syncer::AttachmentStoreForSync> attachment_store)
     : ChangeProcessor(error_handler),
       type_(type),
@@ -110,8 +114,9 @@ GenericChangeProcessor::GenericChangeProcessor(
       syncer::ReadTransaction trans(FROM_HERE, share_handle());
       store_birthday = trans.GetStoreBirthday();
     }
-    attachment_service_ = sync_factory->CreateAttachmentService(
-        attachment_store.Pass(), *user_share, store_birthday, type, this);
+    attachment_service_ =
+        sync_client->GetSyncApiComponentFactory()->CreateAttachmentService(
+            attachment_store.Pass(), *user_share, store_birthday, type, this);
     attachment_service_weak_ptr_factory_.reset(
         new base::WeakPtrFactory<syncer::AttachmentService>(
             attachment_service_.get()));
@@ -408,6 +413,11 @@ syncer::SyncError GenericChangeProcessor::ProcessSyncChanges(
     const syncer::SyncChangeList& list_of_changes) {
   DCHECK(CalledOnValidThread());
 
+  if (list_of_changes.empty()) {
+    // No work. Exit without entering WriteTransaction.
+    return syncer::SyncError();
+  }
+
   // Keep track of brand new attachments so we can persist them on this device
   // and upload them to the server.
   syncer::AttachmentIdSet new_attachments;
@@ -494,22 +504,10 @@ syncer::SyncError GenericChangeProcessor::HandleActionAdd(
     syncer::AttachmentIdSet* new_attachments) {
   // TODO(sync): Handle other types of creation (custom parents, folders,
   // etc.).
-  syncer::ReadNode root_node(&trans);
   const syncer::SyncDataLocal sync_data_local(change.sync_data());
-  if (root_node.InitTypeRoot(sync_data_local.GetDataType()) !=
-      syncer::BaseNode::INIT_OK) {
-    syncer::SyncError error(FROM_HERE,
-                            syncer::SyncError::DATATYPE_ERROR,
-                            "Failed to look up root node for type " + type_str,
-                            type_);
-    error_handler()->OnSingleDataTypeUnrecoverableError(error);
-    NOTREACHED();
-    LOG(ERROR) << "Create: no root node.";
-    return error;
-  }
   syncer::WriteNode::InitUniqueByCreationResult result =
-      sync_node->InitUniqueByCreation(
-          sync_data_local.GetDataType(), root_node, sync_data_local.GetTag());
+      sync_node->InitUniqueByCreation(sync_data_local.GetDataType(),
+                                      sync_data_local.GetTag());
   if (result != syncer::WriteNode::INIT_SUCCESS) {
     std::string error_prefix = "Failed to create " + type_str + " node: " +
                                change.location().ToString() + ", ";

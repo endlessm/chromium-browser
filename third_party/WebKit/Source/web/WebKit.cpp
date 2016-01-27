@@ -38,6 +38,7 @@
 #include "core/Init.h"
 #include "core/animation/AnimationClock.h"
 #include "core/dom/Microtask.h"
+#include "core/fetch/WebCacheMemoryDumpProvider.h"
 #include "core/frame/Settings.h"
 #include "core/page/Page.h"
 #include "core/workers/WorkerGlobalScopeProxy.h"
@@ -47,15 +48,12 @@
 #include "platform/Logging.h"
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/graphics/ImageDecodingStore.h"
-#include "platform/graphics/media/MediaPlayer.h"
+#include "platform/heap/GCTaskRunner.h"
 #include "platform/heap/Heap.h"
-#include "platform/heap/glue/MessageLoopInterruptor.h"
-#include "platform/heap/glue/PendingGCRunner.h"
 #include "public/platform/Platform.h"
 #include "public/platform/WebPrerenderingSupport.h"
 #include "public/platform/WebThread.h"
 #include "web/IndexedDBClientImpl.h"
-#include "web/WebMediaPlayerClientImpl.h"
 #include "wtf/Assertions.h"
 #include "wtf/CryptographicallyRandomNumber.h"
 #include "wtf/MainThread.h"
@@ -83,7 +81,7 @@ public:
     }
 };
 
-class MainThreadTaskRunner: public WebThread::Task {
+class MainThreadTaskRunner: public WebTaskRunner::Task {
     WTF_MAKE_NONCOPYABLE(MainThreadTaskRunner);
 public:
     MainThreadTaskRunner(WTF::MainThreadFunction* function, void* context)
@@ -101,10 +99,8 @@ private:
 
 } // namespace
 
-static WebThread::TaskObserver* s_endOfTaskRunner = 0;
-static WebThread::TaskObserver* s_pendingGCRunner = 0;
-static ThreadState::Interruptor* s_messageLoopInterruptor = 0;
-static ThreadState::Interruptor* s_isolateInterruptor = 0;
+static WebThread::TaskObserver* s_endOfTaskRunner = nullptr;
+static GCTaskRunner* s_gcTaskRunner = nullptr;
 
 // Make sure we are not re-initialized in the same address space.
 // Doing so may cause hard to reproduce crashes.
@@ -116,8 +112,8 @@ void initialize(Platform* platform)
 
     V8Initializer::initializeMainThreadIfNeeded();
 
-    s_isolateInterruptor = new V8IsolateInterruptor(V8PerIsolateData::mainThreadIsolate());
-    ThreadState::current()->addInterruptor(s_isolateInterruptor);
+    OwnPtr<V8IsolateInterruptor> interruptor = adoptPtr(new V8IsolateInterruptor(V8PerIsolateData::mainThreadIsolate()));
+    ThreadState::current()->addInterruptor(interruptor.release());
     ThreadState::current()->registerTraceDOMWrappers(V8PerIsolateData::mainThreadIsolate(), V8GCController::traceDOMWrappers);
 
     // currentThread is null if we are running on a thread without a message loop.
@@ -125,6 +121,9 @@ void initialize(Platform* platform)
         ASSERT(!s_endOfTaskRunner);
         s_endOfTaskRunner = new EndOfTaskRunner;
         currentThread->addTaskObserver(s_endOfTaskRunner);
+
+        // Register web cache dump provider for tracing.
+        platform->registerMemoryDumpProvider(WebCacheMemoryDumpProvider::instance(), "MemoryCache");
     }
 }
 
@@ -135,12 +134,12 @@ v8::Isolate* mainThreadIsolate()
 
 static double currentTimeFunction()
 {
-    return Platform::current()->currentTime();
+    return Platform::current()->currentTimeSeconds();
 }
 
 static double monotonicallyIncreasingTimeFunction()
 {
-    return Platform::current()->monotonicallyIncreasingTime();
+    return Platform::current()->monotonicallyIncreasingTimeSeconds();
 }
 
 static double systemTraceTimeFunction()
@@ -160,7 +159,7 @@ static void cryptographicallyRandomValues(unsigned char* buffer, size_t length)
 
 static void callOnMainThreadFunction(WTF::MainThreadFunction function, void* context)
 {
-    Platform::current()->mainThread()->postTask(FROM_HERE, new MainThreadTaskRunner(function, context));
+    Platform::current()->mainThread()->taskRunner()->postTask(BLINK_FROM_HERE, new MainThreadTaskRunner(function, context));
 }
 
 static void adjustAmountOfExternalAllocatedMemory(int size)
@@ -184,47 +183,31 @@ void initializeWithoutV8(Platform* platform)
     ThreadState::attachMainThread();
     // currentThread() is null if we are running on a thread without a message loop.
     if (WebThread* currentThread = platform->currentThread()) {
-        ASSERT(!s_pendingGCRunner);
-        s_pendingGCRunner = new PendingGCRunner;
-        currentThread->addTaskObserver(s_pendingGCRunner);
-
-        ASSERT(!s_messageLoopInterruptor);
-        s_messageLoopInterruptor = new MessageLoopInterruptor(currentThread);
-        ThreadState::current()->addInterruptor(s_messageLoopInterruptor);
+        ASSERT(!s_gcTaskRunner);
+        s_gcTaskRunner = new GCTaskRunner(currentThread);
     }
 
     DEFINE_STATIC_LOCAL(ModulesInitializer, initializer, ());
     initializer.init();
 
     setIndexedDBClientCreateFunction(IndexedDBClientImpl::create);
-
-    MediaPlayer::setMediaEngineCreateFunction(WebMediaPlayerClientImpl::create);
 }
 
 void shutdown()
 {
     // currentThread() is null if we are running on a thread without a message loop.
     if (Platform::current()->currentThread()) {
+        Platform::current()->unregisterMemoryDumpProvider(WebCacheMemoryDumpProvider::instance());
+
         // We don't need to (cannot) remove s_endOfTaskRunner from the current
         // message loop, because the message loop is already destructed before
         // the shutdown() is called.
         delete s_endOfTaskRunner;
-        s_endOfTaskRunner = 0;
-    }
+        s_endOfTaskRunner = nullptr;
 
-    ASSERT(s_isolateInterruptor);
-    ThreadState::current()->removeInterruptor(s_isolateInterruptor);
-
-    // currentThread() is null if we are running on a thread without a message loop.
-    if (Platform::current()->currentThread()) {
-        ASSERT(s_pendingGCRunner);
-        delete s_pendingGCRunner;
-        s_pendingGCRunner = 0;
-
-        ASSERT(s_messageLoopInterruptor);
-        ThreadState::current()->removeInterruptor(s_messageLoopInterruptor);
-        delete s_messageLoopInterruptor;
-        s_messageLoopInterruptor = 0;
+        ASSERT(s_gcTaskRunner);
+        delete s_gcTaskRunner;
+        s_gcTaskRunner = nullptr;
     }
 
     // Shutdown V8-related background threads before V8 is ramped down. Note
@@ -260,6 +243,9 @@ void shutdownWithoutV8()
     WebPrerenderingSupport::shutdown();
 }
 
+// TODO(tkent): The following functions to wrap LayoutTestSupport should be
+// moved to public/platform/.
+
 void setLayoutTestMode(bool value)
 {
     LayoutTestSupport::setIsRunningLayoutTest(value);
@@ -270,6 +256,11 @@ bool layoutTestMode()
     return LayoutTestSupport::isRunningLayoutTest();
 }
 
+void setMockThemeEnabledForTest(bool value)
+{
+    LayoutTestSupport::setMockThemeEnabledForTest(value);
+}
+
 void setFontAntialiasingEnabledForTest(bool value)
 {
     LayoutTestSupport::setFontAntialiasingEnabledForTest(value);
@@ -278,6 +269,16 @@ void setFontAntialiasingEnabledForTest(bool value)
 bool fontAntialiasingEnabledForTest()
 {
     return LayoutTestSupport::isFontAntialiasingEnabledForTest();
+}
+
+void setAlwaysUseComplexTextForTest(bool value)
+{
+    LayoutTestSupport::setAlwaysUseComplexTextForTest(value);
+}
+
+bool alwaysUseComplexTextForTest()
+{
+    return LayoutTestSupport::alwaysUseComplexTextForTest();
 }
 
 void enableLogChannel(const char* name)

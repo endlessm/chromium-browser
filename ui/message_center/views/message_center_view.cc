@@ -454,8 +454,25 @@ void MessageCenterView::OnNotificationUpdated(const std::string& id) {
   NotificationViewsMap::const_iterator view_iter = notification_views_.find(id);
   if (view_iter == notification_views_.end())
     return;
-  NotificationView* view = view_iter->second;
+
+  // Set the item on the mouse cursor as the reposition target so that it
+  // should stick to the current position over the update.
+  bool set = false;
+  if (message_list_view_->IsMouseHovered()) {
+    for (const auto& hover_id_view : notification_views_) {
+      NotificationView* hover_view = hover_id_view.second;
+      if (hover_view->IsMouseHovered()) {
+        message_list_view_->SetRepositionTarget(hover_view->bounds());
+        set = true;
+        break;
+      }
+    }
+  }
+  if (!set)
+    message_list_view_->ResetRepositionSession();
+
   // TODO(dimich): add MessageCenter::GetVisibleNotificationById(id)
+  NotificationView* view = view_iter->second;
   const NotificationList::Notifications& notifications =
       message_center_->GetVisibleNotifications();
   for (NotificationList::Notifications::const_iterator iter =
@@ -495,6 +512,11 @@ void MessageCenterView::ClickOnNotificationButton(
     const std::string& notification_id,
     int button_index) {
   message_center_->ClickOnNotificationButton(notification_id, button_index);
+}
+
+void MessageCenterView::ClickOnSettingsButton(
+    const std::string& notification_id) {
+  message_center_->ClickOnSettingsButton(notification_id);
 }
 
 void MessageCenterView::AnimationEnded(const gfx::Animation* animation) {

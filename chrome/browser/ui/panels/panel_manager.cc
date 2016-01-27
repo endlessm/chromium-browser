@@ -16,10 +16,12 @@
 #include "chrome/browser/ui/panels/panel_mouse_watcher.h"
 #include "chrome/browser/ui/panels/panel_resize_controller.h"
 #include "chrome/browser/ui/panels/stacked_panel_collection.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/chrome_version_info.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
+#include "extensions/common/constants.h"
 #include "ui/base/hit_test.h"
 
 #if defined(USE_X11) && !defined(OS_CHROMEOS)
@@ -103,13 +105,13 @@ void PanelManager::SetDisplaySettingsProviderForTesting(
 
 // static
 bool PanelManager::ShouldUsePanels(const std::string& extension_id) {
-#if defined(USE_X11) && !defined(OS_CHROMEOS)
-  // If --enable-panels is on, always use panels on Linux.
+  // If --enable-panels is on, always use panels.
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kEnablePanels))
     return true;
 
-  // Otherwise, panels are only supported on tested window managers.
+#if defined(USE_X11) && !defined(OS_CHROMEOS)
+  // On Linux, panels are only supported on tested window managers.
   ui::WindowManagerName wm_type = ui::GuessWindowManager();
   if (wm_type != ui::WM_COMPIZ &&
       wm_type != ui::WM_ICE_WM &&
@@ -122,18 +124,13 @@ bool PanelManager::ShouldUsePanels(const std::string& extension_id) {
   }
 #endif  // USE_X11 && !OS_CHROMEOS
 
-  chrome::VersionInfo::Channel channel = chrome::VersionInfo::GetChannel();
-  if (channel == chrome::VersionInfo::CHANNEL_STABLE ||
-      channel == chrome::VersionInfo::CHANNEL_BETA) {
-    return base::CommandLine::ForCurrentProcess()->HasSwitch(
-               switches::kEnablePanels) ||
-           extension_id == std::string("nckgahadagoaajjgafhacjanaoiihapd") ||
-           extension_id == std::string("ljclpkphhpbpinifbeabbhlfddcpfdde") ||
-           extension_id == std::string("ppleadejekpmccmnpjdimmlfljlkdfej") ||
-           extension_id == std::string("eggnbpckecmjlblplehfpjjdhhidfdoj");
+  // Without --enable-panels, only support Hangouts.
+  for (const char* id : extension_misc::kHangoutsExtensionIds) {
+    if (extension_id == id)
+      return true;
   }
 
-  return true;
+  return false;
 }
 
 // static

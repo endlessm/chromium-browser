@@ -5,8 +5,8 @@
 #include "ash/display/mirror_window_controller.h"
 
 #include "ash/ash_switches.h"
-#include "ash/display/display_controller.h"
 #include "ash/display/display_manager.h"
+#include "ash/display/window_tree_host_manager.h"
 #include "ash/screen_util.h"
 #include "ash/shell.h"
 #include "ash/test/ash_test_base.h"
@@ -191,7 +191,7 @@ TEST_F(MirrorWindowControllerTest, MAYBE_MirrorCursorLocations) {
   ui::test::EventGenerator generator(root);
   generator.MoveMouseToInHost(10, 20);
 
-  EXPECT_EQ("8,9", test_api.GetCursorHotPoint().ToString());
+  EXPECT_EQ("7,7", test_api.GetCursorHotPoint().ToString());
   EXPECT_EQ("10,20",
             test_api.GetCursorHotPointLocationInRootWindow().ToString());
 
@@ -217,26 +217,25 @@ TEST_F(MirrorWindowControllerTest, MAYBE_MirrorCursorLocations) {
 TEST_F(MirrorWindowControllerTest, MAYBE_MirrorCursorMoveOnEnter) {
   aura::Env* env = aura::Env::GetInstance();
   Shell* shell = Shell::GetInstance();
-  DisplayController* display_controller = shell->display_controller();
-  DisplayManager* display_manager = shell->display_manager();
+  WindowTreeHostManager* window_tree_host_manager =
+      shell->window_tree_host_manager();
 
   UpdateDisplay("400x400*2/r,400x400");
-  int64 primary_display_id = display_controller->GetPrimaryDisplayId();
+  int64 primary_display_id = window_tree_host_manager->GetPrimaryDisplayId();
   int64 secondary_display_id = ScreenUtil::GetSecondaryDisplay().id();
-  test::DisplayManagerTestApi(display_manager)
-      .SetInternalDisplayId(primary_display_id);
+  test::ScopedSetInternalDisplayId set_internal(primary_display_id);
 
   // Chrome uses the internal display as the source display for software mirror
   // mode. Move the cursor to the external display.
   aura::Window* secondary_root_window =
-      display_controller->GetRootWindowForDisplayId(secondary_display_id);
+      window_tree_host_manager->GetRootWindowForDisplayId(secondary_display_id);
   secondary_root_window->MoveCursorTo(gfx::Point(100, 200));
   EXPECT_EQ("300,200", env->last_mouse_location().ToString());
   test::CursorManagerTestApi cursor_test_api(shell->cursor_manager());
   EXPECT_EQ(1.0f, cursor_test_api.GetCurrentCursor().device_scale_factor());
   EXPECT_EQ(gfx::Display::ROTATE_0, cursor_test_api.GetCurrentCursorRotation());
 
-  display_manager->SetMultiDisplayMode(DisplayManager::MIRRORING);
+  shell->display_manager()->SetMultiDisplayMode(DisplayManager::MIRRORING);
   UpdateDisplay("400x400*2/r,400x400");
 
   // Entering mirror mode should have centered the cursor on the primary display
@@ -250,8 +249,8 @@ TEST_F(MirrorWindowControllerTest, MAYBE_MirrorCursorMoveOnEnter) {
   // Check mirrored cursor's location.
   test::MirrorWindowTestApi test_api;
   gfx::Point hot_point = test_api.GetCursorHotPoint();
-  // Rotated hot point must be (25-9, 8).
-  EXPECT_EQ("16,8", test_api.GetCursorHotPoint().ToString());
+  // Rotated hot point must be (25-7, 7).
+  EXPECT_EQ("18,7", test_api.GetCursorHotPoint().ToString());
   // New coordinates are not (200,200) because (200,200) is not the center of
   // the display.
   EXPECT_EQ("199,200",
@@ -278,8 +277,7 @@ TEST_F(MirrorWindowControllerTest, MAYBE_DockMode) {
   display_info_list.push_back(external_display_info);
   display_manager->OnNativeDisplaysChanged(display_info_list);
   const int64 internal_display_id =
-      test::DisplayManagerTestApi(display_manager).
-      SetFirstDisplayAsInternalDisplay();
+      test::DisplayManagerTestApi().SetFirstDisplayAsInternalDisplay();
   EXPECT_EQ(internal_id, internal_display_id);
 
   EXPECT_EQ(1U, display_manager->GetNumDisplays());

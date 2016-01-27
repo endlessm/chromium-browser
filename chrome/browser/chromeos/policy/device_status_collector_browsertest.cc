@@ -15,6 +15,7 @@
 #include "base/prefs/pref_service.h"
 #include "base/prefs/testing_pref_service.h"
 #include "base/run_loop.h"
+#include "base/strings/stringprintf.h"
 #include "base/threading/sequenced_worker_pool.h"
 #include "chrome/browser/chromeos/login/users/mock_user_manager.h"
 #include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
@@ -64,6 +65,7 @@ const int64 kMillisecondsPerDay = Time::kMicrosecondsPerDay / 1000;
 const char kKioskAccountId[] = "kiosk_user@localhost";
 const char kKioskAppId[] = "kiosk_app_id";
 const char kExternalMountPoint[] = "/a/b/c";
+const char kPublicAccountId[] = "public_user@localhost";
 
 scoped_ptr<content::Geoposition> mock_position_to_return_next;
 
@@ -96,12 +98,14 @@ class TestingDeviceStatusCollector : public policy::DeviceStatusCollector {
           location_update_requester,
       const policy::DeviceStatusCollector::VolumeInfoFetcher&
           volume_info_fetcher,
-      const policy::DeviceStatusCollector::CPUStatisticsFetcher& cpu_fetcher)
+      const policy::DeviceStatusCollector::CPUStatisticsFetcher& cpu_fetcher,
+      const policy::DeviceStatusCollector::CPUTempFetcher& cpu_temp_fetcher)
       : policy::DeviceStatusCollector(local_state,
                                       provider,
                                       location_update_requester,
                                       volume_info_fetcher,
-                                      cpu_fetcher) {
+                                      cpu_fetcher,
+                                      cpu_temp_fetcher) {
     // Set the baseline time to a fixed value (1 AM) to prevent test flakiness
     // due to a single activity period spanning two days.
     SetBaselineTime(Time::Now().LocalMidnight() + TimeDelta::FromHours(1));
@@ -218,6 +222,15 @@ std::vector<em::VolumeInfo> GetFakeVolumeInfo(
   return volume_info;
 }
 
+std::vector<em::CPUTempInfo> GetEmptyCPUTempInfo() {
+  return std::vector<em::CPUTempInfo>();
+}
+
+std::vector<em::CPUTempInfo> GetFakeCPUTempInfo(
+    const std::vector<em::CPUTempInfo>& cpu_temp_info) {
+  return cpu_temp_info;
+}
+
 }  // namespace
 
 namespace policy {
@@ -277,7 +290,8 @@ class DeviceStatusCollectorTest : public testing::Test {
         settings_helper_.CreateOwnerSettingsService(nullptr);
 
     RestartStatusCollector(base::Bind(&GetEmptyVolumeInfo),
-                           base::Bind(&GetEmptyCPUStatistics));
+                           base::Bind(&GetEmptyCPUStatistics),
+                           base::Bind(&GetEmptyCPUTempInfo));
   }
 
   void AddMountPoint(const std::string& mount_point) {
@@ -306,12 +320,14 @@ class DeviceStatusCollectorTest : public testing::Test {
 
   void RestartStatusCollector(
       const policy::DeviceStatusCollector::VolumeInfoFetcher& volume_info,
-      const policy::DeviceStatusCollector::CPUStatisticsFetcher& cpu_stats) {
+      const policy::DeviceStatusCollector::CPUStatisticsFetcher& cpu_stats,
+      const policy::DeviceStatusCollector::CPUTempFetcher& cpu_temp_fetcher) {
     policy::DeviceStatusCollector::LocationUpdateRequester callback =
         base::Bind(&MockPositionUpdateRequester);
     std::vector<em::VolumeInfo> expected_volume_info;
     status_collector_.reset(new TestingDeviceStatusCollector(
-        &prefs_, &fake_statistics_provider_, callback, volume_info, cpu_stats));
+        &prefs_, &fake_statistics_provider_, callback, volume_info, cpu_stats,
+        cpu_temp_fetcher));
   }
 
   void GetStatus() {
@@ -362,7 +378,8 @@ class DeviceStatusCollectorTest : public testing::Test {
     std::vector<DeviceLocalAccount> accounts;
     accounts.push_back(account);
     SetDeviceLocalAccounts(owner_settings_service_.get(), accounts);
-    user_manager_->CreateKioskAppUser(account.user_id);
+    user_manager_->CreateKioskAppUser(
+        AccountId::FromUserEmail(account.user_id));
     EXPECT_CALL(*user_manager_, IsLoggedInAsKioskApp()).WillRepeatedly(
         Return(true));
   }
@@ -480,7 +497,8 @@ TEST_F(DeviceStatusCollectorTest, StateKeptInPref) {
   // able to count the active periods found by the original collector, because
   // the results are stored in a pref.
   RestartStatusCollector(base::Bind(&GetEmptyVolumeInfo),
-                         base::Bind(&GetEmptyCPUStatistics));
+                         base::Bind(&GetEmptyCPUStatistics),
+                         base::Bind(&GetEmptyCPUTempInfo));
   status_collector_->Simulate(test_states,
                               sizeof(test_states) / sizeof(ui::IdleState));
 
@@ -731,7 +749,8 @@ TEST_F(DeviceStatusCollectorTest, Location) {
   // retrieved from local state without requesting a geolocation update.
   SetMockPositionToReturnNext(valid_fix);
   RestartStatusCollector(base::Bind(&GetEmptyVolumeInfo),
-                         base::Bind(&GetEmptyCPUStatistics));
+                         base::Bind(&GetEmptyCPUStatistics),
+                         base::Bind(&GetEmptyCPUTempInfo));
   CheckThatAValidLocationIsReported();
   EXPECT_TRUE(mock_position_to_return_next.get());
 
@@ -754,13 +773,22 @@ TEST_F(DeviceStatusCollectorTest, Location) {
 }
 
 TEST_F(DeviceStatusCollectorTest, ReportUsers) {
-  user_manager_->CreatePublicAccountUser("public@localhost");
-  user_manager_->AddUser("user0@managed.com");
-  user_manager_->AddUser("user1@managed.com");
-  user_manager_->AddUser("user2@managed.com");
-  user_manager_->AddUser("user3@unmanaged.com");
-  user_manager_->AddUser("user4@managed.com");
-  user_manager_->AddUser("user5@managed.com");
+  const AccountId public_account_id(
+      AccountId::FromUserEmail("public@localhost"));
+  const AccountId account_id0(AccountId::FromUserEmail("user0@managed.com"));
+  const AccountId account_id1(AccountId::FromUserEmail("user1@managed.com"));
+  const AccountId account_id2(AccountId::FromUserEmail("user2@managed.com"));
+  const AccountId account_id3(AccountId::FromUserEmail("user3@unmanaged.com"));
+  const AccountId account_id4(AccountId::FromUserEmail("user4@managed.com"));
+  const AccountId account_id5(AccountId::FromUserEmail("user5@managed.com"));
+
+  user_manager_->CreatePublicAccountUser(public_account_id);
+  user_manager_->AddUserWithAffiliation(account_id0, true);
+  user_manager_->AddUserWithAffiliation(account_id1, true);
+  user_manager_->AddUserWithAffiliation(account_id2, true);
+  user_manager_->AddUserWithAffiliation(account_id3, false);
+  user_manager_->AddUserWithAffiliation(account_id4, true);
+  user_manager_->AddUserWithAffiliation(account_id5, true);
 
   // Verify that users are reported by default.
   GetStatus();
@@ -771,17 +799,17 @@ TEST_F(DeviceStatusCollectorTest, ReportUsers) {
   GetStatus();
   EXPECT_EQ(6, status_.user_size());
   EXPECT_EQ(em::DeviceUser::USER_TYPE_MANAGED, status_.user(0).type());
-  EXPECT_EQ("user0@managed.com", status_.user(0).email());
+  EXPECT_EQ(account_id0.GetUserEmail(), status_.user(0).email());
   EXPECT_EQ(em::DeviceUser::USER_TYPE_MANAGED, status_.user(1).type());
-  EXPECT_EQ("user1@managed.com", status_.user(1).email());
+  EXPECT_EQ(account_id1.GetUserEmail(), status_.user(1).email());
   EXPECT_EQ(em::DeviceUser::USER_TYPE_MANAGED, status_.user(2).type());
-  EXPECT_EQ("user2@managed.com", status_.user(2).email());
+  EXPECT_EQ(account_id2.GetUserEmail(), status_.user(2).email());
   EXPECT_EQ(em::DeviceUser::USER_TYPE_UNMANAGED, status_.user(3).type());
   EXPECT_FALSE(status_.user(3).has_email());
   EXPECT_EQ(em::DeviceUser::USER_TYPE_MANAGED, status_.user(4).type());
-  EXPECT_EQ("user4@managed.com", status_.user(4).email());
+  EXPECT_EQ(account_id4.GetUserEmail(), status_.user(4).email());
   EXPECT_EQ(em::DeviceUser::USER_TYPE_MANAGED, status_.user(5).type());
-  EXPECT_EQ("user5@managed.com", status_.user(5).email());
+  EXPECT_EQ(account_id5.GetUserEmail(), status_.user(5).email());
 
   // Verify that users are no longer reported if setting is disabled.
   settings_helper_.SetBoolean(chromeos::kReportDeviceUsers, false);
@@ -810,7 +838,8 @@ TEST_F(DeviceStatusCollectorTest, TestVolumeInfo) {
   EXPECT_FALSE(expected_volume_info.empty());
 
   RestartStatusCollector(base::Bind(&GetFakeVolumeInfo, expected_volume_info),
-                         base::Bind(&GetEmptyCPUStatistics));
+                         base::Bind(&GetEmptyCPUStatistics),
+                         base::Bind(&GetEmptyCPUTempInfo));
   // Force finishing tasks posted by ctor of DeviceStatusCollector.
   content::BrowserThread::GetBlockingPool()->FlushForTesting();
   message_loop_.RunUntilIdle();
@@ -862,7 +891,8 @@ TEST_F(DeviceStatusCollectorTest, TestCPUSamples) {
   // Mock 100% CPU usage.
   std::string full_cpu_usage("cpu  500 0 500 0 0 0 0");
   RestartStatusCollector(base::Bind(&GetEmptyVolumeInfo),
-                         base::Bind(&GetFakeCPUStatistics, full_cpu_usage));
+                         base::Bind(&GetFakeCPUStatistics, full_cpu_usage),
+                         base::Bind(&GetEmptyCPUTempInfo));
   // Force finishing tasks posted by ctor of DeviceStatusCollector.
   content::BrowserThread::GetBlockingPool()->FlushForTesting();
   message_loop_.RunUntilIdle();
@@ -899,6 +929,47 @@ TEST_F(DeviceStatusCollectorTest, TestCPUSamples) {
   settings_helper_.SetBoolean(chromeos::kReportDeviceHardwareStatus, false);
   GetStatus();
   EXPECT_EQ(0, status_.cpu_utilization_pct().size());
+}
+
+TEST_F(DeviceStatusCollectorTest, TestCPUTemp) {
+  std::vector<em::CPUTempInfo> expected_temp_info;
+  int cpu_cnt = 12;
+  for (int i = 0; i < cpu_cnt; ++i) {
+    em::CPUTempInfo info;
+    info.set_cpu_temp(i * 10 + 100);
+    info.set_cpu_label(base::StringPrintf("Core %d", i));
+    expected_temp_info.push_back(info);
+  }
+
+  RestartStatusCollector(base::Bind(&GetEmptyVolumeInfo),
+                         base::Bind(&GetEmptyCPUStatistics),
+                         base::Bind(&GetFakeCPUTempInfo, expected_temp_info));
+  // Force finishing tasks posted by ctor of DeviceStatusCollector.
+  content::BrowserThread::GetBlockingPool()->FlushForTesting();
+  message_loop_.RunUntilIdle();
+
+  GetStatus();
+  EXPECT_EQ(expected_temp_info.size(),
+            static_cast<size_t>(status_.cpu_temp_info_size()));
+
+  // Walk the returned CPUTempInfo to make sure it matches.
+  for (const em::CPUTempInfo& expected_info : expected_temp_info) {
+    bool found = false;
+    for (const em::CPUTempInfo& info : status_.cpu_temp_info()) {
+      if (info.cpu_label() == expected_info.cpu_label()) {
+        EXPECT_EQ(expected_info.cpu_temp(), info.cpu_temp());
+        found = true;
+        break;
+      }
+    }
+    EXPECT_TRUE(found) << "No matching CPUTempInfo for "
+                       << expected_info.cpu_label();
+  }
+
+  // Now turn off hardware status reporting - should have no data.
+  settings_helper_.SetBoolean(chromeos::kReportDeviceHardwareStatus, false);
+  GetStatus();
+  EXPECT_EQ(0, status_.cpu_temp_info_size());
 }
 
 TEST_F(DeviceStatusCollectorTest, NoSessionStatusIfNotKioskMode) {
@@ -1136,6 +1207,67 @@ class DeviceStatusCollectorNetworkInterfacesTest
     chromeos::NetworkHandler::Shutdown();
     chromeos::DBusThreadManager::Shutdown();
   }
+
+  void VerifyNetworkReporting() {
+    int count = 0;
+    for (size_t i = 0; i < arraysize(kFakeDevices); ++i) {
+      const FakeDeviceData& dev = kFakeDevices[i];
+      if (dev.expected_type == -1)
+        continue;
+
+      // Find the corresponding entry in reporting data.
+      bool found_match = false;
+      google::protobuf::RepeatedPtrField<em::NetworkInterface>::const_iterator
+          iface;
+      for (iface = status_.network_interface().begin();
+           iface != status_.network_interface().end(); ++iface) {
+        // Check whether type, field presence and field values match.
+        if (dev.expected_type == iface->type() &&
+            iface->has_mac_address() == !!*dev.mac_address &&
+            iface->has_meid() == !!*dev.meid &&
+            iface->has_imei() == !!*dev.imei &&
+            iface->mac_address() == dev.mac_address &&
+            iface->meid() == dev.meid && iface->imei() == dev.imei &&
+            iface->device_path() == dev.device_path) {
+          found_match = true;
+          break;
+        }
+      }
+
+      EXPECT_TRUE(found_match) << "No matching interface for fake device " << i;
+      count++;
+    }
+
+    EXPECT_EQ(count, status_.network_interface_size());
+
+    // Now make sure network state list is correct.
+    EXPECT_EQ(arraysize(kFakeNetworks),
+              static_cast<size_t>(status_.network_state_size()));
+    for (const FakeNetworkState& state : kFakeNetworks) {
+      bool found_match = false;
+      for (const em::NetworkState& proto_state : status_.network_state()) {
+        // Make sure every item has a matching entry in the proto.
+        bool should_have_signal_strength = state.expected_signal_strength != 0;
+        if (proto_state.has_device_path() == (strlen(state.device_path) > 0) &&
+            proto_state.has_signal_strength() == should_have_signal_strength &&
+            proto_state.signal_strength() == state.expected_signal_strength &&
+            proto_state.connection_state() == state.expected_state) {
+          if (proto_state.has_ip_address())
+            EXPECT_EQ(proto_state.ip_address(), state.address);
+          else
+            EXPECT_EQ(0U, strlen(state.address));
+          if (proto_state.has_gateway())
+            EXPECT_EQ(proto_state.gateway(), state.gateway);
+          else
+            EXPECT_EQ(0U, strlen(state.gateway));
+          found_match = true;
+          break;
+        }
+      }
+      EXPECT_TRUE(found_match) << "No matching state for fake network "
+                               << " (" << state.name << ")";
+    }
+  }
 };
 
 TEST_F(DeviceStatusCollectorNetworkInterfacesTest, NoNetworkStateIfNotKiosk) {
@@ -1166,66 +1298,19 @@ TEST_F(DeviceStatusCollectorNetworkInterfacesTest, NetworkInterfaces) {
   settings_helper_.SetBoolean(chromeos::kReportDeviceNetworkInterfaces, true);
   GetStatus();
 
-  int count = 0;
-  for (size_t i = 0; i < arraysize(kFakeDevices); ++i) {
-    const FakeDeviceData& dev = kFakeDevices[i];
-    if (dev.expected_type == -1)
-      continue;
+  VerifyNetworkReporting();
+}
 
-    // Find the corresponding entry in reporting data.
-    bool found_match = false;
-    google::protobuf::RepeatedPtrField<em::NetworkInterface>::const_iterator
-        iface;
-    for (iface = status_.network_interface().begin();
-         iface != status_.network_interface().end();
-         ++iface) {
-      // Check whether type, field presence and field values match.
-      if (dev.expected_type == iface->type() &&
-          iface->has_mac_address() == !!*dev.mac_address &&
-          iface->has_meid() == !!*dev.meid &&
-          iface->has_imei() == !!*dev.imei &&
-          iface->mac_address() == dev.mac_address &&
-          iface->meid() == dev.meid &&
-          iface->imei() == dev.imei &&
-          iface->device_path() == dev.device_path) {
-        found_match = true;
-        break;
-      }
-    }
+TEST_F(DeviceStatusCollectorNetworkInterfacesTest, ReportIfPublicSession) {
+  // Report netowork state for public accounts.
+  user_manager_->CreatePublicAccountUser(
+      AccountId::FromUserEmail(kPublicAccountId));
+  EXPECT_CALL(*user_manager_, IsLoggedInAsPublicAccount())
+      .WillRepeatedly(Return(true));
 
-    EXPECT_TRUE(found_match) << "No matching interface for fake device " << i;
-    count++;
-  }
-
-  EXPECT_EQ(count, status_.network_interface_size());
-
-  // Now make sure network state list is correct.
-  EXPECT_EQ(arraysize(kFakeNetworks),
-            static_cast<size_t>(status_.network_state_size()));
-  for (const FakeNetworkState& state : kFakeNetworks) {
-    bool found_match = false;
-    for (const em::NetworkState& proto_state : status_.network_state()) {
-      // Make sure every item has a matching entry in the proto.
-      bool should_have_signal_strength = state.expected_signal_strength != 0;
-      if (proto_state.has_device_path() == (strlen(state.device_path) > 0) &&
-          proto_state.has_signal_strength() == should_have_signal_strength &&
-          proto_state.signal_strength() == state.expected_signal_strength &&
-          proto_state.connection_state() == state.expected_state) {
-        if (proto_state.has_ip_address())
-          EXPECT_EQ(proto_state.ip_address(), state.address);
-        else
-          EXPECT_EQ(0U, strlen(state.address));
-        if (proto_state.has_gateway())
-          EXPECT_EQ(proto_state.gateway(), state.gateway);
-        else
-          EXPECT_EQ(0U, strlen(state.gateway));
-        found_match = true;
-        break;
-      }
-    }
-    EXPECT_TRUE(found_match) << "No matching state for fake network "
-                             << " (" << state.name << ")";
-  }
+  settings_helper_.SetBoolean(chromeos::kReportDeviceNetworkInterfaces, true);
+  GetStatus();
+  VerifyNetworkReporting();
 }
 
 }  // namespace policy

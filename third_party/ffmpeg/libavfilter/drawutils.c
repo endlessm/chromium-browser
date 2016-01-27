@@ -172,15 +172,15 @@ int ff_draw_init(FFDrawContext *draw, enum AVPixelFormat format, unsigned flags)
     for (i = 0; i < desc->nb_components; i++) {
         c = &desc->comp[i];
         /* for now, only 8-bits formats */
-        if (c->depth_minus1 != 8 - 1)
+        if (c->depth != 8)
             return AVERROR(ENOSYS);
         if (c->plane >= MAX_PLANES)
             return AVERROR(ENOSYS);
         /* strange interleaving */
         if (pixelstep[c->plane] != 0 &&
-            pixelstep[c->plane] != c->step_minus1 + 1)
+            pixelstep[c->plane] != c->step)
             return AVERROR(ENOSYS);
-        pixelstep[c->plane] = c->step_minus1 + 1;
+        pixelstep[c->plane] = c->step;
         if (pixelstep[c->plane] >= 8)
             return AVERROR(ENOSYS);
         nb_planes = FFMAX(nb_planes, c->plane + 1);
@@ -196,7 +196,7 @@ int ff_draw_init(FFDrawContext *draw, enum AVPixelFormat format, unsigned flags)
     draw->vsub[1] = draw->vsub[2] = draw->vsub_max = desc->log2_chroma_h;
     for (i = 0; i < ((desc->nb_components - 1) | 1); i++)
         draw->comp_mask[desc->comp[i].plane] |=
-            1 << (desc->comp[i].offset_plus1 - 1);
+            1 << desc->comp[i].offset;
     return 0;
 }
 
@@ -210,8 +210,8 @@ void ff_draw_color(FFDrawContext *draw, FFDrawColor *color, const uint8_t rgba[4
     if ((draw->desc->flags & AV_PIX_FMT_FLAG_RGB) &&
         ff_fill_rgba_map(rgba_map, draw->format) >= 0) {
         if (draw->nb_planes == 1) {
-        for (i = 0; i < 4; i++)
-            color->comp[0].u8[rgba_map[i]] = rgba[i];
+            for (i = 0; i < 4; i++)
+                color->comp[0].u8[rgba_map[i]] = rgba[i];
         } else {
             for (i = 0; i < 4; i++)
                 color->comp[rgba_map[i]].u8[0] = rgba[i];
@@ -408,7 +408,7 @@ void ff_blend_rectangle(FFDrawContext *draw, FFDrawColor *color,
 }
 
 static void blend_pixel(uint8_t *dst, unsigned src, unsigned alpha,
-                        uint8_t *mask, int mask_linesize, int l2depth,
+                        const uint8_t *mask, int mask_linesize, int l2depth,
                         unsigned w, unsigned h, unsigned shift, unsigned xm0)
 {
     unsigned xm, x, y, t = 0;
@@ -432,7 +432,7 @@ static void blend_pixel(uint8_t *dst, unsigned src, unsigned alpha,
 
 static void blend_line_hv(uint8_t *dst, int dst_delta,
                           unsigned src, unsigned alpha,
-                          uint8_t *mask, int mask_linesize, int l2depth, int w,
+                          const uint8_t *mask, int mask_linesize, int l2depth, int w,
                           unsigned hsub, unsigned vsub,
                           int xm, int left, int right, int hband)
 {
@@ -457,12 +457,13 @@ static void blend_line_hv(uint8_t *dst, int dst_delta,
 
 void ff_blend_mask(FFDrawContext *draw, FFDrawColor *color,
                    uint8_t *dst[], int dst_linesize[], int dst_w, int dst_h,
-                   uint8_t *mask,  int mask_linesize, int mask_w, int mask_h,
+                   const uint8_t *mask,  int mask_linesize, int mask_w, int mask_h,
                    int l2depth, unsigned endianness, int x0, int y0)
 {
     unsigned alpha, nb_planes, nb_comp, plane, comp;
     int xm0, ym0, w_sub, h_sub, x_sub, y_sub, left, right, top, bottom, y;
-    uint8_t *p0, *p, *m;
+    uint8_t *p0, *p;
+    const uint8_t *m;
 
     clip_interval(dst_w, &x0, &mask_w, &xm0);
     clip_interval(dst_h, &y0, &mask_h, &ym0);
@@ -532,10 +533,12 @@ AVFilterFormats *ff_draw_supported_pixel_formats(unsigned flags)
     enum AVPixelFormat i;
     FFDrawContext draw;
     AVFilterFormats *fmts = NULL;
+    int ret;
 
     for (i = 0; av_pix_fmt_desc_get(i); i++)
-        if (ff_draw_init(&draw, i, flags) >= 0)
-            ff_add_format(&fmts, i);
+        if (ff_draw_init(&draw, i, flags) >= 0 &&
+            (ret = ff_add_format(&fmts, i)) < 0)
+            return NULL;
     return fmts;
 }
 

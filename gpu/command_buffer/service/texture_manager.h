@@ -13,7 +13,7 @@
 #include "base/basictypes.h"
 #include "base/containers/hash_tables.h"
 #include "base/memory/ref_counted.h"
-#include "gpu/command_buffer/service/async_pixel_transfer_delegate.h"
+#include "gpu/command_buffer/service/feature_info.h"
 #include "gpu/command_buffer/service/gl_utils.h"
 #include "gpu/command_buffer/service/memory_tracking.h"
 #include "gpu/gpu_export.h"
@@ -39,6 +39,22 @@ class TextureRef;
 // jointly owned by possibly multiple TextureRef.
 class GPU_EXPORT Texture {
  public:
+  enum ImageState {
+    // If an image is associated with the texture and image state is UNBOUND,
+    // then sampling out of the texture or using it as a target for drawing
+    // will not read/write from/to the image.
+    UNBOUND,
+    // If image state is BOUND, then sampling from the texture will return the
+    // contents of the image and using it as a target will modify the image.
+    BOUND,
+    // Image state is set to COPIED if the contents of the image has been
+    // copied to the texture. Sampling from the texture will be equivalent
+    // to sampling out the image (assuming image has not been changed since
+    // it was copied). Using the texture as a target for drawing will only
+    // modify the texture and not the image.
+    COPIED
+  };
+
   explicit Texture(GLuint service_id);
 
   GLenum min_filter() const {
@@ -63,10 +79,6 @@ class GPU_EXPORT Texture {
 
   GLenum usage() const {
     return usage_;
-  }
-
-  GLenum pool() const {
-    return pool_;
   }
 
   GLenum compare_func() const {
@@ -137,16 +149,25 @@ class GPU_EXPORT Texture {
   bool GetLevelType(
       GLint target, GLint level, GLenum* type, GLenum* internal_format) const;
 
-  // Get the image bound to a particular level. Returns NULL if level
+  // Set the image for a particular level.
+  void SetLevelImage(GLenum target,
+                     GLint level,
+                     gl::GLImage* image,
+                     ImageState state);
+
+  // Get the image associated with a particular level. Returns NULL if level
   // does not exist.
-  gfx::GLImage* GetLevelImage(GLint target, GLint level) const;
+  gl::GLImage* GetLevelImage(GLint target,
+                             GLint level,
+                             ImageState* state) const;
+  gl::GLImage* GetLevelImage(GLint target, GLint level) const;
 
   bool HasImages() const {
     return has_images_;
   }
 
   // Returns true of the given dimensions are inside the dimensions of the
-  // level and if the type matches the level.
+  // level.
   bool ValidForTexture(
       GLint target,
       GLint level,
@@ -155,8 +176,7 @@ class GPU_EXPORT Texture {
       GLint zoffset,
       GLsizei width,
       GLsizei height,
-      GLsizei depth,
-      GLenum type) const;
+      GLsizei depth) const;
 
   bool IsValid() const {
     return !!target();
@@ -198,8 +218,9 @@ class GPU_EXPORT Texture {
   // Initialize TEXTURE_MAX_ANISOTROPY to 1 if we haven't done so yet.
   void InitTextureMaxAnisotropyIfNeeded(GLenum target);
 
-  void OnWillModifyPixels();
-  void OnDidModifyPixels();
+  void DumpLevelMemory(base::trace_event::ProcessMemoryDump* pmd,
+                       uint64_t client_tracing_id,
+                       const std::string& dump_name) const;
 
  private:
   friend class MailboxManagerImpl;
@@ -242,7 +263,8 @@ class GPU_EXPORT Texture {
     GLint border;
     GLenum format;
     GLenum type;
-    scoped_refptr<gfx::GLImage> image;
+    scoped_refptr<gl::GLImage> image;
+    ImageState image_state;
     uint32 estimated_size;
   };
 
@@ -363,13 +385,6 @@ class GPU_EXPORT Texture {
   // Update info about this texture.
   void Update(const FeatureInfo* feature_info);
 
-  // Set the image for a particular level.
-  void SetLevelImage(
-      const FeatureInfo* feature_info,
-      GLenum target,
-      GLint level,
-      gfx::GLImage* image);
-
   // Appends a signature for the given level.
   void AddToSignature(
       const FeatureInfo* feature_info,
@@ -436,7 +451,6 @@ class GPU_EXPORT Texture {
   GLenum wrap_s_;
   GLenum wrap_t_;
   GLenum usage_;
-  GLenum pool_;
   GLenum compare_func_;
   GLenum compare_mode_;
   GLfloat max_lod_;
@@ -452,14 +466,12 @@ class GPU_EXPORT Texture {
 
   // Whether mip levels have changed and should be reverified.
   bool texture_mips_dirty_;
-  bool texture_mips_complete_;
 
   // Whether or not this texture is "cube complete"
   bool cube_complete_;
 
   // Whether any level 0 faces have changed and should be reverified.
   bool texture_level0_dirty_;
-  bool texture_level0_complete_;
 
   // Whether or not this texture is non-power-of-two
   bool npot_;
@@ -532,10 +544,14 @@ class GPU_EXPORT TextureRef : public base::RefCounted<TextureRef> {
 struct DecoderTextureState {
   // total_texture_upload_time automatically initialized to 0 in default
   // constructor.
-  explicit DecoderTextureState(bool texsubimage_faster_than_teximage)
+  explicit DecoderTextureState(const FeatureInfo::Workarounds& workarounds)
       : tex_image_failed(false),
         texture_upload_count(0),
-        texsubimage_faster_than_teximage(texsubimage_faster_than_teximage) {}
+        texsubimage_faster_than_teximage(
+            workarounds.texsubimage_faster_than_teximage),
+        force_cube_map_positive_x_allocation(
+            workarounds.force_cube_map_positive_x_allocation),
+        force_cube_complete(workarounds.force_cube_complete) {}
 
   // This indicates all the following texSubImage*D calls that are part of the
   // failed texImage*D call should be ignored. The client calls have a lock
@@ -548,6 +564,8 @@ struct DecoderTextureState {
   base::TimeDelta total_texture_upload_time;
 
   bool texsubimage_faster_than_teximage;
+  bool force_cube_map_positive_x_allocation;
+  bool force_cube_complete;
 };
 
 // This class keeps track of the textures and their sizes so we can do NPOT and
@@ -555,7 +573,7 @@ struct DecoderTextureState {
 //
 // NOTE: To support shared resources an instance of this class will need to be
 // shared by multiple GLES2Decoders.
-class GPU_EXPORT TextureManager {
+class GPU_EXPORT TextureManager : public base::trace_event::MemoryDumpProvider {
  public:
   class GPU_EXPORT DestructionObserver {
    public:
@@ -574,6 +592,8 @@ class GPU_EXPORT TextureManager {
 
   enum DefaultAndBlackTextures {
     kTexture2D,
+    kTexture3D,
+    kTexture2DArray,
     kCubeMap,
     kExternalOES,
     kRectangleARB,
@@ -587,7 +607,7 @@ class GPU_EXPORT TextureManager {
                  GLsizei max_rectangle_texture_size,
                  GLsizei max_3d_texture_size,
                  bool use_default_textures);
-  ~TextureManager();
+  ~TextureManager() override;
 
   void set_framebuffer_manager(FramebufferManager* manager) {
     framebuffer_manager_ = manager;
@@ -603,7 +623,8 @@ class GPU_EXPORT TextureManager {
   GLint MaxLevelsForTarget(GLenum target) const {
     switch (target) {
       case GL_TEXTURE_2D:
-        return  max_levels_;
+        return max_levels_;
+      case GL_TEXTURE_RECTANGLE_ARB:
       case GL_TEXTURE_EXTERNAL_OES:
         return 1;
       case GL_TEXTURE_3D:
@@ -674,15 +695,6 @@ class GPU_EXPORT TextureManager {
                     GLenum type,
                     const gfx::Rect& cleared_rect);
 
-  // Adapter to call above function.
-  void SetLevelInfoFromParams(TextureRef* ref,
-                              const gpu::AsyncTexImage2DParams& params) {
-    SetLevelInfo(ref, params.target, params.level, params.internal_format,
-                 params.width, params.height, 1 /* depth */, params.border,
-                 params.format, params.type,
-                 gfx::Rect(params.width, params.height) /* cleared_rect */);
-  }
-
   Texture* Produce(TextureRef* ref);
 
   // Maps an existing texture into the texture manager, at a given client ID.
@@ -736,6 +748,10 @@ class GPU_EXPORT TextureManager {
     switch (target) {
       case GL_TEXTURE_2D:
         return default_textures_[kTexture2D].get();
+      case GL_TEXTURE_3D:
+        return default_textures_[kTexture3D].get();
+      case GL_TEXTURE_2D_ARRAY:
+        return default_textures_[kTexture2DArray].get();
       case GL_TEXTURE_CUBE_MAP:
         return default_textures_[kCubeMap].get();
       case GL_TEXTURE_EXTERNAL_OES:
@@ -768,6 +784,10 @@ class GPU_EXPORT TextureManager {
     switch (target) {
       case GL_SAMPLER_2D:
         return black_texture_ids_[kTexture2D];
+      case GL_SAMPLER_3D:
+        return black_texture_ids_[kTexture3D];
+      case GL_SAMPLER_2D_ARRAY:
+        return black_texture_ids_[kTexture2DArray];
       case GL_SAMPLER_CUBE:
         return black_texture_ids_[kCubeMap];
       case GL_SAMPLER_EXTERNAL_OES:
@@ -781,16 +801,14 @@ class GPU_EXPORT TextureManager {
   }
 
   size_t mem_represented() const {
-    return
-        memory_tracker_managed_->GetMemRepresented() +
-        memory_tracker_unmanaged_->GetMemRepresented();
+    return memory_type_tracker_->GetMemRepresented();
   }
 
-  void SetLevelImage(
-      TextureRef* ref,
-      GLenum target,
-      GLint level,
-      gfx::GLImage* image);
+  void SetLevelImage(TextureRef* ref,
+                     GLenum target,
+                     GLint level,
+                     gl::GLImage* image,
+                     Texture::ImageState state);
 
   size_t GetSignatureSize() const;
 
@@ -850,21 +868,58 @@ class GPU_EXPORT TextureManager {
     const char* function_name,
     const DoTexImageArguments& args);
 
+  struct DoTexSubImageArguments {
+    GLenum target;
+    GLint level;
+    GLint xoffset;
+    GLint yoffset;
+    GLsizei width;
+    GLsizei height;
+    GLenum format;
+    GLenum type;
+    const void* pixels;
+    uint32 pixels_size;
+    // TODO(kkinnunen): currently this is used only for TexSubImage2D.
+  };
+
+  bool ValidateTexSubImage(
+      ContextState* state,
+      const char* function_name,
+      const DoTexSubImageArguments& args,
+      // Pointer to TextureRef filled in if validation successful.
+      // Presumes the pointer is valid.
+      TextureRef** texture_ref);
+
+  void ValidateAndDoTexSubImage(GLES2Decoder* decoder,
+                                DecoderTextureState* texture_state,
+                                ContextState* state,
+                                DecoderFramebufferState* framebuffer_state,
+                                const char* function_name,
+                                const DoTexSubImageArguments& args);
+
   // TODO(kloveless): Make GetTexture* private once this is no longer called
   // from gles2_cmd_decoder.
   TextureRef* GetTextureInfoForTarget(ContextState* state, GLenum target);
   TextureRef* GetTextureInfoForTargetUnlessDefault(
       ContextState* state, GLenum target);
 
-  bool ValidateFormatAndTypeCombination(
-    ErrorState* error_state, const char* function_name,
-    GLenum format, GLenum type);
-
   // Note that internal_format is only checked in relation to the format
   // parameter, so that this function may be used to validate texSubImage2D.
   bool ValidateTextureParameters(
     ErrorState* error_state, const char* function_name,
     GLenum format, GLenum type, GLenum internal_format, GLint level);
+
+  // base::trace_event::MemoryDumpProvider implementation.
+  bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
+                    base::trace_event::ProcessMemoryDump* pmd) override;
+
+  // Returns the union of |rect1| and |rect2| if one of the rectangles is empty,
+  // contains the other rectangle or shares an edge with the other rectangle.
+  // Part of the public interface because texture pixel data rectangle
+  // operations are also implemented in decoder at the moment.
+  static bool CombineAdjacentRects(const gfx::Rect& rect1,
+                                   const gfx::Rect& rect2,
+                                   gfx::Rect* result);
 
  private:
   friend class Texture;
@@ -895,9 +950,13 @@ class GPU_EXPORT TextureManager {
 
   GLenum AdjustTexFormat(GLenum format) const;
 
-  MemoryTypeTracker* GetMemTracker(GLenum texture_pool);
-  scoped_ptr<MemoryTypeTracker> memory_tracker_managed_;
-  scoped_ptr<MemoryTypeTracker> memory_tracker_unmanaged_;
+  // Helper function called by OnMemoryDump.
+  void DumpTextureRef(base::trace_event::ProcessMemoryDump* pmd,
+                      TextureRef* ref);
+
+  MemoryTypeTracker* GetMemTracker();
+  scoped_ptr<MemoryTypeTracker> memory_type_tracker_;
+  MemoryTracker* memory_tracker_;
 
   scoped_refptr<FeatureInfo> feature_info_;
 

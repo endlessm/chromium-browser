@@ -28,6 +28,7 @@
 #include "extensions/common/manifest.h"
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handler.h"
+#include "extensions/common/manifest_handlers/incognito_info.h"
 #include "extensions/common/manifest_handlers/permissions_parser.h"
 #include "extensions/common/permissions/permission_set.h"
 #include "extensions/common/permissions/permissions_data.h"
@@ -74,6 +75,10 @@ const char Extension::kMimeType[] = "application/x-chrome-extension";
 
 const int Extension::kValidWebExtentSchemes =
     URLPattern::SCHEME_HTTP | URLPattern::SCHEME_HTTPS;
+
+const int Extension::kValidBookmarkAppSchemes = URLPattern::SCHEME_HTTP |
+                                                URLPattern::SCHEME_HTTPS |
+                                                URLPattern::SCHEME_EXTENSION;
 
 const int Extension::kValidHostPermissionSchemes = URLPattern::SCHEME_CHROMEUI |
                                                    URLPattern::SCHEME_HTTP |
@@ -154,7 +159,8 @@ GURL Extension::GetResourceURL(const GURL& extension_url,
     path = relative_path.substr(1);
 
   GURL ret_val = GURL(extension_url.spec() + path);
-  DCHECK(base::StartsWithASCII(ret_val.spec(), extension_url.spec(), false));
+  DCHECK(base::StartsWith(ret_val.spec(), extension_url.spec(),
+                          base::CompareCase::INSENSITIVE_ASCII));
 
   return ret_val;
 }
@@ -205,7 +211,8 @@ bool Extension::ParsePEMKeyBytes(const std::string& input,
     return false;
 
   std::string working = input;
-  if (base::StartsWithASCII(working, kKeyBeginHeaderMarker, true)) {
+  if (base::StartsWith(working, kKeyBeginHeaderMarker,
+                       base::CompareCase::SENSITIVE)) {
     working = base::CollapseWhitespaceASCII(working, true);
     size_t header_pos = working.find(kKeyInfoEndMarker,
       sizeof(kKeyBeginHeaderMarker) - 1);
@@ -432,11 +439,6 @@ bool Extension::is_theme() const {
   return manifest()->is_theme();
 }
 
-bool Extension::can_be_incognito_enabled() const {
-  // Only component platform apps are supported in incognito.
-  return !is_platform_app() || location() == Manifest::COMPONENT;
-}
-
 void Extension::AddWebExtentPattern(const URLPattern& pattern) {
   // Bookmark apps are permissionless.
   if (from_bookmark())
@@ -629,9 +631,8 @@ bool Extension::LoadExtent(const char* key,
   for (size_t i = 0; i < pattern_list->GetSize(); ++i) {
     std::string pattern_string;
     if (!pattern_list->GetString(i, &pattern_string)) {
-      *error = ErrorUtils::FormatErrorMessageUTF16(value_error,
-                                                   base::UintToString(i),
-                                                   errors::kExpectString);
+      *error = ErrorUtils::FormatErrorMessageUTF16(
+          value_error, base::SizeTToString(i), errors::kExpectString);
       return false;
     }
 
@@ -644,8 +645,7 @@ bool Extension::LoadExtent(const char* key,
 
     if (parse_result != URLPattern::PARSE_SUCCESS) {
       *error = ErrorUtils::FormatErrorMessageUTF16(
-          value_error,
-          base::UintToString(i),
+          value_error, base::SizeTToString(i),
           URLPattern::GetParseResultString(parse_result));
       return false;
     }
@@ -653,8 +653,7 @@ bool Extension::LoadExtent(const char* key,
     // Do not allow authors to claim "<all_urls>".
     if (pattern.match_all_urls()) {
       *error = ErrorUtils::FormatErrorMessageUTF16(
-          value_error,
-          base::UintToString(i),
+          value_error, base::SizeTToString(i),
           errors::kCannotClaimAllURLsInExtent);
       return false;
     }
@@ -662,8 +661,7 @@ bool Extension::LoadExtent(const char* key,
     // Do not allow authors to claim "*" for host.
     if (pattern.host().empty()) {
       *error = ErrorUtils::FormatErrorMessageUTF16(
-          value_error,
-          base::UintToString(i),
+          value_error, base::SizeTToString(i),
           errors::kCannotClaimAllHostsInExtent);
       return false;
     }
@@ -672,9 +670,7 @@ bool Extension::LoadExtent(const char* key,
     // imply one at the end.
     if (pattern.path().find('*') != std::string::npos) {
       *error = ErrorUtils::FormatErrorMessageUTF16(
-          value_error,
-          base::UintToString(i),
-          errors::kNoWildCardsInPaths);
+          value_error, base::SizeTToString(i), errors::kNoWildCardsInPaths);
       return false;
     }
     pattern.SetPath(pattern.path() + '*');
@@ -779,10 +775,8 @@ UnloadedExtensionInfo::UnloadedExtensionInfo(
 
 UpdatedExtensionPermissionsInfo::UpdatedExtensionPermissionsInfo(
     const Extension* extension,
-    const PermissionSet* permissions,
+    const PermissionSet& permissions,
     Reason reason)
-    : reason(reason),
-      extension(extension),
-      permissions(permissions) {}
+    : reason(reason), extension(extension), permissions(permissions) {}
 
 }   // namespace extensions

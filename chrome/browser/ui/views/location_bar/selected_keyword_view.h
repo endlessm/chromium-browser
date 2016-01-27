@@ -26,7 +26,15 @@ class SelectedKeywordView : public IconLabelBubbleView {
                       Profile* profile);
   ~SelectedKeywordView() override;
 
+  // Resets the icon for this chip to its default (it may have been changed
+  // for an extension).
+  void ResetImage();
+
   // IconLabelBubbleView:
+  SkColor GetTextColor() const override;
+  SkColor GetBorderColor() const override;
+
+  // views::View:
   gfx::Size GetPreferredSize() const override;
   gfx::Size GetMinimumSize() const override;
   void Layout() override;
@@ -38,6 +46,7 @@ class SelectedKeywordView : public IconLabelBubbleView {
  private:
   // IconLabelBubbleView:
   const char* GetClassName() const override;
+  int GetImageAndPaddingWidth() const override;
 
   // The keyword we're showing. If empty, no keyword is selected.
   // NOTE: we don't cache the TemplateURL as it is possible for it to get

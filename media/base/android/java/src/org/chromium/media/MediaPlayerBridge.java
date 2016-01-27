@@ -15,9 +15,9 @@ import android.util.Base64;
 import android.util.Base64InputStream;
 import android.view.Surface;
 
-import org.chromium.base.CalledByNative;
-import org.chromium.base.JNINamespace;
 import org.chromium.base.Log;
+import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.JNINamespace;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -80,7 +80,11 @@ public class MediaPlayerBridge {
     protected boolean prepareAsync() {
         try {
             getLocalPlayer().prepareAsync();
-        } catch (IllegalStateException e) {
+        } catch (IllegalStateException ise) {
+            Log.e(TAG, "Unable to prepare MediaPlayer.", ise);
+            return false;
+        } catch (Exception e) {
+            // Catch IOException thrown by android MediaPlayer native code.
             Log.e(TAG, "Unable to prepare MediaPlayer.", e);
             return false;
         }

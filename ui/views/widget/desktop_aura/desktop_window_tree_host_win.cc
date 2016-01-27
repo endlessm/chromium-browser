@@ -140,12 +140,13 @@ void DesktopWindowTreeHostWin::Init(aura::Window* content_window,
 
   gfx::Rect pixel_bounds = gfx::win::DIPToScreenRect(params.bounds);
   message_handler_->Init(parent_hwnd, pixel_bounds);
-  if (params.type == Widget::InitParams::TYPE_MENU) {
+  if (params.force_software_compositing) {
     ::SetProp(GetAcceleratedWidget(),
               kForceSoftwareCompositor,
               reinterpret_cast<HANDLE>(true));
   }
-  CreateCompositor(GetAcceleratedWidget());
+  CreateCompositor();
+  OnAcceleratedWidgetAvailable();
 }
 
 void DesktopWindowTreeHostWin::OnNativeWidgetCreated(
@@ -804,15 +805,8 @@ bool DesktopWindowTreeHostWin::HandleMouseEvent(const ui::MouseEvent& event) {
   return event.handled();
 }
 
-bool DesktopWindowTreeHostWin::HandleKeyEvent(const ui::KeyEvent& event) {
-  return false;
-}
-
-bool DesktopWindowTreeHostWin::HandleUntranslatedKeyEvent(
-    const ui::KeyEvent& event) {
-  ui::KeyEvent duplicate_event(event);
-  SendEventToProcessor(&duplicate_event);
-  return duplicate_event.handled();
+void DesktopWindowTreeHostWin::HandleKeyEvent(ui::KeyEvent* event) {
+  GetInputMethod()->DispatchKeyEvent(event);
 }
 
 void DesktopWindowTreeHostWin::HandleTouchEvent(
@@ -904,6 +898,16 @@ bool DesktopWindowTreeHostWin::HandleScrollEvent(
 void DesktopWindowTreeHostWin::HandleWindowSizeChanging() {
   if (compositor())
     compositor()->DisableSwapUntilResize();
+}
+
+void DesktopWindowTreeHostWin::HandleWindowSizeChanged() {
+  // A resize may not have occurred if the window size happened not to have
+  // changed (can occur on Windows 10 when snapping a window to the side of
+  // the screen). In that case do a resize to the current size to reenable
+  // swaps.
+  if (compositor())
+    compositor()->SetScaleAndSize(compositor()->device_scale_factor(),
+                                  compositor()->size());
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -10,6 +10,7 @@
 #include "base/memory/shared_memory.h"
 #include "base/process/process.h"
 #include "content/common/content_param_traits_macros.h"
+#include "content/common/navigation_params.h"
 #include "content/common/resource_request_body.h"
 #include "content/common/service_worker/service_worker_types.h"
 #include "content/public/common/common_param_traits.h"
@@ -91,6 +92,9 @@ IPC_ENUM_TRAITS_MAX_VALUE(content::FetchRequestMode,
 IPC_ENUM_TRAITS_MAX_VALUE(content::FetchCredentialsMode,
                           content::FETCH_CREDENTIALS_MODE_LAST)
 
+IPC_ENUM_TRAITS_MAX_VALUE(content::FetchRedirectMode,
+                          content::FetchRedirectMode::LAST)
+
 IPC_STRUCT_TRAITS_BEGIN(content::ResourceResponseHead)
 IPC_STRUCT_TRAITS_PARENT(content::ResourceResponseInfo)
   IPC_STRUCT_TRAITS_MEMBER(request_start)
@@ -132,6 +136,7 @@ IPC_STRUCT_TRAITS_BEGIN(content::ResourceResponseInfo)
   IPC_STRUCT_TRAITS_MEMBER(service_worker_start_time)
   IPC_STRUCT_TRAITS_MEMBER(service_worker_ready_time)
   IPC_STRUCT_TRAITS_MEMBER(proxy_server)
+  IPC_STRUCT_TRAITS_MEMBER(is_using_lofi)
 IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(net::RedirectInfo)
@@ -209,6 +214,9 @@ IPC_STRUCT_BEGIN(ResourceHostMsg_Request)
   // The credentials mode passed to the ServiceWorker.
   IPC_STRUCT_MEMBER(content::FetchCredentialsMode, fetch_credentials_mode)
 
+  // The redirect mode used in Fetch API.
+  IPC_STRUCT_MEMBER(content::FetchRedirectMode, fetch_redirect_mode)
+
   // The request context passed to the ServiceWorker.
   IPC_STRUCT_MEMBER(content::RequestContextType, fetch_request_context_type)
 
@@ -261,6 +269,13 @@ IPC_STRUCT_BEGIN(ResourceHostMsg_Request)
 
   // Whether or not we should allow the URL to download.
   IPC_STRUCT_MEMBER(bool, allow_download)
+
+  // Whether to intercept headers to pass back to the renderer.
+  IPC_STRUCT_MEMBER(bool, report_raw_headers)
+
+  // Whether or not to request a LoFi version of the resource or let the browser
+  // decide.
+  IPC_STRUCT_MEMBER(content::LoFiState, lofi_state)
 IPC_STRUCT_END()
 
 // Parameters for a ResourceMsg_RequestComplete

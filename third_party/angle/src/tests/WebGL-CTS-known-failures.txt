@@ -1,11 +1,9 @@
-Known failures in the WebGL CTS 1.0.4, ToT ANGLE (Debug/x64), using Canary
+Known failures in the WebGL CTS 1.0.4, using Canary 48.0.2547.0 with ANGLE a33475b36f7b0
 https://www.khronos.org/registry/webgl/sdk/tests/webgl-conformance-tests.html
 
+conformance/extensions/ext-sRGB.html: 5 tests failed
 conformance/glsl/bugs/pow-of-small-constant-in-user-defined-function.html: 1 tests failed
 conformance/glsl/bugs/sampler-struct-function-arg.html: 1 tests failed
-conformance/misc/expando-loss.html: 4 tests failed
-deqp/data/gles2/shaders/constants.html: 34 tests failed
+conformance/textures/misc/cube-incomplete-fbo.html: 1 tests failed
 deqp/data/gles2/shaders/functions.html: 8 tests failed
-deqp/data/gles2/shaders/linkage.html: 2 tests failed
-deqp/data/gles2/shaders/preprocessor.html: 109 tests failed
 deqp/data/gles2/shaders/scoping.html: 4 tests failed

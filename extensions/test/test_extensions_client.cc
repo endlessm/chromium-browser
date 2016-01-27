@@ -118,12 +118,6 @@ TestExtensionsClient::CreateFeatureProviderSource(
 void TestExtensionsClient::FilterHostPermissions(
     const URLPatternSet& hosts,
     URLPatternSet* new_hosts,
-    std::set<PermissionMessage>* messages) const {
-}
-
-void TestExtensionsClient::FilterHostPermissions(
-    const URLPatternSet& hosts,
-    URLPatternSet* new_hosts,
     PermissionIDSet* permissions) const {
 }
 
@@ -151,12 +145,12 @@ bool TestExtensionsClient::IsScriptableURL(const GURL& url,
 
 bool TestExtensionsClient::IsAPISchemaGenerated(
     const std::string& name) const {
-  return core_api::GeneratedSchemas::IsGenerated(name);
+  return api::GeneratedSchemas::IsGenerated(name);
 }
 
 base::StringPiece TestExtensionsClient::GetAPISchema(
     const std::string& name) const {
-  return core_api::GeneratedSchemas::Get(name);
+  return api::GeneratedSchemas::Get(name);
 }
 
 void TestExtensionsClient::RegisterAPISchemaResources(ExtensionAPI* api) const {

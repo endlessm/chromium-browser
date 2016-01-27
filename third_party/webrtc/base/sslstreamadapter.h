@@ -19,6 +19,23 @@
 
 namespace rtc {
 
+// Constants for SRTP profiles.
+const int SRTP_AES128_CM_SHA1_80 = 0x0001;
+const int SRTP_AES128_CM_SHA1_32 = 0x0002;
+
+// Cipher suite to use for SRTP. Typically a 80-bit HMAC will be used, except
+// in applications (voice) where the additional bandwidth may be significant.
+// A 80-bit HMAC is always used for SRTCP.
+// 128-bit AES with 80-bit SHA-1 HMAC.
+extern const char CS_AES_CM_128_HMAC_SHA1_80[];
+// 128-bit AES with 32-bit SHA-1 HMAC.
+extern const char CS_AES_CM_128_HMAC_SHA1_32[];
+
+// Returns the DTLS-SRTP protection profile ID, as defined in
+// https://tools.ietf.org/html/rfc5764#section-4.1.2, for the given SRTP
+// Crypto-suite, as defined in https://tools.ietf.org/html/rfc4568#section-6.2
+int GetSrtpCryptoSuiteFromName(const std::string& cipher_rfc_name);
+
 // SSLStreamAdapter : A StreamInterfaceAdapter that does SSL/TLS.
 // After SSL has been started, the stream will only open on successful
 // SSL verification of certificates, and the communication is
@@ -133,9 +150,9 @@ class SSLStreamAdapter : public StreamAdapterInterface {
   // chain. The returned certificate is owned by the caller.
   virtual bool GetPeerCertificate(SSLCertificate** cert) const = 0;
 
-  // Retrieves the name of the cipher suite used for the connection
-  // (e.g. "TLS_RSA_WITH_AES_128_CBC_SHA").
-  virtual bool GetSslCipher(std::string* cipher);
+  // Retrieves the IANA registration id of the cipher suite used for the
+  // connection (e.g. 0x2F for "TLS_RSA_WITH_AES_128_CBC_SHA").
+  virtual bool GetSslCipherSuite(int* cipher);
 
   // Key Exporter interface from RFC 5705
   // Arguments are:
@@ -150,10 +167,10 @@ class SSLStreamAdapter : public StreamAdapterInterface {
   // result              -- where to put the computed value
   // result_len          -- the length of the computed value
   virtual bool ExportKeyingMaterial(const std::string& label,
-                                    const uint8* context,
+                                    const uint8_t* context,
                                     size_t context_len,
                                     bool use_context,
-                                    uint8* result,
+                                    uint8_t* result,
                                     size_t result_len);
 
   // DTLS-SRTP interface
@@ -167,7 +184,14 @@ class SSLStreamAdapter : public StreamAdapterInterface {
 
   // Returns the default Ssl cipher used between streams of this class
   // for the given protocol version. This is used by the unit tests.
-  static std::string GetDefaultSslCipher(SSLProtocolVersion version);
+  // TODO(guoweis): Move this away from a static class method.
+  static int GetDefaultSslCipherForTest(SSLProtocolVersion version,
+                                        KeyType key_type);
+
+  // TODO(guoweis): Move this away from a static class method. Currently this is
+  // introduced such that any caller could depend on sslstreamadapter.h without
+  // depending on specific SSL implementation.
+  static std::string GetSslCipherSuiteName(int cipher);
 
  private:
   // If true, the server certificate need not match the configured

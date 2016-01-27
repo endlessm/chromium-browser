@@ -7,6 +7,7 @@
 
 #include "base/bind.h"
 #include "base/memory/ref_counted.h"
+#include "ui/gfx/native_pixmap_handle_ozone.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/overlay_transform.h"
 
@@ -26,6 +27,7 @@ class NativePixmap : public base::RefCountedThreadSafe<NativePixmap> {
   virtual void* /* EGLClientBuffer */ GetEGLClientBuffer() = 0;
   virtual int GetDmaBufFd() = 0;
   virtual int GetDmaBufPitch() = 0;
+  virtual gfx::BufferFormat GetBufferFormat() = 0;
 
   // Sets the overlay plane to switch to at the next page flip.
   // |w| specifies the screen to display this overlay plane on.
@@ -44,14 +46,23 @@ class NativePixmap : public base::RefCountedThreadSafe<NativePixmap> {
                                     const gfx::Rect& display_bounds,
                                     const gfx::RectF& crop_rect) = 0;
 
-  // This represents a callback function pointing to scaling unit like VPP
-  // to do scaling operations on native pixmap with required size.
-  typedef base::Callback<scoped_refptr<NativePixmap>(gfx::Size)>
-      ScalingCallback;
+  // This represents a callback function pointing to processing unit like VPP to
+  // do post-processing operations on native pixmap with required size and
+  // format.
+  typedef base::Callback<scoped_refptr<NativePixmap>(gfx::Size,
+                                                     gfx::BufferFormat)>
+      ProcessingCallback;
 
-  // Set callback function for the pixmap used for scaling.
-  virtual void SetScalingCallback(const ScalingCallback& scaling_callback) = 0;
-  virtual scoped_refptr<NativePixmap> GetScaledPixmap(gfx::Size new_size) = 0;
+  // Set callback function for the pixmap used for post processing.
+  virtual void SetProcessingCallback(
+      const ProcessingCallback& processing_callback) = 0;
+  virtual scoped_refptr<NativePixmap> GetProcessedPixmap(
+      gfx::Size target_size,
+      gfx::BufferFormat target_format) = 0;
+
+  // Export the buffer for sharing across processes.
+  // Any file descriptors in the exported handle are owned by the caller.
+  virtual gfx::NativePixmapHandle ExportHandle() = 0;
 
  protected:
   virtual ~NativePixmap() {}

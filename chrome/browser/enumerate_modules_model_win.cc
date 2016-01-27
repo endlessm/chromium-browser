@@ -349,7 +349,7 @@ static void GenerateHash(const std::string& input, std::string* output) {
 
   uint8 hash[4];
   crypto::SHA256HashString(input, hash, sizeof(hash));
-  *output = base::StringToLowerASCII(base::HexEncode(hash, sizeof(hash)));
+  *output = base::ToLowerASCII(base::HexEncode(hash, sizeof(hash)));
 }
 
 // -----------------------------------------------------------------------------
@@ -748,7 +748,7 @@ void ModuleEnumerator::MatchAgainstBlacklist() {
 
 void ModuleEnumerator::ReportBack() {
   if (!limited_mode_)
-    DCHECK(BrowserThread::CurrentlyOn(callback_thread_id_));
+    DCHECK_CURRENTLY_ON(callback_thread_id_);
   observer_->DoneScanning();
 }
 
@@ -838,7 +838,7 @@ base::string16 ModuleEnumerator::GetSubjectNameFromDigitalSignature(
 
 // static
 EnumerateModulesModel* EnumerateModulesModel::GetInstance() {
-  return Singleton<EnumerateModulesModel>::get();
+  return base::Singleton<EnumerateModulesModel>::get();
 }
 
 bool EnumerateModulesModel::ShouldShowConflictWarning() const {

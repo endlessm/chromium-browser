@@ -47,7 +47,7 @@ public:
     void setOperatingColorSpace(ColorSpace) override { }
 
     TextStream& externalRepresentation(TextStream&, int indention) const override;
-    PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder*) override;
+    PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder&) override;
 
     DECLARE_VIRTUAL_TRACE();
 
@@ -57,13 +57,12 @@ private:
     FEImage(Filter*, TreeScope&, const String&, PassRefPtrWillBeRawPtr<SVGPreserveAspectRatio>);
     LayoutObject* referencedLayoutObject() const;
 
-    PassRefPtr<SkImageFilter> createImageFilterForLayoutObject(LayoutObject&, SkiaImageFilterBuilder*);
+    PassRefPtr<SkImageFilter> createImageFilterForLayoutObject(const LayoutObject&);
 
     RefPtr<Image> m_image;
 
     // m_treeScope will never be a dangling reference. See https://bugs.webkit.org/show_bug.cgi?id=99243
-    // FIXME: Oilpan: turn into a (weak) member?
-    TreeScope* m_treeScope;
+    RawPtrWillBeMember<TreeScope> m_treeScope;
     String m_href;
     RefPtrWillBeMember<SVGPreserveAspectRatio> m_preserveAspectRatio;
 };

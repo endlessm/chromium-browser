@@ -18,7 +18,6 @@
 #include "base/win/registry.h"
 #include "base/win/windows_version.h"
 #include "chrome/common/chrome_icon_resources_win.h"
-#include "chrome/common/net/test_server_locations.h"
 #include "chrome/installer/util/app_registration_data.h"
 #include "chrome/installer/util/channel_info.h"
 #include "chrome/installer/util/google_update_constants.h"
@@ -48,7 +47,7 @@ base::string16 LocalizeUrl(const wchar_t* url) {
   base::string16 language;
   if (!GoogleUpdateSettings::GetLanguage(&language))
     language = L"en-US";  // Default to US English.
-  return ReplaceStringPlaceholders(url, language.c_str(), NULL);
+  return base::ReplaceStringPlaceholders(url, language.c_str(), NULL);
 }
 
 base::string16 GetUninstallSurveyUrl() {
@@ -191,10 +190,6 @@ std::string GoogleChromeDistribution::GetSafeBrowsingName() {
   return "googlechrome";
 }
 
-std::string GoogleChromeDistribution::GetNetworkStatsServer() const {
-  return chrome_common_net::kEchoTestServerLocation;
-}
-
 base::string16 GoogleChromeDistribution::GetDistributionData(HKEY root_key) {
   base::string16 sub_key(google_update::kRegPathClientState);
   sub_key.append(L"\\");
@@ -232,12 +227,6 @@ base::string16 GoogleChromeDistribution::GetDistributionData(HKEY root_key) {
   return result;
 }
 
-base::string16 GoogleChromeDistribution::GetUninstallLinkName() {
-  const base::string16& link_name =
-      installer::GetLocalizedString(IDS_UNINSTALL_CHROME_BASE);
-  return link_name;
-}
-
 base::string16 GoogleChromeDistribution::GetUninstallRegPath() {
   return L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\"
          L"Google Chrome";
@@ -247,11 +236,8 @@ base::string16 GoogleChromeDistribution::GetIconFilename() {
   return installer::kChromeExe;
 }
 
-bool GoogleChromeDistribution::GetCommandExecuteImplClsid(
-    base::string16* handler_class_uuid) {
-  if (handler_class_uuid)
-    *handler_class_uuid = kCommandExecuteImplUuid;
-  return true;
+base::string16 GoogleChromeDistribution::GetCommandExecuteImplClsid() {
+  return kCommandExecuteImplUuid;
 }
 
 // This method checks if we need to change "ap" key in Google Update to try

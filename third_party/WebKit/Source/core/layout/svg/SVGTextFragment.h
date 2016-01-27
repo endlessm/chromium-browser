@@ -21,11 +21,13 @@
 #define SVGTextFragment_h
 
 #include "platform/transforms/AffineTransform.h"
+#include "wtf/Allocator.h"
 
 namespace blink {
 
 // A SVGTextFragment describes a text fragment of a LayoutSVGInlineText which can be laid out at once.
 struct SVGTextFragment {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
     SVGTextFragment()
         : characterOffset(0)
         , metricsListOffset(0)
@@ -102,9 +104,7 @@ private:
 
         result = transform;
         transformAroundOrigin(result);
-
-        if (!lengthAdjustTransform.isIdentity())
-            result = lengthAdjustTransform * result;
+        result.preMultiply(lengthAdjustTransform);
     }
 };
 

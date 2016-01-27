@@ -39,6 +39,7 @@
 #include <algorithm>
 #include <map>
 
+#include "webrtc/base/arraysize.h"
 #include "webrtc/base/basictypes.h"
 #include "webrtc/base/byteorder.h"
 #include "webrtc/base/common.h"
@@ -68,26 +69,26 @@ namespace rtc {
 
 #if defined(WEBRTC_WIN)
 // Standard MTUs, from RFC 1191
-const uint16 PACKET_MAXIMUMS[] = {
-  65535,    // Theoretical maximum, Hyperchannel
-  32000,    // Nothing
-  17914,    // 16Mb IBM Token Ring
-  8166,     // IEEE 802.4
-  //4464,   // IEEE 802.5 (4Mb max)
-  4352,     // FDDI
-  //2048,   // Wideband Network
-  2002,     // IEEE 802.5 (4Mb recommended)
-  //1536,   // Expermental Ethernet Networks
-  //1500,   // Ethernet, Point-to-Point (default)
-  1492,     // IEEE 802.3
-  1006,     // SLIP, ARPANET
-  //576,    // X.25 Networks
-  //544,    // DEC IP Portal
-  //512,    // NETBIOS
-  508,      // IEEE 802/Source-Rt Bridge, ARCNET
-  296,      // Point-to-Point (low delay)
-  68,       // Official minimum
-  0,        // End of list marker
+const uint16_t PACKET_MAXIMUMS[] = {
+    65535,  // Theoretical maximum, Hyperchannel
+    32000,  // Nothing
+    17914,  // 16Mb IBM Token Ring
+    8166,   // IEEE 802.4
+    // 4464,   // IEEE 802.5 (4Mb max)
+    4352,   // FDDI
+    // 2048,   // Wideband Network
+    2002,   // IEEE 802.5 (4Mb recommended)
+    // 1536,   // Expermental Ethernet Networks
+    // 1500,   // Ethernet, Point-to-Point (default)
+    1492,   // IEEE 802.3
+    1006,   // SLIP, ARPANET
+    // 576,    // X.25 Networks
+    // 544,    // DEC IP Portal
+    // 512,    // NETBIOS
+    508,    // IEEE 802/Source-Rt Bridge, ARCNET
+    296,    // Point-to-Point (low delay)
+    68,     // Official minimum
+    0,      // End of list marker
 };
 
 static const int IP_HEADER_SIZE = 20u;
@@ -171,12 +172,12 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
     sockaddr* addr = reinterpret_cast<sockaddr*>(&addr_storage);
     int err = ::bind(s_, addr, static_cast<int>(len));
     UpdateLastError();
-#ifdef _DEBUG
+#if !defined(NDEBUG)
     if (0 == err) {
       dbg_addr_ = "Bound @ ";
       dbg_addr_.append(GetLocalAddress().ToString());
     }
-#endif  // _DEBUG
+#endif
     return err;
   }
 
@@ -187,7 +188,7 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
       SetError(EALREADY);
       return SOCKET_ERROR;
     }
-    if (addr.IsUnresolved()) {
+    if (addr.IsUnresolvedIP()) {
       LOG(LS_VERBOSE) << "Resolving addr in PhysicalSocket::Connect";
       resolver_ = new AsyncResolver();
       resolver_->SignalDone.connect(this, &PhysicalSocket::OnResolveResult);
@@ -361,10 +362,10 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
     if (err == 0) {
       state_ = CS_CONNECTING;
       enabled_events_ |= DE_ACCEPT;
-#ifdef _DEBUG
+#if !defined(NDEBUG)
       dbg_addr_ = "Listening @ ";
       dbg_addr_.append(GetLocalAddress().ToString());
-#endif  // _DEBUG
+#endif
     }
     return err;
   }
@@ -398,9 +399,9 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
     return err;
   }
 
-  int EstimateMTU(uint16* mtu) override {
+  int EstimateMTU(uint16_t* mtu) override {
     SocketAddress addr = GetRemoteAddress();
-    if (addr.IsAny()) {
+    if (addr.IsAnyIP()) {
       SetError(ENOTCONN);
       return -1;
     }
@@ -420,7 +421,7 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
     }
 
     for (int level = 0; PACKET_MAXIMUMS[level + 1] > 0; ++level) {
-      int32 size = PACKET_MAXIMUMS[level] - header_size;
+      int32_t size = PACKET_MAXIMUMS[level] - header_size;
       WinPing::PingResult result = ping.Ping(addr.ipaddr(), size,
                                              ICMP_PING_TIMEOUT_MILLIS,
                                              1, false);
@@ -541,7 +542,7 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
 
   PhysicalSocketServer* ss_;
   SOCKET s_;
-  uint8 enabled_events_;
+  uint8_t enabled_events_;
   bool udp_;
   int error_;
   // Protects |error_| that is accessed from different threads.
@@ -549,9 +550,9 @@ class PhysicalSocket : public AsyncSocket, public sigslot::has_slots<> {
   ConnState state_;
   AsyncResolver* resolver_;
 
-#ifdef _DEBUG
+#if !defined(NDEBUG)
   std::string dbg_addr_;
-#endif  // _DEBUG;
+#endif
 };
 
 #if defined(WEBRTC_POSIX)
@@ -572,28 +573,28 @@ class EventDispatcher : public Dispatcher {
   virtual void Signal() {
     CritScope cs(&crit_);
     if (!fSignaled_) {
-      const uint8 b[1] = { 0 };
+      const uint8_t b[1] = {0};
       if (VERIFY(1 == write(afd_[1], b, sizeof(b)))) {
         fSignaled_ = true;
       }
     }
   }
 
-  uint32 GetRequestedEvents() override { return DE_READ; }
+  uint32_t GetRequestedEvents() override { return DE_READ; }
 
-  void OnPreEvent(uint32 ff) override {
+  void OnPreEvent(uint32_t ff) override {
     // It is not possible to perfectly emulate an auto-resetting event with
     // pipes.  This simulates it by resetting before the event is handled.
 
     CritScope cs(&crit_);
     if (fSignaled_) {
-      uint8 b[4];  // Allow for reading more than 1 byte, but expect 1.
+      uint8_t b[4];  // Allow for reading more than 1 byte, but expect 1.
       VERIFY(1 == read(afd_[0], b, sizeof(b)));
       fSignaled_ = false;
     }
   }
 
-  void OnEvent(uint32 ff, int err) override { ASSERT(false); }
+  void OnEvent(uint32_t ff, int err) override { ASSERT(false); }
 
   int GetDescriptor() override { return afd_[0]; }
 
@@ -628,8 +629,8 @@ class PosixSignalHandler {
 
   // Returns true if the given signal number is set.
   bool IsSignalSet(int signum) const {
-    ASSERT(signum < ARRAY_SIZE(received_signal_));
-    if (signum < ARRAY_SIZE(received_signal_)) {
+    ASSERT(signum < static_cast<int>(arraysize(received_signal_)));
+    if (signum < static_cast<int>(arraysize(received_signal_))) {
       return received_signal_[signum];
     } else {
       return false;
@@ -638,8 +639,8 @@ class PosixSignalHandler {
 
   // Clears the given signal number.
   void ClearSignal(int signum) {
-    ASSERT(signum < ARRAY_SIZE(received_signal_));
-    if (signum < ARRAY_SIZE(received_signal_)) {
+    ASSERT(signum < static_cast<int>(arraysize(received_signal_)));
+    if (signum < static_cast<int>(arraysize(received_signal_))) {
       received_signal_[signum] = false;
     }
   }
@@ -654,14 +655,14 @@ class PosixSignalHandler {
   // user-level state of the process, since the handler could be executed at any
   // time on any thread.
   void OnPosixSignalReceived(int signum) {
-    if (signum >= ARRAY_SIZE(received_signal_)) {
+    if (signum >= static_cast<int>(arraysize(received_signal_))) {
       // We don't have space in our array for this.
       return;
     }
     // Set a flag saying we've seen this signal.
     received_signal_[signum] = true;
     // Notify application code that we got a signal.
-    const uint8 b[1] = { 0 };
+    const uint8_t b[1] = {0};
     if (-1 == write(afd_[1], b, sizeof(b))) {
       // Nothing we can do here. If there's an error somehow then there's
       // nothing we can safely do from a signal handler.
@@ -718,7 +719,7 @@ class PosixSignalHandler {
   // will still be handled, so this isn't a problem.
   // Volatile is not necessary here for correctness, but this data _is_ volatile
   // so I've marked it as such.
-  volatile uint8 received_signal_[kNumPosixSignals];
+  volatile uint8_t received_signal_[kNumPosixSignals];
 };
 
 class PosixSignalDispatcher : public Dispatcher {
@@ -731,12 +732,12 @@ class PosixSignalDispatcher : public Dispatcher {
     owner_->Remove(this);
   }
 
-  uint32 GetRequestedEvents() override { return DE_READ; }
+  uint32_t GetRequestedEvents() override { return DE_READ; }
 
-  void OnPreEvent(uint32 ff) override {
+  void OnPreEvent(uint32_t ff) override {
     // Events might get grouped if signals come very fast, so we read out up to
     // 16 bytes to make sure we keep the pipe empty.
-    uint8 b[16];
+    uint8_t b[16];
     ssize_t ret = read(GetDescriptor(), b, sizeof(b));
     if (ret < 0) {
       LOG_ERR(LS_WARNING) << "Error in read()";
@@ -745,7 +746,7 @@ class PosixSignalDispatcher : public Dispatcher {
     }
   }
 
-  void OnEvent(uint32 ff, int err) override {
+  void OnEvent(uint32_t ff, int err) override {
     for (int signum = 0; signum < PosixSignalHandler::kNumPosixSignals;
          ++signum) {
       if (PosixSignalHandler::Instance()->IsSignalSet(signum)) {
@@ -856,16 +857,16 @@ class SocketDispatcher : public Dispatcher, public PhysicalSocket {
     }
   }
 
-  uint32 GetRequestedEvents() override { return enabled_events_; }
+  uint32_t GetRequestedEvents() override { return enabled_events_; }
 
-  void OnPreEvent(uint32 ff) override {
+  void OnPreEvent(uint32_t ff) override {
     if ((ff & DE_CONNECT) != 0)
       state_ = CS_CONNECTED;
     if ((ff & DE_CLOSE) != 0)
       state_ = CS_CLOSED;
   }
 
-  void OnEvent(uint32 ff, int err) override {
+  void OnEvent(uint32_t ff, int err) override {
     // Make sure we deliver connect/accept first. Otherwise, consumers may see
     // something like a READ followed by a CONNECT, which would be odd.
     if ((ff & DE_CONNECT) != 0) {
@@ -920,11 +921,11 @@ class FileDispatcher: public Dispatcher, public AsyncFile {
 
   bool IsDescriptorClosed() override { return false; }
 
-  uint32 GetRequestedEvents() override { return flags_; }
+  uint32_t GetRequestedEvents() override { return flags_; }
 
-  void OnPreEvent(uint32 ff) override {}
+  void OnPreEvent(uint32_t ff) override {}
 
-  void OnEvent(uint32 ff, int err) override {
+  void OnEvent(uint32_t ff, int err) override {
     if ((ff & DE_READ) != 0)
       SignalReadEvent(this);
     if ((ff & DE_WRITE) != 0)
@@ -958,8 +959,8 @@ AsyncFile* PhysicalSocketServer::CreateFile(int fd) {
 #endif // WEBRTC_POSIX
 
 #if defined(WEBRTC_WIN)
-static uint32 FlagsToEvents(uint32 events) {
-  uint32 ffFD = FD_CLOSE;
+static uint32_t FlagsToEvents(uint32_t events) {
+  uint32_t ffFD = FD_CLOSE;
   if (events & DE_READ)
     ffFD |= FD_READ;
   if (events & DE_WRITE)
@@ -993,16 +994,11 @@ class EventDispatcher : public Dispatcher {
       WSASetEvent(hev_);
   }
 
-  virtual uint32 GetRequestedEvents() {
-    return 0;
-  }
+  virtual uint32_t GetRequestedEvents() { return 0; }
 
-  virtual void OnPreEvent(uint32 ff) {
-    WSAResetEvent(hev_);
-  }
+  virtual void OnPreEvent(uint32_t ff) { WSAResetEvent(hev_); }
 
-  virtual void OnEvent(uint32 ff, int err) {
-  }
+  virtual void OnEvent(uint32_t ff, int err) {}
 
   virtual WSAEVENT GetWSAEvent() {
     return hev_;
@@ -1077,17 +1073,15 @@ class SocketDispatcher : public Dispatcher, public PhysicalSocket {
     return PhysicalSocket::Close();
   }
 
-  virtual uint32 GetRequestedEvents() {
-    return enabled_events_;
-  }
+  virtual uint32_t GetRequestedEvents() { return enabled_events_; }
 
-  virtual void OnPreEvent(uint32 ff) {
+  virtual void OnPreEvent(uint32_t ff) {
     if ((ff & DE_CONNECT) != 0)
       state_ = CS_CONNECTED;
     // We set CS_CLOSED from CheckSignalClose.
   }
 
-  virtual void OnEvent(uint32 ff, int err) {
+  virtual void OnEvent(uint32_t ff, int err) {
     int cache_id = id_;
     // Make sure we deliver connect/accept first. Otherwise, consumers may see
     // something like a READ followed by a CONNECT, which would be odd.
@@ -1095,10 +1089,10 @@ class SocketDispatcher : public Dispatcher, public PhysicalSocket {
       if (ff != DE_CONNECT)
         LOG(LS_VERBOSE) << "Signalled with DE_CONNECT: " << ff;
       enabled_events_ &= ~DE_CONNECT;
-#ifdef _DEBUG
+#if !defined(NDEBUG)
       dbg_addr_ = "Connected @ ";
       dbg_addr_.append(GetRemoteAddress().ToString());
-#endif  // _DEBUG
+#endif
       SignalConnectEvent(this);
     }
     if (((ff & DE_ACCEPT) != 0) && (id_ == cache_id)) {
@@ -1154,7 +1148,7 @@ class Signaler : public EventDispatcher {
   }
   ~Signaler() override { }
 
-  void OnEvent(uint32 ff, int err) override {
+  void OnEvent(uint32_t ff, int err) override {
     if (pf_)
       *pf_ = false;
   }
@@ -1312,7 +1306,7 @@ bool PhysicalSocketServer::Wait(int cmsWait, bool process_io) {
         if (fd > fdmax)
           fdmax = fd;
 
-        uint32 ff = pdispatcher->GetRequestedEvents();
+        uint32_t ff = pdispatcher->GetRequestedEvents();
         if (ff & (DE_READ | DE_ACCEPT))
           FD_SET(fd, &fdsRead);
         if (ff & (DE_WRITE | DE_CONNECT))
@@ -1345,7 +1339,7 @@ bool PhysicalSocketServer::Wait(int cmsWait, bool process_io) {
       for (size_t i = 0; i < dispatchers_.size(); ++i) {
         Dispatcher *pdispatcher = dispatchers_[i];
         int fd = pdispatcher->GetDescriptor();
-        uint32 ff = 0;
+        uint32_t ff = 0;
         int errcode = 0;
 
         // Reap any error code, which can be signaled through reads or writes.
@@ -1479,7 +1473,7 @@ bool PhysicalSocketServer::InstallSignal(int signum, void (*handler)(int)) {
 bool PhysicalSocketServer::Wait(int cmsWait, bool process_io) {
   int cmsTotal = cmsWait;
   int cmsElapsed = 0;
-  uint32 msStart = Time();
+  uint32_t msStart = Time();
 
   fWait_ = true;
   while (fWait_) {
@@ -1590,7 +1584,7 @@ bool PhysicalSocketServer::Wait(int cmsWait, bool process_io) {
               }
             }
 #endif
-            uint32 ff = 0;
+            uint32_t ff = 0;
             int errcode = 0;
             if (wsaEvents.lNetworkEvents & FD_READ)
               ff |= DE_READ;

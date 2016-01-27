@@ -756,7 +756,7 @@ initial_reordering_consonant_syllable (const hb_ot_shape_plan_t *plan,
     {
       default:
         assert (false);
-	/* fallthrough */
+	HB_FALLTHROUGH;
 
       case BASE_POS_LAST:
       {
@@ -1012,7 +1012,7 @@ initial_reordering_consonant_syllable (const hb_ot_shape_plan_t *plan,
       info[i].syllable() = i - start;
 
     /* Sit tight, rock 'n roll! */
-    hb_bubble_sort (info + start, end - start, compare_indic_order);
+    hb_stable_sort (info + start, end - start, compare_indic_order);
     /* Find base again */
     base = end;
     for (unsigned int i = start; i < end; i++)
@@ -1025,7 +1025,11 @@ initial_reordering_consonant_syllable (const hb_ot_shape_plan_t *plan,
      * around like crazy.  In old-spec mode, we move halants around, so in
      * that case merge all clusters after base.  Otherwise, check the sort
      * order and merge as needed.
-     * For pre-base stuff, we handle cluster issues in final reordering. */
+     * For pre-base stuff, we handle cluster issues in final reordering.
+     *
+     * We could use buffer->sort() for this, if there was no special
+     * reordering of pre-base stuff happening later...
+     */
     if (indic_plan->is_old_spec || end - base > 127)
       buffer->merge_clusters (base, end);
     else
@@ -1239,7 +1243,7 @@ insert_dotted_circles (const hb_ot_shape_plan_t *plan HB_UNUSED,
 
   buffer->idx = 0;
   unsigned int last_syllable = 0;
-  while (buffer->idx < buffer->len)
+  while (buffer->idx < buffer->len && !buffer->in_error)
   {
     unsigned int syllable = buffer->cur().syllable();
     syllable_type_t syllable_type = (syllable_type_t) (syllable & 0x0F);
@@ -1247,10 +1251,10 @@ insert_dotted_circles (const hb_ot_shape_plan_t *plan HB_UNUSED,
     {
       last_syllable = syllable;
 
-      hb_glyph_info_t info = dottedcircle;
-      info.cluster = buffer->cur().cluster;
-      info.mask = buffer->cur().mask;
-      info.syllable() = buffer->cur().syllable();
+      hb_glyph_info_t ginfo = dottedcircle;
+      ginfo.cluster = buffer->cur().cluster;
+      ginfo.mask = buffer->cur().mask;
+      ginfo.syllable() = buffer->cur().syllable();
       /* TODO Set glyph_props? */
 
       /* Insert dottedcircle after possible Repha. */
@@ -1259,7 +1263,7 @@ insert_dotted_circles (const hb_ot_shape_plan_t *plan HB_UNUSED,
 	     buffer->cur().indic_category() == OT_Repha)
         buffer->next_glyph ();
 
-      buffer->output_info (info);
+      buffer->output_info (ginfo);
     }
     else
       buffer->next_glyph ();
@@ -1404,12 +1408,17 @@ final_reordering_syllable (const hb_ot_shape_plan_t *plan,
 	if (info[i - 1].indic_position () == POS_PRE_M)
 	{
 	  unsigned int old_pos = i - 1;
+	  if (old_pos < base && base <= new_pos) /* Shouldn't actually happen. */
+	    base--;
+
 	  hb_glyph_info_t tmp = info[old_pos];
 	  memmove (&info[old_pos], &info[old_pos + 1], (new_pos - old_pos) * sizeof (info[0]));
 	  info[new_pos] = tmp;
-	  if (old_pos < base && base <= new_pos) /* Shouldn't actually happen. */
-	    base--;
+
+	  /* Note: this merge_clusters() is intentionally *after* the reordering.
+	   * Indic matra reordering is special and tricky... */
 	  buffer->merge_clusters (new_pos, MIN (end, base + 1));
+
 	  new_pos--;
 	}
     } else {
@@ -1562,12 +1571,12 @@ final_reordering_syllable (const hb_ot_shape_plan_t *plan,
 
     reph_move:
     {
-      buffer->merge_clusters (start, new_reph_pos + 1);
-
       /* Move */
+      buffer->merge_clusters (start, new_reph_pos + 1);
       hb_glyph_info_t reph = info[start];
       memmove (&info[start], &info[start + 1], (new_reph_pos - start) * sizeof (info[0]));
       info[new_reph_pos] = reph;
+
       if (start < base && base <= new_reph_pos)
 	base--;
     }
@@ -1622,8 +1631,8 @@ final_reordering_syllable (const hb_ot_shape_plan_t *plan,
 	    if (new_pos > start && info[new_pos - 1].indic_category() == OT_M)
 	    {
 	      unsigned int old_pos = i;
-	      for (unsigned int i = base + 1; i < old_pos; i++)
-		if (info[i].indic_category() == OT_M)
+	      for (unsigned int j = base + 1; j < old_pos; j++)
+		if (info[j].indic_category() == OT_M)
 		{
 		  new_pos--;
 		  break;
@@ -1640,10 +1649,12 @@ final_reordering_syllable (const hb_ot_shape_plan_t *plan,
 
 	  {
 	    unsigned int old_pos = i;
+
 	    buffer->merge_clusters (new_pos, old_pos + 1);
 	    hb_glyph_info_t tmp = info[old_pos];
 	    memmove (&info[new_pos + 1], &info[new_pos], (old_pos - new_pos) * sizeof (info[0]));
 	    info[new_pos] = tmp;
+
 	    if (new_pos <= base && base < old_pos)
 	      base++;
 	  }
@@ -1823,6 +1834,7 @@ const hb_ot_complex_shaper_t _hb_ot_complex_shaper_indic =
   data_create_indic,
   data_destroy_indic,
   NULL, /* preprocess_text */
+  NULL, /* postprocess_glyphs */
   HB_OT_SHAPE_NORMALIZATION_MODE_COMPOSED_DIACRITICS_NO_SHORT_CIRCUIT,
   decompose_indic,
   compose_indic,

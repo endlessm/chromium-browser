@@ -11,6 +11,7 @@
 #include "base/memory/scoped_ptr.h"
 #include "cc/surfaces/surface_id_allocator.h"
 #include "content/common/content_export.h"
+#include "ui/events/latency_info.h"
 #include "ui/gfx/native_widget_types.h"
 
 namespace cc {
@@ -19,6 +20,7 @@ class SurfaceManager;
 
 namespace gfx {
 class Size;
+enum class SwapResult;
 }
 
 namespace ui {
@@ -72,7 +74,6 @@ class CONTENT_EXPORT ImageTransportFactory {
   // Gets the image transport factory as a context factory for the compositor.
   virtual ui::ContextFactory* GetContextFactory() = 0;
 
-  virtual gfx::GLSurfaceHandle GetSharedSurfaceHandle() = 0;
   virtual cc::SurfaceManager* GetSurfaceManager() = 0;
 
   // Gets a GLHelper instance, associated with the shared context. This
@@ -84,7 +85,11 @@ class CONTENT_EXPORT ImageTransportFactory {
   virtual void RemoveObserver(ImageTransportFactoryObserver* observer) = 0;
 
 #if defined(OS_MACOSX)
-  virtual void OnSurfaceDisplayed(int surface_id) = 0;
+  virtual void OnGpuSwapBuffersCompleted(
+      int surface_id,
+      const std::vector<ui::LatencyInfo>& latency_info,
+      gfx::SwapResult result) = 0;
+
   // Called with |suspended| as true when the ui::Compositor has been
   // disconnected from an NSView and may be attached to another one. Called
   // with |suspended| as false after the ui::Compositor has been connected to

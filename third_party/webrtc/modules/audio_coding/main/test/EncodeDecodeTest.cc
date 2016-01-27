@@ -17,10 +17,10 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common_types.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module.h"
 #include "webrtc/modules/audio_coding/main/acm2/acm_common_defs.h"
 #include "webrtc/modules/audio_coding/main/test/utility.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/test/testsupport/fileutils.h"
 
 namespace webrtc {
@@ -339,8 +339,7 @@ std::string EncodeDecodeTest::EncodeToFile(int fileType,
   _sender.codeId = codeId;
 
   _sender.Setup(acm.get(), &rtpFile, "audio_coding/testfile32kHz", 32000, 1);
-  struct CodecInst sendCodecInst;
-  if (acm->SendCodec(&sendCodecInst) >= 0) {
+  if (acm->SendCodec()) {
     _sender.Run();
   }
   _sender.Teardown();

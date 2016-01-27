@@ -24,7 +24,7 @@
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/sessions/base_session_service_delegate_impl.h"
+#include "chrome/browser/sessions/session_common_utils.h"
 #include "chrome/browser/sessions/session_data_deleter.h"
 #include "chrome/browser/sessions/session_restore.h"
 #include "chrome/browser/sessions/session_service_utils.h"
@@ -37,8 +37,9 @@
 #include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "components/sessions/content/content_serialized_navigation_builder.h"
-#include "components/sessions/session_command.h"
-#include "components/sessions/session_types.h"
+#include "components/sessions/core/session_command.h"
+#include "components/sessions/core/session_constants.h"
+#include "components/sessions/core/session_types.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_details.h"
@@ -63,13 +64,12 @@ static const int kWritesPerReset = 250;
 // SessionService -------------------------------------------------------------
 
 SessionService::SessionService(Profile* profile)
-    : BaseSessionServiceDelegateImpl(true),
-      profile_(profile),
-      base_session_service_(
-        new sessions::BaseSessionService(
-            sessions::BaseSessionService::SESSION_RESTORE,
-            profile->GetPath(),
-            this)),
+    : profile_(profile),
+      should_use_delayed_save_(true),
+      base_session_service_(new sessions::BaseSessionService(
+          sessions::BaseSessionService::SESSION_RESTORE,
+          profile->GetPath(),
+          this)),
       has_open_trackable_browsers_(false),
       move_on_new_browser_(false),
       save_delay_in_millis_(base::TimeDelta::FromMilliseconds(2500)),
@@ -83,13 +83,12 @@ SessionService::SessionService(Profile* profile)
 }
 
 SessionService::SessionService(const base::FilePath& save_path)
-    : BaseSessionServiceDelegateImpl(false),
-      profile_(NULL),
-      base_session_service_(
-        new sessions::BaseSessionService(
-            sessions::BaseSessionService::SESSION_RESTORE,
-            save_path,
-            this)),
+    : profile_(NULL),
+      should_use_delayed_save_(false),
+      base_session_service_(new sessions::BaseSessionService(
+          sessions::BaseSessionService::SESSION_RESTORE,
+          save_path,
+          this)),
       has_open_trackable_browsers_(false),
       move_on_new_browser_(false),
       save_delay_in_millis_(base::TimeDelta::FromMilliseconds(2500)),
@@ -412,7 +411,7 @@ void SessionService::UpdateTabNavigation(
     const SessionID& window_id,
     const SessionID& tab_id,
     const SerializedNavigationEntry& navigation) {
-  if (!ShouldTrackEntry(navigation.virtual_url()) ||
+  if (!ShouldTrackURLForRestore(navigation.virtual_url()) ||
       !ShouldTrackChangesToWindow(window_id)) {
     return;
   }
@@ -497,7 +496,7 @@ void SessionService::SetLastActiveTime(const SessionID& window_id,
 }
 
 base::CancelableTaskTracker::TaskId SessionService::GetLastSession(
-    const SessionCallback& callback,
+    const sessions::GetLastSessionCallback& callback,
     base::CancelableTaskTracker* tracker) {
   // OnGotSessionCommands maps the SessionCommands to browser state, then run
   // the callback.
@@ -506,6 +505,15 @@ base::CancelableTaskTracker::TaskId SessionService::GetLastSession(
                  weak_factory_.GetWeakPtr(),
                  callback),
       tracker);
+}
+
+base::SequencedWorkerPool* SessionService::GetBlockingPool() {
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
+  return content::BrowserThread::GetBlockingPool();
+}
+
+bool SessionService::ShouldUseDelayedSave() {
+  return should_use_delayed_save_;
 }
 
 void SessionService::OnSavedCommands() {
@@ -695,7 +703,7 @@ void SessionService::OnBrowserSetLastActive(Browser* browser) {
 }
 
 void SessionService::OnGotSessionCommands(
-    const SessionCallback& callback,
+    const sessions::GetLastSessionCallback& callback,
     ScopedVector<sessions::SessionCommand> commands) {
   ScopedVector<sessions::SessionWindow> valid_windows;
   SessionID::id_type active_window_id = 0;
@@ -719,9 +727,11 @@ void SessionService::BuildCommandsForTab(const SessionID& window_id,
       sessions::CreateSetTabWindowCommand(window_id, session_id));
 
   const int current_index = tab->GetController().GetCurrentEntryIndex();
-  const int min_index = std::max(current_index - gMaxPersistNavigationCount, 0);
-  const int max_index = std::min(current_index + gMaxPersistNavigationCount,
-                                 tab->GetController().GetEntryCount());
+  const int min_index =
+      std::max(current_index - sessions::gMaxPersistNavigationCount, 0);
+  const int max_index =
+      std::min(current_index + sessions::gMaxPersistNavigationCount,
+               tab->GetController().GetEntryCount());
   const int pending_index = tab->GetController().GetPendingEntryIndex();
   if (tab_to_available_range) {
     (*tab_to_available_range)[session_id.id()] =
@@ -761,7 +771,7 @@ void SessionService::BuildCommandsForTab(const SessionID& window_id,
         tab->GetController().GetPendingEntry() :
         tab->GetController().GetEntryAtIndex(i);
     DCHECK(entry);
-    if (ShouldTrackEntry(entry->GetVirtualURL())) {
+    if (ShouldTrackURLForRestore(entry->GetVirtualURL())) {
       const SerializedNavigationEntry navigation =
           ContentSerializedNavigationBuilder::FromNavigationEntry(i, *entry);
       base_session_service_->AppendRebuildCommand(

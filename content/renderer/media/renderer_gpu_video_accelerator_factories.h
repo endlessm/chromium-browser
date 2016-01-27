@@ -26,7 +26,6 @@ class GpuMemoryBufferManager;
 
 namespace content {
 class ContextProviderCommandBuffer;
-class GLHelper;
 class GpuChannelHost;
 class WebGraphicsContext3DCommandBufferImpl;
 
@@ -43,15 +42,18 @@ class CONTENT_EXPORT RendererGpuVideoAcceleratorFactories
  public:
   // Takes a ref on |gpu_channel_host| and tests |context| for loss before each
   // use.  Safe to call from any thread.
-  static scoped_refptr<RendererGpuVideoAcceleratorFactories> Create(
+  static scoped_ptr<RendererGpuVideoAcceleratorFactories> Create(
       GpuChannelHost* gpu_channel_host,
+      const scoped_refptr<base::SingleThreadTaskRunner>&
+          main_thread_task_runner,
       const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
       const scoped_refptr<ContextProviderCommandBuffer>& context_provider,
+      bool enable_gpu_memory_buffer_video_frames,
       unsigned image_texture_target,
       bool enable_video_accelerator);
 
-  bool IsGpuVideoAcceleratorEnabled() override;
   // media::GpuVideoAcceleratorFactories implementation.
+  bool IsGpuVideoAcceleratorEnabled() override;
   scoped_ptr<media::VideoDecodeAccelerator> CreateVideoDecodeAccelerator()
       override;
   scoped_ptr<media::VideoEncodeAccelerator> CreateVideoEncodeAccelerator()
@@ -64,16 +66,18 @@ class CONTENT_EXPORT RendererGpuVideoAcceleratorFactories
                       std::vector<gpu::Mailbox>* texture_mailboxes,
                       uint32 texture_target) override;
   void DeleteTexture(uint32 texture_id) override;
-  void WaitSyncPoint(uint32 sync_point) override;
+  void WaitSyncToken(const gpu::SyncToken& sync_token) override;
 
   scoped_ptr<gfx::GpuMemoryBuffer> AllocateGpuMemoryBuffer(
       const gfx::Size& size,
-      gfx::GpuMemoryBuffer::Format format,
-      gfx::GpuMemoryBuffer::Usage usage) override;
+      gfx::BufferFormat format,
+      gfx::BufferUsage usage) override;
 
-  bool IsTextureRGSupported() override;
+  bool ShouldUseGpuMemoryBuffersForVideoFrames() const override;
   unsigned ImageTextureTarget() override;
-  gpu::gles2::GLES2Interface* GetGLES2Interface() override;
+  media::VideoPixelFormat VideoFrameOutputFormat() override;
+  scoped_ptr<media::GpuVideoAcceleratorFactories::ScopedGLContextLock>
+  GetGLContextLock() override;
   scoped_ptr<base::SharedMemory> CreateSharedMemory(size_t size) override;
   scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() override;
 
@@ -82,35 +86,40 @@ class CONTENT_EXPORT RendererGpuVideoAcceleratorFactories
   std::vector<media::VideoEncodeAccelerator::SupportedProfile>
       GetVideoEncodeAcceleratorSupportedProfiles() override;
 
- private:
-  friend class base::RefCountedThreadSafe<RendererGpuVideoAcceleratorFactories>;
-  RendererGpuVideoAcceleratorFactories(
-      GpuChannelHost* gpu_channel_host,
-      const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-      const scoped_refptr<ContextProviderCommandBuffer>& context_provider,
-      unsigned image_texture_target,
-      bool enable_video_accelerator);
+  void ReleaseContextProvider();
 
   ~RendererGpuVideoAcceleratorFactories() override;
 
-  // Helper to bind |context_provider| to the |task_runner_| thread after
-  // construction.
-  void BindContext();
+ private:
+  RendererGpuVideoAcceleratorFactories(
+      GpuChannelHost* gpu_channel_host,
+      const scoped_refptr<base::SingleThreadTaskRunner>&
+          main_thread_task_runner,
+      const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
+      const scoped_refptr<ContextProviderCommandBuffer>& context_provider,
+      bool enable_gpu_memory_buffer_video_frames,
+      unsigned image_texture_target,
+      bool enable_video_accelerator);
 
-  // Helper to get a pointer to the WebGraphicsContext3DCommandBufferImpl,
-  // if it has not been lost yet.
-  WebGraphicsContext3DCommandBufferImpl* GetContext3d();
-  GLHelper* GetGLHelper();
+  bool CheckContextLost();
 
+  scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   scoped_refptr<GpuChannelHost> gpu_channel_host_;
-  scoped_refptr<ContextProviderCommandBuffer> context_provider_;
 
+  // Shared pointer to a shared context provider that should be accessed
+  // and set only on the main thread.
+  scoped_refptr<ContextProviderCommandBuffer> context_provider_refptr_;
+
+  // Raw pointer to a context provider accessed from the media thread.
+  ContextProviderCommandBuffer* context_provider_;
+
+  // Whether gpu memory buffers should be used to hold video frames data.
+  bool enable_gpu_memory_buffer_video_frames_;
   const unsigned image_texture_target_;
   // Whether video acceleration encoding/decoding should be enabled.
   const bool video_accelerator_enabled_;
 
-  scoped_ptr<GLHelper> gl_helper_;
   gpu::GpuMemoryBufferManager* const gpu_memory_buffer_manager_;
 
   // For sending requests to allocate shared memory in the Browser process.

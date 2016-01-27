@@ -6,7 +6,8 @@
 
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/net/chrome_net_log.h"
+#include "chrome/common/cast_messages.h"
+#include "components/net_log/chrome_net_log.h"
 #include "content/public/browser/power_save_blocker.h"
 #include "media/cast/net/cast_transport_sender.h"
 
@@ -62,12 +63,11 @@ void CastTransportHostFilter::NotifyStatusChange(
 
 void CastTransportHostFilter::SendRawEvents(
     int32 channel_id,
-    const std::vector<media::cast::PacketEvent>& packet_events,
-    const std::vector<media::cast::FrameEvent>& frame_events) {
-  if (!packet_events.empty())
-    Send(new CastMsg_RawEvents(channel_id,
-                               packet_events,
-                               frame_events));
+    scoped_ptr<std::vector<media::cast::FrameEvent>> frame_events,
+    scoped_ptr<std::vector<media::cast::PacketEvent>> packet_events) {
+  if (frame_events->empty() && packet_events->empty())
+    return;
+  Send(new CastMsg_RawEvents(channel_id, *packet_events, *frame_events));
 }
 
 void CastTransportHostFilter::SendRtt(int32 channel_id,

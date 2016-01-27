@@ -100,8 +100,7 @@ class TabStripModel {
 
     // New tab was opened using the menu command - either through the keyboard
     // shortcut, or by opening the menu and selecting the command. Applies to
-    // both Wrench menu and the menu bar's File menu (on platforms that have
-    // one).
+    // both app menu and the menu bar's File menu (on platforms that have one).
     NEW_TAB_COMMAND,
 
     // New tab was opened through the context menu on the tab strip.
@@ -183,12 +182,6 @@ class TabStripModel {
   content::WebContents* ReplaceWebContentsAt(
       int index,
       content::WebContents* new_contents);
-
-  // Destroys the WebContents at the specified index, but keeps the tab
-  // visible in the tab strip. Used to free memory in low-memory conditions,
-  // especially on Chrome OS. The tab reloads if the user clicks on it.
-  // Returns the new empty WebContents, used only for testing.
-  content::WebContents* DiscardWebContentsAt(int index);
 
   // Detaches the WebContents at the specified index from this strip. The
   // WebContents is not destroyed, just removed from display. The caller
@@ -317,10 +310,6 @@ class TabStripModel {
 
   // Returns true if the tab at |index| is blocked by a tab modal dialog.
   bool IsTabBlocked(int index) const;
-
-  // Returns true if the WebContents at |index| has been discarded to
-  // save memory.  See DiscardWebContentsAt() for details.
-  bool IsTabDiscarded(int index) const;
 
   // Returns the index of the first tab that is not a pinned tab. This returns
   // |count()| if all of the tabs are pinned tabs, and 0 if none of the tabs are

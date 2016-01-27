@@ -10,6 +10,7 @@ import android.util.Pair;
 
 import org.chromium.base.StreamUtil;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.content.browser.crypto.CipherFactory;
 import org.chromium.content_public.browser.WebContents;
 
@@ -58,11 +59,11 @@ public class TabState {
 
     /** Contains the state for a WebContents. */
     public static class WebContentsState {
-        public final ByteBuffer mBuffer;
+        private final ByteBuffer mBuffer;
         private int mVersion;
 
         public WebContentsState(ByteBuffer buffer) {
-            this.mBuffer = buffer;
+            mBuffer = buffer;
         }
 
         public ByteBuffer buffer() {
@@ -110,7 +111,7 @@ public class TabState {
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    nativeFreeWebContentsStateBuffer(mBuffer);
+                    nativeFreeWebContentsStateBuffer(buffer());
                 }
             });
         }

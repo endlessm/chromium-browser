@@ -135,6 +135,8 @@ class NATIVE_THEME_EXPORT NativeTheme {
     bool has_border_radius;
     int arrow_x;
     int arrow_y;
+    int arrow_size;
+    SkColor arrow_color;
     SkColor background_color;
     int classic_state;  // Used on Windows when uxtheme is not available.
   };
@@ -239,6 +241,7 @@ class NATIVE_THEME_EXPORT NativeTheme {
     kColorId_WindowBackground,
     // Dialogs
     kColorId_DialogBackground,
+    kColorId_BubbleBackground,
     // FocusableBorder
     kColorId_FocusedBorderColor,
     kColorId_UnfocusedBorderColor,
@@ -254,6 +257,7 @@ class NATIVE_THEME_EXPORT NativeTheme {
     kColorId_BlueButtonPressedColor,
     kColorId_BlueButtonHoverColor,
     kColorId_BlueButtonShadowColor,
+    kColorId_CallToActionColor,
     // MenuItem
     kColorId_EnabledMenuItemForegroundColor,
     kColorId_DisabledMenuItemForegroundColor,
@@ -272,6 +276,10 @@ class NATIVE_THEME_EXPORT NativeTheme {
     kColorId_LabelEnabledColor,
     kColorId_LabelDisabledColor,
     kColorId_LabelBackgroundColor,
+    // Link
+    kColorId_LinkDisabled,
+    kColorId_LinkEnabled,
+    kColorId_LinkPressed,
     // Textfield
     kColorId_TextfieldDefaultColor,
     kColorId_TextfieldDefaultBackground,
@@ -308,6 +316,9 @@ class NATIVE_THEME_EXPORT NativeTheme {
     kColorId_ResultsTableNormalDimmedText,
     kColorId_ResultsTableHoveredDimmedText,
     kColorId_ResultsTableSelectedDimmedText,
+    kColorId_ResultsTableNormalHeadline,
+    kColorId_ResultsTableHoveredHeadline,
+    kColorId_ResultsTableSelectedHeadline,
     kColorId_ResultsTableNormalUrl,
     kColorId_ResultsTableHoveredUrl,
     kColorId_ResultsTableSelectedUrl,

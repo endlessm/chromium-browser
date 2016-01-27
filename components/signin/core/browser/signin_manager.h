@@ -32,7 +32,9 @@
 #include "base/prefs/pref_change_registrar.h"
 #include "base/prefs/pref_member.h"
 #include "components/keyed_service/core/keyed_service.h"
+#include "components/signin/core/browser/account_info.h"
 #include "components/signin/core/browser/account_tracker_service.h"
+#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_internals_util.h"
 #include "components/signin/core/browser/signin_manager_base.h"
 #include "components/signin/core/browser/signin_metrics.h"
@@ -45,7 +47,8 @@ class ProfileOAuth2TokenService;
 class SigninClient;
 
 class SigninManager : public SigninManagerBase,
-                      public AccountTrackerService::Observer {
+                      public AccountTrackerService::Observer,
+                      public OAuth2TokenService::Observer {
  public:
   // The callback invoked once the OAuth token has been fetched during signin,
   // but before the profile transitions to the "signed-in" state. This allows
@@ -175,9 +178,11 @@ class SigninManager : public SigninManagerBase,
   void PostSignedIn();
 
   // AccountTrackerService::Observer implementation.
-  void OnAccountUpdated(const AccountTrackerService::AccountInfo& info)
-      override;
+  void OnAccountUpdated(const AccountInfo& info) override;
   void OnAccountUpdateFailed(const std::string& account_id) override;
+
+  // OAuth2TokenService::Observer
+  void OnRefreshTokensLoaded() override;
 
   // Called when a new request to re-authenticate a user is in progress.
   // Will clear in memory data but leaves the db as such so when the browser

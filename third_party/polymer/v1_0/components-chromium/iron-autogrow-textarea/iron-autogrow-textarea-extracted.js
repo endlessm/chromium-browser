@@ -1,17 +1,19 @@
-
-
-  Polymer({
+Polymer({
 
     is: 'iron-autogrow-textarea',
 
     behaviors: [
-      Polymer.IronValidatableBehavior
+      Polymer.IronFormElementBehavior,
+      Polymer.IronValidatableBehavior,
+      Polymer.IronControlState
     ],
 
     properties: {
 
       /**
        * Use this property instead of `value` for two-way data binding.
+       *
+       * @type {string|number|undefined|null}
        */
       bindValue: {
         observer: '_bindValueChanged',
@@ -57,8 +59,8 @@
        * Bound to the textarea's `autofocus` attribute.
        */
       autofocus: {
-        type: String,
-        value: 'off'
+        type: Boolean,
+        value: false
       },
 
       /**
@@ -73,6 +75,15 @@
        */
       name: {
         type: String
+      },
+
+      /**
+       * The value for this input, same as `bindValue`
+       */
+      value: {
+        notify: true,
+        type: String,
+        computed: '_computeValue(bindValue)'
       },
 
       /**
@@ -111,20 +122,64 @@
 
     /**
      * Returns the underlying textarea.
+     * @type HTMLTextAreaElement
      */
     get textarea() {
       return this.$.textarea;
     },
 
-    _update: function() {
-      this.$.mirror.innerHTML = this._valueForMirror();
+    /**
+     * Returns textarea's selection start.
+     * @type Number
+     */
+    get selectionStart() {
+      return this.$.textarea.selectionStart;
+    },
 
-      var textarea = this.textarea;
-      // If the value of the textarea was updated imperatively, then we
-      // need to manually update bindValue as well.
-      if (textarea && this.bindValue != textarea.value) {
-        this.bindValue = textarea.value;
+    /**
+     * Returns textarea's selection end.
+     * @type Number
+     */
+    get selectionEnd() {
+      return this.$.textarea.selectionEnd;
+    },
+
+    /**
+     * Sets the textarea's selection start.
+     */
+    set selectionStart(value) {
+      this.$.textarea.selectionStart = value;
+    },
+
+    /**
+     * Sets the textarea's selection end.
+     */
+    set selectionEnd(value) {
+      this.$.textarea.selectionEnd = value;
+    },
+
+    /**
+     * Returns true if `value` is valid. The validator provided in `validator`
+     * will be used first, if it exists; otherwise, the `textarea`'s validity
+     * is used.
+     * @return {boolean} True if the value is valid.
+     */
+    validate: function() {
+      // Empty, non-required input is valid.
+      if (!this.required && this.value == '') {
+        this.invalid = false;
+        return true;
       }
+
+      var valid;
+      if (this.hasValidator()) {
+        valid = Polymer.IronValidatableBehavior.validate.call(this, this.value);
+      } else {
+        valid = this.$.textarea.validity.valid;
+        this.invalid = !valid;
+      }
+      this.fire('iron-input-validate');
+      return valid;
     },
 
     _bindValueChanged: function() {
@@ -133,15 +188,21 @@
         return;
       }
 
-      textarea.value = this.bindValue;
-      this._update();
+      // If the bindValue changed manually, then we need to also update
+      // the underlying textarea's value. Otherwise this change was probably
+      // generated from the _onInput handler, and the two values are already
+      // the same.
+      if (textarea.value !== this.bindValue) {
+        textarea.value = !(this.bindValue || this.bindValue === 0) ? '' : this.bindValue;
+      }
+
+      this.$.mirror.innerHTML = this._valueForMirror();
       // manually notify because we don't want to notify until after setting value
       this.fire('bind-value-changed', {value: this.bindValue});
     },
 
     _onInput: function(event) {
       this.bindValue = event.path ? event.path[0].value : event.target.value;
-      this._update();
     },
 
     _constrain: function(tokens) {
@@ -156,7 +217,8 @@
       while (this.rows > 0 && _tokens.length < this.rows) {
         _tokens.push('');
       }
-      return _tokens.join('<br>') + '&nbsp;';
+      // Use &#160; instead &nbsp; of to allow this element to be used in XHTML.
+      return _tokens.join('<br/>') + '&#160;';
     },
 
     _valueForMirror: function() {
@@ -170,5 +232,9 @@
 
     _updateCached: function() {
       this.$.mirror.innerHTML = this._constrain(this.tokens);
+    },
+
+    _computeValue: function() {
+      return this.bindValue;
     }
-  })
+  });

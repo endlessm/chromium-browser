@@ -100,6 +100,10 @@ class TabLoader : public content::NotificationObserver,
   // Called when a tab goes away or a load completes.
   void HandleTabClosedOrLoaded(content::NavigationController* controller);
 
+  // Convenience function returning the current memory pressure level.
+  base::MemoryPressureListener::MemoryPressureLevel
+      CurrentMemoryPressureLevel();
+
   // React to memory pressure by stopping to load any more tabs.
   void OnMemoryPressure(
       base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level);
@@ -125,7 +129,7 @@ class TabLoader : public content::NotificationObserver,
   // The tabs we need to load.
   TabsToLoad tabs_to_load_;
 
-  base::OneShotTimer<TabLoader> force_load_timer_;
+  base::OneShotTimer force_load_timer_;
 
   // The time the restore process started.
   base::TimeTicks restore_started_;

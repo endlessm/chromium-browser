@@ -27,8 +27,12 @@ bool RegisterLaunchMetrics(JNIEnv* env) {
   return RegisterNativesImpl(env);
 }
 
-static void RecordLaunch(JNIEnv* env, jclass caller, jboolean standalone,
-                         jstring jurl, int source, jobject jweb_contents) {
+static void RecordLaunch(JNIEnv* env,
+                         const JavaParamRef<jclass>& caller,
+                         jboolean standalone,
+                         const JavaParamRef<jstring>& jurl,
+                         int source,
+                         const JavaParamRef<jobject>& jweb_contents) {
   GURL url(base::android::ConvertJavaStringToUTF8(env, jurl));
 
   content::WebContents* web_contents =
@@ -48,6 +52,10 @@ static void RecordLaunch(JNIEnv* env, jclass caller, jboolean standalone,
     rappor_metric_source = "Launch.HomeScreenSource.AddToHomeScreen";
   else if (source == ShortcutInfo::SOURCE_APP_BANNER)
     rappor_metric_source = "Launch.HomeScreenSource.AppBanner";
+  else if (source == ShortcutInfo::SOURCE_BOOKMARK_NAVIGATOR_WIDGET)
+    rappor_metric_source = "Launch.HomeScreenSource.BookmarkNavigatorWidget";
+  else if (source == ShortcutInfo::SOURCE_BOOKMARK_SHORTCUT_WIDGET)
+    rappor_metric_source = "Launch.HomeScreenSource.BookmarkShortcutWidget";
   else
     rappor_metric_source = "Launch.HomeScreenSource.Unknown";
 

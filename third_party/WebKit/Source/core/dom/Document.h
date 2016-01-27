@@ -74,6 +74,7 @@ class Attr;
 class CDATASection;
 class CSSStyleDeclaration;
 class CSSStyleSheet;
+class CancellableTaskFactory;
 class CanvasFontCache;
 class CanvasRenderingContext2D;
 class CanvasRenderingContext2DOrWebGLRenderingContext;
@@ -122,6 +123,9 @@ class HTMLImportsController;
 class HTMLLinkElement;
 class HTMLScriptElement;
 class HitTestRequest;
+class IdleRequestCallback;
+class IdleRequestOptions;
+class InputDeviceCapabilities;
 class LayoutPoint;
 class LiveNodeListBase;
 class Locale;
@@ -133,6 +137,7 @@ class MediaQueryMatcher;
 class NodeFilter;
 class NodeIterator;
 class NthIndexCache;
+class OriginAccessEntry;
 class Page;
 class PlatformMouseEvent;
 class ProcessingInstruction;
@@ -145,6 +150,7 @@ class SVGUseElement;
 class ScriptRunner;
 class ScriptableDocumentParser;
 class ScriptedAnimationController;
+class ScriptedIdleTaskController;
 class SecurityOrigin;
 class SegmentedString;
 class SelectorQueryCache;
@@ -162,8 +168,9 @@ class TransformSource;
 class TreeWalker;
 class VisitedLinkState;
 class WebGLRenderingContext;
-
+enum class SelectionBehaviorOnFocus;
 struct AnnotatedRegionValue;
+struct FocusParams;
 struct IconURL;
 
 using MouseEventWithHitTestResults = EventWithHitTestResults<PlatformMouseEvent>;
@@ -247,10 +254,6 @@ public:
     DEFINE_ATTRIBUTE_EVENT_LISTENER(securitypolicyviolation);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(selectionchange);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(selectstart);
-    DEFINE_ATTRIBUTE_EVENT_LISTENER(touchcancel);
-    DEFINE_ATTRIBUTE_EVENT_LISTENER(touchend);
-    DEFINE_ATTRIBUTE_EVENT_LISTENER(touchmove);
-    DEFINE_ATTRIBUTE_EVENT_LISTENER(touchstart);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(wheel);
 
     bool shouldMergeWithLegacyDescription(ViewportDescription::Type);
@@ -292,7 +295,7 @@ public:
     PassRefPtrWillBeRawPtr<Element> createElement(const QualifiedName&, bool createdByParser);
 
     Element* elementFromPoint(int x, int y) const;
-    Vector<Element*> elementsFromPoint(int x, int y) const;
+    WillBeHeapVector<RawPtrWillBeMember<Element>> elementsFromPoint(int x, int y) const;
     PassRefPtrWillBeRawPtr<Range> caretRangeFromPoint(int x, int y);
     Element* scrollingElement();
 
@@ -300,7 +303,6 @@ public:
 
     String defaultCharset() const;
 
-    AtomicString charset() const { return Document::encodingName(); }
     AtomicString characterSet() const { return Document::encodingName(); }
 
     AtomicString encodingName() const;
@@ -329,6 +331,7 @@ public:
     KURL baseURI() const final;
 
     String origin() const { return securityOrigin()->toString(); }
+    String suborigin() const { return securityOrigin()->suboriginName(); }
 
     String visibilityState() const;
     PageVisibilityState pageVisibilityState() const;
@@ -479,14 +482,10 @@ public:
     void close(ExceptionState&);
     // This is used internally and does not handle exceptions.
     void close();
-    // In some situations (see the code), we ignore document.close().
-    // explicitClose() bypass these checks and actually tries to close the
-    // input stream.
-    void explicitClose();
     // implicitClose() actually does the work of closing the input stream.
     void implicitClose();
 
-    bool dispatchBeforeUnloadEvent(ChromeClient&, bool&);
+    bool dispatchBeforeUnloadEvent(ChromeClient&, bool isReload, bool& didAllowNavigation);
     void dispatchUnloadEvents();
 
     enum PageDismissalType {
@@ -522,7 +521,7 @@ public:
     KURL completeURL(const String&) const;
     KURL completeURLWithOverride(const String&, const KURL& baseURLOverride) const;
 
-    String userAgent(const KURL&) const final;
+    String userAgent() const final;
     void disableEval(const String& errorMessage) final;
 
     CSSStyleSheet& elementSheet();
@@ -532,7 +531,8 @@ public:
     ScriptableDocumentParser* scriptableDocumentParser() const;
 
     bool printing() const { return m_printing; }
-    void setPrinting(bool p) { m_printing = p; }
+    void setPrinting(bool isPrinting) { m_printing = isPrinting; }
+    bool wasPrinting() const { return m_wasPrinting; }
 
     bool paginatedForScreen() const { return m_paginatedForScreen; }
     void setPaginatedForScreen(bool p) { m_paginatedForScreen = p; }
@@ -566,6 +566,7 @@ public:
     void setParsingState(ParsingState);
     bool parsing() const { return m_parsingState == Parsing; }
     bool isInDOMContentLoaded() const { return m_parsingState == InDOMContentLoaded; }
+    bool hasFinishedParsing() const { return m_parsingState == FinishedParsing; }
 
     bool shouldScheduleLayout() const;
     int elapsedTime() const;
@@ -583,7 +584,8 @@ public:
     String selectedStylesheetSet() const;
     void setSelectedStylesheetSet(const String&);
 
-    bool setFocusedElement(PassRefPtrWillBeRawPtr<Element>, WebFocusType = WebFocusTypeNone);
+    bool setFocusedElement(PassRefPtrWillBeRawPtr<Element>, const FocusParams&);
+    void clearFocusedElement();
     Element* focusedElement() const { return m_focusedElement.get(); }
     UserActionElementSet& userActionElements()  { return m_userActionElements; }
     const UserActionElementSet& userActionElements() const { return m_userActionElements; }
@@ -640,7 +642,7 @@ public:
     LocalDOMWindow* domWindow() const { return m_domWindow; }
 
     // Helper functions for forwarding LocalDOMWindow event related tasks to the LocalDOMWindow if it exists.
-    void setWindowAttributeEventListener(const AtomicString& eventType, PassRefPtr<EventListener>);
+    void setWindowAttributeEventListener(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener>);
     EventListener* getWindowAttributeEventListener(const AtomicString& eventType);
 
     static void registerEventFactory(PassOwnPtr<EventFactoryBase>);
@@ -673,17 +675,6 @@ public:
     bool hasMutationObservers() const { return m_mutationObserverTypes; }
     void addMutationObserverTypes(MutationObserverOptions types) { m_mutationObserverTypes |= types; }
 
-    /**
-     * Handles a HTTP header equivalent set by a meta tag using <meta http-equiv="..." content="...">. This is called
-     * when a meta tag is encountered during document parsing, and also when a script dynamically changes or adds a meta
-     * tag. This enables scripts to use meta tags to perform refreshes and set expiry dates in addition to them being
-     * specified in a HTML file.
-     *
-     * @param equiv The http header name (value of the meta tag's "equiv" attribute)
-     * @param content The header value (value of the meta tag's "content" attribute)
-     * @param inDocumentHeadElement Is the element in the document's <head> element?
-     */
-    void processHttpEquiv(const AtomicString& equiv, const AtomicString& content, bool inDocumentHeadElement);
     void updateViewportDescription();
     void processReferrerPolicy(const String& policy);
 
@@ -794,7 +785,6 @@ public:
     void incDOMTreeVersion() { ASSERT(m_lifecycle.stateAllowsTreeMutations()); m_domTreeVersion = ++s_globalTreeVersion; }
     uint64_t domTreeVersion() const { return m_domTreeVersion; }
 
-    void incStyleVersion() { ++m_styleVersion; }
     uint64_t styleVersion() const { return m_styleVersion; }
 
     enum PendingSheetLayout { NoLayoutWithPendingSheets, DidLayoutWithPendingSheets, IgnoreLayoutWithPendingSheets };
@@ -813,19 +803,11 @@ public:
     // Returns null if there is no such element.
     HTMLLinkElement* linkManifest() const;
 
-    // Returns the HTMLLinkElement currently in use for the default presentation URL.
-    // Returns null if there is no such element.
-    HTMLLinkElement* linkDefaultPresentation() const;
-
     void setUseSecureKeyboardEntryWhenActive(bool);
     bool useSecureKeyboardEntryWhenActive() const;
 
-    void updateFocusAppearanceSoon(bool restorePreviousSelection);
+    void updateFocusAppearanceSoon(SelectionBehaviorOnFocus);
     void cancelFocusAppearanceUpdate();
-
-    // Extension for manipulating canvas drawing contexts for use in CSS
-    ScriptValue getCSSCanvasContext(ScriptState*, const String& type, const String& name, int width, int height);
-    HTMLCanvasElement& getCSSCanvasElement(const String& name);
 
     bool isDNSPrefetchEnabled() const { return m_isDNSPrefetchEnabled; }
     void parseDNSPrefetchControlHeader(const String&);
@@ -862,7 +844,7 @@ public:
 
     void initSecurityContext();
     void initSecurityContext(const DocumentInit&);
-    void initContentSecurityPolicy(PassRefPtr<ContentSecurityPolicy> = nullptr);
+    void initContentSecurityPolicy(PassRefPtrWillBeRawPtr<ContentSecurityPolicy> = nullptr);
 
     bool allowInlineEventHandlers(Node*, EventListener*, const String& contextURL, const WTF::OrdinalNumber& contextLine);
     bool allowExecutingScripts(Node*);
@@ -921,10 +903,16 @@ public:
     PassRefPtrWillBeRawPtr<TouchList> createTouchList(WillBeHeapVector<RefPtrWillBeMember<Touch>>&) const;
 
     const DocumentTiming& timing() const { return m_documentTiming; }
+    void markFirstPaint();
+    void markFirstTextPaint();
+    void markFirstImagePaint();
 
     int requestAnimationFrame(FrameRequestCallback*);
     void cancelAnimationFrame(int id);
     void serviceScriptedAnimations(double monotonicAnimationStartTime);
+
+    int requestIdleCallback(IdleRequestCallback*, const IdleRequestOptions&);
+    void cancelIdleCallback(int id);
 
     EventTarget* errorEventTarget() final;
     void logExceptionToConsole(const String& errorMessage, int scriptId, const String& sourceURL, int lineNumber, int columnNumber, PassRefPtrWillBeRawPtr<ScriptCallStack>) final;
@@ -969,7 +957,7 @@ public:
     // Return a Locale for the default locale if the argument is null or empty.
     Locale& getCachedLocale(const AtomicString& locale = nullAtom);
 
-    AnimationClock& animationClock() { return m_animationClock; }
+    AnimationClock& animationClock();
     AnimationTimeline& timeline() const { return *m_timeline; }
     CompositorPendingAnimations& compositorPendingAnimations() { return m_compositorPendingAnimations; }
 
@@ -1034,12 +1022,30 @@ public:
 
     NthIndexCache* nthIndexCache() const { return m_nthIndexCache; }
 
-    bool isPrivilegedContext(String& errorMessage, const PrivilegeContextCheck = StandardPrivilegeCheck) const override;
+    bool isSecureContext(String& errorMessage, const SecureContextCheck = StandardSecureContextCheck) const override;
 
-    void setClientHintsPreferences(const ClientHintsPreferences& preferences) { m_clientHintsPreferences.set(preferences); }
-    const ClientHintsPreferences& clientHintsPreferences() const { return m_clientHintsPreferences; }
+    ClientHintsPreferences& clientHintsPreferences() { return m_clientHintsPreferences; }
 
     CanvasFontCache* canvasFontCache();
+
+    // Used by unit tests so that all parsing will be main thread for
+    // controlling parsing and chunking precisely.
+    static void setThreadedParsingEnabledForTesting(bool);
+    static bool threadedParsingEnabledForTesting();
+
+    void incrementNodeCount() { m_nodeCount++; }
+    void decrementNodeCount()
+    {
+        ASSERT(m_nodeCount > 0);
+        m_nodeCount--;
+    }
+    int nodeCount() const { return m_nodeCount; }
+
+    using WeakDocumentSet = WillBeHeapHashSet<RawPtrWillBeWeakMember<Document>>;
+    static WeakDocumentSet& liveDocumentSet();
+
+    WebTaskRunner* loadingTaskRunner() const;
+    WebTaskRunner* timerTaskRunner() const;
 
 protected:
     Document(const DocumentInit&, DocumentClassFlags = DefaultDocumentClass);
@@ -1067,6 +1073,7 @@ private:
     bool isElementNode() const = delete; // This will catch anyone doing an unnecessary check.
 
     ScriptedAnimationController& ensureScriptedAnimationController();
+    ScriptedIdleTaskController& ensureScriptedIdleTaskController();
     SecurityContext& securityContext() final { return *this; }
     EventQueue* eventQueue() const final;
 
@@ -1117,7 +1124,7 @@ private:
     void updateFocusAppearanceTimerFired(Timer<Document>*);
     void updateBaseURL();
 
-    void executeScriptsWaitingForResourcesTimerFired(Timer<Document>*);
+    void executeScriptsWaitingForResources();
 
     void loadEventDelayTimerFired(Timer<Document>*);
     void pluginLoadingTimerFired(Timer<Document>*);
@@ -1135,13 +1142,6 @@ private:
     void clearFocusedElementSoon();
     void clearFocusedElementTimerFired(Timer<Document>*);
 
-    void processHttpEquivDefaultStyle(const AtomicString& content);
-    void processHttpEquivRefresh(const AtomicString& content);
-    void processHttpEquivSetCookie(const AtomicString& content);
-    void processHttpEquivXFrameOptions(const AtomicString& content);
-    void processHttpEquivContentSecurityPolicy(const AtomicString& equiv, const AtomicString& content);
-    void processHttpEquivAcceptCH(const AtomicString& content);
-
     bool haveStylesheetsLoaded() const;
 
     void setHoverNode(PassRefPtrWillBeRawPtr<Node>);
@@ -1150,6 +1150,8 @@ private:
     static EventFactorySet& eventFactories();
 
     void setNthIndexCache(NthIndexCache* nthIndexCache) { ASSERT(!m_nthIndexCache || !nthIndexCache); m_nthIndexCache = nthIndexCache; }
+
+    const OriginAccessEntry& accessEntryFromURL();
 
     DocumentLifecycle m_lifecycle;
 
@@ -1181,6 +1183,7 @@ private:
     KURL m_baseURLOverride; // An alternative base URL that takes precedence over m_baseURL (but not m_baseElementURL).
     KURL m_baseElementURL; // The URL set by the <base> element.
     KURL m_cookieURL; // The URL to use for cookie access.
+    OwnPtr<OriginAccessEntry> m_accessEntryFromURL;
 
     AtomicString m_baseTarget;
 
@@ -1193,12 +1196,13 @@ private:
     RefPtrWillBeMember<CSSStyleSheet> m_elemSheet;
 
     bool m_printing;
+    bool m_wasPrinting;
     bool m_paginatedForScreen;
 
     CompatibilityMode m_compatibilityMode;
     bool m_compatibilityModeLocked; // This is cheaper than making setCompatibilityMode virtual.
 
-    Timer<Document> m_executeScriptsWaitingForResourcesTimer;
+    OwnPtr<CancellableTaskFactory> m_executeScriptsWaitingForResourcesTask;
 
     bool m_hasAutofocused;
     Timer<Document> m_clearFocusedElementTimer;
@@ -1238,8 +1242,8 @@ private:
     bool m_isDNSPrefetchEnabled;
     bool m_haveExplicitlyDisabledDNSPrefetch;
     bool m_containsValidityStyleRules;
-    bool m_updateFocusAppearanceRestoresSelection;
     bool m_containsPlugins;
+    SelectionBehaviorOnFocus m_updateFocusAppearanceSelectionBahavior;
 
     // http://www.whatwg.org/specs/web-apps/current-work/#ignore-destructive-writes-counter
     unsigned m_ignoreDestructiveWriteCount;
@@ -1248,7 +1252,7 @@ private:
     String m_rawTitle;
     RefPtrWillBeMember<Element> m_titleElement;
 
-    OwnPtrWillBeMember<AXObjectCache> m_axObjectCache;
+    PersistentWillBeMember<AXObjectCache> m_axObjectCache;
     OwnPtrWillBeMember<DocumentMarkerController> m_markers;
 
     Timer<Document> m_updateFocusAppearanceTimer;
@@ -1292,8 +1296,6 @@ private:
     Vector<AnnotatedRegionValue> m_annotatedRegions;
     bool m_hasAnnotatedRegions;
     bool m_annotatedRegionsDirty;
-
-    WillBeHeapHashMap<String, RefPtrWillBeMember<HTMLCanvasElement>> m_cssCanvasElements;
 
     OwnPtr<SelectorQueryCache> m_selectorQueryCache;
 
@@ -1341,7 +1343,8 @@ private:
     unsigned m_writeRecursionDepth;
 
     RefPtrWillBeMember<ScriptedAnimationController> m_scriptedAnimationController;
-    OwnPtr<MainThreadTaskRunner> m_taskRunner;
+    RefPtrWillBeMember<ScriptedIdleTaskController> m_scriptedIdleTaskController;
+    OwnPtrWillBeMember<MainThreadTaskRunner> m_taskRunner;
     OwnPtrWillBeMember<TextAutosizer> m_textAutosizer;
 
     RefPtrWillBeMember<CustomElementRegistrationContext> m_registrationContext;
@@ -1355,8 +1358,7 @@ private:
     using LocaleIdentifierToLocaleMap = HashMap<AtomicString, OwnPtr<Locale>>;
     LocaleIdentifierToLocaleMap m_localeCache;
 
-    AnimationClock m_animationClock;
-    RefPtrWillBeMember<AnimationTimeline> m_timeline;
+    PersistentWillBeMember<AnimationTimeline> m_timeline;
     CompositorPendingAnimations m_compositorPendingAnimations;
 
     RefPtrWillBeMember<Document> m_templateDocument;
@@ -1387,6 +1389,8 @@ private:
     ClientHintsPreferences m_clientHintsPreferences;
 
     PersistentWillBeMember<CanvasFontCache> m_canvasFontCache;
+
+    int m_nodeCount;
 };
 
 extern template class CORE_EXTERN_TEMPLATE_EXPORT WillBeHeapSupplement<Document>;

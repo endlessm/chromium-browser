@@ -7,6 +7,7 @@
 #include <list>
 
 #include "base/prefs/pref_service.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/histogram_tester.h"
@@ -19,6 +20,8 @@
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/browser/test_autofill_driver.h"
 #include "components/autofill/core/common/form_data.h"
+#include "components/compression/compression_utils.h"
+#include "net/http/http_request_headers.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "net/url_request/url_request_status.h"
 #include "net/url_request/url_request_test_util.h"
@@ -42,6 +45,13 @@ void FakeOnURLFetchComplete(net::TestURLFetcher* fetcher,
   fetcher->SetResponseString(response_body);
 
   fetcher->delegate()->OnURLFetchComplete(fetcher);
+}
+
+// Compresses |data| and returns the result.
+std::string Compress(const std::string& data) {
+  std::string compressed_data;
+  EXPECT_TRUE(compression::GzipCompress(data, &compressed_data));
+  return compressed_data;
 }
 
 }  // namespace
@@ -70,7 +80,9 @@ class AutofillDownloadTest : public AutofillDownloadManager::Observer,
   }
 
   // AutofillDownloadManager::Observer implementation.
-  void OnLoadedServerPredictions(const std::string& response_xml) override {
+  void OnLoadedServerPredictions(
+      const std::string& response_xml,
+      const std::vector<std::string>& form_signatures) override {
     ResponseData response;
     response.response = response_xml;
     response.type_of_response = QUERY_SUCCESSFULL;
@@ -190,6 +202,26 @@ TEST_F(AutofillDownloadTest, QueryAndUploadTest) {
   form_structure = new FormStructure(form);
   form_structures.push_back(form_structure);
 
+  form.fields.clear();
+
+  field.label = ASCIIToUTF16("username");
+  field.name = ASCIIToUTF16("username");
+  field.form_control_type = "text";
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("password");
+  field.name = ASCIIToUTF16("password");
+  field.form_control_type = "password";
+  form.fields.push_back(field);
+
+  field.label = base::string16();
+  field.name = ASCIIToUTF16("Submit");
+  field.form_control_type = "submit";
+  form.fields.push_back(field);
+
+  form_structure = new FormStructure(form);
+  form_structures.push_back(form_structure);
+
   // Request with id 0.
   base::HistogramTester histogram;
   EXPECT_TRUE(download_manager_.StartQueryRequest(form_structures.get()));
@@ -201,10 +233,14 @@ TEST_F(AutofillDownloadTest, QueryAndUploadTest) {
   download_manager_.SetNegativeUploadRate(1.0);
   // Request with id 1.
   EXPECT_TRUE(download_manager_.StartUploadRequest(
-      *(form_structures[0]), true, ServerFieldTypeSet()));
+      *(form_structures[0]), true, ServerFieldTypeSet(), std::string()));
   // Request with id 2.
   EXPECT_TRUE(download_manager_.StartUploadRequest(
-      *(form_structures[1]), false, ServerFieldTypeSet()));
+      *(form_structures[1]), false, ServerFieldTypeSet(), std::string()));
+  // Request with id 3. Upload request with a non-empty additional password form
+  // signature.
+  EXPECT_TRUE(download_manager_.StartUploadRequest(*(form_structures[2]), false,
+                                                   ServerFieldTypeSet(), "42"));
 
   const char *responses[] = {
     "<autofillqueryresponse>"
@@ -238,7 +274,7 @@ TEST_F(AutofillDownloadTest, QueryAndUploadTest) {
   fetcher = factory.GetFetcherByID(0);
   ASSERT_TRUE(fetcher);
   FakeOnURLFetchComplete(fetcher, 200, std::string(responses[0]));
-  EXPECT_EQ(static_cast<size_t>(3), responses_.size());
+  EXPECT_EQ(3U, responses_.size());
 
   EXPECT_EQ(AutofillDownloadTest::UPLOAD_SUCCESSFULL,
             responses_.front().type_of_response);
@@ -269,10 +305,10 @@ TEST_F(AutofillDownloadTest, QueryAndUploadTest) {
   download_manager_.SetNegativeUploadRate(0.0);
   // No actual requests for the next two calls, as we set upload rate to 0%.
   EXPECT_FALSE(download_manager_.StartUploadRequest(
-      *(form_structures[0]), true, ServerFieldTypeSet()));
+      *(form_structures[0]), true, ServerFieldTypeSet(), std::string()));
   EXPECT_FALSE(download_manager_.StartUploadRequest(
-      *(form_structures[1]), false, ServerFieldTypeSet()));
-  fetcher = factory.GetFetcherByID(3);
+      *(form_structures[1]), false, ServerFieldTypeSet(), std::string()));
+  fetcher = factory.GetFetcherByID(4);
   EXPECT_EQ(NULL, fetcher);
 
   // Modify form structures to miss the cache.
@@ -283,9 +319,9 @@ TEST_F(AutofillDownloadTest, QueryAndUploadTest) {
   form_structure = new FormStructure(form);
   form_structures.push_back(form_structure);
 
-  // Request with id 3.
+  // Request with id 4.
   EXPECT_TRUE(download_manager_.StartQueryRequest(form_structures.get()));
-  fetcher = factory.GetFetcherByID(3);
+  fetcher = factory.GetFetcherByID(4);
   ASSERT_TRUE(fetcher);
   histogram.ExpectUniqueSample("Autofill.ServerQueryResponse",
                                AutofillMetrics::QUERY_SENT, 2);
@@ -301,7 +337,7 @@ TEST_F(AutofillDownloadTest, QueryAndUploadTest) {
 
   // Query requests should be ignored for the next 10 seconds.
   EXPECT_FALSE(download_manager_.StartQueryRequest(form_structures.get()));
-  fetcher = factory.GetFetcherByID(4);
+  fetcher = factory.GetFetcherByID(5);
   EXPECT_EQ(NULL, fetcher);
   histogram.ExpectUniqueSample("Autofill.ServerQueryResponse",
                                AutofillMetrics::QUERY_SENT, 2);
@@ -310,8 +346,8 @@ TEST_F(AutofillDownloadTest, QueryAndUploadTest) {
   form_structures[0]->upload_required_ = UPLOAD_REQUIRED;
   // Request with id 4.
   EXPECT_TRUE(download_manager_.StartUploadRequest(
-      *(form_structures[0]), true, ServerFieldTypeSet()));
-  fetcher = factory.GetFetcherByID(4);
+      *(form_structures[0]), true, ServerFieldTypeSet(), std::string()));
+  fetcher = factory.GetFetcherByID(5);
   ASSERT_TRUE(fetcher);
   fetcher->set_backoff_delay(TestTimeouts::action_max_timeout());
   FakeOnURLFetchComplete(fetcher, 503, std::string(responses[2]));
@@ -322,9 +358,56 @@ TEST_F(AutofillDownloadTest, QueryAndUploadTest) {
 
   // Upload requests should be ignored for the next 10 seconds.
   EXPECT_FALSE(download_manager_.StartUploadRequest(
-      *(form_structures[0]), true, ServerFieldTypeSet()));
-  fetcher = factory.GetFetcherByID(5);
+      *(form_structures[0]), true, ServerFieldTypeSet(), std::string()));
+  fetcher = factory.GetFetcherByID(6);
   EXPECT_EQ(NULL, fetcher);
+}
+
+TEST_F(AutofillDownloadTest, QueryTooManyFieldsTest) {
+  // Create and register factory.
+  net::TestURLFetcherFactory factory;
+
+  // Create a query that contains too many fields for the server.
+  std::vector<FormData> forms(21);
+  ScopedVector<FormStructure> form_structures;
+  for (auto& form : forms) {
+    for (size_t i = 0; i < 5; ++i) {
+      FormFieldData field;
+      field.label = base::IntToString16(i);
+      field.name = base::IntToString16(i);
+      field.form_control_type = "text";
+      form.fields.push_back(field);
+    }
+    FormStructure* form_structure = new FormStructure(form);
+    form_structures.push_back(form_structure);
+  }
+
+  // Check whether the query is aborted.
+  EXPECT_FALSE(download_manager_.StartQueryRequest(form_structures.get()));
+}
+
+TEST_F(AutofillDownloadTest, QueryNotTooManyFieldsTest) {
+  // Create and register factory.
+  net::TestURLFetcherFactory factory;
+
+  // Create a query that contains a lot of fields, but not too many for the
+  // server.
+  std::vector<FormData> forms(25);
+  ScopedVector<FormStructure> form_structures;
+  for (auto& form : forms) {
+    for (size_t i = 0; i < 4; ++i) {
+      FormFieldData field;
+      field.label = base::IntToString16(i);
+      field.name = base::IntToString16(i);
+      field.form_control_type = "text";
+      form.fields.push_back(field);
+    }
+    FormStructure* form_structure = new FormStructure(form);
+    form_structures.push_back(form_structure);
+  }
+
+  // Check that the query is not aborted.
+  EXPECT_TRUE(download_manager_.StartQueryRequest(form_structures.get()));
 }
 
 TEST_F(AutofillDownloadTest, CacheQueryTest) {
@@ -400,12 +483,12 @@ TEST_F(AutofillDownloadTest, CacheQueryTest) {
                                AutofillMetrics::QUERY_SENT, 1);
 
   // No responses yet
-  EXPECT_EQ(static_cast<size_t>(0), responses_.size());
+  EXPECT_EQ(0U, responses_.size());
 
   net::TestURLFetcher* fetcher = factory.GetFetcherByID(0);
   ASSERT_TRUE(fetcher);
   FakeOnURLFetchComplete(fetcher, 200, std::string(responses[0]));
-  ASSERT_EQ(static_cast<size_t>(1), responses_.size());
+  ASSERT_EQ(1U, responses_.size());
   EXPECT_EQ(responses[0], responses_.front().response);
 
   responses_.clear();
@@ -415,7 +498,7 @@ TEST_F(AutofillDownloadTest, CacheQueryTest) {
   histogram.ExpectUniqueSample("Autofill.ServerQueryResponse",
                                AutofillMetrics::QUERY_SENT, 2);
   // Data is available immediately from cache - no over-the-wire trip.
-  ASSERT_EQ(static_cast<size_t>(1), responses_.size());
+  ASSERT_EQ(1U, responses_.size());
   EXPECT_EQ(responses[0], responses_.front().response);
   responses_.clear();
 
@@ -424,12 +507,12 @@ TEST_F(AutofillDownloadTest, CacheQueryTest) {
   histogram.ExpectUniqueSample("Autofill.ServerQueryResponse",
                                AutofillMetrics::QUERY_SENT, 3);
   // No responses yet
-  EXPECT_EQ(static_cast<size_t>(0), responses_.size());
+  EXPECT_EQ(0U, responses_.size());
 
   fetcher = factory.GetFetcherByID(1);
   ASSERT_TRUE(fetcher);
   FakeOnURLFetchComplete(fetcher, 200, std::string(responses[1]));
-  ASSERT_EQ(static_cast<size_t>(1), responses_.size());
+  ASSERT_EQ(1U, responses_.size());
   EXPECT_EQ(responses[1], responses_.front().response);
 
   responses_.clear();
@@ -442,7 +525,7 @@ TEST_F(AutofillDownloadTest, CacheQueryTest) {
   fetcher = factory.GetFetcherByID(2);
   ASSERT_TRUE(fetcher);
   FakeOnURLFetchComplete(fetcher, 200, std::string(responses[2]));
-  ASSERT_EQ(static_cast<size_t>(1), responses_.size());
+  ASSERT_EQ(1U, responses_.size());
   EXPECT_EQ(responses[2], responses_.front().response);
 
   responses_.clear();
@@ -456,7 +539,7 @@ TEST_F(AutofillDownloadTest, CacheQueryTest) {
   histogram.ExpectUniqueSample("Autofill.ServerQueryResponse",
                                AutofillMetrics::QUERY_SENT, 6);
 
-  ASSERT_EQ(static_cast<size_t>(2), responses_.size());
+  ASSERT_EQ(2U, responses_.size());
   EXPECT_EQ(responses[1], responses_.front().response);
   EXPECT_EQ(responses[2], responses_.back().response);
   responses_.clear();
@@ -467,13 +550,128 @@ TEST_F(AutofillDownloadTest, CacheQueryTest) {
   histogram.ExpectUniqueSample("Autofill.ServerQueryResponse",
                                AutofillMetrics::QUERY_SENT, 7);
   // No responses yet
-  EXPECT_EQ(static_cast<size_t>(0), responses_.size());
+  EXPECT_EQ(0U, responses_.size());
 
   fetcher = factory.GetFetcherByID(3);
   ASSERT_TRUE(fetcher);
   FakeOnURLFetchComplete(fetcher, 200, std::string(responses[0]));
-  ASSERT_EQ(static_cast<size_t>(1), responses_.size());
+  ASSERT_EQ(1U, responses_.size());
   EXPECT_EQ(responses[0], responses_.front().response);
+}
+
+TEST_F(AutofillDownloadTest, QueryRequestIsGzipped) {
+  // Expected query (uncompressed for visual verification).
+  const char* kExpectedQueryXml =
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+      "<autofillquery clientversion=\"6.1.1715.1442/en (GGLL)\">"
+      "<form signature=\"14546501144368603154\">"
+      "<field signature=\"239111655\"/>"
+      "<field signature=\"3763331450\"/>"
+      "<field signature=\"3494530716\"/>"
+      "</form></autofillquery>";
+
+  // Create and register factory.
+  net::TestURLFetcherFactory factory;
+
+  FormData form;
+
+  FormFieldData field;
+  field.form_control_type = "text";
+
+  field.label = ASCIIToUTF16("username");
+  field.name = ASCIIToUTF16("username");
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("First Name");
+  field.name = ASCIIToUTF16("firstname");
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("Last Name");
+  field.name = ASCIIToUTF16("lastname");
+  form.fields.push_back(field);
+
+  FormStructure* form_structure = new FormStructure(form);
+  ScopedVector<FormStructure> form_structures;
+  form_structures.push_back(form_structure);
+
+  base::HistogramTester histogram;
+  // Request with id 0.
+  EXPECT_TRUE(download_manager_.StartQueryRequest(form_structures.get()));
+  histogram.ExpectUniqueSample("Autofill.ServerQueryResponse",
+                               AutofillMetrics::QUERY_SENT, 1);
+
+  // Request payload is gzipped.
+  net::TestURLFetcher* fetcher = factory.GetFetcherByID(0);
+  ASSERT_TRUE(fetcher);
+  EXPECT_EQ(Compress(kExpectedQueryXml), fetcher->upload_data());
+
+  // Proper content-encoding header is defined.
+  net::HttpRequestHeaders headers;
+  fetcher->GetExtraRequestHeaders(&headers);
+  std::string header;
+  EXPECT_TRUE(headers.GetHeader("content-encoding", &header));
+  EXPECT_EQ("gzip", header);
+
+  // Expect that the compression is logged.
+  histogram.ExpectUniqueSample("Autofill.PayloadCompressionRatio.Query", 73, 1);
+}
+
+TEST_F(AutofillDownloadTest, UploadRequestIsGzipped) {
+  // Expected upload (uncompressed for visual verification).
+  const char* kExpectedUploadXml =
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+      "<autofillupload clientversion=\"6.1.1715.1442/en (GGLL)\""
+      " formsignature=\"14546501144368603154\" autofillused=\"true\""
+      " datapresent=\"\"/>";
+
+  // Create and register factory.
+  net::TestURLFetcherFactory factory;
+
+  FormData form;
+
+  FormFieldData field;
+  field.form_control_type = "text";
+
+  field.label = ASCIIToUTF16("username");
+  field.name = ASCIIToUTF16("username");
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("First Name");
+  field.name = ASCIIToUTF16("firstname");
+  form.fields.push_back(field);
+
+  field.label = ASCIIToUTF16("Last Name");
+  field.name = ASCIIToUTF16("lastname");
+  form.fields.push_back(field);
+
+  FormStructure* form_structure = new FormStructure(form);
+  ScopedVector<FormStructure> form_structures;
+  form_structures.push_back(form_structure);
+
+  // Set upload to 100% so requests happen.
+  download_manager_.SetPositiveUploadRate(1.0);
+  download_manager_.SetNegativeUploadRate(1.0);
+
+  base::HistogramTester histogram;
+  // Request with id 0.
+  EXPECT_TRUE(download_manager_.StartUploadRequest(
+      *(form_structures[0]), true, ServerFieldTypeSet(), std::string()));
+
+  // Request payload is gzipped.
+  net::TestURLFetcher* fetcher = factory.GetFetcherByID(0);
+  ASSERT_TRUE(fetcher);
+  EXPECT_EQ(Compress(kExpectedUploadXml), fetcher->upload_data());
+
+  // Proper content-encoding header is defined.
+  net::HttpRequestHeaders headers;
+  fetcher->GetExtraRequestHeaders(&headers);
+  std::string header;
+  EXPECT_TRUE(headers.GetHeader("content-encoding", &header));
+  EXPECT_EQ("gzip", header);
+
+  // Expect that the compression is logged.
+  histogram.ExpectUniqueSample("Autofill.PayloadCompressionRatio.Upload", 92,
+                               1);
 }
 
 }  // namespace autofill

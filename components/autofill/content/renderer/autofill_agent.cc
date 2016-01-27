@@ -23,6 +23,7 @@
 #include "components/autofill/core/common/autofill_constants.h"
 #include "components/autofill/core/common/autofill_data_validation.h"
 #include "components/autofill/core/common/autofill_switches.h"
+#include "components/autofill/core/common/autofill_util.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/form_data_predictions.h"
 #include "components/autofill/core/common/form_field_data.h"
@@ -77,26 +78,25 @@ namespace {
 // Gets all the data list values (with corresponding label) for the given
 // element.
 void GetDataListSuggestions(const WebInputElement& element,
-                            bool ignore_current_value,
                             std::vector<base::string16>* values,
                             std::vector<base::string16>* labels) {
   WebElementCollection options = element.dataListOptions();
   if (options.isNull())
     return;
 
-  base::string16 prefix;
-  if (!ignore_current_value) {
-    prefix = element.editingValue();
-    if (element.isMultiple() && element.isEmailField()) {
-      const base::char16 comma[2] = { ',', 0 };
-      std::vector<base::string16> parts = base::SplitString(
-          prefix, comma, base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
-      if (parts.size() > 0) {
-        base::TrimWhitespace(parts[parts.size() - 1], base::TRIM_LEADING,
-                             &prefix);
-      }
+  // If the field accepts multiple email addresses, filter only on the last one.
+  base::string16 prefix = element.editingValue();
+  if (element.isMultiple() && element.isEmailField()) {
+    std::vector<base::string16> parts = base::SplitString(
+        prefix, base::ASCIIToUTF16(","), base::TRIM_WHITESPACE,
+        base::SPLIT_WANT_ALL);
+    if (!parts.empty()) {
+      base::TrimWhitespace(parts[parts.size() - 1], base::TRIM_LEADING,
+                           &prefix);
     }
   }
+
+  // Prefix filtering.
   prefix = base::i18n::ToLower(prefix);
   for (WebOptionElement option = options.firstItem().to<WebOptionElement>();
        !option.isNull(); option = options.nextItem().to<WebOptionElement>()) {
@@ -127,21 +127,11 @@ void TrimStringVectorForIPC(std::vector<base::string16>* strings) {
   }
 }
 
-// Extract FormData from the form element and return whether the operation was
-// successful.
-bool ExtractFormDataOnSave(const WebFormElement& form_element, FormData* data) {
-  return WebFormElementToFormData(
-      form_element, WebFormControlElement(),
-      static_cast<ExtractMask>(EXTRACT_VALUE | EXTRACT_OPTION_TEXT), data,
-      NULL);
-}
-
 }  // namespace
 
 AutofillAgent::ShowSuggestionsOptions::ShowSuggestionsOptions()
     : autofill_on_empty_values(false),
       requires_caret_at_end(false),
-      datalist_only(false),
       show_full_suggestion_list(false),
       show_password_suggestions_only(false) {
 }
@@ -182,7 +172,7 @@ bool AutofillAgent::FormDataCompare::operator()(const FormData& lhs,
     return lhs.action < rhs.action;
   if (lhs.is_form_tag != rhs.is_form_tag)
     return lhs.is_form_tag < rhs.is_form_tag;
-  return lhs.fields < rhs.fields;
+  return false;
 }
 
 bool AutofillAgent::OnMessageReceived(const IPC::Message& message) {
@@ -190,7 +180,6 @@ bool AutofillAgent::OnMessageReceived(const IPC::Message& message) {
   IPC_BEGIN_MESSAGE_MAP(AutofillAgent, message)
   IPC_MESSAGE_HANDLER(AutofillMsg_FirstUserGestureObservedInTab,
                       OnFirstUserGestureObservedInTab)
-    IPC_MESSAGE_HANDLER(AutofillMsg_Ping, OnPing)
     IPC_MESSAGE_HANDLER(AutofillMsg_FillForm, OnFillForm)
     IPC_MESSAGE_HANDLER(AutofillMsg_PreviewForm, OnPreviewForm)
     IPC_MESSAGE_HANDLER(AutofillMsg_FieldTypePredictionsAvailable,
@@ -215,8 +204,20 @@ bool AutofillAgent::OnMessageReceived(const IPC::Message& message) {
 
 void AutofillAgent::DidCommitProvisionalLoad(bool is_new_navigation,
                                              bool is_same_page_navigation) {
-  form_cache_.Reset();
-  submitted_forms_.clear();
+  blink::WebFrame* frame = render_frame()->GetWebFrame();
+  // TODO(dvadym): check if we need to check if it is main frame navigation
+  // http://crbug.com/443155
+  if (frame->parent())
+    return;  // Not a top-level navigation.
+
+  if (is_same_page_navigation) {
+    OnSamePageNavigationCompleted();
+  } else {
+    // Navigation to a new page or a page refresh.
+    form_cache_.Reset();
+    submitted_forms_.clear();
+    last_interacted_form_.reset();
+  }
 }
 
 void AutofillAgent::DidFinishDocumentLoad() {
@@ -225,7 +226,7 @@ void AutofillAgent::DidFinishDocumentLoad() {
 
 void AutofillAgent::WillSendSubmitEvent(const WebFormElement& form) {
   FormData form_data;
-  if (!ExtractFormDataOnSave(form, &form_data))
+  if (!form_util::ExtractFormData(form, &form_data))
     return;
 
   // The WillSendSubmitEvent function is called when there is a submit handler
@@ -235,14 +236,16 @@ void AutofillAgent::WillSendSubmitEvent(const WebFormElement& form) {
   // no additional message is sent if AutofillAgent::WillSubmitForm() is called
   // (which is itself not guaranteed if the submit event is prevented by
   // JavaScript).
-  Send(new AutofillHostMsg_WillSubmitForm(routing_id(), form_data,
-                                          base::TimeTicks::Now()));
-  submitted_forms_.insert(form_data);
+  if (!submitted_forms_.count(form_data)) {
+    Send(new AutofillHostMsg_WillSubmitForm(routing_id(), form_data,
+                                            base::TimeTicks::Now()));
+    submitted_forms_.insert(form_data);
+  }
 }
 
 void AutofillAgent::WillSubmitForm(const WebFormElement& form) {
   FormData form_data;
-  if (!ExtractFormDataOnSave(form, &form_data))
+  if (!form_util::ExtractFormData(form, &form_data))
     return;
 
   // If WillSubmitForm message had not been sent for this form, send it.
@@ -255,10 +258,9 @@ void AutofillAgent::WillSubmitForm(const WebFormElement& form) {
 }
 
 void AutofillAgent::DidChangeScrollOffset() {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableAccessorySuggestionView)) {
+  if (IsKeyboardAccessoryEnabled())
     return;
-  }
+
   HidePopup();
 }
 
@@ -314,14 +316,12 @@ void AutofillAgent::didRequestAutocomplete(
   } else if (!is_safe && !allow_unsafe) {
     error_message =
         "must use a secure connection or --reduce-security-for-testing.";
-  } else if (!WebFormElementToFormData(form,
-                                       WebFormControlElement(),
-                                       static_cast<ExtractMask>(
-                                           EXTRACT_VALUE |
-                                           EXTRACT_OPTION_TEXT |
-                                           EXTRACT_OPTIONS),
-                                       &form_data,
-                                       NULL)) {
+  } else if (!WebFormElementToFormData(
+                 form, WebFormControlElement(),
+                 static_cast<form_util::ExtractMask>(
+                     form_util::EXTRACT_VALUE | form_util::EXTRACT_OPTION_TEXT |
+                     form_util::EXTRACT_OPTIONS),
+                 &form_data, NULL)) {
     error_message = "failed to parse form.";
   }
 
@@ -356,7 +356,7 @@ void AutofillAgent::FormControlElementClicked(
     return;
 
   const WebInputElement* input_element = toWebInputElement(&element);
-  if (!input_element && !IsTextAreaElement(element))
+  if (!input_element && !form_util::IsTextAreaElement(element))
     return;
 
   ShowSuggestionsOptions options;
@@ -393,11 +393,15 @@ void AutofillAgent::textFieldDidEndEditing(const WebInputElement& element) {
 }
 
 void AutofillAgent::textFieldDidChange(const WebFormControlElement& element) {
-  DCHECK(toWebInputElement(&element) || IsTextAreaElement(element));
+  DCHECK(toWebInputElement(&element) || form_util::IsTextAreaElement(element));
+
   if (ignore_text_changes_)
     return;
 
-  if (!IsUserGesture())
+  // Disregard text changes that aren't caused by user gestures or pastes. Note
+  // that pastes aren't necessarily user gestures because Blink's conception of
+  // user gestures is centered around creating new windows/tabs.
+  if (!IsUserGesture() && !render_frame()->IsPasting())
     return;
 
   // We post a task for doing the Autofill as the caret position is not set
@@ -418,6 +422,10 @@ void AutofillAgent::TextFieldDidChangeImpl(
 
   const WebInputElement* input_element = toWebInputElement(&element);
   if (input_element) {
+    // Remember the last form the user interacted with.
+    if (!element.form().isNull())
+      last_interacted_form_ = element.form();
+
     // |password_autofill_agent_| keeps track of all text changes even if
     // it isn't displaying UI.
     password_autofill_agent_->UpdateStateForTextChange(*input_element);
@@ -441,7 +449,8 @@ void AutofillAgent::TextFieldDidChangeImpl(
 
   FormData form;
   FormFieldData field;
-  if (FindFormAndFieldForFormControlElement(element, &form, &field)) {
+  if (form_util::FindFormAndFieldForFormControlElement(element, &form,
+                                                       &field)) {
     Send(new AutofillHostMsg_TextFieldDidChange(routing_id(), form, field,
                                                 base::TimeTicks::Now()));
   }
@@ -461,7 +470,6 @@ void AutofillAgent::textFieldDidReceiveKeyDown(const WebInputElement& element,
 void AutofillAgent::openTextDataListChooser(const WebInputElement& element) {
   ShowSuggestionsOptions options;
   options.autofill_on_empty_values = true;
-  options.datalist_only = true;
   ShowSuggestions(element, options);
 }
 
@@ -485,10 +493,9 @@ void AutofillAgent::AcceptDataListSuggestion(
   // If this element takes multiple values then replace the last part with
   // the suggestion.
   if (input_element->isMultiple() && input_element->isEmailField()) {
-    std::vector<base::string16> parts;
-
-    base::SplitStringDontTrim(
-        base::StringPiece16(input_element->editingValue()), ',', &parts);
+    std::vector<base::string16> parts = base::SplitString(
+        base::StringPiece16(input_element->editingValue()),
+        base::ASCIIToUTF16(","), base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
     if (parts.size() == 0)
       parts.push_back(base::string16());
 
@@ -503,7 +510,7 @@ void AutofillAgent::AcceptDataListSuggestion(
     last_part.append(suggested_value);
     parts[parts.size() - 1] = last_part;
 
-    new_value = JoinString(parts, ',');
+    new_value = base::JoinString(parts, base::ASCIIToUTF16(","));
   }
   FillFieldWithValue(new_value, input_element);
 }
@@ -520,7 +527,10 @@ void AutofillAgent::OnFillForm(int query_id, const FormData& form) {
     return;
 
   was_query_node_autofilled_ = element_.isAutofilled();
-  FillForm(form, element_);
+  form_util::FillForm(form, element_);
+  if (!element_.form().isNull())
+    last_interacted_form_ = element_.form();
+
   Send(new AutofillHostMsg_DidFillAutofillFormData(routing_id(),
                                                    base::TimeTicks::Now()));
 }
@@ -538,7 +548,7 @@ void AutofillAgent::OnPreviewForm(int query_id, const FormData& form) {
     return;
 
   was_query_node_autofilled_ = element_.isAutofilled();
-  PreviewForm(form, element_);
+  form_util::PreviewForm(form, element_);
   Send(new AutofillHostMsg_DidPreviewAutofillFormData(routing_id()));
 }
 
@@ -551,7 +561,8 @@ void AutofillAgent::OnClearPreviewedForm() {
     if (password_autofill_agent_->DidClearAutofillSelection(element_))
       return;
 
-    ClearPreviewedFormWithElement(element_, was_query_node_autofilled_);
+    form_util::ClearPreviewedFormWithElement(element_,
+                                             was_query_node_autofilled_);
   } else {
     // TODO(isherman): There seem to be rare cases where this code *is*
     // reachable: see [ http://crbug.com/96321#c6 ].  Ideally we would
@@ -599,6 +610,21 @@ void AutofillAgent::OnPreviewPasswordSuggestion(
   DCHECK(handled);
 }
 
+void AutofillAgent::OnSamePageNavigationCompleted() {
+  if (last_interacted_form_.isNull())
+    return;
+
+  // Assume form submission only if the form is now gone, either invisible or
+  // removed from the DOM.
+  if (form_util::AreFormContentsVisible(last_interacted_form_))
+    return;
+
+  // Could not find a visible form equal to our saved form, assume submission.
+  WillSendSubmitEvent(last_interacted_form_);
+  WillSubmitForm(last_interacted_form_);
+  last_interacted_form_.reset();
+}
+
 void AutofillAgent::OnRequestAutocompleteResult(
     WebFormElement::AutocompleteResult result,
     const base::string16& message,
@@ -607,7 +633,8 @@ void AutofillAgent::OnRequestAutocompleteResult(
     return;
 
   if (result == WebFormElement::AutocompleteResultSuccess) {
-    FillFormIncludingNonFocusableElements(form_data, in_flight_request_form_);
+    form_util::FillFormIncludingNonFocusableElements(form_data,
+                                                     in_flight_request_form_);
     if (!in_flight_request_form_.checkValidity())
       result = WebFormElement::AutocompleteResultErrorInvalid;
   }
@@ -629,17 +656,17 @@ void AutofillAgent::ShowSuggestions(const WebFormControlElement& element,
                                     const ShowSuggestionsOptions& options) {
   if (!element.isEnabled() || element.isReadOnly())
     return;
-  if (!options.datalist_only && !element.suggestedValue().isEmpty())
+  if (!element.suggestedValue().isEmpty())
     return;
 
   const WebInputElement* input_element = toWebInputElement(&element);
   if (input_element) {
     if (!input_element->isTextField())
       return;
-    if (!options.datalist_only && !input_element->suggestedValue().isEmpty())
+    if (!input_element->suggestedValue().isEmpty())
       return;
   } else {
-    DCHECK(IsTextAreaElement(element));
+    DCHECK(form_util::IsTextAreaElement(element));
     if (!element.toConst<WebTextAreaElement>().suggestedValue().isEmpty())
       return;
   }
@@ -647,19 +674,18 @@ void AutofillAgent::ShowSuggestions(const WebFormControlElement& element,
   // Don't attempt to autofill with values that are too large or if filling
   // criteria are not met.
   WebString value = element.editingValue();
-  if (!options.datalist_only &&
-      (value.length() > kMaxDataLength ||
-       (!options.autofill_on_empty_values && value.isEmpty()) ||
-       (options.requires_caret_at_end &&
-        (element.selectionStart() != element.selectionEnd() ||
-         element.selectionEnd() != static_cast<int>(value.length()))))) {
+  if (value.length() > kMaxDataLength ||
+      (!options.autofill_on_empty_values && value.isEmpty()) ||
+      (options.requires_caret_at_end &&
+       (element.selectionStart() != element.selectionEnd() ||
+        element.selectionEnd() != static_cast<int>(value.length())))) {
     // Any popup currently showing is obsolete.
     HidePopup();
     return;
   }
 
   element_ = element;
-  if (IsAutofillableInputElement(input_element) &&
+  if (form_util::IsAutofillableInputElement(input_element) &&
       password_autofill_agent_->ShowSuggestions(
           *input_element, options.show_full_suggestion_list,
           is_generation_popup_possibly_visible_)) {
@@ -678,31 +704,29 @@ void AutofillAgent::ShowSuggestions(const WebFormControlElement& element,
   if (input_element && input_element->isPasswordField())
     return;
 
-  QueryAutofillSuggestions(element, options.datalist_only);
+  QueryAutofillSuggestions(element);
 }
 
 void AutofillAgent::QueryAutofillSuggestions(
-    const WebFormControlElement& element,
-    bool datalist_only) {
+    const WebFormControlElement& element) {
   if (!element.document().frame())
     return;
 
-  DCHECK(toWebInputElement(&element) || IsTextAreaElement(element));
+  DCHECK(toWebInputElement(&element) || form_util::IsTextAreaElement(element));
 
   static int query_counter = 0;
   autofill_query_id_ = query_counter++;
 
   FormData form;
   FormFieldData field;
-  if (!FindFormAndFieldForFormControlElement(element, &form, &field)) {
+  if (!form_util::FindFormAndFieldForFormControlElement(element, &form,
+                                                        &field)) {
     // If we didn't find the cached form, at least let autocomplete have a shot
     // at providing suggestions.
-    WebFormControlElementToFormField(element, EXTRACT_VALUE, &field);
+    WebFormControlElementToFormField(element, form_util::EXTRACT_VALUE, &field);
   }
-  if (datalist_only)
-    field.should_autocomplete = false;
 
-  gfx::RectF bounding_box_scaled = GetScaledBoundingBox(
+  gfx::RectF bounding_box_scaled = form_util::GetScaledBoundingBox(
       render_frame()->GetRenderView()->GetWebView()->pageScaleFactor(),
       &element_);
 
@@ -712,7 +736,6 @@ void AutofillAgent::QueryAutofillSuggestions(
   if (input_element) {
     // Find the datalist values and send them to the browser process.
     GetDataListSuggestions(*input_element,
-                           datalist_only,
                            &data_list_values,
                            &data_list_labels);
     TrimStringVectorForIPC(&data_list_values);
@@ -739,8 +762,7 @@ void AutofillAgent::PreviewFieldWithValue(const base::string16& value,
   was_query_node_autofilled_ = element_.isAutofilled();
   node->setSuggestedValue(value.substr(0, node->maxLength()));
   node->setAutofilled(true);
-  node->setSelectionRange(node->value().length(),
-                          node->suggestedValue().length());
+  form_util::PreviewSuggestion(node->suggestedValue(), node->value(), node);
 }
 
 void AutofillAgent::ProcessForms() {
@@ -788,6 +810,7 @@ void AutofillAgent::didAssociateFormControls(const WebVector<WebNode>& nodes) {
 }
 
 void AutofillAgent::ajaxSucceeded() {
+  OnSamePageNavigationCompleted();
   password_autofill_agent_->AJAXSucceeded();
 }
 

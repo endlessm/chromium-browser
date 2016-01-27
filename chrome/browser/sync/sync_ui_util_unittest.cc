@@ -6,12 +6,14 @@
 #include "base/basictypes.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/fake_signin_manager.h"
+#include "chrome/browser/signin/account_tracker_service_factory.h"
+#include "chrome/browser/signin/chrome_signin_client_factory.h"
 #include "chrome/browser/signin/signin_error_controller_factory.h"
 #include "chrome/browser/sync/profile_sync_service_mock.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/signin/core/browser/fake_auth_status_provider.h"
+#include "components/signin/core/browser/fake_signin_manager.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "content/public/test/test_browser_thread.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -152,7 +154,9 @@ TEST_F(SyncUIUtilTest, AuthStateGlobalError) {
     GoogleServiceAuthError::HOSTED_NOT_ALLOWED
   };
 
-  FakeSigninManagerBase signin(profile.get());
+  FakeSigninManagerBase signin(
+      ChromeSigninClientFactory::GetForProfile(profile.get()),
+      AccountTrackerServiceFactory::GetForProfile(profile.get()));
   for (size_t i = 0; i < arraysize(table); ++i) {
     VerifySyncGlobalErrorResult(&service,
                                 table[i],
@@ -177,7 +181,10 @@ TEST_F(SyncUIUtilTest, AuthStateGlobalError) {
 class FakeSigninManagerForSyncUIUtilTest : public FakeSigninManagerBase {
  public:
   explicit FakeSigninManagerForSyncUIUtilTest(Profile* profile)
-      : FakeSigninManagerBase(profile), auth_in_progress_(false) {
+      : FakeSigninManagerBase(
+            ChromeSigninClientFactory::GetForProfile(profile),
+            AccountTrackerServiceFactory::GetForProfile(profile)),
+        auth_in_progress_(false) {
     Initialize(NULL);
   }
 
@@ -206,7 +213,7 @@ void GetDistinctCase(ProfileSyncServiceMock& service,
     case STATUS_CASE_SETUP_IN_PROGRESS: {
       EXPECT_CALL(service, HasSyncSetupCompleted())
                   .WillRepeatedly(Return(false));
-      EXPECT_CALL(service, FirstSetupInProgress())
+      EXPECT_CALL(service, IsFirstSetupInProgress())
                   .WillRepeatedly(Return(true));
       browser_sync::SyncBackendHost::Status status;
       EXPECT_CALL(service, QueryDetailedSyncStatus(_))
@@ -217,7 +224,7 @@ void GetDistinctCase(ProfileSyncServiceMock& service,
    case STATUS_CASE_SETUP_ERROR: {
       EXPECT_CALL(service, HasSyncSetupCompleted())
                   .WillRepeatedly(Return(false));
-      EXPECT_CALL(service, FirstSetupInProgress())
+      EXPECT_CALL(service, IsFirstSetupInProgress())
                   .WillRepeatedly(Return(false));
       EXPECT_CALL(service, HasUnrecoverableError())
                   .WillRepeatedly(Return(true));
@@ -345,10 +352,8 @@ TEST_F(SyncUIUtilTest, DistinctCasesReportUniqueMessageSets) {
     GetDistinctCase(service, &signin, provider.get(), idx);
     base::string16 status_label;
     base::string16 link_label;
-    sync_ui_util::GetStatusLabels(&service,
-                                  signin,
-                                  sync_ui_util::WITH_HTML,
-                                  &status_label,
+    sync_ui_util::GetStatusLabels(profile.get(), &service, signin,
+                                  sync_ui_util::WITH_HTML, &status_label,
                                   &link_label);
     // If the status and link message combination is already present in the set
     // of messages already seen, this is a duplicate rather than a unique
@@ -384,10 +389,8 @@ TEST_F(SyncUIUtilTest, HtmlNotIncludedInStatusIfNotRequested) {
     GetDistinctCase(service, &signin, provider.get(), idx);
     base::string16 status_label;
     base::string16 link_label;
-    sync_ui_util::GetStatusLabels(&service,
-                                  signin,
-                                  sync_ui_util::PLAIN_TEXT,
-                                  &status_label,
+    sync_ui_util::GetStatusLabels(profile.get(), &service, signin,
+                                  sync_ui_util::PLAIN_TEXT, &status_label,
                                   &link_label);
 
     // Ensures a search for string 'href' (found in links, not a string to be

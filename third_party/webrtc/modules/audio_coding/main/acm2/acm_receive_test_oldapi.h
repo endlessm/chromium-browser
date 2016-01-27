@@ -13,10 +13,11 @@
 
 #include "webrtc/base/constructormagic.h"
 #include "webrtc/base/scoped_ptr.h"
-#include "webrtc/system_wrappers/interface/clock.h"
+#include "webrtc/system_wrappers/include/clock.h"
 
 namespace webrtc {
 class AudioCodingModule;
+class AudioDecoder;
 struct CodecInst;
 
 namespace test {
@@ -44,6 +45,11 @@ class AcmReceiveTestOldApi {
   // files.
   void RegisterNetEqTestCodecs();
 
+  int RegisterExternalReceiveCodec(int rtp_payload_type,
+                                   AudioDecoder* external_decoder,
+                                   int sample_rate_hz,
+                                   int num_channels);
+
   // Runs the test and returns true if successful.
   void Run();
 
@@ -58,7 +64,7 @@ class AcmReceiveTestOldApi {
   int output_freq_hz_;
   NumOutputChannels exptected_output_channels_;
 
-  DISALLOW_COPY_AND_ASSIGN(AcmReceiveTestOldApi);
+  RTC_DISALLOW_COPY_AND_ASSIGN(AcmReceiveTestOldApi);
 };
 
 // This test toggles the output frequency every |toggle_period_ms|. The test

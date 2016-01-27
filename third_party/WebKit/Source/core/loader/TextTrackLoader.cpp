@@ -100,7 +100,7 @@ void TextTrackLoader::notifyFinished(Resource* resource)
         m_cueParser->flush();
 
     if (!m_cueLoadTimer.isActive())
-        m_cueLoadTimer.startOneShot(0, FROM_HERE);
+        m_cueLoadTimer.startOneShot(0, BLINK_FROM_HERE);
 
     cancelLoad();
 }
@@ -113,7 +113,7 @@ bool TextTrackLoader::load(const KURL& url, const AtomicString& crossOriginMode)
 
     if (!crossOriginMode.isNull()) {
         cueRequest.setCrossOriginAccessControl(document().securityOrigin(), crossOriginMode);
-    } else if (!document().securityOrigin()->canRequest(url)) {
+    } else if (!document().securityOrigin()->canRequestNoSuborigin(url)) {
         // Text track elements without 'crossorigin' set on the parent are "No CORS"; report error if not same-origin.
         corsPolicyPreventedLoad(document().securityOrigin(), url);
         return false;
@@ -130,7 +130,7 @@ void TextTrackLoader::newCuesParsed()
         return;
 
     m_newCuesAvailable = true;
-    m_cueLoadTimer.startOneShot(0, FROM_HERE);
+    m_cueLoadTimer.startOneShot(0, BLINK_FROM_HERE);
 }
 
 void TextTrackLoader::newRegionsParsed()
@@ -145,19 +145,19 @@ void TextTrackLoader::fileFailedToParse()
     m_state = Failed;
 
     if (!m_cueLoadTimer.isActive())
-        m_cueLoadTimer.startOneShot(0, FROM_HERE);
+        m_cueLoadTimer.startOneShot(0, BLINK_FROM_HERE);
 
     cancelLoad();
 }
 
-void TextTrackLoader::getNewCues(WillBeHeapVector<RefPtrWillBeMember<TextTrackCue>>& outputCues)
+void TextTrackLoader::getNewCues(HeapVector<Member<TextTrackCue>>& outputCues)
 {
     ASSERT(m_cueParser);
     if (m_cueParser)
         m_cueParser->getNewCues(outputCues);
 }
 
-void TextTrackLoader::getNewRegions(WillBeHeapVector<RefPtrWillBeMember<VTTRegion>>& outputRegions)
+void TextTrackLoader::getNewRegions(HeapVector<Member<VTTRegion>>& outputRegions)
 {
     ASSERT(m_cueParser);
     if (m_cueParser)

@@ -6,7 +6,6 @@
 
 #include <string>
 
-#include "base/message_loop/message_loop.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/history/history_service_factory.h"
@@ -19,12 +18,11 @@
 #include "components/bookmarks/test/bookmark_test_helpers.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
-#include "content/public/test/test_browser_thread.h"
+#include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using bookmarks::BookmarkMatch;
 using bookmarks::BookmarkModel;
-using content::BrowserThread;
 
 class TestProfileWriter : public ProfileWriter {
  public:
@@ -35,10 +33,7 @@ class TestProfileWriter : public ProfileWriter {
 
 class ProfileWriterTest : public testing::Test {
  public:
-  ProfileWriterTest()
-      : ui_thread_(BrowserThread::UI, &loop_),
-        file_thread_(BrowserThread::FILE, &loop_) {
-  }
+  ProfileWriterTest() {}
   ~ProfileWriterTest() override {}
 
   // Create test bookmark entries to be added to ProfileWriter to
@@ -107,7 +102,7 @@ class ProfileWriterTest : public testing::Test {
   }
 
   void HistoryQueryComplete(history::QueryResults* results) {
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
     history_count_ = results->size();
   }
 
@@ -128,9 +123,7 @@ class ProfileWriterTest : public testing::Test {
     bookmarks_.push_back(entry);
   }
 
-  base::MessageLoop loop_;
-  content::TestBrowserThread ui_thread_;
-  content::TestBrowserThread file_thread_;
+  content::TestBrowserThreadBundle thread_bundle_;
 
   DISALLOW_COPY_AND_ASSIGN(ProfileWriterTest);
 };

@@ -46,6 +46,8 @@
 #elif defined(USE_OZONE)
 #include "media/ozone/media_ozone_platform.h"
 #elif defined(OS_ANDROID)
+#include "content/common/gpu/media/android_copying_backing_strategy.h"
+#include "content/common/gpu/media/android_deferred_rendering_backing_strategy.h"
 #include "content/common/gpu/media/android_video_decode_accelerator.h"
 #endif
 
@@ -149,12 +151,46 @@ GpuVideoDecodeAccelerator::~GpuVideoDecodeAccelerator() {
   DCHECK(!video_decode_accelerator_);
 }
 
+// static
+gpu::VideoDecodeAcceleratorSupportedProfiles
+GpuVideoDecodeAccelerator::GetSupportedProfiles() {
+  media::VideoDecodeAccelerator::SupportedProfiles profiles;
+  const base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
+  if (cmd_line->HasSwitch(switches::kDisableAcceleratedVideoDecode))
+    return gpu::VideoDecodeAcceleratorSupportedProfiles();
+
+  // Query supported profiles for each VDA. The order of querying VDAs should
+  // be the same as the order of initializing VDAs. Then the returned profile
+  // can be initialized by corresponding VDA successfully.
+#if defined(OS_WIN)
+  profiles = DXVAVideoDecodeAccelerator::GetSupportedProfiles();
+#elif defined(OS_CHROMEOS)
+  media::VideoDecodeAccelerator::SupportedProfiles vda_profiles;
+#if defined(USE_V4L2_CODEC)
+  vda_profiles = V4L2VideoDecodeAccelerator::GetSupportedProfiles();
+  GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(vda_profiles, &profiles);
+  vda_profiles = V4L2SliceVideoDecodeAccelerator::GetSupportedProfiles();
+  GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(vda_profiles, &profiles);
+#endif
+#if defined(ARCH_CPU_X86_FAMILY)
+  vda_profiles = VaapiVideoDecodeAccelerator::GetSupportedProfiles();
+  GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(vda_profiles, &profiles);
+#endif
+#elif defined(OS_MACOSX)
+  profiles = VTVideoDecodeAccelerator::GetSupportedProfiles();
+#elif defined(OS_ANDROID)
+  profiles = AndroidVideoDecodeAccelerator::GetSupportedProfiles();
+#endif
+  return GpuVideoAcceleratorUtil::ConvertMediaToGpuDecodeProfiles(profiles);
+}
+
 bool GpuVideoDecodeAccelerator::OnMessageReceived(const IPC::Message& msg) {
   if (!video_decode_accelerator_)
     return false;
 
   bool handled = true;
   IPC_BEGIN_MESSAGE_MAP(GpuVideoDecodeAccelerator, msg)
+    IPC_MESSAGE_HANDLER(AcceleratedVideoDecoderMsg_SetCdm, OnSetCdm)
     IPC_MESSAGE_HANDLER(AcceleratedVideoDecoderMsg_Decode, OnDecode)
     IPC_MESSAGE_HANDLER(AcceleratedVideoDecoderMsg_AssignPictureBuffers,
                         OnAssignPictureBuffers)
@@ -166,6 +202,12 @@ bool GpuVideoDecodeAccelerator::OnMessageReceived(const IPC::Message& msg) {
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
+}
+
+void GpuVideoDecodeAccelerator::NotifyCdmAttached(bool success) {
+  if (!Send(new AcceleratedVideoDecoderHostMsg_CdmAttached(host_route_id_,
+                                                           success)))
+    DLOG(ERROR) << "Send(AcceleratedVideoDecoderHostMsg_CdmAttached) failed";
 }
 
 void GpuVideoDecodeAccelerator::ProvidePictureBuffers(
@@ -223,6 +265,26 @@ void GpuVideoDecodeAccelerator::PictureReady(
   }
 }
 
+void GpuVideoDecodeAccelerator::NotifyEndOfBitstreamBuffer(
+    int32 bitstream_buffer_id) {
+  if (!Send(new AcceleratedVideoDecoderHostMsg_BitstreamBufferProcessed(
+          host_route_id_, bitstream_buffer_id))) {
+    DLOG(ERROR)
+        << "Send(AcceleratedVideoDecoderHostMsg_BitstreamBufferProcessed) "
+        << "failed";
+  }
+}
+
+void GpuVideoDecodeAccelerator::NotifyFlushDone() {
+  if (!Send(new AcceleratedVideoDecoderHostMsg_FlushDone(host_route_id_)))
+    DLOG(ERROR) << "Send(AcceleratedVideoDecoderHostMsg_FlushDone) failed";
+}
+
+void GpuVideoDecodeAccelerator::NotifyResetDone() {
+  if (!Send(new AcceleratedVideoDecoderHostMsg_ResetDone(host_route_id_)))
+    DLOG(ERROR) << "Send(AcceleratedVideoDecoderHostMsg_ResetDone) failed";
+}
+
 void GpuVideoDecodeAccelerator::NotifyError(
     media::VideoDecodeAccelerator::Error error) {
   if (!Send(new AcceleratedVideoDecoderHostMsg_ErrorNotification(
@@ -232,10 +294,38 @@ void GpuVideoDecodeAccelerator::NotifyError(
   }
 }
 
+void GpuVideoDecodeAccelerator::OnWillDestroyStub() {
+  // The stub is going away, so we have to stop and destroy VDA here, before
+  // returning, because the VDA may need the GL context to run and/or do its
+  // cleanup. We cannot destroy the VDA before the IO thread message filter is
+  // removed however, since we cannot service incoming messages with VDA gone.
+  // We cannot simply check for existence of VDA on IO thread though, because
+  // we don't want to synchronize the IO thread with the ChildThread.
+  // So we have to wait for the RemoveFilter callback here instead and remove
+  // the VDA after it arrives and before returning.
+  if (filter_) {
+    stub_->channel()->RemoveFilter(filter_.get());
+    filter_removed_.Wait();
+  }
+
+  stub_->channel()->RemoveRoute(host_route_id_);
+  stub_->RemoveDestructionObserver(this);
+
+  video_decode_accelerator_.reset();
+  delete this;
+}
+
+bool GpuVideoDecodeAccelerator::Send(IPC::Message* message) {
+  if (filter_ && io_task_runner_->BelongsToCurrentThread())
+    return filter_->SendOnIOThread(message);
+  DCHECK(child_task_runner_->BelongsToCurrentThread());
+  return stub_->channel()->Send(message);
+}
+
 void GpuVideoDecodeAccelerator::Initialize(
     const media::VideoCodecProfile profile,
     IPC::Message* init_done_msg) {
-  DCHECK(!video_decode_accelerator_.get());
+  DCHECK(!video_decode_accelerator_);
 
   if (!stub_->channel()->AddRoute(host_route_id_, this)) {
     DLOG(ERROR) << "Initialize(): failed to add route";
@@ -334,13 +424,15 @@ GpuVideoDecodeAccelerator::CreateV4L2SliceVDA() {
 
 void GpuVideoDecodeAccelerator::BindImage(uint32 client_texture_id,
                                           uint32 texture_target,
-                                          scoped_refptr<gfx::GLImage> image) {
+                                          scoped_refptr<gl::GLImage> image) {
   gpu::gles2::GLES2Decoder* command_decoder = stub_->decoder();
   gpu::gles2::TextureManager* texture_manager =
       command_decoder->GetContextGroup()->texture_manager();
   gpu::gles2::TextureRef* ref = texture_manager->GetTexture(client_texture_id);
-  if (ref)
-    texture_manager->SetLevelImage(ref, texture_target, 0, image.get());
+  if (ref) {
+    texture_manager->SetLevelImage(ref, texture_target, 0, image.get(),
+                                   gpu::gles2::Texture::BOUND);
+  }
 }
 
 scoped_ptr<media::VideoDecodeAccelerator>
@@ -358,7 +450,9 @@ scoped_ptr<media::VideoDecodeAccelerator>
 GpuVideoDecodeAccelerator::CreateVTVDA() {
   scoped_ptr<media::VideoDecodeAccelerator> decoder;
 #if defined(OS_MACOSX)
-  decoder.reset(new VTVideoDecodeAccelerator(make_context_current_));
+  decoder.reset(new VTVideoDecodeAccelerator(
+      make_context_current_, base::Bind(&GpuVideoDecodeAccelerator::BindImage,
+                                        base::Unretained(this))));
 #endif
   return decoder.Pass();
 }
@@ -379,52 +473,31 @@ GpuVideoDecodeAccelerator::CreateAndroidVDA() {
   scoped_ptr<media::VideoDecodeAccelerator> decoder;
 #if defined(OS_ANDROID)
   decoder.reset(new AndroidVideoDecodeAccelerator(
-      stub_->decoder()->AsWeakPtr(),
-      make_context_current_));
+      stub_->decoder()->AsWeakPtr(), make_context_current_,
+      make_scoped_ptr(
+#if defined(ENABLE_MEDIA_PIPELINE_ON_ANDROID)
+          new AndroidDeferredRenderingBackingStrategy()
+#else
+          new AndroidCopyingBackingStrategy()
+#endif
+              )));
 #endif
   return decoder.Pass();
 }
 
-// static
-gpu::VideoDecodeAcceleratorSupportedProfiles
-GpuVideoDecodeAccelerator::GetSupportedProfiles() {
-  media::VideoDecodeAccelerator::SupportedProfiles profiles;
-  const base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
-  if (cmd_line->HasSwitch(switches::kDisableAcceleratedVideoDecode))
-    return gpu::VideoDecodeAcceleratorSupportedProfiles();
-
-  // Query supported profiles for each VDA. The order of querying VDAs should
-  // be the same as the order of initializing VDAs. Then the returned profile
-  // can be initialized by corresponding VDA successfully.
-#if defined(OS_WIN)
-  profiles = DXVAVideoDecodeAccelerator::GetSupportedProfiles();
-#elif defined(OS_CHROMEOS)
-  media::VideoDecodeAccelerator::SupportedProfiles vda_profiles;
-#if defined(USE_V4L2_CODEC)
-  vda_profiles = V4L2VideoDecodeAccelerator::GetSupportedProfiles();
-  GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(vda_profiles, &profiles);
-  vda_profiles = V4L2SliceVideoDecodeAccelerator::GetSupportedProfiles();
-  GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(vda_profiles, &profiles);
-#endif
-#if defined(ARCH_CPU_X86_FAMILY)
-  vda_profiles = VaapiVideoDecodeAccelerator::GetSupportedProfiles();
-  GpuVideoAcceleratorUtil::InsertUniqueDecodeProfiles(vda_profiles, &profiles);
-#endif
-#elif defined(OS_MACOSX)
-  profiles = VTVideoDecodeAccelerator::GetSupportedProfiles();
-#elif defined(OS_ANDROID)
-  profiles = AndroidVideoDecodeAccelerator::GetSupportedProfiles();
-#endif
-  return GpuVideoAcceleratorUtil::ConvertMediaToGpuDecodeProfiles(profiles);
+void GpuVideoDecodeAccelerator::OnSetCdm(int cdm_id) {
+  DCHECK(video_decode_accelerator_);
+  video_decode_accelerator_->SetCdm(cdm_id);
 }
 
 // Runs on IO thread if video_decode_accelerator_->CanDecodeOnIOThread() is
 // true, otherwise on the main thread.
 void GpuVideoDecodeAccelerator::OnDecode(
-    base::SharedMemoryHandle handle, int32 id, uint32 size) {
-  DCHECK(video_decode_accelerator_.get());
-  if (id < 0) {
-    DLOG(ERROR) << "BitstreamBuffer id " << id << " out of range";
+    const AcceleratedVideoDecoderMsg_Decode_Params& params) {
+  DCHECK(video_decode_accelerator_);
+  if (params.bitstream_buffer_id < 0) {
+    DLOG(ERROR) << "BitstreamBuffer id " << params.bitstream_buffer_id
+                << " out of range";
     if (child_task_runner_->BelongsToCurrentThread()) {
       NotifyError(media::VideoDecodeAccelerator::INVALID_ARGUMENT);
     } else {
@@ -436,7 +509,16 @@ void GpuVideoDecodeAccelerator::OnDecode(
     }
     return;
   }
-  video_decode_accelerator_->Decode(media::BitstreamBuffer(id, handle, size));
+
+  media::BitstreamBuffer bitstream_buffer(params.bitstream_buffer_id,
+                                          params.buffer_handle, params.size,
+                                          params.presentation_timestamp);
+  if (!params.key_id.empty()) {
+    bitstream_buffer.SetDecryptConfig(
+        media::DecryptConfig(params.key_id, params.iv, params.subsamples));
+  }
+
+  video_decode_accelerator_->Decode(bitstream_buffer);
 }
 
 void GpuVideoDecodeAccelerator::OnAssignPictureBuffers(
@@ -513,22 +595,22 @@ void GpuVideoDecodeAccelerator::OnAssignPictureBuffers(
 
 void GpuVideoDecodeAccelerator::OnReusePictureBuffer(
     int32 picture_buffer_id) {
-  DCHECK(video_decode_accelerator_.get());
+  DCHECK(video_decode_accelerator_);
   video_decode_accelerator_->ReusePictureBuffer(picture_buffer_id);
 }
 
 void GpuVideoDecodeAccelerator::OnFlush() {
-  DCHECK(video_decode_accelerator_.get());
+  DCHECK(video_decode_accelerator_);
   video_decode_accelerator_->Flush();
 }
 
 void GpuVideoDecodeAccelerator::OnReset() {
-  DCHECK(video_decode_accelerator_.get());
+  DCHECK(video_decode_accelerator_);
   video_decode_accelerator_->Reset();
 }
 
 void GpuVideoDecodeAccelerator::OnDestroy() {
-  DCHECK(video_decode_accelerator_.get());
+  DCHECK(video_decode_accelerator_);
   OnWillDestroyStub();
 }
 
@@ -536,47 +618,6 @@ void GpuVideoDecodeAccelerator::OnFilterRemoved() {
   // We're destroying; cancel all callbacks.
   weak_factory_for_io_.InvalidateWeakPtrs();
   filter_removed_.Signal();
-}
-
-void GpuVideoDecodeAccelerator::NotifyEndOfBitstreamBuffer(
-    int32 bitstream_buffer_id) {
-  if (!Send(new AcceleratedVideoDecoderHostMsg_BitstreamBufferProcessed(
-          host_route_id_, bitstream_buffer_id))) {
-    DLOG(ERROR)
-        << "Send(AcceleratedVideoDecoderHostMsg_BitstreamBufferProcessed) "
-        << "failed";
-  }
-}
-
-void GpuVideoDecodeAccelerator::NotifyFlushDone() {
-  if (!Send(new AcceleratedVideoDecoderHostMsg_FlushDone(host_route_id_)))
-    DLOG(ERROR) << "Send(AcceleratedVideoDecoderHostMsg_FlushDone) failed";
-}
-
-void GpuVideoDecodeAccelerator::NotifyResetDone() {
-  if (!Send(new AcceleratedVideoDecoderHostMsg_ResetDone(host_route_id_)))
-    DLOG(ERROR) << "Send(AcceleratedVideoDecoderHostMsg_ResetDone) failed";
-}
-
-void GpuVideoDecodeAccelerator::OnWillDestroyStub() {
-  // The stub is going away, so we have to stop and destroy VDA here, before
-  // returning, because the VDA may need the GL context to run and/or do its
-  // cleanup. We cannot destroy the VDA before the IO thread message filter is
-  // removed however, since we cannot service incoming messages with VDA gone.
-  // We cannot simply check for existence of VDA on IO thread though, because
-  // we don't want to synchronize the IO thread with the ChildThread.
-  // So we have to wait for the RemoveFilter callback here instead and remove
-  // the VDA after it arrives and before returning.
-  if (filter_.get()) {
-    stub_->channel()->RemoveFilter(filter_.get());
-    filter_removed_.Wait();
-  }
-
-  stub_->channel()->RemoveRoute(host_route_id_);
-  stub_->RemoveDestructionObserver(this);
-
-  video_decode_accelerator_.reset();
-  delete this;
 }
 
 void GpuVideoDecodeAccelerator::SetTextureCleared(
@@ -595,13 +636,6 @@ void GpuVideoDecodeAccelerator::SetTextureCleared(
   DCHECK(!texture_ref->texture()->IsLevelCleared(target, 0));
   texture_manager->SetLevelCleared(texture_ref.get(), target, 0, true);
   uncleared_textures_.erase(it);
-}
-
-bool GpuVideoDecodeAccelerator::Send(IPC::Message* message) {
-  if (filter_.get() && io_task_runner_->BelongsToCurrentThread())
-    return filter_->SendOnIOThread(message);
-  DCHECK(child_task_runner_->BelongsToCurrentThread());
-  return stub_->channel()->Send(message);
 }
 
 void GpuVideoDecodeAccelerator::SendCreateDecoderReply(IPC::Message* message,

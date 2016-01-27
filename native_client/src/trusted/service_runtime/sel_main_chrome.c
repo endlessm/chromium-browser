@@ -96,6 +96,7 @@ struct NaClChromeMainArgs *NaClChromeMainArgsCreate(void) {
       getenv("NACL_DANGEROUS_SKIP_QUALIFICATION_TEST") != NULL;
   args->initial_nexe_max_code_bytes = 0;  /* No limit */
 #if NACL_LINUX || NACL_OSX
+  args->debug_stub_pipe_fd = NACL_INVALID_HANDLE;
   args->debug_stub_server_bound_socket_fd = NACL_INVALID_SOCKET;
 #endif
 #if NACL_WINDOWS
@@ -298,21 +299,6 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
   NaClDescUnref(args->nexe_desc);
   args->nexe_desc = NULL;
 
-  if (has_bootstrap_channel) {
-    NACL_FI_FATAL("BeforeSecureCommandChannel");
-    /*
-     * Spawns a thread that uses the command channel.
-     * Hereafter any changes to nap should be done while holding locks.
-     */
-    NaClSecureCommandChannel(nap);
-
-    NaClLog(4, "NaClSecureCommandChannel has spawned channel\n");
-
-    NaClLog(4, "secure service = %"NACL_PRIxPTR"\n",
-            (uintptr_t) nap->secure_service);
-
-  }
-
   NACL_FI_FATAL("BeforeLoadIrt");
 
   /*
@@ -349,8 +335,13 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
   }
 
   if (args->enable_debug_stub) {
+    if (args->debug_stub_pipe_fd != NACL_INVALID_HANDLE) {
+      NaClDebugStubSetPipe(args->debug_stub_pipe_fd);
+    }
+
 #if NACL_LINUX || NACL_OSX
-    if (args->debug_stub_server_bound_socket_fd != NACL_INVALID_SOCKET) {
+    if (args->debug_stub_pipe_fd == NACL_INVALID_HANDLE &&
+        args->debug_stub_server_bound_socket_fd != NACL_INVALID_SOCKET) {
       NaClDebugSetBoundSocket(args->debug_stub_server_bound_socket_fd);
     }
 #endif
@@ -358,8 +349,10 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
       goto done;
     }
 #if NACL_WINDOWS
-    if (NULL != args->debug_stub_server_port_selected_handler_func) {
-      args->debug_stub_server_port_selected_handler_func(nap->debug_stub_port);
+    if (args->debug_stub_pipe_fd == NACL_INVALID_HANDLE &&
+        NULL != args->debug_stub_server_port_selected_handler_func) {
+      args->debug_stub_server_port_selected_handler_func(
+          NaClDebugGetBoundPort());
     }
 #endif
   }
@@ -372,47 +365,18 @@ static int LoadApp(struct NaClApp *nap, struct NaClChromeMainArgs *args) {
 done:
   fflush(stdout);
 
+  /* Don't return LOAD_OK if we had some failure loading. */
+  if (LOAD_OK == errcode) {
+    errcode = LOAD_INTERNAL;
+  }
   /*
    * If there is a load status callback, call that now and transfer logs
    * in preparation for process exit.
    */
   if (args->load_status_handler_func != NULL) {
-    /* Don't return LOAD_OK if we had some failure loading. */
-    if (LOAD_OK == errcode) {
-      errcode = LOAD_INTERNAL;
-    }
     args->load_status_handler_func(errcode);
     NaClLog(LOG_ERROR, "NaCl LoadApp failed. Transferring logs before exit.\n");
     NaClLogRunAbortBehavior();
-    /*
-     * Fall through and run NaClBlockIfCommandChannelExists.
-     * TODO(jvoung): remove NaClBlockIfCommandChannelExists() and use the
-     * callback to indicate the load_status after Chromium no longer calls
-     * start_module. We also need to change Chromium so that it does not
-     * attempt to set up the command channel if there is a known load error.
-     * Otherwise there is a race between this process's exit / load error
-     * reporting, and the command channel setup on the Chromium side (plus
-     * the associated reporting). Thus this could end up with two different
-     * load errors being reported (1) the real load error from here, and
-     * (2) the command channel setup failure because the process exited in
-     * the middle of setting up the command channel.
-     */
-  }
-  /*
-   * If there is a secure command channel, we sent an RPC reply with
-   * the reason that the nexe was rejected.  If we exit now, that
-   * reply may still be in-flight and the various channel closure (esp
-   * reverse channel) may be detected first.  This would result in a
-   * crash being reported, rather than the error in the RPC reply.
-   * Instead, we wait for the hard-shutdown on the command channel.
-   */
-  if (LOAD_OK != errcode) {
-    NaClBlockIfCommandChannelExists(nap);
-  } else {
-    /*
-     * Don't return LOAD_OK if we had some failure loading.
-     */
-    errcode = LOAD_INTERNAL;
   }
   return errcode;
 }

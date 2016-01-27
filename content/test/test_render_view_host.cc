@@ -12,6 +12,7 @@
 #include "content/browser/site_instance_impl.h"
 #include "content/common/dom_storage/dom_storage_types.h"
 #include "content/common/frame_messages.h"
+#include "content/common/site_isolation_policy.h"
 #include "content/common/view_messages.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
@@ -128,7 +129,7 @@ gfx::Rect TestRenderWidgetHostView::GetViewBounds() const {
 void TestRenderWidgetHostView::CopyFromCompositingSurface(
     const gfx::Rect& src_subrect,
     const gfx::Size& dst_size,
-    ReadbackRequestCallback& callback,
+    const ReadbackRequestCallback& callback,
     const SkColorType preferred_color_type) {
   callback.Run(SkBitmap(), content::READBACK_FAILED);
 }
@@ -136,8 +137,8 @@ void TestRenderWidgetHostView::CopyFromCompositingSurface(
 void TestRenderWidgetHostView::CopyFromCompositingSurfaceToVideoFrame(
     const gfx::Rect& src_subrect,
     const scoped_refptr<media::VideoFrame>& target,
-    const base::Callback<void(bool)>& callback) {
-  callback.Run(false);
+    const base::Callback<void(const gfx::Rect&, bool)>& callback) {
+  callback.Run(gfx::Rect(), false);
 }
 
 bool TestRenderWidgetHostView::CanCopyToVideoFrame() const {
@@ -176,6 +177,12 @@ bool TestRenderWidgetHostView::PostProcessEventForPluginIme(
 
 #endif
 
+bool TestRenderWidgetHostView::GetScreenColorProfile(
+    std::vector<char>* color_profile) {
+  DCHECK(color_profile->empty());
+  return false;
+}
+
 gfx::Rect TestRenderWidgetHostView::GetBoundsInRootWindow() {
   return gfx::Rect();
 }
@@ -184,11 +191,6 @@ void TestRenderWidgetHostView::OnSwapCompositorFrame(
     uint32 output_surface_id,
     scoped_ptr<cc::CompositorFrame> frame) {
   did_swap_compositor_frame_ = true;
-}
-
-
-gfx::GLSurfaceHandle TestRenderWidgetHostView::GetCompositingSurface() {
-  return gfx::GLSurfaceHandle();
 }
 
 bool TestRenderWidgetHostView::LockMouse() {
@@ -213,8 +215,8 @@ TestRenderViewHost::TestRenderViewHost(
     SiteInstance* instance,
     RenderViewHostDelegate* delegate,
     RenderWidgetHostDelegate* widget_delegate,
-    int routing_id,
-    int main_frame_routing_id,
+    int32 routing_id,
+    int32 main_frame_routing_id,
     bool swapped_out)
     : RenderViewHostImpl(instance,
                          delegate,
@@ -266,10 +268,6 @@ bool TestRenderViewHost::CreateRenderView(
   return true;
 }
 
-bool TestRenderViewHost::IsFullscreenGranted() const {
-  return RenderViewHostImpl::IsFullscreenGranted();
-}
-
 MockRenderProcessHost* TestRenderViewHost::GetProcess() const {
   return static_cast<MockRenderProcessHost*>(RenderViewHostImpl::GetProcess());
 }
@@ -297,11 +295,13 @@ void TestRenderViewHost::TestOnStartDragging(
 void TestRenderViewHost::TestOnUpdateStateWithFile(
     int page_id,
     const base::FilePath& file_path) {
-  OnUpdateState(page_id,
-                PageState::CreateForTesting(GURL("http://www.google.com"),
-                                            false,
-                                            "data",
-                                            &file_path));
+  PageState state = PageState::CreateForTesting(GURL("http://www.google.com"),
+                                                false, "data", &file_path);
+  if (SiteIsolationPolicy::UseSubframeNavigationEntries()) {
+    static_cast<RenderFrameHostImpl*>(GetMainFrame())->OnUpdateState(state);
+  } else {
+    OnUpdateState(page_id, state);
+  }
 }
 
 RenderViewHostImplTestHarness::RenderViewHostImplTestHarness() {

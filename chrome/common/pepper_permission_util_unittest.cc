@@ -9,6 +9,7 @@
 
 #include "chrome/common/extensions/features/feature_channel.h"
 #include "components/crx_file/id_util.h"
+#include "components/version_info/version_info.h"
 #include "extensions/common/extension_builder.h"
 #include "extensions/common/extension_set.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -43,7 +44,7 @@ scoped_refptr<Extension> CreateExtensionImportingModule(
 }  // namespace
 
 TEST(PepperPermissionUtilTest, ExtensionWhitelisting) {
-  ScopedCurrentChannel current_channel(chrome::VersionInfo::CHANNEL_UNKNOWN);
+  ScopedCurrentChannel current_channel(version_info::Channel::UNKNOWN);
   ExtensionSet extensions;
   std::string whitelisted_id =
       crx_file::id_util::GenerateId("whitelisted_extension");
@@ -79,7 +80,7 @@ TEST(PepperPermissionUtilTest, ExtensionWhitelisting) {
 }
 
 TEST(PepperPermissionUtilTest, SharedModuleWhitelisting) {
-  ScopedCurrentChannel current_channel(chrome::VersionInfo::CHANNEL_UNKNOWN);
+  ScopedCurrentChannel current_channel(version_info::Channel::UNKNOWN);
   ExtensionSet extensions;
   std::string whitelisted_id = crx_file::id_util::GenerateId("extension_id");
   std::string bad_id = crx_file::id_util::GenerateId("bad_id");

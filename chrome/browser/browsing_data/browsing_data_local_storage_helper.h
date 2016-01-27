@@ -7,15 +7,12 @@
 
 #include <list>
 #include <set>
-#include <vector>
 
+#include "base/basictypes.h"
 #include "base/callback.h"
-#include "base/compiler_specific.h"
 #include "base/files/file_path.h"
 #include "base/memory/ref_counted.h"
-#include "base/synchronization/lock.h"
 #include "base/time/time.h"
-#include "chrome/common/url_constants.h"
 #include "content/public/browser/dom_storage_context.h"
 #include "url/gurl.h"
 
@@ -39,12 +36,14 @@ class BrowsingDataLocalStorageHelper
     base::Time last_modified;
   };
 
+  using FetchCallback =
+      base::Callback<void(const std::list<LocalStorageInfo>&)>;
+
   explicit BrowsingDataLocalStorageHelper(Profile* profile);
 
   // Starts the fetching process, which will notify its completion via
   // callback. This must be called only in the UI thread.
-  virtual void StartFetching(
-      const base::Callback<void(const std::list<LocalStorageInfo>&)>& callback);
+  virtual void StartFetching(const FetchCallback& callback);
 
   // Deletes the local storage for the |origin|.
   virtual void DeleteOrigin(const GURL& origin);
@@ -53,17 +52,9 @@ class BrowsingDataLocalStorageHelper
   friend class base::RefCounted<BrowsingDataLocalStorageHelper>;
   virtual ~BrowsingDataLocalStorageHelper();
 
-  void CallCompletionCallback();
-
   content::DOMStorageContext* dom_storage_context_;  // Owned by the profile
-  base::Callback<void(const std::list<LocalStorageInfo>&)> completion_callback_;
-  bool is_fetching_;
-  std::list<LocalStorageInfo> local_storage_info_;
 
  private:
-  void GetUsageInfoCallback(
-      const std::vector<content::LocalStorageUsageInfo>& infos);
-
   DISALLOW_COPY_AND_ASSIGN(BrowsingDataLocalStorageHelper);
 };
 
@@ -92,9 +83,7 @@ class CannedBrowsingDataLocalStorageHelper
   const std::set<GURL>& GetLocalStorageInfo() const;
 
   // BrowsingDataLocalStorageHelper implementation.
-  void StartFetching(
-      const base::Callback<void(const std::list<LocalStorageInfo>&)>& callback)
-      override;
+  void StartFetching(const FetchCallback& callback) override;
   void DeleteOrigin(const GURL& origin) override;
 
  private:

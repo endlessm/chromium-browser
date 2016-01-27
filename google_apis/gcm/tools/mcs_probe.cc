@@ -137,7 +137,7 @@ class MyTestURLRequestContext : public net::TestURLRequestContext {
     context_storage_.set_host_resolver(
         net::HostResolver::CreateDefaultResolver(NULL));
     context_storage_.set_transport_security_state(
-        new net::TransportSecurityState());
+        make_scoped_ptr(new net::TransportSecurityState()));
     Init();
   }
 
@@ -229,7 +229,7 @@ class MCSProbe {
   scoped_ptr<net::HttpAuthHandlerFactory> http_auth_handler_factory_;
   scoped_ptr<net::HttpServerPropertiesImpl> http_server_properties_;
   scoped_ptr<net::HostMappingRules> host_mapping_rules_;
-  scoped_refptr<net::HttpNetworkSession> network_session_;
+  scoped_ptr<net::HttpNetworkSession> network_session_;
   scoped_ptr<net::ProxyService> proxy_service_;
 
   FakeGCMStatsRecorder recorder_;
@@ -293,7 +293,7 @@ void MCSProbe::Start() {
   connection_factory_.reset(
       new ConnectionFactoryImpl(endpoints,
                                 kDefaultBackoffPolicy,
-                                network_session_,
+                                network_session_.get(),
                                 NULL,
                                 &net_log_,
                                 &recorder_));
@@ -368,7 +368,7 @@ void MCSProbe::InitializeNetworkState() {
   if (command_line_.HasSwitch(kIgnoreCertSwitch)) {
     cert_verifier_.reset(new MyTestCertVerifier());
   } else {
-    cert_verifier_.reset(net::CertVerifier::CreateDefault());
+    cert_verifier_ = net::CertVerifier::CreateDefault();
   }
   system_channel_id_service_.reset(
       new net::ChannelIDService(
@@ -382,7 +382,7 @@ void MCSProbe::InitializeNetworkState() {
       host_resolver_.get(), std::string(), std::string(), false, false));
   http_server_properties_.reset(new net::HttpServerPropertiesImpl());
   host_mapping_rules_.reset(new net::HostMappingRules());
-  proxy_service_.reset(net::ProxyService::CreateDirectWithNetLog(&net_log_));
+  proxy_service_ = net::ProxyService::CreateDirectWithNetLog(&net_log_);
 }
 
 void MCSProbe::BuildNetworkSession() {
@@ -403,7 +403,7 @@ void MCSProbe::BuildNetworkSession() {
   session_params.net_log = &net_log_;
   session_params.proxy_service = proxy_service_.get();
 
-  network_session_ = new net::HttpNetworkSession(session_params);
+  network_session_.reset(new net::HttpNetworkSession(session_params));
 }
 
 void MCSProbe::ErrorCallback() {

@@ -8,18 +8,18 @@
 
 #include "base/bind.h"
 #include "base/macros.h"
-#include "base/memory/scoped_vector.h"
 #include "components/html_viewer/blink_basic_type_converters.h"
+#include "mojo/public/cpp/bindings/binding.h"
 #include "mojo/services/network/public/cpp/web_socket_read_queue.h"
 #include "mojo/services/network/public/cpp/web_socket_write_queue.h"
-#include "mojo/services/network/public/interfaces/network_service.mojom.h"
-#include "third_party/WebKit/public/platform/WebSerializedOrigin.h"
+#include "mojo/services/network/public/interfaces/web_socket_factory.mojom.h"
+#include "third_party/WebKit/public/platform/WebSecurityOrigin.h"
 #include "third_party/WebKit/public/platform/WebSocketHandleClient.h"
 #include "third_party/WebKit/public/platform/WebString.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
 #include "third_party/WebKit/public/platform/WebVector.h"
 
-using blink::WebSerializedOrigin;
+using blink::WebSecurityOrigin;
 using blink::WebSocketHandle;
 using blink::WebSocketHandleClient;
 using blink::WebString;
@@ -147,9 +147,9 @@ class WebSocketClientImpl : public mojo::WebSocketClient {
   DISALLOW_COPY_AND_ASSIGN(WebSocketClientImpl);
 };
 
-WebSocketHandleImpl::WebSocketHandleImpl(mojo::NetworkService* network_service)
+WebSocketHandleImpl::WebSocketHandleImpl(mojo::WebSocketFactory* factory)
     : did_close_(false) {
-  network_service->CreateWebSocket(GetProxy(&web_socket_));
+  factory->CreateWebSocket(GetProxy(&web_socket_));
 }
 
 WebSocketHandleImpl::~WebSocketHandleImpl() {
@@ -162,7 +162,7 @@ WebSocketHandleImpl::~WebSocketHandleImpl() {
 
 void WebSocketHandleImpl::connect(const WebURL& url,
                                   const WebVector<WebString>& protocols,
-                                  const WebSerializedOrigin& origin,
+                                  const WebSecurityOrigin& origin,
                                   WebSocketHandleClient* client) {
   // TODO(mpcomplete): Is this the right ownership model? Or should mojo own
   // |client_|?
@@ -179,8 +179,8 @@ void WebSocketHandleImpl::connect(const WebURL& url,
   write_queue_.reset(new mojo::WebSocketWriteQueue(send_stream_.get()));
   web_socket_->Connect(url.string().utf8(),
                        mojo::Array<String>::From(protocols),
-                       origin.string().utf8(), data_pipe.consumer_handle.Pass(),
-                       client_ptr.Pass());
+                       origin.toString().utf8(),
+                       data_pipe.consumer_handle.Pass(), client_ptr.Pass());
 }
 
 void WebSocketHandleImpl::send(bool fin,

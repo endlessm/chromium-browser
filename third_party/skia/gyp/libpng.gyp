@@ -12,23 +12,13 @@
       'target_name': 'libpng',
       'type': 'none',
       'conditions': [
-        [ 'skia_os == "android"',
-          {
-            'dependencies': [
-              'android_deps.gyp:png',
-            ],
-            'export_dependent_settings': [
-              'android_deps.gyp:png',
-            ],
-          }, {  # skia_os != "android"
-            'dependencies': [
-              'libpng.gyp:libpng_static',
-            ],
-            'export_dependent_settings': [
-              'libpng.gyp:libpng_static',
-            ],
-          }
-        ]
+        [ 'skia_android_framework', {
+            'dependencies':              [ 'android_deps.gyp:png' ],
+            'export_dependent_settings': [ 'android_deps.gyp:png' ],
+        },{
+            'dependencies':              [ 'libpng.gyp:libpng_static' ],
+            'export_dependent_settings': [ 'libpng.gyp:libpng_static' ],
+        }]
       ]
     },
     {
@@ -51,9 +41,6 @@
           '../third_party/externals/libpng',
           # Needed for generated pnglibconf.h and pngprefix.h
           '../third_party/libpng',
-        ],
-        'defines': [
-          'SKIA_PNG_PREFIXED',
         ],
       },
       'cflags': [
@@ -83,7 +70,7 @@
           'defines': [
             'PNG_ARM_NEON_OPT=0',
           ],
-        }, { # skia_os != "ios" 
+        }, { # skia_os != "ios"
           'dependencies': [
             'libpng.gyp:libpng_static_neon',
           ],

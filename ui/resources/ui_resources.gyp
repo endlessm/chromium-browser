@@ -15,6 +15,7 @@
         {
           'action_name': 'ui_resources',
           'variables': {
+            'grit_whitelist': '',
             'grit_grd_file': 'ui_resources.grd',
           },
           'includes': [ '../../build/grit_action.gypi' ],
@@ -22,6 +23,7 @@
         {
           'action_name': 'webui_resources',
           'variables': {
+            'grit_whitelist': '',
             'grit_grd_file': '../webui/resources/webui_resources.grd',
           },
           'includes': [ '../../build/grit_action.gypi' ],
@@ -29,6 +31,7 @@
         {
           'action_name': 'ui_unscaled_resources',
           'variables': {
+            'grit_whitelist': '',
             'grit_grd_file': 'ui_unscaled_resources.grd',
           },
           'includes': [ '../../build/grit_action.gypi' ],
@@ -67,7 +70,13 @@
               }],
               ['toolkit_views==1', {
                 'pak_inputs': [
+                  '<(SHARED_INTERMEDIATE_DIR)/blink/public/resources/blink_resources.pak',
                   '<(SHARED_INTERMEDIATE_DIR)/ui/views/resources/views_resources_100_percent.pak',
+                ],
+              }],
+              ['enable_app_list==1', {
+                'pak_inputs': [
+                  '<(SHARED_INTERMEDIATE_DIR)/ui/app_list/resources/app_list_resources_100_percent.pak',
                 ],
               }],
             ],

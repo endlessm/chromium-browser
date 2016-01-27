@@ -4,8 +4,6 @@
 
 package org.chromium.chrome.browser.omnibox;
 
-import static org.chromium.chrome.browser.omnibox.OmniboxSuggestion.Type.HISTORY_URL;
-
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -15,6 +13,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.PorterDuff;
 import android.graphics.drawable.Drawable;
+import android.support.v4.view.ViewCompat;
 import android.support.v7.app.AlertDialog;
 import android.text.Spannable;
 import android.text.SpannableString;
@@ -34,7 +33,6 @@ import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.omnibox.OmniboxResultsAdapter.OmniboxResultItem;
 import org.chromium.chrome.browser.omnibox.OmniboxResultsAdapter.OmniboxSuggestionDelegate;
-import org.chromium.chrome.browser.omnibox.OmniboxSuggestion.Type;
 import org.chromium.chrome.browser.widget.TintedDrawable;
 import org.chromium.ui.base.DeviceFormFactor;
 
@@ -184,7 +182,7 @@ class SuggestionView extends ViewGroup {
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         if (getMeasuredWidth() == 0) return;
 
-        if (mSuggestion.getType() != Type.SEARCH_SUGGEST_TAIL) {
+        if (mSuggestion.getType() != OmniboxSuggestionType.SEARCH_SUGGEST_TAIL) {
             mContentsView.resetTextWidths();
         }
 
@@ -258,6 +256,8 @@ class SuggestionView extends ViewGroup {
     public void init(OmniboxResultItem suggestionItem,
             OmniboxSuggestionDelegate suggestionDelegate,
             int position, boolean useDarkColors) {
+        ViewCompat.setLayoutDirection(this, ViewCompat.getLayoutDirection(mUrlBar));
+
         // Update the position unconditionally.
         mPosition = position;
         jumpDrawablesToCurrentState();
@@ -294,64 +294,44 @@ class SuggestionView extends ViewGroup {
 
         boolean sameAsTyped =
                 suggestionItem.getMatchedQuery().equalsIgnoreCase(mSuggestion.getDisplayText());
-        Type suggestionType = mSuggestion.getType();
-        switch (suggestionType) {
-            case HISTORY_URL:
-            case URL_WHAT_YOU_TYPED:
-            case NAVSUGGEST:
-            case HISTORY_TITLE:
-            case HISTORY_BODY:
-            case HISTORY_KEYWORD:
-            case OPEN_HISTORY_PAGE:
-                if (mSuggestion.isStarred()) {
-                    mContentsView.setSuggestionIcon(SuggestionIconType.BOOKMARK, colorsChanged);
-                } else if (suggestionType == HISTORY_URL) {
-                    mContentsView.setSuggestionIcon(SuggestionIconType.HISTORY, colorsChanged);
-                } else {
-                    mContentsView.setSuggestionIcon(SuggestionIconType.GLOBE, colorsChanged);
-                }
-                boolean urlShown = !TextUtils.isEmpty(mSuggestion.getUrl());
-                boolean urlHighlighted = false;
-                if (urlShown) {
-                    urlHighlighted = setUrlText(suggestionItem);
-                } else {
-                    mContentsView.mTextLine2.setVisibility(INVISIBLE);
-                }
-                setSuggestedQuery(suggestionItem, true, urlShown, urlHighlighted);
-                setRefinable(!sameAsTyped);
-                break;
-            case SEARCH_WHAT_YOU_TYPED:
-            case SEARCH_HISTORY:
-            case SEARCH_SUGGEST:
-            case SEARCH_OTHER_ENGINE:
-            case SEARCH_SUGGEST_ENTITY:
-            case SEARCH_SUGGEST_TAIL:
-            case SEARCH_SUGGEST_PERSONALIZED:
-            case SEARCH_SUGGEST_PROFILE:
-            case VOICE_SUGGEST:
-                SuggestionIconType suggestionIcon = SuggestionIconType.MAGNIFIER;
-                if (suggestionType == Type.VOICE_SUGGEST) {
-                    suggestionIcon = SuggestionIconType.VOICE;
-                } else if ((suggestionType == Type.SEARCH_SUGGEST_PERSONALIZED)
-                        || (suggestionType == Type.SEARCH_HISTORY)) {
-                    // Show history icon for suggestions based on user queries.
-                    suggestionIcon = SuggestionIconType.HISTORY;
-                }
-                mContentsView.setSuggestionIcon(suggestionIcon, colorsChanged);
-                setRefinable(!sameAsTyped);
-                setSuggestedQuery(suggestionItem, false, false, false);
-                if ((suggestionType == Type.SEARCH_SUGGEST_ENTITY)
-                        || (suggestionType == Type.SEARCH_SUGGEST_PROFILE)) {
-                    showDescriptionLine(
-                            SpannableString.valueOf(mSuggestion.getDescription()),
-                            getStandardFontColor());
-                } else {
-                    mContentsView.mTextLine2.setVisibility(INVISIBLE);
-                }
-                break;
-            default:
-                assert false : "Suggestion type (" + mSuggestion.getType() + ") is not handled";
-                break;
+        int suggestionType = mSuggestion.getType();
+        if (mSuggestion.isUrlSuggestion()) {
+            if (mSuggestion.isStarred()) {
+                mContentsView.setSuggestionIcon(SuggestionIconType.BOOKMARK, colorsChanged);
+            } else if (suggestionType == OmniboxSuggestionType.HISTORY_URL) {
+                mContentsView.setSuggestionIcon(SuggestionIconType.HISTORY, colorsChanged);
+            } else {
+                mContentsView.setSuggestionIcon(SuggestionIconType.GLOBE, colorsChanged);
+            }
+            boolean urlShown = !TextUtils.isEmpty(mSuggestion.getUrl());
+            boolean urlHighlighted = false;
+            if (urlShown) {
+                urlHighlighted = setUrlText(suggestionItem);
+            } else {
+                mContentsView.mTextLine2.setVisibility(INVISIBLE);
+            }
+            setSuggestedQuery(suggestionItem, true, urlShown, urlHighlighted);
+            setRefinable(!sameAsTyped);
+        } else {
+            SuggestionIconType suggestionIcon = SuggestionIconType.MAGNIFIER;
+            if (suggestionType == OmniboxSuggestionType.VOICE_SUGGEST) {
+                suggestionIcon = SuggestionIconType.VOICE;
+            } else if ((suggestionType == OmniboxSuggestionType.SEARCH_SUGGEST_PERSONALIZED)
+                    || (suggestionType == OmniboxSuggestionType.SEARCH_HISTORY)) {
+                // Show history icon for suggestions based on user queries.
+                suggestionIcon = SuggestionIconType.HISTORY;
+            }
+            mContentsView.setSuggestionIcon(suggestionIcon, colorsChanged);
+            setRefinable(!sameAsTyped);
+            setSuggestedQuery(suggestionItem, false, false, false);
+            if ((suggestionType == OmniboxSuggestionType.SEARCH_SUGGEST_ENTITY)
+                    || (suggestionType == OmniboxSuggestionType.SEARCH_SUGGEST_PROFILE)) {
+                showDescriptionLine(
+                        SpannableString.valueOf(mSuggestion.getDescription()),
+                        getStandardFontColor());
+            } else {
+                mContentsView.mTextLine2.setVisibility(INVISIBLE);
+            }
         }
     }
 
@@ -391,9 +371,8 @@ class SuggestionView extends ViewGroup {
 
         mRefineIcon = TintedDrawable.constructTintedDrawable(
                 getResources(), R.drawable.btn_suggestion_refine);
-        mRefineIcon.setTint(getResources().getColorStateList(mUseDarkColors
-                ? R.color.dark_mode_tint
-                : R.color.light_mode_tint));
+        mRefineIcon.setTint(ApiCompatibilityUtils.getColorStateList(getResources(),
+                mUseDarkColors ? R.color.dark_mode_tint : R.color.light_mode_tint));
         mRefineIcon.setBounds(
                 0, 0,
                 mRefineIcon.getIntrinsicWidth(),
@@ -465,7 +444,7 @@ class SuggestionView extends ViewGroup {
             suggestedQuery = suggestion.getFormattedUrl();
         }
 
-        if (mSuggestion.getType() == Type.SEARCH_SUGGEST_TAIL) {
+        if (mSuggestion.getType() == OmniboxSuggestionType.SEARCH_SUGGEST_TAIL) {
             String fillIntoEdit = mSuggestion.getFillIntoEdit();
             // Data sanity checks.
             if (fillIntoEdit.startsWith(userQuery)
@@ -674,6 +653,7 @@ class SuggestionView extends ViewGroup {
                     new LayoutParams(LayoutParams.WRAP_CONTENT, mSuggestionHeight));
             mTextLine1.setSingleLine();
             mTextLine1.setTextColor(getStandardFontColor());
+            ApiCompatibilityUtils.setTextAlignment(mTextLine1, TEXT_ALIGNMENT_VIEW_START);
             addView(mTextLine1);
 
             mTextLine2 = new TextView(context);
@@ -681,6 +661,7 @@ class SuggestionView extends ViewGroup {
                     new LayoutParams(LayoutParams.WRAP_CONTENT, mSuggestionHeight));
             mTextLine2.setSingleLine();
             mTextLine2.setVisibility(INVISIBLE);
+            ApiCompatibilityUtils.setTextAlignment(mTextLine2, TEXT_ALIGNMENT_VIEW_START);
             addView(mTextLine2);
 
             mAnswerImage = new ImageView(context);
@@ -943,7 +924,7 @@ class SuggestionView extends ViewGroup {
             }
             mSuggestionIcon = ApiCompatibilityUtils.getDrawable(getResources(), drawableId);
             mSuggestionIcon.setColorFilter(mUseDarkColors
-                    ? getResources().getColor(R.color.light_normal_color)
+                    ? ApiCompatibilityUtils.getColor(getResources(), R.color.light_normal_color)
                     : Color.WHITE, PorterDuff.Mode.SRC_IN);
             mSuggestionIcon.setBounds(
                     0, 0,

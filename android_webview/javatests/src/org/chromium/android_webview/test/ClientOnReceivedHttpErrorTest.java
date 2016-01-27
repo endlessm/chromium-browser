@@ -4,7 +4,6 @@
 
 package org.chromium.android_webview.test;
 
-import android.os.Build;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.util.Pair;
 
@@ -14,7 +13,7 @@ import org.chromium.android_webview.AwWebResourceResponse;
 import org.chromium.android_webview.test.util.AwTestTouchUtils;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
+import org.chromium.base.test.util.parameter.ParameterizedTest;
 import org.chromium.net.test.util.TestWebServer;
 
 import java.util.ArrayList;
@@ -24,7 +23,6 @@ import java.util.concurrent.TimeUnit;
 /**
  * Tests for the ContentViewClient.onReceivedHttpError() method.
  */
-@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class ClientOnReceivedHttpErrorTest extends AwTestBase {
 
     private VerifyOnReceivedHttpErrorCallClient mContentsClient;
@@ -120,6 +118,8 @@ public class ClientOnReceivedHttpErrorTest extends AwTestBase {
 
     @SmallTest
     @Feature({"AndroidWebView"})
+    // Run in single-process mode only. Blocked by software draws support crbug.com/545611.
+    @ParameterizedTest.Set
     public void testForUserGesture() throws Throwable {
         useDefaultTestAwContentsClient();
         List<Pair<String, String>> headers = new ArrayList<Pair<String, String>>();

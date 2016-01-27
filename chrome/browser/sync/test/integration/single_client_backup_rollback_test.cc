@@ -12,13 +12,14 @@
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/browsing_data/browsing_data_remover.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/profile_sync_service.h"
+#include "chrome/browser/sync/chrome_sync_client.h"
 #include "chrome/browser/sync/test/integration/bookmarks_helper.h"
 #include "chrome/browser/sync/test/integration/preferences_helper.h"
 #include "chrome/browser/sync/test/integration/sync_integration_test_util.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
-#include "chrome/common/chrome_switches.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/sync_driver/sync_driver_switches.h"
 #include "sync/internal_api/public/util/sync_db_util.h"
 #include "sync/test/fake_server/fake_server_verifier.h"
 #include "sync/util/time.h"
@@ -139,7 +140,10 @@ class SyncRollbackChecker : public sync_driver::SyncServiceObserver,
 
   bool Wait() {
     pss_->AddObserver(this);
-    pss_->SetBrowsingDataRemoverObserverForTesting(this);
+
+    browser_sync::ChromeSyncClient* sync_client =
+        static_cast<browser_sync::ChromeSyncClient*>(pss_->GetSyncClient());
+    sync_client->SetBrowsingDataRemoverObserverForTesting(this);
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE, run_loop_.QuitClosure(), timeout_);
     run_loop_.Run();

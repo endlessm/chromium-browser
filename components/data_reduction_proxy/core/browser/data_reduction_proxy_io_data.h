@@ -5,6 +5,8 @@
 #ifndef COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_IO_DATA_H_
 #define COMPONENTS_DATA_REDUCTION_PROXY_CORE_BROWSER_DATA_REDUCTION_PROXY_IO_DATA_H_
 
+#include <string>
+
 #include "base/gtest_prod_util.h"
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
@@ -16,6 +18,7 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_network_delegate.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_request_options.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_storage_delegate.h"
+#include "components/data_reduction_proxy/core/common/lofi_decider.h"
 
 namespace base {
 class Value;
@@ -85,14 +88,21 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
   // Applies a serialized Data Reduction Proxy configuration.
   void SetDataReductionProxyConfiguration(const std::string& serialized_config);
 
+  // Returns true when Lo-Fi mode should be activated. When Lo-Fi mode is
+  // active, URL requests are modified to request low fidelity versions of the
+  // resources, except when the user is in the Lo-Fi control group.
+  bool ShouldEnableLoFiMode(const net::URLRequest& request);
+
   // Sets Lo-Fi mode off in |config_|.
   void SetLoFiModeOff();
 
   // Bridge methods to safely call to the UI thread objects.
-  void UpdateContentLengths(int64 received_content_length,
-                            int64 original_content_length,
+  void UpdateContentLengths(int64 data_used,
+                            int64 original_size,
                             bool data_reduction_proxy_enabled,
-                            DataReductionProxyRequestType request_type);
+                            DataReductionProxyRequestType request_type,
+                            const std::string& data_usage_host,
+                            const std::string& mime_type);
   void SetLoFiModeActiveOnMainFrame(bool lo_fi_mode_active);
 
   // Overrides of DataReductionProxyEventStorageDelegate. Bridges to the UI
@@ -158,6 +168,12 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
     debug_ui_service_= ui_service.Pass();
   }
 
+  LoFiDecider* lofi_decider() const { return lofi_decider_.get(); }
+
+  void set_lofi_decider(scoped_ptr<LoFiDecider> lofi_decider) const {
+    lofi_decider_ = lofi_decider.Pass();
+  }
+
  private:
   friend class TestDataReductionProxyIOData;
   FRIEND_TEST_ALL_PREFIXES(DataReductionProxyIODataTest, TestConstruction);
@@ -194,6 +210,9 @@ class DataReductionProxyIOData : public DataReductionProxyEventStorageDelegate {
   // Holds the DataReductionProxyDebugUIManager for Data Reduction Proxy bypass
   // interstitials.
   mutable scoped_ptr<DataReductionProxyDebugUIService> debug_ui_service_;
+
+  // Handles getting if a request is in Lo-Fi mode.
+  mutable scoped_ptr<LoFiDecider> lofi_decider_;
 
   // Creates Data Reduction Proxy-related events for logging.
   scoped_ptr<DataReductionProxyEventCreator> event_creator_;

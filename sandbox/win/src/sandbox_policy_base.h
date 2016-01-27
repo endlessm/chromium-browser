@@ -79,12 +79,14 @@ class PolicyBase : public Dispatcher, public TargetPolicy {
 
   // Creates a Job object with the level specified in a previous call to
   // SetJobLevel().
-  ResultCode MakeJobObject(HANDLE* job);
+  ResultCode MakeJobObject(base::win::ScopedHandle* job);
 
   // Creates the two tokens with the levels specified in a previous call to
-  // SetTokenLevel().
+  // SetTokenLevel(). Also creates a lowbox token if specified based on the
+  // lowbox SID.
   ResultCode MakeTokens(base::win::ScopedHandle* initial,
-                        base::win::ScopedHandle* lockdown);
+                        base::win::ScopedHandle* lockdown,
+                        base::win::ScopedHandle* lowbox);
 
   const AppContainerAttributes* GetAppContainer() const;
 

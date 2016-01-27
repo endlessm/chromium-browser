@@ -24,7 +24,6 @@
 #include "chrome/browser/safe_browsing/test_database_manager.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chrome/test/base/testing_pref_service_syncable.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/history/content/browser/content_visit_delegate.h"
@@ -34,6 +33,7 @@
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/keyed_service/core/service_access_type.h"
+#include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "content/public/browser/resource_request_info.h"
 #include "content/public/common/resource_type.h"
 #include "content/public/test/test_browser_thread_bundle.h"
@@ -248,7 +248,8 @@ class OffDomainInclusionDetectorTest : public testing::TestWithParam<TestCase> {
         is_main_frame,         // is_main_frame
         parent_is_main_frame,  // parent_is_main_frame
         true,                  // allow_download
-        false);                // is_async
+        false,                 // is_async
+        false);                // is_using_lofi
 
     off_domain_inclusion_detector_->OnResourceRequest(url_request.get());
 
@@ -325,8 +326,8 @@ class OffDomainInclusionDetectorTest : public testing::TestWithParam<TestCase> {
             NULL)));
 
     // Create default prefs for the test profile.
-    scoped_ptr<TestingPrefServiceSyncable> prefs(
-        new TestingPrefServiceSyncable);
+    scoped_ptr<syncable_prefs::TestingPrefServiceSyncable> prefs(
+        new syncable_prefs::TestingPrefServiceSyncable);
     chrome::RegisterUserProfilePrefs(prefs->registry());
 
     // |testing_profile_| is owned by |profile_manager_|.

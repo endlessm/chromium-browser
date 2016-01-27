@@ -8,13 +8,14 @@
 
 #include "net/websockets/websocket_basic_stream.h"
 
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>  // for memcpy() and memset().
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/big_endian.h"
+#include "base/macros.h"
 #include "net/base/test_completion_callback.h"
 #include "net/log/test_net_log.h"
 #include "net/socket/socket_test_util.h"
@@ -795,7 +796,7 @@ TEST_F(WebSocketBasicStreamSocketChunkedReadTest, OneMegFrame) {
   // This should be equal to the definition of kReadBufferSize in
   // websocket_basic_stream.cc.
   const int kReadBufferSize = 32 * 1024;
-  const uint64 kPayloadSize = 1 << 20;
+  const uint64_t kPayloadSize = 1 << 20;
   const size_t kWireSize = kPayloadSize + kLargeFrameHeaderSize;
   const size_t kExpectedFrameCount =
       (kWireSize + kReadBufferSize - 1) / kReadBufferSize;

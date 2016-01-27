@@ -11,8 +11,8 @@
 #include "public/platform/WebURLResponse.h"
 #include "public/platform/WebUnitTestSupport.h"
 #include "public/web/WebEmbeddedWorkerStartData.h"
-#include "public/web/WebServiceWorkerContextClient.h"
 #include "public/web/WebSettings.h"
+#include "public/web/modules/serviceworker/WebServiceWorkerContextClient.h"
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
@@ -48,7 +48,6 @@ protected:
 
         m_startData.scriptURL = invalidScriptURL;
         m_startData.userAgent = WebString("dummy user agent");
-        m_startData.pauseAfterDownloadMode = WebEmbeddedWorkerStartData::DontPauseAfterDownload;
         m_startData.waitForDebuggerMode = WebEmbeddedWorkerStartData::DontWaitForDebugger;
         m_startData.v8CacheOptions = WebSettings::V8CacheOptionsDefault;
     }
@@ -68,6 +67,18 @@ protected:
 TEST_F(WebEmbeddedWorkerImplFailureTest, TerminateSoonAfterStart)
 {
     EXPECT_CALL(*m_mockClient, workerReadyForInspection()).Times(1);
+    m_worker->startWorkerContext(m_startData);
+    ::testing::Mock::VerifyAndClearExpectations(m_mockClient);
+
+    EXPECT_CALL(*m_mockClient, workerContextFailedToStart()).Times(1);
+    m_worker->terminateWorkerContext();
+    ::testing::Mock::VerifyAndClearExpectations(m_mockClient);
+}
+
+TEST_F(WebEmbeddedWorkerImplFailureTest, TerminateWhileWaitingForDebugger)
+{
+    EXPECT_CALL(*m_mockClient, workerReadyForInspection()).Times(1);
+    m_startData.waitForDebuggerMode = WebEmbeddedWorkerStartData::WaitForDebugger;
     m_worker->startWorkerContext(m_startData);
     ::testing::Mock::VerifyAndClearExpectations(m_mockClient);
 

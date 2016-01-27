@@ -17,7 +17,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/modules/audio_coding/codecs/pcm16b/include/pcm16b.h"
-#include "webrtc/modules/audio_coding/neteq/interface/neteq.h"
+#include "webrtc/modules/audio_coding/neteq/include/neteq.h"
 #include "webrtc/modules/audio_coding/neteq/tools/input_audio_file.h"
 #include "webrtc/modules/audio_coding/neteq/tools/rtp_generator.h"
 #include "webrtc/test/testsupport/fileutils.h"
@@ -43,7 +43,7 @@ struct TestParameters {
 class NetEqStereoTest : public ::testing::TestWithParam<TestParameters> {
  protected:
   static const int kTimeStepMs = 10;
-  static const int kMaxBlockSize = 480;  // 10 ms @ 48 kHz.
+  static const size_t kMaxBlockSize = 480;  // 10 ms @ 48 kHz.
   static const uint8_t kPayloadTypeMono = 95;
   static const uint8_t kPayloadTypeMulti = 96;
 
@@ -52,7 +52,8 @@ class NetEqStereoTest : public ::testing::TestWithParam<TestParameters> {
         sample_rate_hz_(GetParam().sample_rate),
         samples_per_ms_(sample_rate_hz_ / 1000),
         frame_size_ms_(GetParam().frame_size),
-        frame_size_samples_(frame_size_ms_ * samples_per_ms_),
+        frame_size_samples_(
+            static_cast<size_t>(frame_size_ms_ * samples_per_ms_)),
         output_size_samples_(10 * samples_per_ms_),
         rtp_generator_mono_(samples_per_ms_),
         rtp_generator_(samples_per_ms_),
@@ -90,35 +91,35 @@ class NetEqStereoTest : public ::testing::TestWithParam<TestParameters> {
     NetEqDecoder multi_decoder;
     switch (sample_rate_hz_) {
       case 8000:
-        mono_decoder = kDecoderPCM16B;
+        mono_decoder = NetEqDecoder::kDecoderPCM16B;
         if (num_channels_ == 2) {
-          multi_decoder = kDecoderPCM16B_2ch;
+          multi_decoder = NetEqDecoder::kDecoderPCM16B_2ch;
         } else if (num_channels_ == 5) {
-          multi_decoder = kDecoderPCM16B_5ch;
+          multi_decoder = NetEqDecoder::kDecoderPCM16B_5ch;
         } else {
           FAIL() << "Only 2 and 5 channels supported for 8000 Hz.";
         }
         break;
       case 16000:
-        mono_decoder = kDecoderPCM16Bwb;
+        mono_decoder = NetEqDecoder::kDecoderPCM16Bwb;
         if (num_channels_ == 2) {
-          multi_decoder = kDecoderPCM16Bwb_2ch;
+          multi_decoder = NetEqDecoder::kDecoderPCM16Bwb_2ch;
         } else {
           FAIL() << "More than 2 channels is not supported for 16000 Hz.";
         }
         break;
       case 32000:
-        mono_decoder = kDecoderPCM16Bswb32kHz;
+        mono_decoder = NetEqDecoder::kDecoderPCM16Bswb32kHz;
         if (num_channels_ == 2) {
-          multi_decoder = kDecoderPCM16Bswb32kHz_2ch;
+          multi_decoder = NetEqDecoder::kDecoderPCM16Bswb32kHz_2ch;
         } else {
           FAIL() << "More than 2 channels is not supported for 32000 Hz.";
         }
         break;
       case 48000:
-        mono_decoder = kDecoderPCM16Bswb48kHz;
+        mono_decoder = NetEqDecoder::kDecoderPCM16Bswb48kHz;
         if (num_channels_ == 2) {
-          multi_decoder = kDecoderPCM16Bswb48kHz_2ch;
+          multi_decoder = NetEqDecoder::kDecoderPCM16Bswb48kHz_2ch;
         } else {
           FAIL() << "More than 2 channels is not supported for 48000 Hz.";
         }
@@ -195,14 +196,16 @@ class NetEqStereoTest : public ::testing::TestWithParam<TestParameters> {
       while (time_now >= next_arrival_time) {
         // Insert packet in mono instance.
         ASSERT_EQ(NetEq::kOK,
-                  neteq_mono_->InsertPacket(rtp_header_mono_, encoded_,
-                                            payload_size_bytes_,
+                  neteq_mono_->InsertPacket(rtp_header_mono_,
+                                            rtc::ArrayView<const uint8_t>(
+                                                encoded_, payload_size_bytes_),
                                             next_arrival_time));
         // Insert packet in multi-channel instance.
-        ASSERT_EQ(NetEq::kOK,
-                  neteq_->InsertPacket(rtp_header_, encoded_multi_channel_,
-                                       multi_payload_size_bytes_,
-                                       next_arrival_time));
+        ASSERT_EQ(NetEq::kOK, neteq_->InsertPacket(
+                                  rtp_header_, rtc::ArrayView<const uint8_t>(
+                                                   encoded_multi_channel_,
+                                                   multi_payload_size_bytes_),
+                                  next_arrival_time));
         // Get next input packets (mono and multi-channel).
         do {
           next_send_time = GetNewPackets();
@@ -212,7 +215,7 @@ class NetEqStereoTest : public ::testing::TestWithParam<TestParameters> {
       }
       NetEqOutputType output_type;
       // Get audio from mono instance.
-      int samples_per_channel;
+      size_t samples_per_channel;
       int num_channels;
       EXPECT_EQ(NetEq::kOK,
                 neteq_mono_->GetAudio(kMaxBlockSize, output_,
@@ -242,8 +245,8 @@ class NetEqStereoTest : public ::testing::TestWithParam<TestParameters> {
   const int sample_rate_hz_;
   const int samples_per_ms_;
   const int frame_size_ms_;
-  const int frame_size_samples_;
-  const int output_size_samples_;
+  const size_t frame_size_samples_;
+  const size_t output_size_samples_;
   NetEq* neteq_mono_;
   NetEq* neteq_;
   test::RtpGenerator rtp_generator_mono_;
@@ -256,8 +259,8 @@ class NetEqStereoTest : public ::testing::TestWithParam<TestParameters> {
   int16_t* output_multi_channel_;
   WebRtcRTPHeader rtp_header_mono_;
   WebRtcRTPHeader rtp_header_;
-  int payload_size_bytes_;
-  int multi_payload_size_bytes_;
+  size_t payload_size_bytes_;
+  size_t multi_payload_size_bytes_;
   int last_send_time_;
   int last_arrival_time_;
   rtc::scoped_ptr<test::InputAudioFile> input_file_;

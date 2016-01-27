@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "tools/gn/source_dir.h"
 #include "tools/gn/source_file.h"
 
@@ -19,6 +19,9 @@ class ConfigValues {
   ConfigValues();
   ~ConfigValues();
 
+  // Appends the values from the given config to this one.
+  void AppendValues(const ConfigValues& append);
+
 #define STRING_VALUES_ACCESSOR(name) \
     const std::vector<std::string>& name() const { return name##_; } \
     std::vector<std::string>& name() { return name##_; }
@@ -26,6 +29,7 @@ class ConfigValues {
     const std::vector<SourceDir>& name() const { return name##_; } \
     std::vector<SourceDir>& name() { return name##_; }
 
+  STRING_VALUES_ACCESSOR(asmflags)
   STRING_VALUES_ACCESSOR(cflags)
   STRING_VALUES_ACCESSOR(cflags_c)
   STRING_VALUES_ACCESSOR(cflags_cc)
@@ -36,6 +40,7 @@ class ConfigValues {
   STRING_VALUES_ACCESSOR(ldflags)
   DIR_VALUES_ACCESSOR   (lib_dirs)
   STRING_VALUES_ACCESSOR(libs)
+  // If you add a new one, be sure to update AppendValues().
 
 #undef STRING_VALUES_ACCESSOR
 #undef DIR_VALUES_ACCESSOR
@@ -57,6 +62,7 @@ class ConfigValues {
   }
 
  private:
+  std::vector<std::string> asmflags_;
   std::vector<std::string> cflags_;
   std::vector<std::string> cflags_c_;
   std::vector<std::string> cflags_cc_;
@@ -67,11 +73,10 @@ class ConfigValues {
   std::vector<std::string> ldflags_;
   std::vector<SourceDir>   lib_dirs_;
   std::vector<std::string> libs_;
+  // If you add a new one, be sure to update AppendValues().
 
   std::string precompiled_header_;
   SourceFile precompiled_source_;
-
-  DISALLOW_COPY_AND_ASSIGN(ConfigValues);
 };
 
 #endif  // TOOLS_GN_CONFIG_VALUES_H_

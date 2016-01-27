@@ -48,6 +48,11 @@ void URLRequestSimpleJob::Start() {
       base::Bind(&URLRequestSimpleJob::StartAsync, weak_factory_.GetWeakPtr()));
 }
 
+void URLRequestSimpleJob::Kill() {
+  weak_factory_.InvalidateWeakPtrs();
+  URLRangeRequestJob::Kill();
+}
+
 bool URLRequestSimpleJob::GetMimeType(std::string* mime_type) const {
   *mime_type = mime_type_;
   return true;
@@ -60,7 +65,8 @@ bool URLRequestSimpleJob::GetCharset(std::string* charset) {
 
 URLRequestSimpleJob::~URLRequestSimpleJob() {}
 
-bool URLRequestSimpleJob::ReadRawData(IOBuffer* buf, int buf_size,
+bool URLRequestSimpleJob::ReadRawData(IOBuffer* buf,
+                                      int buf_size,
                                       int* bytes_read) {
   DCHECK(bytes_read);
   buf_size = static_cast<int>(
@@ -138,7 +144,7 @@ void URLRequestSimpleJob::OnGetDataCompleted(int result) {
     // Notify that the headers are complete
     if (!byte_range_.ComputeBounds(data_->size())) {
       NotifyDone(URLRequestStatus(URLRequestStatus::FAILED,
-                 ERR_REQUEST_RANGE_NOT_SATISFIABLE));
+                                  ERR_REQUEST_RANGE_NOT_SATISFIABLE));
       return;
     }
 

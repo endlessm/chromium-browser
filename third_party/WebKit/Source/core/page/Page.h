@@ -32,6 +32,7 @@
 #include "core/page/PageLifecycleNotifier.h"
 #include "core/page/PageLifecycleObserver.h"
 #include "core/page/PageVisibilityState.h"
+#include "platform/MemoryPurgeController.h"
 #include "platform/Supplementable.h"
 #include "platform/geometry/LayoutRect.h"
 #include "platform/geometry/Region.h"
@@ -68,21 +69,23 @@ typedef uint64_t LinkHash;
 
 float deviceScaleFactor(LocalFrame*);
 
-class CORE_EXPORT Page final : public NoBaseWillBeGarbageCollectedFinalized<Page>, public WillBeHeapSupplementable<Page>, public PageLifecycleNotifier, public SettingsDelegate {
+class CORE_EXPORT Page final : public NoBaseWillBeGarbageCollectedFinalized<Page>, public WillBeHeapSupplementable<Page>, public PageLifecycleNotifier, public SettingsDelegate, public MemoryPurgeClient {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(Page);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(Page);
     WTF_MAKE_NONCOPYABLE(Page);
     friend class Settings;
 public:
     static void platformColorsChanged();
 
     // It is up to the platform to ensure that non-null clients are provided where required.
-    struct CORE_EXPORT PageClients {
-        WTF_MAKE_NONCOPYABLE(PageClients); WTF_MAKE_FAST_ALLOCATED(PageClients);
+    struct CORE_EXPORT PageClients final {
+        STACK_ALLOCATED();
+        WTF_MAKE_NONCOPYABLE(PageClients);
     public:
         PageClients();
         ~PageClients();
 
-        ChromeClient* chromeClient;
+        RawPtrWillBeMember<ChromeClient> chromeClient;
         ContextMenuClient* contextMenuClient;
         EditorClient* editorClient;
         DragClient* dragClient;
@@ -90,15 +93,15 @@ public:
     };
 
     explicit Page(PageClients&);
-    virtual ~Page();
+    ~Page() override;
 
     void makeOrdinary();
 
     // This method returns all pages, incl. private ones associated with
     // inspector overlay, popups, SVGImage, etc.
-    static HashSet<Page*>& allPages();
+    static WillBePersistentHeapHashSet<RawPtrWillBeWeakMember<Page>>& allPages();
     // This method returns all ordinary pages.
-    static HashSet<Page*>& ordinaryPages();
+    static WillBePersistentHeapHashSet<RawPtrWillBeWeakMember<Page>>& ordinaryPages();
 
     FrameHost& frameHost() const { return *m_frameHost; }
 
@@ -160,7 +163,7 @@ public:
     void setDefersLoading(bool);
     bool defersLoading() const { return m_defersLoading; }
 
-    void setPageScaleFactor(float scale, const IntPoint& origin);
+    void setPageScaleFactor(float);
     float pageScaleFactor() const;
 
     float deviceScaleFactor() const { return m_deviceScaleFactor; }
@@ -198,7 +201,13 @@ public:
 
     static void networkStateChanged(bool online);
 
+    MemoryPurgeController& memoryPurgeController();
+
+    void purgeMemory(MemoryPurgeMode, DeviceKind) override;
+
     DECLARE_TRACE();
+
+    void willCloseLayerTreeView();
     void willBeDestroyed();
 
 private:
@@ -209,11 +218,11 @@ private:
     void setNeedsLayoutInAllFrames();
 
     // SettingsDelegate overrides.
-    virtual void settingsChanged(SettingsDelegate::ChangeType) override;
+    void settingsChanged(SettingsDelegate::ChangeType) override;
 
     RefPtrWillBeMember<PageAnimator> m_animator;
-    const OwnPtr<AutoscrollController> m_autoscrollController;
-    ChromeClient* m_chromeClient;
+    const OwnPtrWillBeMember<AutoscrollController> m_autoscrollController;
+    RawPtrWillBeMember<ChromeClient> m_chromeClient;
     const OwnPtrWillBeMember<DragCaretController> m_dragCaretController;
     const OwnPtrWillBeMember<DragController> m_dragController;
     const OwnPtrWillBeMember<FocusController> m_focusController;
@@ -267,6 +276,8 @@ private:
     // A pointer to all the interfaces provided to in-process Frames for this Page.
     // FIXME: Most of the members of Page should move onto FrameHost.
     OwnPtrWillBeMember<FrameHost> m_frameHost;
+
+    OwnPtrWillBeMember<MemoryPurgeController> m_memoryPurgeController;
 };
 
 extern template class CORE_EXTERN_TEMPLATE_EXPORT WillBeHeapSupplement<Page>;

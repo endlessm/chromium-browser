@@ -33,6 +33,7 @@
 #include "core/html/parser/HTMLPreloadScanner.h"
 #include "core/html/parser/HTMLSourceTracker.h"
 #include "core/html/parser/HTMLTreeBuilderSimulator.h"
+#include "core/html/parser/ParsedChunkQueue.h"
 #include "core/html/parser/TextResourceDecoder.h"
 #include "core/html/parser/XSSAuditorDelegate.h"
 #include "wtf/PassOwnPtr.h"
@@ -42,27 +43,33 @@ namespace blink {
 
 class HTMLDocumentParser;
 class XSSAuditor;
-class WebScheduler;
+class WebTaskRunner;
 
 class BackgroundHTMLParser {
-    WTF_MAKE_FAST_ALLOCATED(BackgroundHTMLParser);
+    USING_FAST_MALLOC(BackgroundHTMLParser);
+    WTF_MAKE_NONCOPYABLE(BackgroundHTMLParser);
 public:
     struct Configuration {
+        USING_FAST_MALLOC(Configuration);
+    public:
         Configuration();
         HTMLParserOptions options;
         WeakPtr<HTMLDocumentParser> parser;
         OwnPtr<XSSAuditor> xssAuditor;
         OwnPtr<TokenPreloadScanner> preloadScanner;
         OwnPtr<TextResourceDecoder> decoder;
+        RefPtr<ParsedChunkQueue> parsedChunkQueue;
         // outstandingTokenLimit must be greater than or equal to
         // pendingTokenLimit
         size_t outstandingTokenLimit;
         size_t pendingTokenLimit;
     };
 
-    static void start(PassRefPtr<WeakReference<BackgroundHTMLParser>>, PassOwnPtr<Configuration>, WebScheduler*);
+    static void start(PassRefPtr<WeakReference<BackgroundHTMLParser>>, PassOwnPtr<Configuration>, PassOwnPtr<WebTaskRunner>);
 
     struct Checkpoint {
+        USING_FAST_MALLOC(CheckPoint);
+    public:
         WeakPtr<HTMLDocumentParser> parser;
         OwnPtr<HTMLToken> token;
         OwnPtr<HTMLTokenizer> tokenizer;
@@ -85,7 +92,7 @@ public:
     void forcePlaintextForTextDocument();
 
 private:
-    BackgroundHTMLParser(PassRefPtr<WeakReference<BackgroundHTMLParser>>, PassOwnPtr<Configuration>, WebScheduler*);
+    BackgroundHTMLParser(PassRefPtr<WeakReference<BackgroundHTMLParser>>, PassOwnPtr<Configuration>, PassOwnPtr<WebTaskRunner>);
     ~BackgroundHTMLParser();
 
     void appendDecodedBytes(const String&);
@@ -113,7 +120,8 @@ private:
     OwnPtr<TokenPreloadScanner> m_preloadScanner;
     OwnPtr<TextResourceDecoder> m_decoder;
     DocumentEncodingData m_lastSeenEncodingData;
-    WebScheduler* m_scheduler; // NOT OWNED, scheduler will outlive BackgroundHTMLParser
+    OwnPtr<WebTaskRunner> m_loadingTaskRunner;
+    RefPtr<ParsedChunkQueue> m_parsedChunkQueue;
 
     bool m_startingScript;
 };

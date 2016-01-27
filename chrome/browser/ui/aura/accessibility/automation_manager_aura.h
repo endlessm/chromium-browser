@@ -10,10 +10,11 @@
 #include "chrome/browser/extensions/api/automation_internal/automation_action_adapter.h"
 #include "chrome/browser/ui/aura/accessibility/ax_tree_source_aura.h"
 #include "ui/accessibility/ax_tree_serializer.h"
-#include "ui/views/focus/widget_focus_manager.h"
 
+namespace base {
 template <typename T>
 struct DefaultSingletonTraits;
+}  // namespace base
 
 namespace content {
 class BrowserContext;
@@ -24,9 +25,13 @@ class AXAuraObjWrapper;
 class View;
 }  // namespace views
 
+using AuraAXTreeSerializer =
+    ui::AXTreeSerializer<views::AXAuraObjWrapper*,
+                         ui::AXNodeData,
+                         ui::AXTreeData>;
+
 // Manages a tree of automation nodes.
-class AutomationManagerAura : public extensions::AutomationActionAdapter,
-                              public views::WidgetFocusChangeListener {
+class AutomationManagerAura : public extensions::AutomationActionAdapter {
  public:
   // Get the single instance of this class.
   static AutomationManagerAura* GetInstance();
@@ -48,16 +53,17 @@ class AutomationManagerAura : public extensions::AutomationActionAdapter,
   void DoDefault(int32 id) override;
   void Focus(int32 id) override;
   void MakeVisible(int32 id) override;
-  void SetSelection(int32 id, int32 start, int32 end) override;
+  void SetSelection(int32 anchor_id,
+                    int32 anchor_offset,
+                    int32 focus_id,
+                    int32 focus_offset) override;
   void ShowContextMenu(int32 id) override;
 
- protected:
-  ~AutomationManagerAura() override;
-
  private:
-  friend struct DefaultSingletonTraits<AutomationManagerAura>;
+  friend struct base::DefaultSingletonTraits<AutomationManagerAura>;
 
   AutomationManagerAura();
+  virtual ~AutomationManagerAura();
 
   // Reset all state in this manager.
   void ResetSerializer();
@@ -65,9 +71,6 @@ class AutomationManagerAura : public extensions::AutomationActionAdapter,
   void SendEvent(content::BrowserContext* context,
                  views::AXAuraObjWrapper* aura_obj,
                  ui::AXEvent event_type);
-
-  // views::WidgetFocusChangeListener:
-  void OnNativeFocusChanged(aura::Window* focused_now) override;
 
   // Whether automation support for views is enabled.
   bool enabled_;
@@ -79,14 +82,11 @@ class AutomationManagerAura : public extensions::AutomationActionAdapter,
 
   // Serializes incremental updates on the currently active tree
   // |current_tree_|.
-  scoped_ptr<ui::AXTreeSerializer<views::AXAuraObjWrapper*>>
-      current_tree_serializer_;
+  scoped_ptr<AuraAXTreeSerializer> current_tree_serializer_;
 
   bool processing_events_;
 
   std::vector<std::pair<views::AXAuraObjWrapper*, ui::AXEvent>> pending_events_;
-
-  aura::Window* focused_window_;
 
   DISALLOW_COPY_AND_ASSIGN(AutomationManagerAura);
 };

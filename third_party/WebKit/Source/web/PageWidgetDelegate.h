@@ -32,6 +32,7 @@
 #define PageWidgetDelegate_h
 
 #include "public/platform/WebCanvas.h"
+#include "public/web/WebInputEvent.h"
 #include "public/web/WebWidget.h"
 #include "wtf/OwnPtr.h"
 
@@ -39,7 +40,6 @@ namespace blink {
 
 class LocalFrame;
 class Page;
-class PageOverlayList;
 class WebGestureEvent;
 class WebInputEvent;
 class WebKeyboardEvent;
@@ -59,18 +59,27 @@ public:
     virtual bool handleGestureEvent(const WebGestureEvent&) = 0;
     virtual bool handleTouchEvent(LocalFrame& mainFrame, const WebTouchEvent&);
     virtual ~PageWidgetEventHandler() { }
+protected:
+    const char* inputTypeToName(WebInputEvent::Type);
 };
 
 
 // Common implementation of WebViewImpl and WebPagePopupImpl.
 class PageWidgetDelegate {
 public:
-    // rootFrame arguments indicate a root localFrame from which to start performing the
-    // specified operation. If rootFrame is 0, these methods will attempt to use the
-    // Page's mainFrame(), if it is a LocalFrame.
-    static void animate(Page&, double monotonicFrameBeginTime, LocalFrame& root);
-    static void layout(Page&, LocalFrame& root);
-    static void paint(Page&, PageOverlayList*, WebCanvas*, const WebRect&, LocalFrame& root);
+    static void animate(Page&, double monotonicFrameBeginTime);
+
+    // For the following methods, the |root| argument indicates a root localFrame from which
+    // to start performing the specified operation.
+
+    // See documents of methods with the same names in FrameView class.
+    static void updateLifecycleToCompositingCleanPlusScrolling(Page&, LocalFrame& root);
+    static void updateAllLifecyclePhases(Page&, LocalFrame& root);
+
+    static void paint(Page&, WebCanvas*, const WebRect&, LocalFrame& root);
+    static void paintIgnoringCompositing(Page&, WebCanvas*, const WebRect&, LocalFrame& root);
+
+    // See FIXME in the function body about nullptr |root|.
     static bool handleInputEvent(PageWidgetEventHandler&, const WebInputEvent&, LocalFrame* root);
 
 private:

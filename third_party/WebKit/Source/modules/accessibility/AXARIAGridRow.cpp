@@ -44,9 +44,9 @@ AXARIAGridRow::~AXARIAGridRow()
 {
 }
 
-PassRefPtrWillBeRawPtr<AXARIAGridRow> AXARIAGridRow::create(LayoutObject* layoutObject, AXObjectCacheImpl& axObjectCache)
+AXARIAGridRow* AXARIAGridRow::create(LayoutObject* layoutObject, AXObjectCacheImpl& axObjectCache)
 {
-    return adoptRefWillBeNoop(new AXARIAGridRow(layoutObject, axObjectCache));
+    return new AXARIAGridRow(layoutObject, axObjectCache);
 }
 
 bool AXARIAGridRow::isARIATreeGridRow() const
@@ -58,7 +58,7 @@ bool AXARIAGridRow::isARIATreeGridRow() const
     return parent->ariaRoleAttribute() == TreeGridRole;
 }
 
-void AXARIAGridRow::headerObjectsForRow(AccessibilityChildrenVector& headers)
+void AXARIAGridRow::headerObjectsForRow(AXObjectVector& headers)
 {
     for (const auto& cell : children()) {
         if (cell->roleValue() == RowHeaderRole)

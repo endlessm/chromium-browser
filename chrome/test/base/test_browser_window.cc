@@ -13,36 +13,12 @@
 
 namespace chrome {
 
-namespace {
-
-// Handles destroying a TestBrowserWindow when the Browser it is attached to is
-// destroyed.
-class TestBrowserWindowOwner : public chrome::BrowserListObserver {
- public:
-  explicit TestBrowserWindowOwner(TestBrowserWindow* window) : window_(window) {
-    BrowserList::AddObserver(this);
-  }
-  ~TestBrowserWindowOwner() override { BrowserList::RemoveObserver(this); }
-
- private:
-  // Overridden from BrowserListObserver:
-  void OnBrowserRemoved(Browser* browser) override {
-    if (browser->window() == window_.get())
-      delete this;
-  }
-
-  scoped_ptr<TestBrowserWindow> window_;
-
-  DISALLOW_COPY_AND_ASSIGN(TestBrowserWindowOwner);
-};
-
-}  // namespace
-
-Browser* CreateBrowserWithTestWindowForParams(Browser::CreateParams* params) {
+scoped_ptr<Browser> CreateBrowserWithTestWindowForParams(
+    Browser::CreateParams* params) {
   TestBrowserWindow* window = new TestBrowserWindow;
   new TestBrowserWindowOwner(window);
   params->window = window;
-  return new Browser(*params);
+  return make_scoped_ptr(new Browser(*params));
 }
 
 }  // namespace chrome
@@ -158,6 +134,10 @@ LocationBar* TestBrowserWindow::GetLocationBar() const {
   return const_cast<TestLocationBar*>(&location_bar_);
 }
 
+ToolbarActionsBar* TestBrowserWindow::GetToolbarActionsBar() {
+  return nullptr;
+}
+
 bool TestBrowserWindow::PreHandleKeyboardEvent(
     const content::NativeWebKeyboardEvent& event,
     bool* is_keyboard_shortcut) {
@@ -184,8 +164,11 @@ gfx::Rect TestBrowserWindow::GetRootWindowResizerRect() const {
   return gfx::Rect();
 }
 
-bool TestBrowserWindow::ShowSessionCrashedBubble() {
-  return false;
+autofill::SaveCardBubbleView* TestBrowserWindow::ShowSaveCreditCardBubble(
+    content::WebContents* contents,
+    autofill::SaveCardBubbleController* controller,
+    bool user_gesture) {
+  return nullptr;
 }
 
 bool TestBrowserWindow::IsProfileResetBubbleSupported() const {
@@ -219,8 +202,7 @@ web_modal::WebContentsModalDialogHost*
   return NULL;
 }
 
-int
-TestBrowserWindow::GetRenderViewHeightInsetWithDetachedBookmarkBar() {
+int TestBrowserWindow::GetRenderViewHeightInsetWithDetachedBookmarkBar() {
   return 0;
 }
 
@@ -230,4 +212,20 @@ void TestBrowserWindow::ExecuteExtensionCommand(
 
 ExclusiveAccessContext* TestBrowserWindow::GetExclusiveAccessContext() {
   return nullptr;
+}
+
+// TestBrowserWindowOwner -----------------------------------------------------
+
+TestBrowserWindowOwner::TestBrowserWindowOwner(TestBrowserWindow* window)
+    : window_(window) {
+  BrowserList::AddObserver(this);
+}
+
+TestBrowserWindowOwner::~TestBrowserWindowOwner() {
+  BrowserList::RemoveObserver(this);
+}
+
+void TestBrowserWindowOwner::OnBrowserRemoved(Browser* browser) {
+  if (browser->window() == window_.get())
+    delete this;
 }

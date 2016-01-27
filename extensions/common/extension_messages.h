@@ -180,7 +180,12 @@ IPC_STRUCT_BEGIN(ExtensionMsg_ExternalConnectionInfo)
   // The URL of the frame that initiated the request.
   IPC_STRUCT_MEMBER(GURL, source_url)
 
-  // The ID of the frame that is the target of the request.
+  // The ID of the tab that is the target of the request, or -1 if there is no
+  // target tab.
+  IPC_STRUCT_MEMBER(int, target_tab_id)
+
+  // The ID of the frame that is the target of the request, or -1 if there is
+  // no target frame (implying the message is for all frames).
   IPC_STRUCT_MEMBER(int, target_frame_id)
 
   // The process ID of the webview that initiated the request.
@@ -249,7 +254,7 @@ struct ExtensionMsg_PermissionSetStruct {
       const extensions::PermissionSet& permissions);
   ~ExtensionMsg_PermissionSetStruct();
 
-  scoped_refptr<const extensions::PermissionSet> ToPermissionSet() const;
+  scoped_ptr<const extensions::PermissionSet> ToPermissionSet() const;
 
   extensions::APIPermissionSet apis;
   extensions::ManifestPermissionSet manifest_permissions;
@@ -382,7 +387,7 @@ IPC_STRUCT_BEGIN(ExtensionMsg_UpdatePermissions_Params)
   IPC_STRUCT_MEMBER(ExtensionMsg_PermissionSetStruct, withheld_permissions)
 IPC_STRUCT_END()
 
-// Messages sent from the browser to the renderer.
+// Messages sent from the browser to the renderer:
 
 // The browser sends this message in response to all extension api calls. The
 // response data (if any) is one of the base::Value subclasses, wrapped as the
@@ -407,10 +412,6 @@ IPC_MESSAGE_ROUTED5(ExtensionMsg_MessageInvoke,
                     std::string /* function_name */,
                     base::ListValue /* args */,
                     bool /* delivered as part of a user gesture */)
-
-// Tell the renderer process all known extension function names.
-IPC_MESSAGE_CONTROL1(ExtensionMsg_SetFunctionNames,
-                     std::vector<std::string>)
 
 // Set the top-level frame to the provided name.
 IPC_MESSAGE_ROUTED1(ExtensionMsg_SetFrameName,
@@ -506,6 +507,11 @@ IPC_MESSAGE_ROUTED1(ExtensionMsg_NotifyRenderViewType,
 IPC_MESSAGE_CONTROL1(ExtensionMsg_UsingWebRequestAPI,
                      bool /* webrequest_used */)
 
+// The browser's response to the ExtensionMsg_WakeEventPage IPC.
+IPC_MESSAGE_CONTROL2(ExtensionMsg_WakeEventPageResponse,
+                     int /* request_id */,
+                     bool /* success */)
+
 // Ask the lazy background page if it is ready to be suspended. This is sent
 // when the page is considered idle. The renderer will reply with the same
 // sequence_id so that we can tell which message it is responding to.
@@ -568,7 +574,11 @@ IPC_MESSAGE_CONTROL1(ExtensionMsg_WatchPages,
 IPC_MESSAGE_CONTROL1(ExtensionMsg_TransferBlobs,
                      std::vector<std::string> /* blob_uuids */)
 
-// Messages sent from the renderer to the browser.
+// Report the WebView partition ID to the WebView guest renderer process.
+IPC_MESSAGE_CONTROL1(ExtensionMsg_SetWebViewPartitionID,
+                     std::string /* webview_partition_id */)
+
+// Messages sent from the renderer to the browser:
 
 // A renderer sends this message when an extension process starts an API
 // request. The browser will always respond with a ExtensionMsg_Response.
@@ -730,8 +740,9 @@ IPC_MESSAGE_ROUTED0(ExtensionHostMsg_DecrementLazyKeepaliveCount)
 IPC_SYNC_MESSAGE_CONTROL0_1(ExtensionHostMsg_GenerateUniqueID,
                             int /* unique_id */)
 
-// Resumes resource requests for a newly created app window.
-IPC_MESSAGE_CONTROL1(ExtensionHostMsg_ResumeRequests, int /* route_id */)
+// Notify the browser that an app window is ready and can resume resource
+// requests.
+IPC_MESSAGE_CONTROL1(ExtensionHostMsg_AppWindowReady, int /* route_id */)
 
 // Sent by the renderer when the draggable regions are updated.
 IPC_MESSAGE_ROUTED1(ExtensionHostMsg_UpdateDraggableRegions,
@@ -767,6 +778,12 @@ IPC_MESSAGE_ROUTED1(ExtensionHostMsg_OnWatchedPageChange,
 // Sent by the renderer when it has received a Blob handle from the browser.
 IPC_MESSAGE_CONTROL1(ExtensionHostMsg_TransferBlobsAck,
                      std::vector<std::string> /* blob_uuids */)
+
+// Asks the browser to wake the event page of an extension.
+// The browser will reply with ExtensionHostMsg_WakeEventPageResponse.
+IPC_MESSAGE_CONTROL2(ExtensionHostMsg_WakeEventPage,
+                     int /* request_id */,
+                     std::string /* extension_id */)
 
 // Tells listeners that a detailed message was reported to the console by
 // WebKit.

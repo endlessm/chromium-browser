@@ -61,7 +61,20 @@ std::string BuildAvatarImageUrl(const std::string& url, int size) {
 }
 
 class TabCloser : public content::WebContentsUserData<TabCloser> {
-  // To use, call TabCloser::CreateForWebContents.
+ public:
+  static void MaybeClose(WebContents* web_contents) {
+    // Close the tab if there is no history entry to go back to and there is a
+    // browser for the tab (which is not the case for example in a <webview>).
+    if (!web_contents->GetController().IsInitialBlankNavigation())
+      return;
+
+#if !defined(OS_ANDROID)
+    if (!chrome::FindBrowserWithWebContents(web_contents))
+      return;
+#endif
+    TabCloser::CreateForWebContents(web_contents);
+  }
+
  private:
   friend class content::WebContentsUserData<TabCloser>;
 
@@ -299,12 +312,13 @@ void SupervisedUserInterstitial::CommandReceived(const std::string& command) {
                               BACK,
                               HISTOGRAM_BOUNDING_VALUE);
 
-    // Close the tab if there is no history entry to go back to.
-    DCHECK(web_contents_->GetController().GetTransientEntry());
-    if (web_contents_->GetController().GetEntryCount() == 1)
-      TabCloser::CreateForWebContents(web_contents_);
-
+    // The interstitial's reference to the WebContents will go away after the
+    // DontProceed call.
+    WebContents* web_contents = web_contents_;
+    DCHECK(web_contents->GetController().GetTransientEntry());
     interstitial_page_->DontProceed();
+
+    TabCloser::MaybeClose(web_contents);
     return;
   }
 
@@ -386,8 +400,9 @@ void SupervisedUserInterstitial::DispatchContinueRequest(
       SupervisedUserServiceFactory::GetForProfile(profile_);
   supervised_user_service->RemoveObserver(this);
 
-  BrowserThread::PostTask(
-      BrowserThread::IO, FROM_HERE, base::Bind(callback_, continue_request));
+  if (!callback_.is_null())
+    BrowserThread::PostTask(BrowserThread::IO, FROM_HERE,
+                            base::Bind(callback_, continue_request));
 
   // After this, the WebContents may be destroyed. Make sure we don't try to use
   // it again.

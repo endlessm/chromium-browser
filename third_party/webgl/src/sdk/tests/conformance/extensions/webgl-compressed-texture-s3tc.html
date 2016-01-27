@@ -30,8 +30,8 @@
 <head>
 <meta charset="utf-8">
 <link rel="stylesheet" href="../../resources/js-test-style.css"/>
-<script src="../../resources/js-test-pre.js"></script>
-<script src="../../resources/webgl-test-utils.js"></script>
+<script src="../../js/js-test-pre.js"></script>
+<script src="../../js/webgl-test-utils.js"></script>
 <title>WebGL WEBGL_compressed_texture_s3tc Conformance Tests</title>
 <style>
 img {
@@ -505,6 +505,11 @@ function testDXTTexture(test) {
     gl.compressedTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, wrongFormat, data);
     wtu.glErrorShouldBe(gl, gl.INVALID_OPERATION, "format does not match");
 
+    gl.compressedTexSubImage2D(gl.TEXTURE_2D, 0, 4, 0, width, height, format, data);
+    wtu.glErrorShouldBe(gl, gl.INVALID_VALUE, "dimension out of range");
+    gl.compressedTexSubImage2D(gl.TEXTURE_2D, 0, 0, 4, width, height, format, data);
+    wtu.glErrorShouldBe(gl, gl.INVALID_VALUE, "dimension out of range");
+
     gl.compressedTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width + 4, height, format, data);
     wtu.glErrorShouldBe(gl, gl.INVALID_VALUE, "data size does not match dimensions");
     gl.compressedTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height + 4, format, data);
@@ -627,7 +632,7 @@ function testPVRTCTextures() {
 debug("");
 var successfullyParsed = true;
 </script>
-<script src="../../resources/js-test-post.js"></script>
+<script src="../../js/js-test-post.js"></script>
 
 </body>
 </html>

@@ -45,14 +45,13 @@ class WebKitClientMessageLoopImpl
     : public WebDevToolsAgentClient::WebKitClientMessageLoop {
  public:
   WebKitClientMessageLoopImpl() : message_loop_(base::MessageLoop::current()) {}
-  virtual ~WebKitClientMessageLoopImpl() { message_loop_ = NULL; }
-  virtual void run() {
+  ~WebKitClientMessageLoopImpl() override { message_loop_ = NULL; }
+  void run() override {
     base::MessageLoop::ScopedNestableTaskAllower allow(message_loop_);
     message_loop_->Run();
   }
-  virtual void quitNow() {
-    message_loop_->QuitNow();
-  }
+  void quitNow() override { message_loop_->QuitNow(); }
+
  private:
   base::MessageLoop* message_loop_;
 };
@@ -132,6 +131,12 @@ void DevToolsAgent::didExitDebugLoop() {
 }
 
 void DevToolsAgent::enableTracing(const WebString& category_filter) {
+  // Tracing is already started by DevTools TracingHandler::Start for the
+  // renderer target in the browser process. It will eventually start tracing in
+  // the renderer process via IPC. But we still need a redundant
+  // TraceLog::SetEnabled call here for
+  // InspectorTracingAgent::emitMetadataEvents(), at which point, we are not
+  // sure if tracing is already started in the renderer process.
   TraceLog* trace_log = TraceLog::GetInstance();
   trace_log->SetEnabled(
       base::trace_event::TraceConfig(category_filter.utf8(), ""),

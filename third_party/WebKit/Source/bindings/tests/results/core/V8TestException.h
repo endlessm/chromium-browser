@@ -19,6 +19,7 @@
 namespace blink {
 
 class V8TestException {
+    STATIC_ONLY(V8TestException);
 public:
     CORE_EXPORT static bool hasInstance(v8::Local<v8::Value>, v8::Isolate*);
     static v8::Local<v8::Object> findInstanceInPrototypeChain(v8::Local<v8::Value>, v8::Isolate*);
@@ -35,9 +36,10 @@ public:
     static void trace(VisitorDispatcher visitor, ScriptWrappable* scriptWrappable)
     {
     }
+    static void constructorCallback(const v8::FunctionCallbackInfo<v8::Value>&);
     static const int internalFieldCount = v8DefaultWrapperInternalFieldCount + 0;
     static void installConditionallyEnabledProperties(v8::Local<v8::Object>, v8::Isolate*) { }
-    static void preparePrototypeObject(v8::Isolate*, v8::Local<v8::Object> prototypeObject, v8::Local<v8::FunctionTemplate> interfaceTemplate) { }
+    static void preparePrototypeAndInterfaceObject(v8::Isolate*, v8::Local<v8::Object> prototypeObject, v8::Local<v8::Function> interfaceObject, v8::Local<v8::FunctionTemplate> interfaceTemplate) { }
 };
 
 template <>

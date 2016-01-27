@@ -28,7 +28,7 @@ class ProgramBinaryTest : public ANGLETest
         setConfigAlphaBits(8);
     }
 
-    virtual void SetUp()
+    void SetUp() override
     {
         ANGLETest::SetUp();
 
@@ -63,12 +63,19 @@ class ProgramBinaryTest : public ANGLETest
         ASSERT_GL_NO_ERROR();
     }
 
-    virtual void TearDown()
+    void TearDown() override
     {
         glDeleteProgram(mProgram);
         glDeleteBuffers(1, &mBuffer);
 
         ANGLETest::TearDown();
+    }
+
+    GLint getAvailableProgramBinaryFormatCount() const
+    {
+        GLint formatCount;
+        glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS_OES, &formatCount);
+        return formatCount;
     }
 
     GLuint mProgram;
@@ -79,6 +86,19 @@ class ProgramBinaryTest : public ANGLETest
 // should not internally cause a vertex shader recompile (for conversion).
 TEST_P(ProgramBinaryTest, FloatDynamicShaderSize)
 {
+    if (!extensionEnabled("GL_OES_get_program_binary"))
+    {
+        std::cout << "Test skipped because GL_OES_get_program_binary is not available."
+                  << std::endl;
+        return;
+    }
+
+    if (getAvailableProgramBinaryFormatCount() == 0)
+    {
+        std::cout << "Test skipped because no program binary formats are available." << std::endl;
+        return;
+    }
+
     glUseProgram(mProgram);
     glBindBuffer(GL_ARRAY_BUFFER, mBuffer);
 
@@ -107,6 +127,19 @@ TEST_P(ProgramBinaryTest, FloatDynamicShaderSize)
 // This tests the ability to successfully save and load a program binary.
 TEST_P(ProgramBinaryTest, SaveAndLoadBinary)
 {
+    if (!extensionEnabled("GL_OES_get_program_binary"))
+    {
+        std::cout << "Test skipped because GL_OES_get_program_binary is not available."
+                  << std::endl;
+        return;
+    }
+
+    if (getAvailableProgramBinaryFormatCount() == 0)
+    {
+        std::cout << "Test skipped because no program binary formats are available." << std::endl;
+        return;
+    }
+
     GLint programLength = 0;
     GLint writtenLength = 0;
     GLenum binaryFormat = 0;
@@ -138,7 +171,8 @@ TEST_P(ProgramBinaryTest, SaveAndLoadBinary)
             if (infoLogLength > 0)
             {
                 std::vector<GLchar> infoLog(infoLogLength);
-                glGetProgramInfoLog(program2, infoLog.size(), NULL, &infoLog[0]);
+                glGetProgramInfoLog(program2, static_cast<GLsizei>(infoLog.size()), NULL,
+                                    &infoLog[0]);
                 FAIL() << "program link failed: " << &infoLog[0];
             }
             else
@@ -163,7 +197,141 @@ TEST_P(ProgramBinaryTest, SaveAndLoadBinary)
 }
 
 // Use this to select which configurations (e.g. which renderer, which GLES major version) these tests should be run against.
-ANGLE_INSTANTIATE_TEST(ProgramBinaryTest, ES2_D3D9(), ES2_D3D11());
+ANGLE_INSTANTIATE_TEST(ProgramBinaryTest,
+                       ES2_D3D9(),
+                       ES2_D3D11(),
+                       ES3_D3D11(),
+                       ES2_OPENGL(),
+                       ES3_OPENGL());
+
+class ProgramBinaryTransformFeedbackTest : public ANGLETest
+{
+  protected:
+    ProgramBinaryTransformFeedbackTest()
+    {
+        setWindowWidth(128);
+        setWindowHeight(128);
+        setConfigRedBits(8);
+        setConfigGreenBits(8);
+        setConfigBlueBits(8);
+        setConfigAlphaBits(8);
+    }
+
+    void SetUp() override
+    {
+        ANGLETest::SetUp();
+
+        const std::string vertexShaderSource = SHADER_SOURCE
+        (   #version 300 es\n
+            in vec4 inputAttribute;
+            out vec4 outputVarying;
+            void main()
+            {
+                outputVarying = inputAttribute;
+            }
+        );
+
+        const std::string fragmentShaderSource = SHADER_SOURCE
+        (   #version 300 es\n
+            precision highp float;
+            out vec4 outputColor;
+            void main()
+            {
+                outputColor = vec4(1,0,0,1);
+            }
+        );
+
+        std::vector<std::string> transformFeedbackVaryings;
+        transformFeedbackVaryings.push_back("outputVarying");
+
+        mProgram = CompileProgramWithTransformFeedback(
+            vertexShaderSource, fragmentShaderSource, transformFeedbackVaryings,
+            GL_SEPARATE_ATTRIBS);
+        if (mProgram == 0)
+        {
+            FAIL() << "shader compilation failed.";
+        }
+
+        ASSERT_GL_NO_ERROR();
+    }
+
+    void TearDown() override
+    {
+        glDeleteProgram(mProgram);
+
+        ANGLETest::TearDown();
+    }
+
+    GLint getAvailableProgramBinaryFormatCount() const
+    {
+        GLint formatCount;
+        glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS_OES, &formatCount);
+        return formatCount;
+    }
+
+    GLuint mProgram;
+};
+
+// This tests the assumption that float attribs of different size
+// should not internally cause a vertex shader recompile (for conversion).
+TEST_P(ProgramBinaryTransformFeedbackTest, GetTransformFeedbackVarying)
+{
+    if (!extensionEnabled("GL_OES_get_program_binary"))
+    {
+        std::cout << "Test skipped because GL_OES_get_program_binary is not available."
+                  << std::endl;
+        return;
+    }
+
+    if (getAvailableProgramBinaryFormatCount() == 0)
+    {
+        std::cout << "Test skipped because no program binary formats are available." << std::endl;
+        return;
+    }
+
+    std::vector<uint8_t> binary(0);
+    GLint programLength = 0;
+    GLint writtenLength = 0;
+    GLenum binaryFormat = 0;
+
+    // Save the program binary out
+    glGetProgramiv(mProgram, GL_PROGRAM_BINARY_LENGTH_OES, &programLength);
+    ASSERT_GL_NO_ERROR();
+    binary.resize(programLength);
+    glGetProgramBinaryOES(mProgram, programLength, &writtenLength, &binaryFormat, binary.data());
+    ASSERT_GL_NO_ERROR();
+
+    glDeleteProgram(mProgram);
+
+    // Load program binary
+    mProgram = glCreateProgram();
+    glProgramBinaryOES(mProgram, binaryFormat, binary.data(), writtenLength);
+
+    // Ensure the loaded binary is linked
+    GLint linkStatus;
+    glGetProgramiv(mProgram, GL_LINK_STATUS, &linkStatus);
+    EXPECT_TRUE(linkStatus != 0);
+
+    // Query information about the transform feedback varying
+    char varyingName[64];
+    GLsizei varyingSize = 0;
+    GLenum varyingType = GL_NONE;
+
+    glGetTransformFeedbackVarying(mProgram, 0, 64, &writtenLength, &varyingSize, &varyingType, varyingName);
+    EXPECT_GL_NO_ERROR();
+
+    EXPECT_EQ(13, writtenLength);
+    EXPECT_STREQ("outputVarying", varyingName);
+    EXPECT_EQ(1, varyingSize);
+    EXPECT_GLENUM_EQ(GL_FLOAT_VEC4, varyingType);
+
+    EXPECT_GL_NO_ERROR();
+}
+
+// Use this to select which configurations (e.g. which renderer, which GLES major version) these tests should be run against.
+ANGLE_INSTANTIATE_TEST(ProgramBinaryTransformFeedbackTest,
+                       ES3_D3D11(),
+                       ES3_OPENGL());
 
 // For the ProgramBinariesAcrossPlatforms tests, we need two sets of params:
 // - a set to save the program binary
@@ -184,6 +352,18 @@ struct PlatformsWithLinkResult : PlatformParameters
     bool expectedLinkResult;
 };
 
+// Provide a custom gtest parameter name function for PlatformsWithLinkResult
+// to avoid returning the same parameter name twice. Such a conflict would happen
+// between ES2_D3D11_to_ES2D3D11 and ES2_D3D11_to_ES3D3D11 as they were both
+// named ES2_D3D11
+std::ostream &operator<<(std::ostream& stream, const PlatformsWithLinkResult &platform)
+{
+    const PlatformParameters &platform1 = platform;
+    const PlatformParameters &platform2 = platform.loadParams;
+    stream << platform1 << "_to_" << platform2;
+    return stream;
+}
+
 class ProgramBinariesAcrossPlatforms : public testing::TestWithParam<PlatformsWithLinkResult>
 {
   public:
@@ -200,7 +380,8 @@ class ProgramBinariesAcrossPlatforms : public testing::TestWithParam<PlatformsWi
 
     EGLWindow *createAndInitEGLWindow(angle::PlatformParameters &param)
     {
-        EGLWindow *eglWindow = new EGLWindow(1, 1, param.majorVersion, param.eglParameters);
+        EGLWindow *eglWindow =
+            new EGLWindow(param.majorVersion, param.minorVersion, param.eglParameters);
         bool result = eglWindow->initializeGL(mOSWindow);
         if (result == false)
         {
@@ -376,9 +557,8 @@ TEST_P(ProgramBinariesAcrossPlatforms, CreateAndReloadBinary)
 
     if (program == 0)
     {
-        FAIL() << "Failed to create program from source";
         destroyEGLWindow(&eglWindow);
-        return;
+        FAIL() << "Failed to create program from source";
     }
 
     // Draw using the program to ensure it works as expected

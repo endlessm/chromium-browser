@@ -116,7 +116,7 @@ goog.scope(function() {
      */
     tcuTexLookupVerifier.lookupScalar = function(access, sampler, i, j, k) {
         if (tcuTexLookupVerifier.coordsInBounds(access, i, j, k))
-            return access.getPixelInt(i, j, k);
+            return access.getPixel(i, j, k);
         else
             return deMath.toIVec(sampler.borderColor);
     };
@@ -860,12 +860,12 @@ goog.scope(function() {
         /** @type {number} */ var w = level.getWidth();
         /** @type {number} */ var h = level.getHeight();
 
-        /** @type {tcuTextureUtil.TextureChannelClass} */
-        var texClass = tcuTextureUtil.getTextureChannelClass(level.getFormat().type);
+        /** @type {tcuTexture.TextureChannelClass} */
+        var texClass = tcuTexture.getTextureChannelClass(level.getFormat().type);
 
         /** @type {number} */
-        var searchStep = (texClass == tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForUnorm(prec) :
-              (texClass == tcuTextureUtil.TextureChannelClass.SIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForSnorm(prec) :
+        var searchStep = (texClass == tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForUnorm(prec) :
+              (texClass == tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForSnorm(prec) :
               0; // Step is computed for floating-point quads based on texel values.
 
         // \todo [2013-07-03 pyry] This could be optimized by first computing ranges based on wrap mode.
@@ -887,7 +887,7 @@ goog.scope(function() {
             /** @type {tcuTexLookupVerifier.ColorQuad} */
             var quad = tcuTexLookupVerifier.lookupQuad(level, sampler, x0, x1, y0, y1, coordZ);
 
-            if (texClass == tcuTextureUtil.TextureChannelClass.FLOATING_POINT)
+            if (texClass == tcuTexture.TextureChannelClass.FLOATING_POINT)
                 searchStep = tcuTexLookupVerifier.computeBilinearSearchStepFromFloatQuad(prec, quad);
 
             if (tcuTexLookupVerifier.isBilinearRangeValid(prec, quad, [minA, maxA], [minB, maxB], searchStep, result))
@@ -928,11 +928,11 @@ goog.scope(function() {
         /** @type {number} */ var h = level.getHeight();
         /** @type {number} */ var d = level.getDepth();
 
-        /** @type {tcuTextureUtil.TextureChannelClass} */
-        var texClass = tcuTextureUtil.getTextureChannelClass(level.getFormat().type);
+        /** @type {tcuTexture.TextureChannelClass} */
+        var texClass = tcuTexture.getTextureChannelClass(level.getFormat().type);
         /** @type {number} */
-        var searchStep = (texClass == tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForUnorm(prec) :
-                         (texClass == tcuTextureUtil.TextureChannelClass.SIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForSnorm(prec) :
+        var searchStep = (texClass == tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForUnorm(prec) :
+                         (texClass == tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForSnorm(prec) :
                          0; // Step is computed for floating-point quads based on texel values.
 
         // \todo [2013-07-03 pyry] This could be optimized by first computing ranges based on wrap mode.
@@ -961,7 +961,7 @@ goog.scope(function() {
                     /** @type {tcuTexLookupVerifier.ColorQuad} */
                     var quad1 = tcuTexLookupVerifier.lookupQuad(level, sampler, x0, x1, y0, y1, z1);
 
-                    if (texClass == tcuTextureUtil.TextureChannelClass.FLOATING_POINT)
+                    if (texClass == tcuTexture.TextureChannelClass.FLOATING_POINT)
                         searchStep = Math.min(tcuTexLookupVerifier.computeBilinearSearchStepFromFloatQuad(prec, quad0), tcuTexLookupVerifier.computeBilinearSearchStepFromFloatQuad(prec, quad1));
 
                     if (tcuTexLookupVerifier.isTrilinearRangeValid(prec, quad0, quad1, [minA, maxA], [minB, maxB], [minC, maxC], searchStep, result))
@@ -1188,10 +1188,10 @@ goog.scope(function() {
         /** @type {number} */ var minJ1 = Math.floor(vBounds1[0] - 0.5);
         /** @type {number} */ var maxJ1 = Math.floor(vBounds1[1] - 0.5);
 
-        /** @type {tcuTextureUtil.TextureChannelClass} */
-        var texClass = tcuTextureUtil.getTextureChannelClass(level0.getFormat().type);
-        /** @type {number} */ var cSearchStep = (texClass == tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForUnorm(prec) :
-                                                (texClass == tcuTextureUtil.TextureChannelClass.SIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForSnorm(prec) :
+        /** @type {tcuTexture.TextureChannelClass} */
+        var texClass = tcuTexture.getTextureChannelClass(level0.getFormat().type);
+        /** @type {number} */ var cSearchStep = (texClass == tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForUnorm(prec) :
+                                                (texClass == tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForSnorm(prec) :
                                                 0; // Step is computed for floating-point quads based on texel values.
 
         /** @type {number} */ var x0;
@@ -1211,7 +1211,7 @@ goog.scope(function() {
                 /** @type {tcuTexLookupVerifier.ColorQuad} */
                 var quad0 = tcuTexLookupVerifier.lookupQuad(level0, sampler, x0, x1, y0, y1, coordZ);
 
-                if (texClass == tcuTextureUtil.TextureChannelClass.FLOATING_POINT)
+                if (texClass == tcuTexture.TextureChannelClass.FLOATING_POINT)
                     searchStep0 = tcuTexLookupVerifier.computeBilinearSearchStepFromFloatQuad(prec, quad0);
                 else
                     searchStep0 = cSearchStep;
@@ -1233,7 +1233,7 @@ goog.scope(function() {
                         /** @type {tcuTexLookupVerifier.ColorQuad} */
                         var quad1 = tcuTexLookupVerifier.lookupQuad(level1, sampler, x0, x1, y0, y1, coordZ);
 
-                        if (texClass == tcuTextureUtil.TextureChannelClass.FLOATING_POINT)
+                        if (texClass == tcuTexture.TextureChannelClass.FLOATING_POINT)
                             searchStep1 = tcuTexLookupVerifier.computeBilinearSearchStepFromFloatQuad(prec, quad1);
                         else
                             searchStep1 = cSearchStep;
@@ -1308,10 +1308,10 @@ goog.scope(function() {
         /** @type {number} */ var minK1 = Math.floor(wBounds1[0] - 0.5);
         /** @type {number} */ var maxK1 = Math.floor(wBounds1[1] - 0.5);
 
-        /** @type {tcuTextureUtil.TextureChannelClass} */
-        var texClass = tcuTextureUtil.getTextureChannelClass(level0.getFormat().type);
-        /** @type {number} */ var cSearchStep = texClass == tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT ? tcuTexLookupVerifier.computeBilinearSearchStepForUnorm(prec) :
-                                                texClass == tcuTextureUtil.TextureChannelClass.SIGNED_FIXED_POINT ? tcuTexLookupVerifier.computeBilinearSearchStepForSnorm(prec) :
+        /** @type {tcuTexture.TextureChannelClass} */
+        var texClass = tcuTexture.getTextureChannelClass(level0.getFormat().type);
+        /** @type {number} */ var cSearchStep = texClass == tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT ? tcuTexLookupVerifier.computeBilinearSearchStepForUnorm(prec) :
+                                                texClass == tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT ? tcuTexLookupVerifier.computeBilinearSearchStepForSnorm(prec) :
                                                 0; // Step is computed for floating-point quads based on texel values.
 
         /** @type {number} */ var x0;
@@ -1337,7 +1337,7 @@ goog.scope(function() {
                     /** @type {tcuTexLookupVerifier.ColorQuad} */
                     var quad01 = tcuTexLookupVerifier.lookupQuad(level0, sampler, x0, x1, y0, y1, z1);
 
-                    if (texClass == tcuTextureUtil.TextureChannelClass.FLOATING_POINT)
+                    if (texClass == tcuTexture.TextureChannelClass.FLOATING_POINT)
                         searchStep0 = Math.min(tcuTexLookupVerifier.computeBilinearSearchStepFromFloatQuad(prec, quad00), tcuTexLookupVerifier.computeBilinearSearchStepFromFloatQuad(prec, quad01));
                     else
                         searchStep0 = cSearchStep;
@@ -1366,7 +1366,7 @@ goog.scope(function() {
                                 /** @type {tcuTexLookupVerifier.ColorQuad} */
                                 var quad11 = tcuTexLookupVerifier.lookupQuad(level1, sampler, x0, x1, y0, y1, z1);
 
-                                if (texClass == tcuTextureUtil.TextureChannelClass.FLOATING_POINT)
+                                if (texClass == tcuTexture.TextureChannelClass.FLOATING_POINT)
                                     searchStep1 = Math.min(tcuTexLookupVerifier.computeBilinearSearchStepFromFloatQuad(prec, quad10), tcuTexLookupVerifier.computeBilinearSearchStepFromFloatQuad(prec, quad11));
                                 else
                                     searchStep1 = cSearchStep;
@@ -1794,9 +1794,9 @@ goog.scope(function() {
         /** @type {number} */ var minJ = Math.floor(vBounds[0] - 0.5);
         /** @type {number} */ var maxJ = Math.floor(vBounds[1] - 0.5);
 
-        /** @type {tcuTextureUtil.TextureChannelClass} */ var texClass = tcuTextureUtil.getTextureChannelClass(faces[coords.face].getFormat().type);
-        /** @type {number} */ var searchStep = (texClass == tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForUnorm(prec) :
-                                               (texClass == tcuTextureUtil.TextureChannelClass.SIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForSnorm(prec) :
+        /** @type {tcuTexture.TextureChannelClass} */ var texClass = tcuTexture.getTextureChannelClass(faces[coords.face].getFormat().type);
+        /** @type {number} */ var searchStep = (texClass == tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForUnorm(prec) :
+                                               (texClass == tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForSnorm(prec) :
                                                0; // Step is computed for floating-point quads based on texel values.
 
         for (var j = minJ; j <= maxJ; j++) {
@@ -1808,7 +1808,8 @@ goog.scope(function() {
 
                 // If any of samples is out of both edges, implementations can do pretty much anything according to spec.
                 // \todo [2013-07-08 pyry] Test the special case where all corner pixels have exactly the same color.
-                if (c00.face == null || c01.face == null || c10.face == null || c11.face == null)
+                if (c00 == null || c01 == null || c10 == null || c11 == null ||
+                    c00.face == null || c01.face == null || c10.face == null || c11.face == null)
                     return true;
 
                 // Bounds for filtering factors
@@ -1817,13 +1818,14 @@ goog.scope(function() {
                 /** @type {number} */ var minB = deMath.clamp((vBounds[0] - 0.5) - j, 0, 1);
                 /** @type {number} */ var maxB = deMath.clamp((vBounds[1] - 0.5) - j, 0, 1);
 
-                /** @type {tcuTexLookupVerifier.ColorQuad} */ var quad;
+                /** @type {tcuTexLookupVerifier.ColorQuad} */
+                var quad = new tcuTexLookupVerifier.ColorQuad([], [], [], []);
                 quad.p00 = tcuTexLookupVerifier.lookupFloat(faces[c00.face], sampler, c00.s, c00.t, 0);
                 quad.p10 = tcuTexLookupVerifier.lookupFloat(faces[c10.face], sampler, c10.s, c10.t, 0);
                 quad.p01 = tcuTexLookupVerifier.lookupFloat(faces[c01.face], sampler, c01.s, c01.t, 0);
                 quad.p11 = tcuTexLookupVerifier.lookupFloat(faces[c11.face], sampler, c11.s, c11.t, 0);
 
-                if (texClass == tcuTextureUtil.TextureChannelClass.FLOATING_POINT)
+                if (texClass == tcuTexture.TextureChannelClass.FLOATING_POINT)
                     searchStep = tcuTexLookupVerifier.computeBilinearSearchStepFromFloatQuad(prec, quad);
 
                 if (tcuTexLookupVerifier.isBilinearRangeValid(prec, quad, [minA, maxA], [minB, maxB], searchStep, result))
@@ -1865,9 +1867,9 @@ goog.scope(function() {
         /** @type {number} */ var minJ1 = Math.floor(vBounds1[0] - 0.5);
         /** @type {number} */ var maxJ1 = Math.floor(vBounds1[1] - 0.5);
 
-        /** @type {tcuTextureUtil.TextureChannelClass} */ var texClass = tcuTextureUtil.getTextureChannelClass(faces0[coords.face].getFormat().type);
-        /** @type {number} */ var cSearchStep = (texClass == tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForUnorm(prec) :
-                                                (texClass == tcuTextureUtil.TextureChannelClass.SIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForSnorm(prec) :
+        /** @type {tcuTexture.TextureChannelClass} */ var texClass = tcuTexture.getTextureChannelClass(faces0[coords.face].getFormat().type);
+        /** @type {number} */ var cSearchStep = (texClass == tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForUnorm(prec) :
+                                                (texClass == tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT) ? tcuTexLookupVerifier.computeBilinearSearchStepForSnorm(prec) :
                                                 0; // Step is computed for floating-point quads based on texel values.
 
         /** @type {tcuTexture.CubeFaceCoords} */ var c00;
@@ -1877,7 +1879,8 @@ goog.scope(function() {
 
         for (var j0 = minJ0; j0 <= maxJ0; j0++) {
             for (var i0 = minI0; i0 <= maxI0; i0++) {
-                /** @type {tcuTexLookupVerifier.ColorQuad} */ var quad0;
+                /** @type {tcuTexLookupVerifier.ColorQuad} */
+                var quad0 = new tcuTexLookupVerifier.ColorQuad([], [], [], []);
                 /** @type {number} */ var searchStep0;
 
                 c00 = tcuTexture.remapCubeEdgeCoords(new tcuTexture.CubeFaceCoords(coords.face, [i0 + 0, j0 + 0]), size0);
@@ -1887,7 +1890,8 @@ goog.scope(function() {
 
                 // If any of samples is out of both edges, implementations can do pretty much anything according to spec.
                 // \todo [2013-07-08 pyry] Test the special case where all corner pixels have exactly the same color.
-                if (c00.face == null || c01.face == null || c10.face == null || c11.face == null)
+                if (c00 == null || c01 == null || c10 == null || c11 == null ||
+                    c00.face == null || c01.face == null || c10.face == null || c11.face == null)
                     return true;
 
                 quad0.p00 = tcuTexLookupVerifier.lookupFloat(faces0[c00.face], sampler, c00.s, c00.t, 0);
@@ -1895,7 +1899,7 @@ goog.scope(function() {
                 quad0.p01 = tcuTexLookupVerifier.lookupFloat(faces0[c01.face], sampler, c01.s, c01.t, 0);
                 quad0.p11 = tcuTexLookupVerifier.lookupFloat(faces0[c11.face], sampler, c11.s, c11.t, 0);
 
-                if (texClass == tcuTextureUtil.TextureChannelClass.FLOATING_POINT)
+                if (texClass == tcuTexture.TextureChannelClass.FLOATING_POINT)
                     searchStep0 = tcuTexLookupVerifier.computeBilinearSearchStepFromFloatQuad(prec, quad0);
                 else
                     searchStep0 = cSearchStep;
@@ -1907,7 +1911,8 @@ goog.scope(function() {
 
                 for (var j1 = minJ1; j1 <= maxJ1; j1++) {
                     for (var i1 = minI1; i1 <= maxI1; i1++) {
-                        /** @type {tcuTexLookupVerifier.ColorQuad} */ var quad1;
+                        /** @type {tcuTexLookupVerifier.ColorQuad} */
+                        var quad1 = new tcuTexLookupVerifier.ColorQuad([], [], [], []);
                         /** @type {number} */ var searchStep1;
 
                         c00 = tcuTexture.remapCubeEdgeCoords(new tcuTexture.CubeFaceCoords(coords.face, [i1 + 0, j1 + 0]), size1);
@@ -1915,7 +1920,8 @@ goog.scope(function() {
                         c01 = tcuTexture.remapCubeEdgeCoords(new tcuTexture.CubeFaceCoords(coords.face, [i1 + 0, j1 + 1]), size1);
                         c11 = tcuTexture.remapCubeEdgeCoords(new tcuTexture.CubeFaceCoords(coords.face, [i1 + 1, j1 + 1]), size1);
 
-                        if (c00.face == null || c01.face == null || c10.face == null || c11.face == null)
+                        if (c00 == null || c01 == null || c10 == null || c11 == null ||
+                            c00.face == null || c01.face == null || c10.face == null || c11.face == null)
                             return true;
 
                         quad1.p00 = tcuTexLookupVerifier.lookupFloat(faces1[c00.face], sampler, c00.s, c00.t, 0);
@@ -1923,7 +1929,7 @@ goog.scope(function() {
                         quad1.p01 = tcuTexLookupVerifier.lookupFloat(faces1[c01.face], sampler, c01.s, c01.t, 0);
                         quad1.p11 = tcuTexLookupVerifier.lookupFloat(faces1[c11.face], sampler, c11.s, c11.t, 0);
 
-                        if (texClass == tcuTextureUtil.TextureChannelClass.FLOATING_POINT)
+                        if (texClass == tcuTexture.TextureChannelClass.FLOATING_POINT)
                             searchStep1 = tcuTexLookupVerifier.computeBilinearSearchStepFromFloatQuad(prec, quad1);
                         else
                             searchStep1 = cSearchStep;
@@ -2049,7 +2055,7 @@ goog.scope(function() {
         /** @type {number} */ var maxLod = Math.log2(maxDBound + maxDErr);
         /** @type {number} */ var lodErr = tcuTexVerifierUtil.computeFixedPointError(prec.lodBits);
 
-        assertMsgOptions(minLod <= maxLod, 'Error: minLoad < maxLod', false, true);
+        assertMsgOptions(minLod <= maxLod, 'Error: minLod > maxLod', false, true);
         return [minLod - lodErr, maxLod + lodErr];
     };
 

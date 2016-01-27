@@ -220,7 +220,7 @@ bool SfiValidator::ValidateSegmentPair(const CodeSegment& old_code,
 }
 
 bool SfiValidator::CopyCode(const CodeSegment& source_code,
-                            CodeSegment& dest_code,
+                            CodeSegment* dest_code,
                             NaClCopyInstructionFunc copy_func,
                             ProblemSink* out) {
   if (ConstructionFailed(out))
@@ -239,7 +239,7 @@ bool SfiValidator::CopyCode(const CodeSegment& source_code,
     intptr_t offset = va - source_code.begin_addr();
     // TODO(olonho): this const cast is a bit ugly, but we
     // need to write to dest segment.
-    copy_func(const_cast<uint8_t*>(dest_code.base()) + offset,
+    copy_func(const_cast<uint8_t*>(dest_code->base()) + offset,
               const_cast<uint8_t*>(source_code.base()) + offset,
               nacl_arm_dec::kArm32InstSize / CHAR_BIT);
   }
@@ -414,6 +414,37 @@ nacl_arm_dec::ViolationSet SfiValidator::validate_branches(
   }
 
   return found_violations;
+}
+
+bool SfiValidator::is_valid_inst_boundary(const CodeSegment& code,
+                                          uint32_t addr) {
+  // Check addr is on an inst boundary.
+  if ((addr & 0x3) != 0)
+    return false;
+
+  CHECK(!ConstructionFailed(NULL));
+
+  uint32_t base = code.begin_addr();
+  uint32_t size = code.end_addr() - base;
+  AddressSet branches(base, size);
+  AddressSet critical(base, size);
+
+  uint32_t bundle_addr = addr & ~(bytes_per_bundle_ - 1);
+  uint32_t offset = bundle_addr - base;
+  uint32_t instr = reinterpret_cast<const uint32_t*>(
+      code.base() + offset)[0];
+
+  // Check if addr falls within a constant pool.
+  if (nacl_arm_dec::IsBreakPointAndConstantPoolHead(instr))
+    return false;
+
+  nacl_arm_dec::ViolationSet violations =
+        validate_fallthrough(code, NULL, &branches, &critical);
+
+  // Function should only be called after the code has already been validated.
+  CHECK(violations == nacl_arm_dec::kNoViolations);
+
+  return !critical.contains(addr);
 }
 
 }  // namespace nacl_arm_val

@@ -36,6 +36,7 @@ const char kTestCustomArg[] = "customArg";
 const char kTestServerPort[] = "testServer.port";
 const char kTestDataDirectory[] = "testDataDirectory";
 const char kTestWebSocketPort[] = "testWebSocketPort";
+const char kSitePerProcess[] = "sitePerProcess";
 const char kFtpServerPort[] = "ftpServer.port";
 const char kSpawnedTestServerPort[] = "spawnedTestServer.port";
 
@@ -93,11 +94,9 @@ scoped_ptr<net::test_server::HttpResponse> HandleSetCookieRequest(
   std::string cookie_value =
       request.relative_url.substr(query_string_pos + 1);
 
-  std::vector<std::string> cookies;
-  base::SplitString(cookie_value, '&', &cookies);
-
-  for (size_t i = 0; i < cookies.size(); i++)
-    http_response->AddCustomHeader("Set-Cookie", cookies[i]);
+  for (const std::string& cookie : base::SplitString(
+           cookie_value, "&", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL))
+    http_response->AddCustomHeader("Set-Cookie", cookie);
 
   return http_response.Pass();
 }
@@ -154,6 +153,9 @@ void ExtensionApiTest::SetUpInProcessBrowserTestFixture() {
   test_config_->SetString(kTestDataDirectory,
                           net::FilePathToFileURL(test_data_dir_).spec());
   test_config_->SetInteger(kTestWebSocketPort, 0);
+  test_config_->SetBoolean(kSitePerProcess,
+                           base::CommandLine::ForCurrentProcess()->HasSwitch(
+                               switches::kSitePerProcess));
   extensions::TestGetConfigFunction::set_test_config_state(
       test_config_.get());
 }
@@ -317,7 +319,7 @@ bool ExtensionApiTest::RunExtensionTestImpl(const std::string& extension_name,
     }
 
     if (use_incognito)
-      ui_test_utils::OpenURLOffTheRecord(browser()->profile(), url);
+      OpenURLOffTheRecord(browser()->profile(), url);
     else
       ui_test_utils::NavigateToURL(browser(), url);
   } else if (launch_platform_app) {

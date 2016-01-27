@@ -33,6 +33,7 @@ struct AtomicStringHash;
 class WTF_EXPORT AtomicString {
 public:
     static void init();
+    static void reserveTableCapacity(size_t);
 
     AtomicString() { }
     AtomicString(const LChar* s) : m_string(add(s)) { }
@@ -136,9 +137,6 @@ public:
 
     static void remove(StringImpl*);
 
-#if USE(CF)
-    AtomicString(CFStringRef s) :  m_string(add(s)) { }
-#endif
 #ifdef __OBJC__
     AtomicString(NSString* s) : m_string(add((CFStringRef)s)) { }
     operator NSString*() const { return m_string; }
@@ -175,7 +173,7 @@ private:
     }
     static PassRefPtr<StringImpl> addFromLiteralData(const char* characters, unsigned length);
     static PassRefPtr<StringImpl> addSlowCase(StringImpl*);
-#if USE(CF)
+#if OS(MACOSX)
     static PassRefPtr<StringImpl> add(CFStringRef);
 #endif
 

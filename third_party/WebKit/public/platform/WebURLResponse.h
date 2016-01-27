@@ -31,9 +31,9 @@
 #ifndef WebURLResponse_h
 #define WebURLResponse_h
 
-#include "WebCommon.h"
-#include "WebPrivateOwnPtr.h"
-#include "WebServiceWorkerResponseType.h"
+#include "public/platform/WebCommon.h"
+#include "public/platform/WebPrivateOwnPtr.h"
+#include "public/platform/modules/serviceworker/WebServiceWorkerResponseType.h"
 
 namespace blink {
 
@@ -48,7 +48,18 @@ class WebURLResponsePrivate;
 
 class WebURLResponse {
 public:
-    enum HTTPVersion { Unknown, HTTP_0_9, HTTP_1_0, HTTP_1_1 };
+    enum HTTPVersion { HTTPVersionUnknown,
+        HTTPVersion_0_9,
+        HTTPVersion_1_0,
+        HTTPVersion_1_1,
+        HTTPVersion_2_0 };
+    enum SecurityStyle {
+        SecurityStyleUnknown,
+        SecurityStyleUnauthenticated,
+        SecurityStyleAuthenticationBroken,
+        SecurityStyleWarning,
+        SecurityStyleAuthenticated
+    };
 
     class ExtraData {
     public:
@@ -134,6 +145,11 @@ public:
     // security info related to this request.
     BLINK_PLATFORM_EXPORT WebCString securityInfo() const;
     BLINK_PLATFORM_EXPORT void setSecurityInfo(const WebCString&);
+
+    BLINK_PLATFORM_EXPORT SecurityStyle securityStyle() const;
+    BLINK_PLATFORM_EXPORT void setSecurityStyle(SecurityStyle);
+
+    BLINK_PLATFORM_EXPORT void setSecurityDetails(const WebString& protocol, const WebString& keyExchange, const WebString& cipher, const WebString& mac, int certId);
 
 #if INSIDE_BLINK
     BLINK_PLATFORM_EXPORT ResourceResponse& toMutableResourceResponse();

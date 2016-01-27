@@ -77,9 +77,18 @@ AXNode* AXTree::GetFromId(int32 id) const {
   return iter != id_map_.end() ? iter->second : NULL;
 }
 
+void AXTree::UpdateData(const AXTreeData& data) {
+  data_ = data;
+  if (delegate_)
+    delegate_->OnTreeDataChanged(this);
+}
+
 bool AXTree::Unserialize(const AXTreeUpdate& update) {
   AXTreeUpdateState update_state;
   int32 old_root_id = root_ ? root_->id() : 0;
+
+  if (update.has_tree_data)
+    UpdateData(update.tree_data);
 
   if (update.node_id_to_clear != 0) {
     AXNode* node = GetFromId(update.node_id_to_clear);
@@ -89,8 +98,11 @@ bool AXTree::Unserialize(const AXTreeUpdate& update) {
       return false;
     }
     if (node == root_) {
-      DestroySubtree(root_, &update_state);
-      root_ = NULL;
+      // Clear root_ before calling DestroySubtree so that root_ doesn't
+      // ever point to an invalid node.
+      AXNode* old_root = root_;
+      root_ = nullptr;
+      DestroySubtree(old_root, &update_state);
     } else {
       for (int i = 0; i < node->child_count(); ++i)
         DestroySubtree(node->ChildAtIndex(i), &update_state);
@@ -141,7 +153,7 @@ bool AXTree::Unserialize(const AXTreeUpdate& update) {
 }
 
 std::string AXTree::ToString() const {
-  return TreeToStringHelper(root_, 0);
+  return "AXTree" + data_.ToString() + "\n" + TreeToStringHelper(root_, 0);
 }
 
 AXNode* AXTree::CreateNode(AXNode* parent, int32 id, int32 index_in_parent) {
@@ -204,9 +216,12 @@ bool AXTree::UpdateNode(const AXNodeData& src,
   // Update the root of the tree if needed.
   if ((src.role == AX_ROLE_ROOT_WEB_AREA || src.role == AX_ROLE_DESKTOP) &&
       (!root_ || root_->id() != src.id)) {
-    if (root_)
-      DestroySubtree(root_, update_state);
+    // Make sure root_ always points to something valid or null_, even inside
+    // DestroySubtree.
+    AXNode* old_root = root_;
     root_ = node;
+    if (old_root)
+      DestroySubtree(old_root, update_state);
   }
 
   return success;
@@ -221,11 +236,11 @@ void AXTree::DestroySubtree(AXNode* node,
 
 void AXTree::DestroyNodeAndSubtree(AXNode* node,
                                    AXTreeUpdateState* update_state) {
+  if (delegate_)
+    delegate_->OnNodeWillBeDeleted(this, node);
   id_map_.erase(node->id());
   for (int i = 0; i < node->child_count(); ++i)
     DestroyNodeAndSubtree(node->ChildAtIndex(i), update_state);
-  if (delegate_)
-    delegate_->OnNodeWillBeDeleted(this, node);
   if (update_state) {
     update_state->pending_nodes.erase(node);
   }

@@ -32,7 +32,7 @@ namespace blink {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wglobal-constructors"
 #endif
-const WrapperTypeInfo V8TestInterface2::wrapperTypeInfo = { gin::kEmbedderBlink, V8TestInterface2::domTemplate, V8TestInterface2::refObject, V8TestInterface2::derefObject, V8TestInterface2::trace, 0, V8TestInterface2::visitDOMWrapper, V8TestInterface2::preparePrototypeObject, V8TestInterface2::installConditionallyEnabledProperties, "TestInterface2", 0, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::NotInheritFromEventTarget, WrapperTypeInfo::Dependent, WrapperTypeInfo::RefCountedObject };
+const WrapperTypeInfo V8TestInterface2::wrapperTypeInfo = { gin::kEmbedderBlink, V8TestInterface2::domTemplate, V8TestInterface2::refObject, V8TestInterface2::derefObject, V8TestInterface2::trace, 0, V8TestInterface2::visitDOMWrapper, V8TestInterface2::preparePrototypeAndInterfaceObject, V8TestInterface2::installConditionallyEnabledProperties, "TestInterface2", 0, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::NotInheritFromEventTarget, WrapperTypeInfo::Dependent, WrapperTypeInfo::RefCountedObject };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
 #pragma clang diagnostic pop
 #endif
@@ -607,20 +607,20 @@ void V8TestInterface2::visitDOMWrapper(v8::Isolate* isolate, ScriptWrappable* sc
     }
 }
 
-static const V8DOMConfiguration::MethodConfiguration V8TestInterface2Methods[] = {
-    {"item", TestInterface2V8Internal::itemMethodCallback, 0, 1, V8DOMConfiguration::ExposedToAllScripts},
-    {"setItem", TestInterface2V8Internal::setItemMethodCallback, 0, 2, V8DOMConfiguration::ExposedToAllScripts},
-    {"deleteItem", TestInterface2V8Internal::deleteItemMethodCallback, 0, 1, V8DOMConfiguration::ExposedToAllScripts},
-    {"namedItem", TestInterface2V8Internal::namedItemMethodCallback, 0, 1, V8DOMConfiguration::ExposedToAllScripts},
-    {"setNamedItem", TestInterface2V8Internal::setNamedItemMethodCallback, 0, 2, V8DOMConfiguration::ExposedToAllScripts},
-    {"deleteNamedItem", TestInterface2V8Internal::deleteNamedItemMethodCallback, 0, 1, V8DOMConfiguration::ExposedToAllScripts},
-    {"stringifierMethod", TestInterface2V8Internal::stringifierMethodMethodCallback, 0, 0, V8DOMConfiguration::ExposedToAllScripts},
-    {"keys", TestInterface2V8Internal::keysMethodCallback, 0, 0, V8DOMConfiguration::ExposedToAllScripts},
-    {"values", TestInterface2V8Internal::valuesMethodCallback, 0, 0, V8DOMConfiguration::ExposedToAllScripts},
-    {"entries", TestInterface2V8Internal::entriesMethodCallback, 0, 0, V8DOMConfiguration::ExposedToAllScripts},
-    {"forEach", TestInterface2V8Internal::forEachMethodCallback, 0, 1, V8DOMConfiguration::ExposedToAllScripts},
-    {"has", TestInterface2V8Internal::hasMethodCallback, 0, 1, V8DOMConfiguration::ExposedToAllScripts},
-    {"toString", TestInterface2V8Internal::toStringMethodCallback, 0, 0, V8DOMConfiguration::ExposedToAllScripts},
+const V8DOMConfiguration::MethodConfiguration V8TestInterface2Methods[] = {
+    {"item", TestInterface2V8Internal::itemMethodCallback, 0, 1, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"setItem", TestInterface2V8Internal::setItemMethodCallback, 0, 2, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"deleteItem", TestInterface2V8Internal::deleteItemMethodCallback, 0, 1, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"namedItem", TestInterface2V8Internal::namedItemMethodCallback, 0, 1, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"setNamedItem", TestInterface2V8Internal::setNamedItemMethodCallback, 0, 2, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"deleteNamedItem", TestInterface2V8Internal::deleteNamedItemMethodCallback, 0, 1, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"stringifierMethod", TestInterface2V8Internal::stringifierMethodMethodCallback, 0, 0, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"keys", TestInterface2V8Internal::keysMethodCallback, 0, 0, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"values", TestInterface2V8Internal::valuesMethodCallback, 0, 0, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"entries", TestInterface2V8Internal::entriesMethodCallback, 0, 0, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"forEach", TestInterface2V8Internal::forEachMethodCallback, 0, 1, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"has", TestInterface2V8Internal::hasMethodCallback, 0, 1, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"toString", TestInterface2V8Internal::toStringMethodCallback, 0, 0, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
 };
 
 void V8TestInterface2::constructorCallback(const v8::FunctionCallbackInfo<v8::Value>& info)
@@ -655,22 +655,16 @@ static void installV8TestInterface2Template(v8::Local<v8::FunctionTemplate> func
     v8::Local<v8::ObjectTemplate> prototypeTemplate = functionTemplate->PrototypeTemplate();
     ALLOW_UNUSED_LOCAL(prototypeTemplate);
     if (RuntimeEnabledFeatures::featureNameEnabled()) {
-        static const V8DOMConfiguration::ConstantConfiguration constantConfiguration = {"CONST_VALUE_1", 1, 0, 0, V8DOMConfiguration::ConstantTypeUnsignedShort};
-        V8DOMConfiguration::installConstant(isolate, functionTemplate, prototypeTemplate, constantConfiguration);
+        const V8DOMConfiguration::ConstantConfiguration constantConstValue1Configuration = {"CONST_VALUE_1", 1, 0, V8DOMConfiguration::ConstantTypeUnsignedShort};
+        V8DOMConfiguration::installConstant(isolate, functionTemplate, prototypeTemplate, constantConstValue1Configuration);
     }
     static_assert(1 == TestInterface2::CONST_VALUE_1, "the value of TestInterface2_CONST_VALUE_1 does not match with implementation");
-    {
-        v8::IndexedPropertyHandlerConfiguration config(TestInterface2V8Internal::indexedPropertyGetterCallback, TestInterface2V8Internal::indexedPropertySetterCallback, 0, TestInterface2V8Internal::indexedPropertyDeleterCallback, indexedPropertyEnumerator<TestInterface2>);
-        functionTemplate->InstanceTemplate()->SetHandler(config);
-    }
-    {
-        v8::NamedPropertyHandlerConfiguration config(TestInterface2V8Internal::namedPropertyGetterCallback, TestInterface2V8Internal::namedPropertySetterCallback, TestInterface2V8Internal::namedPropertyQueryCallback, TestInterface2V8Internal::namedPropertyDeleterCallback, TestInterface2V8Internal::namedPropertyEnumeratorCallback);
-        config.flags = static_cast<v8::PropertyHandlerFlags>(static_cast<int>(config.flags) | static_cast<int>(v8::PropertyHandlerFlags::kOnlyInterceptStrings));
-        config.flags = static_cast<v8::PropertyHandlerFlags>(static_cast<int>(config.flags) | static_cast<int>(v8::PropertyHandlerFlags::kNonMasking));
-        functionTemplate->InstanceTemplate()->SetHandler(config);
-    }
-    static const V8DOMConfiguration::SymbolKeyedMethodConfiguration symbolKeyedIteratorConfiguration = { v8::Symbol::GetIterator, TestInterface2V8Internal::iteratorMethodCallback, 0, V8DOMConfiguration::ExposedToAllScripts };
-    V8DOMConfiguration::installMethod(isolate, prototypeTemplate, defaultSignature, v8::DontDelete, symbolKeyedIteratorConfiguration);
+    v8::IndexedPropertyHandlerConfiguration indexedPropertyHandlerConfig(TestInterface2V8Internal::indexedPropertyGetterCallback, TestInterface2V8Internal::indexedPropertySetterCallback, 0, TestInterface2V8Internal::indexedPropertyDeleterCallback, indexedPropertyEnumerator<TestInterface2>, v8::Local<v8::Value>(), v8::PropertyHandlerFlags::kNone);
+    instanceTemplate->SetHandler(indexedPropertyHandlerConfig);
+    v8::NamedPropertyHandlerConfiguration namedPropertyHandlerConfig(TestInterface2V8Internal::namedPropertyGetterCallback, TestInterface2V8Internal::namedPropertySetterCallback, TestInterface2V8Internal::namedPropertyQueryCallback, TestInterface2V8Internal::namedPropertyDeleterCallback, TestInterface2V8Internal::namedPropertyEnumeratorCallback, v8::Local<v8::Value>(), static_cast<v8::PropertyHandlerFlags>(int(v8::PropertyHandlerFlags::kOnlyInterceptStrings) | int(v8::PropertyHandlerFlags::kNonMasking)));
+    instanceTemplate->SetHandler(namedPropertyHandlerConfig);
+    const V8DOMConfiguration::SymbolKeyedMethodConfiguration symbolKeyedIteratorConfiguration = { v8::Symbol::GetIterator, TestInterface2V8Internal::iteratorMethodCallback, 0, v8::DontDelete, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype };
+    V8DOMConfiguration::installMethod(isolate, prototypeTemplate, defaultSignature, symbolKeyedIteratorConfiguration);
 
     // Custom toString template
     functionTemplate->Set(v8AtomicString(isolate, "toString"), V8PerIsolateData::from(isolate)->toStringTemplate());

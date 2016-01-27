@@ -4,7 +4,6 @@
 
 package org.chromium.android_webview.test;
 
-import android.os.Build;
 import android.test.suitebuilder.annotation.MediumTest;
 import android.view.KeyEvent;
 import android.view.View;
@@ -13,7 +12,7 @@ import android.view.ViewGroup;
 import org.chromium.android_webview.test.util.JavascriptEventObserver;
 import org.chromium.android_webview.test.util.VideoSurfaceViewUtils;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
+import org.chromium.base.test.util.parameter.ParameterizedTest;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
@@ -32,7 +31,6 @@ import java.util.concurrent.TimeoutException;
  * we pick a div containing a video and custom html controls since this is a
  * very common use case.
  */
-@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class AwContentsClientFullScreenTest extends AwTestBase {
     private static final String VIDEO_TEST_URL =
             "file:///android_asset/full_screen_video_test.html";
@@ -83,6 +81,8 @@ public class AwContentsClientFullScreenTest extends AwTestBase {
     @MediumTest
     @Feature({"AndroidWebView"})
     @DisableHardwareAccelerationForTest
+    // Run in single-process mode only. Blocked by software draws support crbug.com/545611.
+    @ParameterizedTest.Set
     public void testFullscreenForNonVideoElementIsSupportedInSoftwareMode() throws Throwable {
         // Fullscreen for non-video elements is supported and works as expected. Note that
         // this test is the same as testOnShowAndHideCustomViewWithCallback_videoInsideDiv below.
@@ -198,6 +198,8 @@ public class AwContentsClientFullScreenTest extends AwTestBase {
 
     @MediumTest
     @Feature({"AndroidWebView"})
+    // Run in single-process mode only. Blocked by software draws support crbug.com/545611.
+    @ParameterizedTest.Set
     public void testHolePunchingSurfaceNotCreatedForClearVideo()
             throws Throwable {
         loadTestPage(VIDEO_TEST_URL);
@@ -316,6 +318,8 @@ public class AwContentsClientFullScreenTest extends AwTestBase {
 
     @MediumTest
     @Feature({"AndroidWebView"})
+    // Run in single-process mode only. Blocked by software draws support crbug.com/545611.
+    @ParameterizedTest.Set
     public void testPowerSaveBlockerIsEnabledDuringFullscreenPlayback_videoInsideDiv()
             throws Throwable {
         doTestPowerSaveBlockerIsEnabledDuringFullscreenPlayback(VIDEO_INSIDE_DIV_TEST_URL);
@@ -341,6 +345,8 @@ public class AwContentsClientFullScreenTest extends AwTestBase {
 
     @MediumTest
     @Feature({"AndroidWebView"})
+    // Run in single-process mode only. Blocked by software draws support crbug.com/545611.
+    @ParameterizedTest.Set
     public void testPowerSaveBlockerIsEnabledDuringEmbeddedPlayback()
             throws Throwable {
         assertFalse(DOMUtils.isFullscreen(getWebContentsOnUiThread()));
@@ -360,6 +366,8 @@ public class AwContentsClientFullScreenTest extends AwTestBase {
 
     @MediumTest
     @Feature({"AndroidWebView"})
+    // Run in single-process mode only. Blocked by software draws support crbug.com/545611.
+    @ParameterizedTest.Set
     public void testPowerSaveBlockerIsTransferredToFullscreen()
             throws Throwable {
         assertFalse(DOMUtils.isFullscreen(getWebContentsOnUiThread()));
@@ -388,6 +396,8 @@ public class AwContentsClientFullScreenTest extends AwTestBase {
 
     @MediumTest
     @Feature({"AndroidWebView"})
+    // Run in single-process mode only. Blocked by software draws support crbug.com/545611.
+    @ParameterizedTest.Set
     public void testPowerSaveBlockerIsTransferredToEmbedded()
             throws Throwable {
         // Enter fullscreen.

@@ -40,8 +40,6 @@ class NetEqExternalDecoderUnitTest : public test::NetEqExternalDecoderTest {
         payload_size_bytes_(0),
         last_send_time_(0),
         last_arrival_time_(0) {
-    // Init() will trigger external_decoder_->Init().
-    EXPECT_CALL(*external_decoder_, Init());
     // NetEq is not allowed to delete the external decoder (hence Times(0)).
     EXPECT_CALL(*external_decoder_, Die()).Times(0);
     Init();
@@ -107,7 +105,8 @@ class NetEqExternalDecoderUnitTest : public test::NetEqExternalDecoderTest {
     uint32_t time_now = 0;
     for (int k = 0; k < num_loops; ++k) {
       while (time_now >= next_arrival_time) {
-        InsertPacket(rtp_header_, encoded_, payload_size_bytes_,
+        InsertPacket(rtp_header_, rtc::ArrayView<const uint8_t>(
+                                      encoded_, payload_size_bytes_),
                      next_arrival_time);
         // Get next input packet.
         do {
@@ -126,17 +125,14 @@ class NetEqExternalDecoderUnitTest : public test::NetEqExternalDecoderTest {
     }
   }
 
-  void InsertPacket(WebRtcRTPHeader rtp_header, const uint8_t* payload,
-                    size_t payload_size_bytes,
+  void InsertPacket(WebRtcRTPHeader rtp_header,
+                    rtc::ArrayView<const uint8_t> payload,
                     uint32_t receive_timestamp) override {
-    EXPECT_CALL(*external_decoder_,
-                IncomingPacket(_,
-                               payload_size_bytes,
-                               rtp_header.header.sequenceNumber,
-                               rtp_header.header.timestamp,
-                               receive_timestamp));
+    EXPECT_CALL(
+        *external_decoder_,
+        IncomingPacket(_, payload.size(), rtp_header.header.sequenceNumber,
+                       rtp_header.header.timestamp, receive_timestamp));
     NetEqExternalDecoderTest::InsertPacket(rtp_header, payload,
-                                           payload_size_bytes,
                                            receive_timestamp);
   }
 
@@ -169,26 +165,28 @@ class NetEqExternalDecoderUnitTest : public test::NetEqExternalDecoderTest {
 class NetEqExternalVsInternalDecoderTest : public NetEqExternalDecoderUnitTest,
                                            public ::testing::Test {
  protected:
-  static const int kMaxBlockSize = 480;  // 10 ms @ 48 kHz.
+  static const size_t kMaxBlockSize = 480;  // 10 ms @ 48 kHz.
 
   NetEqExternalVsInternalDecoderTest()
-      : NetEqExternalDecoderUnitTest(kDecoderPCM16Bswb32kHz,
+      : NetEqExternalDecoderUnitTest(NetEqDecoder::kDecoderPCM16Bswb32kHz,
                                      new MockExternalPcm16B),
-        sample_rate_hz_(CodecSampleRateHz(kDecoderPCM16Bswb32kHz)) {
+        sample_rate_hz_(
+            CodecSampleRateHz(NetEqDecoder::kDecoderPCM16Bswb32kHz)) {
     NetEq::Config config;
-    config.sample_rate_hz = CodecSampleRateHz(kDecoderPCM16Bswb32kHz);
+    config.sample_rate_hz =
+        CodecSampleRateHz(NetEqDecoder::kDecoderPCM16Bswb32kHz);
     neteq_internal_.reset(NetEq::Create(config));
   }
 
   void SetUp() override {
     ASSERT_EQ(NetEq::kOK,
-              neteq_internal_->RegisterPayloadType(kDecoderPCM16Bswb32kHz,
-                                                   kPayloadType));
+              neteq_internal_->RegisterPayloadType(
+                  NetEqDecoder::kDecoderPCM16Bswb32kHz, kPayloadType));
   }
 
   void GetAndVerifyOutput() override {
     NetEqOutputType output_type;
-    int samples_per_channel;
+    size_t samples_per_channel;
     int num_channels;
     // Get audio from internal decoder instance.
     EXPECT_EQ(NetEq::kOK,
@@ -198,29 +196,27 @@ class NetEqExternalVsInternalDecoderTest : public NetEqExternalDecoderUnitTest,
                                         &num_channels,
                                         &output_type));
     EXPECT_EQ(1, num_channels);
-    EXPECT_EQ(kOutputLengthMs * sample_rate_hz_ / 1000, samples_per_channel);
+    EXPECT_EQ(static_cast<size_t>(kOutputLengthMs * sample_rate_hz_ / 1000),
+              samples_per_channel);
 
     // Get audio from external decoder instance.
     samples_per_channel = GetOutputAudio(kMaxBlockSize, output_, &output_type);
 
-    for (int i = 0; i < samples_per_channel; ++i) {
+    for (size_t i = 0; i < samples_per_channel; ++i) {
       ASSERT_EQ(output_[i], output_internal_[i]) <<
           "Diff in sample " << i << ".";
     }
   }
 
-  void InsertPacket(WebRtcRTPHeader rtp_header, const uint8_t* payload,
-                    size_t payload_size_bytes,
+  void InsertPacket(WebRtcRTPHeader rtp_header,
+                    rtc::ArrayView<const uint8_t> payload,
                     uint32_t receive_timestamp) override {
     // Insert packet in internal decoder.
-    ASSERT_EQ(
-        NetEq::kOK,
-        neteq_internal_->InsertPacket(
-            rtp_header, payload, payload_size_bytes, receive_timestamp));
+    ASSERT_EQ(NetEq::kOK, neteq_internal_->InsertPacket(rtp_header, payload,
+                                                        receive_timestamp));
 
     // Insert packet in external decoder instance.
     NetEqExternalDecoderUnitTest::InsertPacket(rtp_header, payload,
-                                               payload_size_bytes,
                                                receive_timestamp);
   }
 
@@ -240,7 +236,7 @@ TEST_F(NetEqExternalVsInternalDecoderTest, RunTest) {
 class LargeTimestampJumpTest : public NetEqExternalDecoderUnitTest,
                                public ::testing::Test {
  protected:
-  static const int kMaxBlockSize = 480;  // 10 ms @ 48 kHz.
+  static const size_t kMaxBlockSize = 480;  // 10 ms @ 48 kHz.
 
   enum TestStates {
     kInitialPhase,
@@ -251,7 +247,7 @@ class LargeTimestampJumpTest : public NetEqExternalDecoderUnitTest,
   };
 
   LargeTimestampJumpTest()
-      : NetEqExternalDecoderUnitTest(kDecoderPCM16B,
+      : NetEqExternalDecoderUnitTest(NetEqDecoder::kDecoderPCM16B,
                                      new MockExternalPcm16B),
         test_state_(kInitialPhase) {
     EXPECT_CALL(*external_decoder(), HasDecodePlc())
@@ -293,7 +289,7 @@ class LargeTimestampJumpTest : public NetEqExternalDecoderUnitTest,
   }
 
   void GetAndVerifyOutput() override {
-    int num_samples;
+    size_t num_samples;
     NetEqOutputType output_type;
     num_samples = GetOutputAudio(kMaxBlockSize, output_, &output_type);
     UpdateState(output_type);
@@ -303,7 +299,7 @@ class LargeTimestampJumpTest : public NetEqExternalDecoderUnitTest,
       return;
     }
 
-    for (int i = 0; i < num_samples; ++i) {
+    for (size_t i = 0; i < num_samples; ++i) {
       if (output_[i] != 0)
         return;
     }

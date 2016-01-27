@@ -22,24 +22,19 @@
 
 namespace blink {
 
-VRHardwareUnitCollection::VRHardwareUnitCollection(VRController* controller)
-    : m_controller(controller)
+VRHardwareUnitCollection::VRHardwareUnitCollection(NavigatorVRDevice* navigatorVRDevice)
+    : m_navigatorVRDevice(navigatorVRDevice)
 {
 }
 
-HeapVector<Member<VRDevice>> VRHardwareUnitCollection::updateVRHardwareUnits(const WebVector<WebVRDevice>* devices)
+HeapVector<Member<VRDevice>> VRHardwareUnitCollection::updateVRHardwareUnits(const WebVector<WebVRDevice>& devices)
 {
     VRDeviceVector vrDevices;
 
-    if (!devices)
-        return vrDevices;
-
-    for (size_t i = 0; i < devices->size(); ++i) {
-        const WebVRDevice& device = (*devices)[i];
-
+    for (const auto& device : devices) {
         VRHardwareUnit* hardwareUnit = getHardwareUnitForIndex(device.index);
         if (!hardwareUnit) {
-            hardwareUnit = new VRHardwareUnit(m_controller);
+            hardwareUnit = new VRHardwareUnit(m_navigatorVRDevice);
             m_hardwareUnits.append(hardwareUnit);
         }
 
@@ -65,7 +60,7 @@ VRHardwareUnit* VRHardwareUnitCollection::getHardwareUnitForIndex(unsigned index
 
 DEFINE_TRACE(VRHardwareUnitCollection)
 {
-    visitor->trace(m_controller);
+    visitor->trace(m_navigatorVRDevice);
     visitor->trace(m_hardwareUnits);
 }
 

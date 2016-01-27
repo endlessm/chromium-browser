@@ -8,11 +8,13 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_CODECS_PCM16B_MAIN_INTERFACE_PCM16B_H_
-#define WEBRTC_MODULES_AUDIO_CODING_CODECS_PCM16B_MAIN_INTERFACE_PCM16B_H_
+#ifndef WEBRTC_MODULES_AUDIO_CODING_CODECS_PCM16B_MAIN_INCLUDE_PCM16B_H_
+#define WEBRTC_MODULES_AUDIO_CODING_CODECS_PCM16B_MAIN_INCLUDE_PCM16B_H_
 /*
  * Define the fixpoint numeric formats
  */
+
+#include <stddef.h>
 
 #include "webrtc/typedefs.h"
 
@@ -36,9 +38,9 @@ extern "C" {
  *                                Always equal to twice the len input parameter.
  */
 
-int16_t WebRtcPcm16b_Encode(const int16_t* speech,
-                            int16_t len,
-                            uint8_t* encoded);
+size_t WebRtcPcm16b_Encode(const int16_t* speech,
+                           size_t len,
+                           uint8_t* encoded);
 
 /****************************************************************************
  * WebRtcPcm16b_Decode(...)
@@ -55,9 +57,9 @@ int16_t WebRtcPcm16b_Encode(const int16_t* speech,
  * Returned value               : Samples in speech
  */
 
-int16_t WebRtcPcm16b_Decode(const uint8_t* encoded,
-                            int16_t len,
-                            int16_t* speech);
+size_t WebRtcPcm16b_Decode(const uint8_t* encoded,
+                           size_t len,
+                           int16_t* speech);
 
 #ifdef __cplusplus
 }

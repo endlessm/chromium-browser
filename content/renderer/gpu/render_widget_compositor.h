@@ -10,6 +10,7 @@
 #include "base/time/time.h"
 #include "base/values.h"
 #include "cc/input/top_controls_state.h"
+#include "cc/output/managed_memory_policy.h"
 #include "cc/output/swap_promise.h"
 #include "cc/trees/layer_tree_host_client.h"
 #include "cc/trees/layer_tree_host_single_thread_client.h"
@@ -22,7 +23,7 @@
 #include "ui/gfx/geometry/rect.h"
 
 namespace ui {
-struct LatencyInfo;
+class LatencyInfo;
 }
 
 namespace cc {
@@ -46,8 +47,9 @@ class CONTENT_EXPORT RenderWidgetCompositor
       RenderWidget* widget,
       CompositorDependencies* compositor_deps);
 
-  virtual ~RenderWidgetCompositor();
+  ~RenderWidgetCompositor() override;
 
+  void SetNeverVisible();
   const base::WeakPtr<cc::InputHandler>& GetInputHandler();
   bool BeginMainFrameRequested() const;
   void SetNeedsDisplayOnAllLayers();
@@ -76,73 +78,69 @@ class CONTENT_EXPORT RenderWidgetCompositor
       scoped_ptr<base::Value> value,
       const base::Callback<void(scoped_ptr<base::Value>)>& callback);
   bool SendMessageToMicroBenchmark(int id, scoped_ptr<base::Value> value);
-  void StartCompositor();
   void SetSurfaceIdNamespace(uint32_t surface_id_namespace);
+  cc::ManagedMemoryPolicy GetGpuMemoryPolicy(
+      const cc::ManagedMemoryPolicy& policy);
+  void SetPaintedDeviceScaleFactor(float device_scale);
 
   // WebLayerTreeView implementation.
-  virtual void setRootLayer(const blink::WebLayer& layer);
-  virtual void clearRootLayer();
-  virtual void attachCompositorAnimationTimeline(
-      blink::WebCompositorAnimationTimeline* compositor_timeline);
-  virtual void detachCompositorAnimationTimeline(
-      blink::WebCompositorAnimationTimeline* compositor_timeline);
-  virtual void setViewportSize(
-      const blink::WebSize& unused_deprecated,
-      const blink::WebSize& device_viewport_size);
-  virtual void setViewportSize(const blink::WebSize& device_viewport_size);
-  virtual blink::WebSize layoutViewportSize() const;
-  virtual blink::WebSize deviceViewportSize() const;
+  void setRootLayer(const blink::WebLayer& layer) override;
+  void clearRootLayer() override;
+  void attachCompositorAnimationTimeline(
+      blink::WebCompositorAnimationTimeline* compositor_timeline) override;
+  void detachCompositorAnimationTimeline(
+      blink::WebCompositorAnimationTimeline* compositor_timeline) override;
+  void setViewportSize(const blink::WebSize& device_viewport_size) override;
   virtual blink::WebFloatPoint adjustEventPointForPinchZoom(
       const blink::WebFloatPoint& point) const;
-  virtual void setDeviceScaleFactor(float device_scale);
-  virtual float deviceScaleFactor() const;
-  virtual void setBackgroundColor(blink::WebColor color);
-  virtual void setHasTransparentBackground(bool transparent);
-  virtual void setVisible(bool visible);
-  virtual void setPageScaleFactorAndLimits(float page_scale_factor,
-                                           float minimum,
-                                           float maximum);
-  virtual void startPageScaleAnimation(const blink::WebPoint& destination,
-                                       bool use_anchor,
-                                       float new_page_scale,
-                                       double duration_sec);
-  virtual void heuristicsForGpuRasterizationUpdated(bool matches_heuristics);
-  virtual void setNeedsAnimate();
-  virtual void didStopFlinging();
-  virtual void layoutAndPaintAsync(
-      blink::WebLayoutAndPaintAsyncCallback* callback);
-  virtual void compositeAndReadbackAsync(
-      blink::WebCompositeAndReadbackAsyncCallback* callback);
-  virtual void finishAllRendering();
-  virtual void setDeferCommits(bool defer_commits);
-  virtual void registerForAnimations(blink::WebLayer* layer);
-  virtual void registerViewportLayers(
+  void setDeviceScaleFactor(float device_scale) override;
+  void setBackgroundColor(blink::WebColor color) override;
+  void setHasTransparentBackground(bool transparent) override;
+  void setVisible(bool visible) override;
+  void setPageScaleFactorAndLimits(float page_scale_factor,
+                                   float minimum,
+                                   float maximum) override;
+  void startPageScaleAnimation(const blink::WebPoint& destination,
+                               bool use_anchor,
+                               float new_page_scale,
+                               double duration_sec) override;
+  void heuristicsForGpuRasterizationUpdated(bool matches_heuristics) override;
+  void setNeedsAnimate() override;
+  void setNeedsBeginFrame() override;
+  void setNeedsCompositorUpdate() override;
+  void didStopFlinging() override;
+  void layoutAndPaintAsync(
+      blink::WebLayoutAndPaintAsyncCallback* callback) override;
+  void compositeAndReadbackAsync(
+      blink::WebCompositeAndReadbackAsyncCallback* callback) override;
+  void setDeferCommits(bool defer_commits) override;
+  void registerForAnimations(blink::WebLayer* layer) override;
+  void registerViewportLayers(
       const blink::WebLayer* overscrollElasticityLayer,
       const blink::WebLayer* pageScaleLayer,
       const blink::WebLayer* innerViewportScrollLayer,
       const blink::WebLayer* outerViewportScrollLayer) override;
-  virtual void clearViewportLayers() override;
-  virtual void registerSelection(const blink::WebSelection& selection) override;
-  virtual void clearSelection() override;
-  virtual int layerTreeId() const;
-  virtual void setShowFPSCounter(bool show);
-  virtual void setShowPaintRects(bool show);
-  virtual void setShowDebugBorders(bool show);
-  virtual void setContinuousPaintingEnabled(bool enabled);
-  virtual void setShowScrollBottleneckRects(bool show);
+  void clearViewportLayers() override;
+  void registerSelection(const blink::WebSelection& selection) override;
+  void clearSelection() override;
+  int layerTreeId() const override;
+  void setShowFPSCounter(bool show) override;
+  void setShowPaintRects(bool show) override;
+  void setShowDebugBorders(bool show) override;
+  void setShowScrollBottleneckRects(bool show) override;
 
-  virtual void updateTopControlsState(blink::WebTopControlsState constraints,
+  void updateTopControlsState(blink::WebTopControlsState constraints,
                               blink::WebTopControlsState current,
-                              bool animate);
-  virtual void setTopControlsHeight(float height, bool shrink);
-  virtual void setTopControlsShownRatio(float);
+                              bool animate) override;
+  void setTopControlsHeight(float height, bool shrink) override;
+  void setTopControlsShownRatio(float) override;
 
   // cc::LayerTreeHostClient implementation.
   void WillBeginMainFrame() override;
   void DidBeginMainFrame() override;
   void BeginMainFrame(const cc::BeginFrameArgs& args) override;
   void BeginMainFrameNotExpectedSoon() override;
-  void Layout() override;
+  void UpdateLayerTreeHost() override;
   void ApplyViewportDeltas(const gfx::Vector2dF& inner_delta,
                            const gfx::Vector2dF& outer_delta,
                            const gfx::Vector2dF& elastic_overscroll_delta,
@@ -156,7 +154,6 @@ class CONTENT_EXPORT RenderWidgetCompositor
   void DidCommitAndDrawFrame() override;
   void DidCompleteSwapBuffers() override;
   void DidCompletePageScaleAnimation() override;
-  void RateLimitSharedMainThreadContext() override;
   void RecordFrameTimingEvents(
       scoped_ptr<cc::FrameTimingTracker::CompositeTimingSet> composite_events,
       scoped_ptr<cc::FrameTimingTracker::MainFrameTimingSet> main_frame_events)
@@ -189,6 +186,7 @@ class CONTENT_EXPORT RenderWidgetCompositor
   RenderWidget* widget_;
   CompositorDependencies* compositor_deps_;
   scoped_ptr<cc::LayerTreeHost> layer_tree_host_;
+  bool never_visible_;
 
   blink::WebLayoutAndPaintAsyncCallback* layout_and_paint_async_callback_;
   scoped_ptr<cc::CopyOutputRequest> temporary_copy_output_request_;

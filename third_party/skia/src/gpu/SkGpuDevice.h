@@ -22,6 +22,7 @@ struct SkDrawProcs;
 struct GrSkDrawProcs;
 
 class GrAccelData;
+class GrTextureAdjuster;
 struct GrCachedLayer;
 
 /**
@@ -50,7 +51,7 @@ public:
     /**
      * New device that will create an offscreen renderTarget based on the ImageInfo and
      * sampleCount. The Budgeted param controls whether the device's backing store counts against
-     * the resource cache budget. On failure, returns NULL.
+     * the resource cache budget. On failure, returns nullptr.
      */
     static SkGpuDevice* Create(GrContext*, SkSurface::Budgeted, const SkImageInfo&,
                                int sampleCount, const SkSurfaceProps*, InitContents);
@@ -60,7 +61,7 @@ public:
     SkGpuDevice* cloneDevice(const SkSurfaceProps& props) {
         SkBaseDevice* dev = this->onCreateDevice(CreateInfo(this->imageInfo(), kPossible_TileUsage,
                                                             props.pixelGeometry()),
-                                                 NULL);
+                                                 nullptr);
         return static_cast<SkGpuDevice*>(dev);
     }
 
@@ -95,8 +96,7 @@ public:
                             const SkMatrix&, const SkPaint&) override;
     virtual void drawBitmapRect(const SkDraw&, const SkBitmap&,
                                 const SkRect* srcOrNull, const SkRect& dst,
-                                const SkPaint& paint,
-                                SkCanvas::DrawBitmapRectFlags flags) override;
+                                const SkPaint& paint, SkCanvas::SrcRectConstraint) override;
     virtual void drawSprite(const SkDraw&, const SkBitmap& bitmap,
                             int x, int y, const SkPaint& paint) override;
     virtual void drawText(const SkDraw&, const void* text, size_t len,
@@ -117,7 +117,7 @@ public:
                             const SkPaint&) override;
     void drawImage(const SkDraw&, const SkImage*, SkScalar x, SkScalar y, const SkPaint&) override;
     void drawImageRect(const SkDraw&, const SkImage*, const SkRect* src, const SkRect& dst,
-                       const SkPaint&) override;
+                       const SkPaint&, SkCanvas::SrcRectConstraint) override;
 
     void flush() override;
 
@@ -135,6 +135,8 @@ public:
     bool filterTexture(GrContext*, GrTexture*, int width, int height, const SkImageFilter*,
                        const SkImageFilter::Context&,
                        SkBitmap* result, SkIPoint* offset);
+
+    static SkImageFilter::Cache* NewImageFilterCache();
 
 protected:
     bool onReadPixels(const SkImageInfo&, void*, size_t, int, int) override;
@@ -185,9 +187,9 @@ private:
     void drawBitmapCommon(const SkDraw&,
                           const SkBitmap& bitmap,
                           const SkRect* srcRectPtr,
-                          const SkSize* dstSizePtr,      // ignored iff srcRectPtr == NULL
+                          const SkSize* dstSizePtr,      // ignored iff srcRectPtr == nullptr
                           const SkPaint&,
-                          SkCanvas::DrawBitmapRectFlags flags);
+                          SkCanvas::SrcRectConstraint);
 
     /**
      * Helper functions called by drawBitmapCommon. By the time these are called the SkDraw's
@@ -195,6 +197,13 @@ private:
      */
 
     // The tileSize and clippedSrcRect will be valid only if true is returned.
+    bool shouldTileImageID(uint32_t imageID, const SkIRect& imageRect,
+                           const SkMatrix& viewMatrix,
+                           const GrTextureParams& params,
+                           const SkRect* srcRectPtr,
+                           int maxTileSize,
+                           int* tileSize,
+                           SkIRect* clippedSubset) const;
     bool shouldTileBitmap(const SkBitmap& bitmap,
                           const SkMatrix& viewMatrix,
                           const GrTextureParams& sampler,
@@ -202,23 +211,49 @@ private:
                           int maxTileSize,
                           int* tileSize,
                           SkIRect* clippedSrcRect) const;
+    // Just returns the predicate, not the out-tileSize or out-clippedSubset, as they are not
+    // needed at the moment.
+    bool shouldTileImage(const SkImage* image, const SkRect* srcRectPtr,
+                         SkCanvas::SrcRectConstraint constraint, SkFilterQuality quality,
+                         const SkMatrix& viewMatrix) const;
+
     void internalDrawBitmap(const SkBitmap&,
                             const SkMatrix& viewMatrix,
                             const SkRect&,
                             const GrTextureParams& params,
                             const SkPaint& paint,
-                            SkCanvas::DrawBitmapRectFlags flags,
+                            SkCanvas::SrcRectConstraint,
                             bool bicubic,
                             bool needsTextureDomain);
+
     void drawTiledBitmap(const SkBitmap& bitmap,
                          const SkMatrix& viewMatrix,
                          const SkRect& srcRect,
                          const SkIRect& clippedSrcRect,
                          const GrTextureParams& params,
                          const SkPaint& paint,
-                         SkCanvas::DrawBitmapRectFlags flags,
+                         SkCanvas::SrcRectConstraint,
                          int tileSize,
                          bool bicubic);
+
+    void drawTextureAdjuster(GrTextureAdjuster* adjuster,
+                             bool alphaOnly,
+                             const SkRect* srcRect,
+                             const SkRect* dstRect,
+                             SkCanvas::SrcRectConstraint constraint,
+                             const SkMatrix& viewMatrix,
+                             const GrClip& clip,
+                             const SkPaint& paint);
+
+    void drawTextureAdjusterImpl(GrTextureAdjuster*,
+                                 bool alphaOnly,
+                                 const SkRect& clippedSrcRect,
+                                 const SkRect& clippedDstRect,
+                                 SkCanvas::SrcRectConstraint constraint,
+                                 const SkMatrix& viewMatrix,
+                                 const SkMatrix& srcToDstMatrix,
+                                 const GrClip& clip,
+                                 const SkPaint& paint);
 
     bool drawDashLine(const SkPoint pts[2], const SkPaint& paint);
 

@@ -102,4 +102,52 @@ gfx::Rect TypeConverter<gfx::Rect, Rect>::Convert(const Rect& input) {
   return gfx::Rect(input.x, input.y, input.width, input.height);
 }
 
+// static
+Size TypeConverter<Size, gfx::Size>::Convert(const gfx::Size& input) {
+  Size size;
+  size.width = input.width();
+  size.height = input.height();
+  return size;
+}
+
+// static
+gfx::Size TypeConverter<gfx::Size, Size>::Convert(const Size& input) {
+  return gfx::Size(input.width, input.height);
+}
+
+// static
+Insets TypeConverter<Insets, gfx::Insets>::Convert(const gfx::Insets& input) {
+  Insets insets;
+  insets.top = input.top();
+  insets.left = input.left();
+  insets.bottom = input.bottom();
+  insets.right = input.right();
+  return insets;
+}
+
+// static
+gfx::Insets TypeConverter<gfx::Insets, Insets>::Convert(const Insets& input) {
+  return gfx::Insets(input.top, input.left, input.bottom, input.right);
+}
+
+// static
+InsetsPtr TypeConverter<InsetsPtr, gfx::Insets>::Convert(
+    const gfx::Insets& input) {
+  InsetsPtr insets(Insets::New());
+  insets->top = input.top();
+  insets->left = input.left();
+  insets->bottom = input.bottom();
+  insets->right = input.right();
+  return insets.Pass();
+}
+
+// static
+gfx::Insets TypeConverter<gfx::Insets, InsetsPtr>::Convert(
+    const InsetsPtr& input) {
+  if (input.is_null())
+    return gfx::Insets();
+
+  return gfx::Insets(input->top, input->left, input->bottom, input->right);
+}
+
 }  // namespace mojo

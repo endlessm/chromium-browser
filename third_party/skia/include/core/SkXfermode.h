@@ -14,7 +14,6 @@
 #include "SkColor.h"
 
 class GrFragmentProcessor;
-class GrProcessorDataManager;
 class GrTexture;
 class GrXPFactory;
 class SkString;
@@ -71,15 +70,15 @@ public:
         kClear_Mode,    //!< [0, 0]
         kSrc_Mode,      //!< [Sa, Sc]
         kDst_Mode,      //!< [Da, Dc]
-        kSrcOver_Mode,  //!< [Sa + Da - Sa*Da, Rc = Sc + (1 - Sa)*Dc]
-        kDstOver_Mode,  //!< [Sa + Da - Sa*Da, Rc = Dc + (1 - Da)*Sc]
+        kSrcOver_Mode,  //!< [Sa + Da * (1 - Sa), Sc + Dc * (1 - Sa)]
+        kDstOver_Mode,  //!< [Da + Sa * (1 - Da), Dc + Sc * (1 - Da)]
         kSrcIn_Mode,    //!< [Sa * Da, Sc * Da]
-        kDstIn_Mode,    //!< [Sa * Da, Sa * Dc]
+        kDstIn_Mode,    //!< [Da * Sa, Dc * Sa]
         kSrcOut_Mode,   //!< [Sa * (1 - Da), Sc * (1 - Da)]
         kDstOut_Mode,   //!< [Da * (1 - Sa), Dc * (1 - Sa)]
-        kSrcATop_Mode,  //!< [Da, Sc * Da + (1 - Sa) * Dc]
-        kDstATop_Mode,  //!< [Sa, Sa * Dc + Sc * (1 - Da)]
-        kXor_Mode,      //!< [Sa + Da - 2 * Sa * Da, Sc * (1 - Da) + (1 - Sa) * Dc]
+        kSrcATop_Mode,  //!< [Da, Sc * Da + Dc * (1 - Sa)]
+        kDstATop_Mode,  //!< [Sa, Dc * Sa + Sc * (1 - Da)]
+        kXor_Mode,      //!< [Sa + Da - 2 * Sa * Da, Sc * (1 - Da) + Dc * (1 - Sa)]
         kPlus_Mode,     //!< [Sa + Da, Sc + Dc]
         kModulate_Mode, // multiplies all components (= alpha and color)
 
@@ -146,13 +145,6 @@ public:
      */
     static SkXfermodeProc GetProc(Mode mode);
 
-    /** Return a function pointer to a routine that applies the specified
-        porter-duff transfer mode and srcColor to a 16bit device color. Note,
-        if the mode+srcColor might return a non-opaque color, then there is not
-        16bit proc, and this will return NULL.
-      */
-    static SkXfermodeProc16 GetProc16(Mode mode, SkColor srcColor);
-
     /**
      *  If the specified mode can be represented by a pair of Coeff, then return
      *  true and set (if not NULL) the corresponding coeffs. If the mode is
@@ -201,15 +193,15 @@ public:
      */
     static bool IsOpaque(const SkXfermode* xfer, SrcColorOpacity opacityType);
 
-    /** Implemented by a subclass to support use as an image filter in the GPU backend. When used as
-        an image filter the xfer mode blends the source color against a background texture rather
-        than the destination. It is implemented as a fragment processor. This can be called with
-        both params set to NULL to query whether it would succeed. Otherwise, both params are
-        required. Upon success the function returns true and the caller owns a ref to the fragment
-        parameter. Upon failure false is returned and the processor param is not written to.
+    /** Used to do in-shader blending between two colors computed in the shader via a
+        GrFragmentProcessor. The input to the returned FP is the src color. The dst color is
+        provided by the dst param which becomes a child FP of the returned FP. If the params are
+        null then this is just a query of whether the SkXfermode could support this functionality.
+        It is legal for the function to succeed but return a null output. This indicates that
+        the output of the blend is simply the src color.
      */
-    virtual bool asFragmentProcessor(GrFragmentProcessor**, GrProcessorDataManager*,
-                                     GrTexture* background) const;
+    virtual bool asFragmentProcessor(const GrFragmentProcessor** output,
+                                     const GrFragmentProcessor* dst) const;
 
     /** A subclass may implement this factory function to work with the GPU backend. It is legal
         to call this with xpf NULL to simply test the return value. If xpf is non-NULL then the
@@ -233,7 +225,7 @@ protected:
     SkXfermode() {}
     /** The default implementation of xfer32/xfer16/xferA8 in turn call this
         method, 1 color at a time (upscaled to a SkPMColor). The default
-        implmentation of this method just returns dst. If performance is
+        implementation of this method just returns dst. If performance is
         important, your subclass should override xfer32/xfer16/xferA8 directly.
 
         This method will not be called directly by the client, so it need not

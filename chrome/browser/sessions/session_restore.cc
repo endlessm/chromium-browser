@@ -33,13 +33,14 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_tabrestore.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/extension_metrics.h"
 #include "chrome/common/url_constants.h"
-#include "components/sessions/session_types.h"
+#include "components/sessions/core/session_types.h"
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/dom_storage_context.h"
 #include "content/public/browser/navigation_controller.h"
@@ -382,11 +383,15 @@ class SessionRestoreImpl : public content::NotificationObserver {
     // windows has the same id as specified in active_window_id.
     Browser* browser_to_activate = nullptr;
 
-    // Determine if there is a visible window.
+    // Determine if there is a visible window, or if the active window exists.
+    // Even if all windows are ui::SHOW_STATE_MINIMIZED, if one of them is the
+    // active window it will be made visible by the call to
+    // browser_to_activate->window()->Activate() later on in this method.
     bool has_visible_browser = false;
     for (std::vector<sessions::SessionWindow*>::iterator i = windows->begin();
          i != windows->end(); ++i) {
-      if ((*i)->show_state != ui::SHOW_STATE_MINIMIZED)
+      if ((*i)->show_state != ui::SHOW_STATE_MINIMIZED ||
+          (*i)->window_id.id() == active_window_id)
         has_visible_browser = true;
     }
 
@@ -775,12 +780,12 @@ Browser* SessionRestore::RestoreSession(
 
 // static
 void SessionRestore::RestoreSessionAfterCrash(Browser* browser) {
-   uint32 behavior = 0;
+  uint32 behavior = 0;
   if (browser->tab_strip_model()->count() == 1) {
     const content::WebContents* active_tab =
         browser->tab_strip_model()->GetWebContentsAt(0);
     if (active_tab->GetURL() == GURL(chrome::kChromeUINewTabURL) ||
-        chrome::IsInstantNTP(active_tab)) {
+        search::IsInstantNTP(active_tab)) {
       // There is only one tab and its the new tab page, make session restore
       // clobber it.
       behavior = SessionRestore::CLOBBER_CURRENT_TAB;

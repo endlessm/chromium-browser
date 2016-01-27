@@ -31,10 +31,11 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/extensions/application_launch.h"
+#include "chrome/browser/ui/extensions/extension_message_bubble_factory.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/chrome_version_info.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_registrar.h"
@@ -70,7 +71,7 @@ ExtensionBrowserTest::ExtensionBrowserTest()
 #endif
       // Default channel is STABLE but override with UNKNOWN so that unlaunched
       // or incomplete APIs can write tests.
-      current_channel_(chrome::VersionInfo::CHANNEL_UNKNOWN),
+      current_channel_(version_info::Channel::UNKNOWN),
       override_prompt_for_external_extensions_(
           FeatureSwitch::prompt_for_external_extensions(),
           false),
@@ -122,6 +123,10 @@ void ExtensionBrowserTest::SetUpCommandLine(base::CommandLine* command_line) {
   test_data_dir_ = test_data_dir_.AppendASCII("extensions");
   observer_.reset(new ExtensionTestNotificationObserver(browser()));
 
+  // We don't want any warning bubbles for, e.g., unpacked extensions.
+  ExtensionMessageBubbleFactory::set_override_for_tests(
+      ExtensionMessageBubbleFactory::OVERRIDE_DISABLED);
+
 #if defined(OS_CHROMEOS)
   if (set_chromeos_user_) {
     // This makes sure that we create the Default profile first, with no
@@ -141,6 +146,12 @@ void ExtensionBrowserTest::SetUpOnMainThread() {
     extension_service()->updater()->SetExtensionCacheForTesting(
         test_extension_cache_.get());
   }
+}
+
+void ExtensionBrowserTest::TearDownOnMainThread() {
+  ExtensionMessageBubbleFactory::set_override_for_tests(
+      ExtensionMessageBubbleFactory::NO_OVERRIDE);
+  InProcessBrowserTest::TearDownOnMainThread();
 }
 
 const Extension* ExtensionBrowserTest::LoadExtension(
@@ -378,7 +389,7 @@ class MockAbortExtensionInstallPrompt : public ExtensionInstallPrompt {
                       const Extension* extension,
                       const ShowDialogCallback& show_dialog_callback) override {
     delegate->InstallUIAbort(true);
-    base::MessageLoopForUI::current()->Quit();
+    base::MessageLoopForUI::current()->QuitWhenIdle();
   }
 
   void OnInstallSuccess(const Extension* extension, SkBitmap* icon) override {}
@@ -418,15 +429,9 @@ const Extension* ExtensionBrowserTest::UpdateExtensionWaitForIdle(
 const Extension* ExtensionBrowserTest::InstallExtensionFromWebstore(
     const base::FilePath& path,
     int expected_change) {
-  return InstallOrUpdateExtension(std::string(),
-                                  path,
-                                  INSTALL_UI_TYPE_NONE,
-                                  expected_change,
-                                  Manifest::INTERNAL,
-                                  browser(),
-                                  Extension::FROM_WEBSTORE,
-                                  true,
-                                  false);
+  return InstallOrUpdateExtension(
+      std::string(), path, INSTALL_UI_TYPE_AUTO_CONFIRM, expected_change,
+      Manifest::INTERNAL, browser(), Extension::FROM_WEBSTORE, true, false);
 }
 
 const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
@@ -541,8 +546,8 @@ const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
   size_t num_after = registry->enabled_extensions().size();
   EXPECT_EQ(num_before + expected_change, num_after);
   if (num_before + expected_change != num_after) {
-    VLOG(1) << "Num extensions before: " << base::IntToString(num_before)
-            << " num after: " << base::IntToString(num_after)
+    VLOG(1) << "Num extensions before: " << base::SizeTToString(num_before)
+            << " num after: " << base::SizeTToString(num_after)
             << " Installed extensions follow:";
 
     for (const scoped_refptr<const Extension>& extension :
@@ -564,7 +569,7 @@ const Extension* ExtensionBrowserTest::InstallOrUpdateExtension(
   return service->GetExtensionById(last_loaded_extension_id(), false);
 }
 
-void ExtensionBrowserTest::ReloadExtension(const std::string extension_id) {
+void ExtensionBrowserTest::ReloadExtension(const std::string& extension_id) {
   observer_->Watch(extensions::NOTIFICATION_EXTENSION_LOADED_DEPRECATED,
                    content::NotificationService::AllSources());
 

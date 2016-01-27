@@ -12,12 +12,19 @@
 namespace cc {
 
 TestContextSupport::TestContextSupport()
-    : weak_ptr_factory_(this) {
-}
+    : out_of_order_callbacks_(false), weak_ptr_factory_(this) {}
 
 TestContextSupport::~TestContextSupport() {}
 
 void TestContextSupport::SignalSyncPoint(uint32 sync_point,
+                                         const base::Closure& callback) {
+  sync_point_callbacks_.push_back(callback);
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::Bind(&TestContextSupport::CallAllSyncPointCallbacks,
+                            weak_ptr_factory_.GetWeakPtr()));
+}
+
+void TestContextSupport::SignalSyncToken(const gpu::SyncToken& sync_token,
                                          const base::Closure& callback) {
   sync_point_callbacks_.push_back(callback);
   base::ThreadTaskRunnerHandle::Get()->PostTask(
@@ -44,9 +51,17 @@ void TestContextSupport::SetAggressivelyFreeResources(
 }
 
 void TestContextSupport::CallAllSyncPointCallbacks() {
-  for (size_t i = 0; i < sync_point_callbacks_.size(); ++i) {
-    base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
-                                                  sync_point_callbacks_[i]);
+  size_t size = sync_point_callbacks_.size();
+  if (out_of_order_callbacks_) {
+    for (size_t i = size; i > 0; --i) {
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
+          FROM_HERE, sync_point_callbacks_[i - 1]);
+    }
+  } else {
+    for (size_t i = 0; i < size; ++i) {
+      base::ThreadTaskRunnerHandle::Get()->PostTask(FROM_HERE,
+                                                    sync_point_callbacks_[i]);
+    }
   }
   sync_point_callbacks_.clear();
 }
@@ -89,6 +104,11 @@ void TestContextSupport::ScheduleOverlayPlane(
                                          display_bounds,
                                          uv_rect);
   }
+}
+
+uint64_t TestContextSupport::ShareGroupTracingGUID() const {
+  NOTIMPLEMENTED();
+  return 0;
 }
 
 }  // namespace cc

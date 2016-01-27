@@ -40,8 +40,6 @@
       '__STDC_LIMIT_MACROS=1',
       '__STDC_FORMAT_MACROS=1',
       '_GNU_SOURCE=1',
-      '_DEFAULT_SOURCE=1',
-      '_BSD_SOURCE=1',
       '_POSIX_C_SOURCE=199506',
       '_XOPEN_SOURCE=600',
       'DYNAMIC_ANNOTATIONS_ENABLED=1',
@@ -95,6 +93,7 @@
           'build_irt': 0,
           'build_nonsfi_helper': 0,
           'disable_glibc%': 0,
+          'disable_newlib%': 0,
           'disable_bionic%': 1,
           'extra_args': [],
           'enable_x86_32': 1,
@@ -130,7 +129,7 @@
           # X86-32 IRT needs to be callable with an under-aligned stack so we
           # disable SSE instructions, which can fault on misaligned addresses:
           # see https://code.google.com/p/nativeclient/issues/detail?id=3935
-          'irt_flags_x86_32': '-Wt,-mattr=-sse',
+          'irt_flags_x86_32': '-mstackrealign -mno-sse',
         },
       },
     }],
@@ -151,6 +150,7 @@
           'build_glibc': 0,
           'build_irt': 0,
           'build_nonsfi_helper': 0,
+          'disable_newlib%': 0,
           'disable_glibc%': 0,
           'disable_bionic%': 1,
           'extra_args': [],
@@ -201,6 +201,7 @@
           'build_glibc': 0,
           'build_irt': 0,
           'build_nonsfi_helper': 0,
+          'disable_newlib%': 0,
           'disable_glibc%': 1,
           'disable_bionic%': 1,
           'extra_args': [],
@@ -232,7 +233,7 @@
       'target_defaults': {
         # x86-64 newlib nexe action
         'target_conditions': [
-           ['nexe_target!="" and build_newlib!=0 and enable_x86_64!=0', {
+           ['nexe_target!="" and build_newlib!=0 and disable_newlib==0 and enable_x86_64!=0', {
              'variables': {
                 'tool_name': 'newlib',
                 'out_newlib64%': '<(PRODUCT_DIR)/>(nexe_target)_newlib_x64.nexe',
@@ -263,7 +264,7 @@
                    '--name', '>(out_newlib64)',
                    '--objdir', '>(objdir_newlib64)',
                    '--include-dirs=>(tc_include_dir_newlib) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=-m64 ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                   '--compile_flags=-m64 ^(compile_flags) >(_compile_flags)',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
                    '--link_flags=-B>(tc_lib_dir_newlib64) -L>(tc_lib_dir_newlib64) ^(link_flags) >(_link_flags)',
@@ -273,7 +274,7 @@
              ],
            }],
            # x86-64 newlib library action
-           ['nlib_target!="" and build_newlib!=0 and enable_x86_64!=0', {
+           ['nlib_target!="" and build_newlib!=0 and disable_newlib==0 and enable_x86_64!=0', {
              'variables': {
                 'tool_name': 'newlib',
                 'objdir_newlib64%': '>(INTERMEDIATE_DIR)/<(tool_name)-x86-64/>(_target_name)',
@@ -304,7 +305,7 @@
                    '--name', '>(out_newlib64)',
                    '--objdir', '>(objdir_newlib64)',
                    '--include-dirs=>(tc_include_dir_newlib) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=-m64 ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                   '--compile_flags=-m64 ^(compile_flags) >(_compile_flags)',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
                    '--link_flags=-B>(tc_lib_dir_newlib64) ^(link_flags) >(_link_flags)',
@@ -335,7 +336,7 @@
                     '>@(extra_deps)',
                     '>@(extra_deps_newlib64)',
                     '^(source_list_newlib64)',
-                    '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/nacl_x86_newlib/nacl_x86_newlib.json',
+                    '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/pnacl_newlib/pnacl_newlib.json',
                     '<(PRODUCT_DIR)/tls_edit<(EXECUTABLE_SUFFIX)',
                  ],
                  'outputs': ['>(out_newlib64)'],
@@ -343,14 +344,15 @@
                    '<@(common_args)',
                    '>@(extra_args)',
                    '--arch', 'x86-64',
-                   '--build', 'newlib_nexe_pnacl',
+                   '--build', 'newlib_nexe_clang',
                    '--name', '>(out_newlib64)',
                    '--objdir', '>(objdir_newlib64)',
                    '--include-dirs=>(tc_include_dir_newlib) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=--target=x86_64-unknown-nacl ^(compile_flags) >(_compile_flags) ^(pnacl_compile_flags) >(_pnacl_compile_flags)',
+
+                   '--compile_flags=^(pnacl_compile_flags) >(_pnacl_compile_flags) ^(native_irt_compile_flags) -integrated-as',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
-                   '--link_flags=--target=x86_64-unknown-nacl -arch x86-64 --pnacl-allow-translate --pnacl-allow-native -B>(tc_lib_dir_irt64) -L>(tc_lib_dir_irt64) ^(pnacl_irt_link_flags) ^(link_flags) >(_link_flags) >(libcpp_irt_stdlibs)',
+                   '--link_flags=-B>(tc_lib_dir_irt64) -L>(tc_lib_dir_irt64)  ^(link_flags) >(_link_flags) ^(native_irt_link_flags) >(libcpp_irt_stdlibs)',
                    '--source-list=^(source_list_newlib64)',
                    '--tls-edit=<(PRODUCT_DIR)/tls_edit<(EXECUTABLE_SUFFIX)',
                    '--irt-linker=<(DEPTH)/native_client/build/link_irt.py',
@@ -379,28 +381,28 @@
                     '>@(extra_deps)',
                     '>@(extra_deps_newlib64)',
                     '^(source_list_newlib64)',
-                    '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/nacl_x86_newlib/nacl_x86_newlib.json',
+                    '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/pnacl_newlib/pnacl_newlib.json',
                  ],
                  'outputs': ['>(out_newlib64)'],
                  'action': [
                    '<@(common_args)',
                    '>@(extra_args)',
                    '--arch', 'x86-64',
-                   '--build', 'newlib_nlib_pnacl',
+                   '--build', 'newlib_nlib_clang',
                    '--name', '>(out_newlib64)',
                    '--objdir', '>(objdir_newlib64)',
                    '--include-dirs=>(tc_include_dir_newlib) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=--target=x86_64-unknown-nacl ^(compile_flags) >(_compile_flags) ^(pnacl_compile_flags) >(_pnacl_compile_flags)',
+                   '--compile_flags=^(compile_flags) >(_compile_flags) ^(pnacl_compile_flags) >(_pnacl_compile_flags) ^(native_irt_compile_flags) -integrated-as',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
-                   '--link_flags=--target=x86_64-unknown-nacl -B>(tc_lib_dir_irt64) ^(pnacl_irt_link_flags) ^(link_flags) >(_link_flags)',
+                   '--link_flags=-B>(tc_lib_dir_irt64) ^(link_flags) >(_link_flags) ^(native_irt_link_flags) >(libcpp_irt_stdlibs)',
                    '--source-list=^(source_list_newlib64)',
                  ],
                },
              ],
            }],
            # x86-32 newlib nexe action
-           ['nexe_target!="" and build_newlib!=0 and enable_x86_32!=0', {
+           ['nexe_target!="" and build_newlib!=0 and disable_newlib==0 and enable_x86_32!=0', {
              'variables': {
                 'tool_name': 'newlib',
                 'out_newlib32%': '<(PRODUCT_DIR)/>(nexe_target)_newlib_x32.nexe',
@@ -431,7 +433,7 @@
                    '--name', '>(out_newlib32)',
                    '--objdir', '>(objdir_newlib32)',
                    '--include-dirs=>(tc_include_dir_newlib) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=-m32 ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                   '--compile_flags=-m32 ^(compile_flags) >(_compile_flags)',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
                    '--link_flags=-m32 -B>(tc_lib_dir_newlib32) -L>(tc_lib_dir_newlib32) ^(link_flags) >(_link_flags)',
@@ -441,7 +443,7 @@
              ],
            }],
            # x86-32 newlib library action
-           ['nlib_target!="" and build_newlib!=0 and enable_x86_32!=0', {
+           ['nlib_target!="" and build_newlib!=0 and disable_newlib==0 and enable_x86_32!=0', {
              'variables': {
                 'tool_name': 'newlib',
                 'out_newlib32%': '<(SHARED_INTERMEDIATE_DIR)/tc_<(tool_name)/lib32/>(nlib_target)',
@@ -472,7 +474,7 @@
                    '--name', '>(out_newlib32)',
                    '--objdir', '>(objdir_newlib32)',
                    '--include-dirs=>(tc_include_dir_newlib) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=-m32 ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                   '--compile_flags=-m32  ^(compile_flags) >(_compile_flags)',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
                    '--link_flags=-m32 -B>(tc_lib_dir_newlib32) ^(link_flags) >(_link_flags)',
@@ -503,7 +505,7 @@
                     '>@(extra_deps)',
                     '>@(extra_deps_newlib32)',
                     '^(source_list_newlib32)',
-                    '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/nacl_x86_newlib/nacl_x86_newlib.json',
+                    '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/pnacl_newlib/pnacl_newlib.json',
                     '<(PRODUCT_DIR)/tls_edit<(EXECUTABLE_SUFFIX)',
                  ],
                  'outputs': ['>(out_newlib32)'],
@@ -511,14 +513,14 @@
                    '<@(common_args)',
                    '>@(extra_args)',
                    '--arch', 'x86-32',
-                   '--build', 'newlib_nexe_pnacl',
+                   '--build', 'newlib_nexe_clang',
                    '--name', '>(out_newlib32)',
                    '--objdir', '>(objdir_newlib32)',
                    '--include-dirs=>(tc_include_dir_newlib) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=--target=i686-unknown-nacl ^(compile_flags) >(_compile_flags) ^(pnacl_compile_flags) >(_pnacl_compile_flags)',
+                   '--compile_flags=-m32 ^(compile_flags) >(_compile_flags) ^(pnacl_compile_flags) >(_pnacl_compile_flags) >(irt_flags_x86_32) ^(native_irt_compile_flags) -integrated-as',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
-                   '--link_flags=--target=i686-unknown-nacl -arch x86-32 --pnacl-allow-translate --pnacl-allow-native >(irt_flags_x86_32) -B>(tc_lib_dir_irt32) -L>(tc_lib_dir_irt32) ^(pnacl_irt_link_flags) ^(link_flags) >(_link_flags) >(libcpp_irt_stdlibs)',
+                   '--link_flags=-m32 -B>(tc_lib_dir_irt32) -L>(tc_lib_dir_irt32) ^(link_flags) >(_link_flags) ^(native_irt_link_flags) >(libcpp_irt_stdlibs)',
                    '--source-list=^(source_list_newlib32)',
                    '--tls-edit=<(PRODUCT_DIR)/tls_edit<(EXECUTABLE_SUFFIX)',
                    '--irt-linker=<(DEPTH)/native_client/build/link_irt.py',
@@ -547,21 +549,21 @@
                     '>@(extra_deps)',
                     '>@(extra_deps_newlib32)',
                     '^(source_list_newlib32)',
-                    '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/nacl_x86_newlib/nacl_x86_newlib.json',
+                    '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/pnacl_newlib/pnacl_newlib.json',
                  ],
                  'outputs': ['>(out_newlib32)'],
                  'action': [
                    '<@(common_args)',
                    '>@(extra_args)',
                    '--arch', 'x86-32',
-                   '--build', 'newlib_nlib_pnacl',
+                   '--build', 'newlib_nlib_clang',
                    '--name', '>(out_newlib32)',
                    '--objdir', '>(objdir_newlib32)',
                    '--include-dirs=>(tc_include_dir_newlib) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=--target=i686-unknown-nacl >(irt_flags_x86_32) ^(compile_flags) >(_compile_flags) ^(pnacl_compile_flags) >(_pnacl_compile_flags)',
+                   '--compile_flags=-m32 >(irt_flags_x86_32) ^(compile_flags) >(_compile_flags) ^(pnacl_compile_flags) >(_pnacl_compile_flags) ^(native_irt_compile_flags) -integrated-as',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
-                   '--link_flags=--target=i686-unknown-nacl -B>(tc_lib_dir_irt32) ^(pnacl_irt_link_flags) ^(link_flags) >(_link_flags)',
+                   '--link_flags=-m32 -B>(tc_lib_dir_irt32) ^(link_flags) >(_link_flags) ^(native_irt_link_flags) >(libcpp_irt_stdlibs)',
                    '--source-list=^(source_list_newlib32)',
                  ],
                },
@@ -595,7 +597,7 @@
                   '>@(extra_deps)',
                   '>@(extra_deps_newlib32_nonsfi)',
                   '^(source_list_newlib32_nonsfi)',
-                  '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/nacl_x86_newlib/nacl_x86_newlib.json',
+                  '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/pnacl_newlib/pnacl_newlib.json',
                   '>(tc_lib_dir_nonsfi_helper32)/libnacl_sys_private.a',
                 ],
                 'outputs': ['>(out_newlib32_nonsfi)'],
@@ -653,7 +655,7 @@
                   '>@(extra_deps)',
                   '>@(extra_deps_newlib32_nonsfi)',
                   '^(source_list_newlib32_nonsfi)',
-                  '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/nacl_x86_newlib/nacl_x86_newlib.json',
+                  '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/pnacl_newlib/pnacl_newlib.json',
                 ],
                 'outputs': ['>(out_newlib32_nonsfi)'],
                 'action': [
@@ -680,7 +682,7 @@
       'target_defaults': {
         'target_conditions': [
           # arm glibc nexe action
-          ['nexe_target!="" and build_glibc!=0', {
+          ['nexe_target!="" and build_glibc!=0 and disable_glibc==0', {
             'variables': {
                'tool_name': 'glibc',
                'out_glibc_arm%': '<(PRODUCT_DIR)/>(nexe_target)_glibc_arm.nexe',
@@ -710,7 +712,7 @@
                   '--name', '>(out_glibc_arm)',
                   '--objdir', '>(objdir_glibc_arm)',
                   '--include-dirs=>(tc_include_dir_glibc) ^(include_dirs) >(_include_dirs)',
-                  '--compile_flags=<(arm_compile_flags) ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                  '--compile_flags=<(arm_compile_flags) ^(compile_flags) >(_compile_flags)',
                   '--gomadir', '<(gomadir)',
                   '--defines=^(defines) >(_defines)',
                   '--link_flags=-B>(tc_lib_dir_glibc_arm) -L>(tc_lib_dir_glibc_arm) ^(link_flags) >(_link_flags)',
@@ -750,7 +752,7 @@
                   '--name', '>(out_glibc_arm)',
                   '--objdir', '>(objdir_glibc_arm)',
                   '--include-dirs=>(tc_include_dir_glibc) ^(include_dirs) >(_include_dirs)',
-                  '--compile_flags=<(arm_compile_flags) ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                  '--compile_flags=<(arm_compile_flags) ^(compile_flags) >(_compile_flags)',
                   '--gomadir', '<(gomadir)',
                   '--defines=^(defines) >(_defines)',
                   '--link_flags=-B>(tc_lib_dir_glibc_arm) ^(link_flags) >(_link_flags)',
@@ -790,7 +792,7 @@
                    '--name', '>(out_glibc_arm)',
                    '--objdir', '>(objdir_glibc_arm)',
                    '--include-dirs=>(tc_include_dir_glibc) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=-fPIC <(arm_compile_flags) ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                   '--compile_flags=-fPIC <(arm_compile_flags) ^(compile_flags) >(_compile_flags)',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
                    '--link_flags=-B>(tc_lib_dir_glibc_arm) ^(link_flags) >(_link_flags)',
@@ -800,7 +802,7 @@
              ],
            }],
           # arm newlib nexe action
-          ['nexe_target!="" and build_newlib!=0', {
+          ['nexe_target!="" and build_newlib!=0 and disable_newlib==0', {
             'variables': {
                'tool_name': 'newlib',
                'out_newlib_arm%': '<(PRODUCT_DIR)/>(nexe_target)_newlib_arm.nexe',
@@ -831,7 +833,7 @@
                   '--name', '>(out_newlib_arm)',
                   '--objdir', '>(objdir_newlib_arm)',
                   '--include-dirs=>(tc_include_dir_newlib) ^(include_dirs) >(_include_dirs)',
-                  '--compile_flags=<(arm_compile_flags) ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                  '--compile_flags=<(arm_compile_flags) ^(compile_flags) >(_compile_flags)',
                   '--gomadir', '<(gomadir)',
                   '--defines=^(defines) >(_defines)',
                   '--link_flags=-B>(tc_lib_dir_newlib_arm) -L>(tc_lib_dir_newlib_arm) ^(link_flags) >(_link_flags)',
@@ -841,7 +843,7 @@
             ],
           }],
           # arm newlib library action
-          ['nlib_target!="" and build_newlib!=0', {
+          ['nlib_target!="" and build_newlib!=0 and disable_newlib==0', {
             'variables': {
               'tool_name': 'newlib',
               'out_newlib_arm%': '<(SHARED_INTERMEDIATE_DIR)/tc_<(tool_name)/libarm/>(nlib_target)',
@@ -872,7 +874,7 @@
                   '--name', '>(out_newlib_arm)',
                   '--objdir', '>(objdir_newlib_arm)',
                   '--include-dirs=>(tc_include_dir_newlib) ^(include_dirs) >(_include_dirs)',
-                  '--compile_flags=<(arm_compile_flags) ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                  '--compile_flags=<(arm_compile_flags) ^(compile_flags) >(_compile_flags)',
                   '--gomadir', '<(gomadir)',
                   '--defines=^(defines) >(_defines)',
                   '--link_flags=-B>(tc_lib_dir_newlib_arm) ^(link_flags) >(_link_flags)',
@@ -912,10 +914,10 @@
                   '--name', '>(out_bionic_arm)',
                   '--objdir', '>(objdir_bionic_arm)',
                   '--include-dirs=>(tc_include_dir_bionic) ^(include_dirs) >(_include_dirs)',
-                  '--compile_flags=-Wno-unused-local-typedefs -Wno-psabi ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                  '--compile_flags=-Wno-unused-local-typedefs -Wno-psabi ^(compile_flags) >(_compile_flags)',
                   '--gomadir', '<(gomadir)',
                   '--defines=^(defines) >(_defines)',
-                  '--link_flags=-B>(tc_lib_dir_bionic_arm) ^(link_flags) >(_link_flags)',
+                  '--link_flags=-B>(tc_lib_dir_bionic_arm) ^(link_flags) >(_link_flags) >(libcpp_irt_stdlibs)',
                   '--source-list=^(source_list_bionic_arm)',
                 ],
               },
@@ -943,7 +945,7 @@
                    '>@(extra_deps)',
                    '>@(extra_deps_newlib_arm)',
                    '^(source_list_newlib_arm)',
-                   '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/nacl_arm_newlib/nacl_arm_newlib.json',
+                   '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/pnacl_newlib/pnacl_newlib.json',
                    '<(PRODUCT_DIR)/tls_edit<(EXECUTABLE_SUFFIX)',
                 ],
                 'outputs': ['>(out_newlib_arm)'],
@@ -951,14 +953,14 @@
                   '<@(common_args)',
                   '>@(extra_args)',
                   '--arch', 'arm',
-                  '--build', 'newlib_nexe',
+                  '--build', 'newlib_nexe_clang',
                   '--name', '>(out_newlib_arm)',
                   '--objdir', '>(objdir_newlib_arm)',
                   '--include-dirs=>(tc_include_dir_newlib) ^(include_dirs) >(_include_dirs)',
-                  '--compile_flags=-Wno-unused-local-typedefs -Wno-psabi ^(gcc_irt_compile_flags) ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                  '--compile_flags=^(compile_flags) >(_compile_flags) ^(pnacl_compile_flags) >(_pnacl_compile_flags) -Wno-unused-local-typedefs ^(native_irt_compile_flags)',
                   '--gomadir', '<(gomadir)',
                   '--defines=^(defines) >(_defines)',
-                  '--link_flags=-B>(tc_lib_dir_irt_arm) ^(gcc_irt_link_flags) ^(link_flags) >(_link_flags)',
+                  '--link_flags=-B>(tc_lib_dir_irt_arm) -L>(tc_lib_dir_irt_arm) ^(native_irt_link_flags) ^(link_flags) >(_link_flags) >(libcpp_irt_stdlibs)',
                   '--source-list=^(source_list_newlib_arm)',
                   '--tls-edit=<(PRODUCT_DIR)/tls_edit<(EXECUTABLE_SUFFIX)',
                   '--irt-linker=<(DEPTH)/native_client/build/link_irt.py',
@@ -987,21 +989,21 @@
                    '>@(extra_deps)',
                    '>@(extra_deps_newlib_arm)',
                    '^(source_list_newlib_arm)',
-                   '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/nacl_arm_newlib/nacl_arm_newlib.json',
+                   '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/pnacl_newlib/pnacl_newlib.json',
                 ],
                 'outputs': ['>(out_newlib_arm)'],
                 'action': [
                   '<@(common_args)',
                   '>@(extra_args)',
                   '--arch', 'arm',
-                  '--build', 'newlib_nlib',
+                  '--build', 'newlib_nlib_clang',
                   '--name', '>(out_newlib_arm)',
                   '--objdir', '>(objdir_newlib_arm)',
                   '--include-dirs=>(tc_include_dir_newlib) ^(include_dirs) >(_include_dirs)',
-                  '--compile_flags=-Wno-unused-local-typedefs -Wno-psabi ^(gcc_irt_compile_flags) ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                  '--compile_flags=^(compile_flags) >(_compile_flags) ^(pnacl_compile_flags) >(_pnacl_compile_flags) -Wno-unused-local-typedefs ^(native_irt_compile_flags)',
                   '--gomadir', '<(gomadir)',
                   '--defines=^(defines) >(_defines)',
-                  '--link_flags=-B>(tc_lib_dir_irt_arm) ^(gcc_irt_link_flags) ^(link_flags) >(_link_flags)',
+                  '--link_flags=-B>(tc_lib_dir_irt_arm) -L>(tc_lib_dir_irt_arm) ^(native_irt_link_flags) ^(link_flags) >(_link_flags) >(libcpp_irt_stdlibs)',
                   '--source-list=^(source_list_newlib_arm)',
                 ],
               },
@@ -1029,7 +1031,7 @@
                   '>@(extra_deps)',
                   '>@(extra_deps_newlib_arm_nonsfi)',
                   '^(source_list_newlib_arm_nonsfi)',
-                  '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/nacl_arm_newlib/nacl_arm_newlib.json',
+                  '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/pnacl_newlib/pnacl_newlib.json',
                   '>(tc_lib_dir_nonsfi_helper_arm)/libnacl_sys_private.a',
                 ],
                 'outputs': ['>(out_newlib_arm_nonsfi)'],
@@ -1085,7 +1087,7 @@
                   '>@(extra_deps)',
                   '>@(extra_deps_newlib_arm_nonsfi)',
                   '^(source_list_newlib_arm_nonsfi)',
-                  '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/nacl_arm_newlib/nacl_arm_newlib.json',
+                  '<(DEPTH)/native_client/toolchain/<(TOOLCHAIN_OS)_x86/pnacl_newlib/pnacl_newlib.json',
                 ],
                 'outputs': ['>(out_newlib_arm_nonsfi)'],
                 'action': [
@@ -1112,7 +1114,7 @@
       'target_defaults': {
         'target_conditions': [
           # mips newlib nexe action
-          ['nexe_target!="" and build_newlib!=0', {
+          ['nexe_target!="" and build_newlib!=0 and disable_newlib==0', {
             'variables': {
                'tool_name': 'newlib',
                'out_newlib_mips%': '<(PRODUCT_DIR)/>(nexe_target)_newlib_mips32.nexe',
@@ -1153,7 +1155,7 @@
             ],
           }],
           # mips newlib library action
-          ['nlib_target!="" and build_newlib!=0', {
+          ['nlib_target!="" and build_newlib!=0 and disable_newlib==0', {
             'variables': {
               'tool_name': 'newlib',
               'out_newlib_mips%': '<(SHARED_INTERMEDIATE_DIR)/tc_<(tool_name)/libmips/>(nlib_target)',
@@ -1317,7 +1319,7 @@
                    '--name', '>(out_glibc64)',
                    '--objdir', '>(objdir_glibc64)',
                    '--include-dirs=>(tc_include_dir_glibc) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=-m64 ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                   '--compile_flags=-m64 ^(compile_flags) >(_compile_flags)',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
                    '--link_flags=-B>(tc_lib_dir_glibc64) ^(link_flags) >(_link_flags)',
@@ -1358,7 +1360,7 @@
                    '--name', '>(out_glibc32)',
                    '--objdir', '>(objdir_glibc32)',
                    '--include-dirs=>(tc_include_dir_glibc) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=-m32 ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                   '--compile_flags=-m32 ^(compile_flags) >(_compile_flags)',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
                    '--link_flags=-m32 -B>(tc_lib_dir_glibc32) ^(link_flags) >(_link_flags)',
@@ -1399,7 +1401,7 @@
                    '--name', '>(out_glibc64)',
                    '--objdir', '>(objdir_glibc64)',
                    '--include-dirs=>(tc_include_dir_glibc) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=-m64 ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                   '--compile_flags=-m64 ^(compile_flags) >(_compile_flags)',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
                    '--link_flags=-B>(tc_lib_dir_glibc64) ^(link_flags) >(_link_flags)',
@@ -1440,7 +1442,7 @@
                    '--name', '>(out_glibc32)',
                    '--objdir', '>(objdir_glibc32)',
                    '--include-dirs=>(tc_include_dir_glibc) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=-m32 ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                   '--compile_flags=-m32 ^(compile_flags) >(_compile_flags)',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
                    '--link_flags=-m32 -B>(tc_lib_dir_glibc32) ^(link_flags) >(_link_flags)',
@@ -1481,7 +1483,7 @@
                    '--name', '>(out_glibc64)',
                    '--objdir', '>(objdir_glibc64)',
                    '--include-dirs=>(tc_include_dir_glibc) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=-m64 -fPIC ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                   '--compile_flags=-m64 -fPIC ^(compile_flags) >(_compile_flags)',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
                    '--link_flags=-B>(tc_lib_dir_glibc64) ^(link_flags) >(_link_flags)',
@@ -1522,7 +1524,7 @@
                    '--name', '>(out_glibc32)',
                    '--objdir', '>(objdir_glibc32)',
                    '--include-dirs=>(tc_include_dir_glibc) ^(include_dirs) >(_include_dirs)',
-                   '--compile_flags=-m32 -fPIC ^(gcc_compile_flags) >(_gcc_compile_flags) ^(compile_flags) >(_compile_flags)',
+                   '--compile_flags=-m32 -fPIC ^(compile_flags) >(_compile_flags)',
                    '--gomadir', '<(gomadir)',
                    '--defines=^(defines) >(_defines)',
                    '--link_flags=-m32 -B>(tc_lib_dir_glibc32) ^(link_flags) >(_link_flags)',
@@ -1536,7 +1538,6 @@
     }], # end target_arch == ia32 or x64
   ],
   'target_defaults': {
-    'gcc_compile_flags': [],
     'pnacl_compile_flags': [],
     'variables': {
       'disable_pnacl%': 0,
@@ -1555,17 +1556,6 @@
       'compile_flags': [
         '<@(nacl_default_compile_flags)',
       ],
-      'gcc_compile_flags': [
-        '-fomit-frame-pointer',
-        # A debugger should be able to unwind IRT call frames. As the IRT is
-        # compiled with high level of optimizations and without debug info,
-        # compiler is requested to generate unwind tables explicitly. This
-        # is the default behavior on x86-64 and when compiling C++ with
-        # exceptions enabled, the change is for the benefit of x86-32 C.
-        # These are only required for the IRT but are here for all
-        # nacl-gcc-compiled binaries because the IRT depends on other libs
-        '-fasynchronous-unwind-tables',
-      ],
       'pnacl_compile_flags': [
         '-Wno-extra-semi',
         '-Wno-unused-private-field',
@@ -1573,13 +1563,24 @@
         '-Wno-unused-function',
         '-std=gnu++11',
       ],
-      # IRT compile/link flags to make the binary smaller.
-      # Omitted from non-IRT libraries to keep the libraries themselves small.
-      'gcc_irt_compile_flags': [
+      'native_irt_compile_flags': [
+        # IRT compile/link flags to make the binary smaller.
+        '-Os',
+        '-fno-exceptions',
+        # These are omitted from non-IRT libraries to keep the libraries
+        # themselves small.
         '-ffunction-sections',
         '-fdata-sections',
+        # A debugger should be able to unwind IRT call frames. As the IRT is
+        # compiled with high level of optimizations and without debug info,
+        # compiler is requested to generate unwind tables explicitly. This
+        # is the default behavior on x86-64 and when compiling C++ with
+        # exceptions enabled, the change is for the benefit of x86-32 C.
+        # The frame pointer is unnecessary when unwind tables are used.
+        '-fasynchronous-unwind-tables',
+        '-fomit-frame-pointer',
       ],
-      'gcc_irt_link_flags': [
+      'native_irt_link_flags': [
         '-Wl,--gc-sections',
       ],
       'pnacl_irt_link_flags': [
@@ -1600,6 +1601,7 @@
         '-lc',
         '-lnacl',
         '-lgcc',
+        '-lgcc_eh',
         '-Wl,--end-group'
       ],
     },

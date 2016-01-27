@@ -52,9 +52,9 @@ class CredentialManagerClientTest : public content::RenderViewTest {
       return false;
 
     switch (message_id) {
-      case CredentialManagerHostMsg_NotifySignedIn::ID: {
+      case CredentialManagerHostMsg_Store::ID: {
         base::Tuple<int, CredentialInfo> param;
-        CredentialManagerHostMsg_NotifySignedIn::Read(message, &param);
+        CredentialManagerHostMsg_Store::Read(message, &param);
         request_id = base::get<0>(param);
         break;
       }
@@ -105,11 +105,11 @@ class TestNotificationCallbacks
   explicit TestNotificationCallbacks(CredentialManagerClientTest* test)
       : test_(test) {}
 
-  virtual ~TestNotificationCallbacks() {}
+  ~TestNotificationCallbacks() override {}
 
-  virtual void onSuccess() { test_->set_callback_succeeded(true); }
+  void onSuccess() override { test_->set_callback_succeeded(true); }
 
-  virtual void onError(blink::WebCredentialManagerError* reason) {
+  void onError(blink::WebCredentialManagerError* reason) override {
     test_->set_callback_errored(true);
   }
 
@@ -123,13 +123,13 @@ class TestRequestCallbacks
   explicit TestRequestCallbacks(CredentialManagerClientTest* test)
       : test_(test) {}
 
-  virtual ~TestRequestCallbacks() {}
+  ~TestRequestCallbacks() override {}
 
-  virtual void onSuccess(blink::WebCredential*) {
+  void onSuccess(blink::WebCredential*) override {
     test_->set_callback_succeeded(true);
   }
 
-  virtual void onError(blink::WebCredentialManagerError* reason) {
+  void onError(blink::WebCredentialManagerError* reason) override {
     test_->set_callback_errored(true);
   }
 
@@ -139,19 +139,18 @@ class TestRequestCallbacks
 
 }  // namespace
 
-TEST_F(CredentialManagerClientTest, SendNotifySignedIn) {
+TEST_F(CredentialManagerClientTest, SendStore) {
   int request_id;
-  EXPECT_FALSE(ExtractRequestId(CredentialManagerHostMsg_NotifySignedIn::ID,
-                                request_id));
+  EXPECT_FALSE(
+      ExtractRequestId(CredentialManagerHostMsg_Store::ID, request_id));
 
   scoped_ptr<TestNotificationCallbacks> callbacks(
       new TestNotificationCallbacks(this));
-  client_->dispatchSignedIn(*credential(), callbacks.release());
+  client_->dispatchStore(*credential(), callbacks.release());
 
-  EXPECT_TRUE(ExtractRequestId(CredentialManagerHostMsg_NotifySignedIn::ID,
-                               request_id));
+  EXPECT_TRUE(ExtractRequestId(CredentialManagerHostMsg_Store::ID, request_id));
 
-  client_->OnAcknowledgeSignedIn(request_id);
+  client_->OnAcknowledgeStore(request_id);
   EXPECT_TRUE(callback_succeeded());
   EXPECT_FALSE(callback_errored());
 }
@@ -180,7 +179,7 @@ TEST_F(CredentialManagerClientTest, SendRequestCredential) {
 
   scoped_ptr<TestRequestCallbacks> callbacks(new TestRequestCallbacks(this));
   std::vector<GURL> federations;
-  client_->dispatchRequest(false, federations, callbacks.release());
+  client_->dispatchGet(false, federations, callbacks.release());
 
   EXPECT_TRUE(ExtractRequestId(CredentialManagerHostMsg_RequestCredential::ID,
                                request_id));
@@ -199,7 +198,7 @@ TEST_F(CredentialManagerClientTest, SendRequestCredentialEmpty) {
 
   scoped_ptr<TestRequestCallbacks> callbacks(new TestRequestCallbacks(this));
   std::vector<GURL> federations;
-  client_->dispatchRequest(false, federations, callbacks.release());
+  client_->dispatchGet(false, federations, callbacks.release());
 
   EXPECT_TRUE(ExtractRequestId(CredentialManagerHostMsg_RequestCredential::ID,
                                request_id));

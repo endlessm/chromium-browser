@@ -90,12 +90,12 @@ class ProfileManager : public base::NonThreadSafe,
   void CreateProfileAsync(const base::FilePath& profile_path,
                           const CreateCallback& callback,
                           const base::string16& name,
-                          const base::string16& icon_url,
+                          const std::string& icon_url,
                           const std::string& supervised_user_id);
 
   // Returns true if the profile pointer is known to point to an existing
   // profile.
-  bool IsValidProfile(Profile* profile);
+  bool IsValidProfile(void* profile);
 
   // Returns the directory where the first created profile is stored,
   // relative to the user data directory currently in use.
@@ -141,7 +141,7 @@ class ProfileManager : public base::NonThreadSafe,
   // asynchronously.
   static base::FilePath CreateMultiProfileAsync(
       const base::string16& name,
-      const base::string16& icon_url,
+      const std::string& icon_url,
       const CreateCallback& callback,
       const std::string& supervised_user_id);
 
@@ -166,11 +166,13 @@ class ProfileManager : public base::NonThreadSafe,
   // profile specfic desktop shortcuts.
   ProfileShortcutManager* profile_shortcut_manager();
 
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
   // Schedules the profile at the given path to be deleted on shutdown. If we're
   // deleting the last profile, a new one will be created in its place, and in
   // that case the callback will be called when profile creation is complete.
   void ScheduleProfileForDeletion(const base::FilePath& profile_dir,
                                   const CreateCallback& callback);
+#endif
 
   // Autoloads profiles if they are running background apps.
   void AutoloadProfiles();
@@ -265,10 +267,12 @@ class ProfileManager : public base::NonThreadSafe,
   // creation and adds it to the set managed by this ProfileManager.
   Profile* CreateAndInitializeProfile(const base::FilePath& profile_dir);
 
+#if !defined(OS_ANDROID) && !defined(OS_IOS)
   // Schedules the profile at the given path to be deleted on shutdown,
   // and marks the new profile as active.
   void FinishDeletingProfile(const base::FilePath& profile_dir,
                              const base::FilePath& new_active_profile_dir);
+#endif
 
   // Registers profile with given info. Returns pointer to created ProfileInfo
   // entry.
@@ -318,7 +322,6 @@ class ProfileManager : public base::NonThreadSafe,
     ProfileManager* profile_manager_;
     DISALLOW_COPY_AND_ASSIGN(BrowserListObserver);
   };
-#endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
 
   // If the |loaded_profile| has been loaded successfully (according to
   // |status|) and isn't already scheduled for deletion, then finishes adding
@@ -331,6 +334,7 @@ class ProfileManager : public base::NonThreadSafe,
       const CreateCallback& original_callback,
       Profile* loaded_profile,
       Profile::CreateStatus status);
+#endif  // !defined(OS_ANDROID) && !defined(OS_IOS)
 
   // Object to cache various information about profiles. Contains information
   // about every profile which has been created for this instance of Chrome,

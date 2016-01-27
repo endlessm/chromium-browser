@@ -51,8 +51,8 @@ void StreamURLRequestJob::OnDataAvailable(Stream* stream) {
   // by URLRequestJob.
 
   int bytes_read;
-  switch (stream_->ReadRawData(
-      pending_buffer_.get(), pending_buffer_size_, &bytes_read)) {
+  switch (stream_->ReadRawData(pending_buffer_.get(), pending_buffer_size_,
+                               &bytes_read)) {
     case Stream::STREAM_HAS_DATA:
       DCHECK_GT(bytes_read, 0);
       break;
@@ -192,8 +192,8 @@ void StreamURLRequestJob::NotifyFailure(int error_code) {
   // If we already return the headers on success, we can't change the headers
   // now. Instead, we just error out.
   if (headers_set_) {
-    NotifyDone(net::URLRequestStatus(net::URLRequestStatus::FAILED,
-                                     error_code));
+    NotifyDone(
+        net::URLRequestStatus(net::URLRequestStatus::FAILED, error_code));
     return;
   }
 

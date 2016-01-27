@@ -5,7 +5,6 @@
 {
   'variables': {
     'lastchange_path': '../build/util/LASTCHANGE',
-    'libpeer_target_type%': 'static_library',
     'branding_dir': 'app/theme/<(branding_path_component)',
     'branding_dir_100': 'app/theme/default_100_percent/<(branding_path_component)',
   },
@@ -13,6 +12,7 @@
     ['OS=="win"', {
       'targets': [
         {
+          # GN version: //chrome/installer/gcapi
           'target_name': 'gcapi_dll',
           'type': 'loadable_module',
           'dependencies': [
@@ -27,12 +27,14 @@
           ],
         },
         {
+          # GN version: //chrome/installer/gcapi:lib
           'target_name': 'gcapi_lib',
           'type': 'static_library',
           'dependencies': [
             'installer_util',
             '../base/base.gyp:base',
             '../chrome/chrome.gyp:launcher_support',
+            '../components/components.gyp:variations',
             '../google_update/google_update.gyp:google_update',
           ],
           'include_dirs': [
@@ -46,10 +48,9 @@
             'installer/gcapi/gcapi_reactivation.cc',
             'installer/gcapi/gcapi_reactivation.h',
           ],
-          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-          'msvs_disabled_warnings': [ 4267, ],
         },
         {
+          # GN version: //chrome/installer/gcapi:gcapi_test
           'target_name': 'gcapi_test',
           'type': 'executable',
           'dependencies': [
@@ -59,6 +60,7 @@
             'installer_util',
             '../base/base.gyp:base',
             '../base/base.gyp:test_support_base',
+            '../components/components.gyp:variations',
             '../testing/gtest.gyp:gtest',
           ],
           'include_dirs': [
@@ -87,6 +89,7 @@
             '../base/base.gyp:base_i18n',
             '../base/base.gyp:test_support_base',
             '../chrome/chrome.gyp:chrome_version_resources',
+            '../components/components.gyp:variations',
             '../content/content.gyp:content_common',
             '../testing/gmock.gyp:gmock',
             '../testing/gtest.gyp:gtest',
@@ -130,7 +133,6 @@
             'installer/util/move_tree_work_item_unittest.cc',
             'installer/util/product_state_unittest.cc',
             'installer/util/product_unittest.cc',
-            'installer/util/product_unittest.h',
             'installer/util/registry_key_backup_unittest.cc',
             'installer/util/registry_test_data.cc',
             'installer/util/registry_test_data.h',
@@ -208,15 +210,17 @@
           ],
         },
         {
+          # GN version: //chrome/installer/setup
           'target_name': 'setup',
           'type': 'executable',
           'dependencies': [
             'installer_util',
             'installer_util_strings',
             '../base/base.gyp:base',
-            '../breakpad/breakpad.gyp:breakpad_handler',
             '../chrome/common_constants.gyp:common_constants',
+            '../chrome/common_constants.gyp:version_header',
             '../chrome_elf/chrome_elf.gyp:chrome_elf_constants',
+            '../components/components.gyp:crash_component',
             '../rlz/rlz.gyp:rlz_lib',
             '../third_party/zlib/zlib.gyp:zlib',
           ],
@@ -241,6 +245,8 @@
             'installer/setup/install.h',
             'installer/setup/install_worker.cc',
             'installer/setup/install_worker.h',
+            'installer/setup/installer_crash_reporter_client.cc',
+            'installer/setup/installer_crash_reporter_client.h',
             'installer/setup/setup.ico',
             'installer/setup/setup.rc',
             'installer/setup/setup_constants.cc',
@@ -266,8 +272,6 @@
               ],
             },
           },
-          # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
-          'msvs_disabled_warnings': [ 4267, ],
           'rules': [
             {
               'rule_name': 'setup_version',
@@ -305,6 +309,11 @@
                 },
               },
             }],
+            ['win_use_allocator_shim==1', {
+              'dependencies': [
+                '<(allocator_target)',
+              ],
+            }],
           ],
         },
         {
@@ -338,9 +347,13 @@
             'installer/mini_installer/decompress.cc',
             'installer/mini_installer/decompress.h',
             'installer/mini_installer/decompress_test.cc',
+            'installer/mini_installer/mini_installer_constants.cc',
+            'installer/mini_installer/mini_installer_constants.h',
             'installer/mini_installer/mini_string.cc',
             'installer/mini_installer/mini_string.h',
             'installer/mini_installer/mini_string_test.cc',
+            'installer/mini_installer/regkey.cc',
+            'installer/mini_installer/regkey.h',
             'installer/setup/app_launcher_installer.cc',  # Move to lib
             'installer/setup/app_launcher_installer.h',  # Move to lib
             'installer/setup/archive_patch_helper.cc',  # Move to lib
@@ -352,6 +365,7 @@
             'installer/setup/install_worker.cc',        # Move to lib
             'installer/setup/install_worker.h',         # Move to lib
             'installer/setup/install_worker_unittest.cc',
+            'installer/setup/memory_unittest.cc',
             'installer/setup/run_all_unittests.cc',
             'installer/setup/setup_constants.cc',       # Move to lib
             'installer/setup/setup_constants.h',        # Move to lib
@@ -361,6 +375,13 @@
             'installer/setup/update_active_setup_version_work_item.cc',  # Move to lib
             'installer/setup/update_active_setup_version_work_item.h',   # Move to lib
             'installer/setup/update_active_setup_version_work_item_unittest.cc',
+          ],
+          'conditions': [
+            ['win_use_allocator_shim==1', {
+              'dependencies': [
+                '<(allocator_target)',
+              ],
+            }],
           ],
           # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
           'msvs_disabled_warnings': [ 4267, ],
@@ -455,10 +476,14 @@
         'flock_bash': ['flock', '--', '/tmp/linux_package_lock', 'bash'],
         'deb_build': '<(PRODUCT_DIR)/installer/debian/build.sh',
         'rpm_build': '<(PRODUCT_DIR)/installer/rpm/build.sh',
+        # The script expects either "google_chrome" or "chromium" for -d,
+        # which is also what branding_path_component contains.
         'deb_cmd': ['<@(flock_bash)', '<(deb_build)', '-o' '<(PRODUCT_DIR)',
-                    '-b', '<(PRODUCT_DIR)', '-a', '<(target_arch)'],
+                    '-b', '<(PRODUCT_DIR)', '-a', '<(target_arch)',
+                    '-d', '<(branding_path_component)'],
         'rpm_cmd': ['<@(flock_bash)', '<(rpm_build)', '-o' '<(PRODUCT_DIR)',
-                    '-b', '<(PRODUCT_DIR)', '-a', '<(target_arch)'],
+                    '-b', '<(PRODUCT_DIR)', '-a', '<(target_arch)',
+                    '-d', '<(branding_path_component)'],
         'conditions': [
           ['target_arch=="ia32"', {
             'deb_arch': 'i386',
@@ -488,11 +513,6 @@
             'deb_arch': 'arm',
             'rpm_arch': 'arm',
           }],
-          ['libpeer_target_type!="static_library"', {
-            'packaging_files_binaries': [
-              '<(PRODUCT_DIR)/lib/libpeerconnection.so',
-            ],
-          }],
           ['asan==1', {
             'packaging_files_binaries': [
               '<(PRODUCT_DIR)/lib/libc++.so',
@@ -509,18 +529,21 @@
           # we only create packages for official builds.
           'copies': [
             {
+              # GN version: //chrome/installer/linux:deb_packaging_files
               'destination': '<(PRODUCT_DIR)/installer/debian/',
               'files': [
                 '<@(packaging_files_deb)',
               ]
             },
             {
+              # GN version: //chrome/installer/linux:rpm_packaging_files
               'destination': '<(PRODUCT_DIR)/installer/rpm/',
               'files': [
                 '<@(packaging_files_rpm)',
               ]
             },
             {
+              # GN version: //chrome/installer/linux:common_packaging_files
               'destination': '<(PRODUCT_DIR)/installer/common/',
               'files': [
                 '<@(packaging_files_common)',
@@ -528,8 +551,10 @@
             },
             # Additional theme resources needed for package building.
             {
+              # GN version: //chrome/installer/linux:theme_files
               'destination': '<(PRODUCT_DIR)/installer/theme/',
               'files': [
+                '<(branding_dir)/linux/product_logo_32.xpm',
                 '<(branding_dir_100)/product_logo_16.png',
                 '<(branding_dir)/product_logo_22.png',
                 '<(branding_dir)/product_logo_24.png',
@@ -538,13 +563,13 @@
                 '<(branding_dir)/product_logo_64.png',
                 '<(branding_dir)/product_logo_128.png',
                 '<(branding_dir)/product_logo_256.png',
-                '<(branding_dir)/product_logo_32.xpm',
                 '<(branding_dir)/BRANDING',
               ],
             },
           ],
           'actions': [
             {
+              # GN version: //chrome/installer/linux:save_build_info
               'action_name': 'save_build_info',
               'inputs': [
                 '<(branding_dir)/BRANDING',
@@ -566,6 +591,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux
           'target_name': 'linux_packages_all',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -612,6 +638,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux:unstable
           'target_name': 'linux_packages_unstable',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -628,6 +655,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux:beta
           'target_name': 'linux_packages_beta',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -644,6 +672,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux:stable
           'target_name': 'linux_packages_stable',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -662,6 +691,7 @@
         # TODO(mmoss) gyp looping construct would be handy here ...
         # These package actions are the same except for the 'channel' variable.
         {
+          # GN version: //chrome/installer/linux:asan
           'target_name': 'linux_packages_asan_deb',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -690,6 +720,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux:trunk
           'target_name': 'linux_packages_trunk_deb',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -718,6 +749,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux:unstable
           'target_name': 'linux_packages_unstable_deb',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -746,6 +778,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux:beta
           'target_name': 'linux_packages_beta_deb',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -774,6 +807,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux:stable
           'target_name': 'linux_packages_stable_deb',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -802,6 +836,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux:asan
           'target_name': 'linux_packages_asan_rpm',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -831,6 +866,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux:trunk
           'target_name': 'linux_packages_trunk_rpm',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -860,6 +896,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux:unstable
           'target_name': 'linux_packages_unstable_rpm',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -889,6 +926,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux:beta
           'target_name': 'linux_packages_beta_rpm',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -918,6 +956,7 @@
           ],
         },
         {
+          # GN version: //chrome/installer/linux:stable
           'target_name': 'linux_packages_stable_rpm',
           'suppress_wildcard': 1,
           'type': 'none',
@@ -1073,5 +1112,35 @@
         },
       ],  # targets
     }],  # OS=="mac"
+    ['OS=="win" and test_isolation_mode != "noop"', {
+      'targets': [
+        {
+          'target_name': 'installer_util_unittests_run',
+          'type': 'none',
+          'dependencies': [
+            'installer_util_unittests',
+          ],
+          'includes': [
+            '../build/isolate.gypi',
+          ],
+          'sources': [
+            'installer_util_unittests.isolate',
+          ],
+        },
+        {
+          'target_name': 'setup_unittests_run',
+          'type': 'none',
+          'dependencies': [
+            'setup_unittests',
+          ],
+          'includes': [
+            '../build/isolate.gypi',
+          ],
+          'sources': [
+            'setup_unittests.isolate',
+          ],
+        },
+      ],
+    }],
   ],
 }

@@ -587,7 +587,7 @@ static int write_index(NUTContext *nut, AVIOContext *bc) {
     ff_put_v(bc, nut->sp_count);
 
     for (i=0; i<nut->sp_count; i++) {
-        av_tree_find(nut->syncpoints, &dummy, (void *) ff_nut_sp_pos_cmp, (void**)next_node);
+        av_tree_find(nut->syncpoints, &dummy, ff_nut_sp_pos_cmp, (void**)next_node);
         ff_put_v(bc, (next_node[1]->pos >> 4) - (dummy.pos>>4));
         dummy.pos = next_node[1]->pos;
     }
@@ -933,6 +933,7 @@ static int write_sm_data(AVFormatContext *s, AVIOContext *bc, AVPacket *pkt, int
                 break;
             case AV_PKT_DATA_METADATA_UPDATE:
             case AV_PKT_DATA_STRINGS_METADATA:
+            case AV_PKT_DATA_QUALITY_STATS:
                 // belongs into meta, not side data
                 break;
             }

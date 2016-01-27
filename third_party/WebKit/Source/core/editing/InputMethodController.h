@@ -27,7 +27,9 @@
 #define InputMethodController_h
 
 #include "core/CoreExport.h"
+#include "core/dom/Range.h"
 #include "core/editing/CompositionUnderline.h"
+#include "core/editing/EphemeralRange.h"
 #include "core/editing/PlainTextRange.h"
 #include "platform/heap/Handle.h"
 #include "wtf/Vector.h"
@@ -40,6 +42,7 @@ class Range;
 class Text;
 
 class CORE_EXPORT InputMethodController final : public NoBaseWillBeGarbageCollectedFinalized<InputMethodController> {
+    USING_FAST_MALLOC_WILL_BE_REMOVED(InputMethodController);
     WTF_MAKE_NONCOPYABLE(InputMethodController);
 public:
     enum ConfirmCompositionBehavior {
@@ -67,16 +70,11 @@ public:
     // Deletes the existing composition text.
     void cancelComposition();
     void cancelCompositionIfSelectionIsInvalid();
+    EphemeralRange compositionEphemeralRange() const;
     PassRefPtrWillBeRawPtr<Range> compositionRange() const;
 
-    // getting international text input composition state (for use by InlineTextBox)
-    Text* compositionNode() const { return m_compositionNode.get(); }
-    unsigned compositionStart() const { return m_compositionStart; }
-    unsigned compositionEnd() const { return m_compositionEnd; }
-    bool compositionUsesCustomUnderlines() const { return !m_customCompositionUnderlines.isEmpty(); }
-    const Vector<CompositionUnderline>& customCompositionUnderlines() const { return m_customCompositionUnderlines; }
-
     void clear();
+    void documentDetached();
 
     PlainTextRange getSelectionOffsets() const;
     // Returns true if setting selection to specified offsets, otherwise false.
@@ -97,13 +95,9 @@ private:
     friend class SelectionOffsetsScope;
 
     RawPtrWillBeMember<LocalFrame> m_frame;
-    RefPtrWillBeMember<Text> m_compositionNode;
-    // We don't use PlainTextRange which is immutable, for composition range.
-    unsigned m_compositionStart;
-    unsigned m_compositionEnd;
-    // startOffset and endOffset of CompositionUnderline are based on
-    // m_compositionNode.
-    Vector<CompositionUnderline> m_customCompositionUnderlines;
+    RefPtrWillBeMember<Range> m_compositionRange;
+    bool m_isDirty;
+    bool m_hasComposition;
 
     explicit InputMethodController(LocalFrame&);
 
@@ -114,11 +108,9 @@ private:
         return *m_frame;
     }
 
+    String composingText() const;
     bool insertTextForConfirmedComposition(const String& text);
     void selectComposition() const;
-    enum FinishCompositionMode { ConfirmComposition, CancelComposition };
-    // Returns true if composition exists.
-    bool finishComposition(const String&, FinishCompositionMode);
     bool setSelectionOffsets(const PlainTextRange&);
 };
 

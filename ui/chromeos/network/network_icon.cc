@@ -206,7 +206,7 @@ class EmptyImageSource: public gfx::ImageSkiaSource {
   }
 
   gfx::ImageSkiaRep GetImageForScale(float scale) override {
-    gfx::Size pixel_size = gfx::ToFlooredSize(gfx::ScaleSize(size_, scale));
+    gfx::Size pixel_size = gfx::ScaleToFlooredSize(size_, scale);
     SkBitmap empty_bitmap = GetEmptyBitmap(pixel_size);
     return gfx::ImageSkiaRep(empty_bitmap, scale);
   }
@@ -600,9 +600,10 @@ bool NetworkIconImpl::UpdateCellularState(const NetworkState* network) {
 
 bool NetworkIconImpl::UpdatePortalState(const NetworkState* network) {
   bool behind_captive_portal = false;
-  if (network && NetworkPortalDetector::IsInitialized()) {
+  if (network && chromeos::network_portal_detector::IsInitialized()) {
     NetworkPortalDetector::CaptivePortalState state =
-        NetworkPortalDetector::Get()->GetCaptivePortalState(network->guid());
+        chromeos::network_portal_detector::GetInstance()->GetCaptivePortalState(
+            network->guid());
     behind_captive_portal =
         state.status == NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_PORTAL;
   }

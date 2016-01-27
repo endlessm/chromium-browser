@@ -36,6 +36,7 @@
 #include "core/dom/ExecutionContext.h"
 #include "core/events/MessageEvent.h"
 #include "core/frame/LocalDOMWindow.h"
+#include "core/inspector/ConsoleMessage.h"
 #include "core/workers/WorkerGlobalScope.h"
 #include "public/platform/WebString.h"
 #include "wtf/Functional.h"
@@ -76,7 +77,7 @@ void MessagePort::postMessage(ExecutionContext* context, PassRefPtr<SerializedSc
     // Make sure we aren't connected to any of the passed-in ports.
     if (ports) {
         for (unsigned i = 0; i < ports->size(); ++i) {
-            MessagePort* dataPort = (*ports)[i].get();
+            MessagePort* dataPort = (*ports)[i];
             if (dataPort == this) {
                 exceptionState.throwDOMException(DataCloneError, "Port at index " + String::number(i) + " contains the source port.");
                 return;
@@ -86,6 +87,9 @@ void MessagePort::postMessage(ExecutionContext* context, PassRefPtr<SerializedSc
         if (exceptionState.hadException())
             return;
     }
+
+    if (message->containsTransferableArrayBuffer())
+        executionContext()->addConsoleMessage(ConsoleMessage::create(JSMessageSource, WarningMessageLevel, "MessagePort cannot send an ArrayBuffer as a transferable object yet. See http://crbug.com/334408"));
 
     WebString messageString = message->toWireString();
     OwnPtr<WebMessagePortChannelArray> webChannels = toWebMessagePortChannelArray(channels.release());
@@ -129,7 +133,7 @@ PassOwnPtr<WebMessagePortChannel> MessagePort::disentangle()
 void MessagePort::messageAvailable()
 {
     ASSERT(executionContext());
-    executionContext()->postTask(FROM_HERE, createCrossThreadTask(&MessagePort::dispatchMessages, m_weakFactory.createWeakPtr()));
+    executionContext()->postTask(BLINK_FROM_HERE, createCrossThreadTask(&MessagePort::dispatchMessages, m_weakFactory.createWeakPtr()));
 }
 
 void MessagePort::start()
@@ -212,7 +216,7 @@ void MessagePort::dispatchMessages()
         MessagePortArray* ports = MessagePort::entanglePorts(*executionContext(), channels.release());
         RefPtrWillBeRawPtr<Event> evt = MessageEvent::create(ports, message.release());
 
-        dispatchEvent(evt.release(), ASSERT_NO_EXCEPTION);
+        dispatchEvent(evt.release());
     }
 }
 
@@ -228,12 +232,12 @@ PassOwnPtr<MessagePortChannelArray> MessagePort::disentanglePorts(ExecutionConte
     if (!ports || !ports->size())
         return nullptr;
 
-    // HashSet used to efficiently check for duplicates in the passed-in array.
-    HashSet<MessagePort*> portSet;
+    // HeapHashSet used to efficiently check for duplicates in the passed-in array.
+    HeapHashSet<Member<MessagePort>> portSet;
 
     // Walk the incoming array - if there are any duplicate ports, or null ports or cloned ports, throw an error (per section 8.3.3 of the HTML5 spec).
     for (unsigned i = 0; i < ports->size(); ++i) {
-        MessagePort* port = (*ports)[i].get();
+        MessagePort* port = (*ports)[i];
         if (!port || port->isNeutered() || portSet.contains(port)) {
             String type;
             if (!port)
@@ -276,7 +280,7 @@ MessagePortArray* MessagePort::entanglePorts(ExecutionContext& context, PassOwnP
 DEFINE_TRACE(MessagePort)
 {
     ActiveDOMObject::trace(visitor);
-    EventTargetWithInlineData::trace(visitor);
+    RefCountedGarbageCollectedEventTargetWithInlineData<MessagePort>::trace(visitor);
 }
 
 v8::Isolate* MessagePort::scriptIsolate()

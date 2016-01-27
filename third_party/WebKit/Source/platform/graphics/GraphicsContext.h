@@ -40,7 +40,7 @@
 #include "third_party/skia/include/core/SkMetaData.h"
 #include "third_party/skia/include/core/SkPictureRecorder.h"
 #include "third_party/skia/include/core/SkRegion.h"
-#include "wtf/FastAllocBase.h"
+#include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/PassOwnPtr.h"
@@ -57,34 +57,26 @@ struct SkRect;
 
 namespace blink {
 
-class DisplayItemList;
 class ImageBuffer;
 class KURL;
+class PaintController;
 
 class PLATFORM_EXPORT GraphicsContext {
-    WTF_MAKE_NONCOPYABLE(GraphicsContext); WTF_MAKE_FAST_ALLOCATED(GraphicsContext);
+    WTF_MAKE_NONCOPYABLE(GraphicsContext); USING_FAST_MALLOC(GraphicsContext);
 public:
     enum DisabledMode {
         NothingDisabled = 0, // Run as normal.
         FullyDisabled = 1 // Do absolutely minimal work to remove the cost of the context from performance tests.
     };
 
-    explicit GraphicsContext(DisplayItemList*, DisabledMode = NothingDisabled, SkMetaData* = 0);
-
-    // TODO(chrishtr): Once Slimming Paint launches this should be removed (crbug.com/471333).
-    // A 0 canvas is allowed, but in such cases the context must only have canvas
-    // related commands called when within a beginRecording/endRecording block.
-    // Furthermore, save/restore calls must be balanced any time the canvas is 0.
-    static PassOwnPtr<GraphicsContext> deprecatedCreateWithCanvas(SkCanvas*, DisabledMode = NothingDisabled, SkMetaData* = 0);
+    explicit GraphicsContext(PaintController&, DisabledMode = NothingDisabled, SkMetaData* = 0);
 
     ~GraphicsContext();
 
     SkCanvas* canvas() { return m_canvas; }
     const SkCanvas* canvas() const { return m_canvas; }
 
-    DisplayItemList* displayItemList() { return m_displayItemList; }
-
-    void resetCanvas(SkCanvas*);
+    PaintController& paintController() { return m_paintController; }
 
     bool contextDisabled() const { return m_disabledState; }
 
@@ -94,7 +86,6 @@ public:
 
 #if ENABLE(ASSERT)
     unsigned saveCount() const;
-    void disableDestructionChecks() { m_disableDestructionChecks = true; }
 #endif
 
     float strokeThickness() const { return immutableState()->strokeData().thickness(); }
@@ -118,8 +109,6 @@ public:
     void setFillColor(const Color& color) { mutableState()->setFillColor(color); }
 
     void setFillGradient(PassRefPtr<Gradient>, float alpha = 1);
-
-    SkMatrix getTotalMatrix() const;
 
     void setShouldAntialias(bool antialias) { mutableState()->setShouldAntialias(antialias); }
     bool shouldAntialias() const { return immutableState()->shouldAntialias(); }
@@ -165,9 +154,6 @@ public:
     void fillRoundedRect(const FloatRoundedRect&, const Color&);
     void fillDRRect(const FloatRoundedRect&, const FloatRoundedRect&, const Color&);
 
-    void clearRect(const FloatRect&);
-
-    void strokeRect(const FloatRect&);
     void strokeRect(const FloatRect&, float lineWidth);
 
     void drawPicture(const SkPicture*);
@@ -250,10 +236,6 @@ public:
     const SkPaint& fillPaint() const { return immutableState()->fillPaint(); }
 
     // ---------- Transformation methods -----------------
-    // Note that the getCTM method returns only the current transform from Blink's perspective,
-    // which is not the final transform used to place content on screen. It cannot be relied upon
-    // for testing where a point will appear on screen or how large it will be.
-    AffineTransform getCTM() const;
     void concatCTM(const AffineTransform&);
 
     void scale(float x, float y);
@@ -271,11 +253,16 @@ public:
 
     static int focusRingOutsetExtent(int offset, int width)
     {
-        return focusRingOutset(offset) + (focusRingWidth(width) + 1) / 2;
+        // Unlike normal outlines (whole width is outside of the offset), focus rings are drawn with the
+        // center of the path aligned with the offset, so only half of the width is outside of the offset.
+        return focusRingOffset(offset) + (focusRingWidth(width) + 1) / 2;
     }
 
-    // public decl needed for OwnPtr wrapper.
-    class RecordingState;
+#if OS(MACOSX)
+    static int focusRingWidth(int width) { return width; }
+#else
+    static int focusRingWidth(int width) { return 1; }
+#endif
 
 #if ENABLE(ASSERT)
     void setInDrawingRecorder(bool);
@@ -284,8 +271,6 @@ public:
     static PassRefPtr<SkColorFilter> WebCoreColorFilterToSkiaColorFilter(ColorFilter);
 
 private:
-    explicit GraphicsContext(SkCanvas*, DisplayItemList*, DisabledMode = NothingDisabled, SkMetaData* = 0);
-
     const GraphicsContextState* immutableState() const { return m_paintState; }
 
     GraphicsContextState* mutableState()
@@ -300,11 +285,9 @@ private:
     static void setPathFromPoints(SkPath*, size_t, const FloatPoint*);
 
 #if OS(MACOSX)
-    static inline int focusRingOutset(int offset) { return offset + 2; }
-    static inline int focusRingWidth(int width) { return width; }
+    static inline int focusRingOffset(int offset) { return offset + 2; }
 #else
-    static inline int focusRingOutset(int offset) { return 0; }
-    static inline int focusRingWidth(int width) { return 1; }
+    static inline int focusRingOffset(int offset) { return 0; }
     static SkPMColor lineColors(int);
     static SkPMColor antiColors1(int);
     static SkPMColor antiColors2(int);
@@ -346,8 +329,6 @@ private:
 
     void fillRectWithRoundedHole(const FloatRect&, const FloatRoundedRect& roundedHoleRect, const Color&);
 
-    bool isRecording() const;
-
     const SkMetaData& metaData() const { return m_metaData; }
 
     // null indicates painting is contextDisabled. Never delete this object.
@@ -357,8 +338,7 @@ private:
     // used when Slimming Paint is active.
     SkCanvas* m_originalCanvas;
 
-    // This being null indicates not to paint into a DisplayItemList, and instead directly into the canvas.
-    DisplayItemList* m_displayItemList;
+    PaintController& m_paintController;
 
     // Paint states stack. Enables local drawing state change with save()/restore() calls.
     // This state controls the appearance of drawn content.
@@ -369,8 +349,6 @@ private:
     // Raw pointer to the current state.
     GraphicsContextState* m_paintState;
 
-    // Only used when Slimming Paint is off. When it is on, m_pictureRecorder is used instead.
-    Vector<OwnPtr<RecordingState>> m_recordingStateStack;
     SkPictureRecorder m_pictureRecorder;
 
     SkMetaData m_metaData;

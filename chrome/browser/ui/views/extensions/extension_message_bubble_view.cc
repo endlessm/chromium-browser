@@ -32,7 +32,7 @@ const int kHeadlineRowPadding = 10;
 const int kMessageBubblePadding = 11;
 
 // How long to wait until showing the bubble (in seconds).
-const int kBubbleAppearanceWaitTime = 5;
+int g_bubble_appearance_wait_time = 5;
 
 }  // namespace
 
@@ -71,7 +71,7 @@ void ExtensionMessageBubbleView::Show() {
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
       FROM_HERE, base::Bind(&ExtensionMessageBubbleView::ShowBubble,
                             weak_factory_.GetWeakPtr()),
-      base::TimeDelta::FromSeconds(kBubbleAppearanceWaitTime));
+      base::TimeDelta::FromSeconds(g_bubble_appearance_wait_time));
 }
 
 void ExtensionMessageBubbleView::OnWidgetDestroying(views::Widget* widget) {
@@ -81,13 +81,25 @@ void ExtensionMessageBubbleView::OnWidgetDestroying(views::Widget* widget) {
     controller_->OnBubbleDismiss();
 }
 
+void ExtensionMessageBubbleView::set_bubble_appearance_wait_time_for_testing(
+    int time_in_seconds) {
+  g_bubble_appearance_wait_time = time_in_seconds;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // ExtensionMessageBubbleView - private.
 
 ExtensionMessageBubbleView::~ExtensionMessageBubbleView() {}
 
 void ExtensionMessageBubbleView::ShowBubble() {
-  GetWidget()->Show();
+  // Since we delay in showing the bubble, the applicable extension(s) may
+  // have been removed.
+  if (controller_->ShouldShow()) {
+    controller_->OnShown();
+    GetWidget()->Show();
+  } else {
+    GetWidget()->Close();
+  }
 }
 
 void ExtensionMessageBubbleView::Init() {
@@ -174,7 +186,7 @@ void ExtensionMessageBubbleView::Init() {
   layout->AddView(learn_more_);
 
   if (!action_button.empty()) {
-    action_button_ = new views::LabelButton(this, action_button.c_str());
+    action_button_ = new views::LabelButton(this, action_button);
     action_button_->SetStyle(views::Button::STYLE_BUTTON);
     layout->AddView(action_button_);
   }

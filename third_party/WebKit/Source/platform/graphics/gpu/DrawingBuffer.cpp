@@ -54,7 +54,13 @@ namespace {
 
 const float s_resourceAdjustedRatio = 0.5;
 
-DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, drawingBufferCounter, ("DrawingBuffer"));
+#ifndef NDEBUG
+WTF::RefCountedLeakCounter& drawingBufferCounter()
+{
+    DEFINE_STATIC_LOCAL(WTF::RefCountedLeakCounter, staticDrawingBufferCounter, ("DrawingBuffer"));
+    return staticDrawingBufferCounter;
+}
+#endif
 
 class ScopedTextureUnit0BindingRestorer {
 public:
@@ -154,7 +160,7 @@ DrawingBuffer::DrawingBuffer(PassOwnPtr<WebGraphicsContext3D> context,
     , m_contentsChanged(true)
     , m_contentsChangeCommitted(false)
     , m_bufferClearNeeded(false)
-    , m_multisampleMode(None)
+    , m_antiAliasingMode(None)
     , m_internalColorFormat(0)
     , m_colorFormat(0)
     , m_internalRenderbufferFormat(0)
@@ -168,7 +174,7 @@ DrawingBuffer::DrawingBuffer(PassOwnPtr<WebGraphicsContext3D> context,
     // Used by browser tests to detect the use of a DrawingBuffer.
     TRACE_EVENT_INSTANT0("test_gpu", "DrawingBufferCreation", TRACE_EVENT_SCOPE_GLOBAL);
 #ifndef NDEBUG
-    drawingBufferCounter.increment();
+    drawingBufferCounter().increment();
 #endif
 }
 
@@ -179,7 +185,7 @@ DrawingBuffer::~DrawingBuffer()
     m_layer.clear();
     m_context.clear();
 #ifndef NDEBUG
-    drawingBufferCounter.decrement();
+    drawingBufferCounter().decrement();
 #endif
 }
 
@@ -249,7 +255,7 @@ bool DrawingBuffer::prepareMailbox(WebExternalTextureMailbox* outMailbox, WebExt
         return false;
 
     // Resolve the multisampled buffer into m_colorBuffer texture.
-    if (m_multisampleMode != None)
+    if (m_antiAliasingMode != None)
         commit();
 
     if (bitmap) {
@@ -288,7 +294,7 @@ bool DrawingBuffer::prepareMailbox(WebExternalTextureMailbox* outMailbox, WebExt
         // If this stops being true at some point, we should track the current framebuffer binding in the DrawingBuffer and restore
         // it after attaching the new back buffer here.
         m_context->bindFramebuffer(GL_FRAMEBUFFER, m_fbo);
-        if (m_multisampleMode == ImplicitResolve)
+        if (m_antiAliasingMode == MSAAImplicitResolve)
             m_context->framebufferTexture2DMultisampleEXT(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_colorBuffer.textureId, 0, m_sampleCount);
         else
             m_context->framebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_colorBuffer.textureId, 0);
@@ -307,7 +313,7 @@ bool DrawingBuffer::prepareMailbox(WebExternalTextureMailbox* outMailbox, WebExt
 
     m_context->produceTextureDirectCHROMIUM(frontColorBufferMailbox->textureInfo.textureId, GL_TEXTURE_2D, frontColorBufferMailbox->mailbox.name);
     m_context->flush();
-    frontColorBufferMailbox->mailbox.syncPoint = m_context->insertSyncPoint();
+    frontColorBufferMailbox->mailbox.validSyncToken = m_context->insertSyncPoint(frontColorBufferMailbox->mailbox.syncToken);
     frontColorBufferMailbox->mailbox.allowOverlay = frontColorBufferMailbox->textureInfo.imageId != 0;
     setBufferClearNeeded(true);
 
@@ -329,7 +335,9 @@ void DrawingBuffer::mailboxReleased(const WebExternalTextureMailbox& mailbox, bo
     for (size_t i = 0; i < m_textureMailboxes.size(); i++) {
         RefPtr<MailboxInfo> mailboxInfo = m_textureMailboxes[i];
         if (nameEquals(mailboxInfo->mailbox, mailbox)) {
-            mailboxInfo->mailbox.syncPoint = mailbox.syncPoint;
+            memcpy(mailboxInfo->mailbox.syncToken, mailbox.syncToken,
+                sizeof(mailboxInfo->mailbox.syncToken));
+            mailboxInfo->mailbox.validSyncToken = mailbox.validSyncToken;
             ASSERT(mailboxInfo->m_parentDrawingBuffer.get() == this);
             mailboxInfo->m_parentDrawingBuffer.clear();
             m_recycledMailboxQueue.prepend(mailboxInfo->mailbox);
@@ -369,9 +377,9 @@ PassRefPtr<DrawingBuffer::MailboxInfo> DrawingBuffer::recycledMailbox()
     }
     ASSERT(mailboxInfo);
 
-    if (mailboxInfo->mailbox.syncPoint) {
-        m_context->waitSyncPoint(mailboxInfo->mailbox.syncPoint);
-        mailboxInfo->mailbox.syncPoint = 0;
+    if (mailboxInfo->mailbox.validSyncToken) {
+        m_context->waitSyncToken(mailboxInfo->mailbox.syncToken);
+        mailboxInfo->mailbox.validSyncToken = false;
     }
 
     if (mailboxInfo->size != m_size) {
@@ -397,8 +405,8 @@ void DrawingBuffer::deleteMailbox(const WebExternalTextureMailbox& mailbox)
 {
     for (size_t i = 0; i < m_textureMailboxes.size(); i++) {
         if (nameEquals(m_textureMailboxes[i]->mailbox, mailbox)) {
-            if (mailbox.syncPoint)
-                m_context->waitSyncPoint(mailbox.syncPoint);
+            if (mailbox.validSyncToken)
+                m_context->waitSyncToken(mailbox.syncToken);
 
             deleteChromiumImageForTexture(&m_textureMailboxes[i]->textureInfo);
 
@@ -430,12 +438,15 @@ bool DrawingBuffer::initialize(const IntSize& size)
     m_context->getIntegerv(GL_MAX_TEXTURE_SIZE, &m_maxTextureSize);
 
     int maxSampleCount = 0;
-    m_multisampleMode = None;
+    m_antiAliasingMode = None;
     if (m_requestedAttributes.antialias && m_multisampleExtensionSupported) {
         m_context->getIntegerv(GL_MAX_SAMPLES_ANGLE, &maxSampleCount);
-        m_multisampleMode = ExplicitResolve;
-        if (m_extensionsUtil->supportsExtension("GL_EXT_multisampled_render_to_texture"))
-            m_multisampleMode = ImplicitResolve;
+        m_antiAliasingMode = MSAAExplicitResolve;
+        if (m_extensionsUtil->supportsExtension("GL_EXT_multisampled_render_to_texture")) {
+            m_antiAliasingMode = MSAAImplicitResolve;
+        } else if (m_extensionsUtil->supportsExtension("GL_CHROMIUM_screen_space_antialiasing")) {
+            m_antiAliasingMode = ScreenSpaceAntialiasing;
+        }
     }
     m_sampleCount = std::min(4, maxSampleCount);
 
@@ -443,7 +454,7 @@ bool DrawingBuffer::initialize(const IntSize& size)
 
     m_context->bindFramebuffer(GL_FRAMEBUFFER, m_fbo);
     m_colorBuffer.textureId = createColorTexture();
-    if (m_multisampleMode == ImplicitResolve)
+    if (m_antiAliasingMode == MSAAImplicitResolve)
         m_context->framebufferTexture2DMultisampleEXT(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_colorBuffer.textureId, 0, m_sampleCount);
     else
         m_context->framebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_colorBuffer.textureId, 0);
@@ -482,7 +493,7 @@ bool DrawingBuffer::copyToPlatformTexture(WebGraphicsContext3D* context, Platfor
     GLenum destType, GLint level, bool premultiplyAlpha, bool flipY, SourceDrawingBuffer sourceBuffer)
 {
     if (m_contentsChanged) {
-        if (m_multisampleMode != None) {
+        if (m_antiAliasingMode != None) {
             commit();
             restoreFramebufferBindings();
         }
@@ -503,10 +514,10 @@ bool DrawingBuffer::copyToPlatformTexture(WebGraphicsContext3D* context, Platfor
         m_context->genMailboxCHROMIUM(mailbox.name);
         m_context->produceTextureDirectCHROMIUM(textureId, GL_TEXTURE_2D, mailbox.name);
         m_context->flush();
-        mailbox.syncPoint = m_context->insertSyncPoint();
+        mailbox.validSyncToken = m_context->insertSyncPoint(mailbox.syncToken);
     }
 
-    context->waitSyncPoint(mailbox.syncPoint);
+    context->waitSyncToken(mailbox.syncToken);
     Platform3DObject sourceTexture = context->createAndConsumeTextureCHROMIUM(GL_TEXTURE_2D, mailbox.name);
 
     GLboolean unpackPremultiplyAlphaNeeded = GL_FALSE;
@@ -521,7 +532,9 @@ bool DrawingBuffer::copyToPlatformTexture(WebGraphicsContext3D* context, Platfor
     context->deleteTexture(sourceTexture);
 
     context->flush();
-    m_context->waitSyncPoint(context->insertSyncPoint());
+    GLbyte syncToken[24];
+    if (context->insertSyncPoint(syncToken))
+        m_context->waitSyncToken(syncToken);
 
     return true;
 }
@@ -620,7 +633,7 @@ unsigned DrawingBuffer::createColorTexture()
 void DrawingBuffer::createSecondaryBuffers()
 {
     // create a multisample FBO
-    if (m_multisampleMode == ExplicitResolve) {
+    if (m_antiAliasingMode == MSAAExplicitResolve) {
         m_multisampleFBO = m_context->createFramebuffer();
         m_context->bindFramebuffer(GL_FRAMEBUFFER, m_multisampleFBO);
         m_multisampleColorBuffer = m_context->createRenderbuffer();
@@ -636,14 +649,14 @@ bool DrawingBuffer::resizeFramebuffer(const IntSize& size)
 
     allocateTextureMemory(&m_colorBuffer, size);
 
-    if (m_multisampleMode == ImplicitResolve)
+    if (m_antiAliasingMode == MSAAImplicitResolve)
         m_context->framebufferTexture2DMultisampleEXT(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_colorBuffer.textureId, 0, m_sampleCount);
     else
         m_context->framebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_colorBuffer.textureId, 0);
 
     m_context->bindTexture(GL_TEXTURE_2D, 0);
 
-    if (m_multisampleMode != ExplicitResolve)
+    if (m_antiAliasingMode != MSAAExplicitResolve)
         resizeDepthStencil(size);
     if (m_context->checkFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
         return false;
@@ -653,7 +666,7 @@ bool DrawingBuffer::resizeFramebuffer(const IntSize& size)
 
 bool DrawingBuffer::resizeMultisampleFramebuffer(const IntSize& size)
 {
-    if (m_multisampleMode == ExplicitResolve) {
+    if (m_antiAliasingMode == MSAAExplicitResolve) {
         m_context->bindFramebuffer(GL_FRAMEBUFFER, m_multisampleFBO);
 
         m_context->bindRenderbuffer(GL_RENDERBUFFER, m_multisampleColorBuffer);
@@ -680,9 +693,9 @@ void DrawingBuffer::resizeDepthStencil(const IntSize& size)
         if (!m_depthStencilBuffer)
             m_depthStencilBuffer = m_context->createRenderbuffer();
         m_context->bindRenderbuffer(GL_RENDERBUFFER, m_depthStencilBuffer);
-        if (m_multisampleMode == ImplicitResolve)
+        if (m_antiAliasingMode == MSAAImplicitResolve)
             m_context->renderbufferStorageMultisampleEXT(GL_RENDERBUFFER, m_sampleCount, GL_DEPTH24_STENCIL8_OES, size.width(), size.height());
-        else if (m_multisampleMode == ExplicitResolve)
+        else if (m_antiAliasingMode == MSAAExplicitResolve)
             m_context->renderbufferStorageMultisampleCHROMIUM(GL_RENDERBUFFER, m_sampleCount, GL_DEPTH24_STENCIL8_OES, size.width(), size.height());
         else
             m_context->renderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8_OES, size.width(), size.height());
@@ -693,9 +706,9 @@ void DrawingBuffer::resizeDepthStencil(const IntSize& size)
             if (!m_depthBuffer)
                 m_depthBuffer = m_context->createRenderbuffer();
             m_context->bindRenderbuffer(GL_RENDERBUFFER, m_depthBuffer);
-            if (m_multisampleMode == ImplicitResolve)
+            if (m_antiAliasingMode == MSAAImplicitResolve)
                 m_context->renderbufferStorageMultisampleEXT(GL_RENDERBUFFER, m_sampleCount, GL_DEPTH_COMPONENT16, size.width(), size.height());
-            else if (m_multisampleMode == ExplicitResolve)
+            else if (m_antiAliasingMode == MSAAExplicitResolve)
                 m_context->renderbufferStorageMultisampleCHROMIUM(GL_RENDERBUFFER, m_sampleCount, GL_DEPTH_COMPONENT16, size.width(), size.height());
             else
                 m_context->renderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, size.width(), size.height());
@@ -705,9 +718,9 @@ void DrawingBuffer::resizeDepthStencil(const IntSize& size)
             if (!m_stencilBuffer)
                 m_stencilBuffer = m_context->createRenderbuffer();
             m_context->bindRenderbuffer(GL_RENDERBUFFER, m_stencilBuffer);
-            if (m_multisampleMode == ImplicitResolve)
+            if (m_antiAliasingMode == MSAAImplicitResolve)
                 m_context->renderbufferStorageMultisampleEXT(GL_RENDERBUFFER, m_sampleCount, GL_STENCIL_INDEX8, size.width(), size.height());
-            else if (m_multisampleMode == ExplicitResolve)
+            else if (m_antiAliasingMode == MSAAExplicitResolve)
                 m_context->renderbufferStorageMultisampleCHROMIUM(GL_RENDERBUFFER, m_sampleCount, GL_STENCIL_INDEX8, size.width(), size.height());
             else
                 m_context->renderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, size.width(), size.height());
@@ -815,6 +828,9 @@ void DrawingBuffer::commit()
     }
 
     m_context->bindFramebuffer(GL_FRAMEBUFFER, m_fbo);
+    if (m_antiAliasingMode == ScreenSpaceAntialiasing) {
+        m_context->applyScreenSpaceAntialiasingCHROMIUM();
+    }
     m_contentsChangeCommitted = true;
 }
 
@@ -844,7 +860,7 @@ void DrawingBuffer::restoreFramebufferBindings()
 
 bool DrawingBuffer::multisample() const
 {
-    return m_multisampleMode != None;
+    return m_antiAliasingMode != None;
 }
 
 void DrawingBuffer::bind(GLenum target)
@@ -858,11 +874,6 @@ void DrawingBuffer::bind(GLenum target)
 void DrawingBuffer::setPackAlignment(GLint param)
 {
     m_packAlignment = param;
-}
-
-void DrawingBuffer::paintRenderingResultsToCanvas(ImageBuffer* imageBuffer)
-{
-    paintFramebufferToCanvas(framebuffer(), size().width(), size().height(), !m_actualAttributes.premultipliedAlpha, imageBuffer);
 }
 
 bool DrawingBuffer::paintRenderingResultsToImageData(int& width, int& height, SourceDrawingBuffer sourceBuffer, WTF::ArrayBufferContents& contents)
@@ -900,47 +911,6 @@ bool DrawingBuffer::paintRenderingResultsToImageData(int& width, int& height, So
 
     pixels.transfer(contents);
     return true;
-}
-
-void DrawingBuffer::paintFramebufferToCanvas(int framebuffer, int width, int height, bool premultiplyAlpha, ImageBuffer* imageBuffer)
-{
-    unsigned char* pixels = 0;
-
-    const SkBitmap& canvasBitmap = imageBuffer->bitmap();
-    const SkBitmap* readbackBitmap = 0;
-    ASSERT(canvasBitmap.colorType() == kN32_SkColorType);
-    if (canvasBitmap.width() == width && canvasBitmap.height() == height) {
-        // This is the fastest and most common case. We read back
-        // directly into the canvas's backing store.
-        readbackBitmap = &canvasBitmap;
-        m_resizingBitmap.reset();
-    } else {
-        // We need to allocate a temporary bitmap for reading back the
-        // pixel data. We will then use Skia to rescale this bitmap to
-        // the size of the canvas's backing store.
-        if (m_resizingBitmap.width() != width || m_resizingBitmap.height() != height) {
-            if (!m_resizingBitmap.tryAllocN32Pixels(width, height))
-                return;
-        }
-        readbackBitmap = &m_resizingBitmap;
-    }
-
-    // Read back the frame buffer.
-    SkAutoLockPixels bitmapLock(*readbackBitmap);
-    pixels = static_cast<unsigned char*>(readbackBitmap->getPixels());
-
-    m_context->bindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-    readBackFramebuffer(pixels, width, height, ReadbackSkia, premultiplyAlpha ? WebGLImageConversion::AlphaDoPremultiply : WebGLImageConversion::AlphaDoNothing);
-    flipVertically(pixels, width, height);
-
-    readbackBitmap->notifyPixelsChanged();
-    if (m_resizingBitmap.readyToDraw()) {
-        // We need to draw the resizing bitmap into the canvas's backing store.
-        SkCanvas canvas(canvasBitmap);
-        SkRect dst;
-        dst.set(SkIntToScalar(0), SkIntToScalar(0), SkIntToScalar(canvasBitmap.width()), SkIntToScalar(canvasBitmap.height()));
-        canvas.drawBitmapRect(m_resizingBitmap, 0, dst);
-    }
 }
 
 void DrawingBuffer::readBackFramebuffer(unsigned char* pixels, int width, int height, ReadbackOrder readbackOrder, WebGLImageConversion::AlphaOp op)

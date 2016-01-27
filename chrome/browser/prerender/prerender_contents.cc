@@ -33,6 +33,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/resource_request_details.h"
 #include "content/public/browser/session_storage_namespace.h"
 #include "content/public/browser/web_contents.h"
@@ -114,8 +115,9 @@ class PrerenderContents::WebContentsDelegateImpl
 
   bool ShouldCreateWebContents(
       WebContents* web_contents,
-      int route_id,
-      int main_frame_route_id,
+      int32_t route_id,
+      int32_t main_frame_route_id,
+      int32_t main_frame_widget_route_id,
       WindowContainerType window_container_type,
       const std::string& frame_name,
       const GURL& target_url,
@@ -195,7 +197,6 @@ PrerenderContents::PrerenderContents(
       prerender_url_(url),
       referrer_(referrer),
       profile_(profile),
-      page_id_(0),
       has_stopped_loading_(false),
       has_finished_loading_(false),
       final_status_(FINAL_STATUS_MAX),
@@ -419,7 +420,7 @@ void PrerenderContents::Observe(int type,
         // thread of the browser process.  When the RenderView receives its
         // size, is also sets itself to be visible, which would then break the
         // visibility API.
-        new_render_view_host->WasResized();
+        new_render_view_host->GetWidget()->WasResized();
         prerender_contents_->WasHidden();
       }
       break;
@@ -524,8 +525,8 @@ bool PrerenderContents::Matches(
       session_storage_namespace_id_ != session_storage_namespace->id()) {
     return false;
   }
-  return std::count_if(alias_urls_.begin(), alias_urls_.end(),
-                       std::bind2nd(std::equal_to<GURL>(), url)) != 0;
+  return std::find(alias_urls_.begin(), alias_urls_.end(), url) !=
+         alias_urls_.end();
 }
 
 void PrerenderContents::RenderProcessGone(base::TerminationStatus status) {

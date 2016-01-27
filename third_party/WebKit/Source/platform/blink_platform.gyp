@@ -148,6 +148,7 @@
             'WebScrollbarPainterDelegate=ChromiumWebCoreObjCWebScrollbarPainterDelegate',
             'WebScrollbarPartAnimation=ChromiumWebCoreObjCWebScrollbarPartAnimation',
             'WebCoreFlippedView=ChromiumWebCoreObjCWebCoreFlippedView',
+            'WebCoreScrollbarObserver=ChromiumWebCoreObjCWebCoreScrollbarObserver',
             'WebCoreTextFieldCell=ChromiumWebCoreObjCWebCoreTextFieldCell',
           ],
           'postbuilds': [
@@ -291,7 +292,7 @@
           # implementation.
           ['exclude', 'KillRingNone\\.cpp$'],
 
-          # The Mac build is USE(CF).
+          # The Mac build uses Core Foundation.
           ['include', 'CF\\.cpp$'],
 
           # Use native Mac font code from core.
@@ -314,13 +315,15 @@
           ['include', 'mac/ScrollAnimatorMac\\.mm$'],
           ['include', 'mac/ThemeMac\\.h$'],
           ['include', 'mac/ThemeMac\\.mm$'],
+          ['include', 'mac/VersionUtilMac\\.h$'],
+          ['include', 'mac/VersionUtilMac\\.mm$'],
           ['include', 'mac/WebCoreNSCellExtras\\.h$'],
           ['include', 'mac/WebCoreNSCellExtras\\.mm$'],
- 
+
           # Mac uses only ScrollAnimatorMac.
           ['exclude', 'scroll/ScrollbarThemeNonMacCommon\\.(cpp|h)$'],
-          ['exclude', 'scroll/ScrollAnimatorNone\\.cpp$'],
-          ['exclude', 'scroll/ScrollAnimatorNone\\.h$'],
+          ['exclude', 'scroll/ScrollAnimator\\.cpp$'],
+          ['exclude', 'scroll/ScrollAnimator\\.h$'],
 
           ['exclude', 'fonts/skia/FontCacheSkia\\.cpp$'],
 

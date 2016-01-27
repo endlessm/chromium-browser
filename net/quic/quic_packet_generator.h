@@ -55,7 +55,6 @@
 
 #include <list>
 
-#include "net/quic/quic_ack_notifier.h"
 #include "net/quic/quic_packet_creator.h"
 #include "net/quic/quic_sent_packet_manager.h"
 #include "net/quic/quic_types.h"
@@ -122,15 +121,15 @@ class NET_EXPORT_PRIVATE QuicPacketGenerator {
   // |delegate| (if not nullptr) will be informed once all packets sent as a
   // result of this call are ACKed by the peer.
   QuicConsumedData ConsumeData(QuicStreamId id,
-                               const QuicIOVector& iov,
+                               QuicIOVector iov,
                                QuicStreamOffset offset,
                                bool fin,
                                FecProtection fec_protection,
-                               QuicAckNotifier::DelegateInterface* delegate);
+                               QuicAckListenerInterface* listener);
 
   // Generates an MTU discovery packet of specified size.
   void GenerateMtuDiscoveryPacket(QuicByteCount target_mtu,
-                                  QuicAckNotifier::DelegateInterface* delegate);
+                                  QuicAckListenerInterface* listener);
 
   // Indicates whether batch mode is currently enabled.
   bool InBatchMode();
@@ -154,22 +153,19 @@ class NET_EXPORT_PRIVATE QuicPacketGenerator {
   QuicEncryptedPacket* SerializeVersionNegotiationPacket(
       const QuicVersionVector& supported_versions);
 
-
-  // Re-serializes frames with the original packet's sequence number length.
+  // Re-serializes frames with the original packet's packet number length.
   // Used for retransmitting packets to ensure they aren't too long.
   // Caller must ensure that any open FEC group is closed before calling this
   // method.
-  SerializedPacket ReserializeAllFrames(
-      const RetransmittableFrames& frames,
-      QuicSequenceNumberLength original_length,
-      char* buffer,
-      size_t buffer_len);
+  SerializedPacket ReserializeAllFrames(const RetransmittableFrames& frames,
+                                        QuicPacketNumberLength original_length,
+                                        char* buffer,
+                                        size_t buffer_len);
 
-  // Update the sequence number length to use in future packets as soon as it
+  // Update the packet number length to use in future packets as soon as it
   // can be safely changed.
-  void UpdateSequenceNumberLength(
-      QuicPacketSequenceNumber least_packet_awaited_by_peer,
-      QuicPacketCount max_packets_in_flight);
+  void UpdateSequenceNumberLength(QuicPacketNumber least_packet_awaited_by_peer,
+                                  QuicPacketCount max_packets_in_flight);
 
   // Set the minimum number of bytes for the connection id length;
   void SetConnectionIdLength(uint32 length);
@@ -177,12 +173,12 @@ class NET_EXPORT_PRIVATE QuicPacketGenerator {
   // Called when the FEC alarm fires.
   void OnFecTimeout();
 
-  // Called after sending |sequence_number| to determine whether an FEC alarm
+  // Called after sending |packet_number| to determine whether an FEC alarm
   // should be set for sending out an FEC packet. Returns a positive and finite
   // timeout if an FEC alarm should be set, and infinite if no alarm should be
   // set. OnFecTimeout should be called to send the FEC packet when the alarm
   // fires.
-  QuicTime::Delta GetFecTimeout(QuicPacketSequenceNumber sequence_number);
+  QuicTime::Delta GetFecTimeout(QuicPacketNumber packet_number);
 
   // Sets the encrypter to use for the encryption level.
   void SetEncrypter(EncryptionLevel level, QuicEncrypter* encrypter);
@@ -190,9 +186,9 @@ class NET_EXPORT_PRIVATE QuicPacketGenerator {
   // Sets the encryption level that will be applied to new packets.
   void set_encryption_level(EncryptionLevel level);
 
-  // Sequence number of the last created packet, or 0 if no packets have been
+  // packet number of the last created packet, or 0 if no packets have been
   // created.
-  QuicPacketSequenceNumber sequence_number() const;
+  QuicPacketNumber packet_number() const;
 
   // Returns the maximum packet length.  Note that this is the long-term maximum
   // packet length, and it may not be the maximum length of the current packet,
@@ -209,6 +205,15 @@ class NET_EXPORT_PRIVATE QuicPacketGenerator {
 
   void set_debug_delegate(DebugDelegate* debug_delegate) {
     debug_delegate_ = debug_delegate;
+  }
+
+  // TODO(rtenneti): Delete this code after the 0.25 RTT FEC experiment.
+  float rtt_multiplier_for_fec_timeout() {
+    return rtt_multiplier_for_fec_timeout_;
+  }
+  void set_rtt_multiplier_for_fec_timeout(
+      float rtt_multiplier_for_fec_timeout) {
+    rtt_multiplier_for_fec_timeout_ = rtt_multiplier_for_fec_timeout;
   }
 
   FecSendPolicy fec_send_policy() { return fec_send_policy_; }
@@ -252,9 +257,10 @@ class NET_EXPORT_PRIVATE QuicPacketGenerator {
   bool CanSendWithNextPendingFrameAddition() const;
   // Add exactly one pending frame, preferring ack frames over control frames.
   bool AddNextPendingFrame();
-  // Adds a frame and takes ownership of the underlying buffer if the addition
-  // was successful.
-  bool AddFrame(const QuicFrame& frame, char* buffer, bool needs_padding);
+  // Adds a frame and takes ownership of the underlying buffer.
+  bool AddFrame(const QuicFrame& frame,
+                UniqueStreamBuffer buffer,
+                bool needs_padding);
 
   void SerializeAndSendPacket();
 
@@ -270,6 +276,10 @@ class NET_EXPORT_PRIVATE QuicPacketGenerator {
   // Timeout used for FEC alarm. Can be set to zero initially or if the SRTT has
   // not yet been set.
   QuicTime::Delta fec_timeout_;
+
+  // The multiplication factor for FEC timeout based on RTT.
+  // TODO(rtenneti): Delete this code after the 0.25 RTT FEC experiment.
+  float rtt_multiplier_for_fec_timeout_;
 
   // True if FEC protection is on. The creator may have an open FEC group even
   // if this variable is false.
@@ -292,8 +302,8 @@ class NET_EXPORT_PRIVATE QuicPacketGenerator {
   bool ack_queued_;
   bool stop_waiting_queued_;
 
-  // Stores notifiers that should be attached to the next serialized packet.
-  std::list<QuicAckNotifier*> ack_notifiers_;
+  // Stores ack listeners that should be attached to the next packet.
+  std::list<AckListenerWrapper> ack_listeners_;
 
   // Stores the maximum packet size we are allowed to send.  This might not be
   // the maximum size we are actually using now, if we are in the middle of the

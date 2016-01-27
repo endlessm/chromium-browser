@@ -8,6 +8,10 @@
   'variables': {
     'component%': 'static_library',
     'clang%': 0,
+    'asan%': 0,
+    'sanitizer_coverage%': 0,
+    'use_goma%': 0,
+    'gomadir%': '',
     'msvs_multi_core_compile%': '1',
     'variables': {
       'variables': {
@@ -37,6 +41,7 @@
       'host_arch%': '<(host_arch)',
       'target_arch%': '<(target_arch)',
     },
+    'clang_dir%': 'third_party/llvm-build/Release+Asserts',
     # These two are needed by V8.
     'host_arch%': '<(host_arch)',
     'target_arch%': '<(target_arch)',
@@ -44,11 +49,23 @@
     'v8_optimized_debug%': 0,
     'v8_use_external_startup_data%': 0,
     'icu_gyp_path': '../v8/third_party/icu/icu.gyp',
+    'libjpeg_gyp_path': '../third_party/third_party.gyp',
     'conditions': [
       ['OS == "win"', {
         'os_posix%': 0,
       }, {
         'os_posix%': 1,
+      }],
+      ['OS=="linux" or OS=="mac"', {
+        'clang%': 1,
+      }, {
+        'clang%': 0,
+      }],
+      # Set default gomadir.
+      ['OS=="win"', {
+        'gomadir%': 'c:\\goma\\goma-win',
+      }, {
+        'gomadir%': '<!(/bin/echo -n ${HOME}/goma)',
       }],
     ],
   },
@@ -243,15 +260,27 @@
         '-Wno-unused-parameter',
       ],
     },
-  },
-  'conditions': [
-    ['component=="shared_library"', {
-      'cflags': [
-        '-fPIC',
-      ],
-    }],
-    ['OS=="win"', {
-      'target_defaults': {
+    'conditions': [
+      ['component=="shared_library"', {
+        'cflags': [
+          '-fPIC',
+        ],
+      }],
+      ['asan==1', {
+        'cflags': [
+          '-fsanitize=address',
+          '-gline-tables-only',
+        ],
+        'ldflags': [
+          '-fsanitize=address',
+        ],
+      }],
+      ['sanitizer_coverage!=0', {
+        'cflags': [
+          '-fsanitize-coverage=<(sanitizer_coverage)',
+        ],
+      }],
+      ['OS=="win"', {
         'defines': [
           'NOMINMAX',
           '_CRT_SECURE_NO_DEPRECATE',
@@ -263,28 +292,53 @@
               '_HAS_EXCEPTIONS=0',
             ],
           }],
+          ['use_goma==1', {
+            # goma doesn't support PDB yet.
+            'msvs_settings': {
+              'VCLinkerTool': {
+                'GenerateDebugInformation': 'true',
+              },
+              'VCCLCompilerTool': {
+                'DebugInformationFormat': '1',
+              },
+            },
+          }],
         ],
-      },
-    }],  # OS=="win"
-    ['OS=="mac"', {
-      'target_defaults': {
+      }],  # OS=="win"
+      ['OS=="mac"', {
         'target_conditions': [
           ['_type!="static_library"', {
             'xcode_settings': {'OTHER_LDFLAGS': ['-Wl,-search_paths_first']},
           }],
         ],  # target_conditions
-      },  # target_defaults
-    }],  # OS=="mac"
-    ['v8_use_external_startup_data==1', {
-      'target_defaults': {
+      }],  # OS=="mac"
+      ['v8_use_external_startup_data==1', {
         'defines': [
           'V8_USE_EXTERNAL_STARTUP_DATA',
         ],
-      },
-    }],  # v8_use_external_startup_data==1
-  ],
+      }],  # v8_use_external_startup_data==1
+    ],
+  },
   'xcode_settings': {
     # See comment in Chromium's common.gypi for why this is needed.
     'SYMROOT': '<(DEPTH)/xcodebuild',
-  }
+  },
+  'conditions': [
+    ['OS=="linux" or OS=="mac"', {
+      'conditions': [
+        ['clang==1', {
+          'make_global_settings': [
+            ['CC', '<(clang_dir)/bin/clang'],
+            ['CXX', '<(clang_dir)/bin/clang++'],
+          ],
+        }],
+      ],
+    }],  # OS=="linux" or OS=="mac"
+    ["use_goma==1", {
+      'make_global_settings': [
+        ['CC_wrapper', '<(gomadir)/gomacc'],
+        ['CXX_wrapper', '<(gomadir)/gomacc'],
+      ],
+    }],  # use_goma==1
+  ],
 }

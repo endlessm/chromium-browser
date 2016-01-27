@@ -57,9 +57,10 @@ std::wstring GetLocalizedString(int base_message_id) {
 
 base::string16 GetLocalizedStringF(int base_message_id,
                                    const base::string16& a) {
-  return ReplaceStringPlaceholders(GetLocalizedString(base_message_id),
-                                   std::vector<base::string16>(1, a),
-                                   NULL);
+  return base::ReplaceStringPlaceholders(
+      GetLocalizedString(base_message_id),
+      std::vector<base::string16>(1, a),
+      NULL);
 }
 
 // Here we generate the url spec with the Microsoft res:// scheme which is
@@ -71,9 +72,9 @@ std::wstring GetLocalizedEulaResource() {
     return L"";
 
   // The resource names are more or less the upcased language names.
-  std::wstring language(GetLanguageSelector().selected_translation());
+  base::string16 language(GetLanguageSelector().selected_translation());
   std::replace(language.begin(), language.end(), L'-', L'_');
-  base::StringToUpperASCII(&language);
+  language = base::ToUpperASCII(language);
 
   std::wstring resource(L"IDR_OEMPG_");
   resource.append(language).append(L".HTML");

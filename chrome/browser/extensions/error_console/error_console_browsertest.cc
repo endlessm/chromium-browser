@@ -158,7 +158,7 @@ class ErrorConsoleBrowserTest : public ExtensionBrowserTest {
       ++errors_observed_;
       if (errors_observed_ >= errors_expected_) {
         if (waiting_)
-          base::MessageLoopForUI::current()->Quit();
+          base::MessageLoopForUI::current()->QuitWhenIdle();
       }
     }
 
@@ -421,7 +421,13 @@ IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest,
 
 // Catch an error from a BrowserAction; this is more complex than a content
 // script error, since browser actions are routed through our own code.
-IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest, BrowserActionRuntimeError) {
+#if defined(OS_WIN)  // Flakes on XP. http://crbug.com/517029
+#define MAYBE_BrowserActionRuntimeError DISABLED_BrowserActionRuntimeError
+#else
+#define MAYBE_BrowserActionRuntimeError BrowserActionRuntimeError
+#endif
+IN_PROC_BROWSER_TEST_F(ErrorConsoleBrowserTest,
+                       MAYBE_BrowserActionRuntimeError) {
   const Extension* extension = NULL;
   LoadExtensionAndCheckErrors(
       "browser_action_runtime_error",

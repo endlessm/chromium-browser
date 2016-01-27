@@ -19,13 +19,14 @@
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/extensions/api/dial/dial_device_data.h"
-#include "chrome/common/chrome_version_info.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
+#include "net/base/address_family.h"
 #include "net/base/completion_callback.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
-#include "net/base/net_util.h"
+#include "net/base/network_interfaces.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_util.h"
 #include "url/gurl.h"
@@ -90,7 +91,6 @@ bool GetHeader(HttpResponseHeaders* headers, const char* name,
 // Returns the request string.
 std::string BuildRequest() {
   // Extra line at the end to make UPnP lib happy.
-  chrome::VersionInfo version;
   std::string request(base::StringPrintf(
       "M-SEARCH * HTTP/1.1\r\n"
       "HOST: %s:%u\r\n"
@@ -103,9 +103,9 @@ std::string BuildRequest() {
       kDialRequestPort,
       kDialMaxResponseDelaySecs,
       kDialSearchType,
-      version.Name().c_str(),
-      version.Version().c_str(),
-      version.OSType().c_str()));
+      version_info::GetProductName().c_str(),
+      version_info::GetVersionNumber().c_str(),
+      version_info::GetOSType().c_str()));
   // 1500 is a good MTU value for most Ethernet LANs.
   DCHECK(request.size() <= 1500);
   return request;

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include "base/basictypes.h"
+#include "base/callback.h"
 #include "base/command_line.h"
 #include "base/compiler_specific.h"
 #include "base/location.h"
@@ -16,28 +17,39 @@
 #include "chrome/browser/invalidation/fake_invalidation_service.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
-#include "chrome/browser/signin/fake_profile_oauth2_token_service.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service_builder.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
-#include "chrome/browser/sync/glue/sync_backend_host_mock.h"
-#include "chrome/browser/sync/profile_sync_components_factory_mock.h"
-#include "chrome/browser/sync/supervised_user_signin_manager_wrapper.h"
+#include "chrome/browser/sync/chrome_sync_client.h"
+#include "chrome/browser/sync/profile_sync_test_util.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/grit/generated_resources.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chrome/test/base/testing_pref_service_syncable.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/browser_sync/common/browser_sync_switches.h"
 #include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/invalidation/public/invalidation_service.h"
 #include "components/signin/core/browser/account_tracker_service.h"
+#include "components/signin/core/browser/fake_profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/browser/signin_manager.h"
+#include "components/strings/grit/components_strings.h"
 #include "components/sync_driver/data_type_manager.h"
+#include "components/sync_driver/data_type_manager_observer.h"
+#include "components/sync_driver/fake_data_type_controller.h"
+#include "components/sync_driver/glue/sync_backend_host_mock.h"
 #include "components/sync_driver/pref_names.h"
+#include "components/sync_driver/signin_manager_wrapper.h"
+#include "components/sync_driver/sync_api_component_factory_mock.h"
+#include "components/sync_driver/sync_driver_switches.h"
 #include "components/sync_driver/sync_prefs.h"
+#include "components/sync_driver/sync_service_observer.h"
+#include "components/sync_driver/sync_util.h"
+#include "components/syncable_prefs/testing_pref_service_syncable.h"
+#include "components/version_info/version_info_values.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -57,15 +69,17 @@ const char kEmail[] = "test_user@gmail.com";
 
 class FakeDataTypeManager : public sync_driver::DataTypeManager {
  public:
-  explicit FakeDataTypeManager(sync_driver::DataTypeManagerObserver* observer)
-     : observer_(observer) {}
+  typedef base::Callback<void(syncer::ConfigureReason)> ConfigureCalled;
+
+  explicit FakeDataTypeManager(const ConfigureCalled& configure_called)
+      : configure_called_(configure_called) {}
+
   ~FakeDataTypeManager() override{};
 
   void Configure(syncer::ModelTypeSet desired_types,
                  syncer::ConfigureReason reason) override {
-    sync_driver::DataTypeManager::ConfigureResult result;
-    result.status = sync_driver::DataTypeManager::OK;
-    observer_->OnConfigureDone(result);
+    DCHECK(!configure_called_.is_null());
+    configure_called_.Run(reason);
   }
 
   void ReenableType(syncer::ModelType type) override {}
@@ -78,23 +92,43 @@ class FakeDataTypeManager : public sync_driver::DataTypeManager {
   };
 
  private:
-  sync_driver::DataTypeManagerObserver* observer_;
+  ConfigureCalled configure_called_;
 };
 
-ACTION(ReturnNewDataTypeManager) {
-  return new FakeDataTypeManager(arg4);
+ACTION_P(ReturnNewDataTypeManager, configure_called) {
+  return new FakeDataTypeManager(configure_called);
 }
 
 using testing::Return;
 using testing::StrictMock;
 using testing::_;
 
+class TestChromeSyncClient : public ChromeSyncClient {
+ public:
+  TestChromeSyncClient(
+      Profile* profile,
+      scoped_ptr<sync_driver::SyncApiComponentFactory> component_factory,
+      sync_driver::ClearBrowsingDataCallback callback)
+      : ChromeSyncClient(profile, component_factory.Pass()),
+        callback_(callback) {}
+  ~TestChromeSyncClient() override {}
+
+ private:
+  // SyncClient:
+  sync_driver::ClearBrowsingDataCallback GetClearBrowsingDataCallback()
+      override {
+    return callback_;
+  }
+
+  sync_driver::ClearBrowsingDataCallback callback_;
+};
+
 class TestSyncServiceObserver : public sync_driver::SyncServiceObserver {
  public:
   explicit TestSyncServiceObserver(ProfileSyncService* service)
       : service_(service), first_setup_in_progress_(false) {}
   void OnStateChanged() override {
-    first_setup_in_progress_ = service_->FirstSetupInProgress();
+    first_setup_in_progress_ = service_->IsFirstSetupInProgress();
   }
   bool first_setup_in_progress() const { return first_setup_in_progress_; }
  private:
@@ -109,14 +143,18 @@ class SyncBackendHostNoReturn : public SyncBackendHostMock {
   void Initialize(
       sync_driver::SyncFrontend* frontend,
       scoped_ptr<base::Thread> sync_thread,
+      const scoped_refptr<base::SingleThreadTaskRunner>& db_thread,
+      const scoped_refptr<base::SingleThreadTaskRunner>& file_thread,
       const syncer::WeakHandle<syncer::JsEventHandler>& event_handler,
       const GURL& service_url,
+      const std::string& sync_user_agent,
       const syncer::SyncCredentials& credentials,
       bool delete_sync_data_folder,
       scoped_ptr<syncer::SyncManagerFactory> sync_manager_factory,
-      scoped_ptr<syncer::UnrecoverableErrorHandler> unrecoverable_error_handler,
+      const syncer::WeakHandle<syncer::UnrecoverableErrorHandler>&
+          unrecoverable_error_handler,
       const base::Closure& report_unrecoverable_error_function,
-      syncer::NetworkResources* network_resources,
+      const HttpPostProviderFactoryGetter& http_post_provider_factory_getter,
       scoped_ptr<syncer::SyncEncryptionHandler::NigoriState> saved_nigori_state)
       override {}
 };
@@ -130,29 +168,51 @@ class SyncBackendHostMockCollectDeleteDirParam : public SyncBackendHostMock {
   void Initialize(
       sync_driver::SyncFrontend* frontend,
       scoped_ptr<base::Thread> sync_thread,
+      const scoped_refptr<base::SingleThreadTaskRunner>& db_thread,
+      const scoped_refptr<base::SingleThreadTaskRunner>& file_thread,
       const syncer::WeakHandle<syncer::JsEventHandler>& event_handler,
       const GURL& service_url,
+      const std::string& sync_user_agent,
       const syncer::SyncCredentials& credentials,
       bool delete_sync_data_folder,
       scoped_ptr<syncer::SyncManagerFactory> sync_manager_factory,
-      scoped_ptr<syncer::UnrecoverableErrorHandler> unrecoverable_error_handler,
+      const syncer::WeakHandle<syncer::UnrecoverableErrorHandler>&
+          unrecoverable_error_handler,
       const base::Closure& report_unrecoverable_error_function,
-      syncer::NetworkResources* network_resources,
+      const HttpPostProviderFactoryGetter& http_post_provider_factory_getter,
       scoped_ptr<syncer::SyncEncryptionHandler::NigoriState> saved_nigori_state)
       override {
     delete_dir_param_->push_back(delete_sync_data_folder);
-    SyncBackendHostMock::Initialize(frontend, sync_thread.Pass(),
-                                    event_handler, service_url, credentials,
-                                    delete_sync_data_folder,
-                                    sync_manager_factory.Pass(),
-                                    unrecoverable_error_handler.Pass(),
-                                    report_unrecoverable_error_function,
-                                    network_resources,
-                                    saved_nigori_state.Pass());
+    SyncBackendHostMock::Initialize(
+        frontend, sync_thread.Pass(), db_thread, file_thread, event_handler,
+        service_url, sync_user_agent, credentials, delete_sync_data_folder,
+        sync_manager_factory.Pass(), unrecoverable_error_handler,
+        report_unrecoverable_error_function, http_post_provider_factory_getter,
+        saved_nigori_state.Pass());
   }
 
  private:
   std::vector<bool>* delete_dir_param_;
+};
+
+// SyncBackendHostMock that calls an external callback when ClearServerData is
+// called.
+class SyncBackendHostCaptureClearServerData : public SyncBackendHostMock {
+ public:
+  typedef base::Callback<void(
+      const syncer::SyncManager::ClearServerDataCallback&)>
+      ClearServerDataCalled;
+  explicit SyncBackendHostCaptureClearServerData(
+      const ClearServerDataCalled& clear_server_data_called)
+      : clear_server_data_called_(clear_server_data_called) {}
+
+  void ClearServerData(
+      const syncer::SyncManager::ClearServerDataCallback& callback) override {
+    clear_server_data_called_.Run(callback);
+  }
+
+ private:
+  ClearServerDataCalled clear_server_data_called_;
 };
 
 ACTION(ReturnNewSyncBackendHostMock) {
@@ -166,6 +226,17 @@ ACTION(ReturnNewSyncBackendHostNoReturn) {
 ACTION_P(ReturnNewMockHostCollectDeleteDirParam, delete_dir_param) {
   return new browser_sync::SyncBackendHostMockCollectDeleteDirParam(
       delete_dir_param);
+}
+
+void OnClearServerDataCalled(
+    syncer::SyncManager::ClearServerDataCallback* captured_callback,
+    const syncer::SyncManager::ClearServerDataCallback& callback) {
+  *captured_callback = callback;
+}
+
+ACTION_P(ReturnNewMockHostCaptureClearServerData, captured_callback) {
+  return new SyncBackendHostCaptureClearServerData(base::Bind(
+      &OnClearServerDataCalled, base::Unretained(captured_callback)));
 }
 
 scoped_ptr<KeyedService> BuildFakeProfileInvalidationProvider(
@@ -193,19 +264,18 @@ class ProfileSyncServiceTest : public ::testing::Test {
 
     CHECK(profile_manager_.SetUp());
 
-    TestingProfile::TestingFactories testing_facotries;
-    testing_facotries.push_back(
-            std::make_pair(ProfileOAuth2TokenServiceFactory::GetInstance(),
-                           BuildAutoIssuingFakeProfileOAuth2TokenService));
-    testing_facotries.push_back(
-            std::make_pair(
-                invalidation::ProfileInvalidationProviderFactory::GetInstance(),
-                BuildFakeProfileInvalidationProvider));
+    TestingProfile::TestingFactories testing_factories;
+    testing_factories.push_back(
+        std::make_pair(ProfileOAuth2TokenServiceFactory::GetInstance(),
+                       BuildAutoIssuingFakeProfileOAuth2TokenService));
+    testing_factories.push_back(std::make_pair(
+        invalidation::ProfileInvalidationProviderFactory::GetInstance(),
+        BuildFakeProfileInvalidationProvider));
 
     profile_ = profile_manager_.CreateTestingProfile(
-        "sync-service-test", scoped_ptr<PrefServiceSyncable>(),
+        "sync-service-test", scoped_ptr<syncable_prefs::PrefServiceSyncable>(),
         base::UTF8ToUTF16("sync-service-test"), 0, std::string(),
-        testing_facotries);
+        testing_factories);
   }
 
   void TearDown() override {
@@ -230,17 +300,26 @@ class ProfileSyncServiceTest : public ::testing::Test {
     signin->SetAuthenticatedAccountInfo(kGaiaId, kEmail);
     ProfileOAuth2TokenService* oauth2_token_service =
         ProfileOAuth2TokenServiceFactory::GetForProfile(profile_);
-    components_factory_ = new ProfileSyncComponentsFactoryMock();
-    service_.reset(new ProfileSyncService(
-        scoped_ptr<ProfileSyncComponentsFactory>(components_factory_),
-        profile_,
-        make_scoped_ptr(new SupervisedUserSigninManagerWrapper(profile_,
-                                                               signin)),
-        oauth2_token_service,
-        behavior));
-    service_->SetClearingBrowseringDataForTesting(
+    scoped_ptr<SyncApiComponentFactoryMock> components_factory(
+        new SyncApiComponentFactoryMock());
+    components_factory_ = components_factory.get();
+    scoped_ptr<ChromeSyncClient> sync_client(new TestChromeSyncClient(
+        profile_, components_factory.Pass(),
         base::Bind(&ProfileSyncServiceTest::ClearBrowsingDataCallback,
-                   base::Unretained(this)));
+                   base::Unretained(this))));
+    service_.reset(new ProfileSyncService(
+        sync_client.Pass(),
+        make_scoped_ptr(new SigninManagerWrapper(signin)), oauth2_token_service,
+        behavior, base::Bind(&EmptyNetworkTimeUpdate), profile_->GetPath(),
+        profile_->GetRequestContext(), profile_->GetDebugName(),
+        chrome::GetChannel(),
+        content::BrowserThread::GetMessageLoopProxyForThread(
+            content::BrowserThread::DB),
+        content::BrowserThread::GetMessageLoopProxyForThread(
+            content::BrowserThread::FILE),
+        content::BrowserThread::GetBlockingPool()));
+    service_->RegisterDataTypeController(
+        new sync_driver::FakeDataTypeController(syncer::BOOKMARKS));
   }
 
 #if defined(OS_WIN) || defined(OS_MACOSX) || (defined(OS_LINUX) && !defined(OS_CHROMEOS))
@@ -258,9 +337,12 @@ class ProfileSyncServiceTest : public ::testing::Test {
   }
 
   void InitializeForNthSync() {
-    // Set first sync time before initialize to disable backup.
-    sync_driver::SyncPrefs sync_prefs(service()->profile()->GetPrefs());
+    // Set first sync time before initialize to disable backup and simulate
+    // a complete sync setup.
+    sync_driver::SyncPrefs sync_prefs(profile()->GetPrefs());
     sync_prefs.SetFirstSyncTime(base::Time::Now());
+    sync_prefs.SetSyncSetupCompleted();
+    sync_prefs.SetKeepEverythingSynced(true);
     service_->Initialize();
   }
 
@@ -268,10 +350,44 @@ class ProfileSyncServiceTest : public ::testing::Test {
     service_->Initialize();
   }
 
-  void ExpectDataTypeManagerCreation(int times) {
+  void TriggerPassphraseRequired() {
+    service_->OnPassphraseRequired(syncer::REASON_DECRYPTION,
+                                   sync_pb::EncryptedData());
+  }
+
+  void TriggerDataTypeStartRequest() {
+    service_->OnDataTypeRequestsSyncStartup(syncer::BOOKMARKS);
+  }
+
+  void OnConfigureCalled(syncer::ConfigureReason configure_reason) {
+    sync_driver::DataTypeManager::ConfigureResult result;
+    result.status = sync_driver::DataTypeManager::OK;
+    service()->OnConfigureDone(result);
+  }
+
+  FakeDataTypeManager::ConfigureCalled GetDefaultConfigureCalledCallback() {
+    return base::Bind(&ProfileSyncServiceTest::OnConfigureCalled,
+                      base::Unretained(this));
+  }
+
+  void OnConfigureCalledRecordReason(syncer::ConfigureReason* reason_dest,
+                                     syncer::ConfigureReason reason) {
+    DCHECK(reason_dest);
+    *reason_dest = reason;
+  }
+
+  FakeDataTypeManager::ConfigureCalled GetRecordingConfigureCalledCallback(
+      syncer::ConfigureReason* reason) {
+    return base::Bind(&ProfileSyncServiceTest::OnConfigureCalledRecordReason,
+                      base::Unretained(this), reason);
+  }
+
+  void ExpectDataTypeManagerCreation(
+      int times,
+      const FakeDataTypeManager::ConfigureCalled& callback) {
     EXPECT_CALL(*components_factory_, CreateDataTypeManager(_, _, _, _, _))
         .Times(times)
-        .WillRepeatedly(ReturnNewDataTypeManager());
+        .WillRepeatedly(ReturnNewDataTypeManager(callback));
   }
 
   void ExpectSyncBackendHostCreation(int times) {
@@ -284,13 +400,20 @@ class ProfileSyncServiceTest : public ::testing::Test {
       int times, std::vector<bool> *delete_dir_param) {
     EXPECT_CALL(*components_factory_, CreateSyncBackendHost(_, _, _, _, _))
         .Times(times)
-        .WillRepeatedly(ReturnNewMockHostCollectDeleteDirParam(
-            delete_dir_param));
+        .WillRepeatedly(
+            ReturnNewMockHostCollectDeleteDirParam(delete_dir_param));
+  }
+
+  void ExpectSyncBackendHostCreationCaptureClearServerData(
+      syncer::SyncManager::ClearServerDataCallback* captured_callback) {
+    EXPECT_CALL(*components_factory_, CreateSyncBackendHost(_, _, _, _, _))
+        .Times(1)
+        .WillOnce(ReturnNewMockHostCaptureClearServerData(captured_callback));
   }
 
   void PrepareDelayedInitSyncBackendHost() {
-    EXPECT_CALL(*components_factory_, CreateSyncBackendHost(_, _, _, _, _)).
-        WillOnce(ReturnNewSyncBackendHostNoReturn());
+    EXPECT_CALL(*components_factory_, CreateSyncBackendHost(_, _, _, _, _))
+        .WillOnce(ReturnNewSyncBackendHostNoReturn());
   }
 
   TestingProfile* profile() {
@@ -301,15 +424,11 @@ class ProfileSyncServiceTest : public ::testing::Test {
     return service_.get();
   }
 
-  ProfileSyncComponentsFactoryMock* components_factory() {
+  SyncApiComponentFactoryMock* components_factory() {
     return components_factory_;
   }
 
-  void ClearBrowsingDataCallback(BrowsingDataRemover::Observer* observer,
-                                 Profile* profile,
-                                 base::Time start,
-                                 base::Time end) {
-    EXPECT_EQ(profile_, profile);
+  void ClearBrowsingDataCallback(base::Time start, base::Time end) {
     clear_browsing_date_start_ = start;
   }
 
@@ -330,8 +449,9 @@ class ProfileSyncServiceTest : public ::testing::Test {
   TestingProfile* profile_;
   scoped_ptr<ProfileSyncService> service_;
 
-  // Pointer to the components factory.  Not owned.  May be null.
-  ProfileSyncComponentsFactoryMock* components_factory_;
+  // The current component factory used by sync. May be null if the server
+  // hasn't been created yet.
+  SyncApiComponentFactoryMock* components_factory_;
 };
 
 // Verify that the server URLs are sane.
@@ -339,8 +459,8 @@ TEST_F(ProfileSyncServiceTest, InitialState) {
   CreateService(browser_sync::AUTO_START);
   InitializeForNthSync();
   const std::string& url = service()->sync_service_url().spec();
-  EXPECT_TRUE(url == ProfileSyncService::kSyncServerUrl ||
-              url == ProfileSyncService::kDevServerUrl);
+  EXPECT_TRUE(url == internal::kSyncServerUrl ||
+              url == internal::kSyncDevServerUrl);
 }
 
 // Verify a successful initialization.
@@ -349,7 +469,7 @@ TEST_F(ProfileSyncServiceTest, SuccessfulInitialization) {
       sync_driver::prefs::kSyncManaged, new base::FundamentalValue(false));
   IssueTestTokens();
   CreateService(browser_sync::AUTO_START);
-  ExpectDataTypeManagerCreation(1);
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
   ExpectSyncBackendHostCreation(1);
   InitializeForNthSync();
   EXPECT_FALSE(service()->IsManaged());
@@ -357,12 +477,11 @@ TEST_F(ProfileSyncServiceTest, SuccessfulInitialization) {
   EXPECT_EQ(ProfileSyncService::SYNC, service()->backend_mode());
 }
 
-
 // Verify that the SetSetupInProgress function call updates state
 // and notifies observers.
 TEST_F(ProfileSyncServiceTest, SetupInProgress) {
   CreateService(browser_sync::AUTO_START);
-  InitializeForNthSync();
+  InitializeForFirstSync();
 
   TestSyncServiceObserver observer(service());
   service()->AddObserver(&observer);
@@ -391,7 +510,7 @@ TEST_F(ProfileSyncServiceTest, DisabledByPolicyBeforeInit) {
 TEST_F(ProfileSyncServiceTest, DisabledByPolicyAfterInit) {
   IssueTestTokens();
   CreateService(browser_sync::AUTO_START);
-  ExpectDataTypeManagerCreation(1);
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
   ExpectSyncBackendHostCreation(1);
   InitializeForNthSync();
 
@@ -427,12 +546,14 @@ TEST_F(ProfileSyncServiceTest, EarlyRequestStop) {
   EXPECT_TRUE(profile()->GetPrefs()->GetBoolean(
       sync_driver::prefs::kSyncSuppressStart));
 
-  // Because of supression, this should fail.
-  InitializeForNthSync();
+  // Because of suppression, this should fail.
+  sync_driver::SyncPrefs sync_prefs(profile()->GetPrefs());
+  sync_prefs.SetFirstSyncTime(base::Time::Now());
+  service()->Initialize();
   EXPECT_FALSE(service()->IsSyncActive());
 
-  // Remove suppression.  This should be enough to allow init to happen.
-  ExpectDataTypeManagerCreation(1);
+  // Request start.  This should be enough to allow init to happen.
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
   ExpectSyncBackendHostCreation(1);
   service()->RequestStart();
   EXPECT_TRUE(service()->IsSyncActive());
@@ -444,7 +565,7 @@ TEST_F(ProfileSyncServiceTest, EarlyRequestStop) {
 TEST_F(ProfileSyncServiceTest, DisableAndEnableSyncTemporarily) {
   CreateService(browser_sync::AUTO_START);
   IssueTestTokens();
-  ExpectDataTypeManagerCreation(1);
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
   ExpectSyncBackendHostCreation(1);
   InitializeForNthSync();
 
@@ -459,7 +580,7 @@ TEST_F(ProfileSyncServiceTest, DisableAndEnableSyncTemporarily) {
   EXPECT_TRUE(profile()->GetPrefs()->GetBoolean(
       sync_driver::prefs::kSyncSuppressStart));
 
-  ExpectDataTypeManagerCreation(1);
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
   ExpectSyncBackendHostCreation(1);
 
   service()->RequestStart();
@@ -473,7 +594,7 @@ TEST_F(ProfileSyncServiceTest, DisableAndEnableSyncTemporarily) {
 #if !defined (OS_CHROMEOS)
 TEST_F(ProfileSyncServiceTest, EnableSyncAndSignOut) {
   CreateService(browser_sync::AUTO_START);
-  ExpectDataTypeManagerCreation(1);
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
   ExpectSyncBackendHostCreation(1);
   IssueTestTokens();
   InitializeForNthSync();
@@ -491,7 +612,7 @@ TEST_F(ProfileSyncServiceTest, EnableSyncAndSignOut) {
 TEST_F(ProfileSyncServiceTest, GetSyncTokenStatus) {
   CreateService(browser_sync::AUTO_START);
   IssueTestTokens();
-  ExpectDataTypeManagerCreation(1);
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
   ExpectSyncBackendHostCreation(1);
   InitializeForNthSync();
 
@@ -525,6 +646,62 @@ TEST_F(ProfileSyncServiceTest, GetSyncTokenStatus) {
   EXPECT_EQ(syncer::CONNECTION_OK, token_status.connection_status);
 }
 
+TEST_F(ProfileSyncServiceTest, RevokeAccessTokenFromTokenService) {
+  CreateService(browser_sync::AUTO_START);
+  IssueTestTokens();
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
+  ExpectSyncBackendHostCreation(1);
+  InitializeForNthSync();
+  EXPECT_TRUE(service()->IsSyncActive());
+
+  std::string primary_account_id =
+      SigninManagerFactory::GetForProfile(profile())
+          ->GetAuthenticatedAccountId();
+  ProfileOAuth2TokenServiceFactory::GetForProfile(profile())
+      ->LoadCredentials(primary_account_id);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(service()->GetAccessTokenForTest().empty());
+
+  std::string secondary_account_gaiaid = "1234567";
+  std::string secondary_account_name = "test_user2@gmail.com";
+  std::string secondary_account_id =
+      AccountTrackerServiceFactory::GetForProfile(profile())
+          ->SeedAccountInfo(secondary_account_gaiaid, secondary_account_name);
+  ProfileOAuth2TokenServiceFactory::GetForProfile(profile())
+      ->UpdateCredentials(secondary_account_id, "second_account_refresh_token");
+  ProfileOAuth2TokenServiceFactory::GetForProfile(profile())
+      ->RevokeCredentials(secondary_account_id);
+  EXPECT_FALSE(service()->GetAccessTokenForTest().empty());
+
+  ProfileOAuth2TokenServiceFactory::GetForProfile(profile())
+      ->RevokeCredentials(primary_account_id);
+  EXPECT_TRUE(service()->GetAccessTokenForTest().empty());
+}
+
+// CrOS does not support signout.
+#if !defined(OS_CHROMEOS)
+TEST_F(ProfileSyncServiceTest, SignOutRevokeAccessToken) {
+  CreateService(browser_sync::AUTO_START);
+  IssueTestTokens();
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
+  ExpectSyncBackendHostCreation(1);
+  InitializeForNthSync();
+  EXPECT_TRUE(service()->IsSyncActive());
+
+  std::string primary_account_id =
+      SigninManagerFactory::GetForProfile(profile())
+          ->GetAuthenticatedAccountId();
+  ProfileOAuth2TokenServiceFactory::GetForProfile(profile())
+      ->LoadCredentials(primary_account_id);
+  base::RunLoop().RunUntilIdle();
+  EXPECT_FALSE(service()->GetAccessTokenForTest().empty());
+
+  SigninManagerFactory::GetForProfile(profile())
+      ->SignOut(signin_metrics::SIGNOUT_TEST);
+  EXPECT_TRUE(service()->GetAccessTokenForTest().empty());
+}
+#endif
+
 #if defined(ENABLE_PRE_SYNC_BACKUP)
 TEST_F(ProfileSyncServiceTest, DontStartBackupOnBrowserStart) {
   CreateServiceWithoutSignIn();
@@ -535,7 +712,7 @@ TEST_F(ProfileSyncServiceTest, DontStartBackupOnBrowserStart) {
 
 TEST_F(ProfileSyncServiceTest, BackupBeforeFirstSync) {
   CreateServiceWithoutSignIn();
-  ExpectDataTypeManagerCreation(2);
+  ExpectDataTypeManagerCreation(2, GetDefaultConfigureCalledCallback());
   std::vector<bool> delete_dir_param;
   ExpectSyncBackendHostCreationCollectDeleteDir(2, &delete_dir_param);
   InitializeForFirstSync();
@@ -564,7 +741,7 @@ TEST_F(ProfileSyncServiceTest, BackupBeforeFirstSync) {
 TEST_F(ProfileSyncServiceTest, ResumeBackupIfAborted) {
   IssueTestTokens();
   CreateService(AUTO_START);
-  ExpectDataTypeManagerCreation(2);
+  ExpectDataTypeManagerCreation(2, GetDefaultConfigureCalledCallback());
   std::vector<bool> delete_dir_param;
   ExpectSyncBackendHostCreationCollectDeleteDir(2, &delete_dir_param);
   InitializeForFirstSync();
@@ -587,7 +764,7 @@ TEST_F(ProfileSyncServiceTest, ResumeBackupIfAborted) {
 TEST_F(ProfileSyncServiceTest, Rollback) {
   CreateService(browser_sync::MANUAL_START);
   service()->SetSyncSetupCompleted();
-  ExpectDataTypeManagerCreation(2);
+  ExpectDataTypeManagerCreation(2, GetDefaultConfigureCalledCallback());
   std::vector<bool> delete_dir_param;
   ExpectSyncBackendHostCreationCollectDeleteDir(2, &delete_dir_param);
   IssueTestTokens();
@@ -596,7 +773,7 @@ TEST_F(ProfileSyncServiceTest, Rollback) {
   EXPECT_EQ(ProfileSyncService::SYNC, service()->backend_mode());
 
   // First sync time should be recorded.
-  sync_driver::SyncPrefs sync_prefs(service()->profile()->GetPrefs());
+  sync_driver::SyncPrefs sync_prefs(profile()->GetPrefs());
   base::Time first_sync_time = sync_prefs.GetFirstSyncTime();
   EXPECT_FALSE(first_sync_time.is_null());
 
@@ -626,20 +803,11 @@ TEST_F(ProfileSyncServiceTest, Rollback) {
 
 #endif
 
-TEST_F(ProfileSyncServiceTest, GetSyncServiceURL) {
-  // See that we can override the URL with a flag.
-  base::CommandLine command_line(
-      base::FilePath(base::FilePath(FILE_PATH_LITERAL("chrome.exe"))));
-  command_line.AppendSwitchASCII(switches::kSyncServiceURL, "https://foo/bar");
-  EXPECT_EQ("https://foo/bar",
-            ProfileSyncService::GetSyncServiceURL(command_line).spec());
-}
-
 // Verify that LastSyncedTime is cleared when the user signs out.
 TEST_F(ProfileSyncServiceTest, ClearLastSyncedTimeOnSignOut) {
   IssueTestTokens();
   CreateService(AUTO_START);
-  ExpectDataTypeManagerCreation(1);
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
   ExpectSyncBackendHostCreation(1);
   InitializeForNthSync();
   EXPECT_TRUE(service()->IsSyncActive());
@@ -669,7 +837,7 @@ TEST_F(ProfileSyncServiceTest, NoDisableSyncFlag) {
 TEST_F(ProfileSyncServiceTest, MemoryPressureRecording) {
   CreateService(browser_sync::AUTO_START);
   IssueTestTokens();
-  ExpectDataTypeManagerCreation(1);
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
   ExpectSyncBackendHostCreation(1);
   InitializeForNthSync();
 
@@ -679,7 +847,7 @@ TEST_F(ProfileSyncServiceTest, MemoryPressureRecording) {
 
   testing::Mock::VerifyAndClearExpectations(components_factory());
 
-  sync_driver::SyncPrefs sync_prefs(service()->profile()->GetPrefs());
+  sync_driver::SyncPrefs sync_prefs(profile()->GetPrefs());
 
   EXPECT_EQ(profile()->GetPrefs()->GetInteger(
                 sync_driver::prefs::kSyncMemoryPressureWarningCount),
@@ -710,25 +878,219 @@ TEST_F(ProfileSyncServiceTest, MemoryPressureRecording) {
   EXPECT_TRUE(sync_prefs.DidSyncShutdownCleanly());
 }
 
-// Verify that OnLocalSetPassphraseEncryption shuts down and restarts sync.
+// Verify that OnLocalSetPassphraseEncryption triggers catch up configure sync
+// cycle, calls ClearServerData, shuts down and restarts sync.
 TEST_F(ProfileSyncServiceTest, OnLocalSetPassphraseEncryption) {
   base::CommandLine::ForCurrentProcess()->AppendSwitch(
       switches::kSyncEnableClearDataOnPassphraseEncryption);
   IssueTestTokens();
   CreateService(browser_sync::AUTO_START);
-  ExpectDataTypeManagerCreation(1);
-  ExpectSyncBackendHostCreation(1);
+
+  syncer::SyncManager::ClearServerDataCallback captured_callback;
+  syncer::ConfigureReason configure_reason = syncer::CONFIGURE_REASON_UNKNOWN;
+
+  // Initialize sync, ensure that both DataTypeManager and SyncBackendHost are
+  // initialized and DTM::Configure is called with
+  // CONFIGURE_REASON_NEWLY_ENABLED_DATA_TYPE.
+  ExpectSyncBackendHostCreationCaptureClearServerData(&captured_callback);
+  ExpectDataTypeManagerCreation(
+      1, GetRecordingConfigureCalledCallback(&configure_reason));
   InitializeForNthSync();
   EXPECT_TRUE(service()->IsSyncActive());
   EXPECT_EQ(ProfileSyncService::SYNC, service()->backend_mode());
   testing::Mock::VerifyAndClearExpectations(components_factory());
+  EXPECT_EQ(syncer::CONFIGURE_REASON_NEWLY_ENABLED_DATA_TYPE, configure_reason);
+  sync_driver::DataTypeManager::ConfigureResult result;
+  result.status = sync_driver::DataTypeManager::OK;
+  service()->OnConfigureDone(result);
 
-  ExpectDataTypeManagerCreation(1);
-  ExpectSyncBackendHostCreation(1);
+  // Simulate user entering encryption passphrase. Ensure that catch up
+  // configure cycle is started (DTM::Configure is called with
+  // CONFIGURE_REASON_CATCH_UP).
   const syncer::SyncEncryptionHandler::NigoriState nigori_state;
   service()->OnLocalSetPassphraseEncryption(nigori_state);
-  PumpLoop();
+  EXPECT_EQ(syncer::CONFIGURE_REASON_CATCH_UP, configure_reason);
+  EXPECT_TRUE(captured_callback.is_null());
+
+  // Simulate configure successful. Ensure that SBH::ClearServerData is called.
+  service()->OnConfigureDone(result);
+  EXPECT_FALSE(captured_callback.is_null());
+
+  // Once SBH::ClearServerData finishes successfully ensure that sync is
+  // restarted.
+  configure_reason = syncer::CONFIGURE_REASON_UNKNOWN;
+  ExpectSyncBackendHostCreation(1);
+  ExpectDataTypeManagerCreation(
+      1, GetRecordingConfigureCalledCallback(&configure_reason));
+  captured_callback.Run();
   testing::Mock::VerifyAndClearExpectations(components_factory());
+  EXPECT_EQ(syncer::CONFIGURE_REASON_NEWLY_ENABLED_DATA_TYPE, configure_reason);
+  service()->OnConfigureDone(result);
+}
+
+// Verify that if after OnLocalSetPassphraseEncryption catch up configure sync
+// cycle gets interrupted, it starts again after browser restart.
+TEST_F(ProfileSyncServiceTest,
+       OnLocalSetPassphraseEncryption_RestartDuringCatchUp) {
+  syncer::ConfigureReason configure_reason = syncer::CONFIGURE_REASON_UNKNOWN;
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kSyncEnableClearDataOnPassphraseEncryption);
+  IssueTestTokens();
+  CreateService(browser_sync::AUTO_START);
+  ExpectSyncBackendHostCreation(1);
+  ExpectDataTypeManagerCreation(
+      1, GetRecordingConfigureCalledCallback(&configure_reason));
+  InitializeForNthSync();
+  EXPECT_EQ(ProfileSyncService::SYNC, service()->backend_mode());
+  testing::Mock::VerifyAndClearExpectations(components_factory());
+  EXPECT_EQ(syncer::CONFIGURE_REASON_NEWLY_ENABLED_DATA_TYPE, configure_reason);
+  sync_driver::DataTypeManager::ConfigureResult result;
+  result.status = sync_driver::DataTypeManager::OK;
+  service()->OnConfigureDone(result);
+
+  // Simulate user entering encryption passphrase. Ensure Configure was called
+  // but don't let it continue.
+  const syncer::SyncEncryptionHandler::NigoriState nigori_state;
+  service()->OnLocalSetPassphraseEncryption(nigori_state);
+  EXPECT_EQ(syncer::CONFIGURE_REASON_CATCH_UP, configure_reason);
+
+  // Simulate browser restart. First configuration is a regular one.
+  service()->Shutdown();
+  syncer::SyncManager::ClearServerDataCallback captured_callback;
+  ExpectSyncBackendHostCreationCaptureClearServerData(&captured_callback);
+  ExpectDataTypeManagerCreation(
+      1, GetRecordingConfigureCalledCallback(&configure_reason));
+  service()->RequestStart();
+  testing::Mock::VerifyAndClearExpectations(components_factory());
+  EXPECT_EQ(syncer::CONFIGURE_REASON_NEWLY_ENABLED_DATA_TYPE, configure_reason);
+  EXPECT_TRUE(captured_callback.is_null());
+
+  // Simulate configure successful. This time it should be catch up.
+  service()->OnConfigureDone(result);
+  EXPECT_EQ(syncer::CONFIGURE_REASON_CATCH_UP, configure_reason);
+  EXPECT_TRUE(captured_callback.is_null());
+
+  // Simulate catch up configure successful. Ensure that SBH::ClearServerData is
+  // called.
+  service()->OnConfigureDone(result);
+  EXPECT_FALSE(captured_callback.is_null());
+
+  ExpectSyncBackendHostCreation(1);
+  ExpectDataTypeManagerCreation(
+      1, GetRecordingConfigureCalledCallback(&configure_reason));
+  captured_callback.Run();
+  testing::Mock::VerifyAndClearExpectations(components_factory());
+  EXPECT_EQ(syncer::CONFIGURE_REASON_NEWLY_ENABLED_DATA_TYPE, configure_reason);
+}
+
+// Verify that if after OnLocalSetPassphraseEncryption ClearServerData gets
+// interrupted, transition again from catch up sync cycle after browser restart.
+TEST_F(ProfileSyncServiceTest,
+       OnLocalSetPassphraseEncryption_RestartDuringClearServerData) {
+  syncer::SyncManager::ClearServerDataCallback captured_callback;
+  syncer::ConfigureReason configure_reason = syncer::CONFIGURE_REASON_UNKNOWN;
+  base::CommandLine::ForCurrentProcess()->AppendSwitch(
+      switches::kSyncEnableClearDataOnPassphraseEncryption);
+  IssueTestTokens();
+  CreateService(browser_sync::AUTO_START);
+  ExpectSyncBackendHostCreationCaptureClearServerData(&captured_callback);
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
+  InitializeForNthSync();
+  EXPECT_EQ(ProfileSyncService::SYNC, service()->backend_mode());
+  testing::Mock::VerifyAndClearExpectations(components_factory());
+
+  // Simulate user entering encryption passphrase.
+  const syncer::SyncEncryptionHandler::NigoriState nigori_state;
+  service()->OnLocalSetPassphraseEncryption(nigori_state);
+  EXPECT_FALSE(captured_callback.is_null());
+  captured_callback.Reset();
+
+  // Simulate browser restart. First configuration is a regular one.
+  service()->Shutdown();
+  ExpectSyncBackendHostCreationCaptureClearServerData(&captured_callback);
+  ExpectDataTypeManagerCreation(
+      1, GetRecordingConfigureCalledCallback(&configure_reason));
+  service()->RequestStart();
+  testing::Mock::VerifyAndClearExpectations(components_factory());
+  EXPECT_EQ(syncer::CONFIGURE_REASON_NEWLY_ENABLED_DATA_TYPE, configure_reason);
+  EXPECT_TRUE(captured_callback.is_null());
+
+  // Simulate configure successful. This time it should be catch up.
+  sync_driver::DataTypeManager::ConfigureResult result;
+  result.status = sync_driver::DataTypeManager::OK;
+  service()->OnConfigureDone(result);
+  EXPECT_EQ(syncer::CONFIGURE_REASON_CATCH_UP, configure_reason);
+  EXPECT_TRUE(captured_callback.is_null());
+
+  // Simulate catch up configure successful. Ensure that SBH::ClearServerData is
+  // called.
+  service()->OnConfigureDone(result);
+  EXPECT_FALSE(captured_callback.is_null());
+
+  ExpectSyncBackendHostCreation(1);
+  ExpectDataTypeManagerCreation(
+      1, GetRecordingConfigureCalledCallback(&configure_reason));
+  captured_callback.Run();
+  testing::Mock::VerifyAndClearExpectations(components_factory());
+  EXPECT_EQ(syncer::CONFIGURE_REASON_NEWLY_ENABLED_DATA_TYPE, configure_reason);
+}
+
+// Test that the passphrase prompt due to version change logic gets triggered
+// on a datatype type requesting startup, but only happens once.
+TEST_F(ProfileSyncServiceTest, PassphrasePromptDueToVersion) {
+  IssueTestTokens();
+  CreateService(browser_sync::AUTO_START);
+  ExpectDataTypeManagerCreation(1, GetDefaultConfigureCalledCallback());
+  ExpectSyncBackendHostCreation(1);
+  InitializeForNthSync();
+
+  sync_driver::SyncPrefs sync_prefs(profile()->GetPrefs());
+  EXPECT_EQ(PRODUCT_VERSION, sync_prefs.GetLastRunVersion());
+
+  sync_prefs.SetPassphrasePrompted(true);
+
+  // Until a datatype requests startup while a passphrase is required the
+  // passphrase prompt bit should remain set.
+  EXPECT_TRUE(sync_prefs.IsPassphrasePrompted());
+  TriggerPassphraseRequired();
+  EXPECT_TRUE(sync_prefs.IsPassphrasePrompted());
+
+  // Because the last version was unset, this run should be treated as a new
+  // version and force a prompt.
+  TriggerDataTypeStartRequest();
+  EXPECT_FALSE(sync_prefs.IsPassphrasePrompted());
+
+  // At this point further datatype startup request should have no effect.
+  sync_prefs.SetPassphrasePrompted(true);
+  TriggerDataTypeStartRequest();
+  EXPECT_TRUE(sync_prefs.IsPassphrasePrompted());
+}
+
+// Test that when ProfileSyncService receives actionable error
+// RESET_LOCAL_SYNC_DATA it restarts sync.
+TEST_F(ProfileSyncServiceTest, ResetSyncData) {
+  IssueTestTokens();
+  CreateService(browser_sync::AUTO_START);
+  // Backend should get initialized two times: once during initialization and
+  // once when handling actionable error.
+  ExpectDataTypeManagerCreation(2, GetDefaultConfigureCalledCallback());
+  ExpectSyncBackendHostCreation(2);
+  InitializeForNthSync();
+
+  syncer::SyncProtocolError client_cmd;
+  client_cmd.action = syncer::RESET_LOCAL_SYNC_DATA;
+  service()->OnActionableError(client_cmd);
+  EXPECT_EQ(ProfileSyncService::SYNC, service()->backend_mode());
+}
+
+// Regression test for crbug/555434. The issue is that check for sessions DTC in
+// OnSessionRestoreComplete was creating map entry with nullptr which later was
+// dereferenced in OnSyncCycleCompleted. The fix is to use find() to check if
+// entry for sessions exists in map.
+TEST_F(ProfileSyncServiceTest, ValidPointersInDTCMap) {
+  CreateService(browser_sync::AUTO_START);
+  service()->OnSessionRestoreComplete();
+  service()->OnSyncCycleCompleted();
 }
 
 }  // namespace

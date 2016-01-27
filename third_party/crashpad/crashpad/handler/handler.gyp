@@ -17,34 +17,54 @@
     '../build/crashpad.gypi',
     '../build/crashpad_in_chromium.gypi',
   ],
-  'conditions': [
-    ['OS=="mac"', {
-      'targets': [
-        {
-          'target_name': 'crashpad_handler',
-          'type': 'executable',
-          'dependencies': [
-            '../client/client.gyp:crashpad_client',
-            '../compat/compat.gyp:crashpad_compat',
-            '../minidump/minidump.gyp:crashpad_minidump',
-            '../snapshot/snapshot.gyp:crashpad_snapshot',
-            '../third_party/mini_chromium/mini_chromium.gyp:base',
-            '../tools/tools.gyp:crashpad_tool_support',
-            '../util/util.gyp:crashpad_util',
-          ],
-          'include_dirs': [
-            '..',
-          ],
-          'sources': [
-            'mac/crash_report_exception_handler.cc',
-            'mac/crash_report_exception_handler.h',
-            'mac/crash_report_upload_thread.cc',
-            'mac/crash_report_upload_thread.h',
-            'mac/exception_handler_server.cc',
-            'mac/exception_handler_server.h',
-            'mac/main.cc',
-          ],
+  'targets': [
+    {
+      # This target exists so that the crashpad_handler can be embedded into
+      # another binary.
+      'target_name': 'crashpad_handler_lib',
+      'type': 'static_library',
+      'dependencies': [
+        '../client/client.gyp:crashpad_client',
+        '../compat/compat.gyp:crashpad_compat',
+        '../minidump/minidump.gyp:crashpad_minidump',
+        '../snapshot/snapshot.gyp:crashpad_snapshot',
+        '../third_party/mini_chromium/mini_chromium.gyp:base',
+        '../tools/tools.gyp:crashpad_tool_support',
+        '../util/util.gyp:crashpad_util',
+      ],
+      'include_dirs': [
+        '..',
+      ],
+      'sources': [
+        'crash_report_upload_thread.cc',
+        'crash_report_upload_thread.h',
+        'mac/crash_report_exception_handler.cc',
+        'mac/crash_report_exception_handler.h',
+        'mac/exception_handler_server.cc',
+        'mac/exception_handler_server.h',
+        'handler_main.cc',
+        'handler_main.h',
+        'win/crash_report_exception_handler.cc',
+        'win/crash_report_exception_handler.h',
+      ],
+    },
+    {
+      'target_name': 'crashpad_handler',
+      'type': 'executable',
+      'dependencies': [
+        '../third_party/mini_chromium/mini_chromium.gyp:base',
+        '../tools/tools.gyp:crashpad_tool_support',
+        'crashpad_handler_lib',
+      ],
+      'include_dirs': [
+        '..',
+      ],
+      'sources': [
+        'main.cc',
+      ],
 
+      'conditions': [
+        ['OS=="mac"', {
           # In an in-Chromium build with component=shared_library,
           # crashpad_handler will depend on shared libraries such as
           # libbase.dylib located in out/{Debug,Release} via the @rpath
@@ -66,29 +86,67 @@
               },
             }],
           ],
-        },
+        }],
       ],
-    },],
+    },
+  ],
+  'conditions': [
     ['OS=="win"', {
       'targets': [
         {
-          'target_name': 'crashpad_handler',
-          'type': 'static_library',
+          'target_name': 'crashy_program',
+          'type': 'executable',
           'dependencies': [
-             '../client/client.gyp:crashpad_client',
-             '../third_party/mini_chromium/mini_chromium.gyp:base',
-             '../util/util.gyp:crashpad_util',
+            '../client/client.gyp:crashpad_client',
+            '../third_party/mini_chromium/mini_chromium.gyp:base',
+            '../util/util.gyp:crashpad_util',
           ],
           'include_dirs': [
             '..',
           ],
           'sources': [
-            'win/registration_pipe_state.cc',
-            'win/registration_pipe_state.h',
-            'win/registration_server.cc',
-            'win/registration_server.h',
+            'win/crashy_test_program.cc',
           ],
         },
+        {
+          'target_name': 'self_destroying_program',
+          'type': 'executable',
+          'dependencies': [
+            '../client/client.gyp:crashpad_client',
+            '../compat/compat.gyp:crashpad_compat',
+            '../snapshot/snapshot.gyp:crashpad_snapshot',
+            '../third_party/mini_chromium/mini_chromium.gyp:base',
+            '../util/util.gyp:crashpad_util',
+          ],
+          'include_dirs': [
+            '..',
+          ],
+          'sources': [
+            'win/self_destroying_test_program.cc',
+          ],
+        },
+      ],
+      'conditions': [
+        # Cannot create an x64 DLL with embedded debug info.
+        ['target_arch=="ia32"', {
+          'targets': [
+            {
+              'target_name': 'crashy_z7_loader',
+              'type': 'executable',
+              'dependencies': [
+                '../client/client.gyp:crashpad_client',
+                '../test/test.gyp:crashpad_test',
+                '../third_party/mini_chromium/mini_chromium.gyp:base',
+              ],
+              'include_dirs': [
+                '..',
+              ],
+              'sources': [
+                'win/crashy_test_z7_loader.cc',
+              ],
+            },
+          ],
+        }],
       ],
     }, {
       'targets': [],

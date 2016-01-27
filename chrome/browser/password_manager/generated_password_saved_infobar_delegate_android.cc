@@ -10,11 +10,11 @@
 #include "chrome/browser/android/chrome_application.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/theme_resources.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/password_manager/core/browser/password_bubble_experiment.h"
 #include "content/public/browser/web_contents.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -36,14 +36,14 @@ void GeneratedPasswordSavedInfoBarDelegateAndroid::OnInlineLinkClicked() {
 
 GeneratedPasswordSavedInfoBarDelegateAndroid::
     GeneratedPasswordSavedInfoBarDelegateAndroid(
-        content::WebContents* web_contents)
-        : button_label_(l10n_util::GetStringUTF16(IDS_OK)),
-          web_contents_(web_contents),
-          smart_lock_branding_enabled_(
-              !password_bubble_experiment::IsSmartLockBrandingEnabled(
-                  ProfileSyncServiceFactory::GetForProfile(
-                      Profile::FromBrowserContext(
-                          web_contents->GetBrowserContext())))) {
+        content::WebContents *web_contents)
+    : button_label_(l10n_util::GetStringUTF16(IDS_OK)),
+      web_contents_(web_contents),
+      smart_lock_branding_enabled_(
+          password_bubble_experiment::IsSmartLockBrandingEnabled(
+              ProfileSyncServiceFactory::GetForProfile(
+                  Profile::FromBrowserContext(
+                      web_contents->GetBrowserContext())))) {
   base::string16 link = l10n_util::GetStringUTF16(
       IDS_MANAGE_PASSWORDS_LINK);
   int confirmation_id = IDS_MANAGE_PASSWORDS_CONFIRM_GENERATED_TEXT_INFOBAR;
@@ -65,6 +65,6 @@ GeneratedPasswordSavedInfoBarDelegateAndroid::GetInfoBarType() const {
   return PAGE_ACTION_TYPE;
 }
 
-int GeneratedPasswordSavedInfoBarDelegateAndroid::GetIconID() const {
+int GeneratedPasswordSavedInfoBarDelegateAndroid::GetIconId() const {
   return IDR_INFOBAR_SAVE_PASSWORD;
 }

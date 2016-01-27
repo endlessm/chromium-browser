@@ -12,29 +12,28 @@
 
 #include <vector>
 
+#include "webrtc/base/logging.h"
 #include "webrtc/modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
-#include "webrtc/modules/rtp_rtcp/interface/fec_receiver.h"
-#include "webrtc/modules/rtp_rtcp/interface/receive_statistics.h"
-#include "webrtc/modules/rtp_rtcp/interface/remote_ntp_time_estimator.h"
-#include "webrtc/modules/rtp_rtcp/interface/rtp_cvo.h"
-#include "webrtc/modules/rtp_rtcp/interface/rtp_header_parser.h"
-#include "webrtc/modules/rtp_rtcp/interface/rtp_payload_registry.h"
-#include "webrtc/modules/rtp_rtcp/interface/rtp_receiver.h"
-#include "webrtc/modules/rtp_rtcp/interface/rtp_rtcp.h"
+#include "webrtc/modules/rtp_rtcp/include/fec_receiver.h"
+#include "webrtc/modules/rtp_rtcp/include/receive_statistics.h"
+#include "webrtc/modules/rtp_rtcp/include/remote_ntp_time_estimator.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_cvo.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_header_parser.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_payload_registry.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_receiver.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp.h"
 #include "webrtc/modules/video_coding/main/interface/video_coding.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
-#include "webrtc/system_wrappers/interface/logging.h"
-#include "webrtc/system_wrappers/interface/metrics.h"
-#include "webrtc/system_wrappers/interface/tick_util.h"
-#include "webrtc/system_wrappers/interface/timestamp_extrapolator.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/metrics.h"
+#include "webrtc/system_wrappers/include/tick_util.h"
+#include "webrtc/system_wrappers/include/timestamp_extrapolator.h"
+#include "webrtc/system_wrappers/include/trace.h"
 
 namespace webrtc {
 
 static const int kPacketLogIntervalMs = 10000;
 
-ViEReceiver::ViEReceiver(const int32_t channel_id,
-                         VideoCodingModule* module_vcm,
+ViEReceiver::ViEReceiver(VideoCodingModule* module_vcm,
                          RemoteBitrateEstimator* remote_bitrate_estimator,
                          RtpFeedback* rtp_feedback)
     : receive_cs_(CriticalSectionWrapper::CreateCriticalSection()),
@@ -43,8 +42,7 @@ ViEReceiver::ViEReceiver(const int32_t channel_id,
       rtp_payload_registry_(
           new RTPPayloadRegistry(RTPPayloadStrategy::CreateStrategy(false))),
       rtp_receiver_(
-          RtpReceiver::CreateVideoReceiver(channel_id,
-                                           clock_,
+          RtpReceiver::CreateVideoReceiver(clock_,
                                            this,
                                            rtp_feedback,
                                            rtp_payload_registry_.get())),
@@ -58,6 +56,7 @@ ViEReceiver::ViEReceiver(const int32_t channel_id,
       restored_packet_in_use_(false),
       receiving_ast_enabled_(false),
       receiving_cvo_enabled_(false),
+      receiving_tsn_enabled_(false),
       last_packet_log_ms_(-1) {
   assert(remote_bitrate_estimator);
 }
@@ -119,6 +118,10 @@ void ViEReceiver::SetRtxPayloadType(int payload_type,
                                            associated_payload_type);
 }
 
+void ViEReceiver::SetUseRtxPayloadMappingOnRestore(bool val) {
+  rtp_payload_registry_->set_use_rtx_payload_mapping_on_restore(val);
+}
+
 void ViEReceiver::SetRtxSsrc(uint32_t ssrc) {
   rtp_payload_registry_->SetRtxSsrc(ssrc);
 }
@@ -147,16 +150,14 @@ RtpReceiver* ViEReceiver::GetRtpReceiver() const {
   return rtp_receiver_.get();
 }
 
-void ViEReceiver::RegisterSimulcastRtpRtcpModules(
-    const std::list<RtpRtcp*>& rtp_modules) {
+void ViEReceiver::RegisterRtpRtcpModules(
+    const std::vector<RtpRtcp*>& rtp_modules) {
   CriticalSectionScoped cs(receive_cs_.get());
-  rtp_rtcp_simulcast_.clear();
-
-  if (!rtp_modules.empty()) {
-    rtp_rtcp_simulcast_.insert(rtp_rtcp_simulcast_.begin(),
-                               rtp_modules.begin(),
-                               rtp_modules.end());
-  }
+  // Only change the "simulcast" modules, the base module can be accessed
+  // without a lock whereas the simulcast modules require locking as they can be
+  // changed in runtime.
+  rtp_rtcp_simulcast_ =
+      std::vector<RtpRtcp*>(rtp_modules.begin() + 1, rtp_modules.end());
 }
 
 bool ViEReceiver::SetReceiveTimestampOffsetStatus(bool enable, int id) {
@@ -198,6 +199,22 @@ bool ViEReceiver::SetReceiveVideoRotationStatus(bool enable, int id) {
     receiving_cvo_enabled_ = false;
     return rtp_header_parser_->DeregisterRtpHeaderExtension(
         kRtpExtensionVideoRotation);
+  }
+}
+
+bool ViEReceiver::SetReceiveTransportSequenceNumber(bool enable, int id) {
+  if (enable) {
+    if (rtp_header_parser_->RegisterRtpHeaderExtension(
+            kRtpExtensionTransportSequenceNumber, id)) {
+      receiving_tsn_enabled_ = true;
+      return true;
+    } else {
+      return false;
+    }
+  } else {
+    receiving_tsn_enabled_ = false;
+    return rtp_header_parser_->DeregisterRtpHeaderExtension(
+        kRtpExtensionTransportSequenceNumber);
   }
 }
 
@@ -348,15 +365,14 @@ bool ViEReceiver::ParseAndHandleEncapsulatingHeader(const uint8_t* packet,
       LOG(LS_WARNING) << "Multiple RTX headers detected, dropping packet.";
       return false;
     }
-    uint8_t* restored_packet_ptr = restored_packet_;
     if (!rtp_payload_registry_->RestoreOriginalPacket(
-        &restored_packet_ptr, packet, &packet_length, rtp_receiver_->SSRC(),
-        header)) {
+            restored_packet_, packet, &packet_length, rtp_receiver_->SSRC(),
+            header)) {
       LOG(LS_WARNING) << "Incoming RTX packet: Invalid RTP header";
       return false;
     }
     restored_packet_in_use_ = true;
-    bool ret = OnRecoveredPacket(restored_packet_ptr, packet_length);
+    bool ret = OnRecoveredPacket(restored_packet_, packet_length);
     restored_packet_in_use_ = false;
     return ret;
   }
@@ -398,11 +414,8 @@ int ViEReceiver::InsertRTCPPacket(const uint8_t* rtcp_packet,
       return -1;
     }
 
-    std::list<RtpRtcp*>::iterator it = rtp_rtcp_simulcast_.begin();
-    while (it != rtp_rtcp_simulcast_.end()) {
-      RtpRtcp* rtp_rtcp = *it++;
+    for (RtpRtcp* rtp_rtcp : rtp_rtcp_simulcast_)
       rtp_rtcp->IncomingRtcpPacket(rtcp_packet, rtcp_packet_length);
-    }
   }
   assert(rtp_rtcp_);  // Should be set by owner at construction time.
   int ret = rtp_rtcp_->IncomingRtcpPacket(rtcp_packet, rtcp_packet_length);

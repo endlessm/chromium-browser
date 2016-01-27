@@ -41,19 +41,15 @@
 #include "core/fetch/ResourceFetcher.h"
 #include "core/inspector/InstanceCounters.h"
 #include "core/layout/LayoutObject.h"
+#include "core/workers/WorkerThread.h"
 #include "modules/webaudio/AudioNode.h"
 #include "platform/Timer.h"
 #include "public/web/WebDocument.h"
 #include "public/web/WebLocalFrame.h"
-#include "web/WebEmbeddedWorkerImpl.h"
 
 namespace blink {
 
 namespace {
-
-// FIXME: Oilpan: It may take multiple GC to collect on-heap objects referenced from off-heap objects.
-// Please see comment in Heap::collectAllGarbage()
-static const int kNumberOfGCsToClaimChains = 5;
 
 class WebLeakDetectorImpl final : public WebLeakDetector {
 WTF_MAKE_NONCOPYABLE(WebLeakDetectorImpl);
@@ -83,7 +79,17 @@ private:
 
 void WebLeakDetectorImpl::collectGarbageAndGetDOMCounts(WebLocalFrame* frame)
 {
-    WebEmbeddedWorkerImpl::terminateAll();
+    v8::Isolate* isolate = v8::Isolate::GetCurrent();
+    v8::HandleScope handleScope(isolate);
+
+    // For example, calling isValidEmailAddress in EmailInputType.cpp with a
+    // non-empty string creates a static ScriptRegexp value which holds a
+    // V8PerContextData indirectly. This affects the number of V8PerContextData.
+    // To ensure that context data is created, call ensureScriptRegexpContext
+    // here.
+    V8PerIsolateData::from(isolate)->ensureScriptRegexpContext();
+
+    WorkerThread::terminateAndWaitForAllWorkers();
     memoryCache()->evictResources();
 
     {
@@ -94,16 +100,17 @@ void WebLeakDetectorImpl::collectGarbageAndGetDOMCounts(WebLocalFrame* frame)
 
     // FIXME: HTML5 Notification should be closed because notification affects the result of number of DOM objects.
 
-    for (int i = 0; i < kNumberOfGCsToClaimChains; ++i)
-        V8GCController::collectGarbage(v8::Isolate::GetCurrent());
+    V8GCController::collectAllGarbageForTesting(isolate);
     // Note: Oilpan precise GC is scheduled at the end of the event loop.
+
+    V8PerIsolateData::from(isolate)->clearScriptRegexpContext();
 
     // Task queue may contain delayed object destruction tasks.
     // This method is called from navigation hook inside FrameLoader,
     // so previous document is still held by the loader until the next event loop.
     // Complete all pending tasks before proceeding to gc.
     m_numberOfGCNeeded = 2;
-    m_delayedGCAndReportTimer.startOneShot(0, FROM_HERE);
+    m_delayedGCAndReportTimer.startOneShot(0, BLINK_FROM_HERE);
 }
 
 void WebLeakDetectorImpl::delayedGCAndReport(Timer<WebLeakDetectorImpl>*)
@@ -112,15 +119,14 @@ void WebLeakDetectorImpl::delayedGCAndReport(Timer<WebLeakDetectorImpl>*)
     // The second GC is necessary as Resource GC may have postponed clean-up tasks to next event loop.
     // The third GC is necessary for cleaning up Document after worker object died.
 
-    for (int i = 0; i < kNumberOfGCsToClaimChains; ++i)
-        V8GCController::collectGarbage(V8PerIsolateData::mainThreadIsolate());
+    V8GCController::collectAllGarbageForTesting(V8PerIsolateData::mainThreadIsolate());
     // Note: Oilpan precise GC is scheduled at the end of the event loop.
 
     // Inspect counters on the next event loop.
     if (--m_numberOfGCNeeded)
-        m_delayedGCAndReportTimer.startOneShot(0, FROM_HERE);
+        m_delayedGCAndReportTimer.startOneShot(0, BLINK_FROM_HERE);
     else
-        m_delayedReportTimer.startOneShot(0, FROM_HERE);
+        m_delayedReportTimer.startOneShot(0, BLINK_FROM_HERE);
 }
 
 void WebLeakDetectorImpl::delayedReport(Timer<WebLeakDetectorImpl>*)
@@ -132,7 +138,6 @@ void WebLeakDetectorImpl::delayedReport(Timer<WebLeakDetectorImpl>*)
     result.numberOfLiveDocuments = InstanceCounters::counterValue(InstanceCounters::DocumentCounter);
     result.numberOfLiveNodes = InstanceCounters::counterValue(InstanceCounters::NodeCounter);
     result.numberOfLiveLayoutObjects = InstanceCounters::counterValue(InstanceCounters::LayoutObjectCounter);
-    result.numberOfLiveRenderObjects = result.numberOfLiveLayoutObjects;
     result.numberOfLiveResources = InstanceCounters::counterValue(InstanceCounters::ResourceCounter);
     result.numberOfLiveActiveDOMObjects = InstanceCounters::counterValue(InstanceCounters::ActiveDOMObjectCounter);
     result.numberOfLiveScriptPromises = InstanceCounters::counterValue(InstanceCounters::ScriptPromiseCounter);

@@ -27,17 +27,8 @@ unsigned int RoundUp(unsigned int size) {
 
 }  // namespace
 
-#ifndef _MSC_VER
-const FencedAllocator::Offset FencedAllocator::kInvalidOffset;
-const unsigned int FencedAllocator::kAllocAlignment;
-#endif
-
-FencedAllocator::FencedAllocator(unsigned int size,
-                                 CommandBufferHelper* helper,
-                                 const base::Closure& poll_callback)
-    : helper_(helper),
-      poll_callback_(poll_callback),
-      bytes_in_use_(0) {
+FencedAllocator::FencedAllocator(unsigned int size, CommandBufferHelper* helper)
+    : helper_(helper), bytes_in_use_(0) {
   Block block = { FREE, 0, RoundDown(size), kUnusedToken };
   blocks_.push_back(block);
 }
@@ -144,6 +135,18 @@ unsigned int FencedAllocator::GetLargestFreeOrPendingSize() {
   return std::max(max_size, current_size);
 }
 
+// Gets the total size of all blocks marked as free.
+unsigned int FencedAllocator::GetFreeSize() {
+  FreeUnused();
+  unsigned int size = 0;
+  for (unsigned int i = 0; i < blocks_.size(); ++i) {
+    Block& block = blocks_[i];
+    if (block.state == FREE)
+      size += block.size;
+  }
+  return size;
+}
+
 // Makes sure that:
 // - there is at least one block.
 // - there are no contiguous FREE blocks (they should have been collapsed).
@@ -204,9 +207,6 @@ FencedAllocator::BlockIndex FencedAllocator::WaitForTokenAndFreeBlock(
 
 // Frees any blocks pending a token for which the token has been read.
 void FencedAllocator::FreeUnused() {
-  // Free any potential blocks that has its lifetime handled outside.
-  poll_callback_.Run();
-
   for (unsigned int i = 0; i < blocks_.size();) {
     Block& block = blocks_[i];
     if (block.state == FREE_PENDING_TOKEN &&

@@ -5,7 +5,6 @@
 #ifndef UI_COMPOSITOR_COMPOSITOR_H_
 #define UI_COMPOSITOR_COMPOSITOR_H_
 
-#include <list>
 #include <string>
 
 #include "base/containers/hash_tables.h"
@@ -58,10 +57,10 @@ namespace ui {
 
 class Compositor;
 class CompositorVSyncManager;
+class LatencyInfo;
 class Layer;
 class Reflector;
 class Texture;
-struct LatencyInfo;
 
 const int kCompositorLockTimeoutMs = 67;
 
@@ -96,8 +95,8 @@ class COMPOSITOR_EXPORT ContextFactory {
   virtual bool DoesCreateTestContexts() = 0;
 
   // Returns the OpenGL target to use for image textures.
-  virtual uint32 GetImageTextureTarget(gfx::GpuMemoryBuffer::Format format,
-                                       gfx::GpuMemoryBuffer::Usage usage) = 0;
+  virtual uint32 GetImageTextureTarget(gfx::BufferFormat format,
+                                       gfx::BufferUsage usage) = 0;
 
   // Gets the shared bitmap manager for software mode.
   virtual cc::SharedBitmapManager* GetSharedBitmapManager() = 0;
@@ -158,8 +157,7 @@ class COMPOSITOR_EXPORT Compositor
     : NON_EXPORTED_BASE(public cc::LayerTreeHostClient),
       NON_EXPORTED_BASE(public cc::LayerTreeHostSingleThreadClient) {
  public:
-  Compositor(gfx::AcceleratedWidget widget,
-             ui::ContextFactory* context_factory,
+  Compositor(ui::ContextFactory* context_factory,
              scoped_refptr<base::SingleThreadTaskRunner> task_runner);
   ~Compositor() override;
 
@@ -230,8 +228,13 @@ class COMPOSITOR_EXPORT Compositor
   // context.
   void SetAuthoritativeVSyncInterval(const base::TimeDelta& interval);
 
-  // Returns the widget for this compositor.
-  gfx::AcceleratedWidget widget() const { return widget_; }
+  // Sets the widget for the compositor to render into.
+  void SetAcceleratedWidget(gfx::AcceleratedWidget widget);
+  // Releases the widget previously set through SetAcceleratedWidget().
+  // After returning it will not be used for rendering anymore.
+  // The compositor must be set to invisible when taking away a widget.
+  gfx::AcceleratedWidget ReleaseAcceleratedWidget();
+  gfx::AcceleratedWidget widget() const;
 
   // Returns the vsync manager for this compositor.
   scoped_refptr<CompositorVSyncManager> vsync_manager() const;
@@ -283,7 +286,7 @@ class COMPOSITOR_EXPORT Compositor
   void DidBeginMainFrame() override {}
   void BeginMainFrame(const cc::BeginFrameArgs& args) override;
   void BeginMainFrameNotExpectedSoon() override;
-  void Layout() override;
+  void UpdateLayerTreeHost() override;
   void ApplyViewportDeltas(const gfx::Vector2dF& inner_delta,
                            const gfx::Vector2dF& outer_delta,
                            const gfx::Vector2dF& elastic_overscroll_delta,
@@ -340,9 +343,12 @@ class COMPOSITOR_EXPORT Compositor
 
   base::ObserverList<CompositorObserver, true> observer_list_;
   base::ObserverList<CompositorAnimationObserver> animation_observer_list_;
-  std::list<CompositorBeginFrameObserver*> begin_frame_observer_list_;
+  base::ObserverList<CompositorBeginFrameObserver, true>
+      begin_frame_observer_list_;
 
   gfx::AcceleratedWidget widget_;
+  bool widget_valid_;
+  bool output_surface_requested_;
   scoped_ptr<cc::SurfaceIdAllocator> surface_id_allocator_;
   scoped_refptr<cc::Layer> root_web_layer_;
   scoped_ptr<cc::LayerTreeHost> host_;

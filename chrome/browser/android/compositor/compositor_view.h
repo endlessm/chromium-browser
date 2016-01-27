@@ -82,9 +82,25 @@ class CompositorView : public content::CompositorClient,
   void UpdateToolbarLayer(JNIEnv* env,
                           jobject object,
                           jint toolbar_resource_id,
-                          jint progress_resource_id,
+                          jint toolbar_background_color,
+                          jint url_bar_resource_id,
+                          jfloat url_bar_alpha,
                           jfloat top_offset,
-                          bool visible);
+                          jfloat brightness,
+                          bool visible,
+                          bool show_shadow);
+  void UpdateProgressBar(JNIEnv* env,
+                         jobject object,
+                         jint progress_bar_x,
+                         jint progress_bar_y,
+                         jint progress_bar_width,
+                         jint progress_bar_height,
+                         jint progress_bar_color,
+                         jint progress_bar_background_x,
+                         jint progress_bar_background_y,
+                         jint progress_bar_background_width,
+                         jint progress_bar_background_height,
+                         jint progress_bar_background_color);
 
   void SurfaceCreated(JNIEnv* env, jobject object);
   void SurfaceDestroyed(JNIEnv* env, jobject object);
@@ -99,7 +115,7 @@ class CompositorView : public content::CompositorClient,
   void SetSceneLayer(JNIEnv* env, jobject object, jobject jscene_layer);
 
   // CompositorClient implementation:
-  void Layout() override;
+  void UpdateLayerTreeHost() override;
   void OnSwapBuffersCompleted(int pending_swap_buffers) override;
   ui::UIResourceProvider* GetUIResourceProvider();
 

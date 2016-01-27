@@ -4,6 +4,8 @@
 
 #include "components/html_viewer/web_test_delegate_impl.h"
 
+#include <iostream>
+
 #include "base/time/time.h"
 #include "cc/layers/texture_layer.h"
 #include "components/test_runner/web_task.h"
@@ -11,6 +13,7 @@
 #include "components/test_runner/web_test_proxy.h"
 #include "third_party/WebKit/public/platform/Platform.h"
 #include "third_party/WebKit/public/platform/WebString.h"
+#include "third_party/WebKit/public/platform/WebTaskRunner.h"
 #include "third_party/WebKit/public/platform/WebThread.h"
 #include "third_party/WebKit/public/platform/WebTraceLocation.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
@@ -20,7 +23,7 @@ namespace html_viewer {
 
 namespace {
 
-class InvokeTaskHelper : public blink::WebThread::Task {
+class InvokeTaskHelper : public blink::WebTaskRunner::Task {
  public:
   InvokeTaskHelper(scoped_ptr<test_runner::WebTask> task)
       : task_(task.Pass()) {}
@@ -84,18 +87,18 @@ void WebTestDelegateImpl::DidChangeBatteryStatus(
 }
 
 void WebTestDelegateImpl::PrintMessage(const std::string& message) {
-  fprintf(stderr, "%s", message.c_str());
+  std::cout << message;
 }
 
 void WebTestDelegateImpl::PostTask(test_runner::WebTask* task) {
-  blink::Platform::current()->currentThread()->postTask(
+  blink::Platform::current()->currentThread()->taskRunner()->postTask(
       blink::WebTraceLocation(__FUNCTION__, __FILE__),
       new InvokeTaskHelper(make_scoped_ptr(task)));
 }
 
 void WebTestDelegateImpl::PostDelayedTask(test_runner::WebTask* task,
                                           long long ms) {
-  blink::Platform::current()->currentThread()->postDelayedTask(
+  blink::Platform::current()->currentThread()->taskRunner()->postDelayedTask(
       blink::WebTraceLocation(__FUNCTION__, __FILE__),
       new InvokeTaskHelper(make_scoped_ptr(task)), ms);
 }
@@ -130,7 +133,9 @@ blink::WebURL WebTestDelegateImpl::RewriteLayoutTestsURL(
 }
 
 test_runner::TestPreferences* WebTestDelegateImpl::Preferences() {
-  return &prefs_;
+  if (!prefs_)
+    prefs_.reset(new test_runner::TestPreferences);
+  return prefs_.get();
 }
 
 void WebTestDelegateImpl::ApplyPreferences() {
@@ -169,6 +174,12 @@ void WebTestDelegateImpl::EvaluateInWebInspector(long call_id,
   NOTIMPLEMENTED();
 }
 
+std::string WebTestDelegateImpl::EvaluateInWebInspectorOverlay(
+    const std::string& script) {
+  NOTIMPLEMENTED();
+  return std::string();
+}
+
 void WebTestDelegateImpl::ClearAllDatabases() {
   NOTIMPLEMENTED();
 }
@@ -178,7 +189,7 @@ void WebTestDelegateImpl::SetDatabaseQuota(int quota) {
 }
 
 void WebTestDelegateImpl::SimulateWebNotificationClick(
-    const std::string& title) {
+    const std::string& title, int action_index) {
   NOTIMPLEMENTED();
 }
 
@@ -191,6 +202,21 @@ void WebTestDelegateImpl::SetDeviceColorProfile(const std::string& name) {
 }
 
 void WebTestDelegateImpl::SetBluetoothMockDataSet(const std::string& data_set) {
+  NOTIMPLEMENTED();
+}
+
+void WebTestDelegateImpl::SetBluetoothManualChooser() {
+  NOTIMPLEMENTED();
+}
+
+void WebTestDelegateImpl::GetBluetoothManualChooserEvents(
+    const base::Callback<void(const std::vector<std::string>&)>& callback) {
+  NOTIMPLEMENTED();
+}
+
+void WebTestDelegateImpl::SendBluetoothManualChooserEvent(
+    const std::string& event,
+    const std::string& argument) {
   NOTIMPLEMENTED();
 }
 
@@ -227,8 +253,13 @@ void WebTestDelegateImpl::SetLocale(const std::string& locale) {
 }
 
 void WebTestDelegateImpl::TestFinished() {
+  std::cout << "Content-Type: text/plain\n";
+  std::cout << proxy_->CaptureTree(false, false);
+  std::cout << "#EOF\n";
+
   test_interfaces_->SetTestIsRunning(false);
-  fprintf(stderr, "%s", proxy_->CaptureTree(false, false).c_str());
+  if (!completion_callback_.is_null())
+    completion_callback_.Run();
 }
 
 void WebTestDelegateImpl::CloseRemainingWindows() {
@@ -287,17 +318,10 @@ void WebTestDelegateImpl::ResetPermissions() {
   NOTIMPLEMENTED();
 }
 
-scoped_refptr<cc::TextureLayer>
-WebTestDelegateImpl::CreateTextureLayerForMailbox(
-    cc::TextureLayerClient* client) {
+bool WebTestDelegateImpl::AddMediaStreamSourceAndTrack(
+    blink::WebMediaStream* stream) {
   NOTIMPLEMENTED();
-  return nullptr;
-}
-
-blink::WebLayer* WebTestDelegateImpl::InstantiateWebLayer(
-    scoped_refptr<cc::TextureLayer> layer) {
-  NOTIMPLEMENTED();
-  return nullptr;
+  return false;
 }
 
 cc::SharedBitmapManager* WebTestDelegateImpl::GetSharedBitmapManager() {
@@ -322,6 +346,10 @@ blink::WebPlugin* WebTestDelegateImpl::CreatePluginPlaceholder(
     const blink::WebPluginParams& params) {
   NOTIMPLEMENTED();
   return nullptr;
+}
+
+void WebTestDelegateImpl::OnWebTestProxyBaseDestroy(
+    test_runner::WebTestProxyBase* base) {
 }
 
 }  // namespace html_viewer

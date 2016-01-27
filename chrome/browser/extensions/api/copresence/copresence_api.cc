@@ -9,9 +9,8 @@
 #include "base/prefs/pref_service.h"
 #include "chrome/browser/copresence/chrome_whispernet_client.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/services/gcm/gcm_profile_service.h"
 #include "chrome/browser/services/gcm/gcm_profile_service_factory.h"
-#include "chrome/common/chrome_version_info.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/extensions/api/copresence.h"
 #include "chrome/common/extensions/manifest_handlers/copresence_manifest.h"
 #include "chrome/common/pref_names.h"
@@ -19,6 +18,7 @@
 #include "components/copresence/proto/data.pb.h"
 #include "components/copresence/proto/enums.pb.h"
 #include "components/copresence/proto/rpcs.pb.h"
+#include "components/gcm_driver/gcm_profile_service.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "content/public/browser/browser_context.h"
 #include "extensions/browser/event_router.h"
@@ -147,10 +147,10 @@ void CopresenceService::HandleMessages(
   }
 
   // Send the messages to the client app.
-  scoped_ptr<Event> event(
-      new Event(events::UNKNOWN, OnMessagesReceived::kEventName,
-                OnMessagesReceived::Create(subscription_id, api_messages),
-                browser_context_));
+  scoped_ptr<Event> event(new Event(
+      events::COPRESENCE_ON_MESSAGES_RECEIVED, OnMessagesReceived::kEventName,
+      OnMessagesReceived::Create(subscription_id, api_messages),
+      browser_context_));
   EventRouter::Get(browser_context_)
       ->DispatchEventToExtension(app_id, event.Pass());
   DVLOG(2) << "Passed " << api_messages.size() << " messages to app \""
@@ -160,10 +160,10 @@ void CopresenceService::HandleMessages(
 void CopresenceService::HandleStatusUpdate(
     copresence::CopresenceStatus status) {
   DCHECK_EQ(copresence::AUDIO_FAIL, status);
-  scoped_ptr<Event> event(
-      new Event(events::UNKNOWN, OnStatusUpdated::kEventName,
-                OnStatusUpdated::Create(api::copresence::STATUS_AUDIOFAILED),
-                browser_context_));
+  scoped_ptr<Event> event(new Event(
+      events::COPRESENCE_ON_STATUS_UPDATED, OnStatusUpdated::kEventName,
+      OnStatusUpdated::Create(api::copresence::STATUS_AUDIOFAILED),
+      browser_context_));
   EventRouter::Get(browser_context_)->BroadcastEvent(event.Pass());
   DVLOG(2) << "Sent Audio Failed status update.";
 }
@@ -173,7 +173,7 @@ net::URLRequestContextGetter* CopresenceService::GetRequestContext() const {
 }
 
 const std::string CopresenceService::GetPlatformVersionString() const {
-  return chrome::VersionInfo().CreateVersionString();
+  return chrome::GetVersionString();
 }
 
 const std::string

@@ -10,11 +10,11 @@
 #include <vector>
 
 #include "base/compiler_specific.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "chrome/browser/devtools/devtools_window.h"
-#include "chrome/browser/signin/signin_header_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_context.h"
@@ -112,6 +112,12 @@ class BrowserView : public BrowserWindow,
 
   // Returns the BrowserView used for the specified Browser.
   static BrowserView* GetBrowserViewForBrowser(const Browser* browser);
+
+  // Paints a 1 device-pixel-thick horizontal line (regardless of device scale
+  // factor) flush with the bottom of |bounds|.
+  static void Paint1pxHorizontalLine(gfx::Canvas* canvas,
+                                     SkColor color,
+                                     const gfx::Rect& bounds);
 
   // Returns a Browser instance of this view.
   Browser* browser() { return browser_.get(); }
@@ -291,6 +297,7 @@ class BrowserView : public BrowserWindow,
   void UpdateToolbar(content::WebContents* contents) override;
   void ResetToolbarTabState(content::WebContents* contents) override;
   void FocusToolbar() override;
+  ToolbarActionsBar* GetToolbarActionsBar() override;
   void ToolbarSizeChanged(bool is_animating) override;
   void FocusAppMenu() override;
   void FocusBookmarksToolbar() override;
@@ -309,11 +316,14 @@ class BrowserView : public BrowserWindow,
   void ShowBookmarkAppBubble(
       const WebApplicationInfo& web_app_info,
       const ShowBookmarkAppBubbleCallback& callback) override;
+  autofill::SaveCardBubbleView* ShowSaveCreditCardBubble(
+      content::WebContents* contents,
+      autofill::SaveCardBubbleController* controller,
+      bool is_user_gesture) override;
   void ShowTranslateBubble(content::WebContents* contents,
                            translate::TranslateStep step,
                            translate::TranslateErrors::Type error_type,
                            bool is_user_gesture) override;
-  bool ShowSessionCrashedBubble() override;
   bool IsProfileResetBubbleSupported() const override;
   GlobalErrorBubbleViewBase* ShowProfileResetBubble(
       const base::WeakPtr<ProfileResetGlobalError>& global_error) override;
@@ -334,10 +344,11 @@ class BrowserView : public BrowserWindow,
       bool app_modal,
       const base::Callback<void(bool)>& callback) override;
   void UserChangedTheme() override;
-  void ShowWebsiteSettings(Profile* profile,
-                           content::WebContents* web_contents,
-                           const GURL& url,
-                           const content::SSLStatus& ssl) override;
+  void ShowWebsiteSettings(
+      Profile* profile,
+      content::WebContents* web_contents,
+      const GURL& url,
+      const SecurityStateModel::SecurityInfo& security_info) override;
   void ShowAppMenu() override;
   bool PreHandleKeyboardEvent(const content::NativeWebKeyboardEvent& event,
                               bool* is_keyboard_shortcut) override;
@@ -454,8 +465,6 @@ class BrowserView : public BrowserWindow,
   // interface to keep these two classes decoupled and testable.
   friend class BrowserViewLayoutDelegateImpl;
   FRIEND_TEST_ALL_PREFIXES(BrowserViewTest, BrowserView);
-  FRIEND_TEST_ALL_PREFIXES(BrowserViewsAccessibilityTest,
-                           TestAboutChromeViewAccObj);
 
   enum FullscreenMode {
     NORMAL_FULLSCREEN,
@@ -680,7 +689,7 @@ class BrowserView : public BrowserWindow,
 #endif
 
   // The timer used to update frames for the Loading Animation.
-  base::RepeatingTimer<BrowserView> loading_animation_timer_;
+  base::RepeatingTimer loading_animation_timer_;
 
   views::UnhandledKeyboardEventHandler unhandled_keyboard_event_handler_;
 

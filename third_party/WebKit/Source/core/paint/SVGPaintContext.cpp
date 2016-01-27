@@ -48,7 +48,7 @@ SVGPaintContext::~SVGPaintContext()
         // This isn't strictly required (e.g., m_paintInfo.rect is not used
         // after this).
         m_paintInfo.context = m_originalPaintInfo->context;
-        m_paintInfo.rect = m_originalPaintInfo->rect;
+        m_paintInfo.m_cullRect.m_rect = m_originalPaintInfo->m_cullRect.m_rect;
     }
 
     if (m_masker) {
@@ -60,7 +60,7 @@ SVGPaintContext::~SVGPaintContext()
     if (m_clipper) {
         ASSERT(SVGResourcesCache::cachedResourcesForLayoutObject(m_object));
         ASSERT(SVGResourcesCache::cachedResourcesForLayoutObject(m_object)->clipper() == m_clipper);
-        SVGClipPainter(*m_clipper).postApplyStatefulResource(*m_object, m_paintInfo.context, m_clipperState);
+        SVGClipPainter(*m_clipper).finishEffect(*m_object, m_paintInfo.context, m_clipperState);
     }
 }
 
@@ -111,9 +111,9 @@ void SVGPaintContext::applyCompositingIfNecessary()
     WebBlendMode blendMode = style.hasBlendMode() && m_object->isBlendingAllowed() ?
         style.blendMode() : WebBlendModeNormal;
     if (opacity < 1 || blendMode != WebBlendModeNormal) {
-        m_clipRecorder = adoptPtr(new FloatClipRecorder(*m_paintInfo.context, *m_object, m_paintInfo.phase, m_object->paintInvalidationRectInLocalCoordinates()));
+        const FloatRect compositingBounds = m_object->paintInvalidationRectInLocalCoordinates();
         m_compositingRecorder = adoptPtr(new CompositingRecorder(*m_paintInfo.context, *m_object,
-            WebCoreCompositeToSkiaComposite(CompositeSourceOver, blendMode), opacity));
+            WebCoreCompositeToSkiaComposite(CompositeSourceOver, blendMode), opacity, &compositingBounds));
     }
 }
 
@@ -123,7 +123,7 @@ bool SVGPaintContext::applyClipIfNecessary(SVGResources* resources)
     // m_object->style()->clipPath() corresponds to '-webkit-clip-path'.
     // FIXME: We should unify the clip-path and -webkit-clip-path codepaths.
     if (LayoutSVGResourceClipper* clipper = resources ? resources->clipper() : nullptr) {
-        if (!SVGClipPainter(*clipper).applyStatefulResource(*m_object, m_paintInfo.context, m_clipperState))
+        if (!SVGClipPainter(*clipper).prepareEffect(*m_object, m_object->objectBoundingBox(), m_object->paintInvalidationRectInLocalCoordinates(), m_paintInfo.context, m_clipperState))
             return false;
         m_clipper = clipper;
     } else {
@@ -167,7 +167,7 @@ bool SVGPaintContext::applyFilterIfNecessary(SVGResources* resources)
         // Because we cache the filter contents and do not invalidate on paint
         // invalidation rect changes, we need to paint the entire filter region
         // so elements outside the initial paint (due to scrolling, etc) paint.
-        m_paintInfo.rect = LayoutRect::infiniteIntRect();
+        m_paintInfo.m_cullRect.m_rect = LayoutRect::infiniteIntRect();
     }
     return true;
 }
@@ -183,17 +183,17 @@ bool SVGPaintContext::isIsolationInstalled() const
     return false;
 }
 
-void SVGPaintContext::paintSubtree(GraphicsContext* context, LayoutObject* item)
+void SVGPaintContext::paintSubtree(GraphicsContext* context, const LayoutObject* item)
 {
     ASSERT(context);
     ASSERT(item);
     ASSERT(!item->needsLayout());
 
-    PaintInfo info(context, LayoutRect::infiniteIntRect(), PaintPhaseForeground, PaintBehaviorNormal);
+    PaintInfo info(context, LayoutRect::infiniteIntRect(), PaintPhaseForeground, GlobalPaintNormalPhase, PaintLayerNoFlag);
     item->paint(info, IntPoint());
 }
 
-bool SVGPaintContext::paintForLayoutObject(const PaintInfo& paintInfo, const ComputedStyle& style, LayoutObject& layoutObject, LayoutSVGResourceMode resourceMode, SkPaint& paint, const AffineTransform* additionalPaintServerTransform)
+bool SVGPaintContext::paintForLayoutObject(const PaintInfo& paintInfo, const ComputedStyle& style, const LayoutObject& layoutObject, LayoutSVGResourceMode resourceMode, SkPaint& paint, const AffineTransform* additionalPaintServerTransform)
 {
     if (paintInfo.isRenderingClipPathAsMaskImage()) {
         if (resourceMode == ApplyToStrokeMode)
@@ -214,7 +214,10 @@ bool SVGPaintContext::paintForLayoutObject(const PaintInfo& paintInfo, const Com
     float paintAlpha = resourceMode == ApplyToFillMode ? svgStyle.fillOpacity() : svgStyle.strokeOpacity();
     paintServer.applyToSkPaint(paint, paintAlpha);
 
-    paint.setFilterQuality(WebCoreInterpolationQualityToSkFilterQuality(InterpolationDefault));
+    // We always set filter quality to 'low' here. This value will only have an
+    // effect for patterns, which are SkPictures, so using high-order filter
+    // should have little effect on the overall quality.
+    paint.setFilterQuality(kLow_SkFilterQuality);
 
     // TODO(fs): The color filter can set when generating a picture for a mask -
     // due to color-interpolation. We could also just apply the

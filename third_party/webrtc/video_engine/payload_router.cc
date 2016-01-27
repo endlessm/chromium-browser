@@ -11,9 +11,9 @@
 #include "webrtc/video_engine/payload_router.h"
 
 #include "webrtc/base/checks.h"
-#include "webrtc/modules/rtp_rtcp/interface/rtp_rtcp.h"
-#include "webrtc/modules/rtp_rtcp/interface/rtp_rtcp_defines.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 
 namespace webrtc {
 

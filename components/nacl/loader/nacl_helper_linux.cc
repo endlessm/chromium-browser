@@ -32,24 +32,21 @@
 #include "base/process/process_handle.h"
 #include "base/rand_util.h"
 #include "components/nacl/common/nacl_switches.h"
-#include "components/nacl/loader/nacl_listener.h"
-#include "components/nacl/loader/nonsfi/nonsfi_listener.h"
 #include "components/nacl/loader/sandbox_linux/nacl_sandbox_linux.h"
 #include "content/public/common/content_descriptors.h"
 #include "content/public/common/send_zygote_child_ping_linux.h"
 #include "content/public/common/zygote_fork_delegate_linux.h"
-#include "crypto/nss_util.h"
 #include "ipc/ipc_descriptors.h"
 #include "ipc/ipc_switches.h"
 #include "sandbox/linux/services/credentials.h"
-#include "sandbox/linux/services/libc_urandom_override.h"
 #include "sandbox/linux/services/namespace_sandbox.h"
 
 #if defined(OS_NACL_NONSFI)
+#include "components/nacl/loader/nonsfi/nonsfi_listener.h"
 #include "native_client/src/public/nonsfi/irt_exception_handling.h"
 #else
 #include <link.h>
-#include "components/nacl/loader/nonsfi/irt_exception_handling.h"
+#include "components/nacl/loader/nacl_listener.h"
 #endif
 
 namespace {
@@ -59,6 +56,7 @@ struct NaClLoaderSystemInfo {
   long number_of_cores;
 };
 
+#if defined(OS_NACL_NONSFI)
 // Replace |file_descriptor| with the reading end of a closed pipe.
 void ReplaceFDWithDummy(int file_descriptor) {
   // Make sure that file_descriptor is an open descriptor.
@@ -69,6 +67,7 @@ void ReplaceFDWithDummy(int file_descriptor) {
   PCHECK(0 == IGNORE_EINTR(close(pipefd[0])));
   PCHECK(0 == IGNORE_EINTR(close(pipefd[1])));
 }
+#endif
 
 // The child must mimic the behavior of zygote_main_linux.cc on the child
 // side of the fork. See zygote_main_linux.cc:HandleForkRequest from
@@ -81,27 +80,27 @@ void BecomeNaClLoader(base::ScopedFD browser_fd,
   VLOG(1) << "NaCl loader: setting up IPC descriptor";
   // Close or shutdown IPC channels that we don't need anymore.
   PCHECK(0 == IGNORE_EINTR(close(kNaClZygoteDescriptor)));
-  // In Non-SFI mode, it's important to close any non-expected IPC channels.
-  if (uses_nonsfi_mode) {
-    // The low-level kSandboxIPCChannel is used by renderers and NaCl for
-    // various operations. See the LinuxSandbox::METHOD_* methods. NaCl uses
-    // LinuxSandbox::METHOD_MAKE_SHARED_MEMORY_SEGMENT in SFI mode, so this
-    // should only be closed in Non-SFI mode.
-    // This file descriptor is insidiously used by a number of APIs. Closing it
-    // could lead to difficult to debug issues. Instead of closing it, replace
-    // it with a dummy.
-    const int sandbox_ipc_channel =
-        base::GlobalDescriptors::kBaseDescriptor + kSandboxIPCChannel;
 
-    ReplaceFDWithDummy(sandbox_ipc_channel);
-
-    // Install crash signal handlers before disallowing system calls.
 #if defined(OS_NACL_NONSFI)
-    nonsfi_initialize_signal_handler();
+  // In Non-SFI mode, it's important to close any non-expected IPC channels.
+  CHECK(uses_nonsfi_mode);
+  // The low-level kSandboxIPCChannel is used by renderers and NaCl for
+  // various operations. See the LinuxSandbox::METHOD_* methods. NaCl uses
+  // LinuxSandbox::METHOD_MAKE_SHARED_MEMORY_SEGMENT in SFI mode, so this
+  // should only be closed in Non-SFI mode.
+  // This file descriptor is insidiously used by a number of APIs. Closing it
+  // could lead to difficult to debug issues. Instead of closing it, replace
+  // it with a dummy.
+  const int sandbox_ipc_channel =
+      base::GlobalDescriptors::kBaseDescriptor + kSandboxIPCChannel;
+
+  ReplaceFDWithDummy(sandbox_ipc_channel);
+
+  // Install crash signal handlers before disallowing system calls.
+  nonsfi_initialize_signal_handler();
 #else
-    nacl::nonsfi::InitializeSignalHandler();
+  CHECK(!uses_nonsfi_mode);
 #endif
-  }
 
   // Always ignore SIGPIPE, for consistency with other Chrome processes and
   // because some IPC code, such as sync_socket_posix.cc, requires this.
@@ -123,17 +122,11 @@ void BecomeNaClLoader(base::ScopedFD browser_fd,
   nacl::nonsfi::NonSfiListener listener;
   listener.Listen();
 #else
-  // TODO(hidehiko): Drop Non-SFI supporting from nacl_helper after the
-  // nacl_helper_nonsfi switching is done.
-  if (uses_nonsfi_mode) {
-    nacl::nonsfi::NonSfiListener listener;
-    listener.Listen();
-  } else {
-    NaClListener listener;
-    listener.set_prereserved_sandbox_size(system_info.prereserved_sandbox_size);
-    listener.set_number_of_cores(system_info.number_of_cores);
-    listener.Listen();
-  }
+  CHECK(!uses_nonsfi_mode);
+  NaClListener listener;
+  listener.set_prereserved_sandbox_size(system_info.prereserved_sandbox_size);
+  listener.set_number_of_cores(system_info.number_of_cores);
+  listener.Listen();
 #endif
   _exit(0);
 }
@@ -443,24 +436,6 @@ int main(int argc, char* argv[]) {
   base::AtExitManager exit_manager;
   base::RandUint64();  // acquire /dev/urandom fd before sandbox is raised
 
-#if !defined(OS_NACL_NONSFI)
-  // NSS is only needed for SFI NaCl.
-  // Allows NSS to fopen() /dev/urandom.
-  sandbox::InitLibcUrandomOverrides();
-#if !defined(USE_OPENSSL)
-  // Configure NSS for use inside the NaCl process.
-  // The fork check has not caused problems for NaCl, but this appears to be
-  // best practice (see other places LoadNSSLibraries is called.)
-  crypto::DisableNSSForkCheck();
-  // Without this line on Linux, HMAC::Init will instantiate a singleton that
-  // in turn attempts to open a file.  Disabling this behavior avoids a ~70 ms
-  // stall the first time HMAC is used.
-  crypto::ForceNSSNoDBInit();
-  // Load shared libraries before sandbox is raised.
-  // NSS is needed to perform hashing for validation caching.
-  crypto::LoadNSSLibraries();
-#endif  // !defined(USE_OPENSSL)
-#endif  // defined(OS_NACL_NONSFI)
   const NaClLoaderSystemInfo system_info = {
 #if !defined(OS_NACL_NONSFI)
     // These are not used by nacl_helper_nonsfi.

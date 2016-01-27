@@ -15,6 +15,8 @@ static_library("search_engines") {
     "keyword_table.h",
     "keyword_web_data_service.cc",
     "keyword_web_data_service.h",
+    "search_engine_data_type_controller.cc",
+    "search_engine_data_type_controller.h",
     "search_engine_type.h",
     "search_engines_pref_names.cc",
     "search_engines_pref_names.h",
@@ -56,8 +58,9 @@ static_library("search_engines") {
     "//components/metrics/proto",
     "//components/pref_registry",
     "//components/rappor",
+    "//components/sync_driver",
     "//components/strings",
-    "//components/url_fixer",
+    "//components/url_formatter",
     "//components/webdata/common",
     "//google_apis",
     "//net",
@@ -86,8 +89,31 @@ source_set("test_support") {
     "testing_search_terms_data.h",
   ]
 
-  deps = [
+  public_deps = [
     ":search_engines",
+    "//testing/gtest",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+  sources = [
+    "default_search_manager_unittest.cc",
+    "default_search_pref_migration_unittest.cc",
+    "keyword_table_unittest.cc",
+    "search_host_to_urls_map_unittest.cc",
+    "template_url_prepopulate_data_unittest.cc",
+    "template_url_service_util_unittest.cc",
+    "template_url_unittest.cc",
+  ]
+  if (enable_configuration_policy) {
+    sources += [ "default_search_policy_handler_unittest.cc" ]
+  }
+
+  deps = [
+    "//components/pref_registry:test_support",
+    ":test_support",
+    "//testing/gmock",
     "//testing/gtest",
   ]
 }

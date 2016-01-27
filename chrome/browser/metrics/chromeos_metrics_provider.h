@@ -6,7 +6,7 @@
 #define CHROME_BROWSER_METRICS_CHROMEOS_METRICS_PROVIDER_H_
 
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/metrics/perf_provider_chromeos.h"
+#include "chrome/browser/metrics/perf/perf_provider_chromeos.h"
 #include "components/metrics/metrics_provider.h"
 
 namespace device {
@@ -23,6 +23,16 @@ class PrefService;
 // Performs ChromeOS specific metrics logging.
 class ChromeOSMetricsProvider : public metrics::MetricsProvider {
  public:
+  // Possible device enrollment status for a Chrome OS device.
+  // Used by UMA histogram, so entries shouldn't be reordered or removed.
+  enum EnrollmentStatus {
+    NON_MANAGED,
+    UNUSED,  // Formerly MANAGED_EDU, see crbug.com/462770.
+    MANAGED,
+    ERROR_GETTING_ENROLLMENT_STATUS,
+    ENROLLMENT_STATUS_MAX,
+  };
+
   ChromeOSMetricsProvider();
   ~ChromeOSMetricsProvider() override;
 
@@ -30,6 +40,9 @@ class ChromeOSMetricsProvider : public metrics::MetricsProvider {
 
   // Records a crash.
   static void LogCrash(const std::string& crash_type);
+
+  // Returns Enterprise Enrollment status.
+  static EnrollmentStatus GetEnrollmentStatus();
 
   // Loads hardware class information. When this task is complete, |callback|
   // is run.

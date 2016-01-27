@@ -16,13 +16,16 @@ MockBluetoothDevice::MockBluetoothDevice(MockBluetoothAdapter* adapter,
                                          const std::string& address,
                                          bool paired,
                                          bool connected)
-    : bluetooth_class_(bluetooth_class),
+    : BluetoothDevice(adapter),
+      bluetooth_class_(bluetooth_class),
       name_(name),
       address_(address) {
   ON_CALL(*this, GetBluetoothClass())
       .WillByDefault(testing::Return(bluetooth_class_));
   ON_CALL(*this, GetDeviceName())
       .WillByDefault(testing::Return(name_));
+  ON_CALL(*this, GetIdentifier())
+      .WillByDefault(testing::Return(address_ + "-Identifier"));
   ON_CALL(*this, GetAddress())
       .WillByDefault(testing::Return(address_));
   ON_CALL(*this, GetDeviceType())

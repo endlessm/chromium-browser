@@ -12,7 +12,6 @@
 #include "components/content_settings/core/common/content_settings_types.h"
 
 class GURL;
-
 class PermissionContextBase;
 
 // Default implementation of PermissionBubbleRequest, it is assumed that the
@@ -33,7 +32,8 @@ class PermissionBubbleRequestImpl : public PermissionBubbleRequest {
   ~PermissionBubbleRequestImpl() override;
 
   // PermissionBubbleRequest:
-  int GetIconID() const override;
+  gfx::VectorIconId GetVectorIconId() const override;
+  int GetIconId() const override;
   base::string16 GetMessageText() const override;
   base::string16 GetMessageTextFragment() const override;
   bool HasUserGesture() const override;

@@ -57,13 +57,12 @@ scoped_ptr<extensions::Command> GetCommand(
   return result.Pass();
 }
 
-} // namespace
+}  // namespace
 
-ExtensionInstalledBubble::ExtensionInstalledBubble(Delegate* delegate,
-                                                   const Extension* extension,
+ExtensionInstalledBubble::ExtensionInstalledBubble(const Extension* extension,
                                                    Browser* browser,
                                                    const SkBitmap& icon)
-    : delegate_(delegate),
+    : bubble_ui_(nullptr),
       extension_(extension),
       browser_(browser),
       icon_(icon),
@@ -129,9 +128,19 @@ base::string16 ExtensionInstalledBubble::GetHowToUseDescription() const {
       l10n_util::GetStringFUTF16(message_id, extra);
 }
 
+void ExtensionInstalledBubble::SetBubbleUi(
+    ExtensionInstalledBubbleUi* bubble_ui) {
+  DCHECK(!bubble_ui_);
+  DCHECK(bubble_ui);
+  bubble_ui_ = bubble_ui;
+}
+
 void ExtensionInstalledBubble::ShowInternal() {
-  if (delegate_->MaybeShowNow())
+  if (ExtensionInstalledBubbleUi::ShouldShow(this)) {
+    DCHECK(bubble_ui_);
+    bubble_ui_->Show();
     return;
+  }
   if (animation_wait_retries_++ < kAnimationWaitRetries) {
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
         FROM_HERE, base::Bind(&ExtensionInstalledBubble::ShowInternal,
@@ -172,5 +181,5 @@ void ExtensionInstalledBubble::Observe(
     const content::NotificationDetails& details) {
   DCHECK_EQ(type, chrome::NOTIFICATION_BROWSER_CLOSING)
       << "Received unexpected notification";
-  delete delegate_;
+  delete bubble_ui_;
 }

@@ -5,7 +5,7 @@
 #include "device/vibration/vibration_manager_impl.h"
 
 #include "base/basictypes.h"
-#include "third_party/mojo/src/mojo/public/cpp/bindings/strong_binding.h"
+#include "mojo/public/cpp/bindings/strong_binding.h"
 
 namespace device {
 
@@ -30,7 +30,7 @@ class VibrationManagerEmptyImpl : public VibrationManager {
 
 }  // namespace
 
-//static
+// static
 void VibrationManagerImpl::Create(
     mojo::InterfaceRequest<VibrationManager> request) {
   new VibrationManagerEmptyImpl(request.Pass());

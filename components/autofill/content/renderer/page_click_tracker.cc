@@ -7,7 +7,7 @@
 #include "base/command_line.h"
 #include "components/autofill/content/renderer/form_autofill_util.h"
 #include "components/autofill/content/renderer/page_click_listener.h"
-#include "components/autofill/core/common/autofill_switches.h"
+#include "components/autofill/core/common/autofill_util.h"
 #include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
 #include "third_party/WebKit/public/platform/WebPoint.h"
@@ -18,6 +18,7 @@
 #include "third_party/WebKit/public/web/WebInputEvent.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
 #include "third_party/WebKit/public/web/WebTextAreaElement.h"
+#include "third_party/WebKit/public/web/WebUserGestureIndicator.h"
 #include "third_party/WebKit/public/web/WebView.h"
 
 using blink::WebElement;
@@ -29,6 +30,9 @@ using blink::WebNode;
 using blink::WebPoint;
 using blink::WebSize;
 using blink::WebTextAreaElement;
+using blink::WebUserGestureIndicator;
+
+namespace autofill {
 
 namespace {
 
@@ -41,7 +45,7 @@ const WebInputElement GetTextWebInputElement(const WebNode& node) {
   if (!element.hasHTMLTagName("input"))
     return WebInputElement();
   const WebInputElement* input = blink::toWebInputElement(&element);
-  if (!autofill::IsTextInput(input))
+  if (!form_util::IsTextInput(input))
     return WebInputElement();
   return *input;
 }
@@ -60,8 +64,6 @@ const WebTextAreaElement GetWebTextAreaElement(const WebNode& node) {
 
 }  // namespace
 
-namespace autofill {
-
 PageClickTracker::PageClickTracker(content::RenderFrame* render_frame,
                                    PageClickListener* listener)
     : content::RenderFrameObserver(render_frame),
@@ -77,23 +79,24 @@ PageClickTracker::~PageClickTracker() {
 void PageClickTracker::OnMouseDown(const WebNode& mouse_down_node) {
   focused_node_was_last_clicked_ = !mouse_down_node.isNull() &&
                                    mouse_down_node.focused();
+
+  if (IsKeyboardAccessoryEnabled())
+    DoFocusChangeComplete();
 }
 
 void PageClickTracker::FocusedNodeChanged(const WebNode& node) {
   was_focused_before_now_ = false;
 
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableAccessorySuggestionView)) {
+  if (IsKeyboardAccessoryEnabled() &&
+      WebUserGestureIndicator::isProcessingUserGesture()) {
     focused_node_was_last_clicked_ = true;
     DoFocusChangeComplete();
   }
 }
 
 void PageClickTracker::FocusChangeComplete() {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableAccessorySuggestionView)) {
+  if (IsKeyboardAccessoryEnabled())
     return;
-  }
 
   DoFocusChangeComplete();
 }

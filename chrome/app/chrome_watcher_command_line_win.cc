@@ -12,29 +12,36 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/common/chrome_switches.h"
+#include "content/public/common/content_switches.h"
 
 namespace {
 
 const char kOnIninitializedEventHandleSwitch[] = "on-initialized-event-handle";
 const char kParentHandleSwitch[] = "parent-handle";
+const char kMainThreadIdSwitch[] = "main-thread-id";
 
 void AppendHandleSwitch(const std::string& switch_name,
                         HANDLE handle,
                         base::CommandLine* command_line) {
   command_line->AppendSwitchASCII(
-      switch_name, base::UintToString(reinterpret_cast<unsigned int>(handle)));
+      switch_name, base::UintToString(reinterpret_cast<uint32_t>(handle)));
 }
 
-HANDLE ReadHandleFromSwitch(const base::CommandLine& command_line,
+uint32_t ReadUintSwitch(const base::CommandLine& command_line,
                             const std::string& switch_name) {
   std::string switch_string = command_line.GetSwitchValueASCII(switch_name);
   unsigned int switch_uint = 0;
   if (switch_string.empty() ||
       !base::StringToUint(switch_string, &switch_uint)) {
     DLOG(ERROR) << "Missing or invalid " << switch_name << " argument.";
-    return nullptr;
+    return 0;
   }
-  return reinterpret_cast<HANDLE>(switch_uint);
+  return switch_uint;
+}
+
+HANDLE ReadHandleFromSwitch(const base::CommandLine& command_line,
+                            const std::string& switch_name) {
+  return reinterpret_cast<HANDLE>(ReadUintSwitch(command_line, switch_name));
 }
 
 }  // namespace
@@ -42,9 +49,12 @@ HANDLE ReadHandleFromSwitch(const base::CommandLine& command_line,
 base::CommandLine GenerateChromeWatcherCommandLine(
     const base::FilePath& chrome_exe,
     HANDLE parent_process,
+    DWORD main_thread_id,
     HANDLE on_initialized_event) {
   base::CommandLine command_line(chrome_exe);
   command_line.AppendSwitchASCII(switches::kProcessType, "watcher");
+  command_line.AppendSwitchASCII(kMainThreadIdSwitch,
+                                 base::UintToString(main_thread_id));
   AppendHandleSwitch(kOnIninitializedEventHandleSwitch, on_initialized_event,
                      &command_line);
   AppendHandleSwitch(kParentHandleSwitch, parent_process, &command_line);
@@ -54,6 +64,7 @@ base::CommandLine GenerateChromeWatcherCommandLine(
 bool InterpretChromeWatcherCommandLine(
     const base::CommandLine& command_line,
     base::win::ScopedHandle* parent_process,
+    DWORD* main_thread_id,
     base::win::ScopedHandle* on_initialized_event) {
   DCHECK(on_initialized_event);
   DCHECK(parent_process);
@@ -66,6 +77,7 @@ bool InterpretChromeWatcherCommandLine(
       ReadHandleFromSwitch(command_line, kParentHandleSwitch);
   HANDLE on_initialized_event_handle =
       ReadHandleFromSwitch(command_line, kOnIninitializedEventHandleSwitch);
+  *main_thread_id = ReadUintSwitch(command_line, kMainThreadIdSwitch);
 
   if (parent_handle) {
     // Initial test of the handle, a zero PID indicates invalid handle, or not
@@ -93,10 +105,12 @@ bool InterpretChromeWatcherCommandLine(
     }
   }
 
-  if (!on_initialized_event->IsValid() || !parent_process->IsValid()) {
+  if (!*main_thread_id || !on_initialized_event->IsValid() ||
+      !parent_process->IsValid()) {
     // If one was valid and not the other, free the valid one.
     on_initialized_event->Close();
     parent_process->Close();
+    *main_thread_id = 0;
     return false;
   }
 

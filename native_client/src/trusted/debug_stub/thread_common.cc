@@ -17,7 +17,16 @@
 
 namespace {
 
+#if NACL_ARCH(NACL_BUILD_ARCH) == NACL_x86
 const int kX86TrapFlag = 1 << 8;
+#endif
+
+bool IsZero(const uint8_t *buf, uint32_t size) {
+  for (uint32_t i = 0; i < size; i++) {
+    if (buf[i] != 0) return false;
+  }
+  return true;
+}
 
 }  // namespace
 
@@ -53,6 +62,15 @@ bool Thread::GetRegisters(uint8_t *dst) {
     const gdb_rsp::Abi::RegDef *reg = abi->GetRegisterDef(a);
     if (reg->type_ == gdb_rsp::Abi::READ_ONLY_ZERO) {
       memset(dst + reg->offset_, 0, reg->bytes_);
+    } else if (reg->type_ == gdb_rsp::Abi::ARM_STATUS) {
+      CHECK(NACL_ARCH(NACL_BUILD_ARCH) == NACL_arm);
+      CHECK(reg->bytes_ == 4);
+      uint32_t reg_value = *((uint32_t*)((char *) &context_ + reg->offset_));
+      // Mask all but top 4 bits (NZCV).
+      reg_value &= 0xF0000000;
+      memcpy(dst + reg->offset_,
+             &reg_value,
+             reg->bytes_);
     } else {
       memcpy(dst + reg->offset_,
              (char *) &context_ + reg->offset_,
@@ -64,36 +82,88 @@ bool Thread::GetRegisters(uint8_t *dst) {
 
 bool Thread::SetRegisters(uint8_t *src) {
   const gdb_rsp::Abi *abi = gdb_rsp::Abi::Get();
+  bool valid = true;
+  // Validate all registers before making any changes.
+  for (uint32_t a = 0; a < abi->GetRegisterCount(); a++) {
+    const gdb_rsp::Abi::RegDef *reg = abi->GetRegisterDef(a);
+    if (reg->type_ == gdb_rsp::Abi::READ_ONLY) {
+      // Ensure read-only values haven't changed.
+      valid &= memcmp(src + reg->offset_,
+                      (char *) &context_ + reg->offset_,
+                      reg->bytes_) == 0;
+    } else if (reg->type_ == gdb_rsp::Abi::READ_ONLY_ZERO) {
+      // Ensure read-only zero values are zero or unchanged.
+      valid &= memcmp(src + reg->offset_,
+                      (char *) &context_ + reg->offset_,
+                      reg->bytes_) == 0 ||
+               IsZero(src + reg->offset_, reg->bytes_);
+    } else if (reg->type_ == gdb_rsp::Abi::ARM_TRUSTED_PTR) {
+      CHECK(NACL_ARCH(NACL_BUILD_ARCH) == NACL_arm);
+      CHECK(reg->bytes_ == 4);
+      uint32_t new_val = *((uint32_t*)(src + reg->offset_));
+      // Ensure high 2 bits are zero.
+      valid &= (new_val & 0x3FFFFFFF) == new_val;
+    } else if (reg->type_ == gdb_rsp::Abi::ARM_STATUS) {
+      CHECK(NACL_ARCH(NACL_BUILD_ARCH) == NACL_arm);
+      CHECK(reg->bytes_ == 4);
+      uint32_t new_val = *((uint32_t*)(src + reg->offset_));
+      // Ensure only high 4 bits (NZCV) have changed or lower 28 bits are 0.
+      valid &= (new_val & 0x0FFFFFFF) == 0;
+    } else if (reg->type_ == gdb_rsp::Abi::X86_64_TRUSTED_PTR) {
+      CHECK(NACL_ARCH(NACL_BUILD_ARCH) == NACL_x86 &&
+            NACL_BUILD_SUBARCH == 64);
+      CHECK(reg->bytes_ == 8);
+      // Ensure high 32 bits are zero or unchanged.
+      valid &= memcmp(src + reg->offset_ + 4,
+                      (char *) &context_ + reg->offset_ + 4,
+                      4) == 0 || IsZero(src + reg->offset_ + 4, 4);
+    }
+    if (!valid) return false;
+  }
+
   for (uint32_t a = 0; a < abi->GetRegisterCount(); a++) {
     const gdb_rsp::Abi::RegDef *reg = abi->GetRegisterDef(a);
     if (reg->type_ == gdb_rsp::Abi::READ_ONLY ||
         reg->type_ == gdb_rsp::Abi::READ_ONLY_ZERO) {
       // Do not change read-only registers.
-      // TODO(eaeltsin): it is an error if new value isn't equal to old value.
-      // Suppress it for now as this is used in G packet that writes all
-      // registers at once, and its failure might confuse GDB.
-      // We can start actually reporting the error when we support P packet
-      // that writes registers one at a time, as failure to write a single
-      // register should be much less confusing.
-    } else if (NACL_ARCH(NACL_BUILD_ARCH) == NACL_x86 &&
-               NACL_BUILD_SUBARCH == 64 &&
-               reg->type_ == gdb_rsp::Abi::X86_64_TRUSTED_PTR) {
+    } else if (reg->type_ == gdb_rsp::Abi::X86_64_TRUSTED_PTR) {
+      CHECK(NACL_ARCH(NACL_BUILD_ARCH) == NACL_x86 &&
+            NACL_BUILD_SUBARCH == 64);
+      CHECK(reg->bytes_ == 8);
       // Do not change high 32 bits.
       // GDB should work with untrusted addresses, thus high 32 bits of new
       // value should be 0.
-      // TODO(eaeltsin): this is not fully implemented yet, and high 32 bits
-      // of new value may also be equal to high 32 bits of old value.
-      // Other cases are definitely bogus.
-      CHECK(reg->bytes_ == 8);
       memcpy((char *) &context_ + reg->offset_,
              src + reg->offset_, 4);
+    } else if (reg->type_ == gdb_rsp::Abi::ARM_STATUS) {
+      CHECK(NACL_ARCH(NACL_BUILD_ARCH) == NACL_arm);
+      CHECK(reg->bytes_ == 4);
+
+      uint32_t new_val = *((uint32_t*)(src + reg->offset_));
+      uint32_t cur_val = *((uint32_t*)((char *) &context_ + reg->offset_));
+
+      // Only copy 4 upper bits (NZCV) of cpsr.
+      new_val &= 0xF0000000;
+      cur_val &= 0x0FFFFFFF;
+      new_val = new_val | cur_val;
+
+      memcpy((char *) &context_ + reg->offset_, &new_val, 4);
     } else {
       memcpy((char *) &context_ + reg->offset_,
              src + reg->offset_, reg->bytes_);
     }
   }
-  return false;
+  return true;
 }
+
+#if NACL_ARCH(NACL_BUILD_ARCH) == NACL_arm
+  void Thread::MaskSPRegister() {
+    const gdb_rsp::Abi::RegDef *reg = gdb_rsp::Abi::Get()->GetRegisterDef(13);
+    CHECK(reg->bytes_ == 4 && strcmp("sp", reg->name_) == 0);
+    uint32_t *reg_val = (uint32_t *)((char *) &context_ + reg->offset_);
+    *reg_val &= 0x3FFFFFFF;
+  }
+#endif
 
 void Thread::CopyRegistersFromAppThread() {
   NaClAppThreadGetSuspendedRegisters(natp_, &context_);

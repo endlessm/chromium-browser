@@ -17,23 +17,18 @@
 #include "remoting/client/chromoting_client.h"
 #include "remoting/client/client_context.h"
 #include "remoting/client/token_fetcher_proxy.h"
-#include "remoting/protocol/authentication_method.h"
 #include "remoting/protocol/chromium_port_allocator.h"
 #include "remoting/protocol/host_stub.h"
-#include "remoting/protocol/libjingle_transport_factory.h"
+#include "remoting/protocol/ice_transport_factory.h"
 #include "remoting/protocol/negotiating_client_authenticator.h"
 #include "remoting/protocol/network_settings.h"
 #include "remoting/protocol/session_config.h"
 #include "remoting/protocol/third_party_client_authenticator.h"
 #include "remoting/signaling/xmpp_signal_strategy.h"
-#include "remoting/test/remote_host_info_fetcher.h"
+#include "remoting/test/connection_setup_info.h"
 #include "remoting/test/test_video_renderer.h"
 
 namespace {
-
-const char kAppRemotingCapabilities[] =
-    "rateLimitResizeRequests desktopShape sendInitialResolution googleDrive";
-
 const char kXmppHostName[] = "talk.google.com";
 const int kXmppPortNumber = 5222;
 
@@ -58,70 +53,11 @@ void FetchThirdPartyToken(
   }
 }
 
-const char* ConnectionStateToFriendlyString(
-    remoting::protocol::ConnectionToHost::State state) {
-  switch (state) {
-    case remoting::protocol::ConnectionToHost::INITIALIZING:
-      return "INITIALIZING";
-
-    case remoting::protocol::ConnectionToHost::CONNECTING:
-      return "CONNECTING";
-
-    case remoting::protocol::ConnectionToHost::AUTHENTICATED:
-      return "AUTHENTICATED";
-
-    case remoting::protocol::ConnectionToHost::CONNECTED:
-      return "CONNECTED";
-
-    case remoting::protocol::ConnectionToHost::CLOSED:
-      return "CLOSED";
-
-    case remoting::protocol::ConnectionToHost::FAILED:
-      return "FAILED";
-
-    default:
-      LOG(ERROR) << "Unknown connection state: '" << state << "'";
-      return "UNKNOWN";
-  }
-}
-
-const char* ProtocolErrorToFriendlyString(
-    remoting::protocol::ErrorCode error_code) {
-  switch (error_code) {
-    case remoting::protocol::OK:
-      return "NONE";
-
-    case remoting::protocol::PEER_IS_OFFLINE:
-      return "PEER_IS_OFFLINE";
-
-    case remoting::protocol::SESSION_REJECTED:
-      return "SESSION_REJECTED";
-
-    case remoting::protocol::AUTHENTICATION_FAILED:
-      return "AUTHENTICATION_FAILED";
-
-    case remoting::protocol::INCOMPATIBLE_PROTOCOL:
-      return "INCOMPATIBLE_PROTOCOL";
-
-    case remoting::protocol::HOST_OVERLOAD:
-      return "HOST_OVERLOAD";
-
-    case remoting::protocol::CHANNEL_CONNECTION_ERROR:
-      return "CHANNEL_CONNECTION_ERROR";
-
-    case remoting::protocol::SIGNALING_ERROR:
-      return "SIGNALING_ERROR";
-
-    case remoting::protocol::SIGNALING_TIMEOUT:
-      return "SIGNALING_TIMEOUT";
-
-    case remoting::protocol::UNKNOWN_ERROR:
-      return "UNKNOWN_ERROR";
-
-    default:
-      LOG(ERROR) << "Unrecognized error code: '" << error_code << "'";
-      return "UNKNOWN_ERROR";
-  }
+void FetchSecret(
+    const std::string& client_secret,
+    bool pairing_expected,
+    const remoting::protocol::SecretFetchedCallback& secret_fetched_callback) {
+  secret_fetched_callback.Run(client_secret);
 }
 
 }  // namespace
@@ -130,15 +66,13 @@ namespace remoting {
 namespace test {
 
 TestChromotingClient::TestChromotingClient()
-    : connection_to_host_state_(protocol::ConnectionToHost::INITIALIZING),
-      connection_error_code_(protocol::OK) {
-}
+    : TestChromotingClient(nullptr) {}
 
 TestChromotingClient::TestChromotingClient(
     scoped_ptr<VideoRenderer> video_renderer)
-    : video_renderer_(video_renderer.Pass()) {
-  TestChromotingClient();
-}
+    : connection_to_host_state_(protocol::ConnectionToHost::INITIALIZING),
+      connection_error_code_(protocol::OK),
+      video_renderer_(video_renderer.Pass()) {}
 
 TestChromotingClient::~TestChromotingClient() {
   // Ensure any connections are closed and the members are destroyed in the
@@ -147,13 +81,7 @@ TestChromotingClient::~TestChromotingClient() {
 }
 
 void TestChromotingClient::StartConnection(
-    const std::string& user_name,
-    const std::string& access_token,
-    const RemoteHostInfo& remote_host_info) {
-  DCHECK(!user_name.empty());
-  DCHECK(!access_token.empty());
-  DCHECK(remote_host_info.IsReadyForConnection());
-
+    const ConnectionSetupInfo& connection_setup_info) {
   // Required to establish a connection to the host.
   jingle_glue::JingleThreadWrapper::EnsureForCurrentMessageLoop();
 
@@ -183,8 +111,8 @@ void TestChromotingClient::StartConnection(
   xmpp_server_config.host = kXmppHostName;
   xmpp_server_config.port = kXmppPortNumber;
   xmpp_server_config.use_tls = true;
-  xmpp_server_config.username = user_name;
-  xmpp_server_config.auth_token = access_token;
+  xmpp_server_config.username = connection_setup_info.user_name;
+  xmpp_server_config.auth_token = connection_setup_info.access_token;
 
   // Set up the signal strategy.  This must outlive the client object.
   signal_strategy_.reset(
@@ -199,32 +127,34 @@ void TestChromotingClient::StartConnection(
                                               network_settings));
 
   scoped_ptr<protocol::TransportFactory> transport_factory(
-      new protocol::LibjingleTransportFactory(
+      new protocol::IceTransportFactory(
           signal_strategy_.get(), port_allocator.Pass(), network_settings,
           protocol::TransportRole::CLIENT));
 
   scoped_ptr<protocol::ThirdPartyClientAuthenticator::TokenFetcher>
       token_fetcher(new TokenFetcherProxy(
-          base::Bind(&FetchThirdPartyToken, remote_host_info.authorization_code,
-                     remote_host_info.shared_secret),
-          "FAKE_HOST_PUBLIC_KEY"));
+          base::Bind(&FetchThirdPartyToken,
+                     connection_setup_info.authorization_code,
+                     connection_setup_info.shared_secret),
+          connection_setup_info.public_key));
 
-  std::vector<protocol::AuthenticationMethod> auth_methods;
-  auth_methods.push_back(protocol::AuthenticationMethod::ThirdParty());
-
-  // FetchSecretCallback is used for PIN based auth which we aren't using so we
-  // can pass a null callback here.
   protocol::FetchSecretCallback fetch_secret_callback;
+  if (!connection_setup_info.pin.empty()) {
+    fetch_secret_callback = base::Bind(&FetchSecret, connection_setup_info.pin);
+  }
+
   scoped_ptr<protocol::Authenticator> authenticator(
       new protocol::NegotiatingClientAuthenticator(
-          std::string(),  // client_pairing_id
-          std::string(),  // shared_secret
-          std::string(),  // authentication_tag
-          fetch_secret_callback, token_fetcher.Pass(), auth_methods));
+          connection_setup_info.pairing_id,
+          connection_setup_info.shared_secret,
+          connection_setup_info.host_id,
+          fetch_secret_callback,
+          token_fetcher.Pass(),
+          connection_setup_info.auth_methods));
 
-  chromoting_client_->Start(signal_strategy_.get(), authenticator.Pass(),
-                            transport_factory.Pass(), remote_host_info.host_jid,
-                            kAppRemotingCapabilities);
+  chromoting_client_->Start(
+      signal_strategy_.get(), authenticator.Pass(), transport_factory.Pass(),
+      connection_setup_info.host_jid, connection_setup_info.capabilities);
 }
 
 void TestChromotingClient::EndConnection() {
@@ -267,8 +197,8 @@ void TestChromotingClient::OnConnectionState(
     protocol::ConnectionToHost::State state,
     protocol::ErrorCode error_code) {
   VLOG(1) << "TestChromotingClient::OnConnectionState("
-          << "state: " << ConnectionStateToFriendlyString(state) << ", "
-          << "error_code: " << ProtocolErrorToFriendlyString(error_code)
+          << "state: " << protocol::ConnectionToHost::StateToString(state)
+          << ", error_code: " << protocol::ErrorCodeToString(error_code)
           << ") Called";
 
   connection_error_code_ = error_code;

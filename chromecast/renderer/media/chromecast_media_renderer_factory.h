@@ -22,7 +22,7 @@ namespace media {
 class ChromecastMediaRendererFactory : public ::media::RendererFactory {
  public:
   ChromecastMediaRendererFactory(
-      const scoped_refptr<::media::GpuVideoAcceleratorFactories>& gpu_factories,
+      ::media::GpuVideoAcceleratorFactories* gpu_factories,
       const scoped_refptr<::media::MediaLog>& media_log,
       int render_frame_id);
   ~ChromecastMediaRendererFactory() final;
@@ -30,14 +30,15 @@ class ChromecastMediaRendererFactory : public ::media::RendererFactory {
   // ::media::RendererFactory implementation.
   scoped_ptr<::media::Renderer> CreateRenderer(
       const scoped_refptr<base::SingleThreadTaskRunner>& media_task_runner,
+      const scoped_refptr<base::TaskRunner>& worker_task_runner,
       ::media::AudioRendererSink* audio_renderer_sink,
       ::media::VideoRendererSink* video_renderer_sink) final;
 
  private:
   int render_frame_id_;
-  scoped_refptr<::media::GpuVideoAcceleratorFactories> gpu_factories_;
+  ::media::GpuVideoAcceleratorFactories* gpu_factories_;
   scoped_refptr<::media::MediaLog> media_log_;
-  scoped_ptr<::media::DefaultRendererFactory> default_render_factory_;
+  scoped_ptr<::media::DefaultRendererFactory> default_renderer_factory_;
 
   // Audio config for the default media renderer.
   scoped_ptr<::media::AudioHardwareConfig> audio_config_;

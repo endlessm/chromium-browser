@@ -37,7 +37,7 @@
 #elif defined(OS_POSIX) && !defined(OS_ANDROID)
 #include "components/policy/core/common/config_dir_policy_loader.h"
 #elif defined(OS_ANDROID)
-#include "components/policy/core/common/policy_provider_android.h"
+#include "components/policy/core/browser/android/android_combined_policy_provider.h"
 #endif
 
 using content::BrowserThread;
@@ -86,8 +86,7 @@ void ChromeBrowserPolicyConnector::Init(
   device_management_service->ScheduleInitialization(
       kServiceInitializationStartupDelay);
 
-  BrowserPolicyConnector::Init(
-      local_state, request_context, device_management_service.Pass());
+  InitInternal(local_state, device_management_service.Pass());
 }
 
 ConfigurationPolicyProvider*
@@ -115,7 +114,8 @@ ConfigurationPolicyProvider*
     return NULL;
   }
 #elif defined(OS_ANDROID)
-  return new PolicyProviderAndroid();
+  return new policy::android::AndroidCombinedPolicyProvider(
+      GetSchemaRegistry());
 #else
   return NULL;
 #endif

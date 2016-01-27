@@ -4,6 +4,9 @@
 
 #include "net/ssl/ssl_cipher_suite_names.h"
 
+#if defined(USE_OPENSSL)
+#include <openssl/ssl.h>
+#endif
 #include <stdlib.h>
 
 #include "base/logging.h"
@@ -363,6 +366,36 @@ bool IsSecureTLSCipherSuite(uint16 cipher_suite) {
   if (!GetCipherProperties(cipher_suite, &key_exchange, &cipher, &mac))
     return false;
 
+  // Only allow ECDHE key exchanges.
+  switch (key_exchange) {
+    case 14:  // ECDHE_ECDSA
+    case 16:  // ECDHE_RSA
+      break;
+    default:
+      return false;
+  }
+
+  switch (cipher) {
+    case 13:  // AES_128_GCM
+    case 14:  // AES_256_GCM
+    case 17:  // CHACHA20_POLY1305
+      break;
+    default:
+      return false;
+  }
+
+  // Only AEADs allowed.
+  if (mac != kAEADMACValue)
+    return false;
+
+  return true;
+}
+
+bool IsTLSCipherSuiteAllowedByHTTP2(uint16 cipher_suite) {
+  int key_exchange, cipher, mac;
+  if (!GetCipherProperties(cipher_suite, &key_exchange, &cipher, &mac))
+    return false;
+
   // Only allow forward secure key exchanges.
   switch (key_exchange) {
     case 10:  // DHE_RSA
@@ -389,34 +422,22 @@ bool IsSecureTLSCipherSuite(uint16 cipher_suite) {
   return true;
 }
 
-bool IsFalseStartableTLSCipherSuite(uint16 cipher_suite) {
+const char* ECCurveName(uint16 cipher_suite, int key_exchange_info) {
+#if defined(USE_OPENSSL)
   int key_exchange, cipher, mac;
   if (!GetCipherProperties(cipher_suite, &key_exchange, &cipher, &mac))
-    return false;
-
-  // Only allow ECDHE key exchanges.
+    return nullptr;
   switch (key_exchange) {
     case 14:  // ECDHE_ECDSA
     case 16:  // ECDHE_RSA
       break;
     default:
-      return false;
+      return nullptr;
   }
-
-  switch (cipher) {
-    case 13:  // AES_128_GCM
-    case 14:  // AES_256_GCM
-    case 17:  // CHACHA20_POLY1305
-      break;
-    default:
-      return false;
-  }
-
-  // Only AEADs allowed.
-  if (mac != kAEADMACValue)
-    return false;
-
-  return true;
+  return SSL_get_curve_name(key_exchange_info);
+#else
+  return nullptr;
+#endif
 }
 
 }  // namespace net

@@ -36,7 +36,7 @@ namespace blink {
 
 class HTMLTokenizer {
     WTF_MAKE_NONCOPYABLE(HTMLTokenizer);
-    WTF_MAKE_FAST_ALLOCATED(HTMLTokenizer);
+    USING_FAST_MALLOC(HTMLTokenizer);
 public:
     static PassOwnPtr<HTMLTokenizer> create(const HTMLParserOptions& options) { return adoptPtr(new HTMLTokenizer(options)); }
     ~HTMLTokenizer();
@@ -120,27 +120,6 @@ public:
         CDATASectionRightSquareBracketState,
         CDATASectionDoubleRightSquareBracketState,
     };
-
-    struct Checkpoint {
-        HTMLParserOptions options;
-        State state;
-        UChar additionalAllowedCharacter;
-        bool skipNextNewLine;
-        bool shouldAllowCDATA;
-
-        Checkpoint()
-            : options(0)
-            , state()
-            , additionalAllowedCharacter('\0')
-            , skipNextNewLine(false)
-            , shouldAllowCDATA(false)
-        {
-        }
-    };
-
-    bool canCreateCheckpoint() const;
-    void createCheckpoint(Checkpoint&) const;
-    void restoreFromCheckpoint(const Checkpoint&);
 
     // This function returns true if it emits a token. Otherwise, callers
     // must provide the same (in progress) token on the next call (unless

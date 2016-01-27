@@ -1,9 +1,4 @@
-
-
-(function() {
-
-  Polymer({
-
+Polymer({
     is: 'paper-input-char-counter',
 
     behaviors: [
@@ -11,12 +6,10 @@
     ],
 
     properties: {
-
       _charCounterStr: {
         type: String,
         value: '0'
       }
-
     },
 
     update: function(state) {
@@ -34,8 +27,4 @@
       }
       this._charCounterStr = str;
     }
-
   });
-
-})();
-

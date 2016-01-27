@@ -11,6 +11,7 @@
       'dependencies': [
         '../base/base.gyp:base',
         '../url/url.gyp:url_lib',
+        'url_formatter/url_formatter.gyp:url_formatter',
       ],
       'include_dirs': [
         '..',
@@ -20,6 +21,7 @@
         'error_page/common/error_page_params.h',
         'error_page/common/net_error_info.cc',
         'error_page/common/net_error_info.h',
+        'error_page/common/offline_page_types.h',
       ],
     },
   ],

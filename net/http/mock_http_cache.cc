@@ -55,9 +55,14 @@ struct MockDiskEntry::CallbackInfo {
 };
 
 MockDiskEntry::MockDiskEntry(const std::string& key)
-    : key_(key), doomed_(false), sparse_(false),
-      fail_requests_(false), fail_sparse_requests_(false), busy_(false),
-      delayed_(false) {
+    : key_(key),
+      doomed_(false),
+      sparse_(false),
+      fail_requests_(false),
+      fail_sparse_requests_(false),
+      busy_(false),
+      delayed_(false),
+      cancel_(false) {
   test_mode_ = GetTestModeForEntry(key);
 }
 
@@ -148,7 +153,7 @@ int MockDiskEntry::ReadSparseData(int64 offset,
   DCHECK(!callback.is_null());
   if (fail_sparse_requests_)
     return ERR_NOT_IMPLEMENTED;
-  if (!sparse_ || busy_)
+  if (!sparse_ || busy_ || cancel_)
     return ERR_CACHE_OPERATION_NOT_SUPPORTED;
   if (offset < 0)
     return ERR_FAILED;
@@ -181,7 +186,7 @@ int MockDiskEntry::WriteSparseData(int64 offset,
   DCHECK(!callback.is_null());
   if (fail_sparse_requests_)
     return ERR_NOT_IMPLEMENTED;
-  if (busy_)
+  if (busy_ || cancel_)
     return ERR_CACHE_OPERATION_NOT_SUPPORTED;
   if (!sparse_) {
     if (data_[1].size())
@@ -215,7 +220,7 @@ int MockDiskEntry::GetAvailableRange(int64 offset,
                                      int64* start,
                                      const CompletionCallback& callback) {
   DCHECK(!callback.is_null());
-  if (!sparse_ || busy_)
+  if (!sparse_ || busy_ || cancel_)
     return ERR_CACHE_OPERATION_NOT_SUPPORTED;
   if (offset < 0)
     return ERR_FAILED;
@@ -345,7 +350,6 @@ void MockDiskEntry::StoreAndDeliverCallbacks(bool store,
 }
 
 // Statics.
-bool MockDiskEntry::cancel_ = false;
 bool MockDiskEntry::ignore_callbacks_ = false;
 
 //-----------------------------------------------------------------------------
@@ -473,6 +477,11 @@ int MockDiskCache::DoomEntriesSince(const base::Time initial_time,
   return ERR_NOT_IMPLEMENTED;
 }
 
+int MockDiskCache::CalculateSizeOfAllEntries(
+    const CompletionCallback& callback) {
+  return ERR_NOT_IMPLEMENTED;
+}
+
 class MockDiskCache::NotImplementedIterator : public Iterator {
  public:
   int OpenNextEntry(disk_cache::Entry** next_entry,
@@ -516,12 +525,13 @@ int MockBackendFactory::CreateBackend(NetLog* net_log,
 //-----------------------------------------------------------------------------
 
 MockHttpCache::MockHttpCache()
-    : http_cache_(new MockNetworkLayer(), NULL, new MockBackendFactory()) {
-}
+    : MockHttpCache(make_scoped_ptr(new MockBackendFactory())) {}
 
-MockHttpCache::MockHttpCache(HttpCache::BackendFactory* disk_cache_factory)
-    : http_cache_(new MockNetworkLayer(), NULL, disk_cache_factory) {
-}
+MockHttpCache::MockHttpCache(
+    scoped_ptr<HttpCache::BackendFactory> disk_cache_factory)
+    : http_cache_(make_scoped_ptr(new MockNetworkLayer()),
+                  disk_cache_factory.Pass(),
+                  true) {}
 
 disk_cache::Backend* MockHttpCache::backend() {
   TestCompletionCallback cb;

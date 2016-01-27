@@ -16,9 +16,9 @@
 
 // WebRtc include files
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
-#include "webrtc/system_wrappers/interface/event_wrapper.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/event_wrapper.h"
+#include "webrtc/system_wrappers/include/trace.h"
 
 namespace webrtc {
 
@@ -601,9 +601,6 @@ int VideoRenderDirect3D9::UpdateRenderSurface()
     {
         _pd3dDevice->SetStreamSource(0, _pVB, 0, sizeof(CUSTOMVERTEX));
         _pd3dDevice->SetFVF(D3DFVF_CUSTOMVERTEX);
-
-        D3DXMATRIX matWorld;
-        D3DXMATRIX matWorldTemp;
 
         //draw all the channels
         //get texture from the channels

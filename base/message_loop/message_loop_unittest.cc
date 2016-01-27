@@ -119,7 +119,7 @@ void RunTest_PostDelayedTask_SharedTimer_SubPump() {
       Bind(&RecordRunTimeFunc, &run_time, &num_tasks),
       TimeDelta::FromSeconds(1000));
 
-  // This slightly delayed task should run from within SubPumpFunc).
+  // This slightly delayed task should run from within SubPumpFunc.
   loop.PostDelayedTask(
       FROM_HERE,
       Bind(&PostQuitMessage, 0),
@@ -600,7 +600,7 @@ void RunTest_WaitForIO() {
   TestIOHandler handler2(kPipeName2, callback2_called.Get(), true);
   thread_loop->PostTask(FROM_HERE, Bind(&TestIOHandler::Init,
                                               Unretained(&handler1)));
-  // TODO(ajwong): Do we really need such long Sleeps in ths function?
+  // TODO(ajwong): Do we really need such long Sleeps in this function?
   // Make sure the thread runs and sleeps for lack of work.
   TimeDelta delay = TimeDelta::FromMilliseconds(100);
   PlatformThread::Sleep(delay);
@@ -645,7 +645,7 @@ TEST(MessageLoopTest, PostDelayedTask_SharedTimer_SubPump) {
   RunTest_PostDelayedTask_SharedTimer_SubPump();
 }
 
-// This test occasionally hangs http://crbug.com/44567
+// This test occasionally hangs. See http://crbug.com/44567.
 TEST(MessageLoopTest, DISABLED_RecursiveDenial2) {
   RunTest_RecursiveDenial2(MessageLoop::TYPE_DEFAULT);
   RunTest_RecursiveDenial2(MessageLoop::TYPE_UI);
@@ -653,7 +653,7 @@ TEST(MessageLoopTest, DISABLED_RecursiveDenial2) {
 }
 
 TEST(MessageLoopTest, RecursiveSupport2) {
-  // This test requires a UI loop
+  // This test requires a UI loop.
   RunTest_RecursiveSupport2(MessageLoop::TYPE_UI);
 }
 #endif  // defined(OS_WIN)
@@ -907,8 +907,9 @@ TEST(MessageLoopTest, ThreadMainTaskRunner) {
       &Foo::Test1ConstRef, foo.get(), a));
 
   // Post quit task;
-  MessageLoop::current()->PostTask(FROM_HERE, Bind(
-      &MessageLoop::Quit, Unretained(MessageLoop::current())));
+  MessageLoop::current()->PostTask(
+      FROM_HERE,
+      Bind(&MessageLoop::QuitWhenIdle, Unretained(MessageLoop::current())));
 
   // Now kick things off
   MessageLoop::current()->Run();
@@ -983,7 +984,7 @@ LRESULT CALLBACK TestWndProcThunk(HWND hwnd, UINT message,
         break;
     }
     EXPECT_TRUE(did_run);
-    MessageLoop::current()->Quit();
+    MessageLoop::current()->QuitWhenIdle();
     break;
   }
   return 0;

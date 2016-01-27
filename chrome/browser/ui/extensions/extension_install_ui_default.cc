@@ -19,6 +19,7 @@
 #include "chrome/browser/ui/browser_dialogs.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/host_desktop.h"
@@ -86,7 +87,7 @@ class ErrorInfoBarDelegate : public ConfirmInfoBarDelegate {
   base::string16 GetMessageText() const override;
   int GetButtons() const override;
   base::string16 GetLinkText() const override;
-  bool LinkClicked(WindowOpenDisposition disposition) override;
+  GURL GetLinkURL() const override;
 
   extensions::CrxInstallError error_;
 
@@ -122,14 +123,8 @@ base::string16 ErrorInfoBarDelegate::GetLinkText() const {
              : base::string16();
 }
 
-bool ErrorInfoBarDelegate::LinkClicked(WindowOpenDisposition disposition) {
-  InfoBarService::WebContentsFromInfoBar(infobar())->OpenURL(
-      content::OpenURLParams(
-          GURL("https://support.google.com/chrome_webstore/?p=crx_warning"),
-          content::Referrer(),
-          (disposition == CURRENT_TAB) ? NEW_FOREGROUND_TAB : disposition,
-          ui::PAGE_TRANSITION_LINK, false));
-  return false;
+GURL ErrorInfoBarDelegate::GetLinkURL() const {
+  return GURL("https://support.google.com/chrome_webstore/?p=crx_warning");
 }
 
 }  // namespace
@@ -229,7 +224,7 @@ void ExtensionInstallUIDefault::OpenAppInstalledUI(const std::string& app_id) {
   Profile* current_profile = profile_->GetOriginalProfile();
   Browser* browser = FindOrCreateVisibleBrowser(current_profile);
   if (browser) {
-    GURL url(chrome::IsInstantExtendedAPIEnabled()
+    GURL url(search::IsInstantExtendedAPIEnabled()
                  ? chrome::kChromeUIAppsURL
                  : chrome::kChromeUINewTabURL);
     chrome::NavigateParams params(

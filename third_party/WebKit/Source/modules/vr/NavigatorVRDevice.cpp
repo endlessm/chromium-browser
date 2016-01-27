@@ -48,7 +48,7 @@ ScriptPromise NavigatorVRDevice::getVRDevices(ScriptState* scriptState, Navigato
 
 ScriptPromise NavigatorVRDevice::getVRDevices(ScriptState* scriptState)
 {
-    RefPtrWillBeRawPtr<ScriptPromiseResolver> resolver = ScriptPromiseResolver::create(scriptState);
+    ScriptPromiseResolver* resolver = ScriptPromiseResolver::create(scriptState);
     ScriptPromise promise = resolver->promise();
 
     Document* document = m_frame ? m_frame->document() : 0;
@@ -83,7 +83,7 @@ DEFINE_TRACE(NavigatorVRDevice)
 NavigatorVRDevice::NavigatorVRDevice(LocalFrame* frame)
     : DOMWindowProperty(frame)
 {
-    m_hardwareUnits = new VRHardwareUnitCollection(controller());
+    m_hardwareUnits = new VRHardwareUnitCollection(this);
 }
 
 NavigatorVRDevice::~NavigatorVRDevice()

@@ -165,6 +165,16 @@ class HistoryService : public syncer::SyncableService, public KeyedService {
   // Note: Virtual needed for mocking.
   virtual void TopHosts(int num_hosts, const TopHostsCallback& callback) const;
 
+  // Returns, for the given URL, a 0-based index into the list produced by
+  // TopHosts(), corresponding to that URL's host. If TopHosts() has not
+  // previously been run, or the host is not in the top kMaxTopHosts, returns
+  // kMaxTopHosts.
+  //
+  // Note: Virtual needed for mocking.
+  virtual void HostRankIfAvailable(
+      const GURL& url,
+      const base::Callback<void(int)>& callback) const;
+
   // Navigation ----------------------------------------------------------------
 
   // Adds the given canonical URL to history with the given time as the visit
@@ -329,6 +339,20 @@ class HistoryService : public syncer::SyncableService, public KeyedService {
       const VisitFilter& filter,
       bool extended_info,
       const QueryFilteredURLsCallback& callback,
+      base::CancelableTaskTracker* tracker);
+
+  // Statistics ----------------------------------------------------------------
+
+  // Gets the number of URLs as seen in chrome://history within the time range
+  // [|begin_time|, |end_time|). Each URL is counted only once per day. For
+  // determination of the date, timestamps are converted to dates using local
+  // time.
+  typedef base::Callback<void(HistoryCountResult)> GetHistoryCountCallback;
+
+  base::CancelableTaskTracker::TaskId GetHistoryCount(
+      const base::Time& begin_time,
+      const base::Time& end_time,
+      const GetHistoryCountCallback& callback,
       base::CancelableTaskTracker* tracker);
 
   // Database management operations --------------------------------------------

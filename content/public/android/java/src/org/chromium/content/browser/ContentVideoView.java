@@ -23,10 +23,11 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
-import org.chromium.base.CalledByNative;
-import org.chromium.base.JNINamespace;
 import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.JNINamespace;
+import org.chromium.ui.base.WindowAndroid;
 
 /**
  * This class implements accelerated fullscreen video playback using surface view.
@@ -87,7 +88,6 @@ public class ContentVideoView extends FrameLayout
     private View mProgressView;
 
     private final ContentVideoViewClient mClient;
-    private final ContentViewCore mContentViewCore;
 
     private boolean mInitialOrientation;
     private boolean mPossibleAccidentalChange;
@@ -163,12 +163,11 @@ public class ContentVideoView extends FrameLayout
         }
     };
 
-    private ContentVideoView(Context context, ContentViewCore contentViewCore,
-            long nativeContentVideoView) {
+    private ContentVideoView(Context context, long nativeContentVideoView,
+            ContentVideoViewClient client) {
         super(context);
         mNativeContentVideoView = nativeContentVideoView;
-        mContentViewCore = contentViewCore;
-        mClient = mContentViewCore.getContentVideoViewClient();
+        mClient = client;
         mUmaRecorded = false;
         mPossibleAccidentalChange = false;
         initResources(context);
@@ -230,7 +229,7 @@ public class ContentVideoView extends FrameLayout
 
         mCurrentState = STATE_ERROR;
 
-        if (ContentViewCore.activityFromContext(getContext()) == null) {
+        if (WindowAndroid.activityFromContext(getContext()) == null) {
             Log.w(TAG, "Unable to show alert dialog because it requires an activity context");
             return;
         }
@@ -362,11 +361,8 @@ public class ContentVideoView extends FrameLayout
         ThreadUtils.assertOnUiThread();
         Context context = contentViewCore.getContext();
         ContentVideoViewClient client = contentViewCore.getContentVideoViewClient();
-        ContentVideoView videoView = new ContentVideoView(
-                context, contentViewCore, nativeContentVideoView);
+        ContentVideoView videoView = new ContentVideoView(context, nativeContentVideoView, client);
         client.enterFullscreenVideo(videoView);
-        contentViewCore.updateDoubleTapSupport(false);
-        contentViewCore.updateMultiTouchZoomSupport(false);
         return videoView;
     }
 
@@ -393,8 +389,6 @@ public class ContentVideoView extends FrameLayout
             }
             nativeExitFullscreen(mNativeContentVideoView, relaseMediaPlayer);
             mNativeContentVideoView = 0;
-            mContentViewCore.updateDoubleTapSupport(true);
-            mContentViewCore.updateMultiTouchZoomSupport(true);
         }
     }
 

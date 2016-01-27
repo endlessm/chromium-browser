@@ -32,6 +32,9 @@ import java.util.List;
 public class FeatureUtilities {
     private static Boolean sHasGoogleAccountAuthenticator;
     private static Boolean sHasRecognitionIntentHandler;
+    private static Boolean sDocumentModeDisabled;
+    /** Used to track if cached command line flags should be refreshed. */
+    private static CommandLine.ResetListener sResetListener = null;
 
     /**
      * Determines whether or not the {@link RecognizerIntent#ACTION_WEB_SEARCH} {@link Intent}
@@ -95,11 +98,14 @@ public class FeatureUtilities {
      * @return Whether Chrome should be running on document mode.
      */
     public static boolean isDocumentMode(Context context) {
+        if (sDocumentModeDisabled == null && CommandLine.isInitialized()) {
+            initResetListener();
+            sDocumentModeDisabled = CommandLine.getInstance().hasSwitch(
+                    ChromeSwitches.DISABLE_DOCUMENT_MODE);
+        }
         return isDocumentModeEligible(context)
                 && !DocumentModeManager.getInstance(context).isOptedOutOfDocumentMode()
-                && ((CommandLine.getInstance() == null)
-                    || !CommandLine.getInstance().hasSwitch(
-                            ChromeSwitches.DISABLE_DOCUMENT_MODE));
+                && (sDocumentModeDisabled == null || !sDocumentModeDisabled.booleanValue());
     }
 
     /**
@@ -129,14 +135,18 @@ public class FeatureUtilities {
         nativeSetCustomTabVisible(visible);
     }
 
-    /**
-     * @return Whether a custom tab is visible.
-     */
-    public static boolean getCustomTabVisible() {
-        return nativeGetCustomTabVisible();
+    private static void initResetListener() {
+        if (sResetListener != null) return;
+
+        sResetListener = new CommandLine.ResetListener() {
+            @Override
+            public void onCommandLineReset() {
+                sDocumentModeDisabled = null;
+            }
+        };
+        CommandLine.addResetListener(sResetListener);
     }
 
     private static native void nativeSetDocumentModeEnabled(boolean enabled);
     private static native void nativeSetCustomTabVisible(boolean visible);
-    private static native boolean nativeGetCustomTabVisible();
 }

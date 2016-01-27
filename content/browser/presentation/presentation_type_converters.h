@@ -14,8 +14,8 @@ namespace content {
 CONTENT_EXPORT presentation::PresentationErrorType PresentationErrorTypeToMojo(
     PresentationErrorType input);
 
-CONTENT_EXPORT presentation::PresentationSessionState
-PresentationSessionStateToMojo(PresentationSessionState state);
+CONTENT_EXPORT presentation::PresentationConnectionState
+PresentationConnectionStateToMojo(PresentationConnectionState state);
 
 }  // namespace content
 
@@ -31,6 +31,15 @@ struct TypeConverter<presentation::PresentationSessionInfoPtr,
     output->url = input.presentation_url;
     output->id = input.presentation_id;
     return output.Pass();
+  }
+};
+
+template <>
+struct TypeConverter<content::PresentationSessionInfo,
+                     presentation::PresentationSessionInfoPtr> {
+  static content::PresentationSessionInfo Convert(
+      const presentation::PresentationSessionInfoPtr& input) {
+    return content::PresentationSessionInfo(input->url, input->id);
   }
 };
 

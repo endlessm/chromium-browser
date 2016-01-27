@@ -12,10 +12,11 @@
 
 class MockConfirmInfoBarDelegate : public ConfirmInfoBarDelegate {
  public:
-  // Called when |this| is about to be destroyed.
+  // Called when the dtor of |this| has been entered.
   class Owner {
    public:
-    virtual void OnInfoBarDelegateClosed() = 0;
+    virtual void OnInfoBarDelegateClosed(
+        MockConfirmInfoBarDelegate* delegate) = 0;
 
    protected:
     virtual ~Owner() {}
@@ -36,7 +37,7 @@ class MockConfirmInfoBarDelegate : public ConfirmInfoBarDelegate {
 
  private:
   // ConfirmInfoBarDelegate:
-  int GetIconID() const override;
+  int GetIconId() const override;
   base::string16 GetMessageText() const override;
   base::string16 GetButtonLabel(InfoBarButton button) const override;
   bool Accept() override;

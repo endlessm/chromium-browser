@@ -30,6 +30,7 @@ class ChromeWebViewGuestDelegate : public WebViewGuestDelegate {
   bool HandleContextMenu(const content::ContextMenuParams& params) override;
   void OnDidInitialize() override;
   void OnShowContextMenu(int request_id, const MenuItemVector* items) override;
+  bool ShouldHandleFindRequestsForEmbedder() const override;
 
   WebViewGuest* web_view_guest() const { return web_view_guest_; }
 
@@ -37,6 +38,8 @@ class ChromeWebViewGuestDelegate : public WebViewGuestDelegate {
   content::WebContents* guest_web_contents() const {
     return web_view_guest()->web_contents();
   }
+
+  void SetContextMenuPosition(const gfx::Point& position) override;
 
   // Returns the top level items (ignoring submenus) as Value.
   static scoped_ptr<base::ListValue> MenuModelToValue(
@@ -68,6 +71,8 @@ class ChromeWebViewGuestDelegate : public WebViewGuestDelegate {
 #endif
 
   WebViewGuest* const web_view_guest_;
+
+  scoped_ptr<gfx::Point> context_menu_position_;
 
   // This is used to ensure pending tasks will not fire after this object is
   // destroyed.

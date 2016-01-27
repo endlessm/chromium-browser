@@ -4,6 +4,9 @@
 
 #include "ui/ozone/platform/cast/surface_factory_cast.h"
 
+#include <dlfcn.h>
+#include <EGL/egl.h>
+
 #include "base/callback_helpers.h"
 #include "chromecast/public/cast_egl_platform.h"
 #include "chromecast/public/graphics_types.h"
@@ -14,7 +17,12 @@
 using chromecast::CastEglPlatform;
 
 namespace ui {
+
 namespace {
+
+typedef EGLDisplay (*EGLGetDisplayFn)(NativeDisplayType);
+typedef EGLBoolean (*EGLTerminateFn)(EGLDisplay);
+
 chromecast::Size FromGfxSize(const gfx::Size& size) {
   return chromecast::Size(size.width(), size.height());
 }
@@ -33,7 +41,6 @@ gfx::Size GetMinDisplaySize() {
 
 SurfaceFactoryCast::SurfaceFactoryCast(scoped_ptr<CastEglPlatform> egl_platform)
     : state_(kUninitialized),
-      destroy_window_pending_state_(kNoDestroyPending),
       display_type_(0),
       have_display_type_(false),
       window_(0),
@@ -43,7 +50,7 @@ SurfaceFactoryCast::SurfaceFactoryCast(scoped_ptr<CastEglPlatform> egl_platform)
 }
 
 SurfaceFactoryCast::~SurfaceFactoryCast() {
-  DestroyDisplayTypeAndWindow();
+  ShutdownHardware();
 }
 
 void SurfaceFactoryCast::InitializeHardware() {
@@ -60,7 +67,28 @@ void SurfaceFactoryCast::InitializeHardware() {
   }
 }
 
+void SurfaceFactoryCast::TerminateDisplay() {
+  void* egl_lib_handle = egl_platform_->GetEglLibrary();
+  DCHECK(egl_lib_handle);
+
+  EGLGetDisplayFn get_display =
+      reinterpret_cast<EGLGetDisplayFn>(dlsym(egl_lib_handle, "eglGetDisplay"));
+  EGLTerminateFn terminate =
+      reinterpret_cast<EGLTerminateFn>(dlsym(egl_lib_handle, "eglTerminate"));
+  DCHECK(get_display);
+  DCHECK(terminate);
+
+  EGLDisplay display = get_display(GetNativeDisplay());
+  DCHECK_NE(display, EGL_NO_DISPLAY);
+
+  EGLBoolean terminate_result = terminate(display);
+  DCHECK_EQ(terminate_result, static_cast<EGLBoolean>(EGL_TRUE));
+}
+
 void SurfaceFactoryCast::ShutdownHardware() {
+  if (state_ != kInitialized)
+    return;
+
   DestroyDisplayTypeAndWindow();
 
   egl_platform_->ShutdownHardware();
@@ -134,50 +162,12 @@ scoped_ptr<SurfaceOzoneEGL> SurfaceFactoryCast::CreateEGLSurfaceForWidget(
     gfx::AcceleratedWidget widget) {
   new_display_size_ = gfx::Size(widget >> 16, widget & 0xFFFF);
   new_display_size_.SetToMax(GetMinDisplaySize());
-  destroy_window_pending_state_ = kSurfaceExists;
-  SendRelinquishResponse();
   return make_scoped_ptr<SurfaceOzoneEGL>(new SurfaceOzoneEglCast(this));
 }
 
-void SurfaceFactoryCast::SetToRelinquishDisplay(const base::Closure& callback) {
-  // This is called in response to a RelinquishDisplay message from the
-  // browser task. This call may come before or after the display surface
-  // is actually destroyed.
-  relinquish_display_callback_ = callback;
-  switch (destroy_window_pending_state_) {
-    case kNoDestroyPending:
-    case kSurfaceDestroyedRecently:
-      DestroyDisplayTypeAndWindow();
-      SendRelinquishResponse();
-      destroy_window_pending_state_ = kNoDestroyPending;
-      break;
-    case kSurfaceExists:
-      destroy_window_pending_state_ = kWindowDestroyPending;
-      break;
-    case kWindowDestroyPending:
-      break;
-    default:
-      NOTREACHED();
-  }
-}
-
 void SurfaceFactoryCast::ChildDestroyed() {
-  if (destroy_window_pending_state_ == kWindowDestroyPending) {
-    DestroyDisplayTypeAndWindow();
-    SendRelinquishResponse();
-    destroy_window_pending_state_ = kNoDestroyPending;
-  } else {
-    if (egl_platform_->MultipleSurfaceUnsupported()) {
-      DestroyWindow();
-    }
-    destroy_window_pending_state_ = kSurfaceDestroyedRecently;
-  }
-}
-
-void SurfaceFactoryCast::SendRelinquishResponse() {
-  if (!relinquish_display_callback_.is_null()) {
-    base::ResetAndReturn(&relinquish_display_callback_).Run();
-  }
+  if (egl_platform_->MultipleSurfaceUnsupported())
+    DestroyWindow();
 }
 
 const int32* SurfaceFactoryCast::GetEGLSurfaceProperties(
@@ -188,8 +178,8 @@ const int32* SurfaceFactoryCast::GetEGLSurfaceProperties(
 scoped_refptr<NativePixmap> SurfaceFactoryCast::CreateNativePixmap(
     gfx::AcceleratedWidget w,
     gfx::Size size,
-    BufferFormat format,
-    BufferUsage usage) {
+    gfx::BufferFormat format,
+    gfx::BufferUsage usage) {
   class CastPixmap : public NativePixmap {
    public:
     CastPixmap() {}
@@ -200,6 +190,9 @@ scoped_refptr<NativePixmap> SurfaceFactoryCast::CreateNativePixmap(
     }
     int GetDmaBufFd() override { return 0; }
     int GetDmaBufPitch() override { return 0; }
+    gfx::BufferFormat GetBufferFormat() override {
+      return gfx::BufferFormat::LAST;
+    }
     bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
                               int plane_z_order,
                               gfx::OverlayTransform plane_transform,
@@ -207,9 +200,15 @@ scoped_refptr<NativePixmap> SurfaceFactoryCast::CreateNativePixmap(
                               const gfx::RectF& crop_rect) override {
       return true;
     }
-    void SetScalingCallback(const ScalingCallback& scaling_callback) override {}
-    scoped_refptr<NativePixmap> GetScaledPixmap(gfx::Size new_size) override {
+    void SetProcessingCallback(
+        const ProcessingCallback& processing_callback) override {}
+    scoped_refptr<NativePixmap> GetProcessedPixmap(
+        gfx::Size target_size,
+        gfx::BufferFormat target_format) override {
       return nullptr;
+    }
+    gfx::NativePixmapHandle ExportHandle() override {
+      return gfx::NativePixmapHandle();
     }
 
    private:

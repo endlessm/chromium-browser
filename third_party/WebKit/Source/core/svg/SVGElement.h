@@ -28,6 +28,7 @@
 #include "core/svg/SVGParsingError.h"
 #include "core/svg/properties/SVGPropertyInfo.h"
 #include "platform/heap/Handle.h"
+#include "wtf/Allocator.h"
 #include "wtf/HashMap.h"
 #include "wtf/OwnPtr.h"
 
@@ -79,6 +80,9 @@ public:
     bool instanceUpdatesBlocked() const;
     void setInstanceUpdatesBlocked(bool);
 
+    // Records the SVG element as having a Web Animation on an SVG attribute that needs applying.
+    void setWebAnimationsPending();
+
     SVGSVGElement* ownerSVGElement() const;
     SVGElement* viewportElement() const;
 
@@ -112,8 +116,6 @@ public:
     void mapInstanceToElement(SVGElement*);
     void removeInstanceMapping(SVGElement*);
 
-    bool getBoundingBox(FloatRect&);
-
     void setCursorElement(SVGCursorElement*);
     void setCursorImageValue(CSSCursorImageValue*);
 
@@ -122,7 +124,7 @@ public:
     void cursorImageValueRemoved();
 #endif
 
-    SVGElement* correspondingElement();
+    SVGElement* correspondingElement() const;
     void setCorrespondingElement(SVGElement*);
     SVGUseElement* correspondingUseElement() const;
 
@@ -139,9 +141,6 @@ public:
     void setUseOverrideComputedStyle(bool);
 
     virtual bool haveLoadedRequiredResources();
-
-    bool addEventListener(const AtomicString& eventType, PassRefPtr<EventListener>, bool useCapture = false) final;
-    bool removeEventListener(const AtomicString& eventType, PassRefPtr<EventListener>, bool useCapture = false) final;
 
     void invalidateRelativeLengthClients(SubtreeLayoutScope* = 0);
 
@@ -221,6 +220,9 @@ protected:
     void reportAttributeParsingError(SVGParsingError, const QualifiedName&, const AtomicString&);
     bool hasFocusEventListeners() const;
 
+    bool addEventListenerInternal(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener>, const EventListenerOptions&) final;
+    bool removeEventListenerInternal(const AtomicString& eventType, PassRefPtrWillBeRawPtr<EventListener>, const EventListenerOptions&) final;
+
 private:
     bool isSVGElement() const = delete; // This will catch anyone doing an unnecessary check.
     bool isStyledElement() const = delete; // This will catch anyone doing an unnecessary check.
@@ -245,6 +247,7 @@ private:
 };
 
 struct SVGAttributeHashTranslator {
+    STATIC_ONLY(SVGAttributeHashTranslator);
     static unsigned hash(const QualifiedName& key)
     {
         if (key.hasPrefix()) {

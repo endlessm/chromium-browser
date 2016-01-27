@@ -267,7 +267,9 @@ WebInspector.ExtensionServer.prototype = {
             return this._status.E_EXISTS(id);
 
         var page = this._expandResourcePath(port._extensionOrigin, message.page);
-        var panelDescriptor = new WebInspector.ExtensionServerPanelDescriptor(id, message.title, new WebInspector.ExtensionPanel(this, id, page));
+        var persistentId = port._extensionOrigin + message.title;
+        persistentId = persistentId.replace(/\s/g, "");
+        var panelDescriptor = new WebInspector.ExtensionServerPanelDescriptor(persistentId, message.title, new WebInspector.ExtensionPanel(this, persistentId, id, page));
         this._clientObjects[id] = panelDescriptor;
         WebInspector.inspectorView.addPanel(panelDescriptor);
         return this._status.OK();
@@ -275,7 +277,11 @@ WebInspector.ExtensionServer.prototype = {
 
     _onShowPanel: function(message)
     {
-        WebInspector.inspectorView.showPanel(message.id);
+        var panelName = message.id;
+        var panelDescriptor = this._clientObjects[message.id];
+        if (panelDescriptor && panelDescriptor instanceof WebInspector.ExtensionServerPanelDescriptor)
+            panelName = panelDescriptor.name();
+        WebInspector.inspectorView.showPanel(panelName);
     },
 
     _onCreateToolbarButton: function(message, port)
@@ -423,9 +429,7 @@ WebInspector.ExtensionServer.prototype = {
         var injectedScript;
         if (options.injectedScript)
             injectedScript = "(function(){" + options.injectedScript + "})()";
-        // Reload main frame.
-        var target = WebInspector.targetManager.mainTarget();
-        target.resourceTreeModel.reloadPage(!!options.ignoreCache, injectedScript);
+        WebInspector.targetManager.reloadPage(!!options.ignoreCache, injectedScript);
         return this._status.OK();
     },
 
@@ -861,7 +865,7 @@ WebInspector.ExtensionServer.prototype = {
          */
         function addFirstEventListener()
         {
-            WebInspector.workspace.addEventListener(WebInspector.Workspace.Events.UISourceCodeContentCommitted, handler, this);
+            WebInspector.workspace.addEventListener(WebInspector.Workspace.Events.WorkingCopyCommittedByUser, handler, this);
             WebInspector.workspace.setHasResourceContentTrackingExtensions(true);
         }
 
@@ -871,7 +875,7 @@ WebInspector.ExtensionServer.prototype = {
         function removeLastEventListener()
         {
             WebInspector.workspace.setHasResourceContentTrackingExtensions(false);
-            WebInspector.workspace.removeEventListener(WebInspector.Workspace.Events.UISourceCodeContentCommitted, handler, this);
+            WebInspector.workspace.removeEventListener(WebInspector.Workspace.Events.WorkingCopyCommittedByUser, handler, this);
         }
 
         this._registerSubscriptionHandler(WebInspector.extensionAPI.Events.ResourceContentCommitted,
@@ -1081,3 +1085,6 @@ WebInspector.ExtensionStatus.Record;
 
 WebInspector.extensionAPI = {};
 defineCommonExtensionSymbols(WebInspector.extensionAPI);
+
+/** @type {!WebInspector.ExtensionServer} */
+WebInspector.extensionServer;

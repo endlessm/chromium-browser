@@ -15,10 +15,10 @@ class TestImageFactory : public gpu::ImageFactory {
   ~TestImageFactory() override;
 
   // Overridden from gpu::ImageFactory:
-  scoped_refptr<gfx::GLImage> CreateImageForGpuMemoryBuffer(
+  scoped_refptr<gl::GLImage> CreateImageForGpuMemoryBuffer(
       const gfx::GpuMemoryBufferHandle& handle,
       const gfx::Size& size,
-      gfx::GpuMemoryBuffer::Format format,
+      gfx::BufferFormat format,
       unsigned internalformat,
       int client_id) override;
 

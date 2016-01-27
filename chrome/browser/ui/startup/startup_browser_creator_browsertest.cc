@@ -41,7 +41,9 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/test_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/metrics/metrics_pref_names.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/test_utils.h"
 #include "extensions/browser/extension_system.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -99,6 +101,38 @@ bool IsWindows10OrNewer() {
   return false;
 #endif
 }
+
+#if defined(OS_WIN)
+// This function is used to verify a callback was successfully invoked.
+void SetTrue(bool* value) {
+  ASSERT_TRUE(value);
+  *value = true;
+}
+
+bool TabStripContainsUrl(TabStripModel* tab_strip, GURL url) {
+  for (int i = 0; i < tab_strip->count(); ++i) {
+    if (tab_strip->GetWebContentsAt(i)->GetURL() == url)
+      return true;
+  }
+  return false;
+}
+
+void ProcessCommandLineAlreadyRunningDefaultProfile(
+    const base::CommandLine& cmdline) {
+  StartupBrowserCreator browser_creator;
+
+  base::FilePath current_dir;
+  ASSERT_TRUE(base::GetCurrentDirectory(&current_dir));
+  base::FilePath user_data_dir =
+      g_browser_process->profile_manager()->user_data_dir();
+  base::FilePath startup_profile_dir =
+      g_browser_process->profile_manager()->GetLastUsedProfileDir(
+          user_data_dir);
+
+  browser_creator.ProcessCommandLineAlreadyRunning(cmdline, current_dir,
+                                                   startup_profile_dir);
+}
+#endif  // defined(OS_WIN)
 
 }  // namespace
 
@@ -1160,6 +1194,42 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, ProfilesLaunchedAfterCrash) {
 #endif  // !defined(OS_MACOSX) && !defined(GOOGLE_CHROME_BUILD)
 }
 
+#if defined(OS_WIN)
+IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorTest, DefaultBrowserCallback) {
+  bool callback_called = false;
+
+  // Set the default browser callback.
+  StartupBrowserCreator::SetDefaultBrowserCallback(
+      base::Bind(&SetTrue, &callback_called));
+
+  // Set the command line to open the default browser url.
+  base::CommandLine cmdline(base::CommandLine::NO_PROGRAM);
+  cmdline.AppendArgNative(StartupBrowserCreator::GetDefaultBrowserUrl());
+
+  // Open url.
+  ProcessCommandLineAlreadyRunningDefaultProfile(cmdline);
+
+  // The url should have been intercepted and the callback invoked.
+  GURL default_browser_url =
+      GURL(StartupBrowserCreator::GetDefaultBrowserUrl());
+  EXPECT_FALSE(
+      TabStripContainsUrl(browser()->tab_strip_model(), default_browser_url));
+  EXPECT_TRUE(callback_called);
+
+  // Clear default browser callback.
+  callback_called = false;
+  StartupBrowserCreator::ClearDefaultBrowserCallback();
+
+  // Open url.
+  ProcessCommandLineAlreadyRunningDefaultProfile(cmdline);
+
+  // The url should not have been intercepted and the callback not invoked.
+  EXPECT_TRUE(
+      TabStripContainsUrl(browser()->tab_strip_model(), default_browser_url));
+  EXPECT_FALSE(callback_called);
+}
+#endif  // defined(OS_WIN)
+
 class SupervisedUserBrowserCreatorTest : public InProcessBrowserTest {
  protected:
   void SetUpCommandLine(base::CommandLine* command_line) override {
@@ -1187,8 +1257,9 @@ IN_PROC_BROWSER_TEST_F(SupervisedUserBrowserCreatorTest,
   ASSERT_TRUE(new_browser);
 
   TabStripModel* tab_strip = new_browser->tab_strip_model();
-  // There should be only one tab.
-  EXPECT_EQ(1, tab_strip->count());
+  // There should be only one tab, except on Windows 10. See crbug.com/505029.
+  const int tab_count = IsWindows10OrNewer() ? 2 : 1;
+  EXPECT_EQ(tab_count, tab_strip->count());
 }
 
 #endif  // !defined(OS_CHROMEOS)
@@ -1230,6 +1301,7 @@ void StartupBrowserCreatorFirstRunTest::SetUpInProcessBrowserTestFixture() {
   policy_map_.Set(policy::key::kMetricsReportingEnabled,
                   policy::POLICY_LEVEL_MANDATORY,
                   policy::POLICY_SCOPE_USER,
+                  policy::POLICY_SOURCE_CLOUD,
                   new base::FundamentalValue(false),
                   NULL);
   provider_.UpdateChromePolicy(policy_map_);
@@ -1597,6 +1669,7 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorFirstRunTest,
       policy::key::kRestoreOnStartup,
       policy::POLICY_LEVEL_MANDATORY,
       policy::POLICY_SCOPE_USER,
+      policy::POLICY_SOURCE_CLOUD,
       new base::FundamentalValue(SessionStartupPref::kPrefValueURLs),
       NULL);
   base::ListValue startup_urls;
@@ -1604,7 +1677,8 @@ IN_PROC_BROWSER_TEST_F(StartupBrowserCreatorFirstRunTest,
       new base::StringValue(test_server()->GetURL("files/title1.html").spec()));
   policy_map_.Set(policy::key::kRestoreOnStartupURLs,
                   policy::POLICY_LEVEL_MANDATORY, policy::POLICY_SCOPE_USER,
-                  startup_urls.DeepCopy(), NULL);
+                  policy::POLICY_SOURCE_CLOUD, startup_urls.DeepCopy(),
+                  nullptr);
   provider_.UpdateChromePolicy(policy_map_);
   base::RunLoop().RunUntilIdle();
 

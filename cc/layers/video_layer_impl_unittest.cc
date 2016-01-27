@@ -21,10 +21,11 @@ namespace {
 // NOTE: We cannot use DebugScopedSetImplThreadAndMainThreadBlocked in these
 // tests because it gets destroyed before the VideoLayerImpl is destroyed. This
 // causes a DCHECK in VideoLayerImpl's destructor to fail.
-static void DebugSetImplThreadAndMainThreadBlocked(Proxy* proxy) {
+static void DebugSetImplThreadAndMainThreadBlocked(
+    TaskRunnerProvider* task_runner_provider) {
 #if DCHECK_IS_ON()
-  proxy->SetCurrentThreadIsImplThread(true);
-  proxy->SetMainThreadBlocked(true);
+  task_runner_provider->SetCurrentThreadIsImplThread(true);
+  task_runner_provider->SetMainThreadBlocked(true);
 #endif
 }
 
@@ -33,14 +34,11 @@ TEST(VideoLayerImplTest, Occlusion) {
   gfx::Size viewport_size(1000, 1000);
 
   LayerTestCommon::LayerImplTest impl;
-  DebugSetImplThreadAndMainThreadBlocked(impl.proxy());
+  DebugSetImplThreadAndMainThreadBlocked(impl.task_runner_provider());
 
-  scoped_refptr<media::VideoFrame> video_frame =
-      media::VideoFrame::CreateFrame(media::VideoFrame::YV12,
-                                     gfx::Size(10, 10),
-                                     gfx::Rect(10, 10),
-                                     gfx::Size(10, 10),
-                                     base::TimeDelta());
+  scoped_refptr<media::VideoFrame> video_frame = media::VideoFrame::CreateFrame(
+      media::PIXEL_FORMAT_YV12, gfx::Size(10, 10), gfx::Rect(10, 10),
+      gfx::Size(10, 10), base::TimeDelta());
   FakeVideoFrameProvider provider;
   provider.set_frame(video_frame);
 
@@ -90,7 +88,7 @@ TEST(VideoLayerImplTest, OccludesOtherLayers) {
 
   LayerTestCommon::LayerImplTest impl;
   impl.host_impl()->SetViewportSize(layer_size);
-  DebugSetImplThreadAndMainThreadBlocked(impl.proxy());
+  DebugSetImplThreadAndMainThreadBlocked(impl.task_runner_provider());
   auto active_tree = impl.host_impl()->active_tree();
 
   // Create a video layer with no frame on top of another layer.
@@ -118,7 +116,7 @@ TEST(VideoLayerImplTest, OccludesOtherLayers) {
   EXPECT_FALSE(draw_properties.occlusion_in_content_space.IsOccluded(visible));
 
   scoped_refptr<media::VideoFrame> video_frame = media::VideoFrame::CreateFrame(
-      media::VideoFrame::YV12, gfx::Size(10, 10), gfx::Rect(10, 10),
+      media::PIXEL_FORMAT_YV12, gfx::Size(10, 10), gfx::Rect(10, 10),
       gfx::Size(10, 10), base::TimeDelta());
   provider.set_frame(video_frame);
   active_tree->set_needs_update_draw_properties();
@@ -130,7 +128,7 @@ TEST(VideoLayerImplTest, OccludesOtherLayers) {
 
 TEST(VideoLayerImplTest, DidBecomeActiveShouldSetActiveVideoLayer) {
   LayerTestCommon::LayerImplTest impl;
-  DebugSetImplThreadAndMainThreadBlocked(impl.proxy());
+  DebugSetImplThreadAndMainThreadBlocked(impl.task_runner_provider());
 
   FakeVideoFrameProvider provider;
   VideoLayerImpl* video_layer_impl =
@@ -150,14 +148,11 @@ TEST(VideoLayerImplTest, Rotated0) {
   gfx::Size viewport_size(1000, 500);
 
   LayerTestCommon::LayerImplTest impl;
-  DebugSetImplThreadAndMainThreadBlocked(impl.proxy());
+  DebugSetImplThreadAndMainThreadBlocked(impl.task_runner_provider());
 
-  scoped_refptr<media::VideoFrame> video_frame =
-      media::VideoFrame::CreateFrame(media::VideoFrame::YV12,
-                                     gfx::Size(20, 10),
-                                     gfx::Rect(20, 10),
-                                     gfx::Size(20, 10),
-                                     base::TimeDelta());
+  scoped_refptr<media::VideoFrame> video_frame = media::VideoFrame::CreateFrame(
+      media::PIXEL_FORMAT_YV12, gfx::Size(20, 10), gfx::Rect(20, 10),
+      gfx::Size(20, 10), base::TimeDelta());
   FakeVideoFrameProvider provider;
   provider.set_frame(video_frame);
 
@@ -189,14 +184,11 @@ TEST(VideoLayerImplTest, Rotated90) {
   gfx::Size viewport_size(1000, 500);
 
   LayerTestCommon::LayerImplTest impl;
-  DebugSetImplThreadAndMainThreadBlocked(impl.proxy());
+  DebugSetImplThreadAndMainThreadBlocked(impl.task_runner_provider());
 
-  scoped_refptr<media::VideoFrame> video_frame =
-      media::VideoFrame::CreateFrame(media::VideoFrame::YV12,
-                                     gfx::Size(20, 10),
-                                     gfx::Rect(20, 10),
-                                     gfx::Size(20, 10),
-                                     base::TimeDelta());
+  scoped_refptr<media::VideoFrame> video_frame = media::VideoFrame::CreateFrame(
+      media::PIXEL_FORMAT_YV12, gfx::Size(20, 10), gfx::Rect(20, 10),
+      gfx::Size(20, 10), base::TimeDelta());
   FakeVideoFrameProvider provider;
   provider.set_frame(video_frame);
 
@@ -228,14 +220,11 @@ TEST(VideoLayerImplTest, Rotated180) {
   gfx::Size viewport_size(1000, 500);
 
   LayerTestCommon::LayerImplTest impl;
-  DebugSetImplThreadAndMainThreadBlocked(impl.proxy());
+  DebugSetImplThreadAndMainThreadBlocked(impl.task_runner_provider());
 
-  scoped_refptr<media::VideoFrame> video_frame =
-      media::VideoFrame::CreateFrame(media::VideoFrame::YV12,
-                                     gfx::Size(20, 10),
-                                     gfx::Rect(20, 10),
-                                     gfx::Size(20, 10),
-                                     base::TimeDelta());
+  scoped_refptr<media::VideoFrame> video_frame = media::VideoFrame::CreateFrame(
+      media::PIXEL_FORMAT_YV12, gfx::Size(20, 10), gfx::Rect(20, 10),
+      gfx::Size(20, 10), base::TimeDelta());
   FakeVideoFrameProvider provider;
   provider.set_frame(video_frame);
 
@@ -267,14 +256,11 @@ TEST(VideoLayerImplTest, Rotated270) {
   gfx::Size viewport_size(1000, 500);
 
   LayerTestCommon::LayerImplTest impl;
-  DebugSetImplThreadAndMainThreadBlocked(impl.proxy());
+  DebugSetImplThreadAndMainThreadBlocked(impl.task_runner_provider());
 
-  scoped_refptr<media::VideoFrame> video_frame =
-      media::VideoFrame::CreateFrame(media::VideoFrame::YV12,
-                                     gfx::Size(20, 10),
-                                     gfx::Rect(20, 10),
-                                     gfx::Size(20, 10),
-                                     base::TimeDelta());
+  scoped_refptr<media::VideoFrame> video_frame = media::VideoFrame::CreateFrame(
+      media::PIXEL_FORMAT_YV12, gfx::Size(20, 10), gfx::Rect(20, 10),
+      gfx::Size(20, 10), base::TimeDelta());
   FakeVideoFrameProvider provider;
   provider.set_frame(video_frame);
 
@@ -301,21 +287,20 @@ TEST(VideoLayerImplTest, Rotated270) {
   EXPECT_EQ(gfx::Point3F(0, 0, 0), p2);
 }
 
-void EmptyCallback(unsigned sync_point) {
-}
+void EmptyCallback(const gpu::SyncToken& sync_token) {}
 
 TEST(VideoLayerImplTest, SoftwareVideoFrameGeneratesYUVQuad) {
   gfx::Size layer_size(1000, 1000);
   gfx::Size viewport_size(1000, 1000);
 
   LayerTestCommon::LayerImplTest impl;
-  DebugSetImplThreadAndMainThreadBlocked(impl.proxy());
+  DebugSetImplThreadAndMainThreadBlocked(impl.task_runner_provider());
 
   gpu::MailboxHolder mailbox_holder;
   mailbox_holder.mailbox.name[0] = 1;
 
   scoped_refptr<media::VideoFrame> video_frame = media::VideoFrame::CreateFrame(
-      media::VideoFrame::YV12, gfx::Size(20, 10), gfx::Rect(20, 10),
+      media::PIXEL_FORMAT_YV12, gfx::Size(20, 10), gfx::Rect(20, 10),
       gfx::Size(20, 10), base::TimeDelta());
 
   FakeVideoFrameProvider provider;
@@ -346,7 +331,7 @@ TEST(VideoLayerImplTest, NativeYUVFrameGeneratesYUVQuad) {
   gfx::Size viewport_size(1000, 1000);
 
   LayerTestCommon::LayerImplTest impl;
-  DebugSetImplThreadAndMainThreadBlocked(impl.proxy());
+  DebugSetImplThreadAndMainThreadBlocked(impl.task_runner_provider());
 
   gpu::MailboxHolder mailbox_holder;
   mailbox_holder.mailbox.name[0] = 1;

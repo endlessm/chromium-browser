@@ -80,8 +80,10 @@ row, const LayoutTableCell* cell)
 
 void CellSpan::ensureConsistency(const unsigned maximumSpanSize)
 {
-    RELEASE_ASSERT(m_start >= 0 && m_start <= maximumSpanSize);
-    RELEASE_ASSERT(m_end >= 0 && m_end <= maximumSpanSize);
+    static_assert(WTF::IsSameType<decltype(m_start), unsigned>::value, "Asserts below assume m_start is unsigned");
+    static_assert(WTF::IsSameType<decltype(m_end), unsigned>::value, "Asserts below assume m_end is unsigned");
+    RELEASE_ASSERT(m_start <= maximumSpanSize);
+    RELEASE_ASSERT(m_end <= maximumSpanSize);
     RELEASE_ASSERT(m_start <= m_end);
 }
 
@@ -198,6 +200,32 @@ void LayoutTableSection::ensureRows(unsigned numRows)
         m_grid[row].row.grow(effectiveColumnCount);
 }
 
+static inline void checkThatVectorIsDOMOrdered(const Vector<LayoutTableCell*, 1>& cells)
+{
+#ifndef NDEBUG
+    // This function should be called on a non-empty vector.
+    ASSERT(cells.size() > 0);
+
+    const LayoutTableCell* previousCell = cells[0];
+    for (size_t i = 1; i < cells.size(); ++i) {
+        const LayoutTableCell* currentCell = cells[i];
+        // The check assumes that all cells belong to the same row group.
+        ASSERT(previousCell->section() == currentCell->section());
+
+        // 2 overlapping cells can't be on the same row.
+        ASSERT(currentCell->row() != previousCell->row());
+
+        // Look backwards in the tree for the previousCell's row. If we are
+        // DOM ordered, we should find it.
+        const LayoutTableRow* row = currentCell->row();
+        for (; row && row != previousCell->row(); row = row->previousRow()) { }
+        ASSERT(row == previousCell->row());
+
+        previousCell = currentCell;
+    }
+#endif // NDEBUG
+}
+
 void LayoutTableSection::addCell(LayoutTableCell* cell, LayoutTableRow* row)
 {
     // We don't insert the cell if we need cell recalc as our internal columns' representation
@@ -244,6 +272,7 @@ void LayoutTableSection::addCell(LayoutTableCell* cell, LayoutTableRow* row)
             CellStruct& c = cellAt(insertionRow + r, m_cCol);
             ASSERT(cell);
             c.cells.append(cell);
+            checkThatVectorIsDOMOrdered(c.cells);
             // If cells overlap then we take the slow path for painting.
             if (c.cells.size() > 1)
                 m_hasMultipleCellLevels = true;
@@ -322,7 +351,7 @@ void LayoutTableSection::distributeExtraRowSpanHeightToPercentRows(LayoutTableCe
                 // FIXME: Note that this is wrong if we have a percentage above 100% and may make us grow
                 // above the available space.
 
-                toAdd = std::min(toAdd, extraRowSpanningHeight);
+                toAdd = std::max(std::min(toAdd, extraRowSpanningHeight), 0);
                 accumulatedPositionIncrease += toAdd;
                 extraRowSpanningHeight -= toAdd;
                 percent -= m_grid[row].logicalHeight.percent();
@@ -1275,7 +1304,7 @@ int LayoutTableSection::firstLineBoxBaseline() const
     return firstLineBaseline;
 }
 
-void LayoutTableSection::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+void LayoutTableSection::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset) const
 {
     TableSectionPainter(*this).paint(paintInfo, paintOffset);
 }

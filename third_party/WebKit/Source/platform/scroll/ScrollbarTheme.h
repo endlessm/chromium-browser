@@ -30,33 +30,43 @@
 #include "platform/geometry/IntRect.h"
 #include "platform/graphics/paint/DisplayItem.h"
 #include "platform/scroll/ScrollTypes.h"
+#include "public/platform/mac/MacScrollTypes.h"
 
 namespace blink {
 
+class CullRect;
 class GraphicsContext;
 class PlatformMouseEvent;
 class ScrollbarThemeClient;
+class ScrollbarThemePaintParams;
 
 class PLATFORM_EXPORT ScrollbarTheme {
-    WTF_MAKE_NONCOPYABLE(ScrollbarTheme); WTF_MAKE_FAST_ALLOCATED(ScrollbarTheme);
+    WTF_MAKE_NONCOPYABLE(ScrollbarTheme); USING_FAST_MALLOC(ScrollbarTheme);
 public:
     ScrollbarTheme() { }
     virtual ~ScrollbarTheme() { }
 
-    virtual void updateEnabledState(ScrollbarThemeClient*) { }
+    // If true, then scrollbars with this theme will be painted every time
+    // Scrollbar::setNeedsPaintInvalidation is called. If false, then scrollbar
+    // thumb and track part painting results will be cached and not repainted
+    // unless requested by Scrollbar::setThumbNeedsRepaint or
+    // Scrollbar::setTrackNeedsRepaint.
+    virtual bool shouldRepaintAllPartsOnInvalidation() const { return true; }
 
-    virtual bool paint(ScrollbarThemeClient*, GraphicsContext*, const IntRect& damageRect);
+    virtual void updateEnabledState(const ScrollbarThemeClient*) { }
 
-    virtual ScrollbarPart hitTest(ScrollbarThemeClient*, const IntPoint&);
+    virtual bool paint(const ScrollbarThemeClient*, GraphicsContext*, const CullRect&);
+
+    virtual ScrollbarPart hitTest(const ScrollbarThemeClient*, const IntPoint&);
 
     virtual int scrollbarThickness(ScrollbarControlSize = RegularScrollbar) { return 0; }
     virtual int scrollbarMargin() const { return 0; }
 
-    virtual ScrollbarButtonsPlacement buttonsPlacement() const { return ScrollbarButtonsSingle; }
+    virtual ScrollbarButtonsPlacement buttonsPlacement() const { return ScrollbarButtonsPlacementSingle; }
 
     virtual bool supportsControlTints() const { return false; }
     virtual bool usesOverlayScrollbars() const { return false; }
-    virtual void updateScrollbarOverlayStyle(ScrollbarThemeClient*) { }
+    virtual void updateScrollbarOverlayStyle(const ScrollbarThemeClient*) { }
 
     virtual bool invalidateOnMouseEnterExit() { return false; }
 
@@ -81,46 +91,48 @@ public:
     virtual void invalidatePart(ScrollbarThemeClient*, ScrollbarPart);
 
     virtual void paintScrollCorner(GraphicsContext*, const DisplayItemClientWrapper&, const IntRect& cornerRect);
-    virtual void paintTickmarks(GraphicsContext*, ScrollbarThemeClient*, const IntRect&) { }
+    virtual void paintTickmarks(GraphicsContext*, const ScrollbarThemeClient*, const IntRect&) { }
 
-    virtual bool shouldCenterOnThumb(ScrollbarThemeClient*, const PlatformMouseEvent&);
-    virtual bool shouldSnapBackToDragOrigin(ScrollbarThemeClient*, const PlatformMouseEvent&);
-    virtual bool shouldDragDocumentInsteadOfThumb(ScrollbarThemeClient*, const PlatformMouseEvent&) { return false; }
+    virtual bool shouldCenterOnThumb(const ScrollbarThemeClient*, const PlatformMouseEvent&);
+    virtual bool shouldSnapBackToDragOrigin(const ScrollbarThemeClient*, const PlatformMouseEvent&);
+    virtual bool shouldDragDocumentInsteadOfThumb(const ScrollbarThemeClient*, const PlatformMouseEvent&) { return false; }
 
     // The position of the thumb relative to the track.
-    virtual int thumbPosition(ScrollbarThemeClient*);
+    virtual int thumbPosition(const ScrollbarThemeClient*);
     // The length of the thumb along the axis of the scrollbar.
-    virtual int thumbLength(ScrollbarThemeClient*);
+    virtual int thumbLength(const ScrollbarThemeClient*);
     // The position of the track relative to the scrollbar.
-    virtual int trackPosition(ScrollbarThemeClient*);
+    virtual int trackPosition(const ScrollbarThemeClient*);
     // The length of the track along the axis of the scrollbar.
-    virtual int trackLength(ScrollbarThemeClient*);
+    virtual int trackLength(const ScrollbarThemeClient*);
+    // The opacity to be applied to the thumb.
+    virtual float thumbOpacity(const ScrollbarThemeClient*) const { return 1.0f; }
 
-    virtual bool hasButtons(ScrollbarThemeClient*) = 0;
-    virtual bool hasThumb(ScrollbarThemeClient*) = 0;
+    virtual bool hasButtons(const ScrollbarThemeClient*) = 0;
+    virtual bool hasThumb(const ScrollbarThemeClient*) = 0;
 
-    virtual IntRect backButtonRect(ScrollbarThemeClient*, ScrollbarPart, bool painting = false) = 0;
-    virtual IntRect forwardButtonRect(ScrollbarThemeClient*, ScrollbarPart, bool painting = false) = 0;
-    virtual IntRect trackRect(ScrollbarThemeClient*, bool painting = false) = 0;
-    virtual IntRect thumbRect(ScrollbarThemeClient*);
-    virtual int thumbThickness(ScrollbarThemeClient*);
+    virtual IntRect backButtonRect(const ScrollbarThemeClient*, ScrollbarPart, bool painting = false) = 0;
+    virtual IntRect forwardButtonRect(const ScrollbarThemeClient*, ScrollbarPart, bool painting = false) = 0;
+    virtual IntRect trackRect(const ScrollbarThemeClient*, bool painting = false) = 0;
+    virtual IntRect thumbRect(const ScrollbarThemeClient*);
+    virtual int thumbThickness(const ScrollbarThemeClient*);
 
-    virtual int minimumThumbLength(ScrollbarThemeClient*);
+    virtual int minimumThumbLength(const ScrollbarThemeClient*);
 
-    virtual void splitTrack(ScrollbarThemeClient*, const IntRect& track, IntRect& startTrack, IntRect& thumb, IntRect& endTrack);
+    virtual void splitTrack(const ScrollbarThemeClient*, const IntRect& track, IntRect& startTrack, IntRect& thumb, IntRect& endTrack);
 
-    virtual void paintScrollbarBackground(GraphicsContext*, ScrollbarThemeClient*) { }
-    virtual void paintTrackBackground(GraphicsContext*, ScrollbarThemeClient*, const IntRect&) { }
-    virtual void paintTrackPiece(GraphicsContext*, ScrollbarThemeClient*, const IntRect&, ScrollbarPart) { }
-    virtual void paintButton(GraphicsContext*, ScrollbarThemeClient*, const IntRect&, ScrollbarPart) { }
-    virtual void paintThumb(GraphicsContext*, ScrollbarThemeClient*, const IntRect&) { }
+    virtual void paintScrollbarBackground(GraphicsContext*, const ScrollbarThemeClient*) { }
+    virtual void paintTrackBackground(GraphicsContext*, const ScrollbarThemeClient*, const IntRect&) { }
+    virtual void paintTrackPiece(GraphicsContext*, const ScrollbarThemeClient*, const IntRect&, ScrollbarPart) { }
+    virtual void paintButton(GraphicsContext*, const ScrollbarThemeClient*, const IntRect&, ScrollbarPart) { }
+    virtual void paintThumb(GraphicsContext*, const ScrollbarThemeClient*, const IntRect&) { }
 
     virtual int maxOverlapBetweenPages() { return std::numeric_limits<int>::max(); }
 
     virtual double initialAutoscrollTimerDelay() { return 0.25; }
     virtual double autoscrollTimerDelay() { return 0.05; }
 
-    virtual IntRect constrainTrackRectToTrackPieces(ScrollbarThemeClient*, const IntRect& rect) { return rect; }
+    virtual IntRect constrainTrackRectToTrackPieces(const ScrollbarThemeClient*, const IntRect& rect) { return rect; }
 
     virtual void registerScrollbar(ScrollbarThemeClient*) { }
     virtual void unregisterScrollbar(ScrollbarThemeClient*) { }

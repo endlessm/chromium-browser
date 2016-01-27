@@ -11,7 +11,7 @@
 #include "webrtc/modules/video_coding/main/source/session_info.h"
 
 #include "webrtc/modules/video_coding/main/source/packet.h"
-#include "webrtc/system_wrappers/interface/logging.h"
+#include "webrtc/system_wrappers/include/logging.h"
 
 namespace webrtc {
 
@@ -59,31 +59,52 @@ int VCMSessionInfo::HighSequenceNumber() const {
 }
 
 int VCMSessionInfo::PictureId() const {
-  if (packets_.empty() ||
-      packets_.front().codecSpecificHeader.codec != kRtpVideoVp8)
+  if (packets_.empty())
     return kNoPictureId;
-  return packets_.front().codecSpecificHeader.codecHeader.VP8.pictureId;
+  if (packets_.front().codecSpecificHeader.codec == kRtpVideoVp8) {
+    return packets_.front().codecSpecificHeader.codecHeader.VP8.pictureId;
+  } else if (packets_.front().codecSpecificHeader.codec == kRtpVideoVp9) {
+    return packets_.front().codecSpecificHeader.codecHeader.VP9.picture_id;
+  } else {
+    return kNoPictureId;
+  }
 }
 
 int VCMSessionInfo::TemporalId() const {
-  if (packets_.empty() ||
-      packets_.front().codecSpecificHeader.codec != kRtpVideoVp8)
+  if (packets_.empty())
     return kNoTemporalIdx;
-  return packets_.front().codecSpecificHeader.codecHeader.VP8.temporalIdx;
+  if (packets_.front().codecSpecificHeader.codec == kRtpVideoVp8) {
+    return packets_.front().codecSpecificHeader.codecHeader.VP8.temporalIdx;
+  } else if (packets_.front().codecSpecificHeader.codec == kRtpVideoVp9) {
+    return packets_.front().codecSpecificHeader.codecHeader.VP9.temporal_idx;
+  } else {
+    return kNoTemporalIdx;
+  }
 }
 
 bool VCMSessionInfo::LayerSync() const {
-  if (packets_.empty() ||
-        packets_.front().codecSpecificHeader.codec != kRtpVideoVp8)
+  if (packets_.empty())
     return false;
-  return packets_.front().codecSpecificHeader.codecHeader.VP8.layerSync;
+  if (packets_.front().codecSpecificHeader.codec == kRtpVideoVp8) {
+    return packets_.front().codecSpecificHeader.codecHeader.VP8.layerSync;
+  } else if (packets_.front().codecSpecificHeader.codec == kRtpVideoVp9) {
+    return
+        packets_.front().codecSpecificHeader.codecHeader.VP9.temporal_up_switch;
+  } else {
+    return false;
+  }
 }
 
 int VCMSessionInfo::Tl0PicId() const {
-  if (packets_.empty() ||
-      packets_.front().codecSpecificHeader.codec != kRtpVideoVp8)
+  if (packets_.empty())
     return kNoTl0PicIdx;
-  return packets_.front().codecSpecificHeader.codecHeader.VP8.tl0PicIdx;
+  if (packets_.front().codecSpecificHeader.codec == kRtpVideoVp8) {
+    return packets_.front().codecSpecificHeader.codecHeader.VP8.tl0PicIdx;
+  } else if (packets_.front().codecSpecificHeader.codec == kRtpVideoVp9) {
+    return packets_.front().codecSpecificHeader.codecHeader.VP9.tl0_pic_idx;
+  } else {
+    return kNoTl0PicIdx;
+  }
 }
 
 bool VCMSessionInfo::NonReference() const {
@@ -91,6 +112,24 @@ bool VCMSessionInfo::NonReference() const {
       packets_.front().codecSpecificHeader.codec != kRtpVideoVp8)
     return false;
   return packets_.front().codecSpecificHeader.codecHeader.VP8.nonReference;
+}
+
+void VCMSessionInfo::SetGofInfo(const GofInfoVP9& gof_info, size_t idx) {
+  if (packets_.empty() ||
+      packets_.front().codecSpecificHeader.codec != kRtpVideoVp9 ||
+      packets_.front().codecSpecificHeader.codecHeader.VP9.flexible_mode) {
+    return;
+  }
+  packets_.front().codecSpecificHeader.codecHeader.VP9.temporal_idx =
+      gof_info.temporal_idx[idx];
+  packets_.front().codecSpecificHeader.codecHeader.VP9.temporal_up_switch =
+      gof_info.temporal_up_switch[idx];
+  packets_.front().codecSpecificHeader.codecHeader.VP9.num_ref_pics =
+      gof_info.num_ref_pics[idx];
+  for (uint8_t i = 0; i < gof_info.num_ref_pics[idx]; ++i) {
+    packets_.front().codecSpecificHeader.codecHeader.VP9.pid_diff[i] =
+        gof_info.pid_diff[idx][i];
+  }
 }
 
 void VCMSessionInfo::Reset() {
@@ -133,6 +172,8 @@ size_t VCMSessionInfo::InsertBuffer(uint8_t* frame_buffer,
 
   // We handle H.264 STAP-A packets in a special way as we need to remove the
   // two length bytes between each NAL unit, and potentially add start codes.
+  // TODO(pbos): Remove H264 parsing from this step and use a fragmentation
+  // header supplied by the H264 depacketizer.
   const size_t kH264NALHeaderLengthInBytes = 1;
   const size_t kLengthFieldLength = 2;
   if (packet.codecSpecificHeader.codec == kRtpVideoH264 &&
@@ -441,7 +482,7 @@ int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
                                  uint8_t* frame_buffer,
                                  VCMDecodeErrorMode decode_error_mode,
                                  const FrameData& frame_data) {
-  if (packet.frameType == kFrameEmpty) {
+  if (packet.frameType == kEmptyFrame) {
     // Update sequence number of an empty packet.
     // Only media packets are inserted into the packet list.
     InformOfEmptyPacket(packet.seqNum);
@@ -493,7 +534,7 @@ int VCMSessionInfo::InsertPacket(const VCMPacket& packet,
       LOG(LS_WARNING) << "Received packet with a sequence number which is out "
                          "of frame boundaries";
       return -3;
-    } else if (frame_type_ == kFrameEmpty && packet.frameType != kFrameEmpty) {
+    } else if (frame_type_ == kEmptyFrame && packet.frameType != kEmptyFrame) {
       // Update the frame type with the type of the first media packet.
       // TODO(mikhal): Can this trigger?
       frame_type_ = packet.frameType;

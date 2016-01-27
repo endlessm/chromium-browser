@@ -11,8 +11,7 @@
 #include "mojo/application/public/cpp/application_delegate.h"
 #include "mojo/application/public/cpp/interface_factory.h"
 #include "mojo/common/weak_binding_set.h"
-#include "third_party/mojo/src/mojo/public/cpp/bindings/binding.h"
-#include "third_party/mojo/src/mojo/public/cpp/bindings/error_handler.h"
+#include "mojo/public/cpp/bindings/binding.h"
 
 namespace mojo {
 class ApplicationImpl;
@@ -23,7 +22,7 @@ namespace resource_provider {
 class ResourceProviderApp : public mojo::ApplicationDelegate,
                             public mojo::InterfaceFactory<ResourceProvider> {
  public:
-  ResourceProviderApp();
+  explicit ResourceProviderApp(const std::string& resource_provider_app_url);
   ~ResourceProviderApp() override;
 
  private:
@@ -37,6 +36,11 @@ class ResourceProviderApp : public mojo::ApplicationDelegate,
               mojo::InterfaceRequest<ResourceProvider> request) override;
 
   mojo::WeakBindingSet<ResourceProvider> bindings_;
+
+  // The name of the app that the resource provider code lives in. When using
+  // core services, it'll be the url of that. Otherwise it'll just be
+  // mojo:resource_provider.
+  std::string resource_provider_app_url_;
 
   DISALLOW_COPY_AND_ASSIGN(ResourceProviderApp);
 };

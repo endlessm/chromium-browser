@@ -81,8 +81,8 @@ public:
     FloatRect maxEffectRect() const { return m_maxEffectRect; }
     void setMaxEffectRect(const FloatRect& maxEffectRect) { m_maxEffectRect = maxEffectRect; }
 
-    virtual PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder*);
-    virtual PassRefPtr<SkImageFilter> createImageFilterWithoutValidation(SkiaImageFilterBuilder*);
+    virtual PassRefPtr<SkImageFilter> createImageFilter(SkiaImageFilterBuilder&);
+    virtual PassRefPtr<SkImageFilter> createImageFilterWithoutValidation(SkiaImageFilterBuilder&);
 
     // Mapping a rect forwards determines which which destination pixels a
     // given source rect would affect. Mapping a rect backwards determines
@@ -149,6 +149,8 @@ public:
 protected:
     FilterEffect(Filter*);
 
+    PassRefPtr<SkImageFilter> createTransparentBlack(SkiaImageFilterBuilder&) const;
+
     Color adaptColorToOperatingColorSpace(const Color& deviceColor);
 
     SkImageFilter::CropRect getCropRect(const FloatSize& cropOffset) const;
@@ -156,6 +158,8 @@ protected:
     void addAbsolutePaintRect(const FloatRect& absolutePaintRect);
 
 private:
+    bool hasConnectedInput() const;
+
     FilterEffectVector m_inputEffects;
 
     IntRect m_absolutePaintRect;

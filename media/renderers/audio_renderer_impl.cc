@@ -22,6 +22,7 @@
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/media_log.h"
+#include "media/base/timestamp_constants.h"
 #include "media/filters/audio_clock.h"
 #include "media/filters/decrypting_demuxer_stream.h"
 
@@ -56,6 +57,7 @@ AudioRendererImpl::AudioRendererImpl(
       hardware_config_(hardware_config),
       media_log_(media_log),
       tick_clock_(new base::DefaultTickClock()),
+      last_audio_memory_usage_(0),
       playback_rate_(0.0),
       state_(kUninitialized),
       buffering_state_(BUFFERING_HAVE_NOTHING),
@@ -306,7 +308,7 @@ void AudioRendererImpl::StartPlaying() {
 void AudioRendererImpl::Initialize(
     DemuxerStream* stream,
     const PipelineStatusCB& init_cb,
-    const SetDecryptorReadyCB& set_decryptor_ready_cb,
+    const SetCdmReadyCB& set_cdm_ready_cb,
     const StatisticsCB& statistics_cb,
     const BufferingStateCB& buffering_state_cb,
     const base::Closure& ended_cb,
@@ -333,18 +335,18 @@ void AudioRendererImpl::Initialize(
   buffering_state_cb_ = buffering_state_cb;
   ended_cb_ = ended_cb;
   error_cb_ = error_cb;
+  statistics_cb_ = statistics_cb;
 
   const AudioParameters& hw_params = hardware_config_.GetOutputConfig();
   expecting_config_changes_ = stream->SupportsConfigChanges();
-  if (!expecting_config_changes_ || !hw_params.IsValid()) {
+  if (!expecting_config_changes_ || !hw_params.IsValid() ||
+      hw_params.format() == AudioParameters::AUDIO_FAKE) {
     // The actual buffer size is controlled via the size of the AudioBus
     // provided to Render(), so just choose something reasonable here for looks.
     int buffer_size = stream->audio_decoder_config().samples_per_second() / 100;
     audio_parameters_.Reset(
         AudioParameters::AUDIO_PCM_LOW_LATENCY,
         stream->audio_decoder_config().channel_layout(),
-        ChannelLayoutToChannelCount(
-            stream->audio_decoder_config().channel_layout()),
         stream->audio_decoder_config().samples_per_second(),
         stream->audio_decoder_config().bits_per_channel(),
         buffer_size);
@@ -352,15 +354,11 @@ void AudioRendererImpl::Initialize(
   } else {
     audio_parameters_.Reset(
         hw_params.format(),
-        // Always use the source's channel layout and channel count to avoid
-        // premature downmixing (http://crbug.com/379288), platform specific
-        // issues around channel layouts (http://crbug.com/266674), and
-        // unnecessary upmixing overhead.
+        // Always use the source's channel layout to avoid premature downmixing
+        // (http://crbug.com/379288), platform specific issues around channel
+        // layouts (http://crbug.com/266674), and unnecessary upmixing overhead.
         stream->audio_decoder_config().channel_layout(),
-        ChannelLayoutToChannelCount(
-            stream->audio_decoder_config().channel_layout()),
-        hw_params.sample_rate(),
-        hw_params.bits_per_sample(),
+        hw_params.sample_rate(), hw_params.bits_per_sample(),
         hardware_config_.GetHighLatencyBufferSize());
   }
 
@@ -370,7 +368,7 @@ void AudioRendererImpl::Initialize(
   audio_buffer_stream_->Initialize(
       stream, base::Bind(&AudioRendererImpl::OnAudioBufferStreamInitialized,
                          weak_factory_.GetWeakPtr()),
-      set_decryptor_ready_cb, statistics_cb, waiting_for_decryption_key_cb);
+      set_cdm_ready_cb, statistics_cb, waiting_for_decryption_key_cb);
 }
 
 void AudioRendererImpl::OnAudioBufferStreamInitialized(bool success) {
@@ -518,6 +516,12 @@ bool AudioRendererImpl::HandleSplicerBuffer_Locked(
   // audio playback.
   if (first_packet_timestamp_ == kNoTimestamp())
     first_packet_timestamp_ = buffer->timestamp();
+
+  const size_t memory_usage = algorithm_->GetMemoryUsage();
+  PipelineStatistics stats;
+  stats.audio_memory_usage = memory_usage - last_audio_memory_usage_;
+  last_audio_memory_usage_ = memory_usage;
+  task_runner_->PostTask(FROM_HERE, base::Bind(statistics_cb_, stats));
 
   switch (state_) {
     case kUninitialized:

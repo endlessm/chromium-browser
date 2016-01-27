@@ -279,22 +279,6 @@ String.prototype.removeURLFragment = function()
 }
 
 /**
- * @return {boolean}
- */
-String.prototype.startsWith = function(substring)
-{
-    return !this.lastIndexOf(substring, 0);
-}
-
-/**
- * @return {boolean}
- */
-String.prototype.endsWith = function(substring)
-{
-    return this.indexOf(substring, this.length - substring.length) !== -1;
-}
-
-/**
  * @param {string|undefined} string
  * @return {number}
  */
@@ -497,6 +481,7 @@ Object.defineProperty(Array.prototype, "remove",
     /**
      * @param {!T} value
      * @param {boolean=} firstOnly
+     * @return {boolean}
      * @this {Array.<!T>}
      * @template T
      */
@@ -504,16 +489,17 @@ Object.defineProperty(Array.prototype, "remove",
     {
         var index = this.indexOf(value);
         if (index === -1)
-            return;
+            return false;
         if (firstOnly) {
             this.splice(index, 1);
-            return;
+            return true;
         }
         for (var i = index + 1, n = this.length; i < n; ++i) {
             if (this[i] !== value)
                 this[index++] = this[i];
         }
         this.length = index;
+        return true;
     }
 });
 
@@ -975,7 +961,10 @@ String.tokenizeFormatString = function(format, formatters)
 
     function addStringToken(str)
     {
-        tokens.push({ type: "string", value: str });
+        if (tokens.length && tokens[tokens.length - 1].type === "string")
+            tokens[tokens.length - 1].value += str;
+        else
+            tokens.push({ type: "string", value: str });
     }
 
     function addSpecifierToken(specifier, precision, substitutionIndex)
@@ -1435,6 +1424,23 @@ CallbackBarrier.prototype = {
         this._outgoingCallback = callback;
         if (!this._pendingIncomingCallbacksCount)
             this._outgoingCallback();
+    },
+
+    /**
+     * @return {!Promise.<undefined>}
+     */
+    donePromise: function()
+    {
+        return new Promise(promiseConstructor.bind(this));
+
+        /**
+         * @param {function()} success
+         * @this {CallbackBarrier}
+         */
+        function promiseConstructor(success)
+        {
+            this.callWhenDone(success);
+        }
     },
 
     /**

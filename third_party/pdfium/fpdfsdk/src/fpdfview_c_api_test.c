@@ -9,21 +9,21 @@
 
 #include "fpdfview_c_api_test.h"
 
-#include "../../public/fpdf_dataavail.h"
-#include "../../public/fpdf_doc.h"
-#include "../../public/fpdf_edit.h"
-#include "../../public/fpdf_ext.h"
-#include "../../public/fpdf_flatten.h"
-#include "../../public/fpdf_formfill.h"
-#include "../../public/fpdf_fwlevent.h"
-#include "../../public/fpdf_ppo.h"
-#include "../../public/fpdf_progressive.h"
-#include "../../public/fpdf_save.h"
-#include "../../public/fpdf_searchex.h"
-#include "../../public/fpdf_sysfontinfo.h"
-#include "../../public/fpdf_text.h"
-#include "../../public/fpdf_transformpage.h"
-#include "../../public/fpdfview.h"
+#include "public/fpdf_dataavail.h"
+#include "public/fpdf_doc.h"
+#include "public/fpdf_edit.h"
+#include "public/fpdf_ext.h"
+#include "public/fpdf_flatten.h"
+#include "public/fpdf_formfill.h"
+#include "public/fpdf_fwlevent.h"
+#include "public/fpdf_ppo.h"
+#include "public/fpdf_progressive.h"
+#include "public/fpdf_save.h"
+#include "public/fpdf_searchex.h"
+#include "public/fpdf_sysfontinfo.h"
+#include "public/fpdf_text.h"
+#include "public/fpdf_transformpage.h"
+#include "public/fpdfview.h"
 
 // Scheme for avoiding LTO out of existence, warnings, etc.
 typedef void (*fnptr)(void);  // Legal generic function type for casts.
@@ -51,9 +51,11 @@ int CheckPDFiumCApi() {
     CHK(FPDFBookmark_GetAction);
     CHK(FPDFAction_GetType);
     CHK(FPDFAction_GetDest);
+    CHK(FPDFAction_GetFilePath);
     CHK(FPDFAction_GetURIPath);
     CHK(FPDFDest_GetPageIndex);
     CHK(FPDFLink_GetLinkAtPoint);
+    CHK(FPDFLink_GetLinkZOrderAtPoint);
     CHK(FPDFLink_GetDest);
     CHK(FPDFLink_GetAction);
     CHK(FPDFLink_Enumerate);
@@ -106,7 +108,9 @@ int CheckPDFiumCApi() {
     CHK(FORM_OnKeyUp);
     CHK(FORM_OnChar);
     CHK(FORM_ForceToKillFocus);
-    CHK(FPDPage_HasFormFieldAtPoint);
+    CHK(FPDFPage_HasFormFieldAtPoint);
+    CHK(FPDPage_HasFormFieldAtPoint);  // DEPRECATED. Remove in the future.
+    CHK(FPDFPage_FormFieldZOrderAtPoint);
     CHK(FPDF_SetFormFieldHighlightColor);
     CHK(FPDF_SetFormFieldHighlightAlpha);
     CHK(FPDF_RemoveFormFieldHighlight);
@@ -172,6 +176,7 @@ int CheckPDFiumCApi() {
 
     // fpdfview.h
     CHK(FPDF_InitLibrary);
+    CHK(FPDF_InitLibraryWithConfig);
     CHK(FPDF_DestroyLibrary);
     CHK(FPDF_SetSandBoxPolicy);
     CHK(FPDF_LoadDocument);

@@ -85,10 +85,9 @@
               'dependencies': [
                 '../android_webview/android_webview.gyp:android_webview_apk',
                 '../android_webview/android_webview.gyp:system_webview_apk',
-                '../android_webview/android_webview_shell.gyp:android_webview_shell_apk',
+                '../android_webview/android_webview_shell.gyp:system_webview_shell_apk',
                 '../chrome/android/chrome_apk.gyp:chrome_public_apk',
-                '../chrome/chrome.gyp:chrome_shell_apk',
-                '../chrome/chrome.gyp:chrome_sync_shell_apk',
+                '../chrome/android/chrome_apk.gyp:chrome_sync_shell_apk',
                 '../remoting/remoting.gyp:remoting_apk',
               ],
             }],
@@ -160,10 +159,9 @@
           'dependencies': [
             '../device/bluetooth/bluetooth.gyp:*',
             '../device/device_tests.gyp:*',
-            '../gpu/skia_runner/skia_runner.gyp:*',
           ],
         }],
-        ['use_openssl==0 and (OS=="mac" or OS=="ios" or OS=="win")', {
+        ['use_openssl==0 and OS=="ios"', {
           'dependencies': [
             '../third_party/nss/nss.gyp:*',
            ],
@@ -494,20 +492,12 @@
             '../components/nacl.gyp:nacl_helper_nonsfi_unittests',
           ],
         }],
-        ['disable_nacl==0 and disable_nacl_untrusted==0', {
-          'dependencies': [
-            '../mojo/mojo_nacl_untrusted.gyp:libmojo',
-            '../mojo/mojo_nacl.gyp:monacl_codegen',
-            '../mojo/mojo_nacl.gyp:monacl_sel',
-            '../mojo/mojo_nacl.gyp:monacl_shell',
-          ],
-        }],
       ],
     }, # target_name: chromium_builder_tests
   ],
   'conditions': [
     # TODO(GYP): make gn_migration.gypi work unconditionally.
-    ['OS=="mac" or OS=="win" or (OS=="linux" and target_arch=="x64" and chromecast==0)', {
+    ['OS=="mac" or OS=="win" or (OS=="android" and chromecast==0) or (OS=="linux" and target_arch=="x64" and chromecast==0)', {
       'includes': [
         'gn_migration.gypi',
       ],
@@ -526,10 +516,12 @@
                 '../content/content_shell_and_tests.gyp:content_shell_apk',
                 '../breakpad/breakpad.gyp:dump_syms#host',
                 '../breakpad/breakpad.gyp:minidump_stackwalk#host',
+                '../tools/imagediff/image_diff.gyp:image_diff#host',
               ],
             }, {  # OS!="android"
               'dependencies': [
                 '../content/content_shell_and_tests.gyp:content_shell',
+                '../tools/imagediff/image_diff.gyp:image_diff',
               ],
             }],
             ['OS=="win"', {
@@ -790,9 +782,7 @@
       'targets': [
         {
           # The current list of tests for android.  This is temporary
-          # until the full set supported.  If adding a new test here,
-          # please also add it to build/android/pylib/gtest/gtest_config.py,
-          # else the test is not run.
+          # until the full set supported.
           #
           # WARNING:
           # Do not add targets here without communicating the implications
@@ -860,7 +850,6 @@
             '../media/media.gyp:media_unittests_apk',
             '../media/midi/midi.gyp:midi_unittests_apk',
             '../net/net.gyp:net_unittests_apk',
-            '../sandbox/sandbox.gyp:sandbox_linux_jni_unittests_apk',
             '../skia/skia_tests.gyp:skia_unittests_apk',
             '../sql/sql.gyp:sql_unittests_apk',
             '../sync/sync.gyp:sync_unit_tests_apk',
@@ -880,14 +869,14 @@
                 # Unit test bundles packaged as an apk.
                 '../android_webview/android_webview.gyp:android_webview_test_apk',
                 '../android_webview/android_webview.gyp:android_webview_unittests_apk',
+                '../android_webview/android_webview_shell.gyp:system_webview_shell_layout_test_apk',
+                '../android_webview/android_webview_shell.gyp:system_webview_shell_page_cycler_apk',
                 '../chrome/android/chrome_apk.gyp:chrome_public_test_apk',
+                '../chrome/android/chrome_apk.gyp:chrome_sync_shell_test_apk',
                 '../chrome/chrome.gyp:chrome_junit_tests',
-                '../chrome/chrome.gyp:chrome_shell_test_apk',
-                '../chrome/chrome.gyp:chrome_sync_shell_test_apk',
-                '../chrome/chrome.gyp:chrome_shell_uiautomator_tests',
                 '../chrome/chrome.gyp:chromedriver_webview_shell_apk',
                 '../chrome/chrome.gyp:unit_tests_apk',
-                '../third_party/custom_tabs_client/src/custom_tabs_client.gyp:custom_tabs_client_example_apk',
+                '../third_party/custom_tabs_client/custom_tabs_client.gyp:custom_tabs_client_example_apk',
               ],
             }],
           ],
@@ -1155,7 +1144,6 @@
           'target_name': 'chromium_builder_dbg_drmemory_win',
           'type': 'none',
           'dependencies': [
-            '../ash/ash.gyp:ash_shell_unittests',
             '../ash/ash.gyp:ash_unittests',
             '../base/base.gyp:base_unittests',
             '../cc/blink/cc_blink_tests.gyp:cc_blink_unittests',
@@ -1275,6 +1263,36 @@
         }], # branding=="Chrome"
        ], # conditions
     }], # OS="win"
+    ['chromeos==1', {
+      'targets': [
+        {
+          'target_name': 'chromiumos_preflight',
+          'type': 'none',
+          'dependencies': [
+            '../breakpad/breakpad.gyp:minidump_stackwalk',
+            '../chrome/chrome.gyp:chrome',
+            '../chrome/chrome.gyp:chromedriver',
+            '../content/content_shell_and_tests.gyp:video_decode_accelerator_unittest',
+            '../content/content_shell_and_tests.gyp:video_encode_accelerator_unittest',
+            '../media/media.gyp:media_unittests',
+            '../ppapi/ppapi_internal.gyp:ppapi_example_video_decode',
+            '../sandbox/sandbox.gyp:chrome_sandbox',
+            '../sandbox/sandbox.gyp:sandbox_linux_unittests',
+            '../third_party/mesa/mesa.gyp:osmesa',
+            '../tools/telemetry/telemetry.gyp:bitmaptools#host',
+            '../tools/perf/clear_system_cache/clear_system_cache.gyp:clear_system_cache',
+          ],
+          'conditions': [
+            ['disable_nacl==0', {
+              'dependencies': [
+                '../components/nacl.gyp:nacl_helper',
+                '../native_client/src/trusted/service_runtime/linux/nacl_bootstrap.gyp:nacl_helper_bootstrap',
+              ],
+            }],
+          ],
+        },
+      ],  # targets
+    }], # "chromeos==1"
     ['use_aura==1', {
       'targets': [
         {
@@ -1319,7 +1337,7 @@
             }],
             ['use_ash==1', {
               'dependencies': [
-                '../ash/ash.gyp:ash_shell',
+                '../ash/ash.gyp:ash_shell_with_content',
                 '../ash/ash.gyp:ash_unittests',
               ],
             }],
@@ -1393,6 +1411,17 @@
             '../testing/chromoting/integration_tests.gyp:*',
           ],
         }, # target_name: chromoting_swarm_tests
+      ]
+    }],
+    ['archive_media_router_tests==1', {
+      'targets': [
+        {
+          'target_name': 'media_router_swarming_tests',
+          'type': 'none',
+          'dependencies': [
+            '../chrome/test/media_router/e2e_tests.gyp:media_router_e2e_tests_run',
+          ],
+        }, # target_name: media_router_swarming_tests
       ]
     }],
     ['OS=="mac" and toolkit_views==1', {

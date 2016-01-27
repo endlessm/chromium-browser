@@ -53,16 +53,16 @@ class TimeoutException(Error):
 class AppCrashException(Error):
   def __init__(self, app=None, msg=''):
     super(AppCrashException, self).__init__(msg)
-    self._app = app
     self._msg = msg
+    self._stack_trace = app.GetStackTrace() if app else None
 
   def __str__(self):
-    if not self._app:
+    if not self._stack_trace:
       return super(AppCrashException, self).__str__()
     divider = '*' * 80
     return '%s\nStack Trace:\n%s\n\t%s\n%s' % (
         super(AppCrashException, self).__str__(), divider,
-        self._app.GetStackTrace().replace('\n', '\n\t'), divider)
+        self._stack_trace.replace('\n', '\n\t'), divider)
 
 
 class DevtoolsTargetCrashException(AppCrashException):
@@ -97,6 +97,11 @@ class IntentionalException(Error):
   """Represent an exception raised by a unittest which is not printed."""
 
 
+class InitializationError(Error):
+  def __init__(self, string):
+    super(InitializationError, self).__init__(string)
+
+
 class LoginException(Error):
   pass
 
@@ -120,5 +125,7 @@ class UnknownPackageError(Error):
 class PackageDetectionError(Error):
   """ Represents an error when parsing an Android APK's package. """
 
+
 class AndroidDeviceParsingError(Error):
   """Represents an error when parsing output from an android device"""
+

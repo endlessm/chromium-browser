@@ -94,13 +94,13 @@ void ScrollableArea::clearScrollAnimators()
     m_animators.clear();
 }
 
-ScrollAnimator* ScrollableArea::scrollAnimator() const
+ScrollAnimatorBase* ScrollableArea::scrollAnimator() const
 {
     if (!m_animators)
         m_animators = adoptPtr(new ScrollableAreaAnimators);
 
     if (!m_animators->scrollAnimator)
-        m_animators->scrollAnimator = ScrollAnimator::create(const_cast<ScrollableArea*>(this));
+        m_animators->scrollAnimator = ScrollAnimatorBase::create(const_cast<ScrollableArea*>(this));
 
     return m_animators->scrollAnimator.get();
 }
@@ -213,36 +213,18 @@ void ScrollableArea::userScrollHelper(const DoublePoint& position, ScrollBehavio
 {
     cancelProgrammaticScrollAnimation();
 
+    double x = userInputScrollable(HorizontalScrollbar) ? position.x() : scrollAnimator()->currentPosition().x();
+    double y = userInputScrollable(VerticalScrollbar) ? position.y() : scrollAnimator()->currentPosition().y();
+
     // Smooth user scrolls (keyboard, wheel clicks) are handled via the userScroll method.
     // TODO(bokan): The userScroll method should probably be modified to call this method
-    //              and ScrollAnimator to have a simpler animateToOffset method like the
+    //              and ScrollAnimatorBase to have a simpler animateToOffset method like the
     //              ProgrammaticScrollAnimator.
     ASSERT(scrollBehavior == ScrollBehaviorInstant);
-    scrollAnimator()->scrollToOffsetWithoutAnimation(toFloatPoint(position));
+    scrollAnimator()->scrollToOffsetWithoutAnimation(FloatPoint(x, y));
 }
 
-void ScrollableArea::scrollIntoRect(const LayoutRect& rectInContent, const FloatRect& targetRectInFrame)
-{
-    // Use |pixelSnappedIntRect| for rounding to pixel as opposed to |enclosingIntRect|. It gives a better
-    // combined (location and size) rounding error resulting in a more accurate scroll offset.
-    // FIXME: It would probably be best to do the whole calculation in LayoutUnits but contentsToRootFrame
-    // and friends don't have LayoutRect/Point versions yet.
-    IntRect boundsInContent = pixelSnappedIntRect(rectInContent);
-    IntRect boundsInFrame(boundsInContent.location() - toIntSize(scrollPosition()), boundsInContent.size());
-
-    int centeringOffsetX = (targetRectInFrame.width() - boundsInFrame.width()) / 2;
-    int centeringOffsetY = (targetRectInFrame.height() - boundsInFrame.height()) / 2;
-
-    IntSize scrollDelta(
-        boundsInFrame.x() - centeringOffsetX - targetRectInFrame.x(),
-        boundsInFrame.y() - centeringOffsetY - targetRectInFrame.y());
-
-    DoublePoint targetOffset = DoublePoint(scrollPosition() + scrollDelta);
-
-    setScrollPosition(targetOffset, ProgrammaticScroll);
-}
-
-LayoutRect ScrollableArea::scrollIntoView(const LayoutRect& rectInContent, const ScrollAlignment& alignX, const ScrollAlignment& alignY)
+LayoutRect ScrollableArea::scrollIntoView(const LayoutRect& rectInContent, const ScrollAlignment& alignX, const ScrollAlignment& alignY, ScrollType)
 {
     // TODO(bokan): This should really be implemented here but ScrollAlignment is in Core which is a dependency violation.
     ASSERT_NOT_REACHED();
@@ -304,16 +286,6 @@ bool ScrollableArea::scrollBehaviorFromString(const String& behaviorString, Scro
     return true;
 }
 
-ScrollResult ScrollableArea::handleWheel(const PlatformWheelEvent& wheelEvent)
-{
-    // Wheel events which do not scroll are used to trigger zooming.
-    if (!wheelEvent.canScroll())
-        return ScrollResult();
-
-    cancelProgrammaticScrollAnimation();
-    return scrollAnimator()->handleWheelEvent(wheelEvent);
-}
-
 // NOTE: Only called from Internals for testing.
 void ScrollableArea::setScrollOffsetFromInternals(const IntPoint& offset)
 {
@@ -325,7 +297,7 @@ void ScrollableArea::willStartLiveResize()
     if (m_inLiveResize)
         return;
     m_inLiveResize = true;
-    if (ScrollAnimator* scrollAnimator = existingScrollAnimator())
+    if (ScrollAnimatorBase* scrollAnimator = existingScrollAnimator())
         scrollAnimator->willStartLiveResize();
 }
 
@@ -334,31 +306,31 @@ void ScrollableArea::willEndLiveResize()
     if (!m_inLiveResize)
         return;
     m_inLiveResize = false;
-    if (ScrollAnimator* scrollAnimator = existingScrollAnimator())
+    if (ScrollAnimatorBase* scrollAnimator = existingScrollAnimator())
         scrollAnimator->willEndLiveResize();
 }
 
 void ScrollableArea::contentAreaWillPaint() const
 {
-    if (ScrollAnimator* scrollAnimator = existingScrollAnimator())
+    if (ScrollAnimatorBase* scrollAnimator = existingScrollAnimator())
         scrollAnimator->contentAreaWillPaint();
 }
 
 void ScrollableArea::mouseEnteredContentArea() const
 {
-    if (ScrollAnimator* scrollAnimator = existingScrollAnimator())
+    if (ScrollAnimatorBase* scrollAnimator = existingScrollAnimator())
         scrollAnimator->mouseEnteredContentArea();
 }
 
 void ScrollableArea::mouseExitedContentArea() const
 {
-    if (ScrollAnimator* scrollAnimator = existingScrollAnimator())
+    if (ScrollAnimatorBase* scrollAnimator = existingScrollAnimator())
         scrollAnimator->mouseEnteredContentArea();
 }
 
 void ScrollableArea::mouseMovedInContentArea() const
 {
-    if (ScrollAnimator* scrollAnimator = existingScrollAnimator())
+    if (ScrollAnimatorBase* scrollAnimator = existingScrollAnimator())
         scrollAnimator->mouseMovedInContentArea();
 }
 
@@ -374,19 +346,19 @@ void ScrollableArea::mouseExitedScrollbar(Scrollbar* scrollbar) const
 
 void ScrollableArea::contentAreaDidShow() const
 {
-    if (ScrollAnimator* scrollAnimator = existingScrollAnimator())
+    if (ScrollAnimatorBase* scrollAnimator = existingScrollAnimator())
         scrollAnimator->contentAreaDidShow();
 }
 
 void ScrollableArea::contentAreaDidHide() const
 {
-    if (ScrollAnimator* scrollAnimator = existingScrollAnimator())
+    if (ScrollAnimatorBase* scrollAnimator = existingScrollAnimator())
         scrollAnimator->contentAreaDidHide();
 }
 
 void ScrollableArea::finishCurrentScrollAnimations() const
 {
-    if (ScrollAnimator* scrollAnimator = existingScrollAnimator())
+    if (ScrollAnimatorBase* scrollAnimator = existingScrollAnimator())
         scrollAnimator->finishCurrentScrollAnimations();
 }
 
@@ -411,7 +383,7 @@ void ScrollableArea::willRemoveScrollbar(Scrollbar* scrollbar, ScrollbarOrientat
 
 void ScrollableArea::contentsResized()
 {
-    if (ScrollAnimator* scrollAnimator = existingScrollAnimator())
+    if (ScrollAnimatorBase* scrollAnimator = existingScrollAnimator())
         scrollAnimator->contentsResized();
 }
 
@@ -487,10 +459,10 @@ bool ScrollableArea::hasLayerForScrollCorner() const
     return layerForScrollCorner();
 }
 
-void ScrollableArea::layerForScrollingDidChange()
+void ScrollableArea::layerForScrollingDidChange(WebCompositorAnimationTimeline* timeline)
 {
     if (ProgrammaticScrollAnimator* programmaticScrollAnimator = existingProgrammaticScrollAnimator())
-        programmaticScrollAnimator->layerForCompositedScrollingDidChange();
+        programmaticScrollAnimator->layerForCompositedScrollingDidChange(timeline);
 }
 
 bool ScrollableArea::scheduleAnimation()
@@ -505,7 +477,7 @@ bool ScrollableArea::scheduleAnimation()
 void ScrollableArea::serviceScrollAnimations(double monotonicTime)
 {
     bool requiresAnimationService = false;
-    if (ScrollAnimator* scrollAnimator = existingScrollAnimator()) {
+    if (ScrollAnimatorBase* scrollAnimator = existingScrollAnimator()) {
         scrollAnimator->serviceScrollAnimations();
         if (scrollAnimator->hasRunningAnimation())
             requiresAnimationService = true;
@@ -533,7 +505,7 @@ void ScrollableArea::notifyCompositorAnimationFinished(int groupId)
 
 void ScrollableArea::cancelScrollAnimation()
 {
-    if (ScrollAnimator* scrollAnimator = existingScrollAnimator())
+    if (ScrollAnimatorBase* scrollAnimator = existingScrollAnimator())
         scrollAnimator->cancelAnimations();
 }
 
@@ -576,7 +548,6 @@ DoublePoint ScrollableArea::clampScrollPosition(const DoublePoint& scrollPositio
     return scrollPosition.shrunkTo(maximumScrollPositionDouble()).expandedTo(minimumScrollPositionDouble());
 }
 
-
 int ScrollableArea::lineStep(ScrollbarOrientation) const
 {
     return pixelsPerLineStep();
@@ -584,7 +555,8 @@ int ScrollableArea::lineStep(ScrollbarOrientation) const
 
 int ScrollableArea::pageStep(ScrollbarOrientation orientation) const
 {
-    int length = (orientation == HorizontalScrollbar) ? visibleWidth() : visibleHeight();
+    IntRect visibleRect = visibleContentRect(IncludeScrollbars);
+    int length = (orientation == HorizontalScrollbar) ? visibleRect.width() : visibleRect.height();
     int minPageStep = static_cast<float>(length) * minFractionToStepWhenPaging();
     int pageStep = std::max(minPageStep, length - maxOverlapBetweenPages());
 

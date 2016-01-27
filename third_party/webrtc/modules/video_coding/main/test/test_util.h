@@ -18,9 +18,9 @@
 #include <string>
 
 #include "webrtc/base/constructormagic.h"
-#include "webrtc/modules/interface/module_common_types.h"
+#include "webrtc/modules/include/module_common_types.h"
 #include "webrtc/modules/video_coding/main/interface/video_coding.h"
-#include "webrtc/system_wrappers/interface/event_wrapper.h"
+#include "webrtc/system_wrappers/include/event_wrapper.h"
 
 enum { kMaxNackListSize = 250 };
 enum { kMaxPacketAgeToNack = 450 };
@@ -61,14 +61,13 @@ class FileOutputFrameReceiver : public webrtc::VCMReceiveCallback {
 
  private:
   std::string out_filename_;
-  uint32_t ssrc_;
   FILE* out_file_;
   FILE* timing_file_;
   int width_;
   int height_;
   int count_;
 
-  DISALLOW_IMPLICIT_CONSTRUCTORS(FileOutputFrameReceiver);
+  RTC_DISALLOW_IMPLICIT_CONSTRUCTORS(FileOutputFrameReceiver);
 };
 
 class CmdArgs {

@@ -17,11 +17,16 @@
 #include "skia/ext/image_operations.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/favicon_size.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/skbitmap_operations.h"
+#include "ui/gfx/vector_icons_public.h"
+#include "ui/native_theme/common_theme.h"
+#include "ui/native_theme/native_theme.h"
 
 namespace {
 
@@ -108,9 +113,12 @@ void ExtensionIconManager::OnImageLoaded(const std::string& extension_id,
 
 void ExtensionIconManager::EnsureDefaultIcon() {
   if (default_icon_.empty()) {
-    ResourceBundle& rb = ResourceBundle::GetSharedInstance();
-    SkBitmap src = rb.GetImageNamed(IDR_EXTENSIONS_SECTION).AsBitmap();
-    default_icon_ = ApplyTransforms(src);
+    // TODO(estade): use correct scale factor instead of 1x.
+    default_icon_ = ApplyPadding(
+        *gfx::CreateVectorIcon(gfx::VectorIconId::EXTENSION, gfx::kFaviconSize,
+                               gfx::kChromeIconGrey)
+             .bitmap(),
+        padding_);
   }
 }
 
@@ -129,7 +137,7 @@ SkBitmap ExtensionIconManager::ApplyTransforms(const SkBitmap& source) {
     result = SkBitmapOperations::CreateHSLShiftedBitmap(result, shift);
   }
 
-  if (!padding_.empty())
+  if (!padding_.IsEmpty())
     result = ApplyPadding(result, padding_);
 
   return result;

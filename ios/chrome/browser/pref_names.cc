@@ -9,12 +9,20 @@ namespace prefs {
 
 // Preferences in ios::prefs:: must have the same value as the corresponding
 // preference on desktop.
-// These preferences must not be registered by //ios code.
 // See chrome/common/pref_names.cc for a detailed description of each
 // preference.
 
 const char kAcceptLanguages[] = "intl.accept_languages";
+const char kBrowserStateInfoCache[] = "profile.info_cache";
+const char kBrowserStateLastUsed[] = "profile.last_used";
+const char kBrowserStatesLastActive[] = "profile.last_active_profiles";
+const char kBrowserStatesNumCreated[] = "profile.profiles_created";
+const char kDefaultCharset[] = "intl.charset_default";
+const char kEnableDoNotTrack[] = "enable_do_not_track";
+const char kHttpServerProperties[] = "net.http_server_properties";
+const char kMaxConnectionsPerProxy[] = "net.max_connections_per_proxy";
 const char kSavingBrowserHistoryDisabled[] = "history.saving_disabled";
+const char kSearchSuggestEnabled[] = "search.suggest_enabled";
 
 }  // namespace prefs
 }  // namespace ios
@@ -37,6 +45,11 @@ const char kIosBookmarkFolderDefault[] = "ios.bookmark.default_folder";
 // the bookmark promo dialog.
 const char kIosBookmarkPromoAlreadySeen[] = "ios.bookmark.promo_already_seen";
 
+// Boolean which indicates whether browsing data migration is/was possible in
+// this or a previous cold start.
+const char kBrowsingDataMigrationHasBeenPossible[] =
+    "ios.browsing_data_migration_controller.migration_has_been_possible";
+
 // Boolean which indicates if the user has already set a "do not backup" bit to
 // the OTR Profiles's state stash path to ensure that the folder is not
 // automatically synced to iCloud/iTunes.
@@ -55,10 +68,20 @@ const char kIosHandoffToOtherDevices[] = "ios.handoff_to_other_devices";
 const char kLastSessionExitedCleanly[] =
     "ios.user_experience_metrics.last_session_exited_cleanly";
 
+// True if the previous session was selected into the WKWebView control group.
+const char kLastSessionUsedWKWebViewControlGroup[] =
+    "ios.wkwebview_trial.was_control";
+
 // Preference that hold a boolean indicating whether metrics reporting should
 // be limited to wifi (when enabled).
 const char kMetricsReportingWifiOnly[] =
     "ios.user_experience_metrics.wifi_only";
+
+// A boolean pref set to true if prediction of network actions is allowed.
+// Actions include prerendering of web pages.
+// NOTE: The "dns_prefetching.enabled" value is used so that historical user
+// preferences are not lost.
+const char kNetworkPredictionEnabled[] = "dns_prefetching.enabled";
 
 // Preference that hold a boolean indicating whether network prediction should
 // be limited to wifi (when enabled).
@@ -67,41 +90,46 @@ const char kNetworkPredictionWifiOnly[] = "ios.dns_prefetching.wifi_only";
 // Which bookmarks folder should be visible on the new tab page v4.
 const char kNtpShownBookmarksFolder[] = "ntp.shown_bookmarks_folder";
 
-// The preferred SSO user for wallet payments.
-const char kPaymentsPreferredUserId[] = "ios.payments.preferred_user_id";
-
 // True if the memory debugging tools should be visible.
-extern const char kShowMemoryDebuggingTools[] =
-    "ios.memory.show_debugging_tools";
+const char kShowMemoryDebuggingTools[] = "ios.memory.show_debugging_tools";
 
 // User preferred speech input language for voice search.
 const char kVoiceSearchLocale[] = "ios.speechinput.voicesearch_locale";
 
 // Boolean which indicates if TTS after voice search is enabled.
-extern const char kVoiceSearchTTS[] = "ios.speechinput.voicesearch_tts";
+const char kVoiceSearchTTS[] = "ios.speechinput.voicesearch_tts";
 
 // List which contains the last known list of accounts.
-extern const char kSigninLastAccounts[] = "ios.signin.last_accounts";
+const char kSigninLastAccounts[] = "ios.signin.last_accounts";
+
+// Boolean which indicates if the pref which contains the last known list of
+// accounts was migrated to use account ids instead of emails.
+const char kSigninLastAccountsMigrated[] = "ios.signin.last_accounts_migrated";
 
 // String which contains the user id of the user signed in with shared
 // authentication.
-extern const char kSigninSharedAuthenticationUserId[] =
+const char kSigninSharedAuthenticationUserId[] =
     "ios.signin.shared_authentication_user_id";
 
 // Boolean which indicates if user should be prompted to sign in again
 // when a new tab is created.
-extern const char kSigninShouldPromptForSigninAgain[] =
+const char kSigninShouldPromptForSigninAgain[] =
     "ios.signin.should_prompt_for_signin_again";
 
 // Integer which indicates whether the user has authorized using geolocation
 // for Omnibox queries or the progress towards soliciting the user's
 // authorization.
-extern const char kOmniboxGeolocationAuthorizationState[] =
+const char kOmniboxGeolocationAuthorizationState[] =
     "ios.omnibox.geolocation_authorization_state";
 
 // String which contains the application version when we last showed the
 // authorization alert.
-extern const char kOmniboxGeolocationLastAuthorizationAlertVersion[] =
+const char kOmniboxGeolocationLastAuthorizationAlertVersion[] =
     "ios.omnibox.geolocation_last_authorization_alert_version";
+
+// Integer which contains the timestamp at which the "Rate This App" dialog was
+// last shown.
+const char kRateThisAppDialogLastShownTime[] =
+    "ios.ratethisapp.dialog_last_shown_time";
 
 }  // namespace prefs

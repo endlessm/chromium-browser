@@ -8,17 +8,21 @@
 #include <string>
 
 #include "ipc/ipc_message_utils.h"
+#include "ipc/param_traits_macros.h"
+#include "ui/gfx/buffer_types.h"
 #include "ui/gfx/ipc/gfx_ipc_export.h"
-#include "ui/gfx/ipc/gfx_param_traits.h"
+#include "ui/gfx/ipc/gfx_param_traits_macros.h"
 
 class SkBitmap;
 
 namespace gfx {
 class Point;
 class PointF;
+class Point3F;
 class Range;
 class Rect;
 class RectF;
+class ScrollOffset;
 class Size;
 class SizeF;
 class Vector2d;
@@ -38,6 +42,14 @@ struct GFX_IPC_EXPORT ParamTraits<gfx::Point> {
 template <>
 struct GFX_IPC_EXPORT ParamTraits<gfx::PointF> {
   typedef gfx::PointF param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct GFX_IPC_EXPORT ParamTraits<gfx::Point3F> {
+  typedef gfx::Point3F param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);
@@ -106,6 +118,14 @@ struct GFX_IPC_EXPORT ParamTraits<SkBitmap> {
 template <>
 struct GFX_IPC_EXPORT ParamTraits<gfx::Range> {
   typedef gfx::Range param_type;
+  static void Write(Message* m, const param_type& p);
+  static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
+  static void Log(const param_type& p, std::string* l);
+};
+
+template <>
+struct GFX_IPC_EXPORT ParamTraits<gfx::ScrollOffset> {
+  typedef gfx::ScrollOffset param_type;
   static void Write(Message* m, const param_type& p);
   static bool Read(const Message* m, base::PickleIterator* iter, param_type* r);
   static void Log(const param_type& p, std::string* l);

@@ -8,8 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#ifndef WEBRTC_MODULES_AUDIO_CODING_NETEQ_INTERFACE_AUDIO_DECODER_H_
-#define WEBRTC_MODULES_AUDIO_CODING_NETEQ_INTERFACE_AUDIO_DECODER_H_
+#ifndef WEBRTC_MODULES_AUDIO_CODING_NETEQ_INCLUDE_AUDIO_DECODER_H_
+#define WEBRTC_MODULES_AUDIO_CODING_NETEQ_INCLUDE_AUDIO_DECODER_H_
 
 #include <stdlib.h>  // NULL
 
@@ -61,11 +61,12 @@ class AudioDecoder {
   virtual bool HasDecodePlc() const;
 
   // Calls the packet-loss concealment of the decoder to update the state after
-  // one or several lost packets.
-  virtual int DecodePlc(int num_frames, int16_t* decoded);
+  // one or several lost packets. The caller has to make sure that the
+  // memory allocated in |decoded| should accommodate |num_frames| frames.
+  virtual size_t DecodePlc(size_t num_frames, int16_t* decoded);
 
-  // Initializes the decoder.
-  virtual int Init() = 0;
+  // Resets the decoder state (empty buffers etc.).
+  virtual void Reset() = 0;
 
   // Notifies the decoder of an incoming packet to NetEQ.
   virtual int IncomingPacket(const uint8_t* payload,
@@ -115,8 +116,8 @@ class AudioDecoder {
                                       SpeechType* speech_type);
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(AudioDecoder);
+  RTC_DISALLOW_COPY_AND_ASSIGN(AudioDecoder);
 };
 
 }  // namespace webrtc
-#endif  // WEBRTC_MODULES_AUDIO_CODING_NETEQ_INTERFACE_AUDIO_DECODER_H_
+#endif  // WEBRTC_MODULES_AUDIO_CODING_NETEQ_INCLUDE_AUDIO_DECODER_H_

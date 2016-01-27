@@ -25,6 +25,8 @@
 #include "extensions/common/manifest_handlers/externally_connectable.h"
 #include "extensions/renderer/dispatcher.h"
 #include "extensions/renderer/event_bindings.h"
+#include "extensions/renderer/extension_frame_helper.h"
+#include "extensions/renderer/gc_callback.h"
 #include "extensions/renderer/object_backed_native_handler.h"
 #include "extensions/renderer/script_context.h"
 #include "extensions/renderer/script_context_set.h"
@@ -57,72 +59,6 @@ using v8_helpers::ToV8StringUnsafe;
 using v8_helpers::IsEmptyOrUndefied;
 
 namespace {
-
-// Binds |callback| to run when |object| is garbage collected. So as to not
-// re-entrantly call into v8, we execute this function asynchronously, at
-// which point |context| may have been invalidated. If so, |callback| is not
-// run, and |fallback| will be called instead.
-//
-// Deletes itself when the object args[0] is garbage collected or when the
-// context is invalidated.
-class GCCallback : public base::SupportsWeakPtr<GCCallback> {
- public:
-  GCCallback(ScriptContext* context,
-             const v8::Local<v8::Object>& object,
-             const v8::Local<v8::Function>& callback,
-             const base::Closure& fallback)
-      : context_(context),
-        object_(context->isolate(), object),
-        callback_(context->isolate(), callback),
-        fallback_(fallback) {
-    object_.SetWeak(this, FirstWeakCallback, v8::WeakCallbackType::kParameter);
-    context->AddInvalidationObserver(
-        base::Bind(&GCCallback::OnContextInvalidated, AsWeakPtr()));
-  }
-
- private:
-  static void FirstWeakCallback(const v8::WeakCallbackInfo<GCCallback>& data) {
-    // v8 says we need to explicitly reset weak handles from their callbacks.
-    // It's not implicit as one might expect.
-    data.GetParameter()->object_.Reset();
-    data.SetSecondPassCallback(SecondWeakCallback);
-  }
-
-  static void SecondWeakCallback(const v8::WeakCallbackInfo<GCCallback>& data) {
-    base::MessageLoop::current()->PostTask(
-        FROM_HERE,
-        base::Bind(&GCCallback::RunCallback, data.GetParameter()->AsWeakPtr()));
-  }
-
-  void RunCallback() {
-    CHECK(context_);
-    v8::Isolate* isolate = context_->isolate();
-    v8::HandleScope handle_scope(isolate);
-    context_->CallFunction(v8::Local<v8::Function>::New(isolate, callback_));
-    delete this;
-  }
-
-  void OnContextInvalidated() {
-    fallback_.Run();
-    context_ = NULL;
-    delete this;
-  }
-
-  // ScriptContext which owns this GCCallback.
-  ScriptContext* context_;
-
-  // Holds a global handle to the object this GCCallback is bound to.
-  v8::Global<v8::Object> object_;
-
-  // Function to run when |object_| bound to this GCCallback is GC'd.
-  v8::Global<v8::Function> callback_;
-
-  // Function to run if context is invalidated before we have a chance
-  // to execute |callback_|.
-  base::Closure fallback_;
-
-  DISALLOW_COPY_AND_ASSIGN(GCCallback);
-};
 
 // Tracks every reference between ScriptContexts and Ports, by ID.
 class PortTracker {
@@ -356,6 +292,15 @@ void DispatchOnConnectToScriptContext(
   if (info.target_frame_id > 0 &&
       renderframe->GetRoutingID() != info.target_frame_id)
     return;
+
+  // Bandaid fix for crbug.com/520303.
+  // TODO(rdevlin.cronin): Fix this properly by routing messages to the correct
+  // RenderFrame from the browser (same with |target_frame_id| in fact).
+  if (info.target_tab_id != -1 &&
+      info.target_tab_id != ExtensionFrameHelper::Get(renderframe)->tab_id()) {
+    return;
+  }
+
   v8::Isolate* isolate = script_context->isolate();
   v8::HandleScope handle_scope(isolate);
 
@@ -451,8 +396,11 @@ void DeliverMessageToScriptContext(const Message& message,
   v8::Local<v8::Value> has_port =
       script_context->module_system()->CallModuleMethod("messaging", "hasPort",
                                                         1, &port_id_handle);
-
-  CHECK(!has_port.IsEmpty() && has_port->IsBoolean());
+  // Could be empty/undefined if an exception was thrown.
+  // TODO(kalman): Should this be built into CallModuleMethod?
+  if (IsEmptyOrUndefied(has_port))
+    return;
+  CHECK(has_port->IsBoolean());
   if (!has_port.As<v8::Boolean>()->Value())
     return;
 

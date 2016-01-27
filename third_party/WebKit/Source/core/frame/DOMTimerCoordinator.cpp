@@ -10,9 +10,10 @@
 
 namespace blink {
 
-DOMTimerCoordinator::DOMTimerCoordinator()
+DOMTimerCoordinator::DOMTimerCoordinator(PassOwnPtr<WebTaskRunner> timerTaskRunner)
     : m_circularSequentialID(0)
     , m_timerNestingLevel(0)
+    , m_timerTaskRunner(timerTaskRunner)
 {
 }
 
@@ -45,7 +46,7 @@ void DOMTimerCoordinator::didChangeTimerAlignmentInterval()
 {
     // Reschedule timers in increasing order of desired run time to maintain their relative order.
     // TODO(skyostil): Move timer alignment into the scheduler.
-    Vector<DOMTimer*> timers;
+    WillBeHeapVector<RawPtrWillBeMember<DOMTimer>> timers;
     timers.reserveCapacity(m_timers.size());
     for (TimeoutMap::iterator iter = m_timers.begin(); iter != m_timers.end(); ++iter)
         timers.append(iter->value.get());
@@ -73,6 +74,11 @@ int DOMTimerCoordinator::nextID()
         if (!m_timers.contains(m_circularSequentialID))
             return m_circularSequentialID;
     }
+}
+
+void DOMTimerCoordinator::setTimerTaskRunner(PassOwnPtr<WebTaskRunner> timerTaskRunner)
+{
+    m_timerTaskRunner = timerTaskRunner;
 }
 
 } // namespace blink

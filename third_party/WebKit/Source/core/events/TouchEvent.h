@@ -28,18 +28,19 @@
 #define TouchEvent_h
 
 #include "core/CoreExport.h"
+#include "core/dom/TouchList.h"
 #include "core/events/EventDispatchMediator.h"
 #include "core/events/MouseRelatedEvent.h"
-#include "core/dom/TouchList.h"
+#include "core/events/TouchEventInit.h"
 
 namespace blink {
 
 class CORE_EXPORT TouchEvent final : public UIEventWithKeyState {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    virtual ~TouchEvent();
+    ~TouchEvent() override;
 
-    // We only initialize sourceDevice when we create TouchEvent from EventHandler, null if it is from JavaScript.
+    // We only initialize sourceCapabilities when we create TouchEvent from EventHandler, null if it is from JavaScript.
     static PassRefPtrWillBeRawPtr<TouchEvent> create()
     {
         return adoptRefWillBeNoop(new TouchEvent);
@@ -47,11 +48,16 @@ public:
     static PassRefPtrWillBeRawPtr<TouchEvent> create(TouchList* touches,
         TouchList* targetTouches, TouchList* changedTouches,
         const AtomicString& type, PassRefPtrWillBeRawPtr<AbstractView> view,
-        bool ctrlKey, bool altKey, bool shiftKey, bool metaKey, bool cancelable, bool causesScrollingIfUncanceled,
+        PlatformEvent::Modifiers modifiers, bool cancelable, bool causesScrollingIfUncanceled,
         double uiCreateTime = 0)
     {
         return adoptRefWillBeNoop(new TouchEvent(touches, targetTouches, changedTouches, type, view,
-            ctrlKey, altKey, shiftKey, metaKey, cancelable, causesScrollingIfUncanceled, uiCreateTime));
+            modifiers, cancelable, causesScrollingIfUncanceled, uiCreateTime));
+    }
+
+    static PassRefPtrWillBeRawPtr<TouchEvent> create(const AtomicString& type, const TouchEventInit& initializer)
+    {
+        return adoptRefWillBeNoop(new TouchEvent(type, initializer));
     }
 
     void initTouchEvent(ScriptState*, TouchList* touches, TouchList* targetTouches,
@@ -70,21 +76,24 @@ public:
 
     bool causesScrollingIfUncanceled() const { return m_causesScrollingIfUncanceled; }
 
-    virtual bool isTouchEvent() const override;
+    bool isTouchEvent() const override;
 
-    virtual const AtomicString& interfaceName() const override;
+    const AtomicString& interfaceName() const override;
 
-    virtual void preventDefault() override;
+    void preventDefault() override;
+
+    PassRefPtrWillBeRawPtr<EventDispatchMediator> createMediator() override;
 
     DECLARE_VIRTUAL_TRACE();
 
 private:
     TouchEvent();
     TouchEvent(TouchList* touches, TouchList* targetTouches,
-            TouchList* changedTouches, const AtomicString& type,
-            PassRefPtrWillBeRawPtr<AbstractView>,
-            bool ctrlKey, bool altKey, bool shiftKey, bool metaKey, bool cancelable, bool causesScrollingIfUncanceled,
-            double uiCreateTime = 0);
+        TouchList* changedTouches, const AtomicString& type,
+        PassRefPtrWillBeRawPtr<AbstractView>, PlatformEvent::Modifiers,
+        bool cancelable, bool causesScrollingIfUncanceled,
+        double uiCreateTime = 0);
+    TouchEvent(const AtomicString&, const TouchEventInit&);
 
     RefPtrWillBeMember<TouchList> m_touches;
     RefPtrWillBeMember<TouchList> m_targetTouches;
@@ -99,7 +108,7 @@ public:
 private:
     explicit TouchEventDispatchMediator(PassRefPtrWillBeRawPtr<TouchEvent>);
     TouchEvent& event() const;
-    virtual bool dispatchEvent(EventDispatcher&) const override;
+    bool dispatchEvent(EventDispatcher&) const override;
 };
 
 DEFINE_EVENT_TYPE_CASTS(TouchEvent);

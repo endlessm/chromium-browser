@@ -144,6 +144,15 @@ void NetworkStateHandler::SetTechnologyEnabled(
   NotifyDeviceListChanged();
 }
 
+void NetworkStateHandler::SetProhibitedTechnologies(
+    const std::vector<std::string>& prohibited_technologies,
+    const network_handler::ErrorCallback& error_callback) {
+  shill_property_handler_->SetProhibitedTechnologies(prohibited_technologies,
+                                                     error_callback);
+  // Signal Device/Technology state changed.
+  NotifyDeviceListChanged();
+}
+
 const DeviceState* NetworkStateHandler::GetDeviceState(
     const std::string& device_path) const {
   const DeviceState* device = GetModifiableDeviceState(device_path);
@@ -370,8 +379,7 @@ void NetworkStateHandler::SetCheckPortalList(
 }
 
 void NetworkStateHandler::SetWakeOnLanEnabled(bool enabled) {
-  NET_LOG_EVENT("SetWakeOnLanEnabled",
-                base::StringPrintf("%s", enabled ? "true" : "false"));
+  NET_LOG_EVENT("SetWakeOnLanEnabled", enabled ? "true" : "false");
   shill_property_handler_->SetWakeOnLanEnabled(enabled);
 }
 

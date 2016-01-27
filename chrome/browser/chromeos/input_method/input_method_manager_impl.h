@@ -17,6 +17,11 @@
 #include "chrome/browser/profiles/profile.h"
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #include "ui/base/ime/chromeos/input_method_whitelist.h"
+#include "ui/base/ime/ime_engine_handler_interface.h"
+
+namespace ui {
+class IMEEngineHandlerInterface;
+}  // namespace ui
 
 namespace chromeos {
 class ComponentExtensionIMEManager;
@@ -71,9 +76,10 @@ class InputMethodManagerImpl : public InputMethodManager,
 
     // InputMethodManager::State overrides.
     scoped_refptr<InputMethodManager::State> Clone() const override;
-    void AddInputMethodExtension(const std::string& extension_id,
-                                 const InputMethodDescriptors& descriptors,
-                                 InputMethodEngineInterface* instance) override;
+    void AddInputMethodExtension(
+        const std::string& extension_id,
+        const InputMethodDescriptors& descriptors,
+        ui::IMEEngineHandlerInterface* instance) override;
     void RemoveInputMethodExtension(const std::string& extension_id) override;
     void ChangeInputMethod(const std::string& input_method_id,
                            bool show_message) override;
@@ -221,7 +227,7 @@ class InputMethodManagerImpl : public InputMethodManager,
   void ReconfigureIMFramework(StateImpl* state);
 
   // Record input method usage histograms.
-  void RecordInputMethodUsage(std::string input_method_id);
+  void RecordInputMethodUsage(const std::string& input_method_id);
 
   scoped_ptr<InputMethodDelegate> delegate_;
 
@@ -254,19 +260,9 @@ class InputMethodManagerImpl : public InputMethodManager,
   bool enable_extension_loading_;
 
   // The engine map from extension_id to an engine.
-  typedef std::map<std::string, InputMethodEngineInterface*> EngineMap;
+  typedef std::map<std::string, ui::IMEEngineHandlerInterface*> EngineMap;
   typedef std::map<Profile*, EngineMap, ProfileCompare> ProfileEngineMap;
   ProfileEngineMap engine_map_;
-
-  // The map from input method id to the input method stat id.
-  // The stat id has the format: <category#><first char after prefix><index>
-  // For example, Chinese Simplified Pinyin IME has the stat id:
-  //   2,'p',1 -> 211201
-  //   2 means it in INPUT_METHOD_CATEGORY_ZH;
-  //   112 means the first char after prefix is 'p' of 'pinyin';
-  //   01 means it's the second pinyin as the first pinyin is for Traditional
-  //   Chinese Pinyin IME. Note "zh-hant-t-i0-pinyin" < "zh-t-i0-pinyin".
-  std::map<std::string, int> stat_id_map_;
 
   DISALLOW_COPY_AND_ASSIGN(InputMethodManagerImpl);
 };

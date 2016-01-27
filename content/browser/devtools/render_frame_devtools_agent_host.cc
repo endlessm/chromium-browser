@@ -14,9 +14,9 @@
 #include "content/browser/devtools/protocol/emulation_handler.h"
 #include "content/browser/devtools/protocol/input_handler.h"
 #include "content/browser/devtools/protocol/inspector_handler.h"
+#include "content/browser/devtools/protocol/io_handler.h"
 #include "content/browser/devtools/protocol/network_handler.h"
 #include "content/browser/devtools/protocol/page_handler.h"
-#include "content/browser/devtools/protocol/power_handler.h"
 #include "content/browser/devtools/protocol/security_handler.h"
 #include "content/browser/devtools/protocol/service_worker_handler.h"
 #include "content/browser/devtools/protocol/tracing_handler.h"
@@ -221,6 +221,19 @@ void RenderFrameDevToolsAgentHost::FrameHostHolder::Resume() {
 // RenderFrameDevToolsAgentHost ------------------------------------------------
 
 scoped_refptr<DevToolsAgentHost>
+DevToolsAgentHost::GetOrCreateFor(RenderFrameHost* frame_host) {
+  while (frame_host && !ShouldCreateDevToolsFor(frame_host))
+    frame_host = frame_host->GetParent();
+  DCHECK(frame_host);
+  RenderFrameDevToolsAgentHost* result = FindAgentHost(frame_host);
+  if (!result) {
+    result = new RenderFrameDevToolsAgentHost(
+        static_cast<RenderFrameHostImpl*>(frame_host));
+  }
+  return result;
+}
+
+scoped_refptr<DevToolsAgentHost>
 DevToolsAgentHost::GetOrCreateFor(WebContents* web_contents) {
   RenderFrameDevToolsAgentHost* result = FindAgentHost(web_contents);
   if (!result) {
@@ -265,7 +278,7 @@ bool DevToolsAgentHost::IsDebuggerAttached(WebContents* web_contents) {
   return agent_host && agent_host->IsAttached();
 }
 
-//static
+// static
 void RenderFrameDevToolsAgentHost::AddAllAgentHosts(
     DevToolsAgentHost::List* result) {
   base::Callback<void(RenderFrameHost*)> callback = base::Bind(
@@ -288,19 +301,28 @@ void RenderFrameDevToolsAgentHost::OnCancelPendingNavigation(
   }
 }
 
+// static
+void RenderFrameDevToolsAgentHost::OnBeforeNavigation(
+    RenderFrameHost* current, RenderFrameHost* pending) {
+  RenderFrameDevToolsAgentHost* agent_host = FindAgentHost(current);
+  if (agent_host)
+    agent_host->AboutToNavigateRenderFrame(current, pending);
+}
+
 RenderFrameDevToolsAgentHost::RenderFrameDevToolsAgentHost(
     RenderFrameHostImpl* host)
     : dom_handler_(new devtools::dom::DOMHandler()),
       input_handler_(new devtools::input::InputHandler()),
       inspector_handler_(new devtools::inspector::InspectorHandler()),
+      io_handler_(new devtools::io::IOHandler(GetIOContext())),
       network_handler_(new devtools::network::NetworkHandler()),
       page_handler_(nullptr),
-      power_handler_(new devtools::power::PowerHandler()),
       security_handler_(nullptr),
       service_worker_handler_(
           new devtools::service_worker::ServiceWorkerHandler()),
       tracing_handler_(new devtools::tracing::TracingHandler(
-          devtools::tracing::TracingHandler::Renderer)),
+          devtools::tracing::TracingHandler::Renderer,
+          GetIOContext())),
       emulation_handler_(nullptr),
       frame_trace_recorder_(nullptr),
       protocol_handler_(new DevToolsProtocolHandler(
@@ -312,8 +334,8 @@ RenderFrameDevToolsAgentHost::RenderFrameDevToolsAgentHost(
   dispatcher->SetDOMHandler(dom_handler_.get());
   dispatcher->SetInputHandler(input_handler_.get());
   dispatcher->SetInspectorHandler(inspector_handler_.get());
+  dispatcher->SetIOHandler(io_handler_.get());
   dispatcher->SetNetworkHandler(network_handler_.get());
-  dispatcher->SetPowerHandler(power_handler_.get());
   dispatcher->SetServiceWorkerHandler(service_worker_handler_.get());
   dispatcher->SetTracingHandler(tracing_handler_.get());
 
@@ -424,7 +446,8 @@ void RenderFrameDevToolsAgentHost::OnClientAttached() {
 
   frame_trace_recorder_.reset(new DevToolsFrameTraceRecorder());
 
-#if defined(OS_ANDROID)
+  //TODO(mfomitchev): Support PowerSaveBlocker on Aura - crbug.com/546718.
+#if defined(OS_ANDROID) && !defined(USE_AURA)
   power_save_blocker_.reset(static_cast<PowerSaveBlockerImpl*>(
       PowerSaveBlocker::Create(
           PowerSaveBlocker::kPowerSaveBlockPreventDisplaySleep,
@@ -445,7 +468,6 @@ void RenderFrameDevToolsAgentHost::OnClientDetached() {
     emulation_handler_->Detached();
   if (page_handler_)
     page_handler_->Detached();
-  power_handler_->Detached();
   service_worker_handler_->Detached();
   tracing_handler_->Detached();
   frame_trace_recorder_.reset();
@@ -463,7 +485,6 @@ RenderFrameDevToolsAgentHost::~RenderFrameDevToolsAgentHost() {
     g_instances.Get().erase(it);
 }
 
-// TODO(creis): Consider removing this in favor of RenderFrameHostChanged.
 void RenderFrameDevToolsAgentHost::AboutToNavigateRenderFrame(
     RenderFrameHost* old_host,
     RenderFrameHost* new_host) {
@@ -509,6 +530,7 @@ void RenderFrameDevToolsAgentHost::RenderFrameDeleted(RenderFrameHost* rfh) {
 void RenderFrameDevToolsAgentHost::DestroyOnRenderFrameGone() {
   DCHECK(current_);
   scoped_refptr<RenderFrameDevToolsAgentHost> protect(this);
+  UpdateProtocolHandlers(nullptr);
   if (IsAttached())
     OnClientDetached();
   HostClosed();
@@ -529,10 +551,12 @@ void RenderFrameDevToolsAgentHost::RenderProcessGone(
 #if defined(OS_ANDROID)
     case base::TERMINATION_STATUS_OOM_PROTECTED:
 #endif
+    case base::TERMINATION_STATUS_LAUNCH_FAILED:
       inspector_handler_->TargetCrashed();
       current_frame_crashed_ = true;
       break;
     default:
+      inspector_handler_->TargetDetached("Render process gone.");
       break;
   }
 }
@@ -625,7 +649,8 @@ void RenderFrameDevToolsAgentHost::DisconnectWebContents() {
   if (pending_)
     DiscardPending();
   UpdateProtocolHandlers(nullptr);
-  current_.reset();
+  disconnected_ = current_.Pass();
+  disconnected_->Detach();
   WebContentsObserver::Observe(nullptr);
 }
 
@@ -635,6 +660,7 @@ void RenderFrameDevToolsAgentHost::ConnectWebContents(WebContents* wc) {
   RenderFrameHostImpl* host =
       static_cast<RenderFrameHostImpl*>(wc->GetMainFrame());
   DCHECK(host);
+  current_ = disconnected_.Pass();
   SetPending(host);
   CommitPending();
   WebContentsObserver::Observe(WebContents::FromRenderFrameHost(host));
@@ -690,25 +716,23 @@ void RenderFrameDevToolsAgentHost::OnSwapCompositorFrame(
     page_handler_->OnSwapCompositorFrame(base::get<1>(param).metadata);
   if (input_handler_)
     input_handler_->OnSwapCompositorFrame(base::get<1>(param).metadata);
-  if (frame_trace_recorder_) {
+  if (frame_trace_recorder_ && tracing_handler_->did_initiate_recording()) {
     frame_trace_recorder_->OnSwapCompositorFrame(
         current_ ? current_->host() : nullptr,
-        base::get<1>(param).metadata,
-        tracing_handler_->did_initiate_recording());
+        base::get<1>(param).metadata);
   }
 }
 
 void RenderFrameDevToolsAgentHost::SynchronousSwapCompositorFrame(
     const cc::CompositorFrameMetadata& frame_metadata) {
   if (page_handler_)
-    page_handler_->OnSwapCompositorFrame(frame_metadata);
+    page_handler_->OnSynchronousSwapCompositorFrame(frame_metadata);
   if (input_handler_)
     input_handler_->OnSwapCompositorFrame(frame_metadata);
-  if (frame_trace_recorder_) {
-    frame_trace_recorder_->OnSwapCompositorFrame(
+  if (frame_trace_recorder_ && tracing_handler_->did_initiate_recording()) {
+    frame_trace_recorder_->OnSynchronousSwapCompositorFrame(
         current_ ? current_->host() : nullptr,
-        frame_metadata,
-        tracing_handler_->did_initiate_recording());
+        frame_metadata);
   }
 }
 

@@ -5,7 +5,6 @@
 package org.chromium.android_webview.test;
 
 import android.graphics.Bitmap;
-import android.os.Build;
 import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.android_webview.AwContents;
@@ -13,7 +12,7 @@ import org.chromium.android_webview.AwSettings;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
+import org.chromium.base.test.util.parameter.ParameterizedTest;
 import org.chromium.content.browser.test.util.HistoryUtils;
 import org.chromium.content.browser.test.util.TestCallbackHelperContainer;
 import org.chromium.content_public.browser.WebContents;
@@ -27,7 +26,6 @@ import java.util.concurrent.Callable;
  * Tests for the {@link android.webkit.WebView#loadDataWithBaseURL(String, String, String, String,
  * String)} method.
  */
-@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class LoadDataWithBaseUrlTest extends AwTestBase {
 
     private TestAwContentsClient mContentsClient;
@@ -188,6 +186,8 @@ public class LoadDataWithBaseUrlTest extends AwTestBase {
 
     @SmallTest
     @Feature({"AndroidWebView"})
+    // Run in single-process mode only. Blocked by multiple RVHs crbug.com/533516.
+    @ParameterizedTest.Set
     public void testHistoryUrl() throws Throwable {
 
         final String pageHtml = "<html><body>Hello, world!</body></html>";
@@ -206,6 +206,8 @@ public class LoadDataWithBaseUrlTest extends AwTestBase {
 
     @SmallTest
     @Feature({"AndroidWebView"})
+    // Run in single-process mode only. Blocked by multiple RVHs crbug.com/533516.
+    @ParameterizedTest.Set
     public void testOnPageFinishedUrlIsBaseUrl() throws Throwable {
         final String pageHtml = "<html><body>Hello, world!</body></html>";
         final String baseUrl = "http://example.com/";

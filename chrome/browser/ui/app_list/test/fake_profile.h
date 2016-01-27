@@ -52,14 +52,15 @@ class FakeProfile : public Profile {
   content::PushMessagingService* GetPushMessagingService() override;
   content::SSLHostStateDelegate* GetSSLHostStateDelegate() override;
   content::PermissionManager* GetPermissionManager() override;
+  content::BackgroundSyncController* GetBackgroundSyncController() override;
   scoped_refptr<base::SequencedTaskRunner> GetIOTaskRunner() override;
   Profile* GetOffTheRecordProfile() override;
   void DestroyOffTheRecordProfile() override;
   bool HasOffTheRecordProfile() override;
   Profile* GetOriginalProfile() override;
-  bool IsSupervised() override;
-  bool IsChild() override;
-  bool IsLegacySupervised() override;
+  bool IsSupervised() const override;
+  bool IsChild() const override;
+  bool IsLegacySupervised() const override;
   ExtensionSpecialStoragePolicy* GetExtensionSpecialStoragePolicy() override;
   PrefService* GetPrefs() override;
   const PrefService* GetPrefs() const override;
@@ -67,7 +68,6 @@ class FakeProfile : public Profile {
   net::URLRequestContextGetter* GetRequestContext() override;
   net::URLRequestContextGetter* GetRequestContextForExtensions() override;
   net::SSLConfigService* GetSSLConfigService() override;
-  HostContentSettingsMap* GetHostContentSettingsMap() override;
   bool IsSameProfile(Profile* profile) override;
   base::Time GetStartTime() const override;
   net::URLRequestContextGetter* CreateRequestContext(
@@ -90,7 +90,8 @@ class FakeProfile : public Profile {
 
   PrefProxyConfigTracker* GetProxyConfigTracker() override;
   chrome_browser_net::Predictor* GetNetworkPredictor() override;
-  DevToolsNetworkController* GetDevToolsNetworkController() override;
+  DevToolsNetworkControllerHandle* GetDevToolsNetworkControllerHandle()
+      override;
   void ClearNetworkingHistorySince(base::Time time,
                                    const base::Closure& completion) override;
   GURL GetHomePage() override;

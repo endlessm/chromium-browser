@@ -65,58 +65,6 @@ void ActiveScriptController::OnActiveTabPermissionGranted(
   RunPendingForExtension(extension);
 }
 
-void ActiveScriptController::OnAdInjectionDetected(
-    const std::set<std::string>& ad_injectors) {
-  // We're only interested in data if there are ad injectors detected.
-  if (ad_injectors.empty())
-    return;
-
-  size_t num_preventable_ad_injectors =
-      base::STLSetIntersection<std::set<std::string> >(
-          ad_injectors, permitted_extensions_).size();
-
-  UMA_HISTOGRAM_COUNTS_100(
-      "Extensions.ActiveScriptController.PreventableAdInjectors",
-      num_preventable_ad_injectors);
-  UMA_HISTOGRAM_COUNTS_100(
-      "Extensions.ActiveScriptController.UnpreventableAdInjectors",
-      ad_injectors.size() - num_preventable_ad_injectors);
-}
-
-void ActiveScriptController::AlwaysRunOnVisibleOrigin(
-    const Extension* extension) {
-  const GURL& url = web_contents()->GetVisibleURL();
-  URLPatternSet new_explicit_hosts;
-  URLPatternSet new_scriptable_hosts;
-
-  scoped_refptr<const PermissionSet> withheld_permissions =
-      extension->permissions_data()->withheld_permissions();
-  if (withheld_permissions->explicit_hosts().MatchesURL(url)) {
-    new_explicit_hosts.AddOrigin(UserScript::ValidUserScriptSchemes(),
-                                 url.GetOrigin());
-  }
-  if (withheld_permissions->scriptable_hosts().MatchesURL(url)) {
-    new_scriptable_hosts.AddOrigin(UserScript::ValidUserScriptSchemes(),
-                                   url.GetOrigin());
-  }
-
-  scoped_refptr<PermissionSet> new_permissions =
-      new PermissionSet(APIPermissionSet(),
-                        ManifestPermissionSet(),
-                        new_explicit_hosts,
-                        new_scriptable_hosts);
-
-  // Update permissions for the session. This adds |new_permissions| to active
-  // permissions and granted permissions.
-  // TODO(devlin): Make sure that the permission is removed from
-  // withheld_permissions if appropriate.
-  PermissionsUpdater(browser_context_).AddPermissions(extension,
-                                                      new_permissions.get());
-
-  // Allow current tab to run injection.
-  OnClicked(extension);
-}
-
 void ActiveScriptController::OnClicked(const Extension* extension) {
   DCHECK(ContainsKey(pending_requests_, extension->id()));
   RunPendingForExtension(extension);
@@ -225,18 +173,6 @@ void ActiveScriptController::OnRequestScriptInjectionPermission(
   // scripts. Ignore the request.
   if (!extension)
     return;
-
-  // If the request id is -1, that signals that the content script has already
-  // ran (because this feature is not enabled). Add the extension to the list of
-  // permitted extensions (for metrics), and return immediately.
-  if (request_id == -1) {
-    if (PermissionsData::ScriptsMayRequireActionForExtension(
-            extension,
-            extension->permissions_data()->active_permissions().get())) {
-      permitted_extensions_.insert(extension->id());
-    }
-    return;
-  }
 
   ++num_page_requests_;
 

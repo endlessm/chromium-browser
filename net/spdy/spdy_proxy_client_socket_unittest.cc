@@ -33,6 +33,19 @@
 
 namespace {
 
+enum TestCase {
+  // Test using the SPDY/3.1 protocol.
+  kTestCaseSPDY31,
+
+  // Test using the HTTP/2 protocol, without specifying a stream
+  // dependency based on the RequestPriority.
+  kTestCaseHTTP2NoPriorityDependencies,
+
+  // Test using the HTTP/2 protocol, specifying a stream
+  // dependency based on the RequestPriority.
+  kTestCaseHTTP2PriorityDependencies
+};
+
 static const char kRequestUrl[] = "https://www.google.com/";
 static const char kOriginHost[] = "www.google.com";
 static const int kOriginPort = 443;
@@ -61,15 +74,18 @@ static const char kRedirectUrl[] = "https://example.com/";
 
 namespace net {
 
-class SpdyProxyClientSocketTest
-    : public PlatformTest,
-      public testing::WithParamInterface<NextProto> {
+class SpdyProxyClientSocketTest : public PlatformTest,
+                                  public testing::WithParamInterface<TestCase> {
  public:
   SpdyProxyClientSocketTest();
+  ~SpdyProxyClientSocketTest();
 
   void TearDown() override;
 
  protected:
+  NextProto GetProtocol() const;
+  bool GetDependenciesFromPriority() const;
+
   void Initialize(MockRead* reads, size_t reads_count, MockWrite* writes,
                   size_t writes_count);
   void PopulateConnectRequestIR(SpdyHeaderBlock* syn_ir);
@@ -123,7 +139,7 @@ class SpdyProxyClientSocketTest
   BoundTestNetLog net_log_;
 
  private:
-  scoped_refptr<HttpNetworkSession> session_;
+  scoped_ptr<HttpNetworkSession> session_;
   scoped_refptr<IOBuffer> read_buf_;
   SpdySessionDependencies session_deps_;
   MockConnect connect_data_;
@@ -140,17 +156,16 @@ class SpdyProxyClientSocketTest
   DISALLOW_COPY_AND_ASSIGN(SpdyProxyClientSocketTest);
 };
 
-INSTANTIATE_TEST_CASE_P(NextProto,
+INSTANTIATE_TEST_CASE_P(ProtoPlusDepend,
                         SpdyProxyClientSocketTest,
-                        testing::Values(kProtoSPDY31,
-                                        kProtoHTTP2_14,
-                                        kProtoHTTP2));
+                        testing::Values(kTestCaseSPDY31,
+                                        kTestCaseHTTP2NoPriorityDependencies,
+                                        kTestCaseHTTP2PriorityDependencies));
 
 SpdyProxyClientSocketTest::SpdyProxyClientSocketTest()
-    : spdy_util_(GetParam()),
-      session_(NULL),
+    : spdy_util_(GetProtocol(), GetDependenciesFromPriority()),
       read_buf_(NULL),
-      session_deps_(GetParam()),
+      session_deps_(GetProtocol()),
       connect_data_(SYNCHRONOUS, OK),
       framer_(spdy_util_.spdy_version(), false),
       user_agent_(kUserAgent),
@@ -162,6 +177,12 @@ SpdyProxyClientSocketTest::SpdyProxyClientSocketTest()
                                  proxy_,
                                  PRIVACY_MODE_DISABLED) {
   session_deps_.net_log = net_log_.bound().net_log();
+  SpdySession::SetPriorityDependencyDefaultForTesting(
+      GetDependenciesFromPriority());
+}
+
+SpdyProxyClientSocketTest::~SpdyProxyClientSocketTest() {
+  SpdySession::SetPriorityDependencyDefaultForTesting(false);
 }
 
 void SpdyProxyClientSocketTest::TearDown() {
@@ -171,6 +192,14 @@ void SpdyProxyClientSocketTest::TearDown() {
   // Empty the current queue.
   base::MessageLoop::current()->RunUntilIdle();
   PlatformTest::TearDown();
+}
+
+NextProto SpdyProxyClientSocketTest::GetProtocol() const {
+  return GetParam() == kTestCaseSPDY31 ? kProtoSPDY31 : kProtoHTTP2;
+}
+
+bool SpdyProxyClientSocketTest::GetDependenciesFromPriority() const {
+  return GetParam() == kTestCaseHTTP2PriorityDependencies;
 }
 
 void SpdyProxyClientSocketTest::Initialize(MockRead* reads,
@@ -190,9 +219,8 @@ void SpdyProxyClientSocketTest::Initialize(MockRead* reads,
       &session_deps_);
 
   // Creates the SPDY session and stream.
-  spdy_session_ =
-      CreateInsecureSpdySession(
-          session_, endpoint_spdy_session_key_, BoundNetLog());
+  spdy_session_ = CreateInsecureSpdySession(
+      session_.get(), endpoint_spdy_session_key_, BoundNetLog());
   base::WeakPtr<SpdyStream> spdy_stream(
       CreateStreamSynchronously(
           SPDY_BIDIRECTIONAL_STREAM, spdy_session_, url_, LOWEST,
@@ -202,8 +230,10 @@ void SpdyProxyClientSocketTest::Initialize(MockRead* reads,
   // Create the SpdyProxyClientSocket.
   sock_.reset(new SpdyProxyClientSocket(
       spdy_stream, user_agent_, endpoint_host_port_pair_, proxy_host_port_,
-      net_log_.bound(), session_->http_auth_cache(),
-      session_->http_auth_handler_factory()));
+      net_log_.bound(),
+      new HttpAuthController(
+          HttpAuth::AUTH_PROXY, GURL("https://" + proxy_host_port_.ToString()),
+          session_->http_auth_cache(), session_->http_auth_handler_factory())));
 }
 
 scoped_refptr<IOBufferWithSize> SpdyProxyClientSocketTest::CreateBuffer(
@@ -311,11 +341,15 @@ void SpdyProxyClientSocketTest::AssertAsyncWriteWithReadsSucceeds(
 
 void SpdyProxyClientSocketTest::PopulateConnectRequestIR(
     SpdyHeaderBlock* block) {
-  (*block)[spdy_util_.GetMethodKey()] = "CONNECT";
-  (*block)[spdy_util_.GetPathKey()] = kOriginHostPort;
-  (*block)[spdy_util_.GetHostKey()] = kOriginHost;
-  (*block)["user-agent"] = kUserAgent;
   spdy_util_.MaybeAddVersionHeader(block);
+  (*block)[spdy_util_.GetMethodKey()] = "CONNECT";
+  if (spdy_util_.spdy_version() == HTTP2) {
+    (*block)[spdy_util_.GetHostKey()] = kOriginHostPort;
+  } else {
+    (*block)[spdy_util_.GetHostKey()] = kOriginHost;
+    (*block)[spdy_util_.GetPathKey()] = kOriginHostPort;
+  }
+  (*block)["user-agent"] = kUserAgent;
 }
 
 void SpdyProxyClientSocketTest::PopulateConnectReplyIR(SpdyHeaderBlock* block,

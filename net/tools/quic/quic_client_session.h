@@ -30,10 +30,12 @@ class QuicClientSession : public QuicClientSessionBase {
                     const QuicServerId& server_id,
                     QuicCryptoClientConfig* crypto_config);
   ~QuicClientSession() override;
+  // Set up the QuicClientSession. Must be called prior to use.
+  void Initialize() override;
 
   // QuicSession methods:
   QuicSpdyClientStream* CreateOutgoingDynamicStream() override;
-  QuicCryptoClientStream* GetCryptoStream() override;
+  QuicCryptoClientStreamBase* GetCryptoStream() override;
 
   // QuicClientSessionBase methods:
   void OnProofValid(const QuicCryptoClientConfig::CachedState& cached) override;
@@ -54,7 +56,10 @@ class QuicClientSession : public QuicClientSessionBase {
 
  protected:
   // QuicSession methods:
-  QuicDataStream* CreateIncomingDynamicStream(QuicStreamId id) override;
+  QuicSpdyStream* CreateIncomingDynamicStream(QuicStreamId id) override;
+
+  // Create the crypto stream. Called by Initialize()
+  virtual QuicCryptoClientStreamBase* CreateQuicCryptoStream();
 
   // Unlike CreateOutgoingDynamicStream, which applies a bunch of sanity checks,
   // this simply returns a new QuicSpdyClientStream. This may be used by
@@ -62,8 +67,13 @@ class QuicClientSession : public QuicClientSessionBase {
   // but wish to use the sanity checks in CreateOutgoingDynamicStream.
   virtual QuicSpdyClientStream* CreateClientStream();
 
+  const QuicServerId& server_id() { return server_id_; }
+  QuicCryptoClientConfig* crypto_config() { return crypto_config_; }
+
  private:
-  scoped_ptr<QuicCryptoClientStream> crypto_stream_;
+  scoped_ptr<QuicCryptoClientStreamBase> crypto_stream_;
+  QuicServerId server_id_;
+  QuicCryptoClientConfig* crypto_config_;
 
   // If this is set to false, the client will ignore server GOAWAYs and allow
   // the creation of streams regardless of the high chance they will fail.

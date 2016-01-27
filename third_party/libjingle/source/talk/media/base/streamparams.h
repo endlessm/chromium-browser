@@ -49,6 +49,7 @@
 #include <vector>
 
 #include "webrtc/base/basictypes.h"
+#include "webrtc/base/constructormagic.h"
 
 namespace cricket {
 
@@ -57,9 +58,8 @@ extern const char kFidSsrcGroupSemantics[];
 extern const char kSimSsrcGroupSemantics[];
 
 struct SsrcGroup {
-  SsrcGroup(const std::string& usage, const std::vector<uint32>& ssrcs)
-      : semantics(usage), ssrcs(ssrcs) {
-  }
+  SsrcGroup(const std::string& usage, const std::vector<uint32_t>& ssrcs)
+      : semantics(usage), ssrcs(ssrcs) {}
 
   bool operator==(const SsrcGroup& other) const {
     return (semantics == other.semantics && ssrcs == other.ssrcs);
@@ -73,11 +73,11 @@ struct SsrcGroup {
   std::string ToString() const;
 
   std::string semantics;  // e.g FIX, FEC, SIM.
-  std::vector<uint32> ssrcs;  // SSRCs of this type.
+  std::vector<uint32_t> ssrcs;  // SSRCs of this type.
 };
 
 struct StreamParams {
-  static StreamParams CreateLegacy(uint32 ssrc) {
+  static StreamParams CreateLegacy(uint32_t ssrc) {
     StreamParams stream;
     stream.ssrcs.push_back(ssrc);
     return stream;
@@ -97,7 +97,7 @@ struct StreamParams {
     return !(*this == other);
   }
 
-  uint32 first_ssrc() const {
+  uint32_t first_ssrc() const {
     if (ssrcs.empty()) {
       return 0;
     }
@@ -107,12 +107,10 @@ struct StreamParams {
   bool has_ssrcs() const {
     return !ssrcs.empty();
   }
-  bool has_ssrc(uint32 ssrc) const {
+  bool has_ssrc(uint32_t ssrc) const {
     return std::find(ssrcs.begin(), ssrcs.end(), ssrc) != ssrcs.end();
   }
-  void add_ssrc(uint32 ssrc) {
-    ssrcs.push_back(ssrc);
-  }
+  void add_ssrc(uint32_t ssrc) { ssrcs.push_back(ssrc); }
   bool has_ssrc_groups() const {
     return !ssrc_groups.empty();
   }
@@ -131,25 +129,25 @@ struct StreamParams {
 
   // Convenience function to add an FID ssrc for a primary_ssrc
   // that's already been added.
-  inline bool AddFidSsrc(uint32 primary_ssrc, uint32 fid_ssrc) {
+  inline bool AddFidSsrc(uint32_t primary_ssrc, uint32_t fid_ssrc) {
     return AddSecondarySsrc(kFidSsrcGroupSemantics, primary_ssrc, fid_ssrc);
   }
 
   // Convenience function to lookup the FID ssrc for a primary_ssrc.
   // Returns false if primary_ssrc not found or FID not defined for it.
-  inline bool GetFidSsrc(uint32 primary_ssrc, uint32* fid_ssrc) const {
+  inline bool GetFidSsrc(uint32_t primary_ssrc, uint32_t* fid_ssrc) const {
     return GetSecondarySsrc(kFidSsrcGroupSemantics, primary_ssrc, fid_ssrc);
   }
 
   // Convenience to get all the SIM SSRCs if there are SIM ssrcs, or
   // the first SSRC otherwise.
-  void GetPrimarySsrcs(std::vector<uint32>* ssrcs) const;
+  void GetPrimarySsrcs(std::vector<uint32_t>* ssrcs) const;
 
   // Convenience to get all the FID SSRCs for the given primary ssrcs.
   // If a given primary SSRC does not have a FID SSRC, the list of FID
   // SSRCS will be smaller than the list of primary SSRCs.
-  void GetFidSsrcs(const std::vector<uint32>& primary_ssrcs,
-                   std::vector<uint32>* fid_ssrcs) const;
+  void GetFidSsrcs(const std::vector<uint32_t>& primary_ssrcs,
+                   std::vector<uint32_t>* fid_ssrcs) const;
 
   std::string ToString() const;
 
@@ -159,7 +157,7 @@ struct StreamParams {
   std::string groupid;
   // Unique per-groupid, not across all groupids
   std::string id;
-  std::vector<uint32> ssrcs;  // All SSRCs for this source
+  std::vector<uint32_t> ssrcs;         // All SSRCs for this source
   std::vector<SsrcGroup> ssrc_groups;  // e.g. FID, FEC, SIM
   // Examples: "camera", "screencast"
   std::string type;
@@ -169,17 +167,17 @@ struct StreamParams {
   std::string sync_label;  // Friendly name of cname.
 
  private:
-  bool AddSecondarySsrc(const std::string& semantics, uint32 primary_ssrc,
-                        uint32 secondary_ssrc);
-  bool GetSecondarySsrc(const std::string& semantics, uint32 primary_ssrc,
-                        uint32* secondary_ssrc) const;
+  bool AddSecondarySsrc(const std::string& semantics,
+                        uint32_t primary_ssrc,
+                        uint32_t secondary_ssrc);
+  bool GetSecondarySsrc(const std::string& semantics,
+                        uint32_t primary_ssrc,
+                        uint32_t* secondary_ssrc) const;
 };
 
 // A Stream can be selected by either groupid+id or ssrc.
 struct StreamSelector {
-  explicit StreamSelector(uint32 ssrc) :
-      ssrc(ssrc) {
-  }
+  explicit StreamSelector(uint32_t ssrc) : ssrc(ssrc) {}
 
   StreamSelector(const std::string& groupid,
                  const std::string& streamid) :
@@ -196,7 +194,7 @@ struct StreamSelector {
     }
   }
 
-  uint32 ssrc;
+  uint32_t ssrc;
   std::string groupid;
   std::string streamid;
 };
@@ -246,7 +244,7 @@ struct MediaStreams {
   std::vector<StreamParams> video_;
   std::vector<StreamParams> data_;
 
-  DISALLOW_COPY_AND_ASSIGN(MediaStreams);
+  RTC_DISALLOW_COPY_AND_ASSIGN(MediaStreams);
 };
 
 // A request for a specific format of a specific stream.
@@ -283,7 +281,7 @@ const StreamParams* GetStream(const StreamParamsVec& streams,
 }
 
 inline const StreamParams* GetStreamBySsrc(const StreamParamsVec& streams,
-                                           uint32 ssrc) {
+                                           uint32_t ssrc) {
   return GetStream(streams,
       [&ssrc](const StreamParams& sp) { return sp.has_ssrc(ssrc); });
 }
@@ -303,25 +301,6 @@ inline const StreamParams* GetStream(const StreamParamsVec& streams,
       [&selector](const StreamParams& sp) { return selector.Matches(sp); });
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// Deprecated methods that will be removed one of these days.
-// Please use the methods with the same name above.
-bool GetStream(const StreamParamsVec& streams,
-               const StreamSelector& selector,
-               StreamParams* stream_out);
-inline bool GetStreamBySsrc(const StreamParamsVec& streams, uint32 ssrc,
-                            StreamParams* stream_out) {
-  return GetStream(streams, StreamSelector(ssrc), stream_out);
-}
-inline bool GetStreamByIds(const StreamParamsVec& streams,
-                           const std::string& groupid,
-                           const std::string& id,
-                           StreamParams* stream_out) {
-  return GetStream(streams, StreamSelector(groupid, id), stream_out);
-}
-// End deprecated methods.
-////////////////////////////////////////////////////////////////////////////////
-
 template <class Condition>
 bool RemoveStream(StreamParamsVec* streams, Condition condition) {
   auto iter(std::remove_if(streams->begin(), streams->end(), condition));
@@ -338,7 +317,7 @@ inline bool RemoveStream(StreamParamsVec* streams,
   return RemoveStream(streams,
       [&selector](const StreamParams& sp) { return selector.Matches(sp); });
 }
-inline bool RemoveStreamBySsrc(StreamParamsVec* streams, uint32 ssrc) {
+inline bool RemoveStreamBySsrc(StreamParamsVec* streams, uint32_t ssrc) {
   return RemoveStream(streams,
       [&ssrc](const StreamParams& sp) { return sp.has_ssrc(ssrc); });
 }

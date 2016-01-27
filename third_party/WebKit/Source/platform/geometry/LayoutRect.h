@@ -35,6 +35,7 @@
 #include "platform/geometry/LayoutPoint.h"
 #include "platform/geometry/LayoutRectOutsets.h"
 #include "wtf/Vector.h"
+#include <iosfwd>
 
 namespace blink {
 
@@ -75,12 +76,8 @@ public:
     LayoutUnit width() const { return m_size.width(); }
     LayoutUnit height() const { return m_size.height(); }
 
-    int pixelSnappedX() const { return x().round(); }
-    int pixelSnappedY() const { return y().round(); }
     int pixelSnappedWidth() const { return snapSizeToPixel(width(), x()); }
     int pixelSnappedHeight() const { return snapSizeToPixel(height(), y()); }
-    int pixelSnappedMaxX() const { return (m_location.x() + m_size.width()).round(); }
-    int pixelSnappedMaxY() const { return (m_location.y() + m_size.height()).round(); }
 
     void setX(LayoutUnit x) { m_location.setX(x); }
     void setY(LayoutUnit y) { m_location.setY(y); }
@@ -159,6 +156,10 @@ public:
     void unite(const LayoutRect&);
     void uniteIfNonZero(const LayoutRect&);
 
+    // Besides non-empty rects, this method also unites empty rects (as points or line segments).
+    // For example, union of (100, 100, 0x0) and (200, 200, 50x0) is (100, 100, 150x100).
+    void uniteEvenIfEmpty(const LayoutRect&);
+
     void inflateX(LayoutUnit dx)
     {
         m_location.setX(m_location.x() - dx);
@@ -175,18 +176,10 @@ public:
 
     LayoutRect transposedRect() const { return LayoutRect(m_location.transposedPoint(), m_size.transposedSize()); }
 
-    static LayoutRect infiniteRect()
-    {
-        // Return a rect that is slightly smaller than the true max rect to allow pixelSnapping to round up to the nearest IntRect without overflowing.
-        // FIXME(crbug.com/440143): Remove this hack.
-        static LayoutRect infiniteRect(LayoutUnit::nearlyMin() / 2, LayoutUnit::nearlyMin() / 2, LayoutUnit::nearlyMax(), LayoutUnit::nearlyMax());
-        return infiniteRect;
-    }
-
     static IntRect infiniteIntRect()
     {
-        // Due to saturated arithemetic this value is not the same as LayoutRect(IntRect(INT_MIN/2, INT_MIN/2, INT_MAX/2, INT_MAX/2)).
-        static IntRect infiniteIntRect(infiniteRect());
+        // Due to saturated arithemetic this value is not the same as LayoutRect(IntRect(INT_MIN/2, INT_MIN/2, INT_MAX, INT_MAX)).
+        static IntRect infiniteIntRect(LayoutRect(LayoutUnit::nearlyMin() / 2, LayoutUnit::nearlyMin() / 2, LayoutUnit::nearlyMax(), LayoutUnit::nearlyMax()));
         return infiniteIntRect;
     }
 
@@ -215,6 +208,15 @@ inline LayoutRect unionRect(const LayoutRect& a, const LayoutRect& b)
 }
 
 PLATFORM_EXPORT LayoutRect unionRect(const Vector<LayoutRect>&);
+
+inline LayoutRect unionRectEvenIfEmpty(const LayoutRect& a, const LayoutRect& b)
+{
+    LayoutRect c = a;
+    c.uniteEvenIfEmpty(b);
+    return c;
+}
+
+PLATFORM_EXPORT LayoutRect unionRectEvenIfEmpty(const Vector<LayoutRect>&);
 
 ALWAYS_INLINE bool operator==(const LayoutRect& a, const LayoutRect& b)
 {
@@ -250,6 +252,10 @@ inline IntRect pixelSnappedIntRect(LayoutPoint location, LayoutSize size)
 {
     return IntRect(roundedIntPoint(location), pixelSnappedIntSize(size, location));
 }
+
+// Redeclared here to avoid ODR issues.
+// See platform/testing/GeometryPrinters.h.
+void PrintTo(const LayoutRect&, std::ostream*);
 
 } // namespace blink
 

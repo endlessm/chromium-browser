@@ -47,16 +47,6 @@ class ExtensionApiNewTabTest : public ExtensionApiTest {
   }
 };
 
-class ExtensionApiTabAudioMutingTest : public ExtensionApiTest {
- public:
-  ExtensionApiTabAudioMutingTest() {}
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    ExtensionApiTest::SetUpCommandLine(command_line);
-
-    command_line->AppendSwitch(switches::kEnableTabAudioMuting);
-  }
-};
-
 IN_PROC_BROWSER_TEST_F(ExtensionApiNewTabTest, Tabs) {
   // The test creates a tab and checks that the URL of the new tab
   // is that of the new tab page.  Make sure the pref that controls
@@ -67,11 +57,12 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiNewTabTest, Tabs) {
   ASSERT_TRUE(RunExtensionSubtest("tabs/basics", "crud.html")) << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(ExtensionApiTabAudioMutingTest, TabAudible) {
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabAudible) {
   ASSERT_TRUE(RunExtensionSubtest("tabs/basics", "audible.html")) << message_;
 }
 
-IN_PROC_BROWSER_TEST_F(ExtensionApiTabAudioMutingTest, TabMuted) {
+// http://crbug.com/521410
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, DISABLED_TabMuted) {
   ASSERT_TRUE(RunExtensionSubtest("tabs/basics", "muted.html")) << message_;
 }
 
@@ -159,8 +150,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, DISABLED_TabGetCurrent) {
   ASSERT_TRUE(RunExtensionTest("tabs/get_current")) << message_;
 }
 
-// Flaky on the trybots. See http://crbug.com/96725.
-IN_PROC_BROWSER_TEST_F(ExtensionApiTest, DISABLED_TabConnect) {
+IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabConnect) {
   ASSERT_TRUE(StartEmbeddedTestServer());
   ASSERT_TRUE(RunExtensionTest("tabs/connect")) << message_;
 }
@@ -233,6 +223,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabsOnUpdated) {
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionApiTest, TabsNoPermissions) {
+  host_resolver()->AddRule("a.com", "127.0.0.1");
+  ASSERT_TRUE(StartEmbeddedTestServer());
   ASSERT_TRUE(RunExtensionTest("tabs/no_permissions")) << message_;
 }
 

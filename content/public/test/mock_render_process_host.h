@@ -47,6 +47,7 @@ class MockRenderProcessHost : public RenderProcessHost {
   void WidgetRestored() override;
   void WidgetHidden() override;
   int VisibleWidgetCount() const override;
+  void AudioStateChanged() override;
   bool IsForGuestsOnly() const override;
   StoragePartition* GetStoragePartition() const override;
   virtual void AddWord(const base::string16& word);
@@ -54,6 +55,7 @@ class MockRenderProcessHost : public RenderProcessHost {
   bool FastShutdownIfPossible() override;
   bool FastShutdownStarted() const override;
   base::ProcessHandle GetHandle() const override;
+  bool IsReady() const override;
   int GetID() const override;
   bool HasConnection() const override;
   void SetIgnoreInputEvents(bool ignore_input_events) override;
@@ -72,8 +74,8 @@ class MockRenderProcessHost : public RenderProcessHost {
   void ResumeRequestsForView(int route_id) override;
   void FilterURL(bool empty_allowed, GURL* url) override;
 #if defined(ENABLE_WEBRTC)
-  void EnableAecDump(const base::FilePath& file) override;
-  void DisableAecDump() override;
+  void EnableAudioDebugRecordings(const base::FilePath& file) override;
+  void DisableAudioDebugRecordings() override;
   void SetWebRtcLogMessageCallback(
       base::Callback<void(const std::string&)> callback) override;
   WebRtcStopRtpDumpCallback StartRtpDump(
@@ -91,8 +93,8 @@ class MockRenderProcessHost : public RenderProcessHost {
   void SendUpdateValueState(
       unsigned int target, const gpu::ValueState& state) override;
 #if defined(ENABLE_BROWSER_CDMS)
-  media::BrowserCdm* GetBrowserCdm(int render_frame_id,
-                                   int cdm_id) const override;
+  scoped_refptr<media::MediaKeys> GetCdm(int render_frame_id,
+                                         int cdm_id) const override;
 #endif
 
   // IPC::Sender via RenderProcessHost.

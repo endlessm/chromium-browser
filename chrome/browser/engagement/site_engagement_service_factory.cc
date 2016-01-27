@@ -4,6 +4,7 @@
 
 #include "chrome/browser/engagement/site_engagement_service_factory.h"
 
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
@@ -17,13 +18,14 @@ SiteEngagementService* SiteEngagementServiceFactory::GetForProfile(
 
 // static
 SiteEngagementServiceFactory* SiteEngagementServiceFactory::GetInstance() {
-  return Singleton<SiteEngagementServiceFactory>::get();
+  return base::Singleton<SiteEngagementServiceFactory>::get();
 }
 
 SiteEngagementServiceFactory::SiteEngagementServiceFactory()
     : BrowserContextKeyedServiceFactory(
           "SiteEngagementService",
           BrowserContextDependencyManager::GetInstance()) {
+  DependsOn(HostContentSettingsMapFactory::GetInstance());
 }
 
 SiteEngagementServiceFactory::~SiteEngagementServiceFactory() {

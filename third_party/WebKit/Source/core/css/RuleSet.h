@@ -53,7 +53,7 @@ class MediaQueryEvaluator;
 class StyleSheetContents;
 
 class MinimalRuleData {
-    ALLOW_ONLY_INLINE_ALLOCATION();
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     MinimalRuleData(StyleRule* rule, unsigned selectorIndex, AddRuleFlags flags)
     : m_rule(rule)
@@ -69,8 +69,8 @@ public:
     AddRuleFlags m_flags;
 };
 
-class RuleData {
-    ALLOW_ONLY_INLINE_ALLOCATION();
+class CORE_EXPORT RuleData {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     RuleData(StyleRule*, unsigned selectorIndex, unsigned position, AddRuleFlags);
 
@@ -95,7 +95,7 @@ public:
 
 private:
     RawPtrWillBeMember<StyleRule> m_rule;
-    unsigned m_selectorIndex : 12;
+    unsigned m_selectorIndex : 13;
     unsigned m_isLastInArray : 1; // We store an array of RuleData objects in a primitive array.
     // This number was picked fairly arbitrarily. We can probably lower it if we need to.
     // Some simple testing showed <100,000 RuleData's on large sites.
@@ -110,7 +110,8 @@ private:
 };
 
 struct SameSizeAsRuleData {
-    void* a;
+    DISALLOW_NEW();
+    RawPtrWillBeMember<void*> a;
     unsigned b;
     unsigned c;
     unsigned d[4];
@@ -120,7 +121,7 @@ static_assert(sizeof(RuleData) == sizeof(SameSizeAsRuleData), "RuleData should s
 
 class CORE_EXPORT RuleSet : public NoBaseWillBeGarbageCollectedFinalized<RuleSet> {
     WTF_MAKE_NONCOPYABLE(RuleSet);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(RuleSet);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(RuleSet);
 public:
     static PassOwnPtrWillBeRawPtr<RuleSet> create() { return adoptPtrWillBeNoop(new RuleSet); }
 
@@ -143,7 +144,7 @@ public:
     const WillBeHeapVector<RawPtrWillBeMember<StyleRuleViewport>>& viewportRules() const { ASSERT(!m_pendingRules); return m_viewportRules; }
     const WillBeHeapVector<RawPtrWillBeMember<StyleRuleFontFace>>& fontFaceRules() const { return m_fontFaceRules; }
     const WillBeHeapVector<RawPtrWillBeMember<StyleRuleKeyframes>>& keyframesRules() const { return m_keyframesRules; }
-    const WillBeHeapVector<MinimalRuleData>& treeBoundaryCrossingRules() const { return m_treeBoundaryCrossingRules; }
+    const WillBeHeapVector<MinimalRuleData>& deepCombinatorOrShadowPseudoRules() const { return m_deepCombinatorOrShadowPseudoRules; }
     const WillBeHeapVector<MinimalRuleData>& shadowDistributedRules() const { return m_shadowDistributedRules; }
     const MediaQueryResultList& viewportDependentMediaQueryResults() const { return m_viewportDependentMediaQueryResults; }
 
@@ -157,14 +158,14 @@ public:
     }
 
 #ifndef NDEBUG
-    void show();
+    void show() const;
 #endif
 
     DECLARE_TRACE();
 
 private:
-    typedef WillBeHeapHashMap<AtomicString, OwnPtrWillBeMember<WillBeHeapLinkedStack<RuleData>>> PendingRuleMap;
-    typedef WillBeHeapHashMap<AtomicString, OwnPtrWillBeMember<WillBeHeapTerminatedArray<RuleData>>> CompactRuleMap;
+    using PendingRuleMap = WillBeHeapHashMap<AtomicString, OwnPtrWillBeMember<WillBeHeapLinkedStack<RuleData>>>;
+    using CompactRuleMap = WillBeHeapHashMap<AtomicString, OwnPtrWillBeMember<WillBeHeapTerminatedArray<RuleData>>>;
 
     RuleSet()
         : m_ruleCount(0)
@@ -219,7 +220,9 @@ private:
     WillBeHeapVector<RawPtrWillBeMember<StyleRuleViewport>> m_viewportRules;
     WillBeHeapVector<RawPtrWillBeMember<StyleRuleFontFace>> m_fontFaceRules;
     WillBeHeapVector<RawPtrWillBeMember<StyleRuleKeyframes>> m_keyframesRules;
-    WillBeHeapVector<MinimalRuleData> m_treeBoundaryCrossingRules;
+    WillBeHeapVector<MinimalRuleData> m_deepCombinatorOrShadowPseudoRules;
+    // TODO(kochi): "shadowDistributed" means the selector has ::content pseudo element.
+    // Once ::slotted is introduced, come up with more readable name.
     WillBeHeapVector<MinimalRuleData> m_shadowDistributedRules;
 
     MediaQueryResultList m_viewportDependentMediaQueryResults;

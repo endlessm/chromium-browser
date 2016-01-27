@@ -19,7 +19,13 @@
 
 namespace {
 
+const char kInspectorDefaultContextError[] =
+    "Cannot find default execution context";
 const char kInspectorContextError[] =
+    "Cannot find execution context with given id";
+// Builds older than commit position 353387 return a different error message.
+// TODO(samuong): Remove this once we stop supporting Chrome 47.
+const char kOldInspectorContextError[] =
     "Execution context with given id not found.";
 
 Status ParseInspectorError(const std::string& error_json) {
@@ -29,7 +35,9 @@ Status ParseInspectorError(const std::string& error_json) {
     return Status(kUnknownError, "inspector error with no error message");
   std::string error_message;
   if (error_dict->GetString("message", &error_message) &&
-      error_message == kInspectorContextError) {
+      (error_message == kInspectorDefaultContextError ||
+       error_message == kInspectorContextError ||
+       error_message == kOldInspectorContextError)) {
     return Status(kNoSuchExecutionContext);
   }
   return Status(kUnknownError, "unhandled inspector error: " + error_json);
@@ -447,8 +455,10 @@ Status DevToolsClientImpl::EnsureListenersNotifiedOfCommandResponse() {
     DevToolsEventListener* listener =
         unnotified_cmd_response_listeners_.front();
     unnotified_cmd_response_listeners_.pop_front();
-    Status status =
-        listener->OnCommandSuccess(this, unnotified_cmd_response_info_->method);
+    Status status = listener->OnCommandSuccess(
+        this,
+        unnotified_cmd_response_info_->method,
+        *unnotified_cmd_response_info_->response.result.get());
     if (status.IsError())
       return status;
   }

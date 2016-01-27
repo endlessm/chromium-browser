@@ -15,10 +15,10 @@
 #include "content/public/common/request_context_frame_type.h"
 #include "content/public/common/request_context_type.h"
 #include "third_party/WebKit/public/platform/WebPageVisibilityState.h"
-#include "third_party/WebKit/public/platform/WebServiceWorkerClientType.h"
-#include "third_party/WebKit/public/platform/WebServiceWorkerResponseError.h"
-#include "third_party/WebKit/public/platform/WebServiceWorkerResponseType.h"
-#include "third_party/WebKit/public/platform/WebServiceWorkerState.h"
+#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerClientType.h"
+#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerResponseError.h"
+#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerResponseType.h"
+#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerState.h"
 #include "url/gurl.h"
 
 // This file is to have common definitions that are to be shared by
@@ -37,6 +37,7 @@ static const int kInvalidServiceWorkerRequestId = -1;
 
 // Constants for error messages.
 extern const char kServiceWorkerRegisterErrorPrefix[];
+extern const char kServiceWorkerUpdateErrorPrefix[];
 extern const char kServiceWorkerUnregisterErrorPrefix[];
 extern const char kServiceWorkerGetRegistrationErrorPrefix[];
 extern const char kServiceWorkerGetRegistrationsErrorPrefix[];
@@ -49,7 +50,6 @@ static const int kInvalidServiceWorkerProviderId = -1;
 static const int64 kInvalidServiceWorkerRegistrationId = -1;
 static const int64 kInvalidServiceWorkerVersionId = -1;
 static const int64 kInvalidServiceWorkerResourceId = -1;
-static const int64 kInvalidServiceWorkerResponseId = -1;
 static const int kInvalidEmbeddedWorkerThreadId = -1;
 static const int kInvalidServiceWorkerClientId = 0;
 
@@ -91,6 +91,13 @@ enum FetchCredentialsMode {
   FETCH_CREDENTIALS_MODE_LAST = FETCH_CREDENTIALS_MODE_INCLUDE
 };
 
+enum class FetchRedirectMode {
+  FOLLOW_MODE,
+  ERROR_MODE,
+  MANUAL_MODE,
+  LAST = MANUAL_MODE
+};
+
 // Indicates how the service worker handled a fetch event.
 enum ServiceWorkerFetchEventResult {
   // Browser should fallback to native fetch.
@@ -102,7 +109,7 @@ enum ServiceWorkerFetchEventResult {
 
 struct ServiceWorkerCaseInsensitiveCompare {
   bool operator()(const std::string& lhs, const std::string& rhs) const {
-    return base::strcasecmp(lhs.c_str(), rhs.c_str()) < 0;
+    return base::CompareCaseInsensitiveASCII(lhs, rhs) < 0;
   }
 };
 
@@ -129,6 +136,7 @@ struct CONTENT_EXPORT ServiceWorkerFetchRequest {
   uint64 blob_size;
   Referrer referrer;
   FetchCredentialsMode credentials_mode;
+  FetchRedirectMode redirect_mode;
   bool is_reload;
 };
 

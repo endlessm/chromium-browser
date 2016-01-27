@@ -41,7 +41,7 @@ cov_start = lineno()+1   # We care about coverage starting just past this def.
 def gyp_defines(builder_dict):
   gyp_defs = {}
 
-  # skia_arch_width.
+  # skia_arch_type.
   if builder_dict['role'] == builder_name_schema.BUILDER_ROLE_BUILD:
     arch = builder_dict['target_arch']
   elif builder_dict['role'] == builder_name_schema.BUILDER_ROLE_HOUSEKEEPER:
@@ -49,20 +49,17 @@ def gyp_defines(builder_dict):
   else:
     arch = builder_dict['arch']
 
-  #TODO(scroggo + mtklein): when safe, only set skia_arch_type.
-  arch_widths_and_types = {
-    'x86':      ('32', 'x86'),
-    'x86_64':   ('64', 'x86_64'),
-    'Arm7':     ('32', 'arm'),
-    'Arm64':    ('64', 'arm64'),
-    'Mips':     ('32', 'mips'),
-    'Mips64':   ('64', 'mips'),
-    'MipsDSP2': ('32', 'mips'),
+  arch_types = {
+    'x86':      'x86',
+    'x86_64':   'x86_64',
+    'Arm7':     'arm',
+    'Arm64':    'arm64',
+    'Mips':     'mips32',
+    'Mips64':   'mips64',
+    'MipsDSP2': 'mips32',
   }
-  if arch in arch_widths_and_types:
-    skia_arch_width, skia_arch_type = arch_widths_and_types[arch]
-    gyp_defs['skia_arch_width'] = skia_arch_width
-    gyp_defs['skia_arch_type']  = skia_arch_type
+  if arch in arch_types:
+    gyp_defs['skia_arch_type']  = arch_types[arch]
 
   # housekeeper: build shared lib.
   if builder_dict['role'] == builder_name_schema.BUILDER_ROLE_HOUSEKEEPER:
@@ -100,6 +97,9 @@ def gyp_defines(builder_dict):
   # ANGLE.
   if builder_dict.get('extra_config') == 'ANGLE':
     gyp_defs['skia_angle'] = '1'
+    if builder_dict.get('os', '') in ('Ubuntu', 'Linux'):
+      gyp_defs['use_x11'] = '1'
+      gyp_defs['chromeos'] = '0'
 
   # GDI.
   if builder_dict.get('extra_config') == 'GDI':
@@ -143,10 +143,6 @@ def gyp_defines(builder_dict):
       builder_dict.get('cpu_or_gpu_value') == 'Mesa'):
     gyp_defs['skia_mesa'] = '1'
 
-  # SKNX_NO_SIMD
-  if builder_dict.get('extra_config') == 'SKNX_NO_SIMD':
-    gyp_defs['sknx_no_simd'] = '1'
-
   # skia_use_android_framework_defines.
   if builder_dict.get('extra_config') == 'Android_FrameworkDefs':
     gyp_defs['skia_use_android_framework_defines'] = '1'
@@ -165,21 +161,29 @@ def get_extra_env_vars(builder_dict):
   elif builder_dict.get('compiler') == 'Clang':
     env['CC'] = '/usr/bin/clang'
     env['CXX'] = '/usr/bin/clang++'
+
+  # SKNX_NO_SIMD, SK_USE_DISCARDABLE_SCALEDIMAGECACHE, etc.
+  extra_config = builder_dict.get('extra_config', '')
+  if extra_config.startswith('SK') and extra_config.isupper():
+    env['CPPFLAGS'] = '-D' + extra_config
+
   return env
 
 
 cov_skip.extend([lineno(), lineno() + 1])
-def build_targets_from_builder_dict(builder_dict):
+def build_targets_from_builder_dict(builder_dict, do_test_steps, do_perf_steps):
   """Return a list of targets to build, depending on the builder type."""
   if builder_dict['role'] in ('Test', 'Perf') and builder_dict['os'] == 'iOS':
     return ['iOSShell']
-  elif builder_dict['role'] == builder_name_schema.BUILDER_ROLE_TEST:
-    t = ['dm']
-    if builder_dict.get('configuration') == 'Debug':
-      t.append('nanobench')
+  if builder_dict.get('extra_config') == 'Appurify':
+    return ['VisualBenchTest_APK']
+  t = []
+  if do_test_steps:
+    t.append('dm')
+  if do_perf_steps:
+    t.append('nanobench')
+  if t:
     return t
-  elif builder_dict['role'] == builder_name_schema.BUILDER_ROLE_PERF:
-    return ['nanobench']
   else:
     return ['most']
 
@@ -235,7 +239,6 @@ def get_builder_spec(builder_name):
   gyp_defs_list.sort()
   env['GYP_DEFINES'] = ' '.join(gyp_defs_list)
   rv = {
-    'build_targets': build_targets_from_builder_dict(builder_dict),
     'builder_cfg': builder_dict,
     'dm_flags': dm_flags.get_args(builder_name),
     'env': env,
@@ -258,8 +261,14 @@ def get_builder_spec(builder_name):
   rv['do_test_steps'] = role == builder_name_schema.BUILDER_ROLE_TEST
   rv['do_perf_steps'] = (role == builder_name_schema.BUILDER_ROLE_PERF or
                          (role == builder_name_schema.BUILDER_ROLE_TEST and
-                          configuration == CONFIG_DEBUG) or
-                         'Valgrind' in builder_name)
+                          configuration == CONFIG_DEBUG))
+  if 'Valgrind' in builder_name:
+    rv['do_perf_steps'] = True
+  if 'GalaxyS4' in builder_name:
+    rv['do_perf_steps'] = False
+
+  rv['build_targets'] = build_targets_from_builder_dict(
+        builder_dict, rv['do_test_steps'], rv['do_perf_steps'])
 
   # Do we upload perf results?
   upload_perf_results = False
@@ -301,13 +310,18 @@ def self_test():
         'Build-Ubuntu-GCC-Arm7-Debug-CrOS_Daisy',
         'Build-Ubuntu-GCC-x86_64-Debug-CrOS_Link',
         'Build-Ubuntu-GCC-x86_64-Release-Mesa',
+        'Build-Ubuntu-GCC-x86_64-Release-ANGLE',
         'Housekeeper-PerCommit',
         'Perf-Win8-MSVC-ShuttleB-GPU-HD4600-x86_64-Release-Trybot',
+        'Test-Android-GCC-GalaxyS4-GPU-SGX544-Arm7-Debug',
+        'Perf-Android-GCC-Nexus5-GPU-Adreno330-Arm7-Release-Appurify',
         'Test-Android-GCC-Nexus6-GPU-Adreno420-Arm7-Debug',
         'Test-ChromeOS-GCC-Link-CPU-AVX-x86_64-Debug',
         'Test-iOS-Clang-iPad4-GPU-SGX554-Arm7-Debug',
         'Test-Mac10.8-Clang-MacMini4.1-GPU-GeForce320M-x86_64-Release',
         'Test-Ubuntu-Clang-GCE-CPU-AVX2-x86_64-Coverage',
+        ('Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release-'
+         'SK_USE_DISCARDABLE_SCALEDIMAGECACHE'),
         'Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release-SKNX_NO_SIMD',
         'Test-Ubuntu-GCC-GCE-CPU-AVX2-x86_64-Release-Shared',
         'Test-Ubuntu-GCC-ShuttleA-GPU-GTX550Ti-x86_64-Release-Valgrind',

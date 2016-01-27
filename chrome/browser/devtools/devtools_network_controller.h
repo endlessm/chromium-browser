@@ -15,15 +15,10 @@
 
 class DevToolsNetworkConditions;
 class DevToolsNetworkInterceptor;
-class DevToolsNetworkTransaction;
 
-namespace test {
-class DevToolsNetworkControllerHelper;
-}
-
-// DevToolsNetworkController tracks DevToolsNetworkTransactions.
+// DevToolsNetworkController manages interceptors identified by client id
+// and their throttling conditions.
 class DevToolsNetworkController {
-
  public:
   DevToolsNetworkController();
   virtual ~DevToolsNetworkController();
@@ -34,28 +29,17 @@ class DevToolsNetworkController {
       scoped_ptr<DevToolsNetworkConditions> conditions);
 
   base::WeakPtr<DevToolsNetworkInterceptor> GetInterceptor(
-      DevToolsNetworkTransaction* transaction);
-
- protected:
-  friend class test::DevToolsNetworkControllerHelper;
+      const std::string& client_id);
 
  private:
-  // Controller must be constructed on IO thread.
+  using InterceptorMap =
+      base::ScopedPtrHashMap<std::string,
+                             scoped_ptr<DevToolsNetworkInterceptor>>;
+
+  scoped_ptr<DevToolsNetworkInterceptor> default_interceptor_;
+  scoped_ptr<DevToolsNetworkInterceptor> appcache_interceptor_;
+  InterceptorMap interceptors_;
   base::ThreadChecker thread_checker_;
-
-  void SetNetworkStateOnIO(
-      const std::string& client_id,
-      scoped_ptr<DevToolsNetworkConditions> conditions);
-
-  typedef scoped_ptr<DevToolsNetworkInterceptor> Interceptor;
-  Interceptor default_interceptor_;
-  Interceptor appcache_interceptor_;
-  typedef base::ScopedPtrHashMap<std::string,
-                                 scoped_ptr<DevToolsNetworkInterceptor>>
-      Interceptors;
-  Interceptors interceptors_;
-
-  base::WeakPtrFactory<DevToolsNetworkController> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(DevToolsNetworkController);
 };

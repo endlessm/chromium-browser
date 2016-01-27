@@ -8,10 +8,10 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/interface/module_common_types.h"
-#include "webrtc/modules/rtp_rtcp/interface/rtp_header_parser.h"
-#include "webrtc/system_wrappers/interface/atomic32.h"
-#include "webrtc/system_wrappers/interface/sleep.h"
+#include "webrtc/modules/include/module_common_types.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_header_parser.h"
+#include "webrtc/system_wrappers/include/atomic32.h"
+#include "webrtc/system_wrappers/include/sleep.h"
 #include "webrtc/voice_engine/test/auto_test/fixtures/before_streaming_fixture.h"
 
 using ::testing::_;
@@ -28,7 +28,9 @@ class ExtensionVerifyTransport : public webrtc::Transport {
         audio_level_id_(-1),
         absolute_sender_time_id_(-1) {}
 
-  int SendPacket(int channel, const void* data, size_t len) override {
+  bool SendRtp(const uint8_t* data,
+               size_t len,
+               const webrtc::PacketOptions& options) override {
     webrtc::RTPHeader header;
     if (parser_->Parse(reinterpret_cast<const uint8_t*>(data), len, &header)) {
       bool ok = true;
@@ -48,11 +50,11 @@ class ExtensionVerifyTransport : public webrtc::Transport {
     }
     // received_packets_ count all packets we receive.
     ++received_packets_;
-    return static_cast<int>(len);
+    return true;
   }
 
-  int SendRTCPPacket(int channel, const void* data, size_t len) override {
-    return static_cast<int>(len);
+  bool SendRtcp(const uint8_t* data, size_t len) override {
+    return true;
   }
 
   void SetAudioLevelId(int id) {

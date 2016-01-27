@@ -23,14 +23,15 @@ class FakeOutputSurface : public OutputSurface {
   ~FakeOutputSurface() override;
 
   static scoped_ptr<FakeOutputSurface> Create3d() {
-    return make_scoped_ptr(new FakeOutputSurface(
-        TestContextProvider::Create(), TestContextProvider::Create(), false));
+    return make_scoped_ptr(
+        new FakeOutputSurface(TestContextProvider::Create(),
+                              TestContextProvider::CreateWorker(), false));
   }
 
   static scoped_ptr<FakeOutputSurface> Create3d(
       scoped_refptr<ContextProvider> context_provider) {
     return make_scoped_ptr(new FakeOutputSurface(
-        context_provider, TestContextProvider::Create(), false));
+        context_provider, TestContextProvider::CreateWorker(), false));
   }
 
   static scoped_ptr<FakeOutputSurface> Create3d(
@@ -44,7 +45,7 @@ class FakeOutputSurface : public OutputSurface {
       scoped_ptr<TestWebGraphicsContext3D> context) {
     return make_scoped_ptr(
         new FakeOutputSurface(TestContextProvider::Create(context.Pass()),
-                              TestContextProvider::Create(), false));
+                              TestContextProvider::CreateWorker(), false));
   }
 
   static scoped_ptr<FakeOutputSurface> CreateSoftware(
@@ -54,31 +55,28 @@ class FakeOutputSurface : public OutputSurface {
   }
 
   static scoped_ptr<FakeOutputSurface> CreateDelegating3d() {
-    return make_scoped_ptr(new FakeOutputSurface(
-        TestContextProvider::Create(), TestContextProvider::Create(), true));
+    return make_scoped_ptr(
+        new FakeOutputSurface(TestContextProvider::Create(),
+                              TestContextProvider::CreateWorker(), true));
   }
 
   static scoped_ptr<FakeOutputSurface> CreateDelegating3d(
       scoped_refptr<TestContextProvider> context_provider) {
-    return make_scoped_ptr(new FakeOutputSurface(context_provider, true));
+    return make_scoped_ptr(new FakeOutputSurface(
+        context_provider, TestContextProvider::CreateWorker(), true));
   }
 
   static scoped_ptr<FakeOutputSurface> CreateDelegating3d(
       scoped_ptr<TestWebGraphicsContext3D> context) {
-    return make_scoped_ptr(new FakeOutputSurface(
-        TestContextProvider::Create(context.Pass()), true));
+    return make_scoped_ptr(
+        new FakeOutputSurface(TestContextProvider::Create(context.Pass()),
+                              TestContextProvider::CreateWorker(), true));
   }
 
   static scoped_ptr<FakeOutputSurface> CreateDelegatingSoftware(
       scoped_ptr<SoftwareOutputDevice> software_device) {
     return make_scoped_ptr(
         new FakeOutputSurface(software_device.Pass(), true));
-  }
-
-  static scoped_ptr<FakeOutputSurface> CreateAlwaysDrawAndSwap3d() {
-    scoped_ptr<FakeOutputSurface> surface(Create3d());
-    surface->capabilities_.draw_and_swap_full_viewport_every_frame = true;
-    return surface.Pass();
   }
 
   static scoped_ptr<FakeOutputSurface> CreateNoRequireSyncPoint(

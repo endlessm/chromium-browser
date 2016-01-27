@@ -94,11 +94,13 @@ RemoteWindowTreeHostWin::RemoteWindowTreeHostWin()
       host_(NULL),
       ignore_mouse_moves_until_set_cursor_ack_(0),
       event_flags_(0),
-      window_size_(aura::WindowTreeHost::GetNativeScreenSize()) {
+      window_size_(GetSystemMetrics(SM_CXSCREEN),
+                   GetSystemMetrics(SM_CYSCREEN)) {
   CHECK(!g_instance);
   g_instance = this;
   prop_.reset(new ui::ViewProp(NULL, kWindowTreeHostWinKey, this));
-  CreateCompositor(GetAcceleratedWidget());
+  CreateCompositor();
+  OnAcceleratedWidgetAvailable();
 }
 
 RemoteWindowTreeHostWin::~RemoteWindowTreeHostWin() {
@@ -123,7 +125,8 @@ void RemoteWindowTreeHostWin::Connected(IPC::Sender* host) {
   host_ = host;
   // Recreate the compositor for the target surface represented by the
   // remote_window HWND.
-  CreateCompositor(remote_window_);
+  CreateCompositor();
+  OnAcceleratedWidgetAvailable();
   InitCompositor();
 }
 

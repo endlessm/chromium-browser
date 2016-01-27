@@ -89,15 +89,19 @@ WebInspector.ScopeChainSidebarPane.prototype = {
                     if (!callFrame.isAsync()) {
                         var exception = details.exception();
                         if (exception)
-                            extraProperties.push(new WebInspector.RemoteObjectProperty("<exception>", exception));
+                            extraProperties.push(new WebInspector.RemoteObjectProperty(WebInspector.UIString.capitalize("Exception"), exception, undefined, undefined, undefined, undefined, undefined, true));
                     }
                     var returnValue = callFrame.returnValue();
                     if (returnValue)
-                        extraProperties.push(new WebInspector.RemoteObjectProperty("<return>", returnValue));
+                        extraProperties.push(new WebInspector.RemoteObjectProperty(WebInspector.UIString.capitalize("Return ^value"), returnValue, undefined, undefined, undefined, undefined, undefined, true));
                 }
                 break;
             case DebuggerAgent.ScopeType.Closure:
-                title = WebInspector.UIString("Closure");
+                var scopeName = scope.name();
+                if (scopeName)
+                    title = WebInspector.UIString("Closure (%s)", WebInspector.beautifyFunctionName(scopeName));
+                else
+                    title = WebInspector.UIString("Closure");
                 emptyPlaceholder = WebInspector.UIString("No Variables");
                 break;
             case DebuggerAgent.ScopeType.Catch:

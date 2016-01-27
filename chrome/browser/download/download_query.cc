@@ -25,9 +25,9 @@
 #include "base/values.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/pref_names.h"
+#include "components/url_formatter/url_formatter.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/download_item.h"
-#include "net/base/net_util.h"
 #include "third_party/re2/re2/re2.h"
 #include "url/gurl.h"
 
@@ -77,7 +77,7 @@ static bool MatchesQuery(
   base::string16 url_formatted = url_raw;
   if (item.GetBrowserContext()) {
     Profile* profile = Profile::FromBrowserContext(item.GetBrowserContext());
-    url_formatted = net::FormatUrl(
+    url_formatted = url_formatter::FormatUrl(
         item.GetOriginalUrl(),
         profile->GetPrefs()->GetString(prefs::kAcceptLanguages));
   }
@@ -237,12 +237,8 @@ static ComparisonType Compare(
 
 }  // anonymous namespace
 
-DownloadQuery::DownloadQuery()
-  : limit_(kuint32max) {
-}
-
-DownloadQuery::~DownloadQuery() {
-}
+DownloadQuery::DownloadQuery() : limit_(kuint32max), skip_(0U) {}
+DownloadQuery::~DownloadQuery() {}
 
 // AddFilter() pushes a new FilterCallback to filters_. Most FilterCallbacks are
 // Callbacks to FieldMatches<>(). Search() iterates over given DownloadItems,
@@ -432,11 +428,21 @@ void DownloadQuery::AddSorter(DownloadQuery::SortType type,
 }
 
 void DownloadQuery::FinishSearch(DownloadQuery::DownloadVector* results) const {
-  if (!sorters_.empty())
-    std::partial_sort(results->begin(),
-                      results->begin() + std::min(limit_, results->size()),
-                      results->end(),
-                      DownloadComparator(sorters_));
+  if (skip_ >= results->size()) {
+    results->clear();
+    return;
+  }
+
+  if (!sorters_.empty()) {
+    std::partial_sort(
+        results->begin(),
+        results->begin() + std::min(limit_ + skip_, results->size()),
+        results->end(),
+        DownloadComparator(sorters_));
+  }
+
+  results->erase(results->begin(), results->begin() + skip_);
+
   if (results->size() > limit_)
     results->resize(limit_);
 }

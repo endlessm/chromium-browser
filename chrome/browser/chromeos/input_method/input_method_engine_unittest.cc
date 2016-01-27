@@ -9,13 +9,15 @@
 #include "base/test/histogram_tester.h"
 #include "chrome/browser/chromeos/input_method/input_method_configuration.h"
 #include "chrome/browser/chromeos/input_method/input_method_engine.h"
-#include "chrome/browser/chromeos/input_method/input_method_engine_interface.h"
 #include "chrome/browser/chromeos/input_method/mock_input_method_manager.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
 #include "ui/base/ime/chromeos/mock_component_extension_ime_manager_delegate.h"
 #include "ui/base/ime/chromeos/mock_ime_input_context_handler.h"
+#include "ui/base/ime/ime_bridge.h"
+#include "ui/base/ime/ime_engine_handler_interface.h"
+#include "ui/base/ime/ime_engine_observer.h"
 #include "ui/base/ime/text_input_flags.h"
 #include "ui/gfx/geometry/rect.h"
 
@@ -64,7 +66,7 @@ void InitInputMethod() {
   InitializeForTesting(manager);
 }
 
-class TestObserver : public InputMethodEngineInterface::Observer {
+class TestObserver : public ui::IMEEngineObserver {
  public:
   TestObserver() : calls_bitmap_(NONE) {}
   ~TestObserver() override {}
@@ -76,26 +78,27 @@ class TestObserver : public InputMethodEngineInterface::Observer {
     calls_bitmap_ |= DEACTIVATED;
   }
   void OnFocus(
-      const InputMethodEngineInterface::InputContext& context) override {
+      const ui::IMEEngineHandlerInterface::InputContext& context) override {
     calls_bitmap_ |= ONFOCUS;
   }
   void OnBlur(int context_id) override { calls_bitmap_ |= ONBLUR; }
   bool IsInterestedInKeyEvent() const override { return true; }
-  void OnKeyEvent(const std::string& engine_id,
-                  const InputMethodEngineInterface::KeyboardEvent& event,
-                  input_method::KeyEventHandle* key_data) override {}
-  void OnInputContextUpdate(
-      const InputMethodEngineInterface::InputContext& context) override {}
-  void OnCandidateClicked(
+  void OnKeyEvent(
       const std::string& engine_id,
-      int candidate_id,
-      InputMethodEngineInterface::MouseButtonEvent button) override {}
+      const ui::IMEEngineHandlerInterface::KeyboardEvent& event,
+      ui::IMEEngineHandlerInterface::KeyEventDoneCallback& key_data) override {}
+  void OnInputContextUpdate(
+      const ui::IMEEngineHandlerInterface::InputContext& context) override {}
+  void OnCandidateClicked(const std::string& engine_id,
+                          int candidate_id,
+                          MouseButtonEvent button) override {}
   void OnMenuItemActivated(const std::string& engine_id,
                            const std::string& menu_id) override {}
   void OnSurroundingTextChanged(const std::string& engine_id,
                                 const std::string& text,
                                 int cursor_pos,
-                                int anchor_pos) override {}
+                                int anchor_pos,
+                                int offset) override {}
   void OnCompositionBoundsChanged(
       const std::vector<gfx::Rect>& bounds) override {
     calls_bitmap_ |= ONCOMPOSITIONBOUNDSCHANGED;
@@ -114,19 +117,19 @@ class TestObserver : public InputMethodEngineInterface::Observer {
   DISALLOW_COPY_AND_ASSIGN(TestObserver);
 };
 
-class InputMethodEngineTest :  public testing::Test {
+class InputMethodEngineTest : public testing::Test {
  public:
   InputMethodEngineTest() : observer_(NULL), input_view_("inputview.html") {
     languages_.push_back("en-US");
     layouts_.push_back("us");
     InitInputMethod();
-    IMEBridge::Initialize();
+    ui::IMEBridge::Initialize();
     mock_ime_input_context_handler_.reset(new MockIMEInputContextHandler());
-    IMEBridge::Get()->SetInputContextHandler(
+    ui::IMEBridge::Get()->SetInputContextHandler(
         mock_ime_input_context_handler_.get());
   }
   ~InputMethodEngineTest() override {
-    IMEBridge::Get()->SetInputContextHandler(NULL);
+    ui::IMEBridge::Get()->SetInputContextHandler(NULL);
     engine_.reset();
     Shutdown();
   }
@@ -135,17 +138,17 @@ class InputMethodEngineTest :  public testing::Test {
   void CreateEngine(bool whitelisted) {
     engine_.reset(new InputMethodEngine());
     observer_ = new TestObserver();
-    scoped_ptr<InputMethodEngineInterface::Observer> observer_ptr(observer_);
+    scoped_ptr<ui::IMEEngineObserver> observer_ptr(observer_);
     engine_->Initialize(observer_ptr.Pass(),
                         whitelisted ? kTestExtensionId : kTestExtensionId2,
                         ProfileManager::GetActiveUserProfile());
   }
 
   void FocusIn(ui::TextInputType input_type) {
-    IMEEngineHandlerInterface::InputContext input_context(
+    ui::IMEEngineHandlerInterface::InputContext input_context(
         input_type, ui::TEXT_INPUT_MODE_DEFAULT, ui::TEXT_INPUT_FLAG_NONE);
     engine_->FocusIn(input_context);
-    IMEBridge::Get()->SetCurrentInputContext(input_context);
+    ui::IMEBridge::Get()->SetCurrentInputContext(input_context);
   }
 
   scoped_ptr<InputMethodEngine> engine_;
@@ -238,16 +241,18 @@ TEST_F(InputMethodEngineTest, TestHistograms) {
   CreateEngine(true);
   FocusIn(ui::TEXT_INPUT_TYPE_TEXT);
   engine_->Enable(kTestImeComponentId);
-  std::vector<InputMethodEngineInterface::SegmentInfo> segments;
-  engine_->SetComposition(
-      engine_->GetCotextIdForTesting(), "test", 0, 0, 0, segments, NULL);
+  std::vector<ui::IMEEngineHandlerInterface::SegmentInfo> segments;
+  int context = engine_->GetCotextIdForTesting();
   std::string error;
   base::HistogramTester histograms;
-  engine_->CommitText(1, "input", &error);
-  engine_->CommitText(1,
+  engine_->SetComposition(context, "test", 0, 0, 0, segments, NULL);
+  engine_->CommitText(context, "input", &error);
+  engine_->SetComposition(context, "test", 0, 0, 0, segments, NULL);
+  engine_->CommitText(context,
                       "\xE5\x85\xA5\xE5\x8A\x9B",  // 2 UTF-8 characters
                       &error);
-  engine_->CommitText(1, "input\xE5\x85\xA5\xE5\x8A\x9B", &error);
+  engine_->SetComposition(context, "test", 0, 0, 0, segments, NULL);
+  engine_->CommitText(context, "input\xE5\x85\xA5\xE5\x8A\x9B", &error);
   histograms.ExpectTotalCount("InputMethod.CommitLength", 3);
   histograms.ExpectBucketCount("InputMethod.CommitLength", 5, 1);
   histograms.ExpectBucketCount("InputMethod.CommitLength", 2, 1);
@@ -260,8 +265,7 @@ TEST_F(InputMethodEngineTest, TestCompositionBoundsChanged) {
   std::vector<gfx::Rect> rects;
   rects.push_back(gfx::Rect());
   engine_->SetCompositionBounds(rects);
-  EXPECT_EQ(ONCOMPOSITIONBOUNDSCHANGED,
-            observer_->GetCallsBitmapAndReset());
+  EXPECT_EQ(ONCOMPOSITIONBOUNDSCHANGED, observer_->GetCallsBitmapAndReset());
 }
 
 }  // namespace input_method

@@ -42,6 +42,7 @@
 #include "core/layout/svg/LayoutSVGRoot.h"
 #include "core/layout/svg/LayoutSVGViewportContainer.h"
 #include "core/svg/SVGAngleTearOff.h"
+#include "core/svg/SVGDocumentExtensions.h"
 #include "core/svg/SVGNumberTearOff.h"
 #include "core/svg/SVGPreserveAspectRatio.h"
 #include "core/svg/SVGRectTearOff.h"
@@ -104,26 +105,6 @@ PassRefPtrWillBeRawPtr<SVGRectTearOff> SVGSVGElement::viewport() const
     // FIXME: This method doesn't follow the spec and is basically untested. Parent documents are not considered here.
     // As we have no test coverage for this, we're going to disable it completly for now.
     return SVGRectTearOff::create(SVGRect::create(), 0, PropertyIsNotAnimVal);
-}
-
-float SVGSVGElement::pixelUnitToMillimeterX() const
-{
-    return 1 / cssPixelsPerMillimeter;
-}
-
-float SVGSVGElement::pixelUnitToMillimeterY() const
-{
-    return 1 / cssPixelsPerMillimeter;
-}
-
-float SVGSVGElement::screenPixelToMillimeterX() const
-{
-    return pixelUnitToMillimeterX();
-}
-
-float SVGSVGElement::screenPixelToMillimeterY() const
-{
-    return pixelUnitToMillimeterY();
 }
 
 SVGViewSpec* SVGSVGElement::currentView()
@@ -554,13 +535,15 @@ Node::InsertionNotificationRequest SVGSVGElement::insertedInto(ContainerNode* ro
         if (rootParent->document().isXMLDocument())
             UseCounter::count(document(), UseCounter::SVGSVGElementInXMLDocument);
 
-        document().accessSVGExtensions().addTimeContainer(this);
+        if (RuntimeEnabledFeatures::smilEnabled()) {
+            document().accessSVGExtensions().addTimeContainer(this);
 
-        // Animations are started at the end of document parsing and after firing the load event,
-        // but if we miss that train (deferred programmatic element insertion for example) we need
-        // to initialize the time container here.
-        if (!document().parsing() && !document().processingLoadEvent() && document().loadEventFinished() && !timeContainer()->isStarted())
-            timeContainer()->begin();
+            // Animations are started at the end of document parsing and after firing the load event,
+            // but if we miss that train (deferred programmatic element insertion for example) we need
+            // to initialize the time container here.
+            if (!document().parsing() && !document().processingLoadEvent() && document().loadEventFinished() && !timeContainer()->isStarted())
+                timeContainer()->begin();
+        }
     }
     return SVGGraphicsElement::insertedInto(rootParent);
 }
@@ -578,28 +561,33 @@ void SVGSVGElement::removedFrom(ContainerNode* rootParent)
 
 void SVGSVGElement::pauseAnimations()
 {
+    ASSERT(RuntimeEnabledFeatures::smilEnabled());
     if (!m_timeContainer->isPaused())
         m_timeContainer->pause();
 }
 
 void SVGSVGElement::unpauseAnimations()
 {
+    ASSERT(RuntimeEnabledFeatures::smilEnabled());
     if (m_timeContainer->isPaused())
         m_timeContainer->resume();
 }
 
 bool SVGSVGElement::animationsPaused() const
 {
+    ASSERT(RuntimeEnabledFeatures::smilEnabled());
     return m_timeContainer->isPaused();
 }
 
 float SVGSVGElement::getCurrentTime() const
 {
+    ASSERT(RuntimeEnabledFeatures::smilEnabled());
     return narrowPrecisionToFloat(m_timeContainer->elapsed().value());
 }
 
 void SVGSVGElement::setCurrentTime(float seconds)
 {
+    ASSERT(RuntimeEnabledFeatures::smilEnabled());
     ASSERT(std::isfinite(seconds));
     seconds = max(seconds, 0.0f);
     m_timeContainer->setElapsed(seconds);
@@ -647,17 +635,17 @@ FloatSize SVGSVGElement::currentViewportSize() const
 
 bool SVGSVGElement::hasIntrinsicWidth() const
 {
-    return width()->currentValue()->unitType() != LengthTypePercentage;
+    return width()->currentValue()->typeWithCalcResolved() != CSSPrimitiveValue::UnitType::Percentage;
 }
 
 bool SVGSVGElement::hasIntrinsicHeight() const
 {
-    return height()->currentValue()->unitType() != LengthTypePercentage;
+    return height()->currentValue()->typeWithCalcResolved() != CSSPrimitiveValue::UnitType::Percentage;
 }
 
 Length SVGSVGElement::intrinsicWidth() const
 {
-    if (width()->currentValue()->unitType() == LengthTypePercentage)
+    if (width()->currentValue()->typeWithCalcResolved() == CSSPrimitiveValue::UnitType::Percentage)
         return Length(0, Fixed);
 
     SVGLengthContext lengthContext(this);
@@ -666,7 +654,7 @@ Length SVGSVGElement::intrinsicWidth() const
 
 Length SVGSVGElement::intrinsicHeight() const
 {
-    if (height()->currentValue()->unitType() == LengthTypePercentage)
+    if (height()->currentValue()->typeWithCalcResolved() == CSSPrimitiveValue::UnitType::Percentage)
         return Length(0, Fixed);
 
     SVGLengthContext lengthContext(this);

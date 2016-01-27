@@ -16,22 +16,24 @@ class TestKeyedServiceProvider : public KeyedServiceProvider {
   ~TestKeyedServiceProvider() override;
 
   // KeyedServiceProvider implementation:
-  void AssertKeyedFactoriesBuilt() override;
-  KeyedServiceBaseFactory* GetBookmarkModelFactory() override;
-  bookmarks::BookmarkModel* GetBookmarkModelForBrowserState(
+#if defined(ENABLE_CONFIGURATION_POLICY)
+  KeyedServiceBaseFactory* GetManagedBookmarkServiceFactory() override;
+  bookmarks::ManagedBookmarkService* GetManagedBookmarkServiceForBrowserState(
       ChromeBrowserState* browser_state) override;
-  KeyedServiceBaseFactory* GetProfileOAuth2TokenServiceFactory() override;
-  ProfileOAuth2TokenService* GetProfileOAuth2TokenServiceForBrowserState(
-      ChromeBrowserState* browser_state) override;
-  KeyedServiceBaseFactory* GetSigninManagerFactory() override;
-  SigninManager* GetSigninManagerForBrowserState(
-      ChromeBrowserState* browser_state) override;
-  KeyedServiceBaseFactory* GetPersonalDataManagerFactory() override;
-  autofill::PersonalDataManager* GetPersonalDataManagerForBrowserState(
-      ChromeBrowserState* browser_state) override;
+#endif
   KeyedServiceBaseFactory* GetSyncServiceFactory() override;
   sync_driver::SyncService* GetSyncServiceForBrowserState(
       ChromeBrowserState* browser_state) override;
+  sync_driver::SyncService* GetSyncServiceForBrowserStateIfExists(
+      ChromeBrowserState* browser_state) override;
+  KeyedServiceBaseFactory* GetProfileInvalidationProviderFactory() override;
+  invalidation::ProfileInvalidationProvider*
+  GetProfileInvalidationProviderForBrowserState(
+      ios::ChromeBrowserState* browser_state) override;
+  KeyedServiceBaseFactory* GetDataReductionProxySettingsFactory() override;
+  data_reduction_proxy::DataReductionProxySettings*
+  GetDataReductionProxySettingsForBrowserState(
+      ios::ChromeBrowserState* browser_state) override;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestKeyedServiceProvider);

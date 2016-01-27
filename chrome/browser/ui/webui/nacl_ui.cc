@@ -21,12 +21,13 @@
 #include "base/values.h"
 #include "chrome/browser/plugins/plugin_prefs.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/plugin_service.h"
 #include "content/public/browser/user_metrics.h"
@@ -35,6 +36,7 @@
 #include "content/public/browser/web_ui_message_handler.h"
 #include "content/public/common/webplugininfo.h"
 #include "grit/browser_resources.h"
+#include "grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 
 #if defined(OS_WIN)
@@ -53,8 +55,6 @@ content::WebUIDataSource* CreateNaClUIHTMLSource() {
   content::WebUIDataSource* source =
       content::WebUIDataSource::Create(chrome::kChromeUINaClHost);
 
-  source->AddLocalizedString("loadingMessage", IDS_NACL_LOADING_MESSAGE);
-  source->AddLocalizedString("naclLongTitle", IDS_NACL_TITLE_MESSAGE);
   source->SetJsonPath("strings.js");
   source->AddResourcePath("about_nacl.css", IDR_ABOUT_NACL_CSS);
   source->AddResourcePath("about_nacl.js", IDR_ABOUT_NACL_JS);
@@ -178,16 +178,15 @@ bool NaClDomHandler::isPluginEnabled(size_t plugin_index) {
 
 void NaClDomHandler::AddOperatingSystemInfo(base::ListValue* list) {
   // Obtain the Chrome version info.
-  chrome::VersionInfo version_info;
   AddPair(list,
           l10n_util::GetStringUTF16(IDS_PRODUCT_NAME),
-          ASCIIToUTF16(version_info.Version() + " (" +
-                       chrome::VersionInfo::GetVersionStringModifier() + ")"));
+          ASCIIToUTF16(version_info::GetVersionNumber() + " (" +
+                       chrome::GetChannelString() + ")"));
 
   // OS version information.
   // TODO(jvoung): refactor this to share the extra windows labeling
   // with about:flash, or something.
-  std::string os_label = version_info.OSType();
+  std::string os_label = version_info::GetOSType();
 #if defined(OS_WIN)
   base::win::OSInfo* os = base::win::OSInfo::GetInstance();
   switch (os->version()) {
@@ -206,8 +205,7 @@ void NaClDomHandler::AddOperatingSystemInfo(base::ListValue* list) {
   if (os->architecture() == base::win::OSInfo::X64_ARCHITECTURE)
     os_label += " 64 bit";
 #endif
-  AddPair(list,
-          l10n_util::GetStringUTF16(IDS_ABOUT_VERSION_OS),
+  AddPair(list, l10n_util::GetStringUTF16(IDS_VERSION_UI_OS),
           ASCIIToUTF16(os_label));
   AddLineBreak(list);
 }
@@ -330,7 +328,7 @@ void CheckVersion(const base::FilePath& pnacl_path, std::string* version) {
       pnacl_path.AppendASCII("pnacl_public_pnacl_json");
   JSONFileValueDeserializer deserializer(pnacl_json_path);
   std::string error;
-  scoped_ptr<base::Value> root(deserializer.Deserialize(NULL, &error));
+  scoped_ptr<base::Value> root = deserializer.Deserialize(NULL, &error);
   if (!root || !root->IsType(base::Value::TYPE_DICTIONARY))
     return;
 

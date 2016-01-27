@@ -36,12 +36,18 @@ android_library("net_java_test_support") {
   srcjar_deps = [ ":net_java_test_support_enums_srcjar" ]
 }
 
+android_resources("net_unittests_apk_resources") {
+  resource_dirs = [ "unittest_support/res" ]
+  custom_package = "org.chromium.native_test"
+}
+
 android_library("net_javatests") {
   DEPRECATED_java_in_dir = "javatests/src"
   deps = [
     "//base:base_java",
     "//base:base_java_test_support",
     ":net_java",
+    ":net_java_test_support",
   ]
 }
 
@@ -59,9 +65,6 @@ java_cpp_enum("net_java_test_support_enums_srcjar") {
   sources = [
     "../test/url_request/url_request_failed_job.h",
   ]
-  outputs = [
-    "org/chromium/net/test/FailurePhase.java",
-  ]
 }
 
 java_cpp_enum("net_android_java_enums_srcjar") {
@@ -70,13 +73,8 @@ java_cpp_enum("net_android_java_enums_srcjar") {
     "../base/network_change_notifier.h",
     "cert_verify_result_android.h",
     "keystore.h",
-  ]
-  outputs = [
-    "org/chromium/net/CertificateMimeType.java",
-    "org/chromium/net/CertVerifyStatusAndroid.java",
-    "org/chromium/net/ConnectionSubtype.java",
-    "org/chromium/net/ConnectionType.java",
-    "org/chromium/net/PrivateKeyType.java",
+    "network_change_notifier_android.cc",
+    "traffic_stats.cc",
   ]
 }
 
@@ -87,18 +85,7 @@ junit_binary("net_junit_tests") {
     ":net_java",
     "//base:base_java",
     "//base:base_java_test_support",
+    "//base:base_junit_test_support",
     "//third_party/junit:hamcrest",
   ]
-}
-
-# TODO(GYP)
-if (false) {
-  unittest_apk("net_unittests_apk") {
-    deps = [
-      ":net_java",
-      ":net_javatests",
-      "//net:net_unittests",
-    ]
-    unittests_dep = "//net:net_unittests"
-  }
 }

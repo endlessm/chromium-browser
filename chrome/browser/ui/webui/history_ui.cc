@@ -23,12 +23,13 @@
 #include "chrome/browser/banners/app_banner_settings_helper.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/history/history_service_factory.h"
+#include "chrome/browser/history/history_utils.h"
 #include "chrome/browser/history/web_history_service_factory.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/chrome_pages.h"
@@ -40,19 +41,20 @@
 #include "chrome/grit/generated_resources.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/history/core/browser/web_history_service.h"
 #include "components/search/search.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/sync_driver/device_info.h"
+#include "components/url_formatter/url_formatter.h"
 #include "content/public/browser/url_data_source.h"
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "grit/browser_resources.h"
 #include "grit/theme_resources.h"
 #include "net/base/escape.h"
-#include "net/base/net_util.h"
 #include "sync/protocol/history_delete_directive_specifics.pb.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/time_format.h"
@@ -183,10 +185,8 @@ content::WebUIDataSource* CreateHistoryUIHTMLSource(Profile* profile) {
   source->AddLocalizedString("inContentPack", IDS_HISTORY_IN_CONTENT_PACK);
   source->AddLocalizedString("allowItems", IDS_HISTORY_FILTER_ALLOW_ITEMS);
   source->AddLocalizedString("blockItems", IDS_HISTORY_FILTER_BLOCK_ITEMS);
-  source->AddLocalizedString("lockButton", IDS_HISTORY_LOCK_BUTTON);
   source->AddLocalizedString("blockedVisitText",
                              IDS_HISTORY_BLOCKED_VISIT_TEXT);
-  source->AddLocalizedString("unlockButton", IDS_HISTORY_UNLOCK_BUTTON);
   source->AddLocalizedString("hasSyncedResults",
                              IDS_HISTORY_HAS_SYNCED_RESULTS);
   source->AddLocalizedString("noSyncedResults", IDS_HISTORY_NO_SYNCED_RESULTS);
@@ -209,7 +209,7 @@ content::WebUIDataSource* CreateHistoryUIHTMLSource(Profile* profile) {
       prefs->GetBoolean(prefs::kAllowDeletingBrowserHistory);
   source->AddBoolean("allowDeletingHistory", allow_deleting_history);
   source->AddBoolean("isInstantExtendedApiEnabled",
-                     chrome::IsInstantExtendedAPIEnabled());
+                     search::IsInstantExtendedAPIEnabled());
   source->AddBoolean("isSupervisedProfile", profile->IsSupervised());
   source->AddBoolean("hideDeleteVisitUI",
                      profile->IsSupervised() && !allow_deleting_history);
@@ -352,7 +352,8 @@ scoped_ptr<base::DictionaryValue> BrowsingHistoryHandler::HistoryEntry::ToValue(
   scoped_ptr<base::DictionaryValue> result(new base::DictionaryValue());
   SetUrlAndTitle(result.get());
 
-  base::string16 domain = net::IDNToUnicode(url.host(), accept_languages);
+  base::string16 domain =
+      url_formatter::IDNToUnicode(url.host(), accept_languages);
   // When the domain is empty, use the scheme instead. This allows for a
   // sensible treatment of e.g. file: URLs when group by domain is on.
   if (domain.empty())
@@ -486,7 +487,8 @@ void BrowsingHistoryHandler::WebHistoryTimeout() {
 }
 
 void BrowsingHistoryHandler::QueryHistory(
-    base::string16 search_text, const history::QueryOptions& options) {
+    const base::string16& search_text,
+    const history::QueryOptions& options) {
   Profile* profile = Profile::FromWebUI(web_ui());
 
   // Anything in-flight is invalid.
@@ -683,8 +685,10 @@ void BrowsingHistoryHandler::HandleRemoveVisits(const base::ListValue* args) {
   }
 #endif
 
-  for (const history::ExpireHistoryArgs& expire_entry : expire_list)
+  for (const history::ExpireHistoryArgs& expire_entry : expire_list) {
     AppBannerSettingsHelper::ClearHistoryForURLs(profile, expire_entry.urls);
+    SiteEngagementService::ClearHistoryForURLs(profile, expire_entry.urls);
+  }
 }
 
 void BrowsingHistoryHandler::HandleClearBrowsingData(
@@ -891,6 +895,12 @@ void BrowsingHistoryHandler::WebHistoryQueryComplete(
         LOG(WARNING) << "Improperly formed JSON response from history server.";
         continue;
       }
+
+      // Ignore any URLs that should not be shown in the history page.
+      GURL gurl(url);
+      if (!CanAddURLToHistory(gurl))
+        continue;
+
       // Title is optional, so the return value is ignored here.
       result->GetString("title", &title);
 
@@ -918,7 +928,7 @@ void BrowsingHistoryHandler::WebHistoryQueryComplete(
         web_history_query_results_.push_back(
             HistoryEntry(
                 HistoryEntry::REMOTE_ENTRY,
-                GURL(url),
+                gurl,
                 title,
                 time,
                 client_id,
@@ -928,8 +938,6 @@ void BrowsingHistoryHandler::WebHistoryQueryComplete(
                 accept_languages));
       }
     }
-  } else if (results_value) {
-    NOTREACHED() << "Failed to parse JSON response.";
   }
   results_info_value_.SetBoolean("hasSyncedResults", results_value != NULL);
   if (!query_task_tracker_.HasTrackedTasks())
@@ -1037,7 +1045,7 @@ HistoryUI::HistoryUI(content::WebUI* web_ui) : WebUIController(web_ui) {
 
   // On mobile we deal with foreign sessions differently.
 #if !defined(OS_ANDROID) && !defined(OS_IOS)
-  if (chrome::IsInstantExtendedAPIEnabled()) {
+  if (search::IsInstantExtendedAPIEnabled()) {
     web_ui->AddMessageHandler(new browser_sync::ForeignSessionHandler());
     web_ui->AddMessageHandler(new HistoryLoginHandler());
   }

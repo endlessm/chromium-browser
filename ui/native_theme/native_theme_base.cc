@@ -9,6 +9,8 @@
 #include "base/command_line.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
+#include "third_party/skia/include/core/SkPaint.h"
+#include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
 #include "ui/base/layout.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -588,8 +590,8 @@ SkRect NativeThemeBase::PaintCheckboxRadioCommon(
     return SkRect::MakeEmpty();
   }
 
-  // Make room for the drop shadow.
-  skrect.iset(skrect.x(), skrect.y(), skrect.right() - 1, skrect.bottom() - 1);
+  // Make room for padding/drop shadow.
+  AdjustCheckboxRadioRectForPadding(&skrect);
 
   // Draw the drop shadow below the widget.
   if (state != kPressed) {
@@ -680,9 +682,7 @@ void NativeThemeBase::PaintButton(SkCanvas* canvas,
                                   const gfx::Rect& rect,
                                   const ButtonExtraParams& button) const {
   SkPaint paint;
-  const int kRight = rect.right();
-  const int kBottom = rect.bottom();
-  SkRect skrect = SkRect::MakeLTRB(rect.x(), rect.y(), kRight, kBottom);
+  SkRect skrect = gfx::RectToSkRect(rect);
   SkColor base_color = button.background_color;
 
   color_utils::HSL base_hsl;
@@ -700,14 +700,13 @@ void NativeThemeBase::PaintButton(SkCanvas* canvas,
   }
 
   paint.setColor(SK_ColorBLACK);
-  const int kLightEnd = state == kPressed ? 1 : 0;
-  const int kDarkEnd = !kLightEnd;
-  SkPoint gradient_bounds[2];
-  gradient_bounds[kLightEnd].iset(rect.x(), rect.y());
-  gradient_bounds[kDarkEnd].iset(rect.x(), kBottom - 1);
-  SkColor colors[2];
-  colors[0] = light_color;
-  colors[1] = base_color;
+  SkPoint gradient_bounds[2] = {
+    gfx::PointToSkPoint(rect.origin()),
+    gfx::PointToSkPoint(rect.bottom_left() - gfx::Vector2d(0, 1))
+  };
+  if (state == kPressed)
+    std::swap(gradient_bounds[0], gradient_bounds[1]);
+  SkColor colors[2] = { light_color, base_color };
 
   skia::RefPtr<SkShader> shader = skia::AdoptRef(
       SkGradientShader::CreateLinear(
@@ -768,18 +767,16 @@ void NativeThemeBase::PaintMenuList(
   }
 
   SkPaint paint;
-  paint.setColor(SK_ColorBLACK);
+  paint.setColor(menu_list.arrow_color);
   paint.setAntiAlias(true);
   paint.setStyle(SkPaint::kFill_Style);
 
-  static const int kArrowWidth = 6;
-  static const int kArrowHeight = 6;
-
+  int arrow_size = menu_list.arrow_size;
   gfx::Rect arrow(
     menu_list.arrow_x,
-    menu_list.arrow_y - (kArrowHeight / 2),
-    kArrowWidth,
-    kArrowHeight);
+    menu_list.arrow_y - (arrow_size / 2),
+    arrow_size,
+    arrow_size);
 
   // Constrain to the paint rect.
   arrow.Intersect(rect);
@@ -976,6 +973,11 @@ void NativeThemeBase::PaintProgressBar(SkCanvas* canvas,
   DrawImageInt(canvas, *right_border_image, 0, 0, right_border_image->width(),
                right_border_image->height(), dest_x, rect.y(),
                dest_right_border_width, rect.height());
+}
+
+void NativeThemeBase::AdjustCheckboxRadioRectForPadding(SkRect* rect) const {
+  // By default we only take 1px from right and bottom for the drop shadow.
+  rect->iset(rect->x(), rect->y(), rect->right() - 1, rect->bottom() - 1);
 }
 
 bool NativeThemeBase::IntersectsClipRectInt(SkCanvas* canvas,

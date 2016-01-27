@@ -5,28 +5,30 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_WEBSITE_SETTINGS_WEBSITE_SETTINGS_POPUP_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_WEBSITE_SETTINGS_WEBSITE_SETTINGS_POPUP_VIEW_H_
 
-#include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
+#include "chrome/browser/ssl/security_state_model.h"
 #include "chrome/browser/ui/views/website_settings/permission_selector_view_observer.h"
 #include "chrome/browser/ui/website_settings/website_settings_ui.h"
+#include "content/public/browser/web_contents_observer.h"
 #include "ui/views/bubble/bubble_delegate.h"
 #include "ui/views/controls/button/button.h"
-#include "ui/views/controls/button/label_button.h"
 #include "ui/views/controls/link_listener.h"
+#include "ui/views/controls/styled_label_listener.h"
 #include "ui/views/controls/tabbed_pane/tabbed_pane_listener.h"
 
-class Browser;
 class GURL;
-class PermissionSelectorView;
 class PopupHeaderView;
 class Profile;
 
 namespace content {
-struct SSLStatus;
 class WebContents;
+}
+
+namespace test {
+class WebsiteSettingsPopupViewTestApi;
 }
 
 namespace views {
@@ -37,32 +39,40 @@ class Widget;
 }
 
 // The views implementation of the website settings UI.
-class WebsiteSettingsPopupView
-    : public PermissionSelectorViewObserver,
-      public views::BubbleDelegateView,
-      public views::ButtonListener,
-      public views::LinkListener,
-      public views::TabbedPaneListener,
-      public WebsiteSettingsUI {
+class WebsiteSettingsPopupView : public content::WebContentsObserver,
+                                 public PermissionSelectorViewObserver,
+                                 public views::BubbleDelegateView,
+                                 public views::ButtonListener,
+                                 public views::LinkListener,
+                                 public views::StyledLabelListener,
+                                 public views::TabbedPaneListener,
+                                 public WebsiteSettingsUI {
  public:
   ~WebsiteSettingsPopupView() override;
 
+  // If |anchor_view| is null, |anchor_rect| is used to anchor the bubble.
   static void ShowPopup(views::View* anchor_view,
+                        const gfx::Rect& anchor_rect,
                         Profile* profile,
                         content::WebContents* web_contents,
                         const GURL& url,
-                        const content::SSLStatus& ssl,
-                        Browser* browser);
+                        const SecurityStateModel::SecurityInfo& security_info);
 
   static bool IsPopupShowing();
 
  private:
-  WebsiteSettingsPopupView(views::View* anchor_view,
-                           Profile* profile,
-                           content::WebContents* web_contents,
-                           const GURL& url,
-                           const content::SSLStatus& ssl,
-                           Browser* browser);
+  friend class test::WebsiteSettingsPopupViewTestApi;
+
+  WebsiteSettingsPopupView(
+      views::View* anchor_view,
+      gfx::NativeView parent_window,
+      Profile* profile,
+      content::WebContents* web_contents,
+      const GURL& url,
+      const SecurityStateModel::SecurityInfo& security_info);
+
+  // WebContentsObserver implementation.
+  void RenderFrameDeleted(content::RenderFrameHost* render_frame_host) override;
 
   // PermissionSelectorViewObserver implementation.
   void OnPermissionChanged(
@@ -76,6 +86,10 @@ class WebsiteSettingsPopupView
 
   // views::LinkListener implementation.
   void LinkClicked(views::Link* source, int event_flags) override;
+
+  // views::StyledLabelListener implementation.
+  void StyledLabelLinkClicked(const gfx::Range& range,
+                              int event_flags) override;
 
   // views::TabbedPaneListener implementations.
   void TabSelectedAt(int index) override;
@@ -127,9 +141,6 @@ class WebsiteSettingsPopupView
   // The web contents of the current tab. The popup can't live longer than a
   // tab.
   content::WebContents* web_contents_;
-
-  // The Browser is used to load the help center page.
-  Browser* browser_;
 
   // The presenter that controls the Website Settings UI.
   scoped_ptr<WebsiteSettings> presenter_;

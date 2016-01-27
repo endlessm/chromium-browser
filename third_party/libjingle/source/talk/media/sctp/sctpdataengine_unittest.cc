@@ -45,11 +45,6 @@
 #include "webrtc/base/ssladapter.h"
 #include "webrtc/base/thread.h"
 
-#ifdef HAVE_NSS_SSL_H
-// TODO(thorcarpenter): Remove after webrtc switches over to BoringSSL.
-#include "webrtc/base/nssstreamadapter.h"
-#endif  // HAVE_NSS_SSL_H
-
 enum {
   MSG_PACKET = 1,
 };
@@ -69,7 +64,7 @@ class SctpFakeNetworkInterface : public cricket::MediaChannel::NetworkInterface,
  protected:
   // Called to send raw packet down the wire (e.g. SCTP an packet).
   virtual bool SendPacket(rtc::Buffer* packet,
-                          rtc::DiffServCodePoint dscp) {
+                          const rtc::PacketOptions& options) {
     LOG(LS_VERBOSE) << "SctpFakeNetworkInterface::SendPacket";
 
     // TODO(ldixon): Can/should we use Buffer.TransferTo here?
@@ -98,7 +93,7 @@ class SctpFakeNetworkInterface : public cricket::MediaChannel::NetworkInterface,
   // TODO(ldixon): Refactor parent NetworkInterface class so these are not
   // required. They are RTC specific and should be in an appropriate subclass.
   virtual bool SendRtcp(rtc::Buffer* packet,
-                        rtc::DiffServCodePoint dscp) {
+                        const rtc::PacketOptions& options) {
     LOG(LS_WARNING) << "Unsupported: SctpFakeNetworkInterface::SendRtcp.";
     return false;
   }
@@ -174,21 +169,19 @@ class SignalChannelClosedObserver : public sigslot::has_slots<> {
     channel->SignalStreamClosedRemotely.connect(
         this, &SignalChannelClosedObserver::OnStreamClosed);
   }
-  void OnStreamClosed(uint32 stream) {
-    streams_.push_back(stream);
-  }
+  void OnStreamClosed(uint32_t stream) { streams_.push_back(stream); }
 
-  int StreamCloseCount(uint32 stream) {
+  int StreamCloseCount(uint32_t stream) {
     return std::count(streams_.begin(), streams_.end(), stream);
   }
 
-  bool WasStreamClosed(uint32 stream) {
+  bool WasStreamClosed(uint32_t stream) {
     return std::find(streams_.begin(), streams_.end(), stream)
         != streams_.end();
   }
 
  private:
-  std::vector<uint32> streams_;
+  std::vector<uint32_t> streams_;
 };
 
 class SignalChannelClosedReopener : public sigslot::has_slots<> {
@@ -223,12 +216,6 @@ class SctpDataMediaChannelTest : public testing::Test,
   // usrsctp uses the NSS random number generator on non-Android platforms,
   // so we need to initialize SSL.
   static void SetUpTestCase() {
-#ifdef HAVE_NSS_SSL_H
-  // TODO(thorcarpenter): Remove after webrtc switches over to BoringSSL.
-  if (!rtc::NSSContext::InitializeSSL(NULL)) {
-    LOG(LS_WARNING) << "Unabled to initialize NSS.";
-  }
-#endif  // HAVE_NSS_SSL_H
   }
 
   virtual void SetUp() {
@@ -240,10 +227,16 @@ class SctpDataMediaChannelTest : public testing::Test,
     net2_.reset(new SctpFakeNetworkInterface(rtc::Thread::Current()));
     recv1_.reset(new SctpFakeDataReceiver());
     recv2_.reset(new SctpFakeDataReceiver());
+    chan1_ready_to_send_count_ = 0;
+    chan2_ready_to_send_count_ = 0;
     chan1_.reset(CreateChannel(net1_.get(), recv1_.get()));
     chan1_->set_debug_name("chan1/connector");
+    chan1_->SignalReadyToSend.connect(
+        this, &SctpDataMediaChannelTest::OnChan1ReadyToSend);
     chan2_.reset(CreateChannel(net2_.get(), recv2_.get()));
     chan2_->set_debug_name("chan2/listener");
+    chan2_->SignalReadyToSend.connect(
+        this, &SctpDataMediaChannelTest::OnChan2ReadyToSend);
     // Setup two connected channels ready to send and receive.
     net1_->SetDestination(chan2_.get());
     net2_->SetDestination(chan1_.get());
@@ -297,7 +290,8 @@ class SctpDataMediaChannelTest : public testing::Test,
     return channel;
   }
 
-  bool SendData(cricket::SctpDataMediaChannel* chan, uint32 ssrc,
+  bool SendData(cricket::SctpDataMediaChannel* chan,
+                uint32_t ssrc,
                 const std::string& msg,
                 cricket::SendDataResult* result) {
     cricket::SendDataParams params;
@@ -307,8 +301,9 @@ class SctpDataMediaChannelTest : public testing::Test,
         &msg[0], msg.length()), result);
   }
 
-  bool ReceivedData(const SctpFakeDataReceiver* recv, uint32 ssrc,
-                    const std::string& msg ) {
+  bool ReceivedData(const SctpFakeDataReceiver* recv,
+                    uint32_t ssrc,
+                    const std::string& msg) {
     return (recv->received() &&
             recv->last_params().ssrc == ssrc &&
             recv->last_data() == msg);
@@ -330,6 +325,8 @@ class SctpDataMediaChannelTest : public testing::Test,
   SctpFakeDataReceiver* receiver1() { return recv1_.get(); }
   SctpFakeDataReceiver* receiver2() { return recv2_.get(); }
 
+  int channel1_ready_to_send_count() { return chan1_ready_to_send_count_; }
+  int channel2_ready_to_send_count() { return chan2_ready_to_send_count_; }
  private:
   rtc::scoped_ptr<cricket::SctpDataEngine> engine_;
   rtc::scoped_ptr<SctpFakeNetworkInterface> net1_;
@@ -338,6 +335,18 @@ class SctpDataMediaChannelTest : public testing::Test,
   rtc::scoped_ptr<SctpFakeDataReceiver> recv2_;
   rtc::scoped_ptr<cricket::SctpDataMediaChannel> chan1_;
   rtc::scoped_ptr<cricket::SctpDataMediaChannel> chan2_;
+
+  int chan1_ready_to_send_count_;
+  int chan2_ready_to_send_count_;
+
+  void OnChan1ReadyToSend(bool send) {
+    if (send)
+      ++chan1_ready_to_send_count_;
+  }
+  void OnChan2ReadyToSend(bool send) {
+    if (send)
+      ++chan2_ready_to_send_count_;
+  }
 };
 
 // Verifies that SignalReadyToSend is fired.
@@ -484,6 +493,15 @@ TEST_F(SctpDataMediaChannelTest, ClosesStreamsOnBothSides) {
   EXPECT_TRUE_WAIT(chan_1_sig_receiver.WasStreamClosed(2), 1000);
   EXPECT_TRUE_WAIT(chan_1_sig_receiver.WasStreamClosed(3), 1000);
   EXPECT_TRUE_WAIT(chan_1_sig_receiver.WasStreamClosed(4), 1000);
+}
+
+TEST_F(SctpDataMediaChannelTest, EngineSignalsRightChannel) {
+  SetupConnectedChannels();
+  EXPECT_TRUE_WAIT(channel1()->socket() != NULL, 1000);
+  struct socket *sock = const_cast<struct socket*>(channel1()->socket());
+  int prior_count = channel1_ready_to_send_count();
+  cricket::SctpDataEngine::SendThresholdCallback(sock, 0);
+  EXPECT_GT(channel1_ready_to_send_count(), prior_count);
 }
 
 // Flaky on Linux and Windows. See webrtc:4453.

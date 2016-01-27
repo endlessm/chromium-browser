@@ -12,6 +12,7 @@
 namespace blink {
 
 class ScopedWindowFocusAllowedIndicator final {
+    USING_FAST_MALLOC(ScopedWindowFocusAllowedIndicator);
     WTF_MAKE_NONCOPYABLE(ScopedWindowFocusAllowedIndicator);
 public:
     explicit ScopedWindowFocusAllowedIndicator(ExecutionContext* executionContext)

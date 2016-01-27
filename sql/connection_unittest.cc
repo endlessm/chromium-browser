@@ -4,15 +4,17 @@
 
 #include "base/bind.h"
 #include "base/files/file_util.h"
+#include "base/files/memory_mapped_file.h"
 #include "base/files/scoped_file.h"
 #include "base/files/scoped_temp_dir.h"
 #include "base/logging.h"
 #include "base/metrics/statistics_recorder.h"
+#include "base/strings/stringprintf.h"
 #include "base/test/histogram_tester.h"
+#include "base/trace_event/process_memory_dump.h"
 #include "sql/connection.h"
 #include "sql/correct_sql_test_base.h"
 #include "sql/meta_table.h"
-#include "sql/proxy.h"
 #include "sql/statement.h"
 #include "sql/test/error_callback_support.h"
 #include "sql/test/scoped_error_ignorer.h"
@@ -86,12 +88,12 @@ class ScopedScalarFunction {
       int args,
       base::Callback<void(sqlite3_context*,int,sqlite3_value**)> cb)
       : db_(db.db_), function_name_(function_name), cb_(cb) {
-    sql::sqlite3_create_function_v2(db_, function_name, args, SQLITE_UTF8,
-                                    this, &Run, NULL, NULL, NULL);
+    sqlite3_create_function_v2(db_, function_name, args, SQLITE_UTF8,
+                               this, &Run, NULL, NULL, NULL);
   }
   ~ScopedScalarFunction() {
-    sql::sqlite3_create_function_v2(db_, function_name_, 0, SQLITE_UTF8,
-                                    NULL, NULL, NULL, NULL, NULL);
+    sqlite3_create_function_v2(db_, function_name_, 0, SQLITE_UTF8,
+                               NULL, NULL, NULL, NULL, NULL);
   }
 
  private:
@@ -115,10 +117,10 @@ class ScopedCommitHook {
                    base::Callback<int(void)> cb)
       : db_(db.db_),
         cb_(cb) {
-    sql::sqlite3_commit_hook(db_, &Run, this);
+    sqlite3_commit_hook(db_, &Run, this);
   }
   ~ScopedCommitHook() {
-    sql::sqlite3_commit_hook(db_, NULL, NULL);
+    sqlite3_commit_hook(db_, NULL, NULL);
   }
 
  private:
@@ -134,7 +136,6 @@ class ScopedCommitHook {
 };
 
 }  // namespace test
-}  // namespace sql
 
 namespace {
 
@@ -207,6 +208,29 @@ class ScopedUmaskSetter {
   DISALLOW_IMPLICIT_CONSTRUCTORS(ScopedUmaskSetter);
 };
 #endif
+
+// SQLite function to adjust mock time by |argv[0]| milliseconds.
+void sqlite_adjust_millis(sql::test::ScopedMockTimeSource* time_mock,
+                          sqlite3_context* context,
+                          int argc, sqlite3_value** argv) {
+  int64 milliseconds = argc > 0 ? sqlite3_value_int64(argv[0]) : 1000;
+  time_mock->adjust(base::TimeDelta::FromMilliseconds(milliseconds));
+  sqlite3_result_int64(context, milliseconds);
+}
+
+// Adjust mock time by |milliseconds| on commit.
+int adjust_commit_hook(sql::test::ScopedMockTimeSource* time_mock,
+                       int64 milliseconds) {
+  time_mock->adjust(base::TimeDelta::FromMilliseconds(milliseconds));
+  return SQLITE_OK;
+}
+
+const char kCommitTime[] = "Sqlite.CommitTime.Test";
+const char kAutoCommitTime[] = "Sqlite.AutoCommitTime.Test";
+const char kUpdateTime[] = "Sqlite.UpdateTime.Test";
+const char kQueryTime[] = "Sqlite.QueryTime.Test";
+
+}  // namespace
 
 class SQLConnectionTest : public sql::SQLTestBase {
  public:
@@ -1145,27 +1169,6 @@ TEST_F(SQLConnectionTest, EventsStatement) {
   }
 }
 
-// SQLite function to adjust mock time by |argv[0]| milliseconds.
-void sqlite_adjust_millis(sql::test::ScopedMockTimeSource* time_mock,
-                          sqlite3_context* context,
-                          int argc, sqlite3_value** argv) {
-  int64 milliseconds = argc > 0 ? sqlite3_value_int64(argv[0]) : 1000;
-  time_mock->adjust(base::TimeDelta::FromMilliseconds(milliseconds));
-  sqlite3_result_int64(context, milliseconds);
-}
-
-// Adjust mock time by |milliseconds| on commit.
-int adjust_commit_hook(sql::test::ScopedMockTimeSource* time_mock,
-                       int64 milliseconds) {
-  time_mock->adjust(base::TimeDelta::FromMilliseconds(milliseconds));
-  return SQLITE_OK;
-}
-
-const char kCommitTime[] = "Sqlite.CommitTime.Test";
-const char kAutoCommitTime[] = "Sqlite.AutoCommitTime.Test";
-const char kUpdateTime[] = "Sqlite.UpdateTime.Test";
-const char kQueryTime[] = "Sqlite.QueryTime.Test";
-
 // Read-only query allocates time to QueryTime, but not others.
 TEST_F(SQLConnectionTest, TimeQuery) {
   // Re-open with histogram tag.  Use an in-memory database to minimize variance
@@ -1194,13 +1197,13 @@ TEST_F(SQLConnectionTest, TimeQuery) {
   EXPECT_EQ(11, samples->sum());
 
   samples = tester.GetHistogramSamplesSinceCreation(kUpdateTime);
-  EXPECT_TRUE(!samples || samples->sum() == 0);
+  EXPECT_EQ(0, samples->sum());
 
   samples = tester.GetHistogramSamplesSinceCreation(kCommitTime);
-  EXPECT_TRUE(!samples || samples->sum() == 0);
+  EXPECT_EQ(0, samples->sum());
 
   samples = tester.GetHistogramSamplesSinceCreation(kAutoCommitTime);
-  EXPECT_TRUE(!samples || samples->sum() == 0);
+  EXPECT_EQ(0, samples->sum());
 }
 
 // Autocommit update allocates time to QueryTime, UpdateTime, and
@@ -1237,7 +1240,7 @@ TEST_F(SQLConnectionTest, TimeUpdateAutocommit) {
   EXPECT_EQ(11, samples->sum());
 
   samples = tester.GetHistogramSamplesSinceCreation(kCommitTime);
-  EXPECT_TRUE(!samples || samples->sum() == 0);
+  EXPECT_EQ(0, samples->sum());
 
   samples = tester.GetHistogramSamplesSinceCreation(kAutoCommitTime);
   ASSERT_TRUE(samples);
@@ -1296,7 +1299,166 @@ TEST_F(SQLConnectionTest, TimeUpdateTransaction) {
   EXPECT_EQ(101, samples->sum());
 
   samples = tester.GetHistogramSamplesSinceCreation(kAutoCommitTime);
-  EXPECT_TRUE(!samples || samples->sum() == 0);
+  EXPECT_EQ(0, samples->sum());
 }
 
-}  // namespace
+// Make sure that OS file writes to a mmap'ed file are reflected in the memory
+// mapping of a memory-mapped file.  Normally SQLite writes to memory-mapped
+// files using memcpy(), which should stay consistent.  Our SQLite is slightly
+// patched to mmap read only, then write using OS file writes.  If the
+// memory-mapped version doesn't reflect the OS file writes, SQLite's
+// memory-mapped I/O should be disabled on this platform.
+#if !defined(MOJO_APPTEST_IMPL)
+TEST_F(SQLConnectionTest, MmapTest) {
+  // Skip the test for platforms which don't enable memory-mapped I/O in SQLite,
+  // or which don't even support the pragma.  The former seems to apply to iOS,
+  // the latter to older iOS.
+  // TODO(shess): Disable test on iOS?  Disable on USE_SYSTEM_SQLITE?
+  {
+    sql::Statement s(db().GetUniqueStatement("PRAGMA mmap_size"));
+    if (!s.Step() || !s.ColumnInt64(0))
+      return;
+  }
+
+  // The test re-uses the database file to make sure it's representative of a
+  // SQLite file, but will be storing incompatible data.
+  db().Close();
+
+  const uint32 kFlags =
+      base::File::FLAG_OPEN|base::File::FLAG_READ|base::File::FLAG_WRITE;
+  char buf[4096];
+
+  // Create a file with a block of '0', a block of '1', and a block of '2'.
+  {
+    base::File f(db_path(), kFlags);
+    ASSERT_TRUE(f.IsValid());
+    memset(buf, '0', sizeof(buf));
+    ASSERT_EQ(f.Write(0*sizeof(buf), buf, sizeof(buf)), (int)sizeof(buf));
+
+    memset(buf, '1', sizeof(buf));
+    ASSERT_EQ(f.Write(1*sizeof(buf), buf, sizeof(buf)), (int)sizeof(buf));
+
+    memset(buf, '2', sizeof(buf));
+    ASSERT_EQ(f.Write(2*sizeof(buf), buf, sizeof(buf)), (int)sizeof(buf));
+  }
+
+  // mmap the file and verify that everything looks right.
+  {
+    base::MemoryMappedFile m;
+    ASSERT_TRUE(m.Initialize(db_path()));
+
+    memset(buf, '0', sizeof(buf));
+    ASSERT_EQ(0, memcmp(buf, m.data() + 0*sizeof(buf), sizeof(buf)));
+
+    memset(buf, '1', sizeof(buf));
+    ASSERT_EQ(0, memcmp(buf, m.data() + 1*sizeof(buf), sizeof(buf)));
+
+    memset(buf, '2', sizeof(buf));
+    ASSERT_EQ(0, memcmp(buf, m.data() + 2*sizeof(buf), sizeof(buf)));
+
+    // Scribble some '3' into the first page of the file, and verify that it
+    // looks the same in the memory mapping.
+    {
+      base::File f(db_path(), kFlags);
+      ASSERT_TRUE(f.IsValid());
+      memset(buf, '3', sizeof(buf));
+      ASSERT_EQ(f.Write(0*sizeof(buf), buf, sizeof(buf)), (int)sizeof(buf));
+    }
+    ASSERT_EQ(0, memcmp(buf, m.data() + 0*sizeof(buf), sizeof(buf)));
+
+    // Repeat with a single '4' in case page-sized blocks are different.
+    const size_t kOffset = 1*sizeof(buf) + 123;
+    ASSERT_NE('4', m.data()[kOffset]);
+    {
+      base::File f(db_path(), kFlags);
+      ASSERT_TRUE(f.IsValid());
+      buf[0] = '4';
+      ASSERT_EQ(f.Write(kOffset, buf, 1), 1);
+    }
+    ASSERT_EQ('4', m.data()[kOffset]);
+  }
+}
+#endif
+
+TEST_F(SQLConnectionTest, OnMemoryDump) {
+  base::trace_event::ProcessMemoryDump pmd(nullptr);
+  base::trace_event::MemoryDumpArgs args = {
+      base::trace_event::MemoryDumpLevelOfDetail::DETAILED};
+  ASSERT_TRUE(db().OnMemoryDump(args, &pmd));
+  EXPECT_GE(pmd.allocator_dumps().size(), 1u);
+}
+
+// Test that the functions to collect diagnostic data run to completion, without
+// worrying too much about what they generate (since that will change).
+TEST_F(SQLConnectionTest, CollectDiagnosticInfo) {
+  // NOTE(shess): Mojo doesn't support everything CollectCorruptionInfo() uses,
+  // but it's not really clear if adding support would be useful.
+#if !defined(MOJO_APPTEST_IMPL)
+  const std::string corruption_info = db().CollectCorruptionInfo();
+  EXPECT_NE(std::string::npos, corruption_info.find("SQLITE_CORRUPT"));
+  EXPECT_NE(std::string::npos, corruption_info.find("integrity_check"));
+#endif
+
+  // A statement to see in the results.
+  const char* kSimpleSql = "SELECT 'mountain'";
+  Statement s(db().GetCachedStatement(SQL_FROM_HERE, kSimpleSql));
+
+  // Error includes the statement.
+  const std::string readonly_info = db().CollectErrorInfo(SQLITE_READONLY, &s);
+  EXPECT_NE(std::string::npos, readonly_info.find(kSimpleSql));
+
+  // Some other error doesn't include the statment.
+  // TODO(shess): This is weak.
+  const std::string full_info = db().CollectErrorInfo(SQLITE_FULL, NULL);
+  EXPECT_EQ(std::string::npos, full_info.find(kSimpleSql));
+
+  // A table to see in the SQLITE_ERROR results.
+  EXPECT_TRUE(db().Execute("CREATE TABLE volcano (x)"));
+
+  // Version info to see in the SQLITE_ERROR results.
+  sql::MetaTable meta_table;
+  ASSERT_TRUE(meta_table.Init(&db(), 4, 4));
+
+  const std::string error_info = db().CollectErrorInfo(SQLITE_ERROR, &s);
+  EXPECT_NE(std::string::npos, error_info.find(kSimpleSql));
+  EXPECT_NE(std::string::npos, error_info.find("volcano"));
+  EXPECT_NE(std::string::npos, error_info.find("version: 4"));
+}
+
+#if !defined(MOJO_APPTEST_IMPL)
+TEST_F(SQLConnectionTest, RegisterIntentToUpload) {
+  base::FilePath breadcrumb_path(
+      db_path().DirName().Append(FILE_PATH_LITERAL("sqlite-diag")));
+
+  // No stale diagnostic store.
+  ASSERT_TRUE(!base::PathExists(breadcrumb_path));
+
+  // The histogram tag is required to enable diagnostic features.
+  EXPECT_FALSE(db().RegisterIntentToUpload());
+  EXPECT_TRUE(!base::PathExists(breadcrumb_path));
+
+  db().Close();
+  db().set_histogram_tag("Test");
+  ASSERT_TRUE(db().Open(db_path()));
+
+  // Should signal upload only once.
+  EXPECT_TRUE(db().RegisterIntentToUpload());
+  EXPECT_TRUE(base::PathExists(breadcrumb_path));
+  EXPECT_FALSE(db().RegisterIntentToUpload());
+
+  // Changing the histogram tag should allow new upload to succeed.
+  db().Close();
+  db().set_histogram_tag("NewTest");
+  ASSERT_TRUE(db().Open(db_path()));
+  EXPECT_TRUE(db().RegisterIntentToUpload());
+  EXPECT_FALSE(db().RegisterIntentToUpload());
+
+  // Old tag is still prevented.
+  db().Close();
+  db().set_histogram_tag("Test");
+  ASSERT_TRUE(db().Open(db_path()));
+  EXPECT_FALSE(db().RegisterIntentToUpload());
+}
+#endif  // !defined(MOJO_APPTEST_IMPL)
+
+}  // namespace sql

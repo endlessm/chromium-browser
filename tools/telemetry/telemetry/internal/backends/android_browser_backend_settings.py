@@ -81,19 +81,6 @@ class ContentShellBackendSettings(AndroidBrowserBackendSettings):
     return 'localabstract:content_shell_devtools_remote'
 
 
-class ChromeShellBackendSettings(AndroidBrowserBackendSettings):
-  def __init__(self, package):
-    super(ChromeShellBackendSettings, self).__init__(
-          activity='org.chromium.chrome.shell.ChromeShellActivity',
-          cmdline_file='/data/local/tmp/chrome-shell-command-line',
-          package=package,
-          pseudo_exec_name='chrome_shell',
-          supports_tab_control=False)
-
-  def GetDevtoolsRemotePort(self, device):
-    return 'localabstract:chrome_shell_devtools_remote'
-
-
 class WebviewBackendSettings(AndroidBrowserBackendSettings):
   def __init__(self,
                package,
@@ -124,7 +111,11 @@ class WebviewBackendSettings(AndroidBrowserBackendSettings):
                            self.activity)
           raise exceptions.BrowserGoneException(self.browser,
                                                 'Timeout waiting for PID.')
-      pid = pids[self.package]
+      if len(pids[self.package]) > 1:
+        raise Exception(
+            'At most one instance of process %s expected but found pids: '
+            '%s' % (self.package, pids))
+      pid = pids[self.package][0]
       break
     return 'localabstract:webview_devtools_remote_%s' % str(pid)
 

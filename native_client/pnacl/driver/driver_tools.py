@@ -622,13 +622,8 @@ def ConvertArgsToFile(args):
 
 # Note:
 # The redirect_stdout and redirect_stderr is only used a handful of times
-#
-# The stdin_contents feature is currently only used by:
-#  sel_universal invocations in the translator
-#
 def Run(args,
         errexit=True,
-        stdin_contents=None,
         redirect_stdout=None,
         redirect_stderr=None):
   """ Run: Run a command.
@@ -645,7 +640,6 @@ def Run(args,
 
       redirect_stdout and redirect_stderr are passed straight
       to subprocess.Popen
-      stdin_contents is an optional string used as stdin
   """
 
   result_stdout = None
@@ -656,10 +650,6 @@ def Run(args,
   args = [pathtools.tosys(args[0])] + args[1:]
 
   Log.Info('Running: ' + StringifyCommand(args))
-  if stdin_contents:
-    Log.Info('--------------stdin: begin')
-    Log.Info(stdin_contents)
-    Log.Info('--------------stdin: end')
 
   if env.getbool('DRY_RUN'):
     if redirect_stderr or redirect_stdout:
@@ -679,18 +669,12 @@ def Run(args,
     else:
       actual_args = args
 
-    redirect_stdin = None
-    if stdin_contents:
-      redirect_stdin = subprocess.PIPE
-
     p = subprocess.Popen(actual_args,
-                         stdin=redirect_stdin,
                          stdout=redirect_stdout,
                          stderr=redirect_stderr)
-    result_stdout, result_stderr = p.communicate(input=stdin_contents)
+    result_stdout, result_stderr = p.communicate()
   except Exception, e:
-    msg =  '%s\nCommand was: %s' % (str(e),
-                                    StringifyCommand(args, stdin_contents))
+    msg =  '%s\nCommand was: %s' % (str(e), StringifyCommand(args))
     print msg
     DriverExit(1)
 
@@ -833,10 +817,10 @@ def ArchMerge(filename, must_match):
 
 def CheckTranslatorPrerequisites():
   """ Assert that the scons artifacts for running the sandboxed translator
-      exist: sel_universal, sel_ldr, and the IRT blob. """
+      exist: sel_ldr, and the IRT blob. """
   if env.getbool('DRY_RUN'):
     return
-  reqs = ['SEL_UNIVERSAL', 'SEL_LDR', 'IRT_BLOB']
+  reqs = ['SEL_LDR', 'IRT_BLOB']
   # Linux also requires the nacl bootstrap helper.
   if GetBuildOS() == 'linux':
     reqs.append('BOOTSTRAP_LDR')
@@ -844,6 +828,18 @@ def CheckTranslatorPrerequisites():
     needed_file = env.getone(var)
     if not pathtools.exists(needed_file):
       Log.Fatal('Could not find %s [%s]', var, needed_file)
+
+def SelLdrCommand():
+  if GetBuildOS() == 'linux':
+    cmd = '${BOOTSTRAP_LDR} ${SEL_LDR} --reserved_at_zero=0x%s' % ('X' * 16)
+  else:
+    cmd = '${SEL_LDR}'
+  return '${SEL_LDR_PREFIX} %s ${SEL_LDR_FLAGS}' % cmd
+
+def AddListToEnv(command, env_var_prefix, string_list):
+  for index, string in enumerate(string_list):
+    command.append('-E')
+    command.append('%s_%d=%s' % (env_var_prefix, index, string))
 
 class DriverChain(object):
   """ The DriverChain class takes one or more input files,

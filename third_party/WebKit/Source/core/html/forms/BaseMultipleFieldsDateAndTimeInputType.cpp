@@ -432,6 +432,8 @@ void BaseMultipleFieldsDateAndTimeInputType::requiredAttributeChanged()
 
 void BaseMultipleFieldsDateAndTimeInputType::handleKeydownEvent(KeyboardEvent* event)
 {
+    if (!element().focused())
+        return;
     if (m_pickerIndicatorIsVisible
         && ((event->keyIdentifier() == "Down" && event->getModifierState("Alt")) || (LayoutTheme::theme().shouldOpenPickerWithF4Key() && event->keyIdentifier() == "F4"))) {
         if (PickerIndicatorElement* element = pickerIndicatorElement())
@@ -539,6 +541,12 @@ void BaseMultipleFieldsDateAndTimeInputType::updateView()
     updateClearButtonVisibility();
 }
 
+void BaseMultipleFieldsDateAndTimeInputType::closePopupView()
+{
+    if (PickerIndicatorElement* picker = pickerIndicatorElement())
+        picker->closePopup();
+}
+
 void BaseMultipleFieldsDateAndTimeInputType::valueAttributeChanged()
 {
     if (!element().hasDirtyValue())
@@ -604,7 +612,7 @@ void BaseMultipleFieldsDateAndTimeInputType::updateClearButtonVisibility()
         return;
 
     if (element().isRequired() || !dateTimeEditElement()->anyEditableFieldsHaveValues()) {
-        clearButton->setInlineStyleProperty(CSSPropertyOpacity, 0.0, CSSPrimitiveValue::CSS_NUMBER);
+        clearButton->setInlineStyleProperty(CSSPropertyOpacity, 0.0, CSSPrimitiveValue::UnitType::Number);
         clearButton->setInlineStyleProperty(CSSPropertyPointerEvents, CSSValueNone);
     } else {
         clearButton->removeInlineStyleProperty(CSSPropertyOpacity);

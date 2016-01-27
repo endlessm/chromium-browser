@@ -133,7 +133,7 @@ class SfiValidator {
   // where code being replaced is executed.
   // Returns true iff no problems were found.
   bool CopyCode(const CodeSegment& source_code,
-                CodeSegment& dest_code,
+                CodeSegment* dest_code,
                 NaClCopyInstructionFunc copy_func,
                 ProblemSink* out);
 
@@ -187,7 +187,8 @@ class SfiValidator {
   }
 
   bool conditional_memory_access_allowed_for_sfi() const {
-    return NaClGetCPUFeatureArm(CpuFeatures(), NaClCPUFeatureArm_CanUseTstMem);
+    return NaClGetCPUFeatureArm(CpuFeatures(),
+                                NaClCPUFeatureArm_CanUseTstMem) != 0;
   }
 
   // Utility function that applies the decoder of the validator.
@@ -219,7 +220,11 @@ class SfiValidator {
   // Returns true if address is the first address of a bundle.
   bool is_bundle_head(uint32_t address) const {
     return (address & (bytes_per_bundle_ - 1)) == 0;
-  };
+  }
+
+  // Returns true if address is on a valid inst boundary
+  // and is not within a pseudo instruction
+  bool is_valid_inst_boundary(const CodeSegment& code, uint32_t addr);
 
  private:
   // The SfiValidator constructor could have been given invalid values.

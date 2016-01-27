@@ -3,10 +3,11 @@
 // found in the LICENSE file.
 
 [
-    Exposed=(Window,ServiceWorker),
     GarbageCollected,
+    NoInterfaceObject,
     RuntimeEnabled=BackgroundSync,
 ] interface SyncRegistration {
-    [RuntimeEnabled=BackgroundSyncV2] readonly attribute DOMString tag;
+    readonly attribute DOMString tag;
+    [RuntimeEnabled=BackgroundSyncV2, CallWith=ScriptState] readonly attribute Promise<void> finished;
     [CallWith=ScriptState] Promise<boolean> unregister();
 };

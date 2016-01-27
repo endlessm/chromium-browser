@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include <openssl/crypto.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 
@@ -26,6 +27,7 @@
 #endif
 
 
+bool Ciphers(const std::vector<std::string> &args);
 bool Client(const std::vector<std::string> &args);
 bool DoPKCS12(const std::vector<std::string> &args);
 bool GenerateRSAKey(const std::vector<std::string> &args);
@@ -47,6 +49,7 @@ struct Tool {
 };
 
 static const Tool kTools[] = {
+  { "ciphers", Ciphers },
   { "client", Client },
   { "genrsa", GenerateRSAKey },
   { "md5sum", MD5Sum },
@@ -109,7 +112,7 @@ int main(int argc, char **argv) {
   }
 #endif
 
-  SSL_library_init();
+  CRYPTO_library_init();
 
   int starting_arg = 1;
   tool_func_t tool = nullptr;

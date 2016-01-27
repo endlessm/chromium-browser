@@ -15,7 +15,7 @@
 
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common_types.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module.h"
 #include "webrtc/modules/audio_coding/main/test/ACMTest.h"
 #include "webrtc/modules/audio_coding/main/test/Channel.h"
 #include "webrtc/modules/audio_coding/main/test/PCMFile.h"
@@ -29,8 +29,6 @@ namespace webrtc {
 struct ACMTestISACConfig {
   int32_t currentRateBitPerSec;
   int16_t currentFrameSizeMsec;
-  uint32_t maxRateBitPerSec;
-  int16_t maxPayloadSizeByte;
   int16_t encodingMode;
   uint32_t initRateBitPerSec;
   int16_t initFrameSizeInMsec;

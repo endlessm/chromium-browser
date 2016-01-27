@@ -5,14 +5,19 @@
 #ifndef TESTING_EMBEDDER_TEST_H_
 #define TESTING_EMBEDDER_TEST_H_
 
+#include <map>
 #include <string>
 
-#include "../public/fpdf_dataavail.h"
-#include "../public/fpdf_ext.h"
-#include "../public/fpdf_formfill.h"
-#include "../public/fpdfview.h"
+#include "public/fpdf_dataavail.h"
+#include "public/fpdf_ext.h"
+#include "public/fpdf_formfill.h"
+#include "public/fpdfview.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/base/nonstd_unique_ptr.h"
+
+#ifdef PDF_ENABLE_V8
 #include "v8/include/v8.h"
+#endif  // PDF_ENABLE_v8
 
 class TestLoader;
 
@@ -25,14 +30,16 @@ class EmbedderTest : public ::testing::Test,
  public:
   class Delegate {
    public:
-    virtual ~Delegate() { }
+    virtual ~Delegate() {}
 
     // Equivalent to UNSUPPORT_INFO::FSDK_UnSupport_Handler().
-    virtual void UnsupportedHandler(int type) { }
+    virtual void UnsupportedHandler(int type) {}
 
     // Equivalent to IPDF_JSPLATFORM::app_alert().
-    virtual int Alert(FPDF_WIDESTRING message, FPDF_WIDESTRING title,
-                      int type, int icon) {
+    virtual int Alert(FPDF_WIDESTRING message,
+                      FPDF_WIDESTRING title,
+                      int type,
+                      int icon) {
       return 0;
     }
 
@@ -40,7 +47,15 @@ class EmbedderTest : public ::testing::Test,
     virtual int SetTimer(int msecs, TimerCallback fn) { return 0; }
 
     // Equivalent to FPDF_FORMFILLINFO::FFI_KillTimer().
-    virtual void KillTimer(int id) { }
+    virtual void KillTimer(int id) {}
+
+    // Equivalent to FPDF_FORMFILLINFO::FFI_GetPage().
+    virtual FPDF_PAGE GetPage(FPDF_FORMHANDLE form_handle,
+                              FPDF_DOCUMENT document,
+                              int page_index);
+
+   private:
+    std::map<int, FPDF_PAGE> m_pageMap;
   };
 
   EmbedderTest();
@@ -49,8 +64,15 @@ class EmbedderTest : public ::testing::Test,
   void SetUp() override;
   void TearDown() override;
 
+#ifdef PDF_ENABLE_V8
+  // Call before SetUp to pass shared isolate, otherwise PDFium creates one.
+  void SetExternalIsolate(void* isolate) {
+    external_isolate_ = static_cast<v8::Isolate*>(isolate);
+  }
+#endif  // PDF_ENABLE_V8
+
   void SetDelegate(Delegate* delegate) {
-    delegate_ = delegate ? delegate : default_delegate_;
+    delegate_ = delegate ? delegate : default_delegate_.get();
   }
 
   FPDF_DOCUMENT document() { return document_; }
@@ -58,7 +80,10 @@ class EmbedderTest : public ::testing::Test,
 
   // Open the document specified by |filename|, and create its form fill
   // environment, or return false on failure.
-  virtual bool OpenDocument(const std::string& filename);
+  // The filename is relative to the test data directory where we store all the
+  // test files.
+  virtual bool OpenDocument(const std::string& filename,
+                            bool must_linearize = false);
 
   // Perform JavaScript actions that are to run at document open time.
   virtual void DoOpenActions();
@@ -70,6 +95,10 @@ class EmbedderTest : public ::testing::Test,
   // Load a specific page of the open document.
   virtual FPDF_PAGE LoadPage(int page_number);
 
+  // Load a specific page of the open document using delegate_->GetPage.
+  // delegate_->GetPage also caches loaded page.
+  virtual FPDF_PAGE LoadAndCachePage(int page_number);
+
   // Convert a loaded page into a bitmap.
   virtual FPDF_BITMAP RenderPage(FPDF_PAGE page);
 
@@ -79,27 +108,37 @@ class EmbedderTest : public ::testing::Test,
 
  protected:
   Delegate* delegate_;
-  Delegate* default_delegate_;
+  nonstd::unique_ptr<Delegate> default_delegate_;
   FPDF_DOCUMENT document_;
   FPDF_FORMHANDLE form_handle_;
   FPDF_AVAIL avail_;
   FX_DOWNLOADHINTS hints_;
   FPDF_FILEACCESS file_access_;
   FX_FILEAVAIL file_avail_;
+#ifdef PDF_ENABLE_V8
   v8::Platform* platform_;
   v8::StartupData natives_;
   v8::StartupData snapshot_;
+#endif  // PDF_ENABLE_V8
+  void* external_isolate_;
   TestLoader* loader_;
   size_t file_length_;
   char* file_contents_;
 
  private:
   static void UnsupportedHandlerTrampoline(UNSUPPORT_INFO*, int type);
-  static int AlertTrampoline(IPDF_JSPLATFORM* plaform, FPDF_WIDESTRING message,
-                             FPDF_WIDESTRING title, int type, int icon);
-  static int SetTimerTrampoline(FPDF_FORMFILLINFO* info, int msecs,
+  static int AlertTrampoline(IPDF_JSPLATFORM* plaform,
+                             FPDF_WIDESTRING message,
+                             FPDF_WIDESTRING title,
+                             int type,
+                             int icon);
+  static int SetTimerTrampoline(FPDF_FORMFILLINFO* info,
+                                int msecs,
                                 TimerCallback fn);
   static void KillTimerTrampoline(FPDF_FORMFILLINFO* info, int id);
+  static FPDF_PAGE GetPageTrampoline(FPDF_FORMFILLINFO* info,
+                                     FPDF_DOCUMENT document,
+                                     int page_index);
 };
 
 #endif  // TESTING_EMBEDDER_TEST_H_

@@ -14,6 +14,7 @@ gypi_values = exec_script("//build/gypi_to_gn.py",
 component("ash") {
   sources = gypi_values.ash_sources
 
+  configs += [ "//build/config:precompiled_headers" ]
   defines = [ "ASH_IMPLEMENTATION" ]
 
   public_deps = [
@@ -26,6 +27,7 @@ component("ash") {
     "//base/third_party/dynamic_annotations",
     "//cc",
     "//components/device_event_log",
+    "//components/signin/core/account_id",
     "//components/user_manager",
     "//components/wallpaper",
     "//content/public/browser",
@@ -46,6 +48,7 @@ component("ash") {
     "//ui/gfx",
     "//ui/gfx/geometry",
     "//ui/keyboard",
+    "//ui/keyboard:keyboard_with_content",
     "//ui/message_center",
     "//ui/resources",
     "//ui/strings",
@@ -137,15 +140,7 @@ component("ash") {
 }
 
 component("ash_with_content") {
-  sources = [
-    "content_support/ash_with_content_export.h",
-    "content_support/gpu_support_impl.cc",
-    "content_support/gpu_support_impl.h",
-    "keyboard_overlay/keyboard_overlay_delegate.cc",
-    "keyboard_overlay/keyboard_overlay_delegate.h",
-    "keyboard_overlay/keyboard_overlay_view.cc",
-    "keyboard_overlay/keyboard_overlay_view.h",
-  ]
+  sources = gypi_values.ash_with_content_sources
 
   defines = [ "ASH_WITH_CONTENT_IMPLEMENTATION" ]
 
@@ -164,6 +159,7 @@ component("ash_with_content") {
     "//ui/events",
     "//ui/gfx",
     "//ui/gfx/geometry",
+    "//ui/keyboard:keyboard_with_content",
     "//ui/resources",
     "//ui/strings",
     "//ui/views",
@@ -173,16 +169,18 @@ component("ash_with_content") {
   ]
 }
 
-static_library("test_support") {
+source_set("test_support") {
   testonly = true
   sources = gypi_values.ash_test_support_sources
+  configs += [ "//build/config:precompiled_headers" ]
 
   public_deps = [
     ":ash",
   ]
   deps = [
+    ":test_support_with_content",  # TODO(beng): reverse this direction.
     "//ash/resources",
-    "//content/test:test_support",
+    "//components/signin/core/account_id",
     "//skia",
     "//testing/gtest",
     "//ui/accessibility",
@@ -196,19 +194,39 @@ static_library("test_support") {
   ]
 
   if (is_win) {
-    sources += [
-      "test/test_metro_viewer_process_host.cc",
-      "test/test_metro_viewer_process_host.h",
-    ]
-    deps += [
-      "//ipc",
-      "//ui/metro_viewer",
-      "//ui/platform_window/win",
-      "//win8:metro_viewer",
-      "//win8:test_support_win8",
-      "//win8:test_registrar",
-    ]
+    deps += [ "//ui/platform_window/win" ]
   }
+}
+
+source_set("test_support_with_content") {
+  testonly = true
+  sources = gypi_values.ash_test_support_with_content_sources
+  configs += [ "//build/config:precompiled_headers" ]
+
+  deps = [
+    ":ash_with_content",
+    "//content/test:test_support",
+    "//skia",
+  ]
+}
+
+source_set("interactive_ui_test_support") {
+  testonly = true
+  configs += [ "//build/config:precompiled_headers" ]
+  public_deps = [
+    ":ash",
+    ":test_support",
+  ]
+  sources = [
+    "test/ash_interactive_ui_test_base.cc",
+    "test/ash_interactive_ui_test_base.h",
+  ]
+  deps = [
+    ":ash",
+    ":test_support",
+    "//skia",
+    "//testing/gtest",
+  ]
 }
 
 static_library("ash_shell_lib") {
@@ -224,9 +242,6 @@ static_library("ash_shell_lib") {
     "//base",
     "//base:i18n",
 
-    #"//chrome:packed_resources",  TODO(GYP)
-    "//content",
-    "//content/shell:content_shell_lib",
     "//net",
     "//skia",
     "//third_party/icu",
@@ -240,6 +255,7 @@ static_library("ash_shell_lib") {
     "//ui/gfx",
     "//ui/gfx/geometry",
     "//ui/keyboard",
+    "//ui/keyboard:keyboard_with_content",
     "//ui/message_center",
     "//ui/resources",
     "//ui/views",
@@ -249,8 +265,22 @@ static_library("ash_shell_lib") {
   ]
 }
 
+static_library("ash_shell_lib_with_content") {
+  testonly = true
+  sources = gypi_values.ash_shell_with_content_lib_sources
+
+  deps = [
+    #"//chrome:packed_resources",  TODO(GYP)
+    "//content",
+    "//content/shell:content_shell_lib",
+    ":ash_shell_lib",
+    "//skia",
+  ]
+}
+
 test("ash_unittests") {
   sources = gypi_values.ash_unittests_sources
+  configs += [ "//build/config:precompiled_headers" ]
 
   deps = [
     ":ash",
@@ -261,6 +291,7 @@ test("ash_unittests") {
     "//base",
     "//base/allocator",
     "//base/test:test_support",
+    "//components/signin/core/account_id",
     "//components/user_manager",
     "//content/public/browser",
     "//content/test:test_support",
@@ -282,6 +313,7 @@ test("ash_unittests") {
     "//ui/gfx",
     "//ui/gfx/geometry",
     "//ui/keyboard",
+    "//ui/keyboard:keyboard_with_content",
     "//ui/message_center",
     "//ui/message_center:test_support",
     "//ui/resources",
@@ -327,6 +359,7 @@ test("ash_unittests") {
     deps += [
       "//device/bluetooth",
       "//ui/display",
+      "//ui/display:test_support",
       "//ui/display:test_util",
       "//ui/display/types",
       "//chromeos:power_manager_proto",
@@ -349,19 +382,20 @@ test("ash_unittests") {
   #['OS=="linux" and component=="shared_library" and use_allocator!="none"', {
   # ldflags = "-rdynamic"
 
-  if (!is_chromeos || use_ozone) {
-    sources -= [ "sticky_keys/sticky_keys_unittest.cc" ]  # crbug.com/354035
+  if (!is_chromeos) {
+    sources -= [ "sticky_keys/sticky_keys_unittest.cc" ]
   }
 }
 
-executable("ash_shell") {
+executable("ash_shell_with_content") {
   testonly = true
   sources = [
-    "shell/shell_main.cc",
+    "shell/content/shell_with_content_main.cc",
   ]
 
   deps = [
-    ":ash_shell_lib",
+    ":ash_shell_lib_with_content",
+    "//build/config/sanitizers:deps",
     "//components/user_manager",
   ]
 
@@ -373,28 +407,6 @@ executable("ash_shell") {
 
   if (is_chromeos) {
     deps += [ "//device/bluetooth" ]
-  }
-}
-
-test("ash_shell_unittests") {
-  sources = [
-    "shell/window_watcher_unittest.cc",
-    "test/ash_unittests.cc",
-  ]
-
-  deps = [
-    ":ash_shell_lib",
-    ":test_support",
-    "//base/test:test_support",
-    "//components/user_manager",
-    "//content/test:test_support",
-    "//skia",
-    "//testing/gtest",
-    "//ui/accessibility",
-  ]
-
-  if (is_chromeos) {
-    deps += [ "//ui/display" ]
   }
 }
 # When adding support for isolates, please have a look at run-time dependencies

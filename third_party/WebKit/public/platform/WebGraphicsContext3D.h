@@ -63,15 +63,6 @@ typedef struct __WGC3Dsync *WGC3Dsync;
 // Typedef for server-side objects like OpenGL textures and program objects.
 typedef WGC3Duint WebGLId;
 
-struct WebGLInfo {
-    WGC3Duint vendorId;
-    WGC3Duint deviceId;
-    WebString vendorInfo;
-    WebString rendererInfo;
-    WebString driverVersion;
-    WebString contextInfoCollectionFailure;
-};
-
 // This interface abstracts the operations performed by the
 // GraphicsContext3D in order to implement WebGL. Nearly all of the
 // methods exposed on this interface map directly to entry points in
@@ -87,40 +78,38 @@ public:
 
     // Context creation attributes.
     struct Attributes {
-        Attributes()
-            : alpha(true)
-            , depth(true)
-            , stencil(true)
-            , antialias(true)
-            , premultipliedAlpha(true)
-            , canRecoverFromContextLoss(true)
-            , noExtensions(false)
-            , shareResources(true)
-            , preferDiscreteGPU(false)
-            , noAutomaticFlushes(false)
-            , failIfMajorPerformanceCaveat(false)
-            , webGL(false)
-            , webGLVersion(0)
-        {
-        }
-
-        bool alpha;
-        bool depth;
-        bool stencil;
-        bool antialias;
-        bool premultipliedAlpha;
-        bool canRecoverFromContextLoss;
-        bool noExtensions;
-        bool shareResources;
-        bool preferDiscreteGPU;
-        bool noAutomaticFlushes;
-        bool failIfMajorPerformanceCaveat;
-        bool webGL;
-        unsigned webGLVersion;
+        bool alpha = true;
+        bool depth = true;
+        bool stencil = true;
+        bool antialias = true;
+        bool premultipliedAlpha = true;
+        bool canRecoverFromContextLoss = true;
+        bool noExtensions = false;
+        bool shareResources = true;
+        bool preferDiscreteGPU = false;
+        bool noAutomaticFlushes = false;
+        bool failIfMajorPerformanceCaveat = false;
+        bool webGL = false;
+        unsigned webGLVersion = 0;
         // FIXME: ideally this would be a WebURL, but it is currently not
         // possible to pass a WebURL by value across the WebKit API boundary.
         // See https://bugs.webkit.org/show_bug.cgi?id=103793#c13 .
         WebString topDocumentURL;
+    };
+
+    struct WebGraphicsInfo {
+        unsigned vendorId = 0;
+        unsigned deviceId = 0;
+        unsigned processCrashCount = 0;
+        unsigned resetNotificationStrategy = 0;
+        bool sandboxed = false;
+        bool testFailContext = false;
+        bool amdSwitchable = false;
+        bool optimus = false;
+        WebString vendorInfo;
+        WebString rendererInfo;
+        WebString driverVersion;
+        WebString errorMessage;
     };
 
     class WebGraphicsContextLostCallback {
@@ -159,8 +148,8 @@ public:
     virtual void discardBackbufferCHROMIUM() { }
     virtual void ensureBackbufferCHROMIUM() { }
 
-    virtual unsigned insertSyncPoint() { return 0; }
-    virtual void waitSyncPoint(unsigned) { }
+    virtual bool insertSyncPoint(WGC3Dbyte*) { return false; }
+    virtual void waitSyncToken(const WGC3Dbyte*) {}
 
     // Copies the contents of the off-screen render target used by the WebGL
     // context to the corresponding texture used by the compositor.
@@ -194,9 +183,6 @@ public:
     // GL_CHROMIUM_framebuffer_multisample
     virtual void blitFramebufferCHROMIUM(WGC3Dint srcX0, WGC3Dint srcY0, WGC3Dint srcX1, WGC3Dint srcY1, WGC3Dint dstX0, WGC3Dint dstY0, WGC3Dint dstX1, WGC3Dint dstY1, WGC3Dbitfield mask, WGC3Denum filter) = 0;
     virtual void renderbufferStorageMultisampleCHROMIUM(WGC3Denum target, WGC3Dsizei samples, WGC3Denum internalformat, WGC3Dsizei width, WGC3Dsizei height) = 0;
-
-    // GL_CHROMIUM_rate_limit_offscreen_context
-    virtual void rateLimitOffscreenContextCHROMIUM() { }
 
     // GL_CHROMIUM_lose_context
     virtual void loseContextCHROMIUM(WGC3Denum current, WGC3Denum other) { }
@@ -276,7 +262,7 @@ public:
     virtual WGC3Dint getUniformLocation(WebGLId program, const WGC3Dchar* name) = 0;
     virtual void getVertexAttribfv(WGC3Duint index, WGC3Denum pname, WGC3Dfloat* value) = 0;
     virtual void getVertexAttribiv(WGC3Duint index, WGC3Denum pname, WGC3Dint* value) = 0;
-    virtual WGC3Dsizeiptr getVertexAttribOffset(WGC3Duint index, WGC3Denum pname) = 0;
+    virtual WGC3Dintptr getVertexAttribOffset(WGC3Duint index, WGC3Denum pname) = 0;
 
     virtual void hint(WGC3Denum target, WGC3Denum mode) = 0;
     virtual WGC3Dboolean isBuffer(WebGLId buffer) = 0;
@@ -376,6 +362,9 @@ public:
 
     virtual WebString getTranslatedShaderSourceANGLE(WebGLId shader) = 0;
 
+    // GL_CHROMIUM_screen_space_antialiasing
+    virtual void applyScreenSpaceAntialiasingCHROMIUM() { }
+
     // GL_CHROMIUM_iosurface
     virtual void texImageIOSurface2DCHROMIUM(WGC3Denum target, WGC3Dint width, WGC3Dint height, WGC3Duint ioSurfaceId, WGC3Duint plane) { }
 
@@ -391,6 +380,10 @@ public:
     virtual void endQueryEXT(WGC3Denum target) { }
     virtual void getQueryivEXT(WGC3Denum target, WGC3Denum pname, WGC3Dint* params) { }
     virtual void getQueryObjectuivEXT(WebGLId query, WGC3Denum pname, WGC3Duint* params) { }
+
+    // GL_EXT_disjoint_timer_query
+    virtual void queryCounterEXT(WebGLId query, WGC3Denum target) {}
+    virtual void getQueryObjectui64vEXT(WebGLId query, WGC3Denum pname, WGC3Duint64* params) {}
 
     // GL_CHROMIUM_bind_uniform_location
     virtual void bindUniformLocationCHROMIUM(WebGLId program, WGC3Dint location, const WGC3Dchar* uniform) { }
@@ -457,8 +450,6 @@ public:
 
     // GL_EXT_draw_buffers
     virtual void drawBuffersEXT(WGC3Dsizei n, const WGC3Denum* bufs) { }
-
-    virtual GrGLInterface* createGrGLInterface() { return nullptr; }
 
     // GL_CHROMIUM_image
     virtual void destroyImageCHROMIUM(WGC3Duint imageId) { }

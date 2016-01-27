@@ -1,6 +1,4 @@
-
-
-  /**
+/**
    * `Polymer.IronMenubarBehavior` implements accessible menubar behavior.
    *
    * @polymerBehavior Polymer.IronMenubarBehavior
@@ -17,11 +15,13 @@
     },
 
     _onUpKey: function(event) {
-      this._activateFocused(event.detail.keyboardEvent);
+      this.focusedItem.click();
+      event.detail.keyboardEvent.preventDefault();
     },
 
     _onDownKey: function(event) {
-      this._activateFocused(event.detail.keyboardEvent);
+      this.focusedItem.click();
+      event.detail.keyboardEvent.preventDefault();
     },
 
     _onLeftKey: function() {
@@ -33,7 +33,7 @@
     },
 
     _onKeydown: function(event) {
-      if (this.keyboardEventMatchesKeys(event, 'up down left right esc enter')) {
+      if (this.keyboardEventMatchesKeys(event, 'up down left right esc')) {
         return;
       }
 
@@ -48,4 +48,3 @@
     Polymer.IronMenuBehavior,
     Polymer.IronMenubarBehaviorImpl
   ];
-

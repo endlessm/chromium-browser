@@ -11,6 +11,7 @@
 #include "base/files/memory_mapped_file.h"
 #include "base/hash.h"
 #include "base/logging.h"
+#include "base/numerics/safe_conversions.h"
 #include "base/pickle.h"
 #include "base/single_thread_task_runner.h"
 #include "base/task_runner_util.h"
@@ -71,13 +72,13 @@ void UmaRecordIndexInitMethod(IndexInitMethod method,
 bool WritePickleFile(base::Pickle* pickle, const base::FilePath& file_name) {
   File file(
       file_name,
-      File::FLAG_CREATE | File::FLAG_WRITE | File::FLAG_SHARE_DELETE);
+      File::FLAG_CREATE_ALWAYS | File::FLAG_WRITE | File::FLAG_SHARE_DELETE);
   if (!file.IsValid())
     return false;
 
   int bytes_written =
       file.Write(0, static_cast<const char*>(pickle->data()), pickle->size());
-  if (bytes_written != implicit_cast<int>(pickle->size())) {
+  if (bytes_written != base::checked_cast<int>(pickle->size())) {
     simple_util::SimpleCacheDeleteFile(file_name);
     return false;
   }

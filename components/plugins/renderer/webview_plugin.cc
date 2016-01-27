@@ -43,10 +43,12 @@ using blink::WebVector;
 using blink::WebView;
 using content::WebPreferences;
 
-WebViewPlugin::WebViewPlugin(WebViewPlugin::Delegate* delegate,
+WebViewPlugin::WebViewPlugin(content::RenderView* render_view,
+                             WebViewPlugin::Delegate* delegate,
                              const WebPreferences& preferences)
-    : delegate_(delegate),
-      container_(NULL),
+    : content::RenderViewObserver(render_view),
+      delegate_(delegate),
+      container_(nullptr),
       web_view_(WebView::create(this)),
       finished_loading_(false),
       focused_(false) {
@@ -58,12 +60,13 @@ WebViewPlugin::WebViewPlugin(WebViewPlugin::Delegate* delegate,
 }
 
 // static
-WebViewPlugin* WebViewPlugin::Create(WebViewPlugin::Delegate* delegate,
+WebViewPlugin* WebViewPlugin::Create(content::RenderView* render_view,
+                                     WebViewPlugin::Delegate* delegate,
                                      const WebPreferences& preferences,
                                      const std::string& html_data,
                                      const GURL& url) {
   DCHECK(url.is_valid()) << "Blink requires the WebView to have a valid URL.";
-  WebViewPlugin* plugin = new WebViewPlugin(delegate, preferences);
+  WebViewPlugin* plugin = new WebViewPlugin(render_view, delegate, preferences);
   plugin->web_view()->mainFrame()->loadHTMLString(html_data, url);
   return plugin;
 }
@@ -134,9 +137,10 @@ bool WebViewPlugin::initialize(WebPluginContainer* container) {
 void WebViewPlugin::destroy() {
   if (delegate_) {
     delegate_->PluginDestroyed();
-    delegate_ = NULL;
+    delegate_ = nullptr;
   }
-  container_ = NULL;
+  container_ = nullptr;
+  content::RenderViewObserver::Observe(nullptr);
   base::MessageLoop::current()->DeleteSoon(FROM_HERE, this);
 }
 
@@ -147,8 +151,10 @@ v8::Local<v8::Object> WebViewPlugin::v8ScriptableObject(v8::Isolate* isolate) {
   return delegate_->GetV8ScriptableObject(isolate);
 }
 
+// TODO(wkorman): Look into renaming this to something more in line with
+// either the Blink lifecycle or Compositor layer tree host nomenclature.
 void WebViewPlugin::layoutIfNeeded() {
-  web_view_->layout();
+  web_view_->updateAllLifecyclePhases();
 }
 
 void WebViewPlugin::paint(WebCanvas* canvas, const WebRect& rect) {
@@ -300,4 +306,16 @@ void WebViewPlugin::didReceiveResponse(WebLocalFrame* frame,
                                        unsigned identifier,
                                        const WebURLResponse& response) {
   WebFrameClient::didReceiveResponse(frame, identifier, response);
+}
+
+void WebViewPlugin::OnDestruct() {
+  // By default RenderViewObservers are destroyed along with the RenderView.
+  // WebViewPlugin has a custom destruction mechanism, so we disable this.
+}
+
+void WebViewPlugin::OnZoomLevelChanged() {
+  if (container_) {
+    web_view_->setZoomLevel(
+      blink::WebView::zoomFactorToZoomLevel(container_->pageZoomFactor()));
+  }
 }

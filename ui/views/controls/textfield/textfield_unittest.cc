@@ -27,7 +27,6 @@
 #include "ui/events/event_processor.h"
 #include "ui/events/event_utils.h"
 #include "ui/events/keycodes/keyboard_codes.h"
-#include "ui/events/test/event_generator.h"
 #include "ui/gfx/render_text.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/controls/textfield/textfield_controller.h"
@@ -52,6 +51,10 @@
 #include "ui/events/event_utils.h"
 #endif
 
+#if defined(OS_MACOSX) && !defined(USE_AURA)
+#include "ui/events/test/event_generator.h"
+#endif
+
 using base::ASCIIToUTF16;
 using base::UTF8ToUTF16;
 using base::WideToUTF16;
@@ -70,13 +73,12 @@ class MockInputMethod : public ui::InputMethodBase {
   // Overridden from InputMethod:
   bool OnUntranslatedIMEMessage(const base::NativeEvent& event,
                                 NativeEventResult* result) override;
-  bool DispatchKeyEvent(const ui::KeyEvent& key) override;
+  void DispatchKeyEvent(ui::KeyEvent* key) override;
   void OnTextInputTypeChanged(const ui::TextInputClient* client) override;
   void OnCaretBoundsChanged(const ui::TextInputClient* client) override {}
   void CancelComposition(const ui::TextInputClient* client) override;
   void OnInputLocaleChanged() override {}
   std::string GetInputLocale() override;
-  bool IsActive() override;
   bool IsCandidatePopupOpen() const override;
   void ShowImeIfNeeded() override {}
 
@@ -139,19 +141,21 @@ bool MockInputMethod::OnUntranslatedIMEMessage(const base::NativeEvent& event,
   return false;
 }
 
-bool MockInputMethod::DispatchKeyEvent(const ui::KeyEvent& key) {
+void MockInputMethod::DispatchKeyEvent(ui::KeyEvent* key) {
   // Checks whether the key event is from EventGenerator on Windows which will
   // generate key event for WM_CHAR.
   // The MockInputMethod will insert char on WM_KEYDOWN so ignore WM_CHAR here.
-  if (key.is_char() && key.HasNativeEvent())
-    return true;
+  if (key->is_char() && key->HasNativeEvent())
+    return;
 
   bool handled = !IsTextInputTypeNone() && HasComposition();
   ClearStates();
   if (handled) {
-    DCHECK(!key.is_char());
-    ui::KeyEvent mock_key(ui::ET_KEY_PRESSED, ui::VKEY_PROCESSKEY, key.flags());
-    DispatchKeyEventPostIME(mock_key);
+    DCHECK(!key->is_char());
+    ui::KeyEvent mock_key(ui::ET_KEY_PRESSED,
+                          ui::VKEY_PROCESSKEY,
+                          key->flags());
+    DispatchKeyEventPostIME(&mock_key);
   } else {
     DispatchKeyEventPostIME(key);
   }
@@ -165,15 +169,14 @@ bool MockInputMethod::DispatchKeyEvent(const ui::KeyEvent& key) {
         client->SetCompositionText(composition_);
       else
         client->ClearCompositionText();
-    } else if (key.type() == ui::ET_KEY_PRESSED) {
-      base::char16 ch = key.GetCharacter();
+    } else if (key->type() == ui::ET_KEY_PRESSED) {
+      base::char16 ch = key->GetCharacter();
       if (ch)
-        client->InsertChar(ch, key.flags());
+        client->InsertChar(*key);
     }
   }
 
   ClearComposition();
-  return true;
 }
 
 void MockInputMethod::OnTextInputTypeChanged(
@@ -192,10 +195,6 @@ void MockInputMethod::CancelComposition(const ui::TextInputClient* client) {
 
 std::string MockInputMethod::GetInputLocale() {
   return "en-US";
-}
-
-bool MockInputMethod::IsActive() {
-  return true;
 }
 
 bool MockInputMethod::IsCandidatePopupOpen() const {
@@ -273,8 +272,8 @@ class TestTextfield : public views::Textfield {
   }
 
   // ui::TextInputClient overrides:
-  void InsertChar(base::char16 ch, int flags) override {
-    views::Textfield::InsertChar(ch, flags);
+  void InsertChar(const ui::KeyEvent& e) override {
+    views::Textfield::InsertChar(e);
 #if defined(OS_MACOSX)
     // On Mac, characters are inserted directly rather than attempting to get a
     // unicode character from the ui::KeyEvent (which isn't always possible).
@@ -437,10 +436,11 @@ class TextfieldTest : public ViewsTestBase, public TextfieldController {
     // don't want parallel tests to steal active status either, so fake it.
 #if defined(OS_MACOSX) && !defined(USE_AURA)
     fake_activation_ = test::WidgetTest::FakeWidgetIsActiveAlways();
-#endif
 
+    // This is only used on Mac. See comment regarding |event_generator_| below.
     event_generator_.reset(
         new ui::test::EventGenerator(GetContext(), widget_->GetNativeWindow()));
+#endif
   }
 
   ui::MenuModel* GetContextMenuModel() {
@@ -457,7 +457,29 @@ class TextfieldTest : public ViewsTestBase, public TextfieldController {
 #endif
   }
 
+  bool TestingNativeCrOs() const {
+#if defined(OS_CHROMEOS)
+    return true;
+#else
+    return false;
+#endif  // defined(OS_CHROMEOS)
+  }
+
  protected:
+  void SendKeyPress(ui::KeyboardCode key_code, int flags) {
+#if defined(OS_MACOSX) && !defined(USE_AURA)
+    // The Mac EventGenerator hooks in before IME. It sends events first to an
+    // NSResponder, which is necessary to interpret keyboard events into
+    // appropriate editing commands.
+    event_generator_->PressKey(key_code, flags);
+#else
+    // TODO(shuchen): making EventGenerator support input method and using
+    // EventGenerator here. crbug.com/512315.
+    ui::KeyEvent event(ui::ET_KEY_PRESSED, key_code, flags);
+    input_method_->DispatchKeyEvent(&event);
+#endif
+  }
+
   void SendKeyEvent(ui::KeyboardCode key_code,
                     bool alt,
                     bool shift,
@@ -476,7 +498,7 @@ class TextfieldTest : public ViewsTestBase, public TextfieldController {
                 (command ? ui::EF_COMMAND_DOWN : 0) |
                 (caps_lock ? ui::EF_CAPS_LOCK_DOWN : 0);
 
-    event_generator_->PressKey(key_code, flags);
+    SendKeyPress(key_code, flags);
   }
 
   void SendKeyEvent(ui::KeyboardCode key_code,
@@ -499,7 +521,7 @@ class TextfieldTest : public ViewsTestBase, public TextfieldController {
       // For unicode characters, assume they come from IME rather than the
       // keyboard. So they are dispatched directly to the input method.
       ui::KeyEvent event(ch, ui::VKEY_UNKNOWN, ui::EF_NONE);
-      input_method_->DispatchKeyEvent(event);
+      input_method_->DispatchKeyEvent(&event);
     }
   }
 
@@ -647,7 +669,10 @@ class TextfieldTest : public ViewsTestBase, public TextfieldController {
  private:
   ui::ClipboardType copied_to_clipboard_;
   scoped_ptr<test::WidgetTest::FakeActivation> fake_activation_;
+
+#if defined(OS_MACOSX) && !defined(USE_AURA)
   scoped_ptr<ui::test::EventGenerator> event_generator_;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(TextfieldTest);
 };
@@ -692,6 +717,34 @@ TEST_F(TextfieldTest, KeyTest) {
     EXPECT_STR_EQ("TeXT!1!1", textfield_->text());
   else
     EXPECT_STR_EQ("TexT!1!1", textfield_->text());
+}
+
+TEST_F(TextfieldTest, KeysWithModifiersTest) {
+  InitTextfield();
+  const int ctrl = ui::EF_CONTROL_DOWN;
+  const int alt = ui::EF_ALT_DOWN;
+  const int command = ui::EF_COMMAND_DOWN;
+  const int altgr = ui::EF_ALTGR_DOWN;
+  const int shift = ui::EF_SHIFT_DOWN;
+
+  SendKeyPress(ui::VKEY_T, shift | alt | altgr);
+  SendKeyPress(ui::VKEY_H, alt);
+  SendKeyPress(ui::VKEY_E, altgr);
+  SendKeyPress(ui::VKEY_T, shift);
+  SendKeyPress(ui::VKEY_E, shift | altgr);
+  SendKeyPress(ui::VKEY_X, 0);
+  SendKeyPress(ui::VKEY_T, ctrl);
+  SendKeyPress(ui::VKEY_1, alt);
+  SendKeyPress(ui::VKEY_2, command);
+  SendKeyPress(ui::VKEY_3, 0);
+  SendKeyPress(ui::VKEY_4, 0);
+
+  if (TestingNativeCrOs())
+    EXPECT_STR_EQ("TeTEx34", textfield_->text());
+  else if (TestingNativeMac())
+    EXPECT_STR_EQ("TheTEx134", textfield_->text());
+  else
+    EXPECT_STR_EQ("TeTEx234", textfield_->text());
 }
 
 TEST_F(TextfieldTest, ControlAndSelectTest) {
@@ -1165,28 +1218,28 @@ TEST_F(TextfieldTest, DragAndDrop_AcceptDrop) {
   base::string16 string(ASCIIToUTF16("string "));
   data.SetString(string);
   int formats = 0;
-  std::set<OSExchangeData::CustomFormat> custom_formats;
+  std::set<ui::Clipboard::FormatType> format_types;
 
   // Ensure that disabled textfields do not accept drops.
   textfield_->SetEnabled(false);
-  EXPECT_FALSE(textfield_->GetDropFormats(&formats, &custom_formats));
+  EXPECT_FALSE(textfield_->GetDropFormats(&formats, &format_types));
   EXPECT_EQ(0, formats);
-  EXPECT_TRUE(custom_formats.empty());
+  EXPECT_TRUE(format_types.empty());
   EXPECT_FALSE(textfield_->CanDrop(data));
   textfield_->SetEnabled(true);
 
   // Ensure that read-only textfields do not accept drops.
   textfield_->SetReadOnly(true);
-  EXPECT_FALSE(textfield_->GetDropFormats(&formats, &custom_formats));
+  EXPECT_FALSE(textfield_->GetDropFormats(&formats, &format_types));
   EXPECT_EQ(0, formats);
-  EXPECT_TRUE(custom_formats.empty());
+  EXPECT_TRUE(format_types.empty());
   EXPECT_FALSE(textfield_->CanDrop(data));
   textfield_->SetReadOnly(false);
 
   // Ensure that enabled and editable textfields do accept drops.
-  EXPECT_TRUE(textfield_->GetDropFormats(&formats, &custom_formats));
+  EXPECT_TRUE(textfield_->GetDropFormats(&formats, &format_types));
   EXPECT_EQ(ui::OSExchangeData::STRING, formats);
-  EXPECT_TRUE(custom_formats.empty());
+  EXPECT_TRUE(format_types.empty());
   EXPECT_TRUE(textfield_->CanDrop(data));
   gfx::Point drop_point(GetCursorPositionX(6), 0);
   ui::DropTargetEvent drop(data, drop_point, drop_point,
@@ -1199,7 +1252,7 @@ TEST_F(TextfieldTest, DragAndDrop_AcceptDrop) {
   // Ensure that textfields do not accept non-OSExchangeData::STRING types.
   ui::OSExchangeData bad_data;
   bad_data.SetFilename(base::FilePath(FILE_PATH_LITERAL("x")));
-  ui::OSExchangeData::CustomFormat fmt = ui::Clipboard::GetBitmapFormatType();
+  ui::Clipboard::FormatType fmt = ui::Clipboard::GetBitmapFormatType();
   bad_data.SetPickledData(fmt, base::Pickle());
   bad_data.SetFileContents(base::FilePath(L"x"), "x");
   bad_data.SetHtml(base::string16(ASCIIToUTF16("x")), GURL("x.org"));
@@ -1264,7 +1317,7 @@ TEST_F(TextfieldTest, DragAndDrop_ToTheRight) {
   ui::OSExchangeData data;
   int formats = 0;
   int operations = 0;
-  std::set<OSExchangeData::CustomFormat> custom_formats;
+  std::set<ui::Clipboard::FormatType> format_types;
 
   // Start dragging "ello".
   textfield_->SelectRange(gfx::Range(1, 5));
@@ -1282,9 +1335,9 @@ TEST_F(TextfieldTest, DragAndDrop_ToTheRight) {
   textfield_->WriteDragDataForView(NULL, click_a.location(), &data);
   EXPECT_TRUE(data.GetString(&string));
   EXPECT_EQ(textfield_->GetSelectedText(), string);
-  EXPECT_TRUE(textfield_->GetDropFormats(&formats, &custom_formats));
+  EXPECT_TRUE(textfield_->GetDropFormats(&formats, &format_types));
   EXPECT_EQ(ui::OSExchangeData::STRING, formats);
-  EXPECT_TRUE(custom_formats.empty());
+  EXPECT_TRUE(format_types.empty());
 
   // Drop "ello" after "w".
   const gfx::Point kDropPoint(GetCursorPositionX(7), 0);
@@ -1318,7 +1371,7 @@ TEST_F(TextfieldTest, DragAndDrop_ToTheLeft) {
   ui::OSExchangeData data;
   int formats = 0;
   int operations = 0;
-  std::set<OSExchangeData::CustomFormat> custom_formats;
+  std::set<ui::Clipboard::FormatType> format_types;
 
   // Start dragging " worl".
   textfield_->SelectRange(gfx::Range(5, 10));
@@ -1336,9 +1389,9 @@ TEST_F(TextfieldTest, DragAndDrop_ToTheLeft) {
   textfield_->WriteDragDataForView(NULL, click_a.location(), &data);
   EXPECT_TRUE(data.GetString(&string));
   EXPECT_EQ(textfield_->GetSelectedText(), string);
-  EXPECT_TRUE(textfield_->GetDropFormats(&formats, &custom_formats));
+  EXPECT_TRUE(textfield_->GetDropFormats(&formats, &format_types));
   EXPECT_EQ(ui::OSExchangeData::STRING, formats);
-  EXPECT_TRUE(custom_formats.empty());
+  EXPECT_TRUE(format_types.empty());
 
   // Drop " worl" after "h".
   EXPECT_TRUE(textfield_->CanDrop(data));
@@ -2376,14 +2429,6 @@ TEST_F(TextfieldTest, DestroyingTextfieldFromOnKeyEvent) {
 }
 
 class TextfieldTouchSelectionTest : public TextfieldTest {
- public:
-  // TextfieldTest:
-  void SetUp() override {
-    TextfieldTest::SetUp();
-    base::CommandLine::ForCurrentProcess()->AppendSwitch(
-        switches::kEnableTouchEditing);
-  }
-
  protected:
   // Simulates a complete tap.
   void Tap(const gfx::Point& point) {

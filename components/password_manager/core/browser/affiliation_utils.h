@@ -52,7 +52,6 @@
 #include "base/logging.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
-#include "net/base/net_util.h"
 #include "url/third_party/mozilla/url_parse.h"
 
 namespace autofill {
@@ -205,6 +204,9 @@ bool IsAffiliationRequestsForDummyFacetsEnabled(
 // languages listed.
 std::string GetHumanReadableOrigin(const autofill::PasswordForm& password_form,
                                    const std::string& languages);
+
+// Returns the Android origin URI for presenting to a user.
+std::string GetHumanReadableOriginForAndroidUri(const FacetURI facet_uri);
 
 // For logging use only.
 std::ostream& operator<<(std::ostream& os, const FacetURI& facet_uri);

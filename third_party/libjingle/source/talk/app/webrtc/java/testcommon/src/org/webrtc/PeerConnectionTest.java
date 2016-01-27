@@ -38,6 +38,7 @@ import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.IdentityHashMap;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 import java.util.concurrent.CountDownLatch;
@@ -49,6 +50,7 @@ import static junit.framework.Assert.*;
 public class PeerConnectionTest {
   // Set to true to render video.
   private static final boolean RENDER_TO_GUI = false;
+  private static final int TIMEOUT_SECONDS = 20;
   private TreeSet<String> threadsBeforeTest = null;
 
   private static class ObserverExpectations implements PeerConnection.Observer,
@@ -72,7 +74,7 @@ public class PeerConnectionTest {
         new LinkedList<String>();
     private LinkedList<String> expectedRemoveStreamLabels =
         new LinkedList<String>();
-    public LinkedList<IceCandidate> gotIceCandidates =
+    private final LinkedList<IceCandidate> gotIceCandidates =
         new LinkedList<IceCandidate>();
     private Map<MediaStream, WeakReference<VideoRenderer>> renderers =
         new IdentityHashMap<MediaStream, WeakReference<VideoRenderer>>();
@@ -109,7 +111,10 @@ public class PeerConnectionTest {
       // We don't assert expectedIceCandidates >= 0 because it's hard to know
       // how many to expect, in general.  We only use expectIceCandidates to
       // assert a minimal count.
-      gotIceCandidates.add(candidate);
+      synchronized (gotIceCandidates) {
+        gotIceCandidates.add(candidate);
+        gotIceCandidates.notifyAll();
+      }
     }
 
     private synchronized void setSize(int width, int height) {
@@ -134,14 +139,9 @@ public class PeerConnectionTest {
 
     @Override
     public synchronized void renderFrame(VideoRenderer.I420Frame frame) {
-      setSize(frame.width, frame.height);
+      setSize(frame.rotatedWidth(), frame.rotatedHeight());
       --expectedFramesDelivered;
-    }
-
-    // TODO(guoweis): Remove this once chrome code base is updated.
-    @Override
-    public boolean canApplyRotation() {
-      return false;
+      VideoRenderer.renderFrameDone(frame);
     }
 
     public synchronized void expectSignalingChange(SignalingState newState) {
@@ -348,7 +348,7 @@ public class PeerConnectionTest {
       return stillWaitingForExpectations;
     }
 
-    public void waitForAllExpectationsToBeSatisfied() {
+    public boolean waitForAllExpectationsToBeSatisfied(int timeoutSeconds) {
       // TODO(fischman): problems with this approach:
       // - come up with something better than a poll loop
       // - avoid serializing expectations explicitly; the test is not as robust
@@ -358,6 +358,7 @@ public class PeerConnectionTest {
       //   stall a wait).  Use callbacks to fire off dependent steps instead of
       //   explicitly waiting, so there can be just a single wait at the end of
       //   the test.
+      long endTime = System.currentTimeMillis() + 1000 * timeoutSeconds;
       TreeSet<String> prev = null;
       TreeSet<String> stillWaitingForExpectations = unsatisfiedExpectations();
       while (!stillWaitingForExpectations.isEmpty()) {
@@ -367,6 +368,11 @@ public class PeerConnectionTest {
               (new Throwable()).getStackTrace()[1] +
               "\n    for: " +
               Arrays.toString(stillWaitingForExpectations.toArray()));
+        }
+        if (endTime < System.currentTimeMillis()) {
+          System.out.println(name + " timed out waiting for: "
+              + Arrays.toString(stillWaitingForExpectations.toArray()));
+          return false;
         }
         try {
           Thread.sleep(10);
@@ -379,6 +385,18 @@ public class PeerConnectionTest {
       if (prev == null) {
         System.out.println(name + " didn't need to wait at\n    " +
                            (new Throwable()).getStackTrace()[1]);
+      }
+      return true;
+    }
+
+    // This methods return a list of all currently gathered ice candidates or waits until
+    // 1 candidate have been gathered.
+    public List<IceCandidate> getAtLeastOneIceCandidate() throws InterruptedException {
+      synchronized (gotIceCandidates) {
+        while (gotIceCandidates.isEmpty()) {
+          gotIceCandidates.wait();
+        }
+        return new LinkedList<IceCandidate>(gotIceCandidates);
       }
     }
   }
@@ -437,30 +455,6 @@ public class PeerConnectionTest {
   }
 
   static int videoWindowsMapped = -1;
-
-  private static class TestRenderer implements VideoRenderer.Callbacks {
-    public int width = -1;
-    public int height = -1;
-    public int numFramesDelivered = 0;
-
-    private void setSize(int width, int height) {
-      assertEquals(this.width, -1);
-      assertEquals(this.height, -1);
-      this.width = width;
-      this.height = height;
-    }
-
-    @Override
-    public void renderFrame(VideoRenderer.I420Frame frame) {
-      ++numFramesDelivered;
-    }
-
-    // TODO(guoweis): Remove this once chrome code base is updated.
-    @Override
-    public boolean canApplyRotation() {
-      return false;
-    }
-  }
 
   private static VideoRenderer createVideoRenderer(
       VideoRenderer.Callbacks videoCallbacks) {
@@ -651,6 +645,11 @@ public class PeerConnectionTest {
     assertEquals(answeringPC.getLocalDescription().type, answerSdp.type);
     assertEquals(answeringPC.getRemoteDescription().type, offerSdp.type);
 
+    assertEquals(offeringPC.getSenders().size(), 2);
+    assertEquals(offeringPC.getReceivers().size(), 2);
+    assertEquals(answeringPC.getSenders().size(), 2);
+    assertEquals(answeringPC.getReceivers().size(), 2);
+
     if (!RENDER_TO_GUI) {
       // Wait for at least some frames to be delivered at each end (number
       // chosen arbitrarily).
@@ -663,17 +662,20 @@ public class PeerConnectionTest {
     answeringExpectations.expectDataChannel("offeringDC");
     answeringExpectations.expectStateChange(DataChannel.State.OPEN);
 
-    for (IceCandidate candidate : offeringExpectations.gotIceCandidates) {
+    // Wait for at least one ice candidate from the offering PC and forward them to the answering
+    // PC.
+    for (IceCandidate candidate : offeringExpectations.getAtLeastOneIceCandidate()) {
       answeringPC.addIceCandidate(candidate);
     }
-    offeringExpectations.gotIceCandidates.clear();
-    for (IceCandidate candidate : answeringExpectations.gotIceCandidates) {
+
+    // Wait for at least one ice candidate from the answering PC and forward them to the offering
+    // PC.
+    for (IceCandidate candidate : answeringExpectations.getAtLeastOneIceCandidate()) {
       offeringPC.addIceCandidate(candidate);
     }
-    answeringExpectations.gotIceCandidates.clear();
 
-    offeringExpectations.waitForAllExpectationsToBeSatisfied();
-    answeringExpectations.waitForAllExpectationsToBeSatisfied();
+    assertTrue(offeringExpectations.waitForAllExpectationsToBeSatisfied(TIMEOUT_SECONDS));
+    assertTrue(answeringExpectations.waitForAllExpectationsToBeSatisfied(TIMEOUT_SECONDS));
 
     assertEquals(
         PeerConnection.SignalingState.STABLE, offeringPC.signalingState());
@@ -686,7 +688,7 @@ public class PeerConnectionTest {
     DataChannel.Buffer buffer = new DataChannel.Buffer(
         ByteBuffer.wrap("hello!".getBytes(Charset.forName("UTF-8"))), false);
     assertTrue(offeringExpectations.dataChannel.send(buffer));
-    answeringExpectations.waitForAllExpectationsToBeSatisfied();
+    assertTrue(answeringExpectations.waitForAllExpectationsToBeSatisfied(TIMEOUT_SECONDS));
 
     // Construct this binary message two different ways to ensure no
     // shortcuts are taken.
@@ -699,7 +701,7 @@ public class PeerConnectionTest {
     assertTrue(answeringExpectations.dataChannel.send(
         new DataChannel.Buffer(
             ByteBuffer.wrap(new byte[] { 1, 2, 3, 4, 5 }), true)));
-    offeringExpectations.waitForAllExpectationsToBeSatisfied();
+    assertTrue(offeringExpectations.waitForAllExpectationsToBeSatisfied(TIMEOUT_SECONDS));
 
     offeringExpectations.expectStateChange(DataChannel.State.CLOSING);
     answeringExpectations.expectStateChange(DataChannel.State.CLOSING);
@@ -745,14 +747,14 @@ public class PeerConnectionTest {
     expectations.dataChannel.dispose();
     expectations.expectStatsCallback();
     assertTrue(pc.getStats(expectations, null));
-    expectations.waitForAllExpectationsToBeSatisfied();
+    assertTrue(expectations.waitForAllExpectationsToBeSatisfied(TIMEOUT_SECONDS));
     expectations.expectIceConnectionChange(IceConnectionState.CLOSED);
     expectations.expectSignalingChange(SignalingState.CLOSED);
     pc.close();
-    expectations.waitForAllExpectationsToBeSatisfied();
+    assertTrue(expectations.waitForAllExpectationsToBeSatisfied(TIMEOUT_SECONDS));
     expectations.expectStatsCallback();
     assertTrue(pc.getStats(expectations, null));
-    expectations.waitForAllExpectationsToBeSatisfied();
+    assertTrue(expectations.waitForAllExpectationsToBeSatisfied(TIMEOUT_SECONDS));
 
     System.out.println("FYI stats: ");
     int reportIndex = -1;

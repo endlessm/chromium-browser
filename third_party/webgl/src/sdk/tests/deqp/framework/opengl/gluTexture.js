@@ -38,6 +38,15 @@ var DE_ASSERT = function(x) {
         throw new Error('Assert failed');
 };
 
+/** @enum {number} */
+gluTexture.Type = {
+    TYPE_NONE: 0,
+    TYPE_2D: 1,
+    TYPE_CUBE_MAP: 2,
+    TYPE_2D_ARRAY: 3,
+    TYPE_3D: 4
+};
+
 /**
  * @constructor
  */
@@ -47,6 +56,11 @@ gluTexture.Texture2D = function(gl, format, isCompressed, refTexture) {
     this.m_isCompressed = isCompressed;
     this.m_format = format; // Internal format
     this.m_refTexture = refTexture;
+    this.m_type = gluTexture.Type.TYPE_2D;
+};
+
+gluTexture.Texture2D.prototype.getType = function() {
+    return this.m_type;
 };
 
 gluTexture.Texture2D.prototype.getRefTexture = function() {
@@ -147,7 +161,7 @@ gluTexture.Texture2D.prototype.upload = function() {
         DE_ASSERT(access.getRowPitch() == access.getFormat().getPixelSize() * access.getWidth());
         var data = access.getDataPtr();
         // console.log(data);
-        // console.log('Level ' + levelNdx + ' format ' + this.m_format.toString(16) + ' transfer Format ' + transferFormat.format.toString(16) + ' datatype ' + transferFormat.dataType.toString(16));
+        //debug('Level ' + levelNdx + ' format ' + wtu.glEnumToString(gl, this.m_format) + ' transfer Format ' + wtu.glEnumToString(gl, transferFormat.format) + ' datatype ' + wtu.glEnumToString(gl, transferFormat.dataType));
         gl.texImage2D(gl.TEXTURE_2D, levelNdx, this.m_format, access.getWidth(), access.getHeight(), 0 /* border */, transferFormat.format, transferFormat.dataType, access.getDataPtr());
     }
 
@@ -160,6 +174,7 @@ gluTexture.Texture2D.prototype.upload = function() {
  */
 gluTexture.TextureCube = function(gl, format, isCompressed, refTexture) {
     gluTexture.Texture2D.call(this, gl, format, isCompressed, refTexture);
+    this.m_type = gluTexture.Type.TYPE_CUBE_MAP;
 };
 
 gluTexture.TextureCube.prototype = Object.create(gluTexture.Texture2D.prototype);
@@ -207,6 +222,7 @@ gluTexture.cubeFromInternalFormat = function(gl, internalFormat, size) {
  */
 gluTexture.Texture2DArray = function(gl, format, isCompressed, refTexture) {
     gluTexture.Texture2D.call(this, gl, format, isCompressed, refTexture);
+    this.m_type = gluTexture.Type.TYPE_2D_ARRAY;
 };
 
 gluTexture.Texture2DArray.prototype = Object.create(gluTexture.Texture2D.prototype);
@@ -251,6 +267,7 @@ gluTexture.texture2DArrayFromInternalFormat = function(gl, internalFormat, width
  */
 gluTexture.Texture3D = function(gl, format, isCompressed, refTexture) {
     gluTexture.Texture2D.call(this, gl, format, isCompressed, refTexture);
+    this.m_type = gluTexture.Type.TYPE_3D;
 };
 
 gluTexture.Texture3D.prototype = Object.create(gluTexture.Texture2D.prototype);

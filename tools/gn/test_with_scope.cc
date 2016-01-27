@@ -12,7 +12,8 @@ TestWithScope::TestWithScope()
     : build_settings_(),
       settings_(&build_settings_, std::string()),
       toolchain_(&settings_, Label(SourceDir("//toolchain/"), "default")),
-      scope_(&settings_) {
+      scope_(&settings_),
+      scope_progammatic_provider_(&scope_, true) {
   build_settings_.SetBuildDir(SourceDir("//out/Debug/"));
   build_settings_.set_print_callback(
       base::Bind(&TestWithScope::AppendPrintOutput, base::Unretained(this)));
@@ -97,6 +98,16 @@ void TestWithScope::SetupToolchain(Toolchain* toolchain) {
   solink_tool->set_outputs(SubstitutionList::MakeForTest(
       "{{root_out_dir}}/{{target_output_name}}{{output_extension}}"));
   toolchain->SetTool(Toolchain::TYPE_SOLINK, solink_tool.Pass());
+
+  // SOLINK_MODULE
+  scoped_ptr<Tool> solink_module_tool(new Tool);
+  SetCommandForTool("ld -bundle -o {{target_output_name}}.so {{inputs}} "
+      "{{ldflags}} {{libs}}", solink_module_tool.get());
+  solink_module_tool->set_output_prefix("lib");
+  solink_module_tool->set_default_output_extension(".so");
+  solink_module_tool->set_outputs(SubstitutionList::MakeForTest(
+      "{{root_out_dir}}/{{target_output_name}}{{output_extension}}"));
+  toolchain->SetTool(Toolchain::TYPE_SOLINK_MODULE, solink_module_tool.Pass());
 
   // LINK
   scoped_ptr<Tool> link_tool(new Tool);

@@ -89,7 +89,7 @@ void VCMEncodedFrame::Reset()
     _renderTimeMs = -1;
     _timeStamp = 0;
     _payloadType = 0;
-    _frameType = kDeltaFrame;
+    _frameType = kVideoFrameDelta;
     _encodedWidth = 0;
     _encodedHeight = 0;
     _completeFrame = false;
@@ -132,6 +132,73 @@ void VCMEncodedFrame::CopyCodecSpecific(const RTPVideoHeader* header)
         }
         break;
       }
+      case kRtpVideoVp9: {
+        if (_codecSpecificInfo.codecType != kVideoCodecVP9) {
+          // This is the first packet for this frame.
+          _codecSpecificInfo.codecSpecific.VP9.picture_id = -1;
+          _codecSpecificInfo.codecSpecific.VP9.temporal_idx = 0;
+          _codecSpecificInfo.codecSpecific.VP9.spatial_idx = 0;
+          _codecSpecificInfo.codecSpecific.VP9.gof_idx = 0;
+          _codecSpecificInfo.codecSpecific.VP9.inter_layer_predicted = false;
+          _codecSpecificInfo.codecSpecific.VP9.tl0_pic_idx = -1;
+          _codecSpecificInfo.codecType = kVideoCodecVP9;
+        }
+        _codecSpecificInfo.codecSpecific.VP9.inter_pic_predicted =
+            header->codecHeader.VP9.inter_pic_predicted;
+        _codecSpecificInfo.codecSpecific.VP9.flexible_mode =
+            header->codecHeader.VP9.flexible_mode;
+        _codecSpecificInfo.codecSpecific.VP9.num_ref_pics =
+            header->codecHeader.VP9.num_ref_pics;
+        for (uint8_t r = 0; r < header->codecHeader.VP9.num_ref_pics; ++r) {
+          _codecSpecificInfo.codecSpecific.VP9.p_diff[r] =
+              header->codecHeader.VP9.pid_diff[r];
+        }
+        _codecSpecificInfo.codecSpecific.VP9.ss_data_available =
+            header->codecHeader.VP9.ss_data_available;
+        if (header->codecHeader.VP9.picture_id != kNoPictureId) {
+          _codecSpecificInfo.codecSpecific.VP9.picture_id =
+              header->codecHeader.VP9.picture_id;
+        }
+        if (header->codecHeader.VP9.tl0_pic_idx != kNoTl0PicIdx) {
+          _codecSpecificInfo.codecSpecific.VP9.tl0_pic_idx =
+              header->codecHeader.VP9.tl0_pic_idx;
+        }
+        if (header->codecHeader.VP9.temporal_idx != kNoTemporalIdx) {
+          _codecSpecificInfo.codecSpecific.VP9.temporal_idx =
+              header->codecHeader.VP9.temporal_idx;
+          _codecSpecificInfo.codecSpecific.VP9.temporal_up_switch =
+              header->codecHeader.VP9.temporal_up_switch;
+        }
+        if (header->codecHeader.VP9.spatial_idx != kNoSpatialIdx) {
+          _codecSpecificInfo.codecSpecific.VP9.spatial_idx =
+              header->codecHeader.VP9.spatial_idx;
+          _codecSpecificInfo.codecSpecific.VP9.inter_layer_predicted =
+              header->codecHeader.VP9.inter_layer_predicted;
+        }
+        if (header->codecHeader.VP9.gof_idx != kNoGofIdx) {
+          _codecSpecificInfo.codecSpecific.VP9.gof_idx =
+              header->codecHeader.VP9.gof_idx;
+        }
+        if (header->codecHeader.VP9.ss_data_available) {
+          _codecSpecificInfo.codecSpecific.VP9.num_spatial_layers =
+              header->codecHeader.VP9.num_spatial_layers;
+          _codecSpecificInfo.codecSpecific.VP9
+              .spatial_layer_resolution_present =
+              header->codecHeader.VP9.spatial_layer_resolution_present;
+          if (header->codecHeader.VP9.spatial_layer_resolution_present) {
+            for (size_t i = 0; i < header->codecHeader.VP9.num_spatial_layers;
+                 ++i) {
+              _codecSpecificInfo.codecSpecific.VP9.width[i] =
+                  header->codecHeader.VP9.width[i];
+              _codecSpecificInfo.codecSpecific.VP9.height[i] =
+                  header->codecHeader.VP9.height[i];
+            }
+          }
+          _codecSpecificInfo.codecSpecific.VP9.gof.CopyGofInfoVP9(
+              header->codecHeader.VP9.gof);
+        }
+        break;
+      }
       case kRtpVideoH264: {
         _codecSpecificInfo.codecType = kVideoCodecH264;
         break;
@@ -165,40 +232,4 @@ void VCMEncodedFrame::VerifyAndAllocate(size_t minimumSize)
     }
 }
 
-webrtc::FrameType VCMEncodedFrame::ConvertFrameType(VideoFrameType frameType)
-{
-  switch(frameType) {
-    case kKeyFrame:
-      return  kVideoFrameKey;
-    case kDeltaFrame:
-      return kVideoFrameDelta;
-    case kSkipFrame:
-      return kFrameEmpty;
-    default:
-      return kVideoFrameDelta;
-  }
-}
-
-VideoFrameType VCMEncodedFrame::ConvertFrameType(webrtc::FrameType frame_type) {
-  switch (frame_type) {
-    case kVideoFrameKey:
-      return kKeyFrame;
-    case kVideoFrameDelta:
-      return kDeltaFrame;
-    default:
-      assert(false);
-      return kDeltaFrame;
-  }
-}
-
-void VCMEncodedFrame::ConvertFrameTypes(
-    const std::vector<webrtc::FrameType>& frame_types,
-    std::vector<VideoFrameType>* video_frame_types) {
-  assert(video_frame_types);
-  video_frame_types->reserve(frame_types.size());
-  for (size_t i = 0; i < frame_types.size(); ++i) {
-    (*video_frame_types)[i] = ConvertFrameType(frame_types[i]);
-  }
-}
-
-}
+}  // namespace webrtc

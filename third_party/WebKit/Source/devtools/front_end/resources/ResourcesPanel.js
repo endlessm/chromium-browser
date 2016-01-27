@@ -98,19 +98,6 @@ WebInspector.ResourcesPanel = function()
     this.panelSidebarElement().addEventListener("mousemove", this._onmousemove.bind(this), false);
     this.panelSidebarElement().addEventListener("mouseleave", this._onmouseleave.bind(this), false);
 
-    /**
-     * @this {WebInspector.ResourcesPanel}
-     * @return {?WebInspector.SourceFrame}
-     */
-    function sourceFrameGetter()
-    {
-        var view = this.visibleView;
-        if (view && view instanceof WebInspector.SourceFrame)
-            return /** @type {!WebInspector.SourceFrame} */ (view);
-        return null;
-    }
-    WebInspector.GoToLineDialog.install(this, sourceFrameGetter.bind(this));
-
     WebInspector.targetManager.observeTargets(this);
 }
 
@@ -125,7 +112,7 @@ WebInspector.ResourcesPanel.prototype = {
             return;
         this._target = target;
 
-        if (target.serviceWorkerManager && Runtime.experiments.isEnabled("serviceWorkersInResources")) {
+        if (target.serviceWorkerManager) {
             this.serviceWorkersTreeElement = new WebInspector.ServiceWorkersTreeElement(this);
             this._sidebarTree.appendChild(this.serviceWorkersTreeElement);
         }
@@ -866,7 +853,7 @@ WebInspector.BaseStorageTreeElement.prototype = {
                 this.listItemElement.classList.add(this._iconClasses[i]);
         }
 
-        this.listItemElement.createChild("div", "selection");
+        this.listItemElement.createChild("div", "selection fill");
 
         if (!this._noIcon)
             this.imageElement = this.listItemElement.createChild("img", "icon");
@@ -1105,7 +1092,7 @@ WebInspector.FrameTreeElement.prototype = {
         var categoryName = resourceType.name();
         var categoryElement = resourceType === WebInspector.resourceTypes.Document ? this : this._categoryElements[categoryName];
         if (!categoryElement) {
-            categoryElement = new WebInspector.StorageCategoryTreeElement(this._storagePanel, resource.resourceType().categoryTitle(), categoryName, null, true);
+            categoryElement = new WebInspector.StorageCategoryTreeElement(this._storagePanel, resource.resourceType().category().title, categoryName, null, true);
             this._categoryElements[resourceType.name()] = categoryElement;
             this._insertInPresentationOrder(this, categoryElement);
         }
@@ -1182,8 +1169,6 @@ WebInspector.FrameResourceTreeElement = function(storagePanel, resource)
     WebInspector.BaseStorageTreeElement.call(this, storagePanel, resource.displayName, ["resource-sidebar-tree-item", "resources-type-" + resource.resourceType().name()]);
     /** @type {!WebInspector.Resource} */
     this._resource = resource;
-    this._resource.addEventListener(WebInspector.Resource.Events.MessageAdded, this._consoleMessageAdded, this);
-    this._resource.addEventListener(WebInspector.Resource.Events.MessagesCleared, this._consoleMessagesCleared, this);
     this.tooltip = resource.url;
     this._resource[WebInspector.FrameResourceTreeElement._symbol] = this;
 }
@@ -1237,8 +1222,6 @@ WebInspector.FrameResourceTreeElement.prototype = {
         this.listItemElement.draggable = true;
         this.listItemElement.addEventListener("dragstart", this._ondragstart.bind(this), false);
         this.listItemElement.addEventListener("contextmenu", this._handleContextMenuEvent.bind(this), true);
-
-        this._updateErrorsAndWarningsBubbles();
     },
 
     /**
@@ -1260,59 +1243,6 @@ WebInspector.FrameResourceTreeElement.prototype = {
     },
 
     /**
-     * @param {string} x
-     */
-    _setBubbleText: function(x)
-    {
-        if (!this._bubbleElement)
-            this._bubbleElement = this._statusElement.createChild("div", "bubble-repeat-count");
-        this._bubbleElement.textContent = x;
-    },
-
-    _resetBubble: function()
-    {
-        if (this._bubbleElement) {
-            this._bubbleElement.textContent = "";
-            this._bubbleElement.classList.remove("warning");
-            this._bubbleElement.classList.remove("error");
-        }
-    },
-
-    _updateErrorsAndWarningsBubbles: function()
-    {
-        if (this._storagePanel.currentQuery)
-            return;
-
-        this._resetBubble();
-
-        if (this._resource.warnings || this._resource.errors)
-            this._setBubbleText(String(this._resource.warnings + this._resource.errors));
-
-        if (this._resource.warnings)
-            this._bubbleElement.classList.add("warning");
-
-        if (this._resource.errors)
-            this._bubbleElement.classList.add("error");
-    },
-
-    _consoleMessagesCleared: function()
-    {
-        // FIXME: move to the SourceFrame.
-        if (this._sourceView)
-            this._sourceView.clearMessages();
-
-        this._updateErrorsAndWarningsBubbles();
-    },
-
-    _consoleMessageAdded: function(event)
-    {
-        var msg = event.data;
-        if (this._sourceView)
-            this._sourceView.addMessage(msg);
-        this._updateErrorsAndWarningsBubbles();
-    },
-
-    /**
      * @return {!WebInspector.ResourceSourceFrame}
      */
     sourceView: function()
@@ -1321,10 +1251,6 @@ WebInspector.FrameResourceTreeElement.prototype = {
             var sourceFrame = new WebInspector.ResourceSourceFrame(this._resource);
             sourceFrame.setHighlighterType(this._resource.canonicalMimeType());
             this._sourceView = sourceFrame;
-            if (this._resource.messages) {
-                for (var i = 0; i < this._resource.messages.length; i++)
-                    this._sourceView.addPersistentMessage(this._resource.messages[i]);
-            }
         }
         return this._sourceView;
     },

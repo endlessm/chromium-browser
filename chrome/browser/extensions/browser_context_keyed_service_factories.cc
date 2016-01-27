@@ -7,6 +7,7 @@
 #include "chrome/browser/extensions/activity_log/activity_log.h"
 #include "chrome/browser/extensions/api/activity_log_private/activity_log_private_api.h"
 #include "chrome/browser/extensions/api/autofill_private/autofill_private_event_router_factory.h"
+#include "chrome/browser/extensions/api/bluetooth_low_energy/bluetooth_low_energy_api.h"
 #include "chrome/browser/extensions/api/bookmark_manager_private/bookmark_manager_private_api.h"
 #include "chrome/browser/extensions/api/bookmarks/bookmarks_api.h"
 #include "chrome/browser/extensions/api/braille_display_private/braille_display_private_api.h"
@@ -23,6 +24,7 @@
 #include "chrome/browser/extensions/api/history/history_api.h"
 #include "chrome/browser/extensions/api/hotword_private/hotword_private_api.h"
 #include "chrome/browser/extensions/api/identity/identity_api.h"
+#include "chrome/browser/extensions/api/language_settings_private/language_settings_private_delegate_factory.h"
 #include "chrome/browser/extensions/api/location/location_manager.h"
 #include "chrome/browser/extensions/api/mdns/mdns_api.h"
 #include "chrome/browser/extensions/api/omnibox/omnibox_api.h"
@@ -46,7 +48,6 @@
 #include "chrome/browser/extensions/extension_gcm_app_handler.h"
 #include "chrome/browser/extensions/extension_storage_monitor_factory.h"
 #include "chrome/browser/extensions/extension_system_factory.h"
-#include "chrome/browser/extensions/extension_toolbar_model_factory.h"
 #include "chrome/browser/extensions/extension_web_ui_override_registrar.h"
 #include "chrome/browser/extensions/install_tracker_factory.h"
 #include "chrome/browser/extensions/install_verifier_factory.h"
@@ -55,6 +56,7 @@
 #include "chrome/browser/extensions/token_cache/token_cache_service_factory.h"
 #include "chrome/browser/extensions/warning_badge_service_factory.h"
 #include "chrome/browser/speech/extension_api/tts_extension_api.h"
+#include "chrome/browser/ui/toolbar/toolbar_actions_model_factory.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/extensions/file_manager/event_router_factory.h"
@@ -74,6 +76,7 @@ void EnsureBrowserContextKeyedServiceFactoriesBuilt() {
   extensions::ActivityLog::GetFactoryInstance();
   extensions::ActivityLogAPI::GetFactoryInstance();
   extensions::AutofillPrivateEventRouterFactory::GetInstance();
+  extensions::BluetoothLowEnergyAPI::GetFactoryInstance();
   extensions::BookmarksAPI::GetFactoryInstance();
   extensions::BookmarkManagerPrivateAPI::GetFactoryInstance();
   extensions::BrailleDisplayPrivateAPI::GetFactoryInstance();
@@ -88,7 +91,6 @@ void EnsureBrowserContextKeyedServiceFactoriesBuilt() {
   extensions::ExtensionGarbageCollectorFactory::GetInstance();
   extensions::ExtensionStorageMonitorFactory::GetInstance();
   extensions::ExtensionSystemFactory::GetInstance();
-  extensions::ExtensionToolbarModelFactory::GetInstance();
   extensions::ExtensionWebUIOverrideRegistrar::GetFactoryInstance();
   extensions::FeedbackPrivateAPI::GetFactoryInstance();
   extensions::FontSettingsAPI::GetFactoryInstance();
@@ -102,6 +104,7 @@ void EnsureBrowserContextKeyedServiceFactoriesBuilt() {
   extensions::InputImeAPI::GetFactoryInstance();
   extensions::InputMethodAPI::GetFactoryInstance();
 #endif
+  extensions::LanguageSettingsPrivateDelegateFactory::GetInstance();
   extensions::LocationManager::GetFactoryInstance();
 #if defined(OS_CHROMEOS)
   extensions::LogPrivateAPI::GetFactoryInstance();
@@ -139,6 +142,7 @@ void EnsureBrowserContextKeyedServiceFactoriesBuilt() {
   file_manager::EventRouterFactory::GetInstance();
 #endif
   TokenCacheServiceFactory::GetInstance();
+  ToolbarActionsModelFactory::GetInstance();
   extensions::ExtensionGCMAppHandler::GetFactoryInstance();
 }
 

@@ -31,7 +31,10 @@
 #include "platform/network/ResourceLoadPriority.h"
 #include "platform/network/ResourceRequest.h"
 #include "platform/network/ResourceResponse.h"
+#include "platform/scheduler/CancellableTaskFactory.h"
 #include "public/platform/WebDataConsumerHandle.h"
+#include "public/platform/WebMemoryDumpProvider.h"
+#include "wtf/Allocator.h"
 #include "wtf/HashCountedSet.h"
 #include "wtf/HashSet.h"
 #include "wtf/OwnPtr.h"
@@ -44,6 +47,7 @@ namespace blink {
 
 struct FetchInitiatorInfo;
 class CachedMetadata;
+class FetchRequest;
 class ResourceClient;
 class ResourcePtrBase;
 class ResourceFetcher;
@@ -57,7 +61,7 @@ class SharedBuffer;
 // from ResourceClient, to get the function calls in case the requested data has arrived.
 // This class also does the actual communication with the loader to obtain the resource from the network.
 class CORE_EXPORT Resource : public NoBaseWillBeGarbageCollectedFinalized<Resource> {
-    WTF_MAKE_NONCOPYABLE(Resource); WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(Resource);
+    WTF_MAKE_NONCOPYABLE(Resource); USING_FAST_MALLOC_WILL_BE_REMOVED(Resource);
     friend class InspectorResource;
 
 public:
@@ -109,6 +113,9 @@ public:
 
     void setNeedsSynchronousCacheHit(bool needsSynchronousCacheHit) { m_needsSynchronousCacheHit = needsSynchronousCacheHit; }
 
+    void setAvoidBlockingOnLoad(bool doNotBlock) { m_avoidBlockingOnLoad = doNotBlock; }
+    bool avoidBlockingOnLoad() { return m_avoidBlockingOnLoad; }
+
     void setResourceError(const ResourceError& error) { m_error = error; }
     const ResourceError& resourceError() const { return m_error; }
 
@@ -121,16 +128,19 @@ public:
     const ResourceRequest& resourceRequest() const { return m_resourceRequest; }
     const ResourceRequest& lastResourceRequest() const;
 
+    void setRevalidatingRequest(const ResourceRequest& request) { m_revalidatingRequest = request; }
+
     const KURL& url() const { return m_resourceRequest.url();}
     Type type() const { return static_cast<Type>(m_type); }
     const ResourceLoaderOptions& options() const { return m_options; }
     void setOptions(const ResourceLoaderOptions& options) { m_options = options; }
 
     void didChangePriority(ResourceLoadPriority, int intraPriorityValue);
+    ResourcePriority priorityFromClients();
 
     void addClient(ResourceClient*);
     void removeClient(ResourceClient*);
-    bool hasClients() const { return !m_clients.isEmpty() || !m_clientsAwaitingCallback.isEmpty(); }
+    bool hasClients() const { return !m_clients.isEmpty() || !m_clientsAwaitingCallback.isEmpty() || !m_finishedClients.isEmpty(); }
     bool deleteIfPossible();
 
     enum PreloadResult {
@@ -164,14 +174,8 @@ public:
     ResourceLoader* loader() const { return m_loader.get(); }
 
     virtual bool isImage() const { return false; }
-    bool shouldBlockLoadEvent() const
-    {
-        return type() != LinkPrefetch
-            && type() != LinkSubresource
-            && type() != Media
-            && type() != Raw
-            && type() != TextTrack;
-    }
+    bool shouldBlockLoadEvent() const;
+    bool isNonBlockingResourceType() const;
 
     // Computes the status of an object after loading.
     // Updates the expire date on the cache entry file
@@ -206,6 +210,7 @@ public:
 
     bool hasOneHandle() const;
     bool canDelete() const;
+    String reasonNotDeletable() const;
 
     // List of acceptable MIME types separated by ",".
     // A MIME type may contain a wildcard, e.g. "text/*".
@@ -230,10 +235,10 @@ public:
     bool canReuseRedirectChain();
     bool mustRevalidateDueToCacheHeaders();
     bool canUseCacheValidator();
-    bool isCacheValidator() const { return m_resourceToRevalidate; }
-    Resource* resourceToRevalidate() const { return m_resourceToRevalidate; }
-    void setResourceToRevalidate(Resource*);
+    bool isCacheValidator() const { return !m_revalidatingRequest.isNull(); }
     bool hasCacheControlNoStoreHeader();
+    bool hasVaryHeader() const;
+    virtual bool mustRefetchDueToIntegrityMetadata(const FetchRequest& request) const { return false; }
 
     double currentAge() const;
     double freshnessLifetime();
@@ -256,6 +261,8 @@ public:
     // Used by the MemoryCache to reduce the memory consumption of the entry.
     void prune();
 
+    virtual void onMemoryDump(WebMemoryDumpLevelOfDetail, WebProcessMemoryDump*) const;
+
     static const char* resourceTypeToString(Type, const FetchInitiatorInfo&);
 
 #ifdef ENABLE_RESOURCE_IS_DELETED_CHECK
@@ -268,6 +275,8 @@ protected:
     virtual void checkNotify();
     virtual void finishOnePart();
 
+    virtual void destroyDecodedDataForFailedRevalidation() { }
+
     // Normal resource pointers will silently switch what Resource* they reference when we
     // successfully revalidated the resource. We need a way to guarantee that the Resource
     // that received the 304 response survives long enough to switch everything over to the
@@ -275,6 +284,7 @@ protected:
     // (ResourcePtrs and ResourceClients registering themselves) don't work in this case, so
     // have a separate internal protector).
     class InternalResourcePtr {
+        STACK_ALLOCATED();
     public:
         explicit InternalResourcePtr(Resource* resource)
             : m_resource(resource)
@@ -288,7 +298,7 @@ protected:
             m_resource->deleteIfPossible();
         }
     private:
-        Resource* m_resource;
+        RawPtrWillBeMember<Resource> m_resource;
     };
 
     void incrementProtectorCount() { m_protectorCount++; }
@@ -298,30 +308,30 @@ protected:
     void setDecodedSize(size_t);
     void didAccessDecodedData();
 
-    void clearResourceToRevalidate();
-    void updateResponseAfterRevalidation(const ResourceResponse& validatingResponse);
-
     void finishPendingClients();
 
     HashCountedSet<ResourceClient*> m_clients;
     HashCountedSet<ResourceClient*> m_clientsAwaitingCallback;
+    HashCountedSet<ResourceClient*> m_finishedClients;
 
-    class ResourceCallback {
+    class ResourceCallback : public NoBaseWillBeGarbageCollectedFinalized<ResourceCallback> {
     public:
         static ResourceCallback* callbackHandler();
+        DECLARE_TRACE();
         void schedule(Resource*);
         void cancel(Resource*);
         bool isScheduled(Resource*) const;
     private:
         ResourceCallback();
-        void timerFired(Timer<ResourceCallback>*);
-        Timer<ResourceCallback> m_callbackTimer;
-        HashSet<Resource*> m_resourcesWithPendingClients;
+        void runTask();
+        OwnPtr<CancellableTaskFactory> m_callbackTaskFactory;
+        WillBeHeapHashSet<RawPtrWillBeMember<Resource>> m_resourcesWithPendingClients;
     };
 
-    bool hasClient(ResourceClient* client) { return m_clients.contains(client) || m_clientsAwaitingCallback.contains(client); }
+    bool hasClient(ResourceClient* client) { return m_clients.contains(client) || m_clientsAwaitingCallback.contains(client) || m_finishedClients.contains(client); }
 
     struct RedirectPair {
+        DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
     public:
         explicit RedirectPair(const ResourceRequest& request, const ResourceResponse& redirectResponse)
             : m_request(request)
@@ -337,7 +347,13 @@ protected:
     virtual bool isSafeToUnlock() const { return false; }
     virtual void destroyDecodedDataIfPossible() { }
 
+    void markClientsFinished();
+
+    // Returns the memory dump name used for tracing. See Resource::onMemoryDump.
+    String getMemoryDumpName() const;
+
     ResourceRequest m_resourceRequest;
+    ResourceRequest m_revalidatingRequest;
     AtomicString m_accept;
     PersistentWillBeMember<ResourceLoader> m_loader;
     ResourceLoaderOptions m_options;
@@ -350,7 +366,6 @@ protected:
 
 private:
     class CacheHandler;
-    bool addClientToSet(ResourceClient*);
     void cancelTimerFired(Timer<Resource>*);
 
     void switchClientsToRevalidatedResource();
@@ -368,7 +383,7 @@ private:
     String m_fragmentIdentifierForRequest;
 
     RefPtr<CachedMetadata> m_cachedMetadata;
-    OwnPtr<CacheHandler> m_cacheHandler;
+    OwnPtrWillBeMember<CacheHandler> m_cacheHandler;
 
     ResourceError m_error;
 
@@ -397,28 +412,18 @@ private:
     unsigned m_wasPurged : 1;
 
     unsigned m_needsSynchronousCacheHit : 1;
+    unsigned m_avoidBlockingOnLoad : 1;
 
 #ifdef ENABLE_RESOURCE_IS_DELETED_CHECK
     bool m_deleted;
 #endif
-
-    // If this field is non-null we are using the resource as a proxy for checking whether an existing resource is still up to date
-    // using HTTP If-Modified-Since/If-None-Match headers. If the response is 304 all clients of this resource are moved
-    // to to be clients of m_resourceToRevalidate and the resource is deleted. If not, the field is zeroed and this
-    // resources becomes normal resource load.
-    RawPtrWillBeMember<Resource> m_resourceToRevalidate;
-
-    // If this field is non-null, the resource has a proxy for checking whether it is still up to date (see m_resourceToRevalidate).
-    RawPtrWillBeMember<Resource> m_proxyResource;
-
-    // These handles will need to be updated to point to the m_resourceToRevalidate in case we get 304 response.
-    HashSet<ResourcePtrBase*> m_handlesToRevalidate;
 
     // Ordered list of all redirects followed while fetching this resource.
     Vector<RedirectPair> m_redirectChain;
 };
 
 class ResourceFactory {
+    STACK_ALLOCATED();
 public:
     virtual Resource* create(const ResourceRequest&, const String&) const = 0;
     Resource::Type type() const { return m_type; }

@@ -33,6 +33,7 @@ typedef (HTMLImageElement or
          ImageBitmap) CanvasImageSource;
 
 enum CanvasFillRule { "nonzero", "evenodd" };
+enum ImageSmoothingQuality {"low", "medium", "high"};
 
 [
     SetWrapperReferenceFrom=canvas,
@@ -57,12 +58,13 @@ enum CanvasFillRule { "nonzero", "evenodd" };
 
     // compositing
     attribute unrestricted float globalAlpha; // (default 1.0)
-    [TreatNullAs=NullString] attribute DOMString globalCompositeOperation; // (default source-over)
+    attribute DOMString globalCompositeOperation; // (default source-over)
     [RuntimeEnabled=ExperimentalCanvasFeatures] attribute DOMString filter; // (default 'none') 
 
     // image smoothing
     [ImplementedAs=imageSmoothingEnabled, DeprecateAs=PrefixedImageSmoothingEnabled] attribute boolean webkitImageSmoothingEnabled;
-    [MeasureAs=UnprefixedImageSmoothingEnabled] attribute boolean imageSmoothingEnabled;
+    [MeasureAs=UnprefixedImageSmoothingEnabled] attribute boolean imageSmoothingEnabled; // (default True)
+    [RuntimeEnabled=ExperimentalCanvasFeatures] attribute ImageSmoothingQuality imageSmoothingQuality; // (default "low")
 
     // colors and styles (see also the CanvasDrawingStyles interface)
     attribute (DOMString or CanvasGradient or CanvasPattern) strokeStyle; // (default black)
@@ -75,7 +77,7 @@ enum CanvasFillRule { "nonzero", "evenodd" };
     attribute unrestricted float shadowOffsetX;
     attribute unrestricted float shadowOffsetY;
     attribute unrestricted float shadowBlur;
-    [TreatNullAs=NullString] attribute DOMString shadowColor;
+    attribute DOMString shadowColor;
 
     // rects
     void clearRect(unrestricted float x, unrestricted float y, unrestricted float width, unrestricted float height);
@@ -119,8 +121,8 @@ enum CanvasFillRule { "nonzero", "evenodd" };
     ImageData createImageData(ImageData imagedata);
     [RaisesException] ImageData createImageData(float sw, float sh);
     [RaisesException] ImageData getImageData(float sx, float sy, float sw, float sh);
-    void putImageData(ImageData imagedata, float dx, float dy);
-    void putImageData(ImageData imagedata, float dx, float dy, float dirtyX, float dirtyY, float dirtyWidth, float dirtyHeight);
+    [RaisesException] void putImageData(ImageData imagedata, float dx, float dy);
+    [RaisesException] void putImageData(ImageData imagedata, float dx, float dy, float dirtyX, float dirtyY, float dirtyWidth, float dirtyHeight);
 
     // Context state
     // Should be merged with WebGL counterpart in CanvasRenderingContext, once no-longer experimental
@@ -131,8 +133,8 @@ enum CanvasFillRule { "nonzero", "evenodd" };
     // FIXME: factor out to CanvasDrawingStyles
     // line caps/joins
     attribute unrestricted float lineWidth; // (default 1)
-    [TreatNullAs=NullString] attribute DOMString lineCap; // "butt", "round", "square" (default "butt")
-    [TreatNullAs=NullString] attribute DOMString lineJoin; // "round", "bevel", "miter" (default "miter")
+    attribute DOMString lineCap; // "butt", "round", "square" (default "butt")
+    attribute DOMString lineJoin; // "round", "bevel", "miter" (default "miter")
     attribute unrestricted float miterLimit; // (default 10)
 
     // dashed lines

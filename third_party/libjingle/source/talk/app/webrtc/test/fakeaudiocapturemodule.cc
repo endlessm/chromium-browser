@@ -40,7 +40,7 @@ static const int kHighSampleValue = 10000;
 
 // Same value as src/modules/audio_device/main/source/audio_device_config.h in
 // https://code.google.com/p/webrtc/
-static const uint32 kAdmMaxIdleTimeProcess = 1000;
+static const uint32_t kAdmMaxIdleTimeProcess = 1000;
 
 // Constants here are derived by running VoE using a real ADM.
 // The constants correspond to 10ms of mono audio at 44kHz.
@@ -54,13 +54,11 @@ static const uint32_t kMaxVolume = 14392;
 enum {
   MSG_START_PROCESS,
   MSG_RUN_PROCESS,
-  MSG_STOP_PROCESS,
 };
 
-FakeAudioCaptureModule::FakeAudioCaptureModule(
-    rtc::Thread* process_thread)
+FakeAudioCaptureModule::FakeAudioCaptureModule()
     : last_process_time_ms_(0),
-      audio_callback_(NULL),
+      audio_callback_(nullptr),
       recording_(false),
       playing_(false),
       play_is_initialized_(false),
@@ -68,23 +66,20 @@ FakeAudioCaptureModule::FakeAudioCaptureModule(
       current_mic_level_(kMaxVolume),
       started_(false),
       next_frame_time_(0),
-      process_thread_(process_thread),
       frames_received_(0) {
 }
 
 FakeAudioCaptureModule::~FakeAudioCaptureModule() {
-  // Ensure that thread stops calling ProcessFrame().
-  process_thread_->Send(this, MSG_STOP_PROCESS);
+  if (process_thread_) {
+    process_thread_->Stop();
+  }
 }
 
-rtc::scoped_refptr<FakeAudioCaptureModule> FakeAudioCaptureModule::Create(
-    rtc::Thread* process_thread) {
-  if (process_thread == NULL) return NULL;
-
+rtc::scoped_refptr<FakeAudioCaptureModule> FakeAudioCaptureModule::Create() {
   rtc::scoped_refptr<FakeAudioCaptureModule> capture_module(
-      new rtc::RefCountedObject<FakeAudioCaptureModule>(process_thread));
+      new rtc::RefCountedObject<FakeAudioCaptureModule>());
   if (!capture_module->Initialize()) {
-    return NULL;
+    return nullptr;
   }
   return capture_module;
 }
@@ -95,12 +90,12 @@ int FakeAudioCaptureModule::frames_received() const {
 }
 
 int64_t FakeAudioCaptureModule::TimeUntilNextProcess() {
-  const uint32 current_time = rtc::Time();
+  const uint32_t current_time = rtc::Time();
   if (current_time < last_process_time_ms_) {
     // TODO: wraparound could be handled more gracefully.
     return 0;
   }
-  const uint32 elapsed_time = current_time - last_process_time_ms_;
+  const uint32_t elapsed_time = current_time - last_process_time_ms_;
   if (kAdmMaxIdleTimeProcess < elapsed_time) {
     return 0;
   }
@@ -601,9 +596,6 @@ void FakeAudioCaptureModule::OnMessage(rtc::Message* msg) {
     case MSG_RUN_PROCESS:
       ProcessFrameP();
       break;
-    case MSG_STOP_PROCESS:
-      StopProcessP();
-      break;
     default:
       // All existing messages should be caught. Getting here should never
       // happen.
@@ -623,9 +615,9 @@ bool FakeAudioCaptureModule::Initialize() {
 
 void FakeAudioCaptureModule::SetSendBuffer(int value) {
   Sample* buffer_ptr = reinterpret_cast<Sample*>(send_buffer_);
-  const int buffer_size_in_samples =
+  const size_t buffer_size_in_samples =
       sizeof(send_buffer_) / kNumberBytesPerSample;
-  for (int i = 0; i < buffer_size_in_samples; ++i) {
+  for (size_t i = 0; i < buffer_size_in_samples; ++i) {
     buffer_ptr[i] = value;
   }
 }
@@ -636,9 +628,9 @@ void FakeAudioCaptureModule::ResetRecBuffer() {
 
 bool FakeAudioCaptureModule::CheckRecBuffer(int value) {
   const Sample* buffer_ptr = reinterpret_cast<const Sample*>(rec_buffer_);
-  const int buffer_size_in_samples =
+  const size_t buffer_size_in_samples =
       sizeof(rec_buffer_) / kNumberBytesPerSample;
-  for (int i = 0; i < buffer_size_in_samples; ++i) {
+  for (size_t i = 0; i < buffer_size_in_samples; ++i) {
     if (buffer_ptr[i] >= value) return true;
   }
   return false;
@@ -650,14 +642,22 @@ bool FakeAudioCaptureModule::ShouldStartProcessing() {
 
 void FakeAudioCaptureModule::UpdateProcessing(bool start) {
   if (start) {
+    if (!process_thread_) {
+      process_thread_.reset(new rtc::Thread());
+      process_thread_->Start();
+    }
     process_thread_->Post(this, MSG_START_PROCESS);
   } else {
-    process_thread_->Send(this, MSG_STOP_PROCESS);
+    if (process_thread_) {
+      process_thread_->Stop();
+      process_thread_.reset(nullptr);
+    }
+    started_ = false;
   }
 }
 
 void FakeAudioCaptureModule::StartProcessP() {
-  ASSERT(rtc::Thread::Current() == process_thread_);
+  ASSERT(process_thread_->IsCurrent());
   if (started_) {
     // Already started.
     return;
@@ -666,44 +666,39 @@ void FakeAudioCaptureModule::StartProcessP() {
 }
 
 void FakeAudioCaptureModule::ProcessFrameP() {
-  ASSERT(rtc::Thread::Current() == process_thread_);
+  ASSERT(process_thread_->IsCurrent());
   if (!started_) {
     next_frame_time_ = rtc::Time();
     started_ = true;
   }
 
-  bool playing;
-  bool recording;
   {
     rtc::CritScope cs(&crit_);
-    playing = playing_;
-    recording = recording_;
-  }
-
-  // Receive and send frames every kTimePerFrameMs.
-  if (playing) {
-    ReceiveFrameP();
-  }
-  if (recording) {
-    SendFrameP();
+    // Receive and send frames every kTimePerFrameMs.
+    if (playing_) {
+      ReceiveFrameP();
+    }
+    if (recording_) {
+      SendFrameP();
+    }
   }
 
   next_frame_time_ += kTimePerFrameMs;
-  const uint32 current_time = rtc::Time();
-  const uint32 wait_time = (next_frame_time_ > current_time) ?
-      next_frame_time_ - current_time : 0;
+  const uint32_t current_time = rtc::Time();
+  const uint32_t wait_time =
+      (next_frame_time_ > current_time) ? next_frame_time_ - current_time : 0;
   process_thread_->PostDelayed(wait_time, this, MSG_RUN_PROCESS);
 }
 
 void FakeAudioCaptureModule::ReceiveFrameP() {
-  ASSERT(rtc::Thread::Current() == process_thread_);
+  ASSERT(process_thread_->IsCurrent());
   {
     rtc::CritScope cs(&crit_callback_);
     if (!audio_callback_) {
       return;
     }
     ResetRecBuffer();
-    uint32_t nSamplesOut = 0;
+    size_t nSamplesOut = 0;
     int64_t elapsed_time_ms = 0;
     int64_t ntp_time_ms = 0;
     if (audio_callback_->NeedMorePlayData(kNumberSamples, kNumberBytesPerSample,
@@ -727,7 +722,7 @@ void FakeAudioCaptureModule::ReceiveFrameP() {
 }
 
 void FakeAudioCaptureModule::SendFrameP() {
-  ASSERT(rtc::Thread::Current() == process_thread_);
+  ASSERT(process_thread_->IsCurrent());
   rtc::CritScope cs(&crit_callback_);
   if (!audio_callback_) {
     return;
@@ -747,8 +742,3 @@ void FakeAudioCaptureModule::SendFrameP() {
   SetMicrophoneVolume(current_mic_level);
 }
 
-void FakeAudioCaptureModule::StopProcessP() {
-  ASSERT(rtc::Thread::Current() == process_thread_);
-  started_ = false;
-  process_thread_->Clear(this);
-}

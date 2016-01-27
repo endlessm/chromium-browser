@@ -41,13 +41,13 @@ int32_t ConfigurableFrameSizeEncoder::InitEncode(
 int32_t ConfigurableFrameSizeEncoder::Encode(
     const VideoFrame& inputImage,
     const CodecSpecificInfo* codecSpecificInfo,
-    const std::vector<VideoFrameType>* frame_types) {
+    const std::vector<FrameType>* frame_types) {
   EncodedImage encodedImage(
       buffer_.get(), current_frame_size_, max_frame_size_);
   encodedImage._completeFrame = true;
   encodedImage._encodedHeight = inputImage.height();
   encodedImage._encodedWidth = inputImage.width();
-  encodedImage._frameType = kKeyFrame;
+  encodedImage._frameType = kVideoFrameKey;
   encodedImage._timeStamp = inputImage.timestamp();
   encodedImage.capture_time_ms_ = inputImage.render_time_ms();
   RTPFragmentationHeader* fragmentation = NULL;
@@ -79,11 +79,6 @@ int32_t ConfigurableFrameSizeEncoder::SetRates(uint32_t new_bit_rate,
 }
 
 int32_t ConfigurableFrameSizeEncoder::SetPeriodicKeyFrames(bool enable) {
-  return WEBRTC_VIDEO_CODEC_OK;
-}
-
-int32_t ConfigurableFrameSizeEncoder::CodecConfigParameters(uint8_t* buffer,
-                                                            int32_t size) {
   return WEBRTC_VIDEO_CODEC_OK;
 }
 

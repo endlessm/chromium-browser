@@ -16,11 +16,18 @@
 #include "ui/views/controls/menu/menu_delegate.h"
 
 class Browser;
-class ChromeBookmarkClient;
 class Profile;
+
+namespace bookmarks {
+class ManagedBookmarkService;
+}
 
 namespace content {
 class PageNavigator;
+}
+
+namespace gfx {
+class ImageSkia;
 }
 
 namespace ui {
@@ -36,7 +43,7 @@ class Widget;
 // bookmarks in a MenuItemView. BookmarkMenuDelegate informally implements
 // MenuDelegate as its assumed another class is going to forward the appropriate
 // methods to this class. Doing so allows this class to be used for both menus
-// on the bookmark bar and the bookmarks in the wrench menu.
+// on the bookmark bar and the bookmarks in the app menu.
 class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
                              public BookmarkContextMenuObserver {
  public:
@@ -74,7 +81,7 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
   void SetActiveMenu(const bookmarks::BookmarkNode* node, int start_index);
 
   bookmarks::BookmarkModel* GetBookmarkModel();
-  ChromeBookmarkClient* GetChromeBookmarkClient();
+  bookmarks::ManagedBookmarkService* GetManagedBookmarkService();
 
   // Returns the menu.
   views::MenuItemView* menu() { return menu_; }
@@ -100,7 +107,7 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
   bool GetDropFormats(
       views::MenuItemView* menu,
       int* formats,
-      std::set<ui::OSExchangeData::CustomFormat>* custom_formats);
+      std::set<ui::Clipboard::FormatType>* format_types);
   bool AreDropTypesRequired(views::MenuItemView* menu);
   bool CanDrop(views::MenuItemView* menu, const ui::OSExchangeData& data);
   int GetDropOperation(views::MenuItemView* item,
@@ -150,7 +157,7 @@ class BookmarkMenuDelegate : public bookmarks::BaseBookmarkModelObserver,
   // separator is added before the new menu items and |added_separator| is set
   // to true.
   void BuildMenuForPermanentNode(const bookmarks::BookmarkNode* node,
-                                 int icon_resource_id,
+                                 const gfx::ImageSkia& icon,
                                  views::MenuItemView* menu,
                                  bool* added_separator);
 

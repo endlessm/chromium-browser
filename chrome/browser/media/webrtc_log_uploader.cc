@@ -17,8 +17,8 @@
 #include "chrome/browser/media/media_url_constants.h"
 #include "chrome/browser/media/webrtc_log_list.h"
 #include "chrome/browser/media/webrtc_log_util.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/partial_circular_buffer.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/mime_util.h"
 #include "net/url_request/url_fetcher.h"
@@ -351,8 +351,8 @@ void WebRtcLogUploader::SetupMultipart(
 #endif
   net::AddMultipartValueForUpload("prod", product, kMultipartBoundary,
                                   "", post_data);
-  chrome::VersionInfo version_info;
-  net::AddMultipartValueForUpload("ver", version_info.Version() + "-webrtc",
+  net::AddMultipartValueForUpload("ver",
+                                  version_info::GetVersionNumber() + "-webrtc",
                                   kMultipartBoundary, "", post_data);
   net::AddMultipartValueForUpload("guid", "0", kMultipartBoundary,
                                   "", post_data);
@@ -501,9 +501,10 @@ void WebRtcLogUploader::AddLocallyStoredLogInfoToUploadListFile(
     }
   }
 
-  // Write the log ID to the log list file. Leave the upload time and report ID
-  // empty.
-  contents += ",," + local_log_id + '\n';
+  // Write the capture time and log ID to the log list file. Leave the upload
+  // time and report ID empty.
+  contents += ",," + local_log_id +
+              "," + base::DoubleToString(base::Time::Now().ToDoubleT()) + '\n';
 
   int written =
       base::WriteFile(upload_list_path, &contents[0], contents.size());
@@ -541,7 +542,7 @@ void WebRtcLogUploader::AddUploadedLogInfoToUploadListFile(
     contents.insert(pos, time_now_str);
     contents.insert(pos + time_now_str.length() + 1, report_id);
   } else {
-    contents += time_now_str + "," + report_id + ",\n";
+    contents += time_now_str + "," + report_id + ",," + time_now_str + "\n";
   }
 
   int written =

@@ -20,6 +20,14 @@ EXTERN_C_BEGIN
 struct NaClValidationCache;
 struct NaClValidationMetadata;
 
+/* Defines possible validation flags. */
+typedef enum NaClValidationFlags {
+  NACL_DISABLE_NONTEMPORALS_X86 = 0x1,
+  NACL_VALIDATION_FLAGS_MASK_X86 = 0x1,
+  NACL_VALIDATION_FLAGS_MASK_ARM = 0x0,
+  NACL_VALIDATION_FLAGS_MASK_MIPS = 0x0
+} NaClValidationFlags;
+
 /* Defines possible validation status values. */
 typedef enum NaClValidationStatus {
   /* The call to the validator succeeded. */
@@ -63,6 +71,7 @@ typedef NaClValidationStatus (*NaClValidateFunc)(
     uint8_t *data,
     size_t size,
     int stubout_mode,
+    uint32_t flags,
     int readonly_text,
     const NaClCPUFeatures *cpu_features,
     const struct NaClValidationMetadata *metadata,
@@ -133,10 +142,11 @@ typedef int (*NaClCPUFeaturesFixFunc)(NaClCPUFeatures *f);
  * Parameters are:
  *    guest_addr - The virtual pc to assume is the beginning address of the
  *           code segment. Typically, this is the corresponding address that
- *           will be used by objdump.
+ *           will be used by objdump. Must align to a bundle boundary.
  *    addr - The address of the code to check.
  *    data - The contents of the code segment assumed to be valid.
- *    size - The size of the code segment.
+ *    size - The size of the code segment. Must be a multiple of
+             the bundle size.
  *    cpu_features - The CPU features to support while validating.
  */
 typedef NaClValidationStatus (*NaClIsOnInstBoundaryFunc)(

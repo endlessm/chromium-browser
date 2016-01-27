@@ -30,7 +30,7 @@
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/geometry/DoublePoint.h"
 #include "platform/heap/Handle.h"
-#include "platform/scroll/ScrollAnimator.h"
+#include "platform/scroll/ScrollAnimatorBase.h"
 #include "platform/scroll/ScrollTypes.h"
 #include "platform/scroll/Scrollbar.h"
 #include "wtf/Noncopyable.h"
@@ -45,7 +45,8 @@ class HostWindow;
 class PlatformWheelEvent;
 class ProgrammaticScrollAnimator;
 struct ScrollAlignment;
-class ScrollAnimator;
+class ScrollAnimatorBase;
+class WebCompositorAnimationTimeline;
 
 enum ScrollBehavior {
     ScrollBehaviorAuto,
@@ -93,15 +94,9 @@ public:
     // Note, in the case of a Document container, such as FrameView, the output will always be the input rect
     // since scrolling it can't change the location of content relative to the document, unlike an overflowing
     // element.
-    virtual LayoutRect scrollIntoView(const LayoutRect& rectInContent, const ScrollAlignment& alignX, const ScrollAlignment& alignY);
-
-    // Scrolls the area so that the given rect, given in the area's content coordinates, such that it's
-    // cenetered in the second rect, which is given relative to the area's origin.
-    void scrollIntoRect(const LayoutRect& rectInContent, const FloatRect& targetRectInFrame);
+    virtual LayoutRect scrollIntoView(const LayoutRect& rectInContent, const ScrollAlignment& alignX, const ScrollAlignment& alignY, ScrollType = ProgrammaticScroll);
 
     static bool scrollBehaviorFromString(const String&, ScrollBehavior&);
-
-    virtual ScrollResult handleWheel(const PlatformWheelEvent&);
 
     bool inLiveResize() const { return m_inLiveResize; }
     void willStartLiveResize();
@@ -127,11 +122,11 @@ public:
     void setScrollbarOverlayStyle(ScrollbarOverlayStyle);
     ScrollbarOverlayStyle scrollbarOverlayStyle() const { return static_cast<ScrollbarOverlayStyle>(m_scrollbarOverlayStyle); }
 
-    // This getter will create a ScrollAnimator if it doesn't already exist.
-    ScrollAnimator* scrollAnimator() const;
+    // This getter will create a ScrollAnimatorBase if it doesn't already exist.
+    ScrollAnimatorBase* scrollAnimator() const;
 
-    // This getter will return null if the ScrollAnimator hasn't been created yet.
-    ScrollAnimator* existingScrollAnimator() const { return m_animators ? m_animators->scrollAnimator.get() : 0; }
+    // This getter will return null if the ScrollAnimatorBase hasn't been created yet.
+    ScrollAnimatorBase* existingScrollAnimator() const { return m_animators ? m_animators->scrollAnimator.get() : 0; }
 
     ProgrammaticScrollAnimator* programmaticScrollAnimator() const;
     ProgrammaticScrollAnimator* existingProgrammaticScrollAnimator() const
@@ -202,7 +197,7 @@ public:
 
     virtual bool shouldSuspendScrollAnimations() const { return true; }
     virtual void scrollbarStyleChanged() { }
-
+    virtual void scrollbarVisibilityChanged() { }
     virtual bool scrollbarsCanBeActive() const = 0;
 
     // Returns the bounding box of this scrollable area, in the coordinate system of the enclosing scroll view.
@@ -268,7 +263,7 @@ public:
     bool hasLayerForVerticalScrollbar() const;
     bool hasLayerForScrollCorner() const;
 
-    void layerForScrollingDidChange();
+    void layerForScrollingDidChange(WebCompositorAnimationTimeline*);
 
     void cancelScrollAnimation();
     void cancelProgrammaticScrollAnimation();
@@ -311,7 +306,7 @@ protected:
     void resetScrollOriginChanged() { m_scrollOriginChanged = false; }
 
     // Needed to let the animators call scrollPositionChanged.
-    friend class ScrollAnimator;
+    friend class ScrollAnimatorBase;
     friend class ProgrammaticScrollAnimator;
     void scrollPositionChanged(const DoublePoint&, ScrollType);
 
@@ -344,7 +339,7 @@ private:
     IntRect m_verticalBarDamage;
 
     struct ScrollableAreaAnimators {
-        OwnPtr<ScrollAnimator> scrollAnimator;
+        OwnPtr<ScrollAnimatorBase> scrollAnimator;
         OwnPtr<ProgrammaticScrollAnimator> programmaticScrollAnimator;
     };
 

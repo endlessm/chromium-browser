@@ -1,39 +1,41 @@
 // Copyright 2014 PDFium Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
- 
+
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#ifndef _JBIG2_ARITH_INT_DECODER_H_
-#define _JBIG2_ARITH_INT_DECODER_H_
-#include "JBig2_Module.h"
+#ifndef CORE_SRC_FXCODEC_JBIG2_JBIG2_ARITHINTDECODER_H_
+#define CORE_SRC_FXCODEC_JBIG2_JBIG2_ARITHINTDECODER_H_
+
+#include <vector>
+
 #include "JBig2_ArithDecoder.h"
-class CJBig2_ArithIntDecoder : public CJBig2_Object
-{
-public:
+#include "core/include/fxcrt/fx_system.h"
 
-    CJBig2_ArithIntDecoder();
+class CJBig2_ArithIntDecoder {
+ public:
+  CJBig2_ArithIntDecoder();
+  ~CJBig2_ArithIntDecoder();
 
-    ~CJBig2_ArithIntDecoder();
+  // Returns true on success, and false when an OOB condition occurs. Many
+  // callers can tolerate OOB and do not check the return value.
+  bool decode(CJBig2_ArithDecoder* pArithDecoder, int* nResult);
 
-    int decode(CJBig2_ArithDecoder *pArithDecoder, int *nResult);
-private:
-
-    JBig2ArithCtx *IAx;
+ private:
+  std::vector<JBig2ArithCtx> m_IAx;
 };
-class CJBig2_ArithIaidDecoder : public CJBig2_Object
-{
-public:
 
-    CJBig2_ArithIaidDecoder(unsigned char SBSYMCODELENA);
+class CJBig2_ArithIaidDecoder {
+ public:
+  explicit CJBig2_ArithIaidDecoder(unsigned char SBSYMCODELENA);
+  ~CJBig2_ArithIaidDecoder();
 
-    ~CJBig2_ArithIaidDecoder();
+  void decode(CJBig2_ArithDecoder* pArithDecoder, FX_DWORD* nResult);
 
-    int decode(CJBig2_ArithDecoder *pArithDecoder, int *nResult);
-private:
+ private:
+  std::vector<JBig2ArithCtx> m_IAID;
 
-    JBig2ArithCtx *IAID;
-
-    unsigned char SBSYMCODELEN;
+  const unsigned char SBSYMCODELEN;
 };
-#endif
+
+#endif  // CORE_SRC_FXCODEC_JBIG2_JBIG2_ARITHINTDECODER_H_

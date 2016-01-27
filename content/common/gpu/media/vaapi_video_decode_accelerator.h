@@ -28,7 +28,7 @@
 #include "media/video/picture.h"
 #include "media/video/video_decode_accelerator.h"
 
-namespace gfx {
+namespace gl {
 class GLImage;
 }
 
@@ -52,7 +52,7 @@ class CONTENT_EXPORT VaapiVideoDecodeAccelerator
 
   VaapiVideoDecodeAccelerator(
       const base::Callback<bool(void)>& make_context_current,
-      const base::Callback<void(uint32, uint32, scoped_refptr<gfx::GLImage>)>&
+      const base::Callback<void(uint32, uint32, scoped_refptr<gl::GLImage>)>&
           bind_image);
   ~VaapiVideoDecodeAccelerator() override;
 
@@ -73,6 +73,7 @@ class CONTENT_EXPORT VaapiVideoDecodeAccelerator
  private:
   class VaapiH264Accelerator;
   class VaapiVP8Accelerator;
+  class VaapiVP9Accelerator;
 
   // Notify the client that an error has occurred and decoding cannot continue.
   void NotifyError(Error error);
@@ -275,6 +276,7 @@ class CONTENT_EXPORT VaapiVideoDecodeAccelerator
   // Accelerators come after vaapi_wrapper_ to ensure they are destroyed first.
   scoped_ptr<VaapiH264Accelerator> h264_accelerator_;
   scoped_ptr<VaapiVP8Accelerator> vp8_accelerator_;
+  scoped_ptr<VaapiVP9Accelerator> vp9_accelerator_;
   // After *_accelerator_ to ensure correct destruction order.
   scoped_ptr<AcceleratedVideoDecoder> decoder_;
 
@@ -301,7 +303,7 @@ class CONTENT_EXPORT VaapiVideoDecodeAccelerator
 
   // Binds the provided GLImage to a givenr client texture ID & texture target
   // combination in GLES.
-  base::Callback<void(uint32, uint32, scoped_refptr<gfx::GLImage>)> bind_image_;
+  base::Callback<void(uint32, uint32, scoped_refptr<gl::GLImage>)> bind_image_;
 
   // The WeakPtrFactory for |weak_this_|.
   base::WeakPtrFactory<VaapiVideoDecodeAccelerator> weak_this_factory_;

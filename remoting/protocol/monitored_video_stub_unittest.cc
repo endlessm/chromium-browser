@@ -41,7 +41,7 @@ class MonitoredVideoStubTest : public testing::Test {
 
   scoped_ptr<MonitoredVideoStub> monitor_;
   scoped_ptr<VideoPacket> packet_;
-  base::OneShotTimer<MonitoredVideoStubTest> timer_end_test_;
+  base::OneShotTimer timer_end_test_;
 };
 
 TEST_F(MonitoredVideoStubTest, OnChannelConnected) {
@@ -58,10 +58,9 @@ TEST_F(MonitoredVideoStubTest, OnChannelDisconnected) {
   EXPECT_CALL(*this, OnVideoChannelStatus(true));
   monitor_->ProcessVideoPacket(packet_.Pass(), base::Closure());
 
-  EXPECT_CALL(*this, OnVideoChannelStatus(false)).WillOnce(
-    InvokeWithoutArgs(
-      &message_loop_,
-      &base::MessageLoop::Quit));
+  EXPECT_CALL(*this, OnVideoChannelStatus(false))
+      .WillOnce(
+          InvokeWithoutArgs(&message_loop_, &base::MessageLoop::QuitWhenIdle));
   message_loop_.Run();
 }
 
@@ -86,8 +85,7 @@ TEST_F(MonitoredVideoStubTest, OnChannelStayDisconnected) {
   monitor_->ProcessVideoPacket(packet_.Pass(), base::Closure());
 
   message_loop_.PostDelayedTask(
-      FROM_HERE,
-      base::MessageLoop::QuitClosure(),
+      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
       // The delay should be much greater than |kTestOverrideDelayMilliseconds|.
       TestTimeouts::tiny_timeout());
   message_loop_.Run();

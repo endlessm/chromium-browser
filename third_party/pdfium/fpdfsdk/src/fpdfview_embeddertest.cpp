@@ -5,20 +5,19 @@
 #include <limits>
 #include <string>
 
-#include "../../public/fpdfview.h"
-#include "../../testing/embedder_test.h"
-#include "fpdfview_c_api_test.h"
+#include "fpdfsdk/src/fpdfview_c_api_test.h"
+#include "public/fpdfview.h"
+#include "testing/embedder_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 TEST(fpdf, CApiTest) {
   EXPECT_TRUE(CheckPDFiumCApi());
 }
 
-class FPDFViewEmbeddertest : public EmbedderTest {
-};
+class FPDFViewEmbeddertest : public EmbedderTest {};
 
 TEST_F(FPDFViewEmbeddertest, Document) {
-  EXPECT_TRUE(OpenDocument("testing/resources/about_blank.pdf"));
+  EXPECT_TRUE(OpenDocument("about_blank.pdf"));
   EXPECT_EQ(1, GetPageCount());
   EXPECT_EQ(0, GetFirstPageNum());
 
@@ -31,7 +30,7 @@ TEST_F(FPDFViewEmbeddertest, Document) {
 }
 
 TEST_F(FPDFViewEmbeddertest, Page) {
-  EXPECT_TRUE(OpenDocument("testing/resources/about_blank.pdf"));
+  EXPECT_TRUE(OpenDocument("about_blank.pdf"));
   FPDF_PAGE page = LoadPage(0);
   EXPECT_NE(nullptr, page);
   EXPECT_EQ(612.0, FPDF_GetPageWidth(page));
@@ -41,20 +40,20 @@ TEST_F(FPDFViewEmbeddertest, Page) {
 }
 
 TEST_F(FPDFViewEmbeddertest, ViewerRef) {
-  EXPECT_TRUE(OpenDocument("testing/resources/about_blank.pdf"));
+  EXPECT_TRUE(OpenDocument("about_blank.pdf"));
   EXPECT_TRUE(FPDF_VIEWERREF_GetPrintScaling(document()));
   EXPECT_EQ(1, FPDF_VIEWERREF_GetNumCopies(document()));
   EXPECT_EQ(DuplexUndefined, FPDF_VIEWERREF_GetDuplex(document()));
 }
 
 TEST_F(FPDFViewEmbeddertest, NamedDests) {
-  EXPECT_TRUE(OpenDocument("testing/resources/named_dests.pdf"));
+  EXPECT_TRUE(OpenDocument("named_dests.pdf"));
   long buffer_size;
   char fixed_buffer[512];
   FPDF_DEST dest;
 
   // Query the size of the first item.
-  buffer_size = 2000000; // Absurdly large, check not used for this case.
+  buffer_size = 2000000;  // Absurdly large, check not used for this case.
   dest = FPDF_GetNamedDest(document(), 0, nullptr, &buffer_size);
   EXPECT_NE(nullptr, dest);
   EXPECT_EQ(12u, buffer_size);
@@ -104,9 +103,8 @@ TEST_F(FPDFViewEmbeddertest, NamedDests) {
   dest = FPDF_GetNamedDest(document(), 4, fixed_buffer, &buffer_size);
   EXPECT_NE(nullptr, dest);
   EXPECT_EQ(30u, buffer_size);
-  EXPECT_EQ(
-      std::string("F\0i\0r\0s\0t\0A\0l\0t\0e\0r\0n\0a\0t\0e\0\0\0", 30),
-      std::string(fixed_buffer, buffer_size));
+  EXPECT_EQ(std::string("F\0i\0r\0s\0t\0A\0l\0t\0e\0r\0n\0a\0t\0e\0\0\0", 30),
+            std::string(fixed_buffer, buffer_size));
 
   // Try to retrieve sixth item with ample buffer. Item istaken from the
   // old-style Dests dictionary object but has a sub-dictionary in
@@ -115,9 +113,8 @@ TEST_F(FPDFViewEmbeddertest, NamedDests) {
   dest = FPDF_GetNamedDest(document(), 5, fixed_buffer, &buffer_size);
   EXPECT_NE(nullptr, dest);
   EXPECT_EQ(28u, buffer_size);
-  EXPECT_EQ(
-      std::string("L\0a\0s\0t\0A\0l\0t\0e\0r\0n\0a\0t\0e\0\0\0", 28),
-      std::string(fixed_buffer, buffer_size));
+  EXPECT_EQ(std::string("L\0a\0s\0t\0A\0l\0t\0e\0r\0n\0a\0t\0e\0\0\0", 28),
+            std::string(fixed_buffer, buffer_size));
 
   // Try to retrieve non-existent item with ample buffer.
   buffer_size = sizeof(fixed_buffer);
@@ -145,7 +142,7 @@ TEST_F(FPDFViewEmbeddertest, NamedDests) {
 }
 
 TEST_F(FPDFViewEmbeddertest, NamedDestsByName) {
-  EXPECT_TRUE(OpenDocument("testing/resources/named_dests.pdf"));
+  EXPECT_TRUE(OpenDocument("named_dests.pdf"));
 
   // Null pointer returns NULL.
   FPDF_DEST dest = FPDF_GetNamedDestByName(document(), nullptr);
@@ -183,20 +180,26 @@ TEST_F(FPDFViewEmbeddertest, NamedDestsByName) {
 
 // The following tests pass if the document opens without crashing.
 TEST_F(FPDFViewEmbeddertest, Crasher_113) {
-  EXPECT_TRUE(OpenDocument("testing/resources/bug_113.pdf"));
+  EXPECT_TRUE(OpenDocument("bug_113.pdf"));
 }
 
 TEST_F(FPDFViewEmbeddertest, Crasher_451830) {
-  EXPECT_TRUE(OpenDocument("testing/resources/bug_451830.pdf"));
+  // Document is damaged and can't be opened.
+  EXPECT_FALSE(OpenDocument("bug_451830.pdf"));
 }
 
 TEST_F(FPDFViewEmbeddertest, Crasher_452455) {
-  EXPECT_TRUE(OpenDocument("testing/resources/bug_452455.pdf"));
+  EXPECT_TRUE(OpenDocument("bug_452455.pdf"));
   FPDF_PAGE page = LoadPage(0);
   EXPECT_NE(nullptr, page);
   UnloadPage(page);
 }
 
-TEST_F(FPDFViewEmbeddertest, Crasher3) {
-  EXPECT_TRUE(OpenDocument("testing/resources/bug_454695.pdf"));
+TEST_F(FPDFViewEmbeddertest, Crasher_454695) {
+  // Document is damaged and can't be opened.
+  EXPECT_FALSE(OpenDocument("bug_454695.pdf"));
+}
+
+TEST_F(FPDFViewEmbeddertest, Crasher_572871) {
+  EXPECT_TRUE(OpenDocument("bug_572871.pdf"));
 }

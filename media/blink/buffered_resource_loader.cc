@@ -326,7 +326,7 @@ bool BufferedResourceLoader::range_supported() {
 
 /////////////////////////////////////////////////////////////////////////////
 // blink::WebURLLoaderClient implementation.
-void BufferedResourceLoader::willSendRequest(
+void BufferedResourceLoader::willFollowRedirect(
     WebURLLoader* loader,
     WebURLRequest& newRequest,
     const WebURLResponse& redirectResponse) {
@@ -357,10 +357,17 @@ void BufferedResourceLoader::didReceiveResponse(
     WebURLLoader* loader,
     const WebURLResponse& response) {
   DVLOG(1) << "didReceiveResponse: HTTP/"
-           << (response.httpVersion() == WebURLResponse::HTTP_0_9 ? "0.9" :
-               response.httpVersion() == WebURLResponse::HTTP_1_0 ? "1.0" :
-               response.httpVersion() == WebURLResponse::HTTP_1_1 ? "1.1" :
-               "Unknown")
+           << (response.httpVersion() == WebURLResponse::HTTPVersion_0_9
+                   ? "0.9"
+                   : response.httpVersion() == WebURLResponse::HTTPVersion_1_0
+                         ? "1.0"
+                         : response.httpVersion() ==
+                                   WebURLResponse::HTTPVersion_1_1
+                               ? "1.1"
+                               : response.httpVersion() ==
+                                         WebURLResponse::HTTPVersion_2_0
+                                     ? "2.0"
+                                     : "Unknown")
            << " " << response.httpStatusCode();
   DCHECK(active_loader_.get());
   response_original_url_ = response.wasFetchedViaServiceWorker()
@@ -571,8 +578,9 @@ bool BufferedResourceLoader::HasSingleOrigin() const {
 }
 
 bool BufferedResourceLoader::DidPassCORSAccessCheck() const {
-  DCHECK(start_cb_.is_null())
-      << "Start() must complete before calling DidPassCORSAccessCheck()";
+  // Until Start() is done we don't know, assume no until we know.
+  if (!start_cb_.is_null())
+    return false;
   return !loader_failed_ && cors_mode_ != kUnspecified;
 }
 
@@ -756,6 +764,10 @@ void BufferedResourceLoader::CancelUponDeferral() {
   cancel_upon_deferral_ = true;
   if (active_loader_ && active_loader_->deferred())
     active_loader_.reset();
+}
+
+int64_t BufferedResourceLoader::GetMemoryUsage() const {
+  return buffer_.forward_bytes() + buffer_.backward_bytes();
 }
 
 bool BufferedResourceLoader::VerifyPartialResponse(

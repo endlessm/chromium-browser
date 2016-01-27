@@ -38,11 +38,12 @@
 #include "core/InputTypeNames.h"
 #include "core/dom/AXObjectCache.h"
 #include "core/dom/Document.h"
+#include "core/dom/ExecutionContextTask.h"
 #include "core/dom/IdTargetObserver.h"
 #include "core/dom/shadow/InsertionPoint.h"
 #include "core/dom/shadow/ShadowRoot.h"
 #include "core/editing/FrameSelection.h"
-#include "core/editing/SpellChecker.h"
+#include "core/editing/spellcheck/SpellChecker.h"
 #include "core/events/BeforeTextInsertedEvent.h"
 #include "core/events/KeyboardEvent.h"
 #include "core/events/MouseEvent.h"
@@ -80,7 +81,7 @@ namespace blink {
 using namespace HTMLNames;
 
 class ListAttributeTargetObserver : public IdTargetObserver {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(ListAttributeTargetObserver);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(ListAttributeTargetObserver);
 public:
     static PassOwnPtrWillBeRawPtr<ListAttributeTargetObserver> create(const AtomicString& id, HTMLInputElement*);
     DECLARE_VIRTUAL_TRACE();
@@ -119,6 +120,7 @@ HTMLInputElement::HTMLInputElement(Document& document, HTMLFormElement* form, bo
     , m_hasTouchEventHandler(false)
     , m_shouldRevealPassword(false)
     , m_needsToUpdateViewValue(true)
+    , m_isPlaceholderVisible(false)
     // |m_inputType| is lazily created when constructed by the parser to avoid
     // constructing unnecessarily a text inputType and its shadow subtree, just
     // to destroy them when the |type| attribute gets set by the parser to
@@ -339,17 +341,26 @@ bool HTMLInputElement::shouldShowFocusRingOnMouseFocus() const
     return m_inputType->shouldShowFocusRingOnMouseFocus();
 }
 
-void HTMLInputElement::updateFocusAppearance(bool restorePreviousSelection)
+void HTMLInputElement::updateFocusAppearance(SelectionBehaviorOnFocus selectionBehavior)
 {
     if (isTextField()) {
-        if (!restorePreviousSelection)
+        switch (selectionBehavior) {
+        case SelectionBehaviorOnFocus::Reset:
             select(NotDispatchSelectEvent);
-        else
+            break;
+        case SelectionBehaviorOnFocus::Restore:
             restoreCachedSelection();
+            break;
+        case SelectionBehaviorOnFocus::None:
+            // |None| is used only for FocusController::setFocusedElement and
+            // Document::setFocusedElement, and they don't call
+            // updateFocusAppearance().
+            ASSERT_NOT_REACHED();
+        }
         if (document().frame())
             document().frame()->selection().revealSelection();
     } else {
-        HTMLTextFormControlElement::updateFocusAppearance(restorePreviousSelection);
+        HTMLTextFormControlElement::updateFocusAppearance(selectionBehavior);
     }
 }
 
@@ -385,11 +396,11 @@ void HTMLInputElement::handleFocusEvent(Element* oldFocusedElement, WebFocusType
     m_inputType->enableSecureTextInput();
 }
 
-void HTMLInputElement::dispatchFocusInEvent(const AtomicString& eventType, Element* oldFocusedElement, WebFocusType type)
+void HTMLInputElement::dispatchFocusInEvent(const AtomicString& eventType, Element* oldFocusedElement, WebFocusType type, InputDeviceCapabilities* sourceCapabilities)
 {
     if (eventType == EventTypeNames::DOMFocusIn)
         m_inputTypeView->handleFocusInEvent(oldFocusedElement, type);
-    HTMLFormControlElementWithState::dispatchFocusInEvent(eventType, oldFocusedElement, type);
+    HTMLFormControlElementWithState::dispatchFocusInEvent(eventType, oldFocusedElement, type, sourceCapabilities);
 }
 
 void HTMLInputElement::handleBlurEvent()
@@ -417,8 +428,8 @@ void HTMLInputElement::updateTouchEventHandlerRegistry()
             registry.didAddEventHandler(*this, EventHandlerRegistry::TouchEvent);
         else
             registry.didRemoveEventHandler(*this, EventHandlerRegistry::TouchEvent);
+        m_hasTouchEventHandler = hasTouchEventHandler;
     }
-    m_hasTouchEventHandler = hasTouchEventHandler;
 }
 
 void HTMLInputElement::initializeTypeInParsing()
@@ -462,7 +473,7 @@ void HTMLInputElement::updateType()
     lazyReattachIfAttached();
 
     m_inputType = newType.release();
-    if (hasOpenShadowRoot())
+    if (openShadowRoot())
         m_inputTypeView = InputTypeView::create(*this);
     else
         m_inputTypeView = m_inputType;
@@ -503,7 +514,7 @@ void HTMLInputElement::updateType()
     }
 
     if (document().focusedElement() == this)
-        document().updateFocusAppearanceSoon(true /* restore selection */);
+        document().updateFocusAppearanceSoon(SelectionBehaviorOnFocus::Restore);
 
     setTextAsOfLastFormControlChangeEvent(value());
     setChangedSinceLastFormControlChangeEvent(false);
@@ -700,7 +711,7 @@ void HTMLInputElement::parseAttribute(const QualifiedName& name, const AtomicStr
     } else if (name == valueAttr) {
         // We only need to setChanged if the form is looking at the default value right now.
         if (!hasDirtyValue()) {
-            updatePlaceholderVisibility(false);
+            updatePlaceholderVisibility();
             setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::fromAttribute(valueAttr));
         }
         m_needsToUpdateViewValue = true;
@@ -830,7 +841,7 @@ void HTMLInputElement::attach(const AttachContext& context)
     m_inputType->countUsage();
 
     if (document().focusedElement() == this)
-        document().updateFocusAppearanceSoon(true /* restore selection */);
+        document().updateFocusAppearanceSoon(SelectionBehaviorOnFocus::Restore);
 }
 
 void HTMLInputElement::detach(const AttachContext& context)
@@ -871,9 +882,10 @@ void HTMLInputElement::setActivatedSubmit(bool flag)
     m_isActivatedSubmit = flag;
 }
 
-bool HTMLInputElement::appendFormData(FormDataList& encoding, bool multipart)
+void HTMLInputElement::appendToFormData(FormData& formData)
 {
-    return m_inputType->isFormDataAppendable() && m_inputType->appendFormData(encoding, multipart);
+    if (m_inputType->isFormDataAppendable())
+        m_inputType->appendToFormData(formData);
 }
 
 String HTMLInputElement::resultForDialogSubmit()
@@ -900,7 +912,13 @@ bool HTMLInputElement::isTextField() const
 void HTMLInputElement::dispatchChangeEventIfNeeded()
 {
     if (inDocument() && m_inputType->shouldSendChangeEventAfterCheckedChanged())
-        dispatchFormControlChangeEvent();
+        dispatchChangeEvent();
+}
+
+bool HTMLInputElement::checked() const
+{
+    m_inputType->readingChecked();
+    return m_isChecked;
 }
 
 void HTMLInputElement::setChecked(bool nowChecked, TextFieldEventBehavior eventBehavior)
@@ -1134,7 +1152,7 @@ void HTMLInputElement::setValueFromRenderer(const String& value)
     m_suggestedValue = String();
 
     // Renderer and our event handler are responsible for sanitizing values.
-    ASSERT(value == sanitizeValue(value) || sanitizeValue(value).isEmpty());
+    ASSERT(value == m_inputType->sanitizeUserInputValue(value) || m_inputType->sanitizeUserInputValue(value).isEmpty());
 
     m_valueIfDirty = value;
     m_needsToUpdateViewValue = false;
@@ -1173,6 +1191,8 @@ void HTMLInputElement::postDispatchEventHandler(Event* event, void* dataFromPreD
     OwnPtrWillBeRawPtr<ClickHandlingState> state = adoptPtrWillBeNoop(static_cast<ClickHandlingState*>(dataFromPreDispatch));
     if (!state)
         return;
+    // m_inputTypeView could be freed if the type attribute is modified through a change event handler.
+    RefPtrWillBeRawPtr<InputTypeView> protect(m_inputTypeView.get());
     m_inputTypeView->didDispatchClick(event, *state);
 }
 
@@ -1232,7 +1252,7 @@ void HTMLInputElement::defaultEventHandler(Event* evt)
     if (m_inputTypeView->shouldSubmitImplicitly(evt)) {
         // FIXME: Remove type check.
         if (type() == InputTypeNames::search)
-            onSearch();
+            document().postTask(BLINK_FROM_HERE, createSameThreadTask(&HTMLInputElement::onSearch, PassRefPtrWillBeRawPtr<HTMLInputElement>(this)));
         // Form submission finishes editing, just as loss of focus does.
         // If there was a change, send the event now.
         if (wasChangedSinceLastFormControlChangeEvent())
@@ -1478,11 +1498,7 @@ bool HTMLInputElement::matchesReadWritePseudoClass() const
 
 void HTMLInputElement::onSearch()
 {
-    // FIXME: Remove type check, and static_cast.
-    ASSERT(type() == InputTypeNames::search);
-    if (m_inputType)
-        static_cast<SearchInputType*>(m_inputType.get())->stopSearchEventTimer();
-    dispatchEvent(Event::createBubble(EventTypeNames::search));
+    m_inputType->dispatchSearchEvent();
 }
 
 void HTMLInputElement::updateClearButtonVisibility()
@@ -1523,6 +1539,7 @@ Node::InsertionNotificationRequest HTMLInputElement::insertedInto(ContainerNode*
 
 void HTMLInputElement::removedFrom(ContainerNode* insertionPoint)
 {
+    m_inputTypeView->closePopupView();
     if (insertionPoint->inDocument() && !form())
         removeFromRadioButtonGroup();
     HTMLTextFormControlElement::removedFrom(insertionPoint);
@@ -1538,6 +1555,8 @@ void HTMLInputElement::didMoveToNewDocument(Document& oldDocument)
     // FIXME: Remove type check.
     if (type() == InputTypeNames::radio)
         oldDocument.formController().radioButtonGroupScope().removeButton(this);
+
+    updateTouchEventHandlerRegistry();
 
     HTMLTextFormControlElement::didMoveToNewDocument(oldDocument);
 }
@@ -1656,6 +1675,11 @@ bool HTMLInputElement::supportLabels() const
 bool HTMLInputElement::shouldAppearChecked() const
 {
     return checked() && m_inputType->isCheckable();
+}
+
+void HTMLInputElement::setPlaceholderVisibility(bool visible)
+{
+    m_isPlaceholderVisible = visible;
 }
 
 bool HTMLInputElement::supportsPlaceholder() const

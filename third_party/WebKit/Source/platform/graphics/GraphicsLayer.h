@@ -36,16 +36,19 @@
 #include "platform/graphics/ContentLayerDelegate.h"
 #include "platform/graphics/GraphicsLayerClient.h"
 #include "platform/graphics/GraphicsLayerDebugInfo.h"
+#include "platform/graphics/ImageOrientation.h"
 #include "platform/graphics/PaintInvalidationReason.h"
 #include "platform/graphics/filters/FilterOperations.h"
+#include "platform/graphics/paint/CachedDisplayItem.h"
 #include "platform/graphics/paint/DisplayItemClient.h"
+#include "platform/graphics/paint/PaintController.h"
+#include "platform/heap/Handle.h"
 #include "platform/transforms/TransformationMatrix.h"
 #include "public/platform/WebCompositorAnimationDelegate.h"
 #include "public/platform/WebContentLayer.h"
 #include "public/platform/WebImageLayer.h"
 #include "public/platform/WebLayerClient.h"
 #include "public/platform/WebLayerScrollClient.h"
-#include "public/platform/WebNinePatchLayer.h"
 #include "public/platform/WebScrollBlocksOn.h"
 #include "third_party/skia/include/core/SkPaint.h"
 #include "wtf/OwnPtr.h"
@@ -54,28 +57,18 @@
 
 namespace blink {
 
-class DisplayItemList;
 class FloatRect;
 class GraphicsContext;
 class GraphicsLayer;
 class GraphicsLayerFactory;
 class GraphicsLayerFactoryChromium;
 class Image;
+class LinkHighlight;
 class JSONObject;
+class PaintController;
 class ScrollableArea;
 class WebCompositorAnimation;
 class WebLayer;
-
-// FIXME: find a better home for this declaration.
-class PLATFORM_EXPORT LinkHighlightClient {
-public:
-    virtual void invalidate() = 0;
-    virtual void clearCurrentGraphicsLayer() = 0;
-    virtual WebLayer* layer() = 0;
-
-protected:
-    virtual ~LinkHighlightClient() { }
-};
 
 typedef Vector<GraphicsLayer*, 64> GraphicsLayerVector;
 
@@ -83,7 +76,7 @@ typedef Vector<GraphicsLayer*, 64> GraphicsLayerVector;
 // which may have associated transformation and animations.
 
 class PLATFORM_EXPORT GraphicsLayer : public GraphicsContextPainter, public WebCompositorAnimationDelegate, public WebLayerScrollClient, public WebLayerClient {
-    WTF_MAKE_NONCOPYABLE(GraphicsLayer); WTF_MAKE_FAST_ALLOCATED(GraphicsLayer);
+    WTF_MAKE_NONCOPYABLE(GraphicsLayer); USING_FAST_MALLOC(GraphicsLayer);
 public:
     static PassOwnPtr<GraphicsLayer> create(GraphicsLayerFactory*, GraphicsLayerClient*);
 
@@ -187,6 +180,7 @@ public:
     void setIsRootForIsolatedGroup(bool);
 
     void setFilters(const FilterOperations&);
+    void setBackdropFilters(const FilterOperations&);
 
     void setFilterQuality(SkFilterQuality);
 
@@ -199,7 +193,10 @@ public:
 
     void setContentsNeedsDisplay();
 
-    void invalidateDisplayItemClient(const DisplayItemClientWrapper&);
+    // If |visualRect| is not nullptr, it contains all pixels within the GraphicsLayer which might be painted into by
+    // the display item client, in coordinate space of the GraphicsLayer.
+    // |visualRect| can be nullptr if we know it's unchanged and PaintController has cached the previous value.
+    void invalidateDisplayItemClient(const DisplayItemClientWrapper&, PaintInvalidationReason, const IntRect* visualRect);
 
     // Set that the position/size of the contents (image or video).
     void setContentsRect(const IntRect&);
@@ -212,8 +209,7 @@ public:
     void removeAnimation(int animationId);
 
     // Layer contents
-    void setContentsToImage(Image*);
-    void setContentsToNinePatch(Image*, const IntRect& aperture);
+    void setContentsToImage(Image*, RespectImageOrientationEnum = DoNotRespectImageOrientation);
     void setContentsToPlatformLayer(WebLayer* layer) { setContentsTo(layer); }
     bool hasContentsLayer() const { return m_contentsLayer; }
 
@@ -231,14 +227,15 @@ public:
 
     bool isTrackingPaintInvalidations() const { return m_client->isTrackingPaintInvalidations(); }
     void resetTrackedPaintInvalidations();
+    bool hasTrackedPaintInvalidations() const;
     void trackPaintInvalidationRect(const FloatRect&);
     void trackPaintInvalidationObject(const String&);
 
-    void addLinkHighlight(LinkHighlightClient*);
-    void removeLinkHighlight(LinkHighlightClient*);
+    void addLinkHighlight(LinkHighlight*);
+    void removeLinkHighlight(LinkHighlight*);
     // Exposed for tests
     unsigned numLinkHighlights() { return m_linkHighlights.size(); }
-    LinkHighlightClient* linkHighlight(int i) { return m_linkHighlights[i]; }
+    LinkHighlight* linkHighlight(int i) { return m_linkHighlights[i]; }
 
     void setScrollableArea(ScrollableArea*, bool isViewport);
     ScrollableArea* scrollableArea() const { return m_scrollableArea; }
@@ -249,7 +246,7 @@ public:
     static void unregisterContentsLayer(WebLayer*);
 
     // GraphicsContextPainter implementation.
-    void paint(GraphicsContext&, const IntRect& clip) override;
+    void paint(GraphicsContext&, const IntRect* clip) override;
 
     // WebCompositorAnimationDelegate implementation.
     void notifyAnimationStarted(double monotonicTime, int group) override;
@@ -258,10 +255,13 @@ public:
     // WebLayerScrollClient implementation.
     void didScroll() override;
 
-    DisplayItemList* displayItemList() override;
+    PaintController* paintController() override;
 
     // Exposed for tests.
-    virtual WebLayer* contentsLayer() const { return m_contentsLayer; }
+    WebLayer* contentsLayer() const { return m_contentsLayer; }
+
+    static void setDrawDebugRedFillForTesting(bool);
+    ContentLayerDelegate* contentLayerDelegateForTesting() const { return m_contentLayerDelegate.get(); }
 
 #ifndef NDEBUG
     DisplayItemClient displayItemClient() const { return toDisplayItemClient(this); }
@@ -278,9 +278,6 @@ protected:
     friend class FakeGraphicsLayerFactory;
 
 private:
-    // Callback from the underlying graphics system to draw layer contents.
-    void paintGraphicsLayerContents(GraphicsContext&, const IntRect& clip);
-
     // Adds a child without calling updateChildList(), so that adding children
     // can be batched before updating.
     void addChildInternal(GraphicsLayer*);
@@ -292,6 +289,8 @@ private:
     void setReplicatedLayer(GraphicsLayer* layer) { m_replicatedLayer = layer; }
 
     void incrementPaintCount() { ++m_paintCount; }
+
+    void notifyFirstPaintToClient();
 
     // Helper functions used by settors to keep layer's the state consistent.
     void updateChildList();
@@ -334,6 +333,10 @@ private:
     bool m_hasScrollParent : 1;
     bool m_hasClipParent : 1;
 
+    bool m_painted : 1;
+    bool m_textPainted : 1;
+    bool m_imagePainted : 1;
+
     GraphicsLayerPaintingPhase m_paintingPhase;
 
     Vector<GraphicsLayer*> m_children;
@@ -342,8 +345,9 @@ private:
     GraphicsLayer* m_maskLayer; // Reference to mask layer. We don't own this.
     GraphicsLayer* m_contentsClippingMaskLayer; // Reference to clipping mask layer. We don't own this.
 
-    GraphicsLayer* m_replicaLayer; // A layer that replicates this layer. We only allow one, for now.
-                                   // The replica is not parented; this is the primary reference to it.
+    // A layer that replicates this layer. We only allow one, for now.
+    // The replica is not parented; this is the primary reference to it.
+    GraphicsLayer* m_replicaLayer;
     GraphicsLayer* m_replicatedLayer; // For a replica layer, a reference to the original layer.
     FloatPoint m_replicatedLayerPosition; // For a replica layer, the position of the replica.
 
@@ -353,7 +357,6 @@ private:
 
     OwnPtr<WebContentLayer> m_layer;
     OwnPtr<WebImageLayer> m_imageLayer;
-    OwnPtr<WebNinePatchLayer> m_ninePatchLayer;
     WebLayer* m_contentsLayer;
     // We don't have ownership of m_contentsLayer, but we do want to know if a given layer is the
     // same as our current layer in setContentsTo(). Since m_contentsLayer may be deleted at this point,
@@ -361,15 +364,16 @@ private:
     // on.
     int m_contentsLayerId;
 
-    Vector<LinkHighlightClient*> m_linkHighlights;
+    Vector<LinkHighlight*> m_linkHighlights;
 
     OwnPtr<ContentLayerDelegate> m_contentLayerDelegate;
 
+    GC_PLUGIN_IGNORE("509911")
     ScrollableArea* m_scrollableArea;
     GraphicsLayerDebugInfo m_debugInfo;
     int m_3dRenderingContext;
 
-    OwnPtr<DisplayItemList> m_displayItemList;
+    OwnPtr<PaintController> m_paintController;
 };
 
 } // namespace blink

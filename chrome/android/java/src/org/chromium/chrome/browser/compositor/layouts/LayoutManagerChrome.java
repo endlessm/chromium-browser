@@ -12,7 +12,6 @@ import android.view.ViewGroup;
 import org.chromium.base.ObserverList;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.Tab;
 import org.chromium.chrome.browser.compositor.TitleCache;
 import org.chromium.chrome.browser.compositor.layouts.components.LayoutTab;
 import org.chromium.chrome.browser.compositor.layouts.components.VirtualView;
@@ -27,7 +26,9 @@ import org.chromium.chrome.browser.compositor.overlays.SceneOverlay;
 import org.chromium.chrome.browser.compositor.overlays.strip.StripLayoutHelperManager;
 import org.chromium.chrome.browser.contextualsearch.ContextualSearchManagementDelegate;
 import org.chromium.chrome.browser.device.DeviceClassManager;
+import org.chromium.chrome.browser.dom_distiller.ReaderModeManagerDelegate;
 import org.chromium.chrome.browser.fullscreen.FullscreenManager;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelObserver;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabCreatorManager;
@@ -77,7 +78,7 @@ public class LayoutManagerChrome
     /** Responsible for building all incognito titles. */
     protected TitleBitmapFactory mIncognitoTitleBitmapFactory;
     /** Whether or not animations are enabled.  This can disable certain layouts or effects. */
-    protected boolean mEnableAnimations = true;
+    private boolean mEnableAnimations = true;
     private boolean mCreatingNtp;
     private final ObserverList<OverviewModeObserver> mOverviewModeObservers;
     private TabModelSelectorObserver mTabModelSelectorObserver;
@@ -228,6 +229,7 @@ public class LayoutManagerChrome
     public void init(TabModelSelector selector, TabCreatorManager creator,
             TabContentManager content, ViewGroup androidContentContainer,
             ContextualSearchManagementDelegate contextualSearchDelegate,
+            ReaderModeManagerDelegate readerModeDelegate,
             DynamicResourceLoader dynamicResourceLoader) {
         // TODO: TitleCache should be a part of the ResourceManager.
         mTitleCache = mHost.getTitleCache();
@@ -238,7 +240,7 @@ public class LayoutManagerChrome
         if (mOverviewLayout != null) mOverviewLayout.setTabModelSelector(selector, content);
 
         super.init(selector, creator, content, androidContentContainer, contextualSearchDelegate,
-                dynamicResourceLoader);
+                readerModeDelegate, dynamicResourceLoader);
 
         mTabModelSelectorObserver = new EmptyTabModelSelectorObserver() {
             @Override
@@ -254,12 +256,12 @@ public class LayoutManagerChrome
 
         mTabSelectorTabObserver = new TabModelSelectorTabObserver(selector) {
             @Override
-            public void onLoadStarted(Tab tab) {
+            public void onLoadStarted(Tab tab, boolean toDifferentDocument) {
                 tabLoadStarted(tab.getId(), tab.isIncognito());
             }
 
             @Override
-            public void onLoadStopped(Tab tab) {
+            public void onLoadStopped(Tab tab, boolean toDifferentDocument) {
                 tabLoadFinished(tab.getId(), tab.isIncognito());
             }
 
@@ -676,6 +678,14 @@ public class LayoutManagerChrome
      */
     public void setEnableAnimations(boolean enabled) {
         mEnableAnimations = enabled;
+    }
+
+    /**
+     * @return Whether animations should be done for model changes.
+     */
+    @VisibleForTesting
+    public boolean animationsEnabled() {
+        return mEnableAnimations;
     }
 
     @Override

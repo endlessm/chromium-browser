@@ -101,7 +101,7 @@ class EventSender : public base::SupportsWeakPtr<EventSender> {
 
   void ClearTouchPoints();
   void ReleaseTouchPoint(unsigned index);
-  void UpdateTouchPoint(unsigned index, float x, float y);
+  void UpdateTouchPoint(unsigned index, float x, float y, gin::Arguments* args);
   void CancelTouchPoint(unsigned index);
   void SetTouchModifier(const std::string& key_name, bool set_mask);
   void SetTouchCancelable(bool cancelable);
@@ -127,7 +127,7 @@ class EventSender : public base::SupportsWeakPtr<EventSender> {
 
   void BeginDragWithFiles(const std::vector<std::string>& files);
 
-  void AddTouchPoint(gin::Arguments* args);
+  void AddTouchPoint(float x, float y, gin::Arguments* args);
 
   void MouseDragBegin();
   void MouseDragEnd();
@@ -153,10 +153,6 @@ class EventSender : public base::SupportsWeakPtr<EventSender> {
   void TrackpadScroll(gin::Arguments* args);
   void TrackpadScrollEnd();
   void MouseScrollBy(gin::Arguments* args);
-  void MouseMomentumBegin();
-  void MouseMomentumBegin2(gin::Arguments* args);
-  void MouseMomentumScrollBy(gin::Arguments* args);
-  void MouseMomentumEnd();
   void ScheduleAsynchronousClick(int button_number, int modifiers);
   void ScheduleAsynchronousKeyDown(const std::string& code_str,
                                    int modifiers,
@@ -176,6 +172,10 @@ class EventSender : public base::SupportsWeakPtr<EventSender> {
   void InitMouseWheelEvent(gin::Arguments* args,
                            bool continuous,
                            blink::WebMouseWheelEvent* event);
+  void InitPointerProperties(gin::Arguments* args,
+                             blink::WebPointerProperties* e,
+                             float* radius_x,
+                             float* radius_y);
 
   void FinishDragAndDrop(const blink::WebMouseEvent&, blink::WebDragOperation);
 
@@ -183,6 +183,8 @@ class EventSender : public base::SupportsWeakPtr<EventSender> {
   void DoMouseMove(const blink::WebMouseEvent&);
   void ReplaySavedEvents();
   bool HandleInputEventOnViewOrPopup(const blink::WebInputEvent&);
+
+  double last_event_timestamp() { return last_event_timestamp_; }
 
   bool force_layout_on_events() const { return force_layout_on_events_; }
   void set_force_layout_on_events(bool force) {
@@ -279,6 +281,8 @@ class EventSender : public base::SupportsWeakPtr<EventSender> {
 
   uint32 time_offset_ms_;
   int click_count_;
+  // Timestamp (in seconds) of the last event that was dispatched
+  double last_event_timestamp_;
 
   base::WeakPtrFactory<EventSender> weak_factory_;
 

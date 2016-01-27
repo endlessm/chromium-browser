@@ -48,7 +48,6 @@ dx
 dy
 edgeMode
 elevation
-enable-background
 end
 exponent
 fill
@@ -73,8 +72,6 @@ fr
 g1
 g2
 glyph-name
-glyph-orientation-horizontal
-glyph-orientation-vertical
 glyphRef
 gradientTransform
 gradientUnits

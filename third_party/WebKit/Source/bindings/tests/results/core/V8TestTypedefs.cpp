@@ -30,7 +30,7 @@ namespace blink {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wglobal-constructors"
 #endif
-const WrapperTypeInfo V8TestTypedefs::wrapperTypeInfo = { gin::kEmbedderBlink, V8TestTypedefs::domTemplate, V8TestTypedefs::refObject, V8TestTypedefs::derefObject, V8TestTypedefs::trace, 0, 0, V8TestTypedefs::preparePrototypeObject, V8TestTypedefs::installConditionallyEnabledProperties, "TestTypedefs", 0, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::NotInheritFromEventTarget, WrapperTypeInfo::Independent, WrapperTypeInfo::RefCountedObject };
+const WrapperTypeInfo V8TestTypedefs::wrapperTypeInfo = { gin::kEmbedderBlink, V8TestTypedefs::domTemplate, V8TestTypedefs::refObject, V8TestTypedefs::derefObject, V8TestTypedefs::trace, 0, 0, V8TestTypedefs::preparePrototypeAndInterfaceObject, V8TestTypedefs::installConditionallyEnabledProperties, "TestTypedefs", 0, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::NotInheritFromEventTarget, WrapperTypeInfo::Independent, WrapperTypeInfo::RefCountedObject };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
 #pragma clang diagnostic pop
 #endif
@@ -321,26 +321,26 @@ static void constructor(const v8::FunctionCallbackInfo<v8::Value>& info)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wglobal-constructors"
 #endif
-static const V8DOMConfiguration::AttributeConfiguration V8TestTypedefsAttributes[] = {
+const V8DOMConfiguration::AttributeConfiguration V8TestTypedefsAttributes[] = {
     {"tAttribute", v8ConstructorAttributeGetter, TestTypedefsV8Internal::tAttributeAttributeSetterCallback, 0, 0, const_cast<WrapperTypeInfo*>(&V8TestInterface::wrapperTypeInfo), static_cast<v8::AccessControl>(v8::DEFAULT), static_cast<v8::PropertyAttribute>(v8::DontEnum), V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnInstance, V8DOMConfiguration::CheckHolder},
 };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
 #pragma clang diagnostic pop
 #endif
 
-static const V8DOMConfiguration::AccessorConfiguration V8TestTypedefsAccessors[] = {
-    {"uLongLongAttribute", TestTypedefsV8Internal::uLongLongAttributeAttributeGetterCallback, TestTypedefsV8Internal::uLongLongAttributeAttributeSetterCallback, 0, 0, 0, static_cast<v8::AccessControl>(v8::DEFAULT), static_cast<v8::PropertyAttribute>(v8::None), V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype, V8DOMConfiguration::CheckHolder},
+const V8DOMConfiguration::AccessorConfiguration V8TestTypedefsAccessors[] = {
+    {"uLongLongAttribute", TestTypedefsV8Internal::uLongLongAttributeAttributeGetterCallback, TestTypedefsV8Internal::uLongLongAttributeAttributeSetterCallback, 0, 0, 0, v8::DEFAULT, static_cast<v8::PropertyAttribute>(v8::None), V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype, V8DOMConfiguration::CheckHolder},
 };
 
-static const V8DOMConfiguration::MethodConfiguration V8TestTypedefsMethods[] = {
-    {"voidMethodArrayOfLongsArg", TestTypedefsV8Internal::voidMethodArrayOfLongsArgMethodCallback, 0, 0, V8DOMConfiguration::ExposedToAllScripts},
-    {"voidMethodFloatArgStringArg", TestTypedefsV8Internal::voidMethodFloatArgStringArgMethodCallback, 0, 2, V8DOMConfiguration::ExposedToAllScripts},
-    {"voidMethodTestCallbackInterfaceTypeArg", TestTypedefsV8Internal::voidMethodTestCallbackInterfaceTypeArgMethodCallback, 0, 1, V8DOMConfiguration::ExposedToAllScripts},
-    {"uLongLongMethodTestInterfaceEmptyTypeSequenceArg", TestTypedefsV8Internal::uLongLongMethodTestInterfaceEmptyTypeSequenceArgMethodCallback, 0, 1, V8DOMConfiguration::ExposedToAllScripts},
-    {"testInterfaceOrTestInterfaceEmptyMethod", TestTypedefsV8Internal::testInterfaceOrTestInterfaceEmptyMethodMethodCallback, 0, 0, V8DOMConfiguration::ExposedToAllScripts},
-    {"domStringOrDoubleMethod", TestTypedefsV8Internal::domStringOrDoubleMethodMethodCallback, 0, 0, V8DOMConfiguration::ExposedToAllScripts},
-    {"arrayOfStringsMethodArrayOfStringsArg", TestTypedefsV8Internal::arrayOfStringsMethodArrayOfStringsArgMethodCallback, 0, 1, V8DOMConfiguration::ExposedToAllScripts},
-    {"stringArrayMethodStringArrayArg", TestTypedefsV8Internal::stringArrayMethodStringArrayArgMethodCallback, 0, 1, V8DOMConfiguration::ExposedToAllScripts},
+const V8DOMConfiguration::MethodConfiguration V8TestTypedefsMethods[] = {
+    {"voidMethodArrayOfLongsArg", TestTypedefsV8Internal::voidMethodArrayOfLongsArgMethodCallback, 0, 0, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"voidMethodFloatArgStringArg", TestTypedefsV8Internal::voidMethodFloatArgStringArgMethodCallback, 0, 2, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"voidMethodTestCallbackInterfaceTypeArg", TestTypedefsV8Internal::voidMethodTestCallbackInterfaceTypeArgMethodCallback, 0, 1, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"uLongLongMethodTestInterfaceEmptyTypeSequenceArg", TestTypedefsV8Internal::uLongLongMethodTestInterfaceEmptyTypeSequenceArgMethodCallback, 0, 1, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"testInterfaceOrTestInterfaceEmptyMethod", TestTypedefsV8Internal::testInterfaceOrTestInterfaceEmptyMethodMethodCallback, 0, 0, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"domStringOrDoubleMethod", TestTypedefsV8Internal::domStringOrDoubleMethodMethodCallback, 0, 0, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"arrayOfStringsMethodArrayOfStringsArg", TestTypedefsV8Internal::arrayOfStringsMethodArrayOfStringsArgMethodCallback, 0, 1, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"stringArrayMethodStringArrayArg", TestTypedefsV8Internal::stringArrayMethodStringArrayArgMethodCallback, 0, 1, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
 };
 
 void V8TestTypedefs::constructorCallback(const v8::FunctionCallbackInfo<v8::Value>& info)

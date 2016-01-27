@@ -55,6 +55,7 @@
 #include "platform/graphics/ImageBuffer.h"
 #include "platform/graphics/ImageObserver.h"
 #include "platform/graphics/paint/ClipRecorder.h"
+#include "platform/graphics/paint/CullRect.h"
 #include "platform/graphics/paint/DrawingRecorder.h"
 #include "platform/graphics/paint/SkPictureBuilder.h"
 #include "third_party/skia/include/core/SkPicture.h"
@@ -215,20 +216,18 @@ void SVGImage::drawForContainer(SkCanvas* canvas, const SkPaint& paint, const Fl
     draw(canvas, paint, dstRect, scaledSrc, DoNotRespectImageOrientation, ClampImageToSourceRect);
 }
 
-bool SVGImage::bitmapForCurrentFrame(SkBitmap* bitmap)
+PassRefPtr<SkImage> SVGImage::imageForCurrentFrame()
 {
     if (!m_page)
-        return false;
+        return nullptr;
 
-    OwnPtr<ImageBuffer> buffer = ImageBuffer::create(size());
-    if (!buffer)
-        return false;
+    SkPictureRecorder recorder;
+    SkCanvas* canvas = recorder.beginRecording(width(), height());
+    drawForContainer(canvas, SkPaint(), size(), 1, rect(), rect());
+    RefPtr<SkPicture> picture = adoptRef(recorder.endRecording());
 
-    SkPaint paint;
-    drawForContainer(buffer->canvas(), paint, size(), 1, rect(), rect());
-
-    *bitmap = buffer->bitmap();
-    return true;
+    return adoptRef(
+        SkImage::NewFromPicture(picture.get(), SkISize::Make(width(), height()), nullptr, nullptr));
 }
 
 void SVGImage::drawPatternForContainer(GraphicsContext* context, const FloatSize containerSize,
@@ -308,7 +307,7 @@ void SVGImage::draw(SkCanvas* canvas, const SkPaint& paint, const FloatRect& dst
         TransformRecorder transformRecorder(imagePicture.context(), *this, transform);
 
         view->updateAllLifecyclePhases();
-        view->paint(&imagePicture.context(), enclosingIntRect(srcRect));
+        view->paint(&imagePicture.context(), CullRect(enclosingIntRect(srcRect)));
         ASSERT(!view->needsLayout());
     }
 
@@ -397,6 +396,20 @@ bool SVGImage::hasAnimations() const
     return rootElement->timeContainer()->hasAnimations() || toLocalFrame(m_page->mainFrame())->document()->timeline().hasPendingUpdates();
 }
 
+void SVGImage::advanceAnimationForTesting()
+{
+    if (SVGSVGElement* rootElement = svgRootElement(m_page.get())) {
+        rootElement->timeContainer()->advanceFrameForTesting();
+
+        // The following triggers animation updates which can issue a new draw
+        // but will not permanently change the animation timeline.
+        // TODO(pdr): Actually advance the document timeline so CSS animations
+        // can be properly tested.
+        rootElement->document().page()->animator().serviceScriptedAnimations(rootElement->getCurrentTime());
+        imageObserver()->animationAdvanced(this);
+    }
+}
+
 void SVGImage::updateUseCounters(Document& document) const
 {
     if (SVGSVGElement* rootElement = svgRootElement(m_page.get())) {
@@ -420,11 +433,17 @@ bool SVGImage::dataChanged(bool allDataReceived)
         // types.
         EventDispatchForbiddenScope::AllowUserAgentEvents allowUserAgentEvents;
 
-        static FrameLoaderClient* dummyFrameLoaderClient = new EmptyFrameLoaderClient;
+        DEFINE_STATIC_LOCAL(OwnPtrWillBePersistent<FrameLoaderClient>, dummyFrameLoaderClient, (EmptyFrameLoaderClient::create()));
+
+        if (m_page) {
+            toLocalFrame(m_page->mainFrame())->loader().load(FrameLoadRequest(0, blankURL(), SubstituteData(data(), AtomicString("image/svg+xml", AtomicString::ConstructFromLiteral),
+                AtomicString("UTF-8", AtomicString::ConstructFromLiteral), KURL(), ForceSynchronousLoad)));
+            return true;
+        }
 
         Page::PageClients pageClients;
         fillWithEmptyClients(pageClients);
-        m_chromeClient = adoptPtr(new SVGImageChromeClient(this));
+        m_chromeClient = SVGImageChromeClient::create(this);
         pageClients.chromeClient = m_chromeClient.get();
 
         // FIXME: If this SVG ends up loading itself, we might leak the world.
@@ -457,7 +476,7 @@ bool SVGImage::dataChanged(bool allDataReceived)
         RefPtrWillBeRawPtr<LocalFrame> frame = nullptr;
         {
             TRACE_EVENT0("blink", "SVGImage::dataChanged::createFrame");
-            frame = LocalFrame::create(dummyFrameLoaderClient, &page->frameHost(), 0);
+            frame = LocalFrame::create(dummyFrameLoaderClient.get(), &page->frameHost(), 0);
             frame->setView(FrameView::create(frame.get()));
             frame->init();
         }

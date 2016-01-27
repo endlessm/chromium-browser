@@ -31,7 +31,7 @@ content_app_deps = [
   # picking the allocator.
   "//base/allocator",
   "//content:export",
-  "//content:startup_helper_win",
+  "//content:sandbox_helper_win",
   "//content/public/common:common_sources",
   "//content/public/common:mojo_bindings",
   "//crypto",
@@ -70,6 +70,7 @@ if (is_ios) {
 content_app_extra_configs = [
   "//build/config/compiler:wexit_time_destructors",
   "//content:content_implementation",
+  "//v8:external_startup_data",
 ]
 
 if (!is_multi_dll_chrome) {

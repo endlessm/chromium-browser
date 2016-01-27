@@ -129,6 +129,10 @@ class RenderingHelper::StubOzoneDelegate : public ui::PlatformWindowDelegate {
     accelerated_widget_ = widget;
   }
 
+  void OnAcceleratedWidgetDestroyed() override {
+    NOTREACHED();
+  }
+
   void OnActivationChanged(bool active) override {};
 
   gfx::AcceleratedWidget accelerated_widget() const {
@@ -335,7 +339,7 @@ void RenderingHelper::Initialize(const RenderingHelperParams& params,
 
   gl_surface_ = gfx::GLSurface::CreateViewGLSurface(window_);
 #if defined(USE_OZONE)
-  gl_surface_->Resize(platform_window_delegate_->GetSize());
+  gl_surface_->Resize(platform_window_delegate_->GetSize(), 1.f);
 #endif  // defined(USE_OZONE)
   screen_size_ = gl_surface_->GetSize();
 
@@ -540,7 +544,6 @@ void RenderingHelper::UnInitialize(base::WaitableEvent* done) {
     glDeleteFramebuffersEXT(1, &thumbnails_fbo_id_);
   }
 
-  gl_surface_->Destroy();
   gl_context_->ReleaseCurrent(gl_surface_.get());
   gl_context_ = NULL;
   gl_surface_ = NULL;

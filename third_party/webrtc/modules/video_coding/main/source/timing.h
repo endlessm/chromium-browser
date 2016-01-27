@@ -13,7 +13,7 @@
 
 #include "webrtc/base/thread_annotations.h"
 #include "webrtc/modules/video_coding/main/source/codec_timer.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 #include "webrtc/typedefs.h"
 
 namespace webrtc {
@@ -58,7 +58,7 @@ class VCMTiming {
   // Stops the decoder timer, should be called when the decoder returns a frame
   // or when the decoded frame callback is called.
   int32_t StopDecodeTimer(uint32_t time_stamp,
-                          int64_t start_time_ms,
+                          int32_t decode_time_ms,
                           int64_t now_ms,
                           int64_t render_time_ms);
 

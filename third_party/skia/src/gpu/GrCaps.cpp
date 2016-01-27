@@ -15,7 +15,6 @@ GrShaderCaps::GrShaderCaps() {
     fPathRenderingSupport = false;
     fDstReadInShaderSupport = false;
     fDualSourceBlendingSupport = false;
-    fMixedSamplesSupport = false;
     fShaderPrecisionVaries = false;
 }
 
@@ -51,7 +50,6 @@ SkString GrShaderCaps::dump() const {
     r.appendf("Path Rendering Support             : %s\n", gNY[fPathRenderingSupport]);
     r.appendf("Dst Read In Shader Support         : %s\n", gNY[fDstReadInShaderSupport]);
     r.appendf("Dual Source Blending Support       : %s\n", gNY[fDualSourceBlendingSupport]);
-    r.appendf("Mixed Samples Support              : %s\n", gNY[fMixedSamplesSupport]);
 
     r.appendf("Shader Float Precisions (varies: %s):\n", gNY[fShaderPrecisionVaries]);
 
@@ -75,6 +73,7 @@ SkString GrShaderCaps::dump() const {
 
 void GrShaderCaps::applyOptionsOverrides(const GrContextOptions& options) {
     fDualSourceBlendingSupport = fDualSourceBlendingSupport && !options.fSuppressDualSourceBlending;
+    this->onApplyOptionsOverrides(options);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -91,7 +90,10 @@ GrCaps::GrCaps(const GrContextOptions& options) {
     fCompressedTexSubImageSupport = false;
     fOversizedStencilSupport = false;
     fTextureBarrierSupport = false;
+    fMixedSamplesSupport = false;
     fSupportsInstancedDraws = false;
+    fFullClearIsFree = false;
+    fMustClearUploadedBufferData = false;
 
     fUseDrawInsteadOfClear = false;
 
@@ -100,23 +102,31 @@ GrCaps::GrCaps(const GrContextOptions& options) {
 
     fMapBufferFlags = kNone_MapFlags;
 
-    fMaxRenderTargetSize = 0;
-    fMaxTextureSize = 0;
-    fMinTextureSize = 0;
+    fMaxRenderTargetSize = 1;
+    fMaxTextureSize = 1;
     fMaxSampleCount = 0;
 
     memset(fConfigRenderSupport, 0, sizeof(fConfigRenderSupport));
     memset(fConfigTextureSupport, 0, sizeof(fConfigTextureSupport));
 
-    fSupressPrints = options.fSuppressPrints;
+    fSuppressPrints = options.fSuppressPrints;
+    fImmediateFlush = options.fImmediateMode;
     fDrawPathMasksToCompressedTextureSupport = options.fDrawPathToCompressedTexture;
     fGeometryBufferMapThreshold = options.fGeometryBufferMapThreshold;
     fUseDrawInsteadOfPartialRenderTargetWrite = options.fUseDrawInsteadOfPartialRenderTargetWrite;
+
+    fPreferVRAMUseOverFlushes = true;
 }
 
 void GrCaps::applyOptionsOverrides(const GrContextOptions& options) {
     fMaxTextureSize = SkTMin(fMaxTextureSize, options.fMaxTextureSizeOverride);
-    fMinTextureSize = SkTMax(fMinTextureSize, options.fMinTextureSizeOverride);
+    // If the max tile override is zero, it means we should use the max texture size.
+    if (!options.fMaxTileSizeOverride || options.fMaxTileSizeOverride > fMaxTextureSize) {
+        fMaxTileSize = fMaxTextureSize;
+    } else {
+        fMaxTileSize = options.fMaxTileSizeOverride;
+    }
+    this->onApplyOptionsOverrides(options);
 }
 
 static SkString map_flags_to_string(uint32_t flags) {
@@ -153,16 +163,20 @@ SkString GrCaps::dump() const {
     r.appendf("Compressed Update Support          : %s\n", gNY[fCompressedTexSubImageSupport]);
     r.appendf("Oversized Stencil Support          : %s\n", gNY[fOversizedStencilSupport]);
     r.appendf("Texture Barrier Support            : %s\n", gNY[fTextureBarrierSupport]);
+    r.appendf("Mixed Samples Support              : %s\n", gNY[fMixedSamplesSupport]);
     r.appendf("Supports instanced draws           : %s\n", gNY[fSupportsInstancedDraws]);
+    r.appendf("Full screen clear is free          : %s\n", gNY[fFullClearIsFree]);
+    r.appendf("Must clear buffer memory           : %s\n", gNY[fMustClearUploadedBufferData]);
     r.appendf("Draw Instead of Clear [workaround] : %s\n", gNY[fUseDrawInsteadOfClear]);
     r.appendf("Draw Instead of TexSubImage [workaround] : %s\n",
               gNY[fUseDrawInsteadOfPartialRenderTargetWrite]);
+    r.appendf("Prefer VRAM Use over flushes [workaround] : %s\n", gNY[fPreferVRAMUseOverFlushes]);
+
     if (this->advancedBlendEquationSupport()) {
         r.appendf("Advanced Blend Equation Blacklist  : 0x%x\n", fAdvBlendEqBlacklist);
     }
 
     r.appendf("Max Texture Size                   : %d\n", fMaxTextureSize);
-    r.appendf("Min Texture Size                   : %d\n", fMinTextureSize);
     r.appendf("Max Render Target Size             : %d\n", fMaxRenderTargetSize);
     r.appendf("Max Sample Count                   : %d\n", fMaxSampleCount);
 

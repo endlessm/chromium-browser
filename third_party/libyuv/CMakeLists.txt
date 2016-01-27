@@ -14,6 +14,7 @@ set(ly_source_files
   ${ly_src_dir}/compare.cc
   ${ly_src_dir}/compare_common.cc
   ${ly_src_dir}/compare_neon.cc
+  ${ly_src_dir}/compare_neon64.cc
   ${ly_src_dir}/compare_gcc.cc
   ${ly_src_dir}/compare_win.cc
   ${ly_src_dir}/convert.cc
@@ -28,13 +29,19 @@ set(ly_source_files
   ${ly_src_dir}/mjpeg_validate.cc
   ${ly_src_dir}/planar_functions.cc
   ${ly_src_dir}/rotate.cc
+  ${ly_src_dir}/rotate_any.cc
   ${ly_src_dir}/rotate_argb.cc
+  ${ly_src_dir}/rotate_common.cc
   ${ly_src_dir}/rotate_mips.cc
   ${ly_src_dir}/rotate_neon.cc
+  ${ly_src_dir}/rotate_neon64.cc
+  ${ly_src_dir}/rotate_gcc.cc
+  ${ly_src_dir}/rotate_win.cc
   ${ly_src_dir}/row_any.cc
   ${ly_src_dir}/row_common.cc
   ${ly_src_dir}/row_mips.cc
   ${ly_src_dir}/row_neon.cc
+  ${ly_src_dir}/row_neon64.cc
   ${ly_src_dir}/row_gcc.cc
   ${ly_src_dir}/row_win.cc
   ${ly_src_dir}/scale.cc
@@ -43,6 +50,7 @@ set(ly_source_files
   ${ly_src_dir}/scale_common.cc
   ${ly_src_dir}/scale_mips.cc
   ${ly_src_dir}/scale_neon.cc
+  ${ly_src_dir}/scale_neon64.cc
   ${ly_src_dir}/scale_gcc.cc
   ${ly_src_dir}/scale_win.cc
   ${ly_src_dir}/video_common.cc
@@ -59,7 +67,6 @@ set(ly_unittest_sources
   ${ly_base_dir}/unit_test/rotate_argb_test.cc
   ${ly_base_dir}/unit_test/rotate_test.cc
   ${ly_base_dir}/unit_test/scale_argb_test.cc
-  ${ly_base_dir}/unit_test/scale_color_test.cc
   ${ly_base_dir}/unit_test/scale_test.cc
   ${ly_base_dir}/unit_test/unit_test.cc
   ${ly_base_dir}/unit_test/video_common_test.cc
@@ -77,6 +84,7 @@ set(ly_header_files
   ${ly_inc_dir}/libyuv/planar_functions.h
   ${ly_inc_dir}/libyuv/rotate.h
   ${ly_inc_dir}/libyuv/rotate_argb.h
+  ${ly_inc_dir}/libyuv/rotate_row.h
   ${ly_inc_dir}/libyuv/row.h
   ${ly_inc_dir}/libyuv/scale.h
   ${ly_inc_dir}/libyuv/scale_argb.h

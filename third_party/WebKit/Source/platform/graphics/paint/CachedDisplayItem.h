@@ -10,21 +10,21 @@
 
 namespace blink {
 
-// A placeholder of DisplayItem in the new paint list of DisplayItemList, to indicate that
-// the DisplayItem has not been changed and should be replaced with the cached DisplayItem
-// when merging new paint list to cached paint list.
-class PLATFORM_EXPORT CachedDisplayItem : public DisplayItem {
+// A placeholder of a DrawingDisplayItem or a subtree in the new paint DisplayItemList,
+// to indicate that the DrawingDisplayItem/subtree has not been changed and should be replaced with
+// the cached DrawingDisplayItem/subtree when merging new paint list to cached paint list.
+class CachedDisplayItem final : public DisplayItem {
 public:
     CachedDisplayItem(const DisplayItemClientWrapper& client, Type type)
-        : DisplayItem(client, type)
+        : DisplayItem(client, type, sizeof(*this))
     {
         ASSERT(isCachedType(type));
     }
 
 private:
     // CachedDisplayItem is never replayed or appended to WebDisplayItemList.
-    void replay(GraphicsContext&) final { ASSERT_NOT_REACHED(); }
-    void appendToWebDisplayItemList(WebDisplayItemList*) const final { ASSERT_NOT_REACHED(); }
+    void replay(GraphicsContext&) const final { ASSERT_NOT_REACHED(); }
+    void appendToWebDisplayItemList(const IntRect&, WebDisplayItemList*) const final { ASSERT_NOT_REACHED(); }
 };
 
 } // namespace blink

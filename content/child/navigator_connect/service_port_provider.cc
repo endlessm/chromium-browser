@@ -71,14 +71,16 @@ void ServicePortProvider::postMessage(
           &WebMessagePortChannelImpl::ExtractMessagePortIDsWithoutQueueing,
           base::Passed(&channel_array)),
       base::Bind(&ServicePortProvider::PostMessageToBrowser, this, port_id,
-                 message));
+                 // We cast WebString to string16 before crossing threads.
+                 // for thread-safety.
+                 static_cast<base::string16>(message)));
 }
 
 void ServicePortProvider::closePort(blink::WebServicePortID port_id) {
   GetServicePortServicePtr()->ClosePort(port_id);
 }
 
-void ServicePortProvider::PostMessage(
+void ServicePortProvider::PostMessageToPort(
     int32_t port_id,
     const mojo::String& message,
     mojo::Array<MojoTransferredMessagePortPtr> ports,
@@ -96,7 +98,7 @@ void ServicePortProvider::PostMessageToBrowser(
     int port_id,
     const base::string16& message,
     const std::vector<TransferredMessagePort> ports) {
-  GetServicePortServicePtr()->PostMessage(
+  GetServicePortServicePtr()->PostMessageToPort(
       port_id, mojo::String::From(message),
       mojo::Array<MojoTransferredMessagePortPtr>::From(ports));
 }

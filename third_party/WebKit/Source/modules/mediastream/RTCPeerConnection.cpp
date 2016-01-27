@@ -34,6 +34,9 @@
 #include "bindings/core/v8/ArrayValue.h"
 #include "bindings/core/v8/ExceptionMessages.h"
 #include "bindings/core/v8/ExceptionState.h"
+#include "bindings/core/v8/Nullable.h"
+#include "bindings/core/v8/ScriptPromiseResolver.h"
+#include "bindings/modules/v8/V8RTCCertificate.h"
 #include "core/dom/Document.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/ExecutionContext.h"
@@ -41,6 +44,7 @@
 #include "core/html/VoidCallback.h"
 #include "core/loader/FrameLoader.h"
 #include "core/loader/FrameLoaderClient.h"
+#include "modules/crypto/CryptoResultImpl.h"
 #include "modules/mediastream/MediaConstraintsImpl.h"
 #include "modules/mediastream/MediaStreamEvent.h"
 #include "modules/mediastream/RTCDTMFSender.h"
@@ -57,11 +61,16 @@
 #include "platform/mediastream/RTCConfiguration.h"
 #include "platform/mediastream/RTCOfferOptions.h"
 #include "public/platform/Platform.h"
+#include "public/platform/WebCryptoAlgorithmParams.h"
+#include "public/platform/WebCryptoUtil.h"
 #include "public/platform/WebMediaStream.h"
+#include "public/platform/WebRTCCertificate.h"
+#include "public/platform/WebRTCCertificateGenerator.h"
 #include "public/platform/WebRTCConfiguration.h"
 #include "public/platform/WebRTCDataChannelHandler.h"
 #include "public/platform/WebRTCDataChannelInit.h"
 #include "public/platform/WebRTCICECandidate.h"
+#include "public/platform/WebRTCKeyParams.h"
 #include "public/platform/WebRTCOfferOptions.h"
 #include "public/platform/WebRTCSessionDescription.h"
 #include "public/platform/WebRTCSessionDescriptionRequest.h"
@@ -81,6 +90,40 @@ static bool throwExceptionIfSignalingStateClosed(RTCPeerConnection::SignalingSta
 
     return false;
 }
+
+// Helper class for RTCPeerConnection::generateCertificate.
+class WebRTCCertificateObserver : public WebCallbacks<WebRTCCertificate*, void> {
+public:
+    // The created observer is responsible for deleting itself after onSuccess/onError. To avoid memory
+    // leak the observer should therefore be used in a WebRTCCertificateGenerator::generateCertificate call
+    // which is ensured to invoke one of these. Takes ownership of |resolver|.
+    static WebRTCCertificateObserver* create(ScriptPromiseResolver* resolver)
+    {
+        return new WebRTCCertificateObserver(resolver);
+    }
+
+    DEFINE_INLINE_TRACE() { visitor->trace(m_resolver); }
+
+private:
+    WebRTCCertificateObserver(ScriptPromiseResolver* resolver)
+        : m_resolver(resolver) {}
+
+    ~WebRTCCertificateObserver() override {}
+
+    void onSuccess(WebRTCCertificate* certificate) override
+    {
+        m_resolver->resolve(new RTCCertificate(certificate));
+        delete this;
+    }
+
+    void onError() override
+    {
+        m_resolver->reject();
+        delete this;
+    }
+
+    Persistent<ScriptPromiseResolver> m_resolver;
+};
 
 } // namespace
 
@@ -192,6 +235,28 @@ RTCConfiguration* RTCPeerConnection::parseConfiguration(const Dictionary& config
             }
 
             rtcConfiguration->appendServer(RTCIceServer::create(url, username, credential));
+        }
+    }
+
+    ArrayValue certificates;
+    if (DictionaryHelper::get(configuration, "certificates", certificates) && !certificates.isUndefinedOrNull()) {
+        size_t numberOfCertificates;
+        certificates.length(numberOfCertificates);
+        for (size_t i = 0; i < numberOfCertificates; ++i) {
+            RTCCertificate* certificate = nullptr;
+
+            Dictionary dictCert;
+            certificates.get(i, dictCert);
+            v8::Local<v8::Value> valCert = dictCert.v8Value();
+            if (!valCert.IsEmpty()) {
+                certificate = V8RTCCertificate::toImplWithTypeCheck(configuration.isolate(), valCert);
+            }
+            if (!certificate) {
+                exceptionState.throwTypeError("Malformed sequence<RTCCertificate>");
+                return 0;
+            }
+
+            rtcConfiguration->appendCertificate(certificate->certificateShallowCopy());
         }
     }
 
@@ -349,7 +414,7 @@ void RTCPeerConnection::setLocalDescription(RTCSessionDescription* sessionDescri
     m_peerHandler->setLocalDescription(request, sessionDescription->webSessionDescription());
 }
 
-RTCSessionDescription* RTCPeerConnection::localDescription(ExceptionState& exceptionState)
+RTCSessionDescription* RTCPeerConnection::localDescription()
 {
     WebRTCSessionDescription webSessionDescription = m_peerHandler->localDescription();
     if (webSessionDescription.isNull())
@@ -372,7 +437,7 @@ void RTCPeerConnection::setRemoteDescription(RTCSessionDescription* sessionDescr
     m_peerHandler->setRemoteDescription(request, sessionDescription->webSessionDescription());
 }
 
-RTCSessionDescription* RTCPeerConnection::remoteDescription(ExceptionState& exceptionState)
+RTCSessionDescription* RTCPeerConnection::remoteDescription()
 {
     WebRTCSessionDescription webSessionDescription = m_peerHandler->remoteDescription();
     if (webSessionDescription.isNull())
@@ -397,6 +462,75 @@ void RTCPeerConnection::updateIce(const Dictionary& rtcConfiguration, const Dict
     bool valid = m_peerHandler->updateICE(configuration, constraints);
     if (!valid)
         exceptionState.throwDOMException(SyntaxError, "Could not update the ICE Agent with the given configuration.");
+}
+
+ScriptPromise RTCPeerConnection::generateCertificate(ScriptState* scriptState, const AlgorithmIdentifier& keygenAlgorithm, ExceptionState& exceptionState)
+{
+    // Normalize |keygenAlgorithm| with WebCrypto, making sure it is a recognized AlgorithmIdentifier.
+    WebCryptoAlgorithm cryptoAlgorithm;
+    AlgorithmError error;
+    if (!normalizeAlgorithm(keygenAlgorithm, WebCryptoOperationGenerateKey, cryptoAlgorithm, &error)) {
+        // Reject generateCertificate with the same error as was produced by WebCrypto.
+        // |result| is garbage collected, no need to delete.
+        CryptoResultImpl* result = CryptoResultImpl::create(scriptState);
+        ScriptPromise promise = result->promise();
+        result->completeWithError(error.errorType, error.errorDetails);
+        return promise;
+    }
+
+    // Convert from WebCrypto representation to recognized WebRTCKeyParams. WebRTC supports a small subset of what are valid AlgorithmIdentifiers.
+    const char* unsupportedParamsString = "The 1st argument provided is an AlgorithmIdentifier with a supported algorithm name, but the parameters are not supported.";
+    Nullable<WebRTCKeyParams> keyParams;
+    switch (cryptoAlgorithm.id()) {
+    case WebCryptoAlgorithmIdRsaSsaPkcs1v1_5:
+        // name: "RSASSA-PKCS1-v1_5"
+        unsigned publicExponent;
+        // "publicExponent" must fit in an unsigned int. The only recognized "hash" is "SHA-256".
+        if (bigIntegerToUint(cryptoAlgorithm.rsaHashedKeyGenParams()->publicExponent(), publicExponent)
+            && cryptoAlgorithm.rsaHashedKeyGenParams()->hash().id() == WebCryptoAlgorithmIdSha256) {
+            unsigned modulusLength = cryptoAlgorithm.rsaHashedKeyGenParams()->modulusLengthBits();
+            keyParams.set(blink::WebRTCKeyParams::createRSA(modulusLength, publicExponent));
+        } else {
+            return ScriptPromise::rejectWithDOMException(scriptState, DOMException::create(NotSupportedError, unsupportedParamsString));
+        }
+        break;
+    case WebCryptoAlgorithmIdEcdsa:
+        // name: "ECDSA"
+        // The only recognized "namedCurve" is "P-256".
+        if (cryptoAlgorithm.ecKeyGenParams()->namedCurve() == WebCryptoNamedCurveP256) {
+            keyParams.set(blink::WebRTCKeyParams::createECDSA(blink::WebRTCECCurveNistP256));
+        } else {
+            return ScriptPromise::rejectWithDOMException(scriptState, DOMException::create(NotSupportedError, unsupportedParamsString));
+        }
+        break;
+    default:
+        return ScriptPromise::rejectWithDOMException(scriptState, DOMException::create(NotSupportedError, "The 1st argument provided is an AlgorithmIdentifier, but the algorithm is not supported."));
+        break;
+    }
+    ASSERT(!keyParams.isNull());
+
+    OwnPtr<WebRTCCertificateGenerator> certificateGenerator = adoptPtr(
+        Platform::current()->createRTCCertificateGenerator());
+
+    // |keyParams| was successfully constructed, but does the certificate generator support these parameters?
+    if (!certificateGenerator->isSupportedKeyParams(keyParams.get())) {
+        return ScriptPromise::rejectWithDOMException(scriptState, DOMException::create(NotSupportedError, unsupportedParamsString));
+    }
+
+    ScriptPromiseResolver* resolver = ScriptPromiseResolver::create(scriptState);
+    ScriptPromise promise = resolver->promise();
+
+    WebRTCCertificateObserver* certificateObserver = WebRTCCertificateObserver::create(resolver);
+
+    // Generate certificate. The |certificateObserver| will resolve the promise asynchronously upon completion.
+    // The observer will manage its own destruction as well as the resolver's destruction.
+    certificateGenerator->generateCertificate(
+        keyParams.get(),
+        toDocument(scriptState->executionContext())->url(),
+        toDocument(scriptState->executionContext())->firstPartyForCookies(),
+        certificateObserver);
+
+    return promise;
 }
 
 void RTCPeerConnection::addIceCandidate(RTCIceCandidate* iceCandidate, ExceptionState& exceptionState)
@@ -836,9 +970,7 @@ DEFINE_TRACE(RTCPeerConnection)
     visitor->trace(m_localStreams);
     visitor->trace(m_remoteStreams);
     visitor->trace(m_dataChannels);
-#if ENABLE(OILPAN)
     visitor->trace(m_scheduledEvents);
-#endif
     RefCountedGarbageCollectedEventTargetWithInlineData<RTCPeerConnection>::trace(visitor);
     ActiveDOMObject::trace(visitor);
 }

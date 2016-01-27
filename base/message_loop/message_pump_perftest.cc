@@ -25,6 +25,11 @@ class ScheduleWorkTest : public testing::Test {
  public:
   ScheduleWorkTest() : counter_(0) {}
 
+  void SetUp() override {
+    if (base::ThreadTicks::IsSupported())
+      base::ThreadTicks::WaitUntilInitialized();
+  }
+
   void Increment(uint64_t amount) { counter_ += amount; }
 
   void Schedule(int index) {
@@ -70,6 +75,13 @@ class ScheduleWorkTest : public testing::Test {
     {
       target_.reset(new Thread("target"));
       target_->StartWithOptions(Thread::Options(target_type, 0u));
+
+      // Without this, it's possible for the scheduling threads to start and run
+      // before the target thread. In this case, the scheduling threads will
+      // call target_message_loop()->ScheduleWork(), which dereferences the
+      // loop's message pump, which is only created after the target thread has
+      // finished starting.
+      target_->WaitUntilThreadStarted();
     }
 
     ScopedVector<Thread> scheduling_threads;

@@ -47,6 +47,7 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/render_widget_host_view.h"
 #include "content/public/browser/speech_recognition_session_preamble.h"
 #include "content/public/browser/user_metrics.h"
@@ -381,7 +382,7 @@ void AppListViewDelegate::OnHotwordRecognized(
     const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble) {
   DCHECK_EQ(app_list::SPEECH_RECOGNITION_HOTWORD_LISTENING,
             speech_ui_->state());
-  ToggleSpeechRecognitionForHotword(preamble);
+  StartSpeechRecognitionForHotword(preamble);
 }
 
 void AppListViewDelegate::SigninManagerCreated(SigninManagerBase* manager) {
@@ -600,11 +601,18 @@ void AppListViewDelegate::OpenFeedback() {
                            chrome::kAppLauncherCategoryTag);
 }
 
-void AppListViewDelegate::ToggleSpeechRecognition() {
-  ToggleSpeechRecognitionForHotword(nullptr);
+void AppListViewDelegate::StartSpeechRecognition() {
+  StartSpeechRecognitionForHotword(nullptr);
 }
 
-void AppListViewDelegate::ToggleSpeechRecognitionForHotword(
+void AppListViewDelegate::StopSpeechRecognition() {
+  app_list::StartPageService* service =
+      app_list::StartPageService::Get(profile_);
+  if (service)
+    service->StopSpeechRecognition();
+}
+
+void AppListViewDelegate::StartSpeechRecognitionForHotword(
     const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble) {
   app_list::StartPageService* service =
       app_list::StartPageService::Get(profile_);
@@ -617,7 +625,7 @@ void AppListViewDelegate::ToggleSpeechRecognitionForHotword(
           app_list::SPEECH_RECOGNITION_NETWORK_ERROR, true);
       return;
     }
-    service->ToggleSpeechRecognition(preamble);
+    service->StartSpeechRecognition(preamble);
   }
 
   // With the new hotword extension, stop the hotword session. With the launcher
@@ -715,7 +723,7 @@ std::vector<views::View*> AppListViewDelegate::CreateCustomPageWebViews(
 
     // Make the webview transparent.
     content::RenderWidgetHostView* render_view_host_view =
-        web_contents->GetRenderViewHost()->GetView();
+        web_contents->GetRenderViewHost()->GetWidget()->GetView();
     // The RenderWidgetHostView may be null if the renderer has crashed.
     if (render_view_host_view)
       render_view_host_view->SetBackgroundColor(SK_ColorTRANSPARENT);

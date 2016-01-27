@@ -62,6 +62,7 @@ class MutableStylePropertySet;
 class PropertySetCSSStyleDeclaration;
 class PseudoElement;
 class ScrollState;
+class ScrollStateCallback;
 class ScrollToOptions;
 class ShadowRoot;
 class ShadowRootInit;
@@ -84,6 +85,28 @@ enum ElementFlags {
     NumberOfElementFlags = 6, // Required size of bitfield used to store the flags.
 };
 
+enum class ShadowRootType;
+
+enum class SelectionBehaviorOnFocus {
+    Reset,
+    Restore,
+    None,
+};
+
+struct FocusParams {
+    STACK_ALLOCATED();
+
+    FocusParams() {}
+    FocusParams(SelectionBehaviorOnFocus selection, WebFocusType focusType, InputDeviceCapabilities* capabilities)
+        : selectionBehavior(selection)
+        , type(focusType)
+        , sourceCapabilities(capabilities) {}
+
+    SelectionBehaviorOnFocus selectionBehavior = SelectionBehaviorOnFocus::Restore;
+    WebFocusType type = WebFocusTypeNone;
+    Member<InputDeviceCapabilities> sourceCapabilities = nullptr;
+};
+
 typedef WillBeHeapVector<RefPtrWillBeMember<Attr>> AttrNodeList;
 
 class CORE_EXPORT Element : public ContainerNode {
@@ -100,10 +123,6 @@ public:
     DEFINE_ATTRIBUTE_EVENT_LISTENER(paste);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(search);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(selectstart);
-    DEFINE_ATTRIBUTE_EVENT_LISTENER(touchcancel);
-    DEFINE_ATTRIBUTE_EVENT_LISTENER(touchend);
-    DEFINE_ATTRIBUTE_EVENT_LISTENER(touchmove);
-    DEFINE_ATTRIBUTE_EVENT_LISTENER(touchstart);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(wheel);
 
     bool hasAttribute(const QualifiedName&) const;
@@ -170,9 +189,6 @@ public:
     void scrollIntoView(bool alignToTop = true);
     void scrollIntoViewIfNeeded(bool centerIfNeeded = true);
 
-    void distributeScroll(ScrollState&);
-    void applyScroll(ScrollState&);
-
     int offsetLeft();
     int offsetTop();
     int offsetWidth();
@@ -183,12 +199,12 @@ public:
     int clientTop();
     int clientWidth();
     int clientHeight();
-    virtual double scrollLeft();
-    virtual double scrollTop();
-    virtual void setScrollLeft(double);
-    virtual void setScrollTop(double);
-    virtual int scrollWidth();
-    virtual int scrollHeight();
+    double scrollLeft();
+    double scrollTop();
+    void setScrollLeft(double);
+    void setScrollTop(double);
+    int scrollWidth();
+    int scrollHeight();
 
     void scrollBy(double x, double y);
     virtual void scrollBy(const ScrollToOptions&);
@@ -241,10 +257,10 @@ public:
     // A fast function for checking the local name against another atomic string.
     bool hasLocalName(const AtomicString& other) const { return m_tagName.localName() == other; }
 
-    const AtomicString& localName() const final { return m_tagName.localName(); }
+    const AtomicString& localName() const { return m_tagName.localName(); }
     AtomicString localNameForSelectorMatching() const;
     const AtomicString& prefix() const { return m_tagName.prefix(); }
-    const AtomicString& namespaceURI() const final { return m_tagName.namespaceURI(); }
+    const AtomicString& namespaceURI() const { return m_tagName.namespaceURI(); }
 
     const AtomicString& locateNamespacePrefix(const AtomicString& namespaceURI) const;
 
@@ -325,14 +341,20 @@ public:
 
     ElementShadow* shadow() const;
     ElementShadow& ensureShadow();
+    // If type of ShadowRoot (either closed or open) is explicitly specified, creation of multiple
+    // shadow roots is prohibited in any combination and throws an exception. Multiple shadow roots
+    // are allowed only when createShadowRoot() is used without any parameters from JavaScript.
     PassRefPtrWillBeRawPtr<ShadowRoot> createShadowRoot(const ScriptState*, ExceptionState&);
-    PassRefPtrWillBeRawPtr<ShadowRoot> createShadowRoot(const ScriptState*, const ShadowRootInit&, ExceptionState&);
-    PassRefPtrWillBeRawPtr<ShadowRoot> createShadowRoot(ExceptionState&);
-    ShadowRoot* shadowRoot() const;
+    PassRefPtrWillBeRawPtr<ShadowRoot> attachShadow(const ScriptState*, const ShadowRootInit&, ExceptionState&);
+    PassRefPtrWillBeRawPtr<ShadowRoot> createShadowRootInternal(ShadowRootType, ExceptionState&);
+
+    ShadowRoot* openShadowRoot() const;
+    ShadowRoot* closedShadowRoot() const;
+    ShadowRoot* authorShadowRoot() const;
+    ShadowRoot* userAgentShadowRoot() const;
+
     ShadowRoot* youngestShadowRoot() const;
 
-    bool hasOpenShadowRoot() const { return shadowRoot(); }
-    ShadowRoot* userAgentShadowRoot() const;
     ShadowRoot& ensureUserAgentShadowRoot();
     virtual void willAddFirstAuthorShadowRoot() { }
 
@@ -369,9 +391,18 @@ public:
     virtual const AtomicString imageSourceURL() const;
     virtual Image* imageContents() { return nullptr; }
 
-    virtual void focus(bool restorePreviousSelection = true, WebFocusType = WebFocusTypeNone);
-    virtual void updateFocusAppearance(bool restorePreviousSelection);
+    virtual void focus(const FocusParams& = FocusParams());
+    virtual void updateFocusAppearance(SelectionBehaviorOnFocus);
     virtual void blur();
+
+    void setDistributeScroll(ScrollStateCallback*, String nativeScrollBehavior);
+    void nativeDistributeScroll(ScrollState&);
+    void setApplyScroll(ScrollStateCallback*, String nativeScrollBehavior);
+    void nativeApplyScroll(ScrollState&);
+
+    void callDistributeScroll(ScrollState&);
+    void callApplyScroll(ScrollState&);
+
     // Whether this element can receive focus at all. Most elements are not
     // focusable but some elements, such as form controls and links, are. Unlike
     // layoutObjectIsFocusable(), this method may be called when layout is not up to
@@ -382,10 +413,10 @@ public:
     bool isFocusedElementInDocument() const;
     virtual bool isKeyboardFocusable() const;
     virtual bool isMouseFocusable() const;
-    virtual void dispatchFocusEvent(Element* oldFocusedElement, WebFocusType);
-    virtual void dispatchBlurEvent(Element* newFocusedElement, WebFocusType);
-    virtual void dispatchFocusInEvent(const AtomicString& eventType, Element* oldFocusedElement, WebFocusType);
-    void dispatchFocusOutEvent(const AtomicString& eventType, Element* newFocusedElement);
+    virtual void dispatchFocusEvent(Element* oldFocusedElement, WebFocusType, InputDeviceCapabilities* sourceCapabilities = nullptr);
+    virtual void dispatchBlurEvent(Element* newFocusedElement, WebFocusType, InputDeviceCapabilities* sourceCapabilities = nullptr);
+    virtual void dispatchFocusInEvent(const AtomicString& eventType, Element* oldFocusedElement, WebFocusType, InputDeviceCapabilities* sourceCapabilities = nullptr);
+    void dispatchFocusOutEvent(const AtomicString& eventType, Element* newFocusedElement, InputDeviceCapabilities* sourceCapabilities = nullptr);
 
     String innerText();
     String outerText();
@@ -552,12 +583,12 @@ protected:
 
     virtual void parserDidSetAttributes() { }
 
+private:
     void scrollLayoutBoxBy(const ScrollToOptions&);
     void scrollLayoutBoxTo(const ScrollToOptions&);
     void scrollFrameBy(const ScrollToOptions&);
     void scrollFrameTo(const ScrollToOptions&);
 
-private:
     bool hasElementFlag(ElementFlags mask) const { return hasRareData() && hasElementFlagInternal(mask); }
     void setElementFlag(ElementFlags, bool value = true);
     void clearElementFlag(ElementFlags);
@@ -583,6 +614,8 @@ private:
     bool updateFirstLetter(Element*);
 
     inline void createPseudoElementIfNeeded(PseudoId);
+
+    ShadowRoot* shadowRoot() const;
 
     // FIXME: Everyone should allow author shadows.
     virtual bool areAuthorShadowsAllowed() const { return true; }
@@ -787,9 +820,11 @@ inline Node::InsertionNotificationRequest Node::insertedInto(ContainerNode* inse
 {
     ASSERT(!childNeedsStyleInvalidation());
     ASSERT(!needsStyleInvalidation());
-    ASSERT(insertionPoint->inDocument() || isContainerNode());
-    if (insertionPoint->inDocument())
+    ASSERT(insertionPoint->inDocument() || insertionPoint->isInShadowTree() || isContainerNode());
+    if (insertionPoint->inDocument()) {
         setFlag(InDocumentFlag);
+        insertionPoint->document().incrementNodeCount();
+    }
     if (parentOrShadowHostNode()->isInShadowTree())
         setFlag(IsInShadowTreeFlag);
     if (childNeedsDistributionRecalc() && !insertionPoint->childNeedsDistributionRecalc())
@@ -800,8 +835,10 @@ inline Node::InsertionNotificationRequest Node::insertedInto(ContainerNode* inse
 inline void Node::removedFrom(ContainerNode* insertionPoint)
 {
     ASSERT(insertionPoint->inDocument() || isContainerNode() || isInShadowTree());
-    if (insertionPoint->inDocument())
+    if (insertionPoint->inDocument()) {
         clearFlag(InDocumentFlag);
+        insertionPoint->document().decrementNodeCount();
+    }
     if (isInShadowTree() && !treeScope().rootNode().isShadowRoot())
         clearFlag(IsInShadowTreeFlag);
     if (AXObjectCache* cache = document().existingAXObjectCache())

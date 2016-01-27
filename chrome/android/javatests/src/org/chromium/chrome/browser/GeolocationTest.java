@@ -10,6 +10,9 @@ import android.test.FlakyTest;
 import org.chromium.base.ThreadUtils;
 import org.chromium.chrome.browser.infobar.InfoBar;
 import org.chromium.chrome.browser.infobar.InfoBarContainer;
+import org.chromium.chrome.browser.tab.EmptyTabObserver;
+import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.test.ChromeActivityTestCaseBase;
 import org.chromium.chrome.test.util.InfoBarTestAnimationListener;
 import org.chromium.chrome.test.util.InfoBarUtil;
@@ -89,7 +92,7 @@ public class GeolocationTest extends ChromeActivityTestCaseBase<ChromeActivity> 
         final CallbackHelper loadCallback = new CallbackHelper();
         TabObserver observer = new EmptyTabObserver() {
             @Override
-            public void onLoadStopped(Tab tab) {
+            public void onLoadStopped(Tab tab, boolean toDifferentDocument) {
                 // If the device has a cached non-mock location, we won't get back our
                 // lat/long, so checking that it has "#pass" is sufficient.
                 if (tab.getUrl().startsWith(url + "#pass|")) {
@@ -126,7 +129,7 @@ public class GeolocationTest extends ChromeActivityTestCaseBase<ChromeActivity> 
         final CallbackHelper loadCallback0 = new CallbackHelper();
         TabObserver observer = new EmptyTabObserver() {
             @Override
-            public void onLoadStopped(Tab tab) {
+            public void onLoadStopped(Tab tab, boolean toDifferentDocument) {
                 // If the device has a cached non-mock location, we won't get back our
                 // lat/long, so checking that it has "#pass" is sufficient.
                 if (tab.getUrl().startsWith(url + "#pass|0|")) {
@@ -150,7 +153,7 @@ public class GeolocationTest extends ChromeActivityTestCaseBase<ChromeActivity> 
         final CallbackHelper loadCallback1 = new CallbackHelper();
         observer = new EmptyTabObserver() {
             @Override
-            public void onLoadStopped(Tab tab) {
+            public void onLoadStopped(Tab tab, boolean toDifferentDocument) {
                 // If the device has a cached non-mock location, we won't get back our
                 // lat/long, so checking that it has "#pass" is sufficient.
                 if (tab.getUrl().startsWith(url + "#pass|1|")) {

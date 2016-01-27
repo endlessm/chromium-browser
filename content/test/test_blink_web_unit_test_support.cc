@@ -21,7 +21,6 @@
 #include "content/test/weburl_loader_mock_factory.h"
 #include "media/base/media.h"
 #include "net/cookies/cookie_monster.h"
-#include "net/test/spawned_test_server/spawned_test_server.h"
 #include "storage/browser/database/vfs_backend.h"
 #include "third_party/WebKit/public/platform/WebData.h"
 #include "third_party/WebKit/public/platform/WebFileSystem.h"
@@ -111,8 +110,7 @@ TestBlinkWebUnitTestSupport::TestBlinkWebUnitTestSupport() {
   }
   renderer_scheduler_ = make_scoped_ptr(new scheduler::RendererSchedulerImpl(
       scheduler::LazySchedulerMessageLoopDelegateForTests::Create()));
-  web_thread_.reset(new scheduler::WebThreadImplForRendererScheduler(
-      renderer_scheduler_.get()));
+  web_thread_ = renderer_scheduler_->CreateMainThread();
 
   blink::initialize(this);
   blink::setLayoutTestMode(true);
@@ -181,7 +179,7 @@ blink::WebURLLoader* TestBlinkWebUnitTestSupport::createURLLoader() {
 }
 
 blink::WebString TestBlinkWebUnitTestSupport::userAgent() {
-  return blink::WebString::fromUTF8("DumpRenderTree/0.0.0.0");
+  return blink::WebString::fromUTF8("test_runner/0.0.0.0");
 }
 
 blink::WebData TestBlinkWebUnitTestSupport::loadResource(const char* name) {
@@ -224,6 +222,8 @@ blink::WebString TestBlinkWebUnitTestSupport::queryLocalizedString(
       return base::ASCIIToUTF16("<<ThisMonthLabel>>");
     case blink::WebLocalizedString::ThisWeekButtonLabel:
       return base::ASCIIToUTF16("<<ThisWeekLabel>>");
+    case blink::WebLocalizedString::ValidationValueMissing:
+      return base::ASCIIToUTF16("<<ValidationValueMissing>>");
     case blink::WebLocalizedString::WeekFormatTemplate:
       return base::ASCIIToUTF16("Week $2, $1");
     default:
@@ -312,6 +312,11 @@ void TestBlinkWebUnitTestSupport::serveAsynchronousMockedRequests() {
   url_loader_factory_->ServeAsynchronousRequests();
 }
 
+void TestBlinkWebUnitTestSupport::setLoaderDelegate(
+    blink::WebURLLoaderTestDelegate* delegate) {
+  url_loader_factory_->set_delegate(delegate);
+}
+
 blink::WebString TestBlinkWebUnitTestSupport::webKitRootDir() {
   base::FilePath path;
   PathService::Get(base::DIR_SOURCE_ROOT, &path);
@@ -361,7 +366,7 @@ void TestBlinkWebUnitTestSupport::enterRunLoop() {
 }
 
 void TestBlinkWebUnitTestSupport::exitRunLoop() {
-  base::MessageLoop::current()->Quit();
+  base::MessageLoop::current()->QuitWhenIdle();
 }
 
 void TestBlinkWebUnitTestSupport::getPluginList(

@@ -39,7 +39,8 @@ namespace blink {
 
 struct SameSizeAsElementData : public RefCountedWillBeGarbageCollectedFinalized<SameSizeAsElementData> {
     unsigned bitfield;
-    void* pointers[3];
+    RawPtrWillBeMember<void*> willbeMember;
+    void* pointers[2];
 };
 
 static_assert(sizeof(ElementData) == sizeof(SameSizeAsElementData), "ElementData should stay small");
@@ -166,7 +167,7 @@ PassRefPtrWillBeRawPtr<ShareableElementData> ShareableElementData::createWithAtt
 #if ENABLE(OILPAN)
     void* slot = Heap::allocate<ElementData>(sizeForShareableElementDataWithAttributeCount(attributes.size()));
 #else
-    void* slot = WTF::fastMalloc(sizeForShareableElementDataWithAttributeCount(attributes.size()));
+    void* slot = WTF::Partitions::fastMalloc(sizeForShareableElementDataWithAttributeCount(attributes.size()));
 #endif
     return adoptRefWillBeNoop(new (slot) ShareableElementData(attributes));
 }
@@ -206,7 +207,7 @@ PassRefPtrWillBeRawPtr<ShareableElementData> UniqueElementData::makeShareableCop
 #if ENABLE(OILPAN)
     void* slot = Heap::allocate<ElementData>(sizeForShareableElementDataWithAttributeCount(m_attributeVector.size()));
 #else
-    void* slot = WTF::fastMalloc(sizeForShareableElementDataWithAttributeCount(m_attributeVector.size()));
+    void* slot = WTF::Partitions::fastMalloc(sizeForShareableElementDataWithAttributeCount(m_attributeVector.size()));
 #endif
     return adoptRefWillBeNoop(new (slot) ShareableElementData(*this));
 }

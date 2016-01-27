@@ -9,13 +9,13 @@
 #include "base/files/file_util.h"
 #include "base/format_macros.h"
 #include "base/json/json_writer.h"
-#include "base/memory/shared_memory.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/time/time.h"
-#include "chrome/common/chrome_version_info.h"
+#include "components/tracing/tracing_switches.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/common/content_switches.h"
 #include "net/base/mime_util.h"
@@ -32,11 +32,15 @@
 using std::string;
 
 namespace {
-const char kUploadURL[] = "https://clients2.google.com/cr/staging_report";
+
+const char kUploadURL[] = "https://clients2.google.com/cr/report";
 const char kUploadContentType[] = "multipart/form-data";
 const char kMultipartBoundary[] =
     "----**--yradnuoBgoLtrapitluMklaTelgooG--**----";
 const int kHttpResponseOk = 200;
+
+// Allow up to 10MB for trace upload
+const int kMaxUploadBytes = 10000000;
 
 }  // namespace
 
@@ -103,7 +107,7 @@ void TraceCrashServiceUploader::OnURLFetchUploadProgress(
 void TraceCrashServiceUploader::DoUpload(
     const std::string& file_contents,
     UploadMode upload_mode,
-    scoped_ptr<base::DictionaryValue> metadata,
+    scoped_ptr<const base::DictionaryValue> metadata,
     const UploadProgressCallback& progress_callback,
     const UploadDoneCallback& done_callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
@@ -119,7 +123,7 @@ void TraceCrashServiceUploader::DoUploadOnFileThread(
     const std::string& file_contents,
     UploadMode upload_mode,
     const std::string& upload_url,
-    scoped_ptr<base::DictionaryValue> metadata,
+    scoped_ptr<const base::DictionaryValue> metadata,
     const UploadProgressCallback& progress_callback,
     const UploadDoneCallback& done_callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::FILE);
@@ -147,12 +151,11 @@ void TraceCrashServiceUploader::DoUploadOnFileThread(
 #error Platform not supported.
 #endif
 
-  // VersionInfo::ProductNameAndVersionForUserAgent() returns a string like
+  // version_info::GetProductNameAndVersionForUserAgent() returns a string like
   // "Chrome/aa.bb.cc.dd", split out the part before the "/".
-  chrome::VersionInfo version_info;
-  std::vector<std::string> product_components;
-  base::SplitString(version_info.ProductNameAndVersionForUserAgent(), '/',
-                    &product_components);
+  std::vector<std::string> product_components = base::SplitString(
+      version_info::GetProductNameAndVersionForUserAgent(), "/",
+      base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   DCHECK_EQ(2U, product_components.size());
   std::string version;
   if (product_components.size() == 2U) {
@@ -195,7 +198,8 @@ void TraceCrashServiceUploader::DoUploadOnFileThread(
                  base::Unretained(this), upload_url, post_data));
 }
 
-void TraceCrashServiceUploader::OnUploadError(std::string error_message) {
+void TraceCrashServiceUploader::OnUploadError(
+    const std::string& error_message) {
   LOG(ERROR) << error_message;
   content::BrowserThread::PostTask(
       content::BrowserThread::UI, FROM_HERE,
@@ -205,7 +209,7 @@ void TraceCrashServiceUploader::OnUploadError(std::string error_message) {
 void TraceCrashServiceUploader::SetupMultipart(
     const std::string& product,
     const std::string& version,
-    scoped_ptr<base::DictionaryValue> metadata,
+    scoped_ptr<const base::DictionaryValue> metadata,
     const std::string& trace_filename,
     const std::string& trace_contents,
     std::string* post_data) {

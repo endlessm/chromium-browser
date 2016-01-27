@@ -17,7 +17,7 @@
 #include "chrome/app/chrome_watcher_client_win.h"
 #include "chrome/chrome_watcher/chrome_watcher_main_api.h"
 #include "chrome/common/chrome_constants.h"
-#include "components/crash/app/crash_keys_win.h"
+#include "components/crash/content/app/crash_keys_win.h"
 #include "syzygy/kasko/api/client.h"
 
 namespace {
@@ -61,6 +61,14 @@ KaskoClient::KaskoClient(ChromeWatcherClient* chrome_watcher_client,
 
   kasko::api::InitializeClient(
       GetKaskoEndpoint(base::GetCurrentProcId()).c_str());
+
+  // Register the crash keys so that they will be available whether a crash
+  // report is triggered directly by the browser process or requested by the
+  // Chrome Watcher process.
+  size_t crash_key_count = 0;
+  const kasko::api::CrashKey* crash_keys = nullptr;
+  GetKaskoCrashKeys(&crash_keys, &crash_key_count);
+  kasko::api::RegisterCrashKeys(crash_keys, crash_key_count);
 }
 
 KaskoClient::~KaskoClient() {

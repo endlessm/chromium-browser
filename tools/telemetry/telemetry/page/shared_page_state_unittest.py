@@ -10,7 +10,7 @@ from telemetry.page import page
 from telemetry.page import page_test
 from telemetry.page import shared_page_state
 from telemetry import story as story_module
-from telemetry.testing import options_for_unittests
+from telemetry.testing import fakes
 from telemetry.util import wpr_modes
 
 
@@ -40,8 +40,8 @@ class FakeNetworkController(object):
 class SharedPageStateTests(unittest.TestCase):
 
   def setUp(self):
-    self.options = options_for_unittests.GetCopy()
-    SetUpPageRunnerArguments(self.options)
+    self.options = fakes.CreateBrowserFinderOptions()
+    self.options.use_live_sites = False
     self.options.output_formats = ['none']
     self.options.suppress_gtest_report = True
 
@@ -92,3 +92,26 @@ class SharedPageStateTests(unittest.TestCase):
         shared_page_state.Shared10InchTabletPageState, 'tablet_10_inch')
     self.assertUserAgentSetCorrectly(
         shared_page_state.SharedPageState, None)
+
+  def testBrowserStartupURLSetCorrectly(self):
+    story_set = story_module.StorySet()
+    google_page = page.Page(
+        'http://www.google.com',
+        startup_url='http://www.google.com', page_set=story_set)
+    example_page = page.Page(
+        'https://www.example.com',
+        startup_url='https://www.example.com', page_set=story_set)
+    gmail_page = page.Page(
+        'https://www.gmail.com',
+        startup_url='https://www.gmail.com', page_set=story_set)
+
+    for p in (google_page, example_page, gmail_page):
+      story_set.AddStory(p)
+
+    shared_state = shared_page_state.SharedPageState(
+        DummyTest(), self.options, story_set)
+
+    for p in (google_page, example_page, gmail_page):
+      shared_state.WillRunStory(p)
+      self.assertEquals(
+        p.startup_url, self.options.browser_options.startup_url)

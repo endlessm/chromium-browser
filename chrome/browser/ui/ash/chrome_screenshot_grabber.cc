@@ -32,13 +32,12 @@
 #include "ui/strings/grit/ui_strings.h"
 
 #if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/drive/file_system_core_util.h"
-#include "chrome/browser/chromeos/drive/file_system_interface.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
 #include "chrome/browser/chromeos/file_manager/open_util.h"
-#include "chrome/browser/notifications/desktop_notification_service.h"
-#include "chrome/browser/notifications/desktop_notification_service_factory.h"
+#include "chrome/browser/notifications/notifier_state_tracker.h"
+#include "chrome/browser/notifications/notifier_state_tracker_factory.h"
 #include "chromeos/login/login_state.h"
+#include "components/drive/file_system_interface.h"
 #endif
 
 namespace {
@@ -379,9 +378,9 @@ void ChromeScreenshotGrabber::OnScreenshotCompleted(
     return;
 
   // TODO(sschmitz): make this work for Windows.
-  DesktopNotificationService* const service =
-      DesktopNotificationServiceFactory::GetForProfile(GetProfile());
-  if (service->IsNotifierEnabled(message_center::NotifierId(
+  NotifierStateTracker* const notifier_state_tracker =
+      NotifierStateTrackerFactory::GetForProfile(GetProfile());
+  if (notifier_state_tracker->IsNotifierEnabled(message_center::NotifierId(
           message_center::NotifierId::SYSTEM_COMPONENT,
           ash::system_notifier::kNotifierScreenshot))) {
     scoped_ptr<Notification> notification(
@@ -410,7 +409,7 @@ Notification* ChromeScreenshotGrabber::CreateNotification(
     optional_field.buttons.push_back(message_center::ButtonInfo(label));
   }
   return new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE, GURL(kNotificationOriginUrl),
+      message_center::NOTIFICATION_TYPE_SIMPLE,
       l10n_util::GetStringUTF16(
           GetScreenshotNotificationTitle(screenshot_result)),
       l10n_util::GetStringUTF16(
@@ -420,7 +419,7 @@ Notification* ChromeScreenshotGrabber::CreateNotification(
       message_center::NotifierId(message_center::NotifierId::SYSTEM_COMPONENT,
                                  ash::system_notifier::kNotifierScreenshot),
       l10n_util::GetStringUTF16(IDS_MESSAGE_CENTER_NOTIFIER_SCREENSHOT_NAME),
-      notification_id, optional_field,
+      GURL(kNotificationOriginUrl), notification_id, optional_field,
       new ScreenshotGrabberNotificationDelegate(success, GetProfile(),
                                                 screenshot_path));
 }

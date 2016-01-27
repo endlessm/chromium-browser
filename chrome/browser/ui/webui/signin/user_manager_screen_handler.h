@@ -12,14 +12,15 @@
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "base/task/cancelable_task_tracker.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_metrics.h"
+#include "chrome/browser/profiles/profile_statistics.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "components/proximity_auth/screenlock_bridge.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/web_ui_message_handler.h"
-#include "google_apis/gaia/gaia_auth_consumer.h"
 #include "google_apis/gaia/gaia_oauth_client.h"
 
 class GaiaAuthFetcher;
@@ -33,7 +34,6 @@ class ListValue;
 class UserManagerScreenHandler
     : public content::WebUIMessageHandler,
       public proximity_auth::ScreenlockBridge::LockHandler,
-      public GaiaAuthConsumer,
       public gaia::GaiaOAuthClient::Delegate,
       public content::NotificationObserver {
  public:
@@ -82,15 +82,19 @@ class UserManagerScreenHandler
   void HandleRemoveUser(const base::ListValue* args);
   void HandleAttemptUnlock(const base::ListValue* args);
   void HandleHardlockUserPod(const base::ListValue* args);
+  void HandleRemoveUserWarningLoadStats(const base::ListValue* args);
+  void HandleGetRemoveWarningDialogMessage(const base::ListValue* args);
+
+  // Callback function used by HandleRemoveUserWarningLoadStats
+  void RemoveUserDialogLoadStatsCallback(
+      base::FilePath profile_path,
+      profiles::ProfileCategoryStats result);
 
   // Handle GAIA auth results.
   void OnGetTokenInfoResponse(
       scoped_ptr<base::DictionaryValue> token_info) override;
   void OnOAuthError() override;
   void OnNetworkError(int response_code) override;
-  // ClientLogin is deprecated
-  void OnClientLoginSuccess(const ClientLoginResult& result) override;
-  void OnClientLoginFailure(const GoogleServiceAuthError& error) override;
 
   // Handle when Notified of a NOTIFICATION_BROWSER_WINDOW_READY event.
   void OnBrowserWindowReady(Browser* browser);
@@ -115,14 +119,12 @@ class UserManagerScreenHandler
 
   // Authenticator used when local-auth fails.
   scoped_ptr<gaia::GaiaOAuthClient> oauth_client_;
-  scoped_ptr<GaiaAuthFetcher> client_login_;
 
-  // The index of the profile currently being authenticated.
-  size_t authenticating_profile_index_;
+  // The path of the profile currently being authenticated.
+  base::FilePath authenticating_profile_path_;
 
-  // Login email and password, held during on-line auth for later use.
-  base::string16 email_address_;
-  std::string password_attempt_;
+  // Login email held during on-line auth for later use.
+  std::string email_address_;
 
   // URL hash, used to key post-profile actions if present.
   std::string url_hash_;
@@ -133,6 +135,9 @@ class UserManagerScreenHandler
   UserAuthTypeMap user_auth_type_map_;
 
   content::NotificationRegistrar registrar_;
+
+  // The CancelableTaskTracker is currently used by GetProfileStatistics
+  base::CancelableTaskTracker tracker_;
 
   base::WeakPtrFactory<UserManagerScreenHandler> weak_ptr_factory_;
 

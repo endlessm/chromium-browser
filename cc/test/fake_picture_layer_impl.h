@@ -7,6 +7,7 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "cc/layers/picture_layer_impl.h"
+#include "cc/playback/display_list_raster_source.h"
 
 namespace cc {
 
@@ -28,7 +29,7 @@ class FakePictureLayerImpl : public PictureLayerImpl {
   static scoped_ptr<FakePictureLayerImpl> CreateWithRasterSource(
       LayerTreeImpl* tree_impl,
       int id,
-      scoped_refptr<RasterSource> raster_source) {
+      scoped_refptr<DisplayListRasterSource> raster_source) {
     bool is_mask = false;
     return make_scoped_ptr(
         new FakePictureLayerImpl(tree_impl, id, raster_source, is_mask));
@@ -38,7 +39,7 @@ class FakePictureLayerImpl : public PictureLayerImpl {
   static scoped_ptr<FakePictureLayerImpl> CreateWithPartialRasterSource(
       LayerTreeImpl* tree_impl,
       int id,
-      scoped_refptr<RasterSource> raster_source,
+      scoped_refptr<DisplayListRasterSource> raster_source,
       const gfx::Size& layer_bounds) {
     bool is_mask = false;
     return make_scoped_ptr(new FakePictureLayerImpl(
@@ -50,7 +51,7 @@ class FakePictureLayerImpl : public PictureLayerImpl {
   static scoped_ptr<FakePictureLayerImpl> CreateMaskWithRasterSource(
       LayerTreeImpl* tree_impl,
       int id,
-      scoped_refptr<RasterSource> raster_source) {
+      scoped_refptr<DisplayListRasterSource> raster_source) {
     bool is_mask = true;
     return make_scoped_ptr(
         new FakePictureLayerImpl(tree_impl, id, raster_source, is_mask));
@@ -83,7 +84,6 @@ class FakePictureLayerImpl : public PictureLayerImpl {
   using PictureLayerImpl::CanHaveTilings;
   using PictureLayerImpl::MinimumContentsScale;
   using PictureLayerImpl::SanityCheckTilingState;
-  using PictureLayerImpl::GetRecycledTwinLayer;
   using PictureLayerImpl::UpdateRasterSource;
 
   using PictureLayerImpl::UpdateIdealScales;
@@ -104,9 +104,10 @@ class FakePictureLayerImpl : public PictureLayerImpl {
   size_t num_tilings() const { return tilings_->num_tilings(); }
 
   PictureLayerTilingSet* tilings() { return tilings_.get(); }
-  RasterSource* raster_source() { return raster_source_.get(); }
-  void SetRasterSourceOnPending(scoped_refptr<RasterSource> raster_source,
-                                const Region& invalidation);
+  DisplayListRasterSource* raster_source() { return raster_source_.get(); }
+  void SetRasterSourceOnPending(
+      scoped_refptr<DisplayListRasterSource> raster_source,
+      const Region& invalidation);
   size_t append_quads_count() { return append_quads_count_; }
 
   const Region& invalidation() const { return invalidation_; }
@@ -114,6 +115,10 @@ class FakePictureLayerImpl : public PictureLayerImpl {
 
   gfx::Rect visible_rect_for_tile_priority() {
     return visible_rect_for_tile_priority_;
+  }
+
+  gfx::Transform screen_space_transform_for_tile_priority() {
+    return screen_space_transform_for_tile_priority_;
   }
 
   gfx::Rect viewport_rect_for_tile_priority_in_content_space() {
@@ -150,11 +155,11 @@ class FakePictureLayerImpl : public PictureLayerImpl {
  protected:
   FakePictureLayerImpl(LayerTreeImpl* tree_impl,
                        int id,
-                       scoped_refptr<RasterSource> raster_source,
+                       scoped_refptr<DisplayListRasterSource> raster_source,
                        bool is_mask);
   FakePictureLayerImpl(LayerTreeImpl* tree_impl,
                        int id,
-                       scoped_refptr<RasterSource> raster_source,
+                       scoped_refptr<DisplayListRasterSource> raster_source,
                        bool is_mask,
                        const gfx::Size& layer_bounds);
   FakePictureLayerImpl(LayerTreeImpl* tree_impl, int id, bool is_mask);

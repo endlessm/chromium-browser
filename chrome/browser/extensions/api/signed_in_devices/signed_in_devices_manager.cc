@@ -15,9 +15,9 @@
 #include "chrome/browser/extensions/api/signed_in_devices/signed_in_devices_api.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/common/extensions/api/signed_in_devices.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/sync_driver/device_info.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_registry.h"
@@ -78,8 +78,8 @@ void SignedInDevicesChangeObserver::OnDeviceInfoChange() {
   scoped_ptr<base::ListValue> result =
       api::signed_in_devices::OnDeviceInfoChange::Create(args);
   scoped_ptr<Event> event(new Event(
-      events::UNKNOWN, api::signed_in_devices::OnDeviceInfoChange::kEventName,
-      result.Pass()));
+      events::SIGNED_IN_DEVICES_ON_DEVICE_INFO_CHANGE,
+      api::signed_in_devices::OnDeviceInfoChange::kEventName, result.Pass()));
 
   event->restrict_to_browser_context = profile_;
 

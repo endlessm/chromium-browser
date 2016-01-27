@@ -12,14 +12,14 @@
 #include "chrome/browser/ui/android/window_android_helper.h"
 #include "chrome/browser/ui/autofill/autofill_popup_controller.h"
 #include "components/autofill/core/browser/suggestion.h"
-#include "components/autofill/core/common/autofill_switches.h"
+#include "components/autofill/core/common/autofill_util.h"
 #include "content/public/browser/android/content_view_core.h"
 #include "jni/AutofillPopupBridge_jni.h"
 #include "ui/android/view_android.h"
 #include "ui/android/window_android.h"
 #include "ui/base/resource/resource_bundle.h"
 #include "ui/gfx/android/java_bitmap.h"
-#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_f.h"
 
 namespace autofill {
 
@@ -151,10 +151,8 @@ bool AutofillPopupViewAndroid::RegisterAutofillPopupViewAndroid(JNIEnv* env) {
 // static
 AutofillPopupView* AutofillPopupView::Create(
     AutofillPopupController* controller) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableAccessorySuggestionView)) {
+  if (IsKeyboardAccessoryEnabled())
     return new AutofillKeyboardAccessoryView(controller);
-  }
 
   return new AutofillPopupViewAndroid(controller);
 }

@@ -6,7 +6,6 @@
 
 #include "base/basictypes.h"
 #include "base/command_line.h"
-#include "base/memory/scoped_vector.h"
 #include "base/memory/shared_memory.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
@@ -200,10 +199,8 @@ class FakeFrameSubscriber : public RenderWidgetHostViewFrameSubscriber {
                           scoped_refptr<media::VideoFrame>* storage,
                           DeliverFrameCallback* callback) override {
     last_present_time_ = present_time;
-    *storage = media::VideoFrame::CreateFrame(media::VideoFrame::YV12,
-                                              size_,
-                                              gfx::Rect(size_),
-                                              size_,
+    *storage = media::VideoFrame::CreateFrame(media::PIXEL_FORMAT_YV12, size_,
+                                              gfx::Rect(size_), size_,
                                               base::TimeDelta());
     *callback = base::Bind(&FakeFrameSubscriber::CallbackMethod, callback_);
     return true;
@@ -213,6 +210,7 @@ class FakeFrameSubscriber : public RenderWidgetHostViewFrameSubscriber {
 
   static void CallbackMethod(base::Callback<void(bool)> callback,
                              base::TimeTicks present_time,
+                             const gfx::Rect& region_in_frame,
                              bool success) {
     callback.Run(success);
   }
@@ -282,7 +280,7 @@ class FakeRenderWidgetHostViewAura : public RenderWidgetHostViewAura {
       GLHelper* gl_helper = ImageTransportFactory::GetInstance()->GetGLHelper();
       GLuint texture = gl_helper->ConsumeMailboxToTexture(
           last_copy_request_->texture_mailbox().mailbox(),
-          last_copy_request_->texture_mailbox().sync_point());
+          last_copy_request_->texture_mailbox().sync_token());
       gl_helper->ResizeTexture(texture, window()->bounds().size());
       gl_helper->DeleteTexture(texture);
     }
@@ -390,8 +388,9 @@ class RenderWidgetHostViewAuraTest : public testing::Test {
 
     sink_ = &process_host_->sink();
 
-    parent_host_ = new RenderWidgetHostImpl(
-        &delegate_, process_host_, MSG_ROUTING_NONE, false);
+    int32 routing_id = process_host_->GetNextRoutingID();
+    parent_host_ =
+        new RenderWidgetHostImpl(&delegate_, process_host_, routing_id, false);
     parent_view_ = new RenderWidgetHostViewAura(parent_host_,
                                                 is_guest_view_hack_);
     parent_view_->InitAsChild(NULL);
@@ -399,8 +398,9 @@ class RenderWidgetHostViewAuraTest : public testing::Test {
                                           aura_test_helper_->root_window(),
                                           gfx::Rect());
 
-    widget_host_ = new RenderWidgetHostImpl(
-        &delegate_, process_host_, MSG_ROUTING_NONE, false);
+    routing_id = process_host_->GetNextRoutingID();
+    widget_host_ =
+        new RenderWidgetHostImpl(&delegate_, process_host_, routing_id, false);
     widget_host_->Init();
     view_ = new FakeRenderWidgetHostViewAura(widget_host_, is_guest_view_hack_);
   }
@@ -1111,17 +1111,11 @@ TEST_F(RenderWidgetHostViewAuraTest, TouchEventState) {
   // Start with no touch-event handler in the renderer.
   widget_host_->OnMessageReceived(ViewHostMsg_HasTouchEventHandlers(0, false));
 
-  ui::TouchEvent press(ui::ET_TOUCH_PRESSED,
-                       gfx::Point(30, 30),
-                       0,
+  ui::TouchEvent press(ui::ET_TOUCH_PRESSED, gfx::Point(30, 30), 0,
                        ui::EventTimeForNow());
-  ui::TouchEvent move(ui::ET_TOUCH_MOVED,
-                      gfx::Point(20, 20),
-                      0,
+  ui::TouchEvent move(ui::ET_TOUCH_MOVED, gfx::Point(20, 20), 0,
                       ui::EventTimeForNow());
-  ui::TouchEvent release(ui::ET_TOUCH_RELEASED,
-                         gfx::Point(20, 20),
-                         0,
+  ui::TouchEvent release(ui::ET_TOUCH_RELEASED, gfx::Point(20, 20), 0,
                          ui::EventTimeForNow());
 
   // The touch events should get forwarded from the view, but they should not
@@ -1177,14 +1171,14 @@ TEST_F(RenderWidgetHostViewAuraTest, TouchEventState) {
   EXPECT_EQ(0U, GetSentMessageCountAndResetSink());
 
   ui::TouchEvent move2(ui::ET_TOUCH_MOVED, gfx::Point(20, 20), 0,
-      base::Time::NowFromSystemTime() - base::Time());
+                       base::Time::NowFromSystemTime() - base::Time());
   view_->OnTouchEvent(&move2);
   EXPECT_TRUE(press.synchronous_handling_disabled());
   EXPECT_EQ(ui::MotionEvent::ACTION_MOVE, pointer_state().GetAction());
   EXPECT_EQ(1U, pointer_state().GetPointerCount());
 
   ui::TouchEvent release2(ui::ET_TOUCH_RELEASED, gfx::Point(20, 20), 0,
-      base::Time::NowFromSystemTime() - base::Time());
+                          base::Time::NowFromSystemTime() - base::Time());
   view_->OnTouchEvent(&release2);
   EXPECT_TRUE(press.synchronous_handling_disabled());
   EXPECT_EQ(0U, pointer_state().GetPointerCount());
@@ -1285,17 +1279,11 @@ TEST_F(RenderWidgetHostViewAuraTest, TouchEventSyncAsync) {
 
   widget_host_->OnMessageReceived(ViewHostMsg_HasTouchEventHandlers(0, true));
 
-  ui::TouchEvent press(ui::ET_TOUCH_PRESSED,
-                       gfx::Point(30, 30),
-                       0,
+  ui::TouchEvent press(ui::ET_TOUCH_PRESSED, gfx::Point(30, 30), 0,
                        ui::EventTimeForNow());
-  ui::TouchEvent move(ui::ET_TOUCH_MOVED,
-                      gfx::Point(20, 20),
-                      0,
+  ui::TouchEvent move(ui::ET_TOUCH_MOVED, gfx::Point(20, 20), 0,
                       ui::EventTimeForNow());
-  ui::TouchEvent release(ui::ET_TOUCH_RELEASED,
-                         gfx::Point(20, 20),
-                         0,
+  ui::TouchEvent release(ui::ET_TOUCH_RELEASED, gfx::Point(20, 20), 0,
                          ui::EventTimeForNow());
 
   view_->OnTouchEvent(&press);
@@ -1903,8 +1891,9 @@ TEST_F(RenderWidgetHostViewAuraTest, DiscardDelegatedFrames) {
 
   // Create a bunch of renderers.
   for (size_t i = 0; i < renderer_count; ++i) {
-    hosts[i] = new RenderWidgetHostImpl(
-        &delegate_, process_host_, MSG_ROUTING_NONE, false);
+    int32 routing_id = process_host_->GetNextRoutingID();
+    hosts[i] =
+        new RenderWidgetHostImpl(&delegate_, process_host_, routing_id, false);
     hosts[i]->Init();
     views[i] = new FakeRenderWidgetHostViewAura(hosts[i], false);
     views[i]->InitAsChild(NULL);
@@ -2066,8 +2055,9 @@ TEST_F(RenderWidgetHostViewAuraTest, DiscardDelegatedFramesWithLocking) {
 
   // Create a bunch of renderers.
   for (size_t i = 0; i < renderer_count; ++i) {
-    hosts[i] = new RenderWidgetHostImpl(
-        &delegate_, process_host_, MSG_ROUTING_NONE, false);
+    int32 routing_id = process_host_->GetNextRoutingID();
+    hosts[i] =
+        new RenderWidgetHostImpl(&delegate_, process_host_, routing_id, false);
     hosts[i]->Init();
     views[i] = new FakeRenderWidgetHostViewAura(hosts[i], false);
     views[i]->InitAsChild(NULL);
@@ -2134,8 +2124,9 @@ TEST_F(RenderWidgetHostViewAuraTest, DiscardDelegatedFramesWithMemoryPressure) {
 
   // Create a bunch of renderers.
   for (size_t i = 0; i < renderer_count; ++i) {
-    hosts[i] = new RenderWidgetHostImpl(
-        &delegate_, process_host_, MSG_ROUTING_NONE, false);
+    int32 routing_id = process_host_->GetNextRoutingID();
+    hosts[i] =
+        new RenderWidgetHostImpl(&delegate_, process_host_, routing_id, false);
     hosts[i]->Init();
     views[i] = new FakeRenderWidgetHostViewAura(hosts[i], false);
     views[i]->InitAsChild(NULL);
@@ -2495,10 +2486,10 @@ TEST_F(RenderWidgetHostViewAuraTest, TouchEventPositionsArentRounded) {
   view_->InitAsChild(NULL);
   view_->Show();
 
-  ui::TouchEvent press(ui::ET_TOUCH_PRESSED,
-                       gfx::PointF(kX, kY),
-                       0,
+  ui::TouchEvent press(ui::ET_TOUCH_PRESSED, gfx::Point(), 0,
                        ui::EventTimeForNow());
+  press.set_location_f(gfx::PointF(kX, kY));
+  press.set_root_location_f(gfx::PointF(kX, kY));
 
   view_->OnTouchEvent(&press);
   EXPECT_EQ(ui::MotionEvent::ACTION_DOWN, pointer_state().GetAction());
@@ -2588,8 +2579,10 @@ TEST_F(RenderWidgetHostViewAuraOverscrollTest,
   EXPECT_EQ(OVERSCROLL_NONE, overscroll_mode());
 
   // Indicate the end of the scrolling from the touchpad.
+  SimulateGestureEvent(WebInputEvent::GestureScrollBegin,
+                       blink::WebGestureDeviceTouchscreen);
   SimulateGestureFlingStartEvent(-1200.f, 0.f, blink::WebGestureDeviceTouchpad);
-  EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
+  EXPECT_EQ(2U, GetSentMessageCountAndResetSink());
 
   // Start another scroll. This time, do not consume any scroll events.
   SimulateWheelEvent(0, -5, 0, true);    // sent directly
@@ -2708,9 +2701,11 @@ TEST_F(RenderWidgetHostViewAuraOverscrollTest,
   // Send a fling start, but with a small velocity, so that the overscroll is
   // aborted. The fling should proceed to the renderer, through the gesture
   // event filter.
+  SimulateGestureEvent(WebInputEvent::GestureScrollBegin,
+                       blink::WebGestureDeviceTouchscreen);
   SimulateGestureFlingStartEvent(0.f, 0.1f, blink::WebGestureDeviceTouchpad);
   EXPECT_EQ(OVERSCROLL_NONE, overscroll_mode());
-  EXPECT_EQ(1U, sink_->message_count());
+  EXPECT_EQ(2U, sink_->message_count());
 }
 
 // Same as ScrollEventsOverscrollWithFling, but with zero velocity. Checks that
@@ -2750,9 +2745,11 @@ TEST_F(RenderWidgetHostViewAuraOverscrollTest,
   // Send a fling start, but with a small velocity, so that the overscroll is
   // aborted. The fling should proceed to the renderer, through the gesture
   // event filter.
+  SimulateGestureEvent(WebInputEvent::GestureScrollBegin,
+                       blink::WebGestureDeviceTouchscreen);
   SimulateGestureFlingStartEvent(10.f, 0.f, blink::WebGestureDeviceTouchpad);
   EXPECT_EQ(OVERSCROLL_NONE, overscroll_mode());
-  EXPECT_EQ(1U, sink_->message_count());
+  EXPECT_EQ(2U, sink_->message_count());
 }
 
 // Tests that a fling in the opposite direction of the overscroll cancels the
@@ -2971,8 +2968,7 @@ TEST_F(RenderWidgetHostViewAuraOverscrollTest,
   // will reset the state. The scroll-end should therefore be dispatched to the
   // renderer, and the gesture-event-filter should await an ACK for it.
   base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::MessageLoop::QuitClosure(),
+      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
       base::TimeDelta::FromMilliseconds(15));
   base::MessageLoop::current()->Run();
 
@@ -3079,8 +3075,7 @@ TEST_F(RenderWidgetHostViewAuraOverscrollTest, OverscrollWithTouchEvents) {
   SimulateGestureEvent(blink::WebInputEvent::GestureScrollEnd,
                        blink::WebGestureDeviceTouchscreen);
   base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::MessageLoop::QuitClosure(),
+      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
       base::TimeDelta::FromMilliseconds(10));
   base::MessageLoop::current()->Run();
   EXPECT_EQ(1U, sink_->message_count());
@@ -3126,8 +3121,7 @@ TEST_F(RenderWidgetHostViewAuraOverscrollTest,
                        blink::WebGestureDeviceTouchscreen);
   EXPECT_EQ(0U, sink_->message_count());
   base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::MessageLoop::QuitClosure(),
+      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
       base::TimeDelta::FromMilliseconds(10));
   base::MessageLoop::current()->Run();
   EXPECT_EQ(OVERSCROLL_NONE, overscroll_mode());
@@ -3162,8 +3156,7 @@ TEST_F(RenderWidgetHostViewAuraOverscrollTest,
                        blink::WebGestureDeviceTouchscreen);
   EXPECT_EQ(0U, sink_->message_count());
   base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::MessageLoop::QuitClosure(),
+      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
       base::TimeDelta::FromMilliseconds(10));
   base::MessageLoop::current()->Run();
   EXPECT_EQ(OVERSCROLL_NONE, overscroll_mode());
@@ -3335,9 +3328,11 @@ TEST_F(RenderWidgetHostViewAuraOverscrollTest,
 
   // Touchpad scroll can end with a zero-velocity fling. But it is not
   // dispatched, but it should still reset the overscroll controller state.
+  SimulateGestureEvent(WebInputEvent::GestureScrollBegin,
+                       blink::WebGestureDeviceTouchscreen);
   SimulateGestureFlingStartEvent(0.f, 0.f, blink::WebGestureDeviceTouchpad);
   EXPECT_TRUE(ScrollStateIsUnknown());
-  EXPECT_EQ(0U, sink_->message_count());
+  EXPECT_EQ(1U, sink_->message_count());
 
   // Dropped flings should neither propagate *nor* indicate that they were
   // consumed and have triggered a fling animation (as tracked by the router).
@@ -3347,7 +3342,7 @@ TEST_F(RenderWidgetHostViewAuraOverscrollTest,
   SimulateWheelEvent(-60, 0, 0, true);   // enqueued
   SimulateWheelEvent(-100, 0, 0, true);  // coalesced into previous event
   EXPECT_TRUE(ScrollStateIsUnknown());
-  EXPECT_EQ(1U, GetSentMessageCountAndResetSink());
+  EXPECT_EQ(2U, GetSentMessageCountAndResetSink());
 
   // The first wheel scroll did not scroll content. Overscroll should not start
   // yet, since enough hasn't been scrolled.
@@ -3362,11 +3357,14 @@ TEST_F(RenderWidgetHostViewAuraOverscrollTest,
   EXPECT_TRUE(ScrollStateIsOverscrolling());
   EXPECT_EQ(0U, sink_->message_count());
 
+  // The GestureScrollBegin will reset the delegate's mode, so check it here.
+  EXPECT_EQ(OVERSCROLL_WEST, overscroll_delegate()->current_mode());
+  SimulateGestureEvent(WebInputEvent::GestureScrollBegin,
+                       blink::WebGestureDeviceTouchscreen);
   SimulateGestureFlingStartEvent(0.f, 0.f, blink::WebGestureDeviceTouchpad);
   EXPECT_EQ(OVERSCROLL_NONE, overscroll_mode());
-  EXPECT_EQ(OVERSCROLL_WEST, overscroll_delegate()->completed_mode());
   EXPECT_TRUE(ScrollStateIsUnknown());
-  EXPECT_EQ(0U, sink_->message_count());
+  EXPECT_EQ(1U, sink_->message_count());
   EXPECT_FALSE(parent_host_->input_router()->HasPendingEvents());
 }
 
@@ -3513,7 +3511,7 @@ TEST_F(RenderWidgetHostViewAuraTest, SetCanScrollForWebMouseWheelEvent) {
 
   // Simulates the scroll event with ctrl modifier applied.
   ui::ScrollEvent scroll(ui::ET_SCROLL, gfx::Point(2, 2), ui::EventTimeForNow(),
-      ui::EF_CONTROL_DOWN, 0, 5, 0, 5, 2);
+                         ui::EF_CONTROL_DOWN, 0, 5, 0, 5, 2);
   view_->OnScrollEvent(&scroll);
 
   input_event = GetInputEventFromMessage(*sink_->GetMessageAt(0));
@@ -3530,15 +3528,15 @@ TEST_F(RenderWidgetHostViewAuraTest, CorrectNumberOfAcksAreDispatched) {
   view_->Show();
   view_->UseFakeDispatcher();
 
-  ui::TouchEvent press1(
-      ui::ET_TOUCH_PRESSED, gfx::Point(30, 30), 0, ui::EventTimeForNow());
+  ui::TouchEvent press1(ui::ET_TOUCH_PRESSED, gfx::Point(30, 30), 0,
+                        ui::EventTimeForNow());
 
   view_->OnTouchEvent(&press1);
   SendTouchEventACK(blink::WebInputEvent::TouchStart,
                     INPUT_EVENT_ACK_STATE_CONSUMED, press1.unique_event_id());
 
-  ui::TouchEvent press2(
-      ui::ET_TOUCH_PRESSED, gfx::Point(20, 20), 1, ui::EventTimeForNow());
+  ui::TouchEvent press2(ui::ET_TOUCH_PRESSED, gfx::Point(20, 20), 1,
+                        ui::EventTimeForNow());
   view_->OnTouchEvent(&press2);
   SendTouchEventACK(blink::WebInputEvent::TouchStart,
                     INPUT_EVENT_ACK_STATE_CONSUMED, press2.unique_event_id());
@@ -3586,6 +3584,8 @@ TEST_F(RenderWidgetHostViewAuraOverscrollTest, ScrollDeltasResetOnEnd) {
   EXPECT_EQ(OVERSCROLL_NONE, overscroll_mode());
   EXPECT_EQ(15.f, overscroll_delta_x());
   EXPECT_EQ(-5.f, overscroll_delta_y());
+  SimulateGestureEvent(WebInputEvent::GestureScrollBegin,
+                       blink::WebGestureDeviceTouchscreen);
   SimulateGestureFlingStartEvent(0.f, 0.1f, blink::WebGestureDeviceTouchpad);
   EXPECT_EQ(0.f, overscroll_delta_x());
   EXPECT_EQ(0.f, overscroll_delta_y());

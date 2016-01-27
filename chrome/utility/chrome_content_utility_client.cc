@@ -33,9 +33,9 @@
 #if !defined(OS_ANDROID)
 #include "chrome/common/resource_usage_reporter.mojom.h"
 #include "chrome/utility/profile_import_handler.h"
+#include "mojo/public/cpp/bindings/strong_binding.h"
 #include "net/proxy/mojo_proxy_resolver_factory_impl.h"
 #include "net/proxy/proxy_resolver_v8.h"
-#include "third_party/mojo/src/mojo/public/cpp/bindings/strong_binding.h"
 #endif
 
 #if defined(OS_WIN)
@@ -44,11 +44,8 @@
 #endif
 
 #if defined(ENABLE_EXTENSIONS)
-#include "chrome/common/extensions/chrome_utility_extensions_messages.h"
 #include "chrome/utility/extensions/extensions_handler.h"
 #include "chrome/utility/image_writer/image_writer_handler.h"
-#include "chrome/utility/media_galleries/ipc_data_source.h"
-#include "chrome/utility/media_galleries/media_metadata_parser.h"
 #endif
 
 #if defined(ENABLE_PRINT_PREVIEW) || defined(OS_WIN)
@@ -57,6 +54,10 @@
 
 #if defined(ENABLE_MDNS)
 #include "chrome/utility/local_discovery/service_discovery_message_handler.h"
+#endif
+
+#if defined(OS_MACOSX) && defined(FULL_SAFE_BROWSING)
+#include "chrome/utility/safe_browsing/mac/dmg_analyzer.h"
 #endif
 
 namespace {
@@ -68,17 +69,6 @@ bool Send(IPC::Message* message) {
 void ReleaseProcessIfNeeded() {
   content::UtilityThread::Get()->ReleaseProcessIfNeeded();
 }
-
-#if defined(ENABLE_EXTENSIONS)
-void FinishParseMediaMetadata(
-    metadata::MediaMetadataParser* /* parser */,
-    const extensions::api::media_galleries::MediaMetadata& metadata,
-    const std::vector<metadata::AttachedImage>& attached_images) {
-  Send(new ChromeUtilityHostMsg_ParseMediaMetadata_Finished(
-      true, *metadata.ToValue(), attached_images));
-  ReleaseProcessIfNeeded();
-}
-#endif
 
 #if !defined(OS_ANDROID)
 void CreateProxyResolverFactory(
@@ -131,7 +121,7 @@ ChromeContentUtilityClient::ChromeContentUtilityClient()
 #endif
 
 #if defined(ENABLE_EXTENSIONS)
-  handlers_.push_back(new extensions::ExtensionsHandler());
+  handlers_.push_back(new extensions::ExtensionsHandler(this));
   handlers_.push_back(new image_writer::ImageWriterHandler());
 #endif
 
@@ -192,11 +182,11 @@ bool ChromeContentUtilityClient::OnMessageReceived(
 #if defined(FULL_SAFE_BROWSING)
     IPC_MESSAGE_HANDLER(ChromeUtilityMsg_AnalyzeZipFileForDownloadProtection,
                         OnAnalyzeZipFileForDownloadProtection)
-#endif
-#if defined(ENABLE_EXTENSIONS)
-    IPC_MESSAGE_HANDLER(ChromeUtilityMsg_ParseMediaMetadata,
-                        OnParseMediaMetadata)
-#endif
+#if defined(OS_MACOSX)
+    IPC_MESSAGE_HANDLER(ChromeUtilityMsg_AnalyzeDmgFileForDownloadProtection,
+                        OnAnalyzeDmgFileForDownloadProtection)
+#endif  // defined(OS_MACOSX)
+#endif  // defined(FULL_SAFE_BROWSING)
 #if defined(OS_CHROMEOS)
     IPC_MESSAGE_HANDLER(ChromeUtilityMsg_CreateZipFile, OnCreateZipFile)
 #endif
@@ -219,6 +209,11 @@ void ChromeContentUtilityClient::RegisterMojoServices(
   registry->AddService<ResourceUsageReporter>(
       base::Bind(CreateResourceUsageReporter));
 #endif
+}
+
+void ChromeContentUtilityClient::AddHandler(
+    scoped_ptr<UtilityMessageHandler> handler) {
+  handlers_.push_back(handler.Pass());
 }
 
 // static
@@ -291,6 +286,7 @@ void ChromeContentUtilityClient::OnDecodeImage(
     const std::vector<unsigned char>& encoded_data,
     bool shrink_to_fit,
     int request_id) {
+  content::UtilityThread::Get()->EnsureBlinkInitialized();
   DecodeImageAndSend(encoded_data, shrink_to_fit, request_id);
 }
 
@@ -395,19 +391,17 @@ void ChromeContentUtilityClient::OnAnalyzeZipFileForDownloadProtection(
       results));
   ReleaseProcessIfNeeded();
 }
-#endif
 
-#if defined(ENABLE_EXTENSIONS)
-// TODO(thestig): Try to move this to
-// chrome/utility/extensions/extensions_handler.cc.
-void ChromeContentUtilityClient::OnParseMediaMetadata(
-    const std::string& mime_type, int64 total_size, bool get_attached_images) {
-  // Only one IPCDataSource may be created and added to the list of handlers.
-  metadata::IPCDataSource* source = new metadata::IPCDataSource(total_size);
-  handlers_.push_back(source);
-
-  metadata::MediaMetadataParser* parser = new metadata::MediaMetadataParser(
-      source, mime_type, get_attached_images);
-  parser->Start(base::Bind(&FinishParseMediaMetadata, base::Owned(parser)));
+#if defined(OS_MACOSX)
+void ChromeContentUtilityClient::OnAnalyzeDmgFileForDownloadProtection(
+    const IPC::PlatformFileForTransit& dmg_file) {
+  safe_browsing::zip_analyzer::Results results;
+  safe_browsing::dmg::AnalyzeDMGFile(
+      IPC::PlatformFileForTransitToFile(dmg_file), &results);
+  Send(new ChromeUtilityHostMsg_AnalyzeDmgFileForDownloadProtection_Finished(
+      results));
+  ReleaseProcessIfNeeded();
 }
-#endif
+#endif  // defined(OS_MACOSX)
+
+#endif  // defined(FULL_SAFE_BROWSING)

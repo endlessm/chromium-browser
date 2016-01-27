@@ -5,6 +5,7 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_vector.h"
 #include "base/metrics/field_trial.h"
 #include "chrome/browser/chrome_notification_types.h"
@@ -141,11 +142,10 @@ TEST_F(BrowserInstantControllerTest, DefaultSearchProviderChanged) {
 
     if (test.should_reload) {
       // Validate final instant state.
-      EXPECT_EQ(
-          test.end_in_instant_process,
-          chrome::ShouldAssignURLToInstantRenderer(
-              observer->current_url(), profile()))
-        << test.description;
+      EXPECT_EQ(test.end_in_instant_process,
+                search::ShouldAssignURLToInstantRenderer(
+                    observer->current_url(), profile()))
+          << test.description;
     }
 
     // Ensure only the expected tabs(contents) reloaded.
@@ -185,11 +185,10 @@ TEST_F(BrowserInstantControllerTest, GoogleBaseURLUpdated) {
     FakeWebContentsObserver* observer = observers[i];
 
     // Validate final instant state.
-    EXPECT_EQ(
-        test.end_in_instant_process,
-        chrome::ShouldAssignURLToInstantRenderer(
-            observer->current_url(), profile()))
-      << test.description;
+    EXPECT_EQ(test.end_in_instant_process,
+              search::ShouldAssignURLToInstantRenderer(observer->current_url(),
+                                                       profile()))
+        << test.description;
 
     // Ensure only the expected tabs(contents) reloaded.
     EXPECT_EQ(test.should_reload ? 1 : 0, observer->num_reloads())

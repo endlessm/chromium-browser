@@ -95,6 +95,7 @@ for (var bb = 0; bb < bufferTypes.length; ++bb) {
       return gl.getBufferParameter(bufferType, parameter);
     };
   }(bufferType));
+  gl.bindBuffer(bufferType, null);
 }
 testInvalidArgument(
     "getBufferParameter",
@@ -104,6 +105,7 @@ testInvalidArgument(
       return gl.getBufferParameter(target, gl.BUFFER_SIZE);
     }
 );
+wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 
 debug("");
 debug("Test getFramebufferAttachmentParameter");
@@ -130,7 +132,10 @@ var renderbuffer = gl.createRenderbuffer();
 wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 gl.bindRenderbuffer(gl.RENDERBUFFER, renderbuffer);
 wtu.glErrorShouldBe(gl, gl.NO_ERROR);
-gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, 2, 2);
+if (contextVersion == 1)
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, 2, 2);
+else
+  gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, 2, 2);
 wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, renderbuffer);
 if (contextVersion > 1)
@@ -171,7 +176,7 @@ if (contextVersion > 1) {
   shouldBeNonZero('gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING)');
   shouldBeNonZero('gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.STENCIL_ATTACHMENT, gl.FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE)');
   shouldBeNonZero('gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.STENCIL_ATTACHMENT, gl.FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING)');
-  shouldBeNonZero('gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE)');
+  wtu.shouldGenerateGLError(gl, gl.INVALID_OPERATION, 'gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE)');
   shouldBeNonZero('gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING)');
 }
 var validParametersForFBAttachment =
@@ -279,6 +284,7 @@ if (contextVersion > 1) {
       }
   );
 }
+wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 
 debug("");
 debug("Test getProgramParameter");
@@ -292,12 +298,15 @@ if (contextVersion > 1) {
   var buffer = gl.createBuffer();
   gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, buffer);
   gl.bufferData(gl.TRANSFORM_FEEDBACK_BUFFER, 1024, gl.DYNAMIC_DRAW);
+  var uniformBlockProgram = wtu.loadUniformBlockProgram(gl);
   var transformFeedbackVars = ["normal", "ecPosition"];
   gl.transformFeedbackVaryings(uniformBlockProgram, transformFeedbackVars, gl.INTERLEAVED_ATTRIBS);
-  var uniformBlockProgram = wtu.loadUniformBlockProgram(gl);
-  shouldBe('gl.getProgramParameter(standardProgram, gl.ACTIVE_UNIFORM_BLOCKS)', '1');
-  shouldBe('gl.getProgramParameter(standardProgram, gl.TRANSFORM_FEEDBACK_VARYINGS)', '2');
-  shouldBe('gl.getProgramParameter(standardProgram, gl.TRANSFORM_FEEDBACK_BUFFER_MODE)', 'gl.INTERLEAVED_ATTRIBS');
+  gl.linkProgram(uniformBlockProgram);
+  shouldBe('gl.getProgramParameter(uniformBlockProgram, gl.LINK_STATUS)', 'true');
+  shouldBe('gl.getError()', 'gl.NO_ERROR');
+  shouldBe('gl.getProgramParameter(uniformBlockProgram, gl.ACTIVE_UNIFORM_BLOCKS)', '1');
+  shouldBe('gl.getProgramParameter(uniformBlockProgram, gl.TRANSFORM_FEEDBACK_VARYINGS)', '2');
+  shouldBe('gl.getProgramParameter(uniformBlockProgram, gl.TRANSFORM_FEEDBACK_BUFFER_MODE)', 'gl.INTERLEAVED_ATTRIBS');
 }
 var program = standardProgram;
 var validArrayForProgramParameter = [
@@ -307,13 +316,13 @@ var validArrayForProgramParameter = [
     gl.ATTACHED_SHADERS,
     gl.ACTIVE_ATTRIBUTES,
     gl.ACTIVE_UNIFORMS
-]
+];
 if (contextVersion > 1) {
-  validArrayForProgramParameter += [
+  validArrayForProgramParameter = validArrayForProgramParameter.concat([
       gl.ACTIVE_UNIFORM_BLOCKS,
       gl.TRANSFORM_FEEDBACK_VARYINGS,
       gl.TRANSFORM_FEEDBACK_BUFFER_MODE
-  ]
+  ]);
   program = uniformBlockProgram;
 }
 testInvalidArgument(
@@ -324,6 +333,7 @@ testInvalidArgument(
       return gl.getProgramParameter(program, parameter);
     }
 );
+wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 
 debug("");
 debug("Test getRenderbufferParameter");
@@ -373,7 +383,9 @@ testInvalidArgument(
     [ gl.RENDERBUFFER ],
     function(target) {
       return gl.getRenderbufferParameter(target, gl.RENDERBUFFER_WIDTH);
-    });
+    }
+);
+wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 
 debug("");
 debug("Test getShaderParameter");
@@ -391,6 +403,7 @@ testInvalidArgument(
       return gl.getShaderParameter(standardVert, parameter);
     }
 );
+wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 
 debug("");
 debug("Test getTexParameter");
@@ -420,26 +433,26 @@ if (contextVersion > 1) {
   shouldBe('gl.getTexParameter(gl.TEXTURE_2D, gl.TEXTURE_MIN_LOD)', '0');
   shouldBe('gl.getTexParameter(gl.TEXTURE_2D, gl.TEXTURE_WRAP_R)', 'gl.CLAMP_TO_EDGE');
   shouldBe('gl.getTexParameter(gl.TEXTURE_2D, gl.TEXTURE_IMMUTABLE_FORMAT)', 'false');
-  shouldBeNonZero('gl.getTexParameter(gl.TEXTURE_2D, gl.TEXTURE_IMMUTABLE_LEVEL)');
+  shouldBe('gl.getTexParameter(gl.TEXTURE_2D, gl.TEXTURE_IMMUTABLE_LEVELS)', '0');
 }
-var validParametersForTexture =
-    [ gl.TEXTURE_MAG_FILTER,
-      gl.TEXTURE_MIN_FILTER,
-      gl.TEXTURE_WRAP_S,
-      gl.TEXTURE_WRAP_T
-    ];
+var validParametersForTexture = [
+    gl.TEXTURE_MAG_FILTER,
+    gl.TEXTURE_MIN_FILTER,
+    gl.TEXTURE_WRAP_S,
+    gl.TEXTURE_WRAP_T,
+];
 if (contextVersion > 1) {
-  validParametersForTexture +=
-      [ gl.TEXTURE_BASE_LEVEL,
-        gl.TEXTURE_COMPARE_FUNC,
-        gl.TEXTURE_COMPARE_MODE,
-        gl.TEXTURE_MAX_LEVEL,
-        gl.TEXTURE_MAX_LOD,
-        gl.TEXTURE_MIN_LOD,
-        gl.TEXTURE_WRAP_R,
-        gl.TEXTURE_IMMUTABLE_FORMAT,
-        gl.TEXTURE_IMMUTABLE_LEVEL
-      ];
+  validParametersForTexture = validParametersForTexture.concat([
+      gl.TEXTURE_BASE_LEVEL,
+      gl.TEXTURE_COMPARE_FUNC,
+      gl.TEXTURE_COMPARE_MODE,
+      gl.TEXTURE_MAX_LEVEL,
+      gl.TEXTURE_MAX_LOD,
+      gl.TEXTURE_MIN_LOD,
+      gl.TEXTURE_WRAP_R,
+      gl.TEXTURE_IMMUTABLE_FORMAT,
+      gl.TEXTURE_IMMUTABLE_LEVELS,
+  ]);
 }
 testInvalidArgument(
     "getTexParameter",
@@ -451,7 +464,7 @@ testInvalidArgument(
 );
 var validTargetsForTexture = [ gl.TEXTURE_2D, gl.TEXTURE_CUBE_MAP];
 if (contextVersion > 1) {
-  validTargetsForTexture += [ gl.TEXTURE_3D, gl.TEXTURE_2D_ARRAY];
+  validTargetsForTexture = validTargetsForTexture.concat([ gl.TEXTURE_3D, gl.TEXTURE_2D_ARRAY]);
 }
 testInvalidArgument(
     "getTexParameter",
@@ -461,10 +474,11 @@ testInvalidArgument(
       return gl.getTexParameter(target, gl.TEXTURE_MAG_FILTER);
     }
 );
+wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 
 debug("");
 debug("Test getUniform with all variants of data types");
-// Boolean uniform variables
+debug("Boolean uniform variables");
 var boolProgram = wtu.loadProgramFromFile(gl, "../../resources/boolUniformShader.vert", "../../resources/noopUniformShader.frag");
 shouldBe('gl.getProgramParameter(boolProgram, gl.LINK_STATUS)', 'true');
 var bvalLoc = gl.getUniformLocation(boolProgram, "bval");
@@ -481,7 +495,9 @@ shouldBe('gl.getUniform(boolProgram, bvalLoc)', 'true');
 shouldBe('gl.getUniform(boolProgram, bval2Loc)', '[true, false]');
 shouldBe('gl.getUniform(boolProgram, bval3Loc)', '[true, false, true]');
 shouldBe('gl.getUniform(boolProgram, bval4Loc)', '[true, false, true, false]');
-// Integer uniform variables
+wtu.glErrorShouldBe(gl, gl.NO_ERROR);
+
+debug("Integer uniform variables");
 var intProgram = wtu.loadProgramFromFile(gl, "../../resources/intUniformShader.vert", "../../resources/noopUniformShader.frag");
 shouldBe('gl.getProgramParameter(intProgram, gl.LINK_STATUS)', 'true');
 var ivalLoc = gl.getUniformLocation(intProgram, "ival");
@@ -498,7 +514,9 @@ shouldBe('gl.getUniform(intProgram, ivalLoc)', '1');
 shouldBe('gl.getUniform(intProgram, ival2Loc)', '[2, 3]');
 shouldBe('gl.getUniform(intProgram, ival3Loc)', '[4, 5, 6]');
 shouldBe('gl.getUniform(intProgram, ival4Loc)', '[7, 8, 9, 10]');
-// Float uniform variables
+wtu.glErrorShouldBe(gl, gl.NO_ERROR);
+
+debug("Float uniform variables");
 var floatProgram = wtu.loadProgramFromFile(gl, "../../resources/floatUniformShader.vert", "../../resources/noopUniformShader.frag");
 shouldBe('gl.getProgramParameter(floatProgram, gl.LINK_STATUS)', 'true');
 var fvalLoc = gl.getUniformLocation(floatProgram, "fval");
@@ -515,7 +533,9 @@ shouldBe('gl.getUniform(floatProgram, fvalLoc)', '11');
 shouldBe('gl.getUniform(floatProgram, fval2Loc)', '[12, 13]');
 shouldBe('gl.getUniform(floatProgram, fval3Loc)', '[14, 15, 16]');
 shouldBe('gl.getUniform(floatProgram, fval4Loc)', '[17, 18, 19, 20]');
-// Sampler uniform variables
+wtu.glErrorShouldBe(gl, gl.NO_ERROR);
+
+debug("Sampler uniform variables");
 var samplerProgram = wtu.loadProgramFromFile(gl, "../../resources/noopUniformShader.vert", "../../resources/samplerUniformShader.frag");
 shouldBe('gl.getProgramParameter(samplerProgram, gl.LINK_STATUS)', 'true');
 var s2DValLoc = gl.getUniformLocation(samplerProgram, "s2D");
@@ -526,7 +546,9 @@ gl.uniform1i(sCubeValLoc, 1);
 wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 shouldBe('gl.getUniform(samplerProgram, s2DValLoc)', '0');
 shouldBe('gl.getUniform(samplerProgram, sCubeValLoc)', '1');
-// Matrix uniform variables
+wtu.glErrorShouldBe(gl, gl.NO_ERROR);
+
+debug("Matrix uniform variables");
 var matProgram = wtu.loadProgramFromFile(gl, "../../resources/matUniformShader.vert", "../../resources/noopUniformShader.frag");
 shouldBe('gl.getProgramParameter(matProgram, gl.LINK_STATUS)', 'true');
 var mval2Loc = gl.getUniformLocation(matProgram, "mval2");
@@ -540,9 +562,11 @@ wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 shouldBe('gl.getUniform(matProgram, mval2Loc)', '[1, 2, 3, 4]');
 shouldBe('gl.getUniform(matProgram, mval3Loc)', '[5, 6, 7, 8, 9, 10, 11, 12, 13]');
 shouldBe('gl.getUniform(matProgram, mval4Loc)', '[14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]');
+wtu.glErrorShouldBe(gl, gl.NO_ERROR);
+
 if (contextVersion > 1) {
-  // Unsigned Integer uniform variables
-  var uintProgram = wtu.loadProgramFromFile(gl, "../../resources/uintUniformShader.vert", "../../resources/noopUniformShader.frag");
+  debug("Unsigned Integer uniform variables");
+  var uintProgram = wtu.loadProgramFromFile(gl, "../../resources/uintUniformShader.vert", "../../resources/noopUniformShaderES3.frag");
   shouldBe('gl.getProgramParameter(uintProgram, gl.LINK_STATUS)', 'true');
   var uvalLoc = gl.getUniformLocation(uintProgram, "uval");
   var uval2Loc = gl.getUniformLocation(uintProgram, "uval2");
@@ -558,22 +582,26 @@ if (contextVersion > 1) {
   shouldBe('gl.getUniform(uintProgram, uval2Loc)', '[2, 3]');
   shouldBe('gl.getUniform(uintProgram, uval3Loc)', '[4, 5, 6]');
   shouldBe('gl.getUniform(uintProgram, uval4Loc)', '[7, 8, 9, 10]');
-  // Matrix uniform variables for WebGL 2
-  var matForWebGL2Program = wtu.loadProgramFromFile(gl, "/resources/matForWebGL2UniformShader.vert", "/resources/noopUniformShader.frag");
+  wtu.glErrorShouldBe(gl, gl.NO_ERROR);
+
+  debug("Matrix uniform variables for WebGL 2");
+  wtu.glErrorShouldBe(gl, gl.NO_ERROR);
+
+  var matForWebGL2Program = wtu.loadProgramFromFile(gl, "../../resources/matForWebGL2UniformShader.vert", "../../resources/noopUniformShaderES3.frag");
   shouldBe('gl.getProgramParameter(matForWebGL2Program, gl.LINK_STATUS)', 'true');
-  var mval2x3Loc = gl.getUniformLocation(matProgram, "mval2x3");
-  var mval2x4Loc = gl.getUniformLocation(matProgram, "mval2x4");
-  var mval3x2Loc = gl.getUniformLocation(matProgram, "mval3x2");
-  var mval3x4Loc = gl.getUniformLocation(matProgram, "mval3x4");
-  var mval4x2Loc = gl.getUniformLocation(matProgram, "mval4x2");
-  var mval4x3Loc = gl.getUniformLocation(matProgram, "mval4x3");
+  var mval2x3Loc = gl.getUniformLocation(matForWebGL2Program, "mval2x3");
+  var mval2x4Loc = gl.getUniformLocation(matForWebGL2Program, "mval2x4");
+  var mval3x2Loc = gl.getUniformLocation(matForWebGL2Program, "mval3x2");
+  var mval3x4Loc = gl.getUniformLocation(matForWebGL2Program, "mval3x4");
+  var mval4x2Loc = gl.getUniformLocation(matForWebGL2Program, "mval4x2");
+  var mval4x3Loc = gl.getUniformLocation(matForWebGL2Program, "mval4x3");
   gl.useProgram(matForWebGL2Program);
   gl.uniformMatrix2x3fv(mval2x3Loc, false, [1, 2, 3, 4, 5, 6]);
   gl.uniformMatrix2x4fv(mval2x4Loc, false, [7, 8, 9, 10, 11, 12, 13, 14]);
   gl.uniformMatrix3x2fv(mval3x2Loc, false, [15, 16, 17, 18, 19, 20]);
   gl.uniformMatrix3x4fv(mval3x4Loc, false, [21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]);
   gl.uniformMatrix4x2fv(mval4x2Loc, false, [33, 34, 35, 36, 37, 38, 39, 40]);
-  gl.uniformMatrix4x3fv(mval4x2Loc, false, [41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52]);
+  gl.uniformMatrix4x3fv(mval4x3Loc, false, [41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52]);
   wtu.glErrorShouldBe(gl, gl.NO_ERROR);
   shouldBe('gl.getUniform(matForWebGL2Program, mval2x3Loc)', '[1, 2, 3, 4, 5, 6]');
   shouldBe('gl.getUniform(matForWebGL2Program, mval2x4Loc)', '[7, 8, 9, 10, 11, 12, 13, 14]');
@@ -581,8 +609,10 @@ if (contextVersion > 1) {
   shouldBe('gl.getUniform(matForWebGL2Program, mval3x4Loc)', '[21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]');
   shouldBe('gl.getUniform(matForWebGL2Program, mval4x2Loc)', '[33, 34, 35, 36, 37, 38, 39, 40]');
   shouldBe('gl.getUniform(matForWebGL2Program, mval4x3Loc)', '[41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52]');
-  // Sampler uniform variables for WebGL2
-  var samplerForWebGL2Program = wtu.loadProgramFromFile(gl, "../../resources/noopUniformShader.vert", "../../resources/samplerForWebGL2UniformShader.frag");
+  wtu.glErrorShouldBe(gl, gl.NO_ERROR);
+
+  debug("Sampler uniform variables for WebGL2");
+  var samplerForWebGL2Program = wtu.loadProgramFromFile(gl, "../../resources/noopUniformShaderES3.vert", "../../resources/samplerForWebGL2UniformShader.frag");
   shouldBe('gl.getProgramParameter(samplerForWebGL2Program, gl.LINK_STATUS)', 'true');
   var s3DValLoc = gl.getUniformLocation(samplerForWebGL2Program, "s3D");
   var s2DArrayValLoc = gl.getUniformLocation(samplerForWebGL2Program, "s2DArray");
@@ -592,6 +622,7 @@ if (contextVersion > 1) {
   wtu.glErrorShouldBe(gl, gl.NO_ERROR);
   shouldBe('gl.getUniform(samplerForWebGL2Program, s3DValLoc)', '0');
   shouldBe('gl.getUniform(samplerForWebGL2Program, s2DArrayValLoc)', '1');
+  wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 }
 
 debug("");
@@ -667,6 +698,92 @@ gl.deleteRenderbuffer(renderbuffer);
 shouldBe('gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE)', 'gl.NONE');
 gl.deleteBuffer(buffer);
 shouldBeNull('gl.getVertexAttrib(1, gl.VERTEX_ATTRIB_ARRAY_BUFFER_BINDING)');
+wtu.glErrorShouldBe(gl, gl.NO_ERROR);
+
+if (contextVersion > 1) {
+    debug("");
+    debug("Test getInternalformatParameter")
+
+    gl.bindRenderbuffer(gl.RENDERBUFFER, renderbuffer);
+    wtu.glErrorShouldBe(gl, gl.NO_ERROR);
+    shouldBeNonNull('gl.getInternalformatParameter(gl.RENDERBUFFER, gl.R32I, gl.SAMPLES)');
+    wtu.glErrorShouldBe(gl, gl.NO_ERROR);
+
+    testInvalidArgument(
+        "getInternalformatParameter",
+        "target",
+        [ gl.RENDERBUFFER ],
+        function(target) {
+            return gl.getInternalformatParameter(target, gl.R32I, gl.SAMPLES);
+    });
+
+    testInvalidArgument(
+        "getInternalformatParameter",
+        "pname",
+        [ gl.SAMPLES ],
+        function(pname) {
+            return gl.getInternalformatParameter(gl.RENDERBUFFER, gl.RGBA4, pname);
+    });
+
+    var validArrayForInterformat = new Array(
+        gl.R8, gl.R8_SNORM, gl.RG8, gl.RG8_SNORM,
+        gl.RGB8, gl.RGB8_SNORM, gl.RGB565, gl.RGBA4,
+        gl.RGB5_A1, gl.RGBA8, gl.RGBA8_SNORM, gl.RGB10_A2,
+        gl.RGB10_A2UI, gl.SRGB8, gl.SRGB8_ALPHA8, gl.R16F,
+        gl.RG16F, gl.RGB16F, gl.RGBA16F, gl.R32F,
+        gl.RG32F, gl.RGB32F, gl.RGBA32F, gl.R11F_G11F_B10F,
+        gl.RGB9_E5, gl.R8I, gl.R8UI, gl.R16I,
+        gl.R16UI, gl.R32I, gl.R32UI, gl.RG8I,
+        gl.RG8UI, gl.RG16I, gl.RG16UI, gl.RG32I,
+        gl.RG32UI, gl.RGB8I, gl.RGB8UI, gl.RGB16I,
+        gl.RGB16UI, gl.RGB32I, gl.RGB32UI, gl.RGBA8I,
+        gl.RGBA8UI, gl.RGBA16I, gl.RGBA16UI, gl.RGBA32I,
+        gl.RGBA32UI, gl.RGB, gl.RGBA, gl.DEPTH_COMPONENT16,
+        gl.DEPTH_COMPONENT24, gl.DEPTH_COMPONENT32F, gl.DEPTH24_STENCIL8,
+        gl.DEPTH32F_STENCIL8, gl.STENCIL_INDEX8
+    );
+    testInvalidArgument(
+        "getInternalformatParameter",
+        "internalformat",
+        validArrayForInterformat,
+        function(internalformat) {
+            return gl.getInternalformatParameter(gl.RENDERBUFFER, internalformat, gl.SAMPLES);
+    });
+
+
+    debug("");
+    debug("Test getIndexedParameter");
+    var buffer = gl.createBuffer();
+    gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, buffer);
+    gl.bufferData(gl.TRANSFORM_FEEDBACK_BUFFER, 64, gl.DYNAMIC_DRAW);
+    gl.bindBufferRange(gl.TRANSFORM_FEEDBACK_BUFFER, 0, buffer, 4, 8);
+    shouldBe('gl.getIndexedParameter(gl.TRANSFORM_FEEDBACK_BUFFER_BINDING, 0)', 'buffer');
+    shouldBe('gl.getIndexedParameter(gl.TRANSFORM_FEEDBACK_BUFFER_SIZE, 0)', '8');
+    shouldBe('gl.getIndexedParameter(gl.TRANSFORM_FEEDBACK_BUFFER_START, 0)', '4');
+    var buffer1 = gl.createBuffer();
+    gl.bindBuffer(gl.UNIFORM_BUFFER, buffer1);
+    gl.bufferData(gl.UNIFORM_BUFFER, 64, gl.DYNAMIC_DRAW);
+    var offsetUniform = gl.getParameter(gl.UNIFORM_BUFFER_OFFSET_ALIGNMENT);
+    gl.bindBufferRange(gl.UNIFORM_BUFFER, 1, buffer1, offsetUniform, 8);
+    shouldBe('gl.getIndexedParameter(gl.UNIFORM_BUFFER_BINDING, 1)', 'buffer1');
+    shouldBe('gl.getIndexedParameter(gl.UNIFORM_BUFFER_SIZE, 1)', '8');
+    shouldBe('gl.getIndexedParameter(gl.UNIFORM_BUFFER_START, 1)', 'offsetUniform');
+    var validArrayForTarget = new Array(
+        gl.TRANSFORM_FEEDBACK_BUFFER_BINDING,
+        gl.TRANSFORM_FEEDBACK_BUFFER_SIZE,
+        gl.TRANSFORM_FEEDBACK_BUFFER_START,
+        gl.UNIFORM_BUFFER_BINDING,
+        gl.UNIFORM_BUFFER_SIZE,
+        gl.UNIFORM_BUFFER_START
+    );
+    testInvalidArgument(
+        "getIndexedParameter",
+        "target",
+        validArrayForTarget,
+        function(target) {
+            return gl.getIndexedParameter(target, 0);
+    });
+}
 wtu.glErrorShouldBe(gl, gl.NO_ERROR);
 
 var successfullyParsed = true;

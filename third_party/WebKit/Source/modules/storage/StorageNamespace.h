@@ -38,6 +38,7 @@ class SecurityOrigin;
 class StorageArea;
 
 class MODULES_EXPORT StorageNamespace {
+    USING_FAST_MALLOC(StorageNamespace);
 public:
     explicit StorageNamespace(PassOwnPtr<WebStorageNamespace>);
     ~StorageNamespace();

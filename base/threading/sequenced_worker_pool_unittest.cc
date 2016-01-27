@@ -904,6 +904,49 @@ TEST_F(SequencedWorkerPoolTest, FlushForTesting) {
   pool()->FlushForTesting();
 }
 
+namespace {
+
+void CheckWorkerPoolAndSequenceToken(
+    const scoped_refptr<SequencedWorkerPool>& expected_pool,
+    SequencedWorkerPool::SequenceToken expected_token) {
+  SequencedWorkerPool::SequenceToken token =
+      SequencedWorkerPool::GetSequenceTokenForCurrentThread();
+  EXPECT_EQ(expected_token.ToString(), token.ToString());
+
+  scoped_refptr<SequencedWorkerPool> pool =
+      SequencedWorkerPool::GetWorkerPoolForCurrentThread();
+  EXPECT_EQ(expected_pool, pool);
+}
+
+}  // namespace
+
+TEST_F(SequencedWorkerPoolTest, GetWorkerPoolAndSequenceTokenForCurrentThread) {
+  EnsureAllWorkersCreated();
+
+  // The current thread should have neither a worker pool nor a sequence token.
+  SequencedWorkerPool::SequenceToken local_token =
+      SequencedWorkerPool::GetSequenceTokenForCurrentThread();
+  scoped_refptr<SequencedWorkerPool> local_pool =
+      SequencedWorkerPool::GetWorkerPoolForCurrentThread();
+  EXPECT_FALSE(local_token.IsValid()) << local_token.ToString();
+  EXPECT_FALSE(local_pool);
+
+  SequencedWorkerPool::SequenceToken token1 = pool()->GetSequenceToken();
+  SequencedWorkerPool::SequenceToken token2 = pool()->GetSequenceToken();
+  pool()->PostSequencedWorkerTask(
+      token1, FROM_HERE,
+      base::Bind(&CheckWorkerPoolAndSequenceToken, pool(), token1));
+  pool()->PostSequencedWorkerTask(
+      token2, FROM_HERE,
+      base::Bind(&CheckWorkerPoolAndSequenceToken, pool(), token2));
+
+  pool()->PostWorkerTask(FROM_HERE,
+                         base::Bind(&CheckWorkerPoolAndSequenceToken, pool(),
+                                    SequencedWorkerPool::SequenceToken()));
+
+  pool()->FlushForTesting();
+}
+
 TEST(SequencedWorkerPoolRefPtrTest, ShutsDownCleanWithContinueOnShutdown) {
   MessageLoop loop;
   scoped_refptr<SequencedWorkerPool> pool(new SequencedWorkerPool(3, "Pool"));
@@ -948,6 +991,8 @@ class SequencedWorkerPoolTaskRunnerTestDelegate {
 INSTANTIATE_TYPED_TEST_CASE_P(
     SequencedWorkerPool, TaskRunnerTest,
     SequencedWorkerPoolTaskRunnerTestDelegate);
+INSTANTIATE_TYPED_TEST_CASE_P(SequencedWorkerPool, TaskRunnerAffinityTest,
+                              SequencedWorkerPoolTaskRunnerTestDelegate);
 
 class SequencedWorkerPoolTaskRunnerWithShutdownBehaviorTestDelegate {
  public:
@@ -984,6 +1029,9 @@ class SequencedWorkerPoolTaskRunnerWithShutdownBehaviorTestDelegate {
 
 INSTANTIATE_TYPED_TEST_CASE_P(
     SequencedWorkerPoolTaskRunner, TaskRunnerTest,
+    SequencedWorkerPoolTaskRunnerWithShutdownBehaviorTestDelegate);
+INSTANTIATE_TYPED_TEST_CASE_P(
+    SequencedWorkerPoolTaskRunner, TaskRunnerAffinityTest,
     SequencedWorkerPoolTaskRunnerWithShutdownBehaviorTestDelegate);
 
 class SequencedWorkerPoolSequencedTaskRunnerTestDelegate {
@@ -1022,9 +1070,16 @@ class SequencedWorkerPoolSequencedTaskRunnerTestDelegate {
 INSTANTIATE_TYPED_TEST_CASE_P(
     SequencedWorkerPoolSequencedTaskRunner, TaskRunnerTest,
     SequencedWorkerPoolSequencedTaskRunnerTestDelegate);
+INSTANTIATE_TYPED_TEST_CASE_P(
+    SequencedWorkerPoolSequencedTaskRunner, TaskRunnerAffinityTest,
+    SequencedWorkerPoolSequencedTaskRunnerTestDelegate);
 
 INSTANTIATE_TYPED_TEST_CASE_P(
     SequencedWorkerPoolSequencedTaskRunner, SequencedTaskRunnerTest,
+    SequencedWorkerPoolSequencedTaskRunnerTestDelegate);
+INSTANTIATE_TYPED_TEST_CASE_P(
+    SequencedWorkerPoolSequencedTaskRunner,
+    SequencedTaskRunnerDelayedTest,
     SequencedWorkerPoolSequencedTaskRunnerTestDelegate);
 
 }  // namespace

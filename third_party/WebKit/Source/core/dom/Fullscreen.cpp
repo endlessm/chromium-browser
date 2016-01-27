@@ -34,6 +34,7 @@
 #include "core/events/Event.h"
 #include "core/frame/FrameHost.h"
 #include "core/frame/LocalFrame.h"
+#include "core/frame/OriginsUsingFeatures.h"
 #include "core/frame/Settings.h"
 #include "core/frame/UseCounter.h"
 #include "core/html/HTMLIFrameElement.h"
@@ -66,7 +67,7 @@ static bool fullscreenIsSupported(const Document& document)
     return !document.settings() || document.settings()->fullscreenSupported();
 }
 
-static bool fullscreenElementReady(const Element& element, Fullscreen::RequestType requestType)
+static bool fullscreenElementReady(const Element& element)
 {
     // A fullscreen element ready check for an element |element| returns true if all of the
     // following are true, and false otherwise:
@@ -76,12 +77,8 @@ static bool fullscreenElementReady(const Element& element, Fullscreen::RequestTy
         return false;
 
     // |element|'s node document's fullscreen enabled flag is set.
-    if (!fullscreenIsAllowedForAllOwners(element.document())) {
-        if (requestType == Fullscreen::PrefixedVideoRequest)
-            UseCounter::countDeprecation(element.document(), UseCounter::VideoFullscreenAllowedExemption);
-        else
-            return false;
-    }
+    if (!fullscreenIsAllowedForAllOwners(element.document()))
+        return false;
 
     // |element|'s node document's fullscreen element stack is either empty or its top element is an
     // inclusive ancestor of |element|.
@@ -99,7 +96,7 @@ static bool fullscreenElementReady(const Element& element, Fullscreen::RequestTy
     // fullscreen element ready check returns true for |element|'s node document's browsing
     // context's browsing context container, or it has no browsing context container.
     if (const Element* owner = element.document().ownerElement()) {
-        if (!fullscreenElementReady(*owner, requestType))
+        if (!fullscreenElementReady(*owner))
             return false;
     }
 
@@ -203,14 +200,16 @@ void Fullscreen::documentWasDisposed()
 
 void Fullscreen::requestFullscreen(Element& element, RequestType requestType)
 {
-    // It is required by isPrivilegedContext() but isn't
+    // It is required by isSecureContext() but isn't
     // actually used. This could be used later if a warning is shown in the
     // developer console.
     String errorMessage;
-    if (document()->isPrivilegedContext(errorMessage))
+    if (document()->isSecureContext(errorMessage)) {
         UseCounter::count(document(), UseCounter::FullscreenSecureOrigin);
-    else
-        UseCounter::countDeprecation(document(), UseCounter::FullscreenInsecureOrigin);
+    } else {
+        UseCounter::count(document(), UseCounter::FullscreenInsecureOrigin);
+        OriginsUsingFeatures::countAnyWorld(*document(), OriginsUsingFeatures::Feature::FullscreenInsecureOrigin);
+    }
 
     // Ignore this request if the document is not in a live frame.
     if (!document()->isActive())
@@ -226,7 +225,7 @@ void Fullscreen::requestFullscreen(Element& element, RequestType requestType)
         // node document:
 
         // The fullscreen element ready check returns false.
-        if (!fullscreenElementReady(element, requestType))
+        if (!fullscreenElementReady(element))
             break;
 
         // This algorithm is not allowed to show a pop-up:
@@ -249,15 +248,15 @@ void Fullscreen::requestFullscreen(Element& element, RequestType requestType)
         Document* currentDoc = document();
 
         // 3. Let docs be all doc's ancestor browsing context's documents (if any) and doc.
-        Deque<Document*> docs;
+        WillBeHeapDeque<RawPtrWillBeMember<Document>> docs;
 
         do {
             docs.prepend(currentDoc);
-            currentDoc = currentDoc->ownerElement() ? &currentDoc->ownerElement()->document() : 0;
+            currentDoc = currentDoc->ownerElement() ? &currentDoc->ownerElement()->document() : nullptr;
         } while (currentDoc);
 
         // 4. For each document in docs, run these substeps:
-        Deque<Document*>::iterator current = docs.begin(), following = docs.begin();
+        WillBeHeapDeque<RawPtrWillBeMember<Document>>::iterator current = docs.begin(), following = docs.begin();
 
         do {
             ++following;
@@ -265,7 +264,7 @@ void Fullscreen::requestFullscreen(Element& element, RequestType requestType)
             // 1. Let following document be the document after document in docs, or null if there is no
             // such document.
             Document* currentDoc = *current;
-            Document* followingDoc = following != docs.end() ? *following : 0;
+            Document* followingDoc = following != docs.end() ? *following : nullptr;
 
             // 2. If following document is null, push context object on document's fullscreen element
             // stack, and queue a task to fire an event named fullscreenchange with its bubbles attribute
@@ -297,7 +296,7 @@ void Fullscreen::requestFullscreen(Element& element, RequestType requestType)
 
         // 7. Optionally, display a message indicating how the user can exit displaying the context object fullscreen.
         return;
-    } while (0);
+    } while (false);
 
     enqueueErrorEvent(element, requestType);
 }
@@ -459,7 +458,7 @@ void Fullscreen::didEnterFullScreenForElement(Element* element)
     if (document()->frame())
         document()->frame()->eventHandler().scheduleHoverStateUpdate();
 
-    m_eventQueueTimer.startOneShot(0, FROM_HERE);
+    m_eventQueueTimer.startOneShot(0, BLINK_FROM_HERE);
 }
 
 void Fullscreen::didExitFullScreenForElement(Element*)
@@ -490,7 +489,7 @@ void Fullscreen::didExitFullScreenForElement(Element*)
     if (m_eventQueue.isEmpty())
         exitingDocument = &document()->topDocument();
     ASSERT(exitingDocument);
-    from(*exitingDocument).m_eventQueueTimer.startOneShot(0, FROM_HERE);
+    from(*exitingDocument).m_eventQueueTimer.startOneShot(0, BLINK_FROM_HERE);
 }
 
 void Fullscreen::setFullScreenLayoutObject(LayoutFullScreen* layoutObject)
@@ -544,7 +543,7 @@ void Fullscreen::enqueueErrorEvent(Element& element, RequestType requestType)
     else
         event = createEvent(EventTypeNames::webkitfullscreenerror, element);
     m_eventQueue.append(event);
-    m_eventQueueTimer.startOneShot(0, FROM_HERE);
+    m_eventQueueTimer.startOneShot(0, BLINK_FROM_HERE);
 }
 
 void Fullscreen::eventQueueTimerFired(Timer<Fullscreen>*)

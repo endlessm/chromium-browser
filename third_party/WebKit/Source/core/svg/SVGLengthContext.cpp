@@ -109,7 +109,7 @@ SVGLengthContext::SVGLengthContext(const SVGElement* context)
 FloatRect SVGLengthContext::resolveRectangle(const SVGElement* context, SVGUnitTypes::SVGUnitType type, const FloatRect& viewport, const SVGLength& x, const SVGLength& y, const SVGLength& width, const SVGLength& height)
 {
     ASSERT(type != SVGUnitTypes::SVG_UNIT_TYPE_UNKNOWN);
-    if (type != SVGUnitTypes::SVG_UNIT_TYPE_USERSPACEONUSE && !viewport.isEmpty()) {
+    if (type != SVGUnitTypes::SVG_UNIT_TYPE_USERSPACEONUSE) {
         const FloatSize& viewportSize = viewport.size();
         return FloatRect(
             convertValueFromPercentageToUserUnits(x, viewportSize) + viewport.x(),
@@ -178,53 +178,52 @@ float SVGLengthContext::valueForLength(const Length& length, float zoom, float d
     ASSERT(zoom != 0);
     // isIntrinsic can occur for 'width' and 'height', but has no
     // real meaning for svg.
-    if (length.isIntrinsic() || length.isLegacyIntrinsic())
+    if (length.isIntrinsic())
         return 0;
     return floatValueForLength(length, dimension * zoom) / zoom;
 }
 
-float SVGLengthContext::convertValueToUserUnits(float value, SVGLengthMode mode, SVGLengthType fromUnit) const
+float SVGLengthContext::convertValueToUserUnits(float value, SVGLengthMode mode, CSSPrimitiveValue::UnitType fromUnit) const
 {
     float userUnits = value;
     switch (fromUnit) {
-    case LengthTypeUnknown:
-        return 0;
-    case LengthTypePX:
-    case LengthTypeNumber:
+    case CSSPrimitiveValue::UnitType::Pixels:
+    case CSSPrimitiveValue::UnitType::Number:
+    case CSSPrimitiveValue::UnitType::UserUnits:
         userUnits = value;
         break;
-    case LengthTypePercentage: {
+    case CSSPrimitiveValue::UnitType::Percentage: {
         FloatSize viewportSize;
         if (!determineViewport(viewportSize))
             return 0;
         userUnits = value * dimensionForLengthMode(mode, viewportSize) / 100;
         break;
     }
-    case LengthTypeEMS:
+    case CSSPrimitiveValue::UnitType::Ems:
         userUnits = convertValueFromEMSToUserUnits(computedStyleForLengthResolving(m_context), value);
         break;
-    case LengthTypeEXS:
+    case CSSPrimitiveValue::UnitType::Exs:
         userUnits = convertValueFromEXSToUserUnits(value);
         break;
-    case LengthTypeCM:
+    case CSSPrimitiveValue::UnitType::Centimeters:
         userUnits = value * cssPixelsPerCentimeter;
         break;
-    case LengthTypeMM:
+    case CSSPrimitiveValue::UnitType::Millimeters:
         userUnits = value * cssPixelsPerMillimeter;
         break;
-    case LengthTypeIN:
+    case CSSPrimitiveValue::UnitType::Inches:
         userUnits = value * cssPixelsPerInch;
         break;
-    case LengthTypePT:
+    case CSSPrimitiveValue::UnitType::Points:
         userUnits = value * cssPixelsPerPoint;
         break;
-    case LengthTypePC:
+    case CSSPrimitiveValue::UnitType::Picas:
         userUnits = value * cssPixelsPerPica;
         break;
-    case LengthTypeREMS:
+    case CSSPrimitiveValue::UnitType::Rems:
         userUnits = convertValueFromEMSToUserUnits(rootElementStyle(m_context), value);
         break;
-    case LengthTypeCHS:
+    case CSSPrimitiveValue::UnitType::Chs:
         userUnits = convertValueFromCHSToUserUnits(value);
         break;
     default:
@@ -238,14 +237,14 @@ float SVGLengthContext::convertValueToUserUnits(float value, SVGLengthMode mode,
     return CSSPrimitiveValue::clampToCSSLengthRange(userUnits);
 }
 
-float SVGLengthContext::convertValueFromUserUnits(float value, SVGLengthMode mode, SVGLengthType toUnit) const
+float SVGLengthContext::convertValueFromUserUnits(float value, SVGLengthMode mode, CSSPrimitiveValue::UnitType toUnit) const
 {
     switch (toUnit) {
-    case LengthTypeUnknown:
-        return 0;
-    case LengthTypeNumber:
+    case CSSPrimitiveValue::UnitType::Pixels:
+    case CSSPrimitiveValue::UnitType::Number:
+    case CSSPrimitiveValue::UnitType::UserUnits:
         return value;
-    case LengthTypePercentage: {
+    case CSSPrimitiveValue::UnitType::Percentage: {
         FloatSize viewportSize;
         if (!determineViewport(viewportSize))
             return 0;
@@ -256,26 +255,26 @@ float SVGLengthContext::convertValueFromUserUnits(float value, SVGLengthMode mod
         // Good for accuracy but could eventually be changed.
         return value * 100 / dimension;
     }
-    case LengthTypeEMS:
+    case CSSPrimitiveValue::UnitType::Ems:
         return convertValueFromUserUnitsToEMS(computedStyleForLengthResolving(m_context), value);
-    case LengthTypeEXS:
+    case CSSPrimitiveValue::UnitType::Exs:
         return convertValueFromUserUnitsToEXS(value);
-    case LengthTypeREMS:
+    case CSSPrimitiveValue::UnitType::Rems:
         return convertValueFromUserUnitsToEMS(rootElementStyle(m_context), value);
-    case LengthTypeCHS:
+    case CSSPrimitiveValue::UnitType::Chs:
         return convertValueFromUserUnitsToCHS(value);
-    case LengthTypePX:
-        return value;
-    case LengthTypeCM:
+    case CSSPrimitiveValue::UnitType::Centimeters:
         return value / cssPixelsPerCentimeter;
-    case LengthTypeMM:
+    case CSSPrimitiveValue::UnitType::Millimeters:
         return value / cssPixelsPerMillimeter;
-    case LengthTypeIN:
+    case CSSPrimitiveValue::UnitType::Inches:
         return value / cssPixelsPerInch;
-    case LengthTypePT:
+    case CSSPrimitiveValue::UnitType::Points:
         return value / cssPixelsPerPoint;
-    case LengthTypePC:
+    case CSSPrimitiveValue::UnitType::Picas:
         return value / cssPixelsPerPica;
+    default:
+        break;
     }
 
     ASSERT_NOT_REACHED();
@@ -288,7 +287,7 @@ float SVGLengthContext::convertValueFromUserUnitsToCHS(float value) const
     if (!style)
         return 0;
 
-    float zeroWidth = style->fontMetrics().zeroWidth();
+    float zeroWidth = style->fontMetrics().zeroWidth() / style->effectiveZoom();
     if (!zeroWidth)
         return 0;
 
@@ -301,7 +300,7 @@ float SVGLengthContext::convertValueFromCHSToUserUnits(float value) const
     if (!style)
         return 0;
 
-    return value * style->fontMetrics().zeroWidth();
+    return value * style->fontMetrics().zeroWidth() / style->effectiveZoom();
 }
 
 float SVGLengthContext::convertValueFromUserUnitsToEXS(float value) const
@@ -312,7 +311,7 @@ float SVGLengthContext::convertValueFromUserUnitsToEXS(float value) const
 
     // Use of ceil allows a pixel match to the W3Cs expected output of coords-units-03-b.svg
     // if this causes problems in real world cases maybe it would be best to remove this
-    float xHeight = ceilf(style->fontMetrics().xHeight());
+    float xHeight = ceilf(style->fontMetrics().xHeight() / style->effectiveZoom());
     if (!xHeight)
         return 0;
 
@@ -327,7 +326,7 @@ float SVGLengthContext::convertValueFromEXSToUserUnits(float value) const
 
     // Use of ceil allows a pixel match to the W3Cs expected output of coords-units-03-b.svg
     // if this causes problems in real world cases maybe it would be best to remove this
-    return value * ceilf(style->fontMetrics().xHeight());
+    return value * ceilf(style->fontMetrics().xHeight() / style->effectiveZoom());
 }
 
 bool SVGLengthContext::determineViewport(FloatSize& viewportSize) const

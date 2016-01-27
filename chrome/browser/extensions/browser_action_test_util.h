@@ -86,9 +86,10 @@ class BrowserActionTestUtil {
   // to run.
   bool ActionButtonWantsToRun(size_t index);
 
-  // Tests that the overflow button is displaying an overflowed action wants
-  // to run.
-  bool OverflowedActionButtonWantsToRun();
+  // Sets the current width of the browser actions container without resizing
+  // the underlying controller. This is to simulate e.g. when the browser window
+  // is too small for the preferred width.
+  void SetWidth(int width);
 
   // Returns the ToolbarActionsBar.
   ToolbarActionsBar* GetToolbarActionsBar();

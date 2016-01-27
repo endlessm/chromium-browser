@@ -21,6 +21,7 @@
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkPicture.h"
 #include "third_party/skia/include/core/SkPictureRecorder.h"
+#include "ui/gfx/geometry/scroll_offset.h"
 #include "ui/gfx/geometry/vector2d_conversions.h"
 
 namespace android_webview {
@@ -35,13 +36,14 @@ const int64 kFallbackTickTimeoutInMilliseconds = 100;
 const size_t kMemoryMultiplier = 20;
 const size_t kBytesPerPixel = 4;
 const size_t kMemoryAllocationStep = 5 * 1024 * 1024;
-uint64 g_memory_override_in_bytes = 0u;
+uint64_t g_memory_override_in_bytes = 0u;
 
-const void* kBrowserViewRendererUserDataKey = &kBrowserViewRendererUserDataKey;
+const void* const kBrowserViewRendererUserDataKey =
+    &kBrowserViewRendererUserDataKey;
 
 class BrowserViewRendererUserData : public base::SupportsUserData::Data {
  public:
-  BrowserViewRendererUserData(BrowserViewRenderer* ptr) : bvr_(ptr) {}
+  explicit BrowserViewRendererUserData(BrowserViewRenderer* ptr) : bvr_(ptr) {}
 
   static BrowserViewRenderer* GetBrowserViewRenderer(
       content::WebContents* web_contents) {
@@ -83,23 +85,26 @@ BrowserViewRenderer* BrowserViewRenderer::FromWebContents(
 
 BrowserViewRenderer::BrowserViewRenderer(
     BrowserViewRendererClient* client,
-    const scoped_refptr<base::SingleThreadTaskRunner>& ui_task_runner)
+    const scoped_refptr<base::SingleThreadTaskRunner>& ui_task_runner,
+    bool disable_page_visibility)
     : client_(client),
       shared_renderer_state_(ui_task_runner, this),
       ui_task_runner_(ui_task_runner),
+      disable_page_visibility_(disable_page_visibility),
       compositor_(NULL),
       is_paused_(false),
       view_visible_(false),
       window_visible_(false),
       attached_to_window_(false),
       hardware_enabled_(false),
-      dip_scale_(0.0),
-      page_scale_factor_(1.0),
+      dip_scale_(0.f),
+      page_scale_factor_(1.f),
+      min_page_scale_factor_(0.f),
+      max_page_scale_factor_(0.f),
       on_new_picture_enable_(false),
       clear_view_(false),
       offscreen_pre_raster_(false),
-      fallback_tick_pending_(false) {
-}
+      fallback_tick_pending_(false) {}
 
 BrowserViewRenderer::~BrowserViewRenderer() {
 }
@@ -257,7 +262,7 @@ bool BrowserViewRenderer::CompositeHw() {
   if (!frame.get()) {
     TRACE_EVENT_INSTANT0("android_webview", "NoNewFrame",
                          TRACE_EVENT_SCOPE_THREAD);
-    return false;
+    return shared_renderer_state_.HasFrameOnUI();
   }
 
   scoped_ptr<ChildFrame> child_frame = make_scoped_ptr(
@@ -324,12 +329,11 @@ skia::RefPtr<SkPicture> BrowserViewRenderer::CapturePicture(int width,
     {
       // Reset scroll back to the origin, will go back to the old
       // value when scroll_reset is out of scope.
-      base::AutoReset<gfx::Vector2dF> scroll_reset(&scroll_offset_dip_,
-                                                   gfx::Vector2dF());
-      compositor_->DidChangeRootLayerScrollOffset();
+      compositor_->DidChangeRootLayerScrollOffset(gfx::ScrollOffset());
       CompositeSW(rec_canvas);
     }
-    compositor_->DidChangeRootLayerScrollOffset();
+    compositor_->DidChangeRootLayerScrollOffset(
+        gfx::ScrollOffset(scroll_offset_dip_));
   }
   return skia::AdoptRef(recorder.endRecording());
 }
@@ -418,13 +422,10 @@ void BrowserViewRenderer::OnDetachedFromWindow() {
 }
 
 void BrowserViewRenderer::OnComputeScroll(base::TimeTicks animation_time) {
-  if (pending_fling_animation_.is_null())
+  if (!compositor_)
     return;
   TRACE_EVENT0("android_webview", "BrowserViewRenderer::OnComputeScroll");
-  DCHECK(!pending_fling_animation_.is_null());
-  AnimationCallback animation = pending_fling_animation_;
-  pending_fling_animation_.Reset();
-  animation.Run(animation_time);
+  compositor_->OnComputeScroll(animation_time);
 }
 
 void BrowserViewRenderer::ReleaseHardware() {
@@ -443,6 +444,13 @@ void BrowserViewRenderer::ReleaseHardware() {
 bool BrowserViewRenderer::IsVisible() const {
   // Ignore |window_visible_| if |attached_to_window_| is false.
   return view_visible_ && (!attached_to_window_ || window_visible_);
+}
+
+bool BrowserViewRenderer::IsClientVisible() const {
+  if (disable_page_visibility_)
+    return !is_paused_;
+
+  return !is_paused_ && (!attached_to_window_ || window_visible_);
 }
 
 gfx::Rect BrowserViewRenderer::GetScreenRect() const {
@@ -478,7 +486,7 @@ gfx::Vector2d BrowserViewRenderer::max_scroll_offset() const {
       max_scroll_offset_dip_, dip_scale_ * page_scale_factor_));
 }
 
-void BrowserViewRenderer::ScrollTo(gfx::Vector2d scroll_offset) {
+void BrowserViewRenderer::ScrollTo(const gfx::Vector2d& scroll_offset) {
   gfx::Vector2d max_offset = max_scroll_offset();
   gfx::Vector2dF scroll_offset_dip;
   // To preserve the invariant that scrolling to the maximum physical pixel
@@ -516,8 +524,10 @@ void BrowserViewRenderer::ScrollTo(gfx::Vector2d scroll_offset) {
                "y",
                scroll_offset_dip.y());
 
-  if (compositor_)
-    compositor_->DidChangeRootLayerScrollOffset();
+  if (compositor_) {
+    compositor_->DidChangeRootLayerScrollOffset(
+        gfx::ScrollOffset(scroll_offset_dip_));
+  }
 }
 
 void BrowserViewRenderer::DidUpdateContent() {
@@ -530,12 +540,9 @@ void BrowserViewRenderer::DidUpdateContent() {
 }
 
 void BrowserViewRenderer::SetTotalRootLayerScrollOffset(
-    gfx::Vector2dF scroll_offset_dip) {
-  // TOOD(mkosiba): Add a DCHECK to say that this does _not_ get called during
-  // DrawGl when http://crbug.com/249972 is fixed.
+    const gfx::Vector2dF& scroll_offset_dip) {
   if (scroll_offset_dip_ == scroll_offset_dip)
     return;
-
   scroll_offset_dip_ = scroll_offset_dip;
 
   gfx::Vector2d max_offset = max_scroll_offset();
@@ -560,14 +567,6 @@ void BrowserViewRenderer::SetTotalRootLayerScrollOffset(
   client_->ScrollContainerViewTo(scroll_offset);
 }
 
-gfx::Vector2dF BrowserViewRenderer::GetTotalRootLayerScrollOffset() {
-  return scroll_offset_dip_;
-}
-
-bool BrowserViewRenderer::IsExternalScrollActive() const {
-  return client_->IsSmoothScrollingActive();
-}
-
 void BrowserViewRenderer::UpdateRootLayerState(
     const gfx::Vector2dF& total_scroll_offset_dip,
     const gfx::Vector2dF& max_scroll_offset_dip,
@@ -582,20 +581,27 @@ void BrowserViewRenderer::UpdateRootLayerState(
       "state",
       RootLayerStateAsValue(total_scroll_offset_dip, scrollable_size_dip));
 
+  DCHECK_GE(max_scroll_offset_dip.x(), 0.f);
+  DCHECK_GE(max_scroll_offset_dip.y(), 0.f);
+  DCHECK_GT(page_scale_factor, 0.f);
+  // SetDipScale should have been called at least once before this is called.
   DCHECK_GT(dip_scale_, 0.f);
 
-  max_scroll_offset_dip_ = max_scroll_offset_dip;
-  DCHECK_LE(0.f, max_scroll_offset_dip_.x());
-  DCHECK_LE(0.f, max_scroll_offset_dip_.y());
+  if (max_scroll_offset_dip_ != max_scroll_offset_dip ||
+      scrollable_size_dip_ != scrollable_size_dip ||
+      page_scale_factor_ != page_scale_factor ||
+      min_page_scale_factor_ != min_page_scale_factor ||
+      max_page_scale_factor_ != max_page_scale_factor) {
+    max_scroll_offset_dip_ = max_scroll_offset_dip;
+    scrollable_size_dip_ = scrollable_size_dip;
+    page_scale_factor_ = page_scale_factor;
+    min_page_scale_factor_ = min_page_scale_factor;
+    max_page_scale_factor_ = max_page_scale_factor;
 
-  page_scale_factor_ = page_scale_factor;
-  DCHECK_GT(page_scale_factor_, 0.f);
-
-  client_->UpdateScrollState(max_scroll_offset(),
-                             scrollable_size_dip,
-                             page_scale_factor,
-                             min_page_scale_factor,
-                             max_page_scale_factor);
+    client_->UpdateScrollState(max_scroll_offset(), scrollable_size_dip,
+                               page_scale_factor, min_page_scale_factor,
+                               max_page_scale_factor);
+  }
   SetTotalRootLayerScrollOffset(total_scroll_offset_dip);
 }
 
@@ -619,18 +625,10 @@ BrowserViewRenderer::RootLayerStateAsValue(
   return state;
 }
 
-void BrowserViewRenderer::SetNeedsAnimateScroll(
-    const AnimationCallback& scroll_animation) {
-  pending_fling_animation_ = scroll_animation;
-  // No need to reschedule the fallback tick here because the compositor is
-  // fine with the animation not being ticked. The invalidate could happen some
-  // time later, or not at all.
-  client_->PostInvalidate();
-}
-
-void BrowserViewRenderer::DidOverscroll(gfx::Vector2dF accumulated_overscroll,
-                                        gfx::Vector2dF latest_overscroll_delta,
-                                        gfx::Vector2dF current_fling_velocity) {
+void BrowserViewRenderer::DidOverscroll(
+    const gfx::Vector2dF& accumulated_overscroll,
+    const gfx::Vector2dF& latest_overscroll_delta,
+    const gfx::Vector2dF& current_fling_velocity) {
   const float physical_pixel_scale = dip_scale_ * page_scale_factor_;
   if (accumulated_overscroll == latest_overscroll_delta)
     overscroll_rounding_error_ = gfx::Vector2dF();
@@ -703,7 +701,7 @@ void BrowserViewRenderer::FallbackTickFired() {
   fallback_tick_fired_.Cancel();
   fallback_tick_pending_ = false;
   if (compositor_) {
-    if (hardware_enabled_) {
+    if (hardware_enabled_ && !size_.IsEmpty()) {
       CompositeHw();
     } else {
       ForceFakeCompositeSW();
@@ -728,9 +726,10 @@ bool BrowserViewRenderer::CompositeSW(SkCanvas* canvas) {
 }
 
 void BrowserViewRenderer::UpdateCompositorIsActive() {
-  if (compositor_)
+  if (compositor_) {
     compositor_->SetIsActive(!is_paused_ &&
                              (!attached_to_window_ || window_visible_));
+  }
 }
 
 std::string BrowserViewRenderer::ToString() const {

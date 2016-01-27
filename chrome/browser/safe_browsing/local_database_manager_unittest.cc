@@ -18,6 +18,8 @@
 
 using content::TestBrowserThreadBundle;
 
+namespace safe_browsing {
+
 namespace {
 
 class TestClient : public SafeBrowsingDatabaseManager::Client {
@@ -40,7 +42,7 @@ class TestClient : public SafeBrowsingDatabaseManager::Client {
 
 class SafeBrowsingDatabaseManagerTest : public PlatformTest {
  public:
-  bool RunSBHashTest(const safe_browsing_util::ListType list_type,
+  bool RunSBHashTest(const ListType list_type,
                      const std::vector<SBThreatType>& expected_threats,
                      const std::string& result_list);
 
@@ -49,7 +51,7 @@ class SafeBrowsingDatabaseManagerTest : public PlatformTest {
 };
 
 bool SafeBrowsingDatabaseManagerTest::RunSBHashTest(
-    const safe_browsing_util::ListType list_type,
+    const ListType list_type,
     const std::vector<SBThreatType>& expected_threats,
     const std::string& result_list) {
   scoped_refptr<SafeBrowsingService> sb_service_(
@@ -60,17 +62,12 @@ bool SafeBrowsingDatabaseManagerTest::RunSBHashTest(
 
   LocalSafeBrowsingDatabaseManager::SafeBrowsingCheck* check =
       new LocalSafeBrowsingDatabaseManager::SafeBrowsingCheck(
-          std::vector<GURL>(),
-          std::vector<SBFullHash>(1, same_full_hash),
-          NULL,
-          list_type,
-          expected_threats);
+          std::vector<GURL>(), std::vector<SBFullHash>(1, same_full_hash), NULL,
+          list_type, expected_threats);
   db_manager_->checks_.insert(check);
 
-  const SBFullHashResult full_hash_result = {
-      same_full_hash,
-      safe_browsing_util::GetListId(result_list)
-  };
+  const SBFullHashResult full_hash_result = {same_full_hash,
+                                             GetListId(result_list)};
 
   std::vector<SBFullHashResult> fake_results(1, full_hash_result);
   bool result = db_manager_->HandleOneCheck(check, fake_results);
@@ -82,23 +79,15 @@ bool SafeBrowsingDatabaseManagerTest::RunSBHashTest(
 TEST_F(SafeBrowsingDatabaseManagerTest, CheckCorrespondsListType) {
   std::vector<SBThreatType> malware_threat(1,
                                            SB_THREAT_TYPE_BINARY_MALWARE_URL);
-  EXPECT_FALSE(RunSBHashTest(safe_browsing_util::BINURL,
-                             malware_threat,
-                             safe_browsing_util::kMalwareList));
-  EXPECT_TRUE(RunSBHashTest(safe_browsing_util::BINURL,
-                            malware_threat,
-                            safe_browsing_util::kBinUrlList));
+  EXPECT_FALSE(RunSBHashTest(BINURL, malware_threat, kMalwareList));
+  EXPECT_TRUE(RunSBHashTest(BINURL, malware_threat, kBinUrlList));
 
   // Check for multiple threats
   std::vector<SBThreatType> multiple_threats;
   multiple_threats.push_back(SB_THREAT_TYPE_URL_MALWARE);
   multiple_threats.push_back(SB_THREAT_TYPE_URL_PHISHING);
-  EXPECT_FALSE(RunSBHashTest(safe_browsing_util::MALWARE,
-                             multiple_threats,
-                             safe_browsing_util::kBinUrlList));
-  EXPECT_TRUE(RunSBHashTest(safe_browsing_util::MALWARE,
-                            multiple_threats,
-                            safe_browsing_util::kMalwareList));
+  EXPECT_FALSE(RunSBHashTest(MALWARE, multiple_threats, kBinUrlList));
+  EXPECT_TRUE(RunSBHashTest(MALWARE, multiple_threats, kMalwareList));
 }
 
 TEST_F(SafeBrowsingDatabaseManagerTest, GetUrlSeverestThreatType) {
@@ -121,21 +110,21 @@ TEST_F(SafeBrowsingDatabaseManagerTest, GetUrlSeverestThreatType) {
   {
     SBFullHashResult full_hash;
     full_hash.hash = kMalwareHostHash;
-    full_hash.list_id = static_cast<int>(safe_browsing_util::MALWARE);
+    full_hash.list_id = static_cast<int>(MALWARE);
     full_hashes.push_back(full_hash);
   }
 
   {
     SBFullHashResult full_hash;
     full_hash.hash = kPhishingHostHash;
-    full_hash.list_id = static_cast<int>(safe_browsing_util::PHISH);
+    full_hash.list_id = static_cast<int>(PHISH);
     full_hashes.push_back(full_hash);
   }
 
   {
     SBFullHashResult full_hash;
     full_hash.hash = kUnwantedHostHash;
-    full_hash.list_id = static_cast<int>(safe_browsing_util::UNWANTEDURL);
+    full_hash.list_id = static_cast<int>(UNWANTEDURL);
     full_hashes.push_back(full_hash);
   }
 
@@ -144,13 +133,12 @@ TEST_F(SafeBrowsingDatabaseManagerTest, GetUrlSeverestThreatType) {
     // kUnwantedAndMalwareHostHash.
     SBFullHashResult full_hash_malware;
     full_hash_malware.hash = kUnwantedAndMalwareHostHash;
-    full_hash_malware.list_id = static_cast<int>(safe_browsing_util::MALWARE);
+    full_hash_malware.list_id = static_cast<int>(MALWARE);
     full_hashes.push_back(full_hash_malware);
 
     SBFullHashResult full_hash_unwanted;
     full_hash_unwanted.hash = kUnwantedAndMalwareHostHash;
-    full_hash_unwanted.list_id =
-        static_cast<int>(safe_browsing_util::UNWANTEDURL);
+    full_hash_unwanted.list_id = static_cast<int>(UNWANTEDURL);
     full_hashes.push_back(full_hash_unwanted);
   }
 
@@ -229,3 +217,5 @@ TEST_F(SafeBrowsingDatabaseManagerTest, ServiceStopWithPendingChecks) {
   content::RunAllBlockingPoolTasksUntilIdle();
   base::RunLoop().RunUntilIdle();
 }
+
+}  // namespace safe_browsing

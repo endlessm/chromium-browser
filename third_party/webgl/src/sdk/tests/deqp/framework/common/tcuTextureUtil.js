@@ -22,12 +22,14 @@
 goog.provide('framework.common.tcuTextureUtil');
 goog.require('framework.common.tcuTexture');
 goog.require('framework.delibs.debase.deMath');
+goog.require('framework.delibs.debase.deRandom');
 
 goog.scope(function() {
 
 var tcuTextureUtil = framework.common.tcuTextureUtil;
 var tcuTexture = framework.common.tcuTexture;
 var deMath = framework.delibs.debase.deMath;
+var deRandom = framework.delibs.debase.deRandom;
 
 var DE_ASSERT = function(x) {
     if (!x)
@@ -42,19 +44,6 @@ var DE_ASSERT = function(x) {
  */
 tcuTextureUtil.linearInterpolate = function(t, minVal, maxVal) {
     return minVal + (maxVal - minVal) * t;
-};
-
-/**
- * Enums for tcuTextureUtil.TextureChannelClass
- * @enum {number}
- */
-tcuTextureUtil.TextureChannelClass = {
-
-        SIGNED_FIXED_POINT: 0,
-        UNSIGNED_FIXED_POINT: 1,
-        SIGNED_INTEGER: 2,
-        UNSIGNED_INTEGER: 3,
-        FLOATING_POINT: 4
 };
 
 /** tcuTextureUtil.linearChannelToSRGB
@@ -108,41 +97,6 @@ tcuTextureUtil.linearToSRGB = function(cl) {
 };
 
 /**
- * @param {?tcuTexture.ChannelType} channelType
- * @return {tcuTextureUtil.TextureChannelClass}
- */
-tcuTextureUtil.getTextureChannelClass = function(channelType) {
-
-    switch (channelType) {
-
-    case tcuTexture.ChannelType.SNORM_INT8: return tcuTextureUtil.TextureChannelClass.SIGNED_FIXED_POINT;
-    case tcuTexture.ChannelType.SNORM_INT16: return tcuTextureUtil.TextureChannelClass.SIGNED_FIXED_POINT;
-    case tcuTexture.ChannelType.UNORM_INT8: return tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT;
-    case tcuTexture.ChannelType.UNORM_INT16: return tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT;
-    case tcuTexture.ChannelType.UNORM_SHORT_565: return tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT;
-    case tcuTexture.ChannelType.UNORM_SHORT_555: return tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT;
-    case tcuTexture.ChannelType.UNORM_SHORT_4444: return tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT;
-    case tcuTexture.ChannelType.UNORM_SHORT_5551: return tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT;
-    case tcuTexture.ChannelType.UNORM_INT_101010: return tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT;
-    case tcuTexture.ChannelType.UNORM_INT_1010102_REV: return tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT;
-    case tcuTexture.ChannelType.UNSIGNED_INT_1010102_REV: return tcuTextureUtil.TextureChannelClass.UNSIGNED_INTEGER;
-    case tcuTexture.ChannelType.UNSIGNED_INT_11F_11F_10F_REV: return tcuTextureUtil.TextureChannelClass.FLOATING_POINT;
-    case tcuTexture.ChannelType.UNSIGNED_INT_999_E5_REV: return tcuTextureUtil.TextureChannelClass.FLOATING_POINT;
-    case tcuTexture.ChannelType.SIGNED_INT8: return tcuTextureUtil.TextureChannelClass.SIGNED_INTEGER;
-    case tcuTexture.ChannelType.SIGNED_INT16: return tcuTextureUtil.TextureChannelClass.SIGNED_INTEGER;
-    case tcuTexture.ChannelType.SIGNED_INT32: return tcuTextureUtil.TextureChannelClass.SIGNED_INTEGER;
-    case tcuTexture.ChannelType.UNSIGNED_INT8: return tcuTextureUtil.TextureChannelClass.UNSIGNED_INTEGER;
-    case tcuTexture.ChannelType.UNSIGNED_INT16: return tcuTextureUtil.TextureChannelClass.UNSIGNED_INTEGER;
-    case tcuTexture.ChannelType.UNSIGNED_INT32: return tcuTextureUtil.TextureChannelClass.UNSIGNED_INTEGER;
-    case tcuTexture.ChannelType.HALF_FLOAT: return tcuTextureUtil.TextureChannelClass.FLOATING_POINT;
-    case tcuTexture.ChannelType.FLOAT: return tcuTextureUtil.TextureChannelClass.FLOATING_POINT;
-
-    default: throw new Error('Unrecognized channel type: ' + channelType);
-    }
-
-};
-
-/**
  * tcuTextureUtil.getSubregion
  * @param {tcuTexture.PixelBufferAccess} access
  * @param {number} x
@@ -166,9 +120,28 @@ tcuTextureUtil.getSubregion = function(access, x, y, z, width, height, depth) {
         depth: depth,
         rowPitch: access.getRowPitch(),
         slicePitch: access.getSlicePitch(),
-        offset: access.getFormat().getPixelSize() * x + access.getRowPitch() * y + access.getSlicePitch() * z,
+        offset: access.m_offset + access.getFormat().getPixelSize() * x + access.getRowPitch() * y + access.getSlicePitch() * z,
         data: access.getBuffer()
         });
+};
+
+/**
+ * @param {tcuTexture.PixelBufferAccess} access
+ * @param {Array<number>} minVal
+ * @param {Array<number>} maxVal
+ */
+tcuTextureUtil.fillWithComponentGradients1D = function(access, minVal, maxVal) {
+    DE_ASSERT(access.getHeight() == 1);
+    for (var x = 0; x < access.getWidth(); x++) {
+        var s = (x + 0.5) / access.getWidth();
+
+        var r = tcuTextureUtil.linearInterpolate(s, minVal[0], maxVal[0]);
+        var g = tcuTextureUtil.linearInterpolate(s, minVal[1], maxVal[1]);
+        var b = tcuTextureUtil.linearInterpolate(s, minVal[2], maxVal[2]);
+        var a = tcuTextureUtil.linearInterpolate(s, minVal[3], maxVal[3]);
+
+        access.setPixel([r, g, b, a], x, 0);
+    }
 };
 
 /**
@@ -222,12 +195,60 @@ tcuTextureUtil.fillWithComponentGradients3D = function(dst, minVal, maxVal) {
  */
 tcuTextureUtil.fillWithComponentGradients = function(access, minVal, maxVal) {
     if (access.getHeight() == 1 && access.getDepth() == 1)
-        throw new Error('Inimplemented');
-        //fillWithComponentGradients1D(access, minVal, maxVal);
+        tcuTextureUtil.fillWithComponentGradients1D(access, minVal, maxVal);
     else if (access.getDepth() == 1)
         tcuTextureUtil.fillWithComponentGradients2D(access, minVal, maxVal);
     else
         tcuTextureUtil.fillWithComponentGradients3D(access, minVal, maxVal);
+};
+
+/**
+ * @param {tcuTexture.PixelBufferAccess} dst
+ */
+tcuTextureUtil.fillWithRGBAQuads = function(dst) {
+    checkMessage(dst.getDepth() == 1, 'Depth must be 1');
+    var width = dst.getWidth();
+    var height = dst.getHeight();
+    var left = width / 2;
+    var top = height / 2;
+
+    tcuTextureUtil.getSubregion(dst, 0, 0, 0, left, top, 1).clear([1.0, 0.0, 0.0, 1.0]);
+    tcuTextureUtil.getSubregion(dst, left, 0, 0, width - left, top, 1).clear([0.0, 1.0, 0.0, 1.0]);
+    tcuTextureUtil.getSubregion(dst, 0, top, 0, left, height - top, 1).clear([0.0, 0.0, 1.0, 0.0]);
+    tcuTextureUtil.getSubregion(dst, left, top, 0, width - left, height - top, 1).clear([0.5, 0.5, 0.5, 1.0]);
+};
+
+// \todo [2012-11-13 pyry] There is much better metaballs code in CL SIR value generators.
+/**
+ * @param {tcuTexture.PixelBufferAccess} dst
+ * @param {number} numBalls
+ * @param {number} seed
+ */
+tcuTextureUtil.fillWithMetaballs = function(dst, numBalls, seed) {
+    checkMessage(dst.getDepth() == 1, 'Depth must be 1');
+    var points = [];
+    var rnd = new deRandom.Random(seed);
+
+    for (var i = 0; i < numBalls; i++) {
+        var x = rnd.getFloat();
+        var y = rnd.getFloat();
+        points[i] = [x, y];
+    }
+
+    for (var y = 0; y < dst.getHeight(); y++)
+    for (var x = 0; x < dst.getWidth(); x++) {
+        var p = [x / dst.getWidth(), y / dst.getHeight()];
+
+        var sum = 0.0;
+        for (var pointNdx = 0; pointNdx < points.length; pointNdx++) {
+            var d = deMath.subtract(p, points[pointNdx]);
+            var f = 0.01 / (d[0] * d[0] + d[1] * d[1]);
+
+            sum += f;
+        }
+
+        dst.setPixel([sum, sum, sum, sum], x, y);
+    }
 };
 
 /**
@@ -600,24 +621,26 @@ tcuTextureUtil.copy = function(dst, src) {
         var srcData = src.getDataPtr();
         var dstData = dst.getDataPtr();
 
-        dstData.set(srcData);
-    } else {
-        var srcClass = tcuTextureUtil.getTextureChannelClass(src.getFormat().type);
-        var dstClass = tcuTextureUtil.getTextureChannelClass(dst.getFormat().type);
-        var srcIsInt = srcClass == tcuTextureUtil.TextureChannelClass.SIGNED_INTEGER || srcClass == tcuTextureUtil.TextureChannelClass.UNSIGNED_INTEGER;
-        var dstIsInt = dstClass == tcuTextureUtil.TextureChannelClass.SIGNED_INTEGER || dstClass == tcuTextureUtil.TextureChannelClass.UNSIGNED_INTEGER;
-
-        if (srcIsInt && dstIsInt) {
-            for (var z = 0; z < depth; z++)
-            for (var y = 0; y < height; y++)
-            for (var x = 0; x < width; x++)
-                dst.setPixelInt(src.getPixelInt(x, y, z), x, y, z);
-        } else {
-            for (var z = 0; z < depth; z++)
-            for (var y = 0; y < height; y++)
-            for (var x = 0; x < width; x++)
-                dst.setPixel(src.getPixel(x, y, z), x, y, z);
+        if (srcData.length == dstData.length) {
+            dstData.set(srcData);
+            return;
         }
+    }
+    var srcClass = tcuTexture.getTextureChannelClass(src.getFormat().type);
+    var dstClass = tcuTexture.getTextureChannelClass(dst.getFormat().type);
+    var srcIsInt = srcClass == tcuTexture.TextureChannelClass.SIGNED_INTEGER || srcClass == tcuTexture.TextureChannelClass.UNSIGNED_INTEGER;
+    var dstIsInt = dstClass == tcuTexture.TextureChannelClass.SIGNED_INTEGER || dstClass == tcuTexture.TextureChannelClass.UNSIGNED_INTEGER;
+
+    if (srcIsInt && dstIsInt) {
+        for (var z = 0; z < depth; z++)
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+            dst.setPixelInt(src.getPixelInt(x, y, z), x, y, z);
+    } else {
+        for (var z = 0; z < depth; z++)
+        for (var y = 0; y < height; y++)
+        for (var x = 0; x < width; x++)
+            dst.setPixel(src.getPixel(x, y, z), x, y, z);
     }
 };
 

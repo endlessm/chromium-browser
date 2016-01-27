@@ -307,6 +307,17 @@ int ff_h264_decode_seq_parameter_set(H264Context *h, int ignore_truncation)
     int i, log2_max_frame_num_minus4;
     SPS *sps;
 
+    sps = av_mallocz(sizeof(SPS));
+    if (!sps)
+        return AVERROR(ENOMEM);
+
+    sps->data_size = h->gb.buffer_end - h->gb.buffer;
+    if (sps->data_size > sizeof(sps->data)) {
+        av_log(h->avctx, AV_LOG_WARNING, "Truncating likely oversized SPS\n");
+        sps->data_size = sizeof(sps->data);
+    }
+    memcpy(sps->data, h->gb.buffer, sps->data_size);
+
     profile_idc           = get_bits(&h->gb, 8);
     constraint_set_flags |= get_bits1(&h->gb) << 0;   // constraint_set0_flag
     constraint_set_flags |= get_bits1(&h->gb) << 1;   // constraint_set1_flag
@@ -320,11 +331,8 @@ int ff_h264_decode_seq_parameter_set(H264Context *h, int ignore_truncation)
 
     if (sps_id >= MAX_SPS_COUNT) {
         av_log(h->avctx, AV_LOG_ERROR, "sps_id %u out of range\n", sps_id);
-        return AVERROR_INVALIDDATA;
+        goto fail;
     }
-    sps = av_mallocz(sizeof(SPS));
-    if (!sps)
-        return AVERROR(ENOMEM);
 
     sps->sps_id               = sps_id;
     sps->time_offset_length   = 24;
@@ -464,7 +472,7 @@ int ff_h264_decode_seq_parameter_set(H264Context *h, int ignore_truncation)
         int width  = 16 * sps->mb_width;
         int height = 16 * sps->mb_height * (2 - sps->frame_mbs_only_flag);
 
-        if (h->avctx->flags2 & CODEC_FLAG2_IGNORE_CROP) {
+        if (h->avctx->flags2 & AV_CODEC_FLAG2_IGNORE_CROP) {
             av_log(h->avctx, AV_LOG_DEBUG, "discarding sps cropping, original "
                                            "values are l:%d r:%d t:%d b:%d\n",
                    crop_left, crop_right, crop_top, crop_bottom);
@@ -481,7 +489,7 @@ int ff_h264_decode_seq_parameter_set(H264Context *h, int ignore_truncation)
             int step_y = (2 - sps->frame_mbs_only_flag) << vsub;
 
             if (crop_left & (0x1F >> (sps->bit_depth_luma > 8)) &&
-                !(h->avctx->flags & CODEC_FLAG_UNALIGNED)) {
+                !(h->avctx->flags & AV_CODEC_FLAG_UNALIGNED)) {
                 crop_left &= ~(0x1F >> (sps->bit_depth_luma > 8));
                 av_log(h->avctx, AV_LOG_WARNING,
                        "Reducing left cropping to %d "
@@ -603,6 +611,12 @@ int ff_h264_decode_picture_parameter_set(H264Context *h, int bit_length)
     pps = av_mallocz(sizeof(PPS));
     if (!pps)
         return AVERROR(ENOMEM);
+    pps->data_size = h->gb.buffer_end - h->gb.buffer;
+    if (pps->data_size > sizeof(pps->data)) {
+        av_log(h->avctx, AV_LOG_WARNING, "Truncating likely oversized PPS\n");
+        pps->data_size = sizeof(pps->data);
+    }
+    memcpy(pps->data, h->gb.buffer, pps->data_size);
     pps->sps_id = get_ue_golomb_31(&h->gb);
     if ((unsigned)pps->sps_id >= MAX_SPS_COUNT ||
         !h->sps_buffers[pps->sps_id]) {

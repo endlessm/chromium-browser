@@ -34,13 +34,28 @@ namespace test {
 
 namespace {
 
+enum TestCase {
+  // Test using the SPDY/3.1 protocol.
+  kTestCaseSPDY31,
+
+  // Test using the HTTP/2 protocol, without specifying a stream
+  // dependency based on the RequestPriority.
+  kTestCaseHTTP2NoPriorityDependencies,
+
+  // Test using the HTTP/2 protocol, specifying a stream
+  // dependency based on the RequestPriority.
+  kTestCaseHTTP2PriorityDependencies
+};
+
 const char kStreamUrl[] = "http://www.example.org/";
 const char kPostBody[] = "\0hello!\xff";
 const size_t kPostBodyLength = arraysize(kPostBody);
 const base::StringPiece kPostBodyStringPiece(kPostBody, kPostBodyLength);
 
+}  // namespace
+
 class SpdyStreamTest : public ::testing::Test,
-                       public ::testing::WithParamInterface<NextProto> {
+                       public ::testing::WithParamInterface<TestCase> {
  protected:
   // A function that takes a SpdyStream and the number of bytes which
   // will unstall the next frame completely.
@@ -48,17 +63,32 @@ class SpdyStreamTest : public ::testing::Test,
       UnstallFunction;
 
   SpdyStreamTest()
-      : spdy_util_(GetParam()),
-        session_deps_(GetParam()),
-        offset_(0) {}
+      : spdy_util_(GetProtocol(), GetDependenciesFromPriority()),
+        session_deps_(GetProtocol()),
+        offset_(0) {
+    SpdySession::SetPriorityDependencyDefaultForTesting(
+        GetDependenciesFromPriority());
+  }
+
+  ~SpdyStreamTest() {
+    SpdySession::SetPriorityDependencyDefaultForTesting(false);
+  }
 
   base::WeakPtr<SpdySession> CreateDefaultSpdySession() {
     SpdySessionKey key(HostPortPair("www.example.org", 80),
                        ProxyServer::Direct(), PRIVACY_MODE_DISABLED);
-    return CreateInsecureSpdySession(session_, key, BoundNetLog());
+    return CreateInsecureSpdySession(session_.get(), key, BoundNetLog());
   }
 
   void TearDown() override { base::MessageLoop::current()->RunUntilIdle(); }
+
+  NextProto GetProtocol() const {
+    return GetParam() == kTestCaseSPDY31 ? kProtoSPDY31 : kProtoHTTP2;
+  }
+
+  bool GetDependenciesFromPriority() const {
+    return GetParam() == kTestCaseHTTP2PriorityDependencies;
+  }
 
   void RunResumeAfterUnstallRequestResponseTest(
       const UnstallFunction& unstall_function);
@@ -99,7 +129,7 @@ class SpdyStreamTest : public ::testing::Test,
 
   SpdyTestUtil spdy_util_;
   SpdySessionDependencies session_deps_;
-  scoped_refptr<HttpNetworkSession> session_;
+  scoped_ptr<HttpNetworkSession> session_;
 
  private:
   // Used by Add{Read,Write}() above.
@@ -108,11 +138,11 @@ class SpdyStreamTest : public ::testing::Test,
   int offset_;
 };
 
-INSTANTIATE_TEST_CASE_P(NextProto,
+INSTANTIATE_TEST_CASE_P(ProtoPlusDepend,
                         SpdyStreamTest,
-                        testing::Values(kProtoSPDY31,
-                                        kProtoHTTP2_14,
-                                        kProtoHTTP2));
+                        testing::Values(kTestCaseSPDY31,
+                                        kTestCaseHTTP2NoPriorityDependencies,
+                                        kTestCaseHTTP2PriorityDependencies));
 
 TEST_P(SpdyStreamTest, SendDataAfterOpen) {
   GURL url(kStreamUrl);
@@ -170,6 +200,92 @@ TEST_P(SpdyStreamTest, SendDataAfterOpen) {
 
   EXPECT_TRUE(delegate.send_headers_completed());
   EXPECT_EQ("200", delegate.GetResponseHeaderValue(spdy_util_.GetStatusKey()));
+  EXPECT_EQ(std::string(kPostBody, kPostBodyLength),
+            delegate.TakeReceivedData());
+  EXPECT_TRUE(data.AllWriteDataConsumed());
+}
+
+// Delegate that receives trailers.
+class StreamDelegateWithTrailers : public test::StreamDelegateWithBody {
+ public:
+  StreamDelegateWithTrailers(const base::WeakPtr<SpdyStream>& stream,
+                             base::StringPiece data)
+      : StreamDelegateWithBody(stream, data) {}
+
+  ~StreamDelegateWithTrailers() override {}
+
+  void OnTrailers(const SpdyHeaderBlock& trailers) override {
+    trailers_ = trailers;
+  }
+
+  const SpdyHeaderBlock& trailers() const { return trailers_; }
+
+ private:
+  SpdyHeaderBlock trailers_;
+};
+
+// Regression test for crbug.com/481033.
+TEST_P(SpdyStreamTest, Trailers) {
+  GURL url(kStreamUrl);
+
+  session_ =
+      SpdySessionDependencies::SpdyCreateSessionDeterministic(&session_deps_);
+
+  scoped_ptr<SpdyFrame> req(spdy_util_.ConstructSpdyPost(
+      kStreamUrl, 1, kPostBodyLength, LOWEST, NULL, 0));
+  AddWrite(*req);
+
+  scoped_ptr<SpdyFrame> msg(
+      spdy_util_.ConstructSpdyBodyFrame(1, kPostBody, kPostBodyLength, true));
+  AddWrite(*msg);
+
+  scoped_ptr<SpdyFrame> resp(spdy_util_.ConstructSpdyPostSynReply(NULL, 0));
+  AddRead(*resp);
+
+  scoped_ptr<SpdyFrame> echo(
+      spdy_util_.ConstructSpdyBodyFrame(1, kPostBody, kPostBodyLength, false));
+  AddRead(*echo);
+
+  const char* const kExtraHeaders[] = {"foo", "bar"};
+  scoped_ptr<SpdyFrame> trailers(
+      spdy_util_.ConstructSpdyHeaderFrame(1, kExtraHeaders, 1));
+  AddRead(*trailers);
+
+  AddReadEOF();
+
+  DeterministicSocketData data(GetReads(), GetNumReads(), GetWrites(),
+                               GetNumWrites());
+  MockConnect connect_data(SYNCHRONOUS, OK);
+  data.set_connect_data(connect_data);
+
+  session_deps_.deterministic_socket_factory->AddSocketDataProvider(&data);
+
+  base::WeakPtr<SpdySession> session(CreateDefaultSpdySession());
+
+  base::WeakPtr<SpdyStream> stream = CreateStreamSynchronously(
+      SPDY_REQUEST_RESPONSE_STREAM, session, url, LOWEST, BoundNetLog());
+  ASSERT_TRUE(stream.get() != NULL);
+
+  StreamDelegateWithTrailers delegate(stream, kPostBodyStringPiece);
+  stream->SetDelegate(&delegate);
+
+  EXPECT_FALSE(stream->HasUrlFromHeaders());
+
+  scoped_ptr<SpdyHeaderBlock> headers(
+      spdy_util_.ConstructPostHeaderBlock(kStreamUrl, kPostBodyLength));
+  EXPECT_EQ(ERR_IO_PENDING,
+            stream->SendRequestHeaders(headers.Pass(), MORE_DATA_TO_SEND));
+  EXPECT_TRUE(stream->HasUrlFromHeaders());
+  EXPECT_EQ(kStreamUrl, stream->GetUrlFromHeaders().spec());
+
+  data.RunFor(GetNumReads() + GetNumWrites());
+  EXPECT_EQ(ERR_CONNECTION_CLOSED, delegate.WaitForClose());
+
+  EXPECT_TRUE(delegate.send_headers_completed());
+  EXPECT_EQ("200", delegate.GetResponseHeaderValue(spdy_util_.GetStatusKey()));
+  const SpdyHeaderBlock& received_trailers = delegate.trailers();
+  SpdyHeaderBlock::const_iterator it = received_trailers.find("foo");
+  EXPECT_EQ("bar", it->second);
   EXPECT_EQ(std::string(kPostBody, kPostBodyLength),
             delegate.TakeReceivedData());
   EXPECT_TRUE(data.AllWriteDataConsumed());
@@ -1041,8 +1157,6 @@ TEST_P(SpdyStreamTest, ReceivedBytes) {
 
   EXPECT_EQ(ERR_CONNECTION_CLOSED, delegate.WaitForClose());
 }
-
-}  // namespace
 
 }  // namespace test
 

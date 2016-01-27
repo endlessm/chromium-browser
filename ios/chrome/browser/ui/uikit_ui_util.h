@@ -130,6 +130,13 @@ void ApplyVisualConstraints(NSArray* constraints,
                             NSDictionary* subviewsDictionary,
                             UIView* parentView);
 
+// Applies all |constraints| with |options| to all views in |subviewsDictionary|
+// in the superview |parentView|.
+void ApplyVisualConstraintsWithOptions(NSArray* constraints,
+                                       NSDictionary* subviewsDictionary,
+                                       NSLayoutFormatOptions options,
+                                       UIView* parentView);
+
 // Applies all |constraints| with |metrics| to all views in |subviewsDictionary|
 // in the superview |parentView|
 void ApplyVisualConstraintsWithMetrics(NSArray* constraints,
@@ -137,10 +144,25 @@ void ApplyVisualConstraintsWithMetrics(NSArray* constraints,
                                        NSDictionary* metrics,
                                        UIView* parentView);
 
+// Applies all |constraints| with |metrics| and |options| to all views in
+// |subviewsDictionary| in the superview |parentView|
+void ApplyVisualConstraintsWithMetricsAndOptions(
+    NSArray* constraints,
+    NSDictionary* subviewsDictionary,
+    NSDictionary* metrics,
+    NSLayoutFormatOptions options,
+    UIView* parentView);
+
 // Adds a constraint that |subview| is center aligned horizontally in
 // |parentView|.
 // |subview| must be a subview of |parentView|.
 void AddSameCenterXConstraint(UIView* parentView, UIView* subview);
+
+// Adds a constraint that |subview1| and |subview2| are center aligned
+// horizontally on |parentView|.
+// |subview1| and |subview2| must be subview of |parentView|.
+void AddSameCenterXConstraint(UIView *parentView, UIView *subview1,
+                              UIView *subview2);
 
 // Adds a constraint that |subview| is center aligned vertically in
 // |parentView|.
@@ -153,5 +175,19 @@ void AddSameCenterYConstraint(UIView* parentView, UIView* subview);
 void AddSameCenterYConstraint(UIView* parentView,
                               UIView* subview1,
                               UIView* subview2);
+
+// Whether the |environment| has a compact horizontal size class.
+bool IsCompact(id<UITraitEnvironment> environment);
+
+// Whether the main application window's rootViewController has a compact
+// horizontal size class.
+bool IsCompact();
+
+// Whether the |environment| has a compact iPad horizontal size class.
+bool IsCompactTablet(id<UITraitEnvironment> environment);
+
+// Whether the main application window's rootViewController has a compact
+// iPad horizontal size class.
+bool IsCompactTablet();
 
 #endif  // IOS_CHROME_BROWSER_UI_UIKIT_UI_UTIL_H_

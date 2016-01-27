@@ -316,7 +316,8 @@ bool IsRunningElevated() {
 }
 
 bool GetUserIdForProcess(size_t pid, wchar_t** user_sid) {
-  HANDLE process_handle = ::OpenProcess(PROCESS_QUERY_INFORMATION, TRUE, pid);
+  HANDLE process_handle =
+      ::OpenProcess(PROCESS_QUERY_INFORMATION, TRUE, static_cast<DWORD>(pid));
   if (process_handle == NULL)
     return false;
 
@@ -361,7 +362,8 @@ BOOL CALLBACK ChromeWindowEnumProc(HWND hwnd, LPARAM lparam) {
 
   if (!params->shunted_hwnds.count(hwnd) &&
       ::GetClassName(hwnd, window_class, arraysize(window_class)) &&
-      base::StartsWith(window_class, kChromeWindowClassPrefix, false) &&
+      base::StartsWith(window_class, kChromeWindowClassPrefix,
+                       base::CompareCase::INSENSITIVE_ASCII) &&
       ::SetWindowPos(hwnd, params->window_insert_after, params->x, params->y,
                      params->width, params->height, params->flags)) {
     params->shunted_hwnds.insert(hwnd);

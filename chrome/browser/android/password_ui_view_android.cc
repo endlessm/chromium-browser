@@ -10,11 +10,11 @@
 #include "base/metrics/field_trial.h"
 #include "base/prefs/pref_service.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "components/autofill/core/common/password_form.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/password_manager/core/browser/affiliation_utils.h"
 #include "components/password_manager/core/browser/password_bubble_experiment.h"
 #include "components/password_manager/core/common/experiments.h"
@@ -110,18 +110,15 @@ void PasswordUIViewAndroid::HandleRemoveSavedPasswordException(
   password_manager_presenter_.RemovePasswordException(index);
 }
 
-jstring GetAccountDashboardURL(JNIEnv* env, jclass) {
-  return ConvertUTF8ToJavaString(
-      env, chrome::kPasswordManagerAccountDashboardURL).Release();
+ScopedJavaLocalRef<jstring> GetAccountDashboardURL(
+    JNIEnv* env,
+    const JavaParamRef<jclass>&) {
+  return ConvertUTF8ToJavaString(env,
+                                 chrome::kPasswordManagerAccountDashboardURL);
 }
 
-static jboolean ShouldDisplayManageAccountLink(
-    JNIEnv* env, jclass) {
-  return password_manager::ManageAccountLinkExperimentEnabled();
-}
-
-static jboolean ShouldUseSmartLockBranding(
-    JNIEnv* env, jclass) {
+static jboolean ShouldUseSmartLockBranding(JNIEnv* env,
+                                           const JavaParamRef<jclass>&) {
   const ProfileSyncService* sync_service =
       ProfileSyncServiceFactory::GetForProfile(
           ProfileManager::GetLastUsedProfile());
@@ -129,7 +126,7 @@ static jboolean ShouldUseSmartLockBranding(
 }
 
 // static
-static jlong Init(JNIEnv* env, jobject obj) {
+static jlong Init(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   PasswordUIViewAndroid* controller = new PasswordUIViewAndroid(env, obj);
   return reinterpret_cast<intptr_t>(controller);
 }

@@ -24,7 +24,7 @@ namespace {
 const char kInstallSourcesPath[] = "*.install_sources";
 const char kAllowedTypesPath[] = "*.allowed_types";
 
-std::string make_path(std::string a, std::string b) {
+std::string make_path(const std::string& a, const std::string& b) {
   return a + "." + b;
 }
 
@@ -263,7 +263,8 @@ ExtensionManagementPolicyUpdater::~ExtensionManagementPolicyUpdater() {
   policies_->Get(policy::PolicyNamespace(policy::POLICY_DOMAIN_CHROME,
                                          std::string()))
       .Set(policy::key::kExtensionSettings, policy::POLICY_LEVEL_MANDATORY,
-           policy::POLICY_SCOPE_USER, TakePref().release(), nullptr);
+           policy::POLICY_SCOPE_USER, policy::POLICY_SOURCE_CLOUD,
+           TakePref().release(), nullptr);
   provider_->UpdatePolicy(policies_.Pass());
 }
 

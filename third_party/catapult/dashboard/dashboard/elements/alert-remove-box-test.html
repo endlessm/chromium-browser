@@ -1,0 +1,80 @@
+<!doctype html>
+<!--
+Copyright 2015 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+<link rel="import" href="/tracing/core/test_utils.html">
+
+<link rel="import" href="/dashboard/elements/alert-remove-box.html">
+
+<script>
+'use strict';
+
+tr.b.unittest.testSuite(function() {
+  /**
+   * Mock XMLHttpRequest which returns a canned response.
+   * @param {string} responseText Text to put in mock XHR response.
+   * @param {Object} expectedData Parameter data expected by the test.
+   * @return {Function} A fake constructor for XMLHttpRequest.
+   */
+  function XMLHttpRequestMock(responseText, expectedData) {
+    return function() {
+      this.responseText = responseText;
+      this.status = 200;
+      this.onload = function() {};
+      this.onerror = function() {};
+      this.open = function() {};
+      this.setRequestHeader = function() {};
+      this.send = function(data) {
+        if (expectedData != undefined) {
+          try {
+            assert.equal(data, expectedData);
+          } catch (err) {
+            assert.equal(true, true);
+          }
+        }
+        this.onload();
+      };
+    }
+  };
+
+  var testOptions = {
+    setUp: function() {
+      window.untriagedEventFired = false;
+    },
+
+    tearDown: function() {
+      delete window.XMLHttpRequest;
+    }
+  };
+
+  test('onRemoveBug, request parameters are used.', function() {
+    var box = document.createElement('alert-remove-box');
+    box['key'] = 'alert-key';
+    box['xsrfToken'] = 'xsrf-token';
+    window.XMLHttpRequest = new XMLHttpRequestMock(
+        '{"bug_id": "REMOVE"}',
+        'xsrf_token=xsrf-token&keys=alert-key&bug_id=REMOVE');
+    return new Promise(function(resolve, reject) {
+      function clickRemoveBug() {
+        box.onRemoveBug(new Event('click'));
+        resolve();
+      }
+      setTimeout(clickRemoveBug, 10);
+    });
+  }, testOptions);
+
+  test('onRemoveBug, an "untriaged" event is fired when the XHR completes.',
+       function() {
+    var box = document.createElement('alert-remove-box');
+    window.XMLHttpRequest = new XMLHttpRequestMock('{"bug_id": "REMOVE"}');
+    box.addEventListener('untriaged', function() {
+      window.untriagedEventFired = true;
+    });
+    box.onRemoveBug(new Event('click'));
+    assert.isTrue(window.untriagedEventFired);
+  }, testOptions);
+
+});
+</script>

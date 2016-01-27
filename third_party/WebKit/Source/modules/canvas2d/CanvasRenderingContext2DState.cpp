@@ -46,6 +46,7 @@ CanvasRenderingContext2DState::CanvasRenderingContext2DState()
     , m_fillStyleDirty(true)
     , m_strokeStyleDirty(true)
     , m_lineDashDirty(false)
+    , m_imageSmoothingQuality(kLow_SkFilterQuality)
 {
     m_fillPaint.setStyle(SkPaint::kFill_Style);
     m_fillPaint.setAntiAlias(true);
@@ -97,6 +98,8 @@ CanvasRenderingContext2DState::CanvasRenderingContext2DState(const CanvasRenderi
     , m_fillStyleDirty(other.m_fillStyleDirty)
     , m_strokeStyleDirty(other.m_strokeStyleDirty)
     , m_lineDashDirty(other.m_lineDashDirty)
+    , m_imageSmoothingEnabled(other.m_imageSmoothingEnabled)
+    , m_imageSmoothingQuality(other.m_imageSmoothingQuality)
 {
     if (mode == CopyClipList) {
         m_clipList = other.m_clipList;
@@ -148,6 +151,8 @@ CanvasRenderingContext2DState& CanvasRenderingContext2DState::operator=(const Ca
     m_strokeStyleDirty = other.m_strokeStyleDirty;
     m_lineDashDirty = other.m_lineDashDirty;
     m_clipList = other.m_clipList;
+    m_imageSmoothingEnabled = other.m_imageSmoothingEnabled;
+    m_imageSmoothingQuality = other.m_imageSmoothingQuality;
 
     if (m_realizedFont)
         static_cast<CSSFontSelector*>(m_font.fontSelector())->registerForInvalidationCallbacks(this);
@@ -199,15 +204,25 @@ void CanvasRenderingContext2DState::setLineDash(const Vector<float>& dash)
     m_lineDashDirty = true;
 }
 
+static bool hasANonZeroElement(const Vector<float>& lineDash)
+{
+    for (size_t i = 0; i < lineDash.size(); i++) {
+        if (lineDash[i] != 0.0f)
+            return true;
+    }
+    return false;
+}
+
 void CanvasRenderingContext2DState::updateLineDash() const
 {
     if (!m_lineDashDirty)
         return;
 
-    if (m_lineDash.size() == 0) {
+    if (!hasANonZeroElement(m_lineDash)) {
         m_strokePaint.setPathEffect(0);
     } else {
-        m_strokePaint.setPathEffect(SkDashPathEffect::Create(m_lineDash.data(), m_lineDash.size(), m_lineDashOffset));
+        RefPtr<SkPathEffect> dashPathEffect = adoptRef(SkDashPathEffect::Create(m_lineDash.data(), m_lineDash.size(), m_lineDashOffset));
+        m_strokePaint.setPathEffect(dashPathEffect.get());
     }
 
     m_lineDashDirty = false;
@@ -232,7 +247,7 @@ void CanvasRenderingContext2DState::updateStrokeStyle() const
 
     int clampedAlpha = clampedAlphaForBlending(m_globalAlpha);
     ASSERT(m_strokeStyle);
-    m_strokePaint.setShader(m_strokeStyle->shader());
+    m_strokeStyle->applyToPaint(m_strokePaint);
     m_strokePaint.setColor(scaleAlpha(m_strokeStyle->paintColor(), clampedAlpha));
     m_strokeStyleDirty = false;
 }
@@ -244,7 +259,7 @@ void CanvasRenderingContext2DState::updateFillStyle() const
 
     int clampedAlpha = clampedAlphaForBlending(m_globalAlpha);
     ASSERT(m_fillStyle);
-    m_fillPaint.setShader(m_fillStyle->shader());
+    m_fillStyle->applyToPaint(m_fillPaint);
     m_fillPaint.setColor(scaleAlpha(m_fillStyle->paintColor(), clampedAlpha));
     m_fillStyleDirty = false;
 }
@@ -458,16 +473,60 @@ SkXfermode::Mode CanvasRenderingContext2DState::globalComposite() const
 
 void CanvasRenderingContext2DState::setImageSmoothingEnabled(bool enabled)
 {
-    SkFilterQuality filterQuality = enabled ? kLow_SkFilterQuality : kNone_SkFilterQuality;
+    m_imageSmoothingEnabled = enabled;
+    updateFilterQuality();
+}
+
+bool CanvasRenderingContext2DState::imageSmoothingEnabled() const
+{
+    return m_imageSmoothingEnabled;
+}
+
+void CanvasRenderingContext2DState::setImageSmoothingQuality(const String& qualityString)
+{
+    if (qualityString == "low") {
+        m_imageSmoothingQuality = kLow_SkFilterQuality;
+    } else if (qualityString == "medium") {
+        m_imageSmoothingQuality = kMedium_SkFilterQuality;
+    } else if (qualityString == "high") {
+        m_imageSmoothingQuality = kHigh_SkFilterQuality;
+    } else {
+        return;
+    }
+    updateFilterQuality();
+}
+
+String CanvasRenderingContext2DState::imageSmoothingQuality() const
+{
+    switch (m_imageSmoothingQuality) {
+    case kLow_SkFilterQuality:
+        return "low";
+    case kMedium_SkFilterQuality:
+        return "medium";
+    case kHigh_SkFilterQuality:
+        return "high";
+    default:
+        ASSERT_NOT_REACHED();
+        return "low";
+    }
+}
+
+void CanvasRenderingContext2DState::updateFilterQuality() const
+{
+    if (!m_imageSmoothingEnabled) {
+        updateFilterQualityWithSkFilterQuality(kNone_SkFilterQuality);
+    } else {
+        updateFilterQualityWithSkFilterQuality(m_imageSmoothingQuality);
+    }
+}
+
+void CanvasRenderingContext2DState::updateFilterQualityWithSkFilterQuality(const SkFilterQuality& filterQuality) const
+{
     m_strokePaint.setFilterQuality(filterQuality);
     m_fillPaint.setFilterQuality(filterQuality);
     m_imagePaint.setFilterQuality(filterQuality);
 }
 
-bool CanvasRenderingContext2DState::imageSmoothingEnabled() const
-{
-    return m_imagePaint.getFilterQuality() == kLow_SkFilterQuality;
-}
 
 bool CanvasRenderingContext2DState::shouldDrawShadows() const
 {

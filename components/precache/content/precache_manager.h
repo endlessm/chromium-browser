@@ -54,26 +54,34 @@ class PrecacheManager : public KeyedService,
                         public PrecacheFetcher::PrecacheDelegate,
                         public base::SupportsWeakPtr<PrecacheManager> {
  public:
-  typedef base::Closure PrecacheCompletionCallback;
+  typedef base::Callback<void(bool)> PrecacheCompletionCallback;
 
   PrecacheManager(content::BrowserContext* browser_context,
-                  const sync_driver::SyncService* const sync_service);
+                  const sync_driver::SyncService* const sync_service,
+                  const history::HistoryService* const history_service);
   ~PrecacheManager() override;
 
-  // Returns true if precaching is enabled as part of a field trial or by the
-  // command line flag. This method can be called on any thread.
-  static bool IsPrecachingEnabled();
+  // Returns true if the client is in the experiment group -- that is,
+  // precaching is allowed based on user settings, and enabled as part of a
+  // field trial or by commandline flag. Virtual for testing.
+  virtual bool IsInExperimentGroup() const;
 
-  // Returns true if precaching is allowed for the browser context.
-  bool IsPrecachingAllowed();
+  // Returns true if the client is in the control group -- that is, precaching
+  // is allowed based on user settings, and the browser is in the control group
+  // of the field trial. Virtual for testing.
+  virtual bool IsInControlGroup() const;
+
+  // Returns true if precaching is allowed based on user settings. Virtual for
+  // testing.
+  virtual bool IsPrecachingAllowed() const;
 
   // Starts precaching resources that the user is predicted to fetch in the
   // future. If precaching is already currently in progress, then this method
-  // does nothing. The |precache_completion_callback| will be run when
-  // precaching finishes, but will not be run if precaching is canceled.
+  // does nothing. The |precache_completion_callback| will be passed true when
+  // precaching finishes, and passed false when precaching abort due to failed
+  // preconditions, but will not be run if precaching is canceled.
   void StartPrecaching(
-      const PrecacheCompletionCallback& precache_completion_callback,
-      const history::HistoryService& history_service);
+      const PrecacheCompletionCallback& precache_completion_callback);
 
   // Cancels precaching if it is in progress.
   void CancelPrecaching();
@@ -83,6 +91,8 @@ class PrecacheManager : public KeyedService,
 
   // Update precache-related metrics in response to a URL being fetched.
   void RecordStatsForFetch(const GURL& url,
+                           const GURL& referrer,
+                           const base::TimeDelta& latency,
                            const base::Time& fetch_time,
                            int64 size,
                            bool was_cached);
@@ -92,6 +102,12 @@ class PrecacheManager : public KeyedService,
   void ClearHistory();
 
  private:
+  enum class AllowedType {
+    ALLOWED,
+    DISALLOWED,
+    PENDING
+  };
+
   // From KeyedService.
   void Shutdown() override;
 
@@ -101,12 +117,32 @@ class PrecacheManager : public KeyedService,
   // From history::HistoryService::TopHosts.
   void OnHostsReceived(const history::TopHostsList& host_counts);
 
+  // From history::HistoryService::TopHosts. Used for the control group, which
+  // gets the list of TopHosts for metrics purposes, but otherwise does nothing.
+  void OnHostsReceivedThenDone(const history::TopHostsList& host_counts);
+
+  // Returns true if precaching is allowed for the browser context.
+  AllowedType PrecachingAllowed() const;
+
+  // Update precache-related metrics in response to a URL being fetched. Called
+  // by RecordStatsForFetch() by way of an asynchronous HistoryService callback.
+  void RecordStatsForFetchInternal(const GURL& url,
+                                   const base::TimeDelta& latency,
+                                   const base::Time& fetch_time,
+                                   int64 size,
+                                   bool was_cached,
+                                   int host_rank);
+
   // The browser context that owns this PrecacheManager.
   content::BrowserContext* const browser_context_;
 
   // The sync service corresponding to the browser context. Used to determine
   // whether precache can run. May be null.
   const sync_driver::SyncService* const sync_service_;
+
+  // The history service corresponding to the browser context. Used to determine
+  // the list of top hosts. May be null.
+  const history::HistoryService* const history_service_;
 
   // The PrecacheFetcher used to precache resources. Should only be used on the
   // UI thread.

@@ -15,7 +15,7 @@
 #include "components/autofill/core/browser/suggestion.h"
 #include "components/autofill/core/common/form_data.h"
 #include "components/autofill/core/common/form_field_data.h"
-#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_f.h"
 
 namespace autofill {
 
@@ -111,11 +111,6 @@ class AutofillExternalDelegate : public AutofillPopupDelegate {
   // Insert the data list values at the start of the given list, including
   // any required separators.
   void InsertDataListValues(std::vector<Suggestion>* suggestions);
-
-#if defined(OS_MACOSX) && !defined(OS_IOS)
-  // Pings the renderer.
-  void PingRenderer();
-#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
 
   AutofillManager* manager_;  // weak.
 

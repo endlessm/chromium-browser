@@ -35,7 +35,7 @@
 #include "WebCanvas.h"
 #include "WebContentDecryptionModule.h"
 #include "WebMediaSource.h"
-#include "WebSetSinkIdError.h"
+#include "WebSetSinkIdCallbacks.h"
 #include "WebString.h"
 #include "WebTimeRange.h"
 #include "third_party/skia/include/core/SkXfermode.h"
@@ -44,6 +44,7 @@ namespace blink {
 
 class WebAudioSourceProvider;
 class WebContentDecryptionModule;
+class WebSecurityOrigin;
 class WebString;
 class WebURL;
 struct WebRect;
@@ -91,10 +92,12 @@ public:
         CORSModeUseCredentials,
     };
 
+    // Reported to UMA. Do not change existing values.
     enum LoadType {
-        LoadTypeURL,
-        LoadTypeMediaSource,
-        LoadTypeMediaStream,
+        LoadTypeURL = 0,
+        LoadTypeMediaSource = 1,
+        LoadTypeMediaStream = 2,
+        LoadTypeMax = LoadTypeMediaStream,
     };
 
     typedef unsigned TrackId;
@@ -118,14 +121,13 @@ public:
     virtual WebTimeRanges seekable() const = 0;
 
     // Attempts to switch the audio output device.
-    // Implementations of setSinkId take ownership of the WebCallbacks
-    // object, and the WebCallbacks object takes ownership of the returned
-    // error value, if any.
+    // Implementations of setSinkId take ownership of the WebSetSinkCallbacks
+    // object.
     // Note also that setSinkId implementations must make sure that all
-    // methods of the WebCallbacks object, including constructors and
+    // methods of the WebSetSinkCallbacks object, including constructors and
     // destructors, run in the same thread where the object is created
     // (i.e., the blink thread).
-    virtual void setSinkId(const WebString& deviceId, WebCallbacks<void, WebSetSinkIdError>*) = 0;
+    virtual void setSinkId(const WebString& sinkId, const WebSecurityOrigin&, WebSetSinkIdCallbacks*) = 0;
 
     // True if the loaded media has a playable video/audio track.
     virtual bool hasVideo() const = 0;
@@ -161,8 +163,18 @@ public:
     virtual unsigned videoDecodedByteCount() const = 0;
 
     virtual void paint(WebCanvas*, const WebRect&, unsigned char alpha, SkXfermode::Mode) = 0;
-    // Do a GPU-GPU textures copy if possible.
+
+    // TODO(dshwang): remove non-|target| version. crbug.com/349871
     virtual bool copyVideoTextureToPlatformTexture(WebGraphicsContext3D*, unsigned texture, unsigned internalFormat, unsigned type, bool premultiplyAlpha, bool flipY) { return false; }
+
+    // Do a GPU-GPU textures copy. If the copy is impossible or fails, it returns false.
+    virtual bool copyVideoTextureToPlatformTexture(WebGraphicsContext3D*, unsigned target,
+        unsigned texture, unsigned internalFormat, unsigned type, int level,
+        bool premultiplyAlpha, bool flipY) { return false; }
+    // Copy sub video frame texture to |texture|. If the copy is impossible or fails, it returns false.
+    virtual bool copyVideoSubTextureToPlatformTexture(WebGraphicsContext3D*, unsigned target,
+        unsigned texture, int level, int xoffset, int yoffset, bool premultiplyAlpha,
+        bool flipY) { return false; }
 
     virtual WebAudioSourceProvider* audioSourceProvider() { return nullptr; }
 
@@ -176,6 +188,11 @@ public:
     // Sets the poster image URL.
     virtual void setPoster(const WebURL& poster) { }
 
+    // Whether the WebMediaPlayer supports overlay fullscreen video mode. When
+    // this is true, the video layer will be removed from the layer tree when
+    // entering fullscreen, and the WebMediaPlayer is responsible for displaying
+    // the video in enterFullscreen().
+    virtual bool supportsOverlayFullscreenVideo() { return false; }
     // Instruct WebMediaPlayer to enter/exit fullscreen.
     virtual void enterFullscreen() { }
 

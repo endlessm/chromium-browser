@@ -116,7 +116,7 @@ class BenchCompositorObserver : public ui::CompositorObserver {
       }
     }
     if (max_frames_ && frames_ == max_frames_) {
-      base::MessageLoop::current()->Quit();
+      base::MessageLoop::current()->QuitWhenIdle();
     } else {
       Draw();
     }
@@ -142,12 +142,22 @@ class BenchCompositorObserver : public ui::CompositorObserver {
 
 void ReturnMailbox(scoped_refptr<cc::ContextProvider> context_provider,
                    GLuint texture,
-                   GLuint sync_point,
+                   const gpu::SyncToken& sync_token,
                    bool is_lost) {
   gpu::gles2::GLES2Interface* gl = context_provider->ContextGL();
-  gl->WaitSyncPointCHROMIUM(sync_point);
+  gl->WaitSyncTokenCHROMIUM(sync_token.GetConstData());
   gl->DeleteTextures(1, &texture);
   gl->ShallowFlushCHROMIUM();
+}
+
+gfx::Size GetFullscreenSize() {
+#if defined(OS_WIN)
+  return gfx::Size(GetSystemMetrics(SM_CXSCREEN),
+                   GetSystemMetrics(SM_CYSCREEN));
+#else
+  NOTIMPLEMENTED();
+  return gfx::Size(1024, 768);
+#endif
 }
 
 // A benchmark that adds a texture layer that is updated every frame.
@@ -170,8 +180,8 @@ class WebGLBench : public BenchCompositorObserver {
     int width = 0;
     int height = 0;
     if (!webgl_size.empty()) {
-      std::vector<std::string> split_size;
-      base::SplitString(webgl_size, 'x', &split_size);
+      std::vector<std::string> split_size = base::SplitString(
+          webgl_size, "x", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
       if (split_size.size() == 2) {
         width = atoi(split_size[0].c_str());
         height = atoi(split_size[1].c_str());
@@ -217,7 +227,7 @@ class WebGLBench : public BenchCompositorObserver {
 
     GLuint sync_point = gl->InsertSyncPointCHROMIUM();
     webgl_.SetTextureMailbox(
-        cc::TextureMailbox(mailbox, GL_TEXTURE_2D, sync_point),
+        cc::TextureMailbox(mailbox, gpu::SyncToken(sync_point), GL_TEXTURE_2D),
         cc::SingleReleaseCallback::Create(
             base::Bind(ReturnMailbox, context_provider_, texture)),
         bounds.size());
@@ -312,7 +322,7 @@ int main(int argc, char** argv) {
   aura::Env::CreateInstance(true);
   aura::Env::GetInstance()->set_context_factory(context_factory.get());
   scoped_ptr<aura::TestScreen> test_screen(
-      aura::TestScreen::CreateFullscreen());
+      aura::TestScreen::Create(GetFullscreenSize()));
   gfx::Screen::SetScreenInstance(gfx::SCREEN_TYPE_NATIVE, test_screen.get());
   scoped_ptr<aura::WindowTreeHost> host(
       test_screen->CreateHostForPrimaryDisplay());

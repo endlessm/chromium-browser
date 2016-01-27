@@ -40,17 +40,40 @@ static int get_line(AVIOContext *pb, char *line, int line_size)
     return 0;
 }
 
+
+static void trim_right(char* p)
+{
+    char *end;
+    if (!p || !*p)
+        return;
+    end = p + strlen(p) - 1;
+    while (end != p && av_isspace(*end)) {
+        *end = '\0';
+        end--;
+    }
+}
+
 static int split_tag_value(char **tag, char **value, char *line)
 {
     char *p = line;
+    int  foundData = 0;
 
-    while (*p != '\0' && *p != ':')
+    *tag = NULL;
+    *value = NULL;
+
+
+    while (*p != '\0' && *p != ':') {
+        if (!av_isspace(*p)) {
+            foundData = 1;
+        }
         p++;
+    }
     if (*p != ':')
-        return AVERROR_INVALIDDATA;
+        return foundData ? AVERROR_INVALIDDATA : 0;
 
     *p   = '\0';
     *tag = line;
+    trim_right(*tag);
 
     p++;
 
@@ -58,29 +81,16 @@ static int split_tag_value(char **tag, char **value, char *line)
         p++;
 
     *value = p;
+    trim_right(*value);
 
     return 0;
 }
 
-static int check_content_type(char *line)
-{
-    char *tag, *value;
-    int ret = split_tag_value(&tag, &value, line);
-
-    if (ret < 0)
-        return ret;
-
-    if (av_strcasecmp(tag, "Content-type") ||
-        av_strcasecmp(value, "image/jpeg"))
-        return AVERROR_INVALIDDATA;
-
-    return 0;
-}
+static int parse_multipart_header(AVIOContext *pb, void *log_ctx);
 
 static int mpjpeg_read_probe(AVProbeData *p)
 {
     AVIOContext *pb;
-    char line[128] = { 0 };
     int ret = 0;
 
     if (p->buf_size < 2 || p->buf[0] != '-' || p->buf[1] != '-')
@@ -88,19 +98,9 @@ static int mpjpeg_read_probe(AVProbeData *p)
 
     pb = avio_alloc_context(p->buf, p->buf_size, 0, NULL, NULL, NULL, NULL);
     if (!pb)
-        return AVERROR(ENOMEM);
+        return 0;
 
-    while (!pb->eof_reached) {
-        ret = get_line(pb, line, sizeof(line));
-        if (ret < 0)
-            break;
-
-        ret = check_content_type(line);
-        if (!ret) {
-            ret = AVPROBE_SCORE_MAX;
-            break;
-        }
-    }
+    ret = (parse_multipart_header(pb, NULL)>0)?AVPROBE_SCORE_MAX:0;
 
     av_free(pb);
 
@@ -123,6 +123,8 @@ static int mpjpeg_read_header(AVFormatContext *s)
         return AVERROR_INVALIDDATA;
 
     st = avformat_new_stream(s, NULL);
+    if (!st)
+        return AVERROR(ENOMEM);
 
     st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
     st->codec->codec_id   = AV_CODEC_ID_MJPEG;
@@ -145,25 +147,38 @@ static int parse_content_length(const char *value)
     return val;
 }
 
-static int parse_multipart_header(AVFormatContext *s)
+static int parse_multipart_header(AVIOContext *pb, void *log_ctx)
 {
     char line[128];
     int found_content_type = 0;
     int ret, size = -1;
 
-    ret = get_line(s->pb, line, sizeof(line));
+    // get the CRLF as empty string
+    ret = get_line(pb, line, sizeof(line));
     if (ret < 0)
         return ret;
+
+    /* some implementation do not provide the required
+     * initial CRLF (see rfc1341 7.2.1)
+     */
+    if (!line[0]) {
+        ret = get_line(pb, line, sizeof(line));
+        if (ret < 0)
+            return ret;
+    }
 
     if (strncmp(line, "--", 2))
         return AVERROR_INVALIDDATA;
 
-    while (!s->pb->eof_reached) {
+    while (!pb->eof_reached) {
         char *tag, *value;
 
-        ret = get_line(s->pb, line, sizeof(line));
-        if (ret < 0)
+        ret = get_line(pb, line, sizeof(line));
+        if (ret < 0) {
+            if (ret == AVERROR_EOF)
+                break;
             return ret;
+        }
 
         if (line[0] == '\0')
             break;
@@ -171,12 +186,17 @@ static int parse_multipart_header(AVFormatContext *s)
         ret = split_tag_value(&tag, &value, line);
         if (ret < 0)
             return ret;
+        if (value==NULL || tag==NULL)
+            break;
 
         if (!av_strcasecmp(tag, "Content-type")) {
             if (av_strcasecmp(value, "image/jpeg")) {
-                av_log(s, AV_LOG_ERROR,
-                       "Unexpected %s : %s\n",
-                       tag, value);
+                if (log_ctx) {
+                    av_log(log_ctx, AV_LOG_ERROR,
+                           "Unexpected %s : %s\n",
+                           tag, value);
+                }
+
                 return AVERROR_INVALIDDATA;
             } else
                 found_content_type = 1;
@@ -197,7 +217,7 @@ static int parse_multipart_header(AVFormatContext *s)
 static int mpjpeg_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
     int ret;
-    int size = parse_multipart_header(s);
+    int size = parse_multipart_header(s->pb, s);
 
     if (size < 0)
         return size;
@@ -205,9 +225,6 @@ static int mpjpeg_read_packet(AVFormatContext *s, AVPacket *pkt)
     ret = av_get_packet(s->pb, pkt, size);
     if (ret < 0)
         return ret;
-
-    // trailing empty line
-    avio_skip(s->pb, 2);
 
     return 0;
 }

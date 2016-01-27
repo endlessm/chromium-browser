@@ -141,13 +141,16 @@ private:
 
     private:
         // From blink::Platform:
-        virtual double currentTime()
+        double currentTimeSeconds() override
         {
             return kOriginalRequestDateAsDouble + m_elapsedSeconds;
         }
 
         // These blink::Platform methods must be overriden to make a usable object.
-        virtual void cryptographicallyRandomValues(unsigned char* buffer, size_t length) { ASSERT_NOT_REACHED(); }
+        virtual void cryptographicallyRandomValues(unsigned char* buffer, size_t length)
+        {
+            RELEASE_ASSERT_NOT_REACHED();
+        }
         virtual const unsigned char* getTraceCategoryEnabledFlag(const char* categoryName)
         {
             return &kAConstUnsignedCharZero;

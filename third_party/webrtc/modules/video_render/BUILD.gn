@@ -13,8 +13,8 @@ source_set("video_render_module") {
     "external/video_render_external_impl.cc",
     "external/video_render_external_impl.h",
     "i_video_render.h",
-    "include/video_render.h",
-    "include/video_render_defines.h",
+    "video_render.h",
+    "video_render_defines.h",
     "video_render_impl.h",
   ]
 
@@ -161,7 +161,7 @@ if (!build_with_chromium) {
 
       deps += [ "../..:webrtc_common" ]
 
-      cflags += [ "-fobjc-arc" ]  # CLANG_ENABLE_OBJC_ARC = YES.
+      cflags = [ "-fobjc-arc" ]  # CLANG_ENABLE_OBJC_ARC = YES.
     }
 
     all_dependent_configs = [ ":video_render_internal_impl_config" ]

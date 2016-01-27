@@ -28,9 +28,9 @@
 
 #include "bindings/core/v8/DOMWrapperWorld.h"
 #include "bindings/core/v8/RejectedPromises.h"
+#include "bindings/core/v8/RetainedDOMInfo.h"
 #include "bindings/core/v8/ScriptCallStackFactory.h"
 #include "bindings/core/v8/ScriptController.h"
-#include "bindings/core/v8/ScriptProfiler.h"
 #include "bindings/core/v8/ScriptValue.h"
 #include "bindings/core/v8/V8Binding.h"
 #include "bindings/core/v8/V8DOMException.h"
@@ -38,6 +38,7 @@
 #include "bindings/core/v8/V8ErrorHandler.h"
 #include "bindings/core/v8/V8GCController.h"
 #include "bindings/core/v8/V8History.h"
+#include "bindings/core/v8/V8IdleTaskRunner.h"
 #include "bindings/core/v8/V8Location.h"
 #include "bindings/core/v8/V8PerContextData.h"
 #include "bindings/core/v8/V8Window.h"
@@ -63,6 +64,7 @@
 #include "wtf/RefPtr.h"
 #include "wtf/text/WTFString.h"
 #include <v8-debug.h>
+#include <v8-profiler.h>
 
 namespace blink {
 
@@ -107,9 +109,6 @@ static PassRefPtrWillBeRawPtr<ScriptCallStack> extractCallStack(v8::Isolate* iso
         int topScriptId = callStack->at(0).scriptId().toInt(&success);
         if (success && topScriptId == *scriptId)
             *scriptId = 0;
-    } else {
-        Vector<ScriptCallFrame> callFrames;
-        callStack = ScriptCallStack::create(callFrames);
     }
     return callStack.release();
 }
@@ -193,7 +192,7 @@ namespace {
 static RejectedPromises& rejectedPromisesOnMainThread()
 {
     ASSERT(isMainThread());
-    DEFINE_STATIC_LOCAL(OwnPtrWillBePersistent<RejectedPromises>, rejectedPromises, (adoptPtrWillBeNoop(new RejectedPromises())));
+    DEFINE_STATIC_LOCAL(RefPtrWillBePersistent<RejectedPromises>, rejectedPromises, (adoptRefWillBeNoop(new RejectedPromises())));
     return *rejectedPromises;
 }
 
@@ -328,23 +327,6 @@ static bool codeGenerationCheckCallbackInMainThread(v8::Local<v8::Context> conte
     return false;
 }
 
-static void idleGCTaskInMainThread(double deadlineSeconds)
-{
-    ASSERT(isMainThread());
-    ASSERT(RuntimeEnabledFeatures::v8IdleTasksEnabled());
-    bool gcFinished = false;
-    v8::Isolate* isolate = v8::Isolate::GetCurrent();
-
-    Platform* platform = Platform::current();
-    if (deadlineSeconds > platform->monotonicallyIncreasingTime())
-        gcFinished = isolate->IdleNotificationDeadline(deadlineSeconds);
-
-    if (gcFinished)
-        platform->currentThread()->scheduler()->postIdleTaskAfterWakeup(FROM_HERE, WTF::bind<double>(idleGCTaskInMainThread));
-    else
-        platform->currentThread()->scheduler()->postIdleTask(FROM_HERE, WTF::bind<double>(idleGCTaskInMainThread));
-}
-
 static void timerTraceProfilerInMainThread(const char* name, int status)
 {
     if (!status) {
@@ -410,13 +392,16 @@ void V8Initializer::initializeMainThreadIfNeeded()
     v8::V8::SetFailedAccessCheckCallbackFunction(failedAccessCheckCallbackInMainThread);
     v8::V8::SetAllowCodeGenerationFromStringsCallback(codeGenerationCheckCallbackInMainThread);
 
-    if (RuntimeEnabledFeatures::v8IdleTasksEnabled())
-        Platform::current()->currentThread()->scheduler()->postIdleTask(FROM_HERE, WTF::bind<double>(idleGCTaskInMainThread));
+    if (RuntimeEnabledFeatures::v8IdleTasksEnabled()) {
+        WebScheduler* scheduler = Platform::current()->currentThread()->scheduler();
+        V8PerIsolateData::enableIdleTasks(isolate, adoptPtr(new V8IdleTaskRunner(scheduler)));
+    }
 
     isolate->SetEventLogger(timerTraceProfilerInMainThread);
     isolate->SetPromiseRejectCallback(promiseRejectHandlerInMainThread);
 
-    ScriptProfiler::initialize();
+    if (v8::HeapProfiler* profiler = isolate->GetHeapProfiler())
+        profiler->SetWrapperClassInfoProvider(WrapperTypeInfo::NodeClassId, &RetainedDOMInfo::retainedDOMInfo);
 }
 
 static void reportFatalErrorInWorker(const char* location, const char* message)

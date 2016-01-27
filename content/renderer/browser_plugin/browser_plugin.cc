@@ -158,6 +158,7 @@ void BrowserPlugin::Attach() {
   if (container()) {
     blink::WebLocalFrame* frame = container()->element().document().frame();
     attach_params.is_full_page_plugin =
+        frame->view()->mainFrame()->isWebLocalFrame() &&
         frame->view()->mainFrame()->document().isPluginDocument();
   }
   BrowserPluginManager::Get()->Send(new BrowserPluginHostMsg_Attach(
@@ -394,7 +395,7 @@ v8::Local<v8::Object> BrowserPlugin::v8ScriptableObject(v8::Isolate* isolate) {
 }
 
 bool BrowserPlugin::supportsKeyboardFocus() const {
-  return true;
+  return visible_;
 }
 
 bool BrowserPlugin::supportsEditCommands() const {
@@ -500,6 +501,18 @@ bool BrowserPlugin::handleInputEvent(const blink::WebInputEvent& event,
   if (guest_crashed_ || !attached())
     return false;
 
+  if (event.type == blink::WebInputEvent::MouseWheel) {
+    auto wheel_event = static_cast<const blink::WebMouseWheelEvent&>(event);
+    if (wheel_event.resendingPluginId == browser_plugin_instance_id_)
+      return false;
+  }
+
+  if (blink::WebInputEvent::isGestureEventType(event.type)) {
+    auto gesture_event = static_cast<const blink::WebGestureEvent&>(event);
+    if (gesture_event.resendingPluginId == browser_plugin_instance_id_)
+      return false;
+  }
+
   if (event.type == blink::WebInputEvent::ContextMenu)
     return true;
 
@@ -516,7 +529,13 @@ bool BrowserPlugin::handleInputEvent(const blink::WebInputEvent& event,
       new BrowserPluginHostMsg_HandleInputEvent(browser_plugin_instance_id_,
                                                 view_rect_,
                                                 &event));
-  GetWebKitCursorInfo(cursor_, &cursor_info);
+  GetWebCursorInfo(cursor_, &cursor_info);
+
+  // Although we forward this event to the guest, we don't report it as consumed
+  // since other targets of this event in Blink never get that chance either.
+  if (event.type == blink::WebInputEvent::GestureFlingStart)
+    return false;
+
   return true;
 }
 

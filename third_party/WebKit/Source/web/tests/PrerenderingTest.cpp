@@ -30,24 +30,21 @@
 
 #include "config.h"
 
+#include "core/dom/NodeTraversal.h"
 #include "platform/testing/URLTestHelpers.h"
-#include "public/web/WebCache.h"
-#include "public/web/WebDocument.h"
-#include "public/web/WebElement.h"
-#include "public/web/WebFrame.h"
-#include "public/web/WebNode.h"
-#include "public/web/WebNodeList.h"
-#include "public/web/WebPrerendererClient.h"
-#include "public/web/WebScriptSource.h"
-#include "public/web/WebView.h"
-#include "public/web/WebViewClient.h"
-#include "web/tests/FrameTestHelpers.h"
-
 #include "public/platform/Platform.h"
 #include "public/platform/WebPrerender.h"
 #include "public/platform/WebPrerenderingSupport.h"
 #include "public/platform/WebString.h"
 #include "public/platform/WebUnitTestSupport.h"
+#include "public/web/WebCache.h"
+#include "public/web/WebFrame.h"
+#include "public/web/WebPrerendererClient.h"
+#include "public/web/WebScriptSource.h"
+#include "public/web/WebView.h"
+#include "public/web/WebViewClient.h"
+#include "web/WebLocalFrameImpl.h"
+#include "web/tests/FrameTestHelpers.h"
 #include "wtf/OwnPtr.h"
 #include <functional>
 #include <gtest/gtest.h>
@@ -132,52 +129,47 @@ public:
 
     size_t addCount(const WebPrerender& prerender) const
     {
-        return std::count_if(m_addedPrerenders.begin(), m_addedPrerenders.end(), std::bind1st(WebPrerenderEqual(), prerender));
+        return std::count_if(m_addedPrerenders.begin(), m_addedPrerenders.end(),
+                             [&prerender](const WebPrerender& other) { return other.toPrerender() == prerender.toPrerender(); });
     }
 
     size_t cancelCount(const WebPrerender& prerender) const
     {
-        return std::count_if(m_canceledPrerenders.begin(), m_canceledPrerenders.end(), std::bind1st(WebPrerenderEqual(), prerender));
+        return std::count_if(m_canceledPrerenders.begin(), m_canceledPrerenders.end(),
+                             [&prerender](const WebPrerender& other) { return other.toPrerender() == prerender.toPrerender(); });
     }
 
     size_t abandonCount(const WebPrerender& prerender) const
     {
-        return std::count_if(m_abandonedPrerenders.begin(), m_abandonedPrerenders.end(), std::bind1st(WebPrerenderEqual(), prerender));
+        return std::count_if(m_abandonedPrerenders.begin(), m_abandonedPrerenders.end(),
+                             [&prerender](const WebPrerender& other) { return other.toPrerender() == prerender.toPrerender(); });
     }
 
 private:
-    class WebPrerenderEqual : public std::binary_function<WebPrerender, WebPrerender, bool> {
-    public:
-        bool operator()(const WebPrerender& first, const WebPrerender& second) const
-        {
-            return first.toPrerender() == second.toPrerender();
-        }
-    };
-
     // From WebPrerenderingSupport:
     void add(const WebPrerender& prerender) override
     {
-        m_addedPrerenders.push_back(prerender);
+        m_addedPrerenders.append(prerender);
     }
 
     void cancel(const WebPrerender& prerender) override
     {
-        m_canceledPrerenders.push_back(prerender);
+        m_canceledPrerenders.append(prerender);
     }
 
     void abandon(const WebPrerender& prerender) override
     {
-        m_abandonedPrerenders.push_back(prerender);
+        m_abandonedPrerenders.append(prerender);
     }
 
-    std::vector<WebPrerender> m_addedPrerenders;
-    std::vector<WebPrerender> m_canceledPrerenders;
-    std::vector<WebPrerender> m_abandonedPrerenders;
+    Vector<WebPrerender> m_addedPrerenders;
+    Vector<WebPrerender> m_canceledPrerenders;
+    Vector<WebPrerender> m_abandonedPrerenders;
 };
 
 class PrerenderingTest : public testing::Test {
 public:
-    ~PrerenderingTest()
+    ~PrerenderingTest() override
     {
         Platform::current()->unitTestSupport()->unregisterAllMockedURLs();
     }
@@ -205,30 +197,30 @@ public:
         WebCache::clear();
     }
 
-    WebElement console()
+    Element& console()
     {
-        WebElement console = m_webViewHelper.webView()->mainFrame()->document().getElementById("console");
-        ASSERT(console.nodeName() == "UL");
-        return console;
+        Document* document = m_webViewHelper.webViewImpl()->mainFrameImpl()->frame()->document();
+        Element* console = document->getElementById("console");
+        ASSERT(isHTMLUListElement(console));
+        return *console;
     }
 
     unsigned consoleLength()
     {
-        return console().childNodes().length() - 1;
+        return console().countChildren() - 1;
     }
 
-    std::string consoleAt(unsigned i)
+    WebString consoleAt(unsigned i)
     {
         ASSERT(consoleLength() > i);
 
-        WebNode consoleListItem = console().childNodes().item(1 + i);
-        ASSERT(consoleListItem.nodeName() == "LI");
-        ASSERT(consoleListItem.hasChildNodes());
+        Node* item = NodeTraversal::childAt(console(), 1 + i);
 
-        WebNode textNode = consoleListItem.firstChild();
-        ASSERT(textNode.nodeName() == "#text");
+        ASSERT(item);
+        ASSERT(isHTMLLIElement(item));
+        ASSERT(item->hasChildren());
 
-        return textNode.nodeValue().utf8().data();
+        return item->textContent();
     }
 
     void executeScript(const char* code)

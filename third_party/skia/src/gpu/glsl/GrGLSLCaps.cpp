@@ -8,6 +8,8 @@
 
 #include "GrGLSLCaps.h"
 
+#include "GrContextOptions.h"
+
 ////////////////////////////////////////////////////////////////////////////////////////////
 
 GrGLSLCaps::GrGLSLCaps(const GrContextOptions& options) {
@@ -17,9 +19,20 @@ GrGLSLCaps::GrGLSLCaps(const GrContextOptions& options) {
     fFBFetchSupport = false;
     fFBFetchNeedsCustomOutput = false;
     fBindlessTextureSupport = false;
-    fFBFetchColorName = NULL;
-    fFBFetchExtensionString = NULL;
+    fUsesPrecisionModifiers = false;
+    fCanUseAnyFunctionInShader = true;
+    fCanUseMinAndAbsTogether = true;
+    fMustForceNegatedAtanParamToFloat = false;
+    fVersionDeclString = nullptr;
+    fShaderDerivativeExtensionString = nullptr;
+    fFragCoordConventionsExtensionString = nullptr;
+    fSecondaryOutputExtensionString = nullptr;
+    fFBFetchColorName = nullptr;
+    fFBFetchExtensionString = nullptr;
     fAdvBlendEqInteraction = kNotSupported_AdvBlendEqInteraction;
+
+    fMustSwizzleInShader = false;
+    memset(fConfigSwizzle, 0, sizeof(fConfigSwizzle));
 }
 
 SkString GrGLSLCaps::dump() const {
@@ -42,8 +55,19 @@ SkString GrGLSLCaps::dump() const {
     r.appendf("FB Fetch Support: %s\n", (fFBFetchSupport ? "YES" : "NO"));
     r.appendf("Drops tile on zero divide: %s\n", (fDropsTileOnZeroDivide ? "YES" : "NO"));
     r.appendf("Bindless texture support: %s\n", (fBindlessTextureSupport ? "YES" : "NO"));
+    r.appendf("Uses precision modifiers: %s\n", (fUsesPrecisionModifiers ? "YES" : "NO"));
+    r.appendf("Can use any() function: %s\n", (fCanUseAnyFunctionInShader ? "YES" : "NO"));
+    r.appendf("Can use min() and abs() together: %s\n", (fCanUseMinAndAbsTogether ? "YES" : "NO"));
+    r.appendf("Must force negated atan param to float: %s\n", (fMustForceNegatedAtanParamToFloat ?
+                                                               "YES" : "NO"));
     r.appendf("Advanced blend equation interaction: %s\n",
               kAdvBlendEqInteractionStr[fAdvBlendEqInteraction]);
     return r;
+}
+
+void GrGLSLCaps::onApplyOptionsOverrides(const GrContextOptions& options) {
+    if (options.fUseShaderSwizzling) {
+        fMustSwizzleInShader = true;
+    }
 }
 

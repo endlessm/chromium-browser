@@ -28,7 +28,7 @@ public:
     };
 
     struct IDDesc {
-        GrGLuint                    fTextureID;
+        GrGLTextureInfo             fInfo;
         GrGpuResource::LifeCycle    fLifeCycle;
     };
 
@@ -50,7 +50,9 @@ public:
         fTexParamsTimestamp = timestamp;
     }
 
-    GrGLuint textureID() const { return fTextureID; }
+    GrGLuint textureID() const { return fInfo.fID; }
+
+    GrGLenum target() const { return fInfo.fTarget; }
 
 protected:
     // The public constructor registers this object with the cache. However, only the most derived
@@ -63,11 +65,15 @@ protected:
 
     void onAbandon() override;
     void onRelease() override;
+    void setMemoryBacking(SkTraceMemoryDump* traceMemoryDump,
+                          const SkString& dumpName) const override;
 
 private:
     TexParams                       fTexParams;
     GrGpu::ResetTimestamp           fTexParamsTimestamp;
-    GrGLuint                        fTextureID;
+    // Holds the texture target and ID. A pointer to this may be shared to external clients for
+    // direct interaction with the GL object.
+    GrGLTextureInfo                 fInfo;
 
     // We track this separately from GrGpuResource because this may be both a texture and a render
     // target, and the texture may be wrapped while the render target is not.

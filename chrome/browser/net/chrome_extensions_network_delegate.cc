@@ -21,6 +21,7 @@
 
 using content::BrowserThread;
 using content::ResourceRequestInfo;
+using extensions::ExtensionWebRequestEventRouter;
 
 namespace {
 
@@ -34,9 +35,9 @@ void NotifyEPMRequestStatus(RequestStatus status,
                             int process_id,
                             int render_frame_id) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  Profile* profile = reinterpret_cast<Profile*>(profile_id);
-  if (!g_browser_process->profile_manager()->IsValidProfile(profile))
+  if (!g_browser_process->profile_manager()->IsValidProfile(profile_id))
     return;
+  Profile* profile = reinterpret_cast<Profile*>(profile_id);
 
   extensions::ProcessManager* process_manager =
       extensions::ProcessManager::Get(profile);
@@ -108,6 +109,7 @@ class ChromeExtensionsNetworkDelegateImpl
   void OnResponseStarted(net::URLRequest* request) override;
   void OnCompleted(net::URLRequest* request, bool started) override;
   void OnURLRequestDestroyed(net::URLRequest* request) override;
+  void OnURLRequestJobOrphaned(net::URLRequest* request) override;
   void OnPACScriptError(int line_number, const base::string16& error) override;
   net::NetworkDelegate::AuthRequiredResponse OnAuthRequired(
       net::URLRequest* request,
@@ -235,6 +237,12 @@ void ChromeExtensionsNetworkDelegateImpl::OnURLRequestDestroyed(
       profile_, request);
 }
 
+void ChromeExtensionsNetworkDelegateImpl::OnURLRequestJobOrphaned(
+    net::URLRequest* request) {
+  ExtensionWebRequestEventRouter::GetInstance()->OnURLRequestJobOrphaned(
+      profile_, request);
+}
+
 void ChromeExtensionsNetworkDelegateImpl::OnPACScriptError(
     int line_number,
     const base::string16& error) {
@@ -336,6 +344,10 @@ void ChromeExtensionsNetworkDelegate::OnCompleted(
 }
 
 void ChromeExtensionsNetworkDelegate::OnURLRequestDestroyed(
+    net::URLRequest* request) {
+}
+
+void ChromeExtensionsNetworkDelegate::OnURLRequestJobOrphaned(
     net::URLRequest* request) {
 }
 

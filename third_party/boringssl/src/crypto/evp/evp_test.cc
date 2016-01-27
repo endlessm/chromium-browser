@@ -56,9 +56,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4702)
+#endif
+
 #include <map>
 #include <string>
 #include <vector>
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 #include <openssl/bio.h>
 #include <openssl/crypto.h>
@@ -69,7 +78,6 @@
 
 #include "../test/file_test.h"
 #include "../test/scoped_types.h"
-#include "../test/stl_compat.h"
 
 
 // evp_test dispatches between multiple test types. PrivateKey tests take a key
@@ -170,11 +178,11 @@ static bool TestEVP(FileTest *t, void *arg) {
   }
 
   if (t->GetType() == "Verify") {
-    if (!EVP_PKEY_verify(ctx.get(), bssl::vector_data(&output), output.size(),
-                         bssl::vector_data(&input), input.size())) {
+    if (!EVP_PKEY_verify(ctx.get(), output.data(), output.size(), input.data(),
+                         input.size())) {
       // ECDSA sometimes doesn't push an error code. Push one on the error queue
       // so it's distinguishable from other errors.
-      ERR_put_error(ERR_LIB_USER, 0, ERR_R_EVP_LIB, __FILE__, __LINE__);
+      OPENSSL_PUT_ERROR(USER, ERR_R_EVP_LIB);
       return false;
     }
     return true;
@@ -182,18 +190,15 @@ static bool TestEVP(FileTest *t, void *arg) {
 
   size_t len;
   std::vector<uint8_t> actual;
-  if (!key_op(ctx.get(), nullptr, &len, bssl::vector_data(&input),
-              input.size())) {
+  if (!key_op(ctx.get(), nullptr, &len, input.data(), input.size())) {
     return false;
   }
   actual.resize(len);
-  if (!key_op(ctx.get(), bssl::vector_data(&actual), &len,
-              bssl::vector_data(&input), input.size())) {
+  if (!key_op(ctx.get(), actual.data(), &len, input.data(), input.size())) {
     return false;
   }
   actual.resize(len);
-  if (!t->ExpectBytesEqual(bssl::vector_data(&output), output.size(),
-                           bssl::vector_data(&actual), len)) {
+  if (!t->ExpectBytesEqual(output.data(), output.size(), actual.data(), len)) {
     return false;
   }
   return true;

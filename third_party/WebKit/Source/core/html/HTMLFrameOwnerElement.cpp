@@ -34,6 +34,7 @@
 #include "core/loader/FrameLoader.h"
 #include "core/loader/FrameLoaderClient.h"
 #include "core/plugins/PluginView.h"
+#include "platform/RuntimeEnabledFeatures.h"
 #include "platform/weborigin/SecurityOrigin.h"
 
 namespace blink {
@@ -43,6 +44,15 @@ static WidgetToParentMap& widgetNewParentMap()
 {
     DEFINE_STATIC_LOCAL(OwnPtrWillBePersistent<WidgetToParentMap>, map, (adoptPtrWillBeNoop(new WidgetToParentMap())));
     return *map;
+}
+
+typedef WillBeHeapHashSet<RefPtrWillBeMember<Widget>> WidgetSet;
+static WidgetSet& widgetsPendingTemporaryRemovalFromParent()
+{
+    // Widgets in this set will not leak because it will be cleared in
+    // HTMLFrameOwnerElement::UpdateSuspendScope::performDeferredWidgetTreeOperations.
+    DEFINE_STATIC_LOCAL(OwnPtrWillBePersistent<WidgetSet>, set, (adoptPtrWillBeNoop(new WidgetSet())));
+    return *set;
 }
 
 WillBeHeapHashCountedSet<RawPtrWillBeMember<Node>>& SubframeLoadingDisabler::disabledSubtreeRoots()
@@ -77,6 +87,14 @@ void HTMLFrameOwnerElement::UpdateSuspendScope::performDeferredWidgetTreeOperati
 #endif
         }
     }
+
+    WidgetSet set;
+    widgetsPendingTemporaryRemovalFromParent().swap(set);
+    for (const auto& widget : set) {
+        FrameView* currentParent = toFrameView(widget->parent());
+        if (currentParent)
+            currentParent->removeChild(widget.get());
+    }
 }
 
 HTMLFrameOwnerElement::UpdateSuspendScope::~UpdateSuspendScope()
@@ -87,7 +105,18 @@ HTMLFrameOwnerElement::UpdateSuspendScope::~UpdateSuspendScope()
     --s_updateSuspendCount;
 }
 
-static void moveWidgetToParentSoon(Widget* child, FrameView* parent)
+// Unlike moveWidgetToParentSoon, this will not call dispose the Widget.
+void temporarilyRemoveWidgetFromParentSoon(Widget* widget)
+{
+    if (s_updateSuspendCount) {
+        widgetsPendingTemporaryRemovalFromParent().add(widget);
+    } else {
+        if (toFrameView(widget->parent()))
+            toFrameView(widget->parent())->removeChild(widget);
+    }
+}
+
+void moveWidgetToParentSoon(Widget* child, FrameView* parent)
 {
     if (!s_updateSuspendCount) {
         if (parent) {
@@ -237,16 +266,30 @@ void HTMLFrameOwnerElement::setWidget(PassRefPtrWillBeRawPtr<Widget> widget)
         cache->childrenChanged(layoutPart);
 }
 
+PassRefPtrWillBeRawPtr<Widget> HTMLFrameOwnerElement::releaseWidget()
+{
+    if (!m_widget)
+        return nullptr;
+    if (m_widget->parent())
+        temporarilyRemoveWidgetFromParentSoon(m_widget.get());
+    LayoutPart* layoutPart = toLayoutPart(layoutObject());
+    if (layoutPart) {
+        if (AXObjectCache* cache = document().existingAXObjectCache())
+            cache->childrenChanged(layoutPart);
+    }
+    return m_widget.release();
+}
+
 Widget* HTMLFrameOwnerElement::ownedWidget() const
 {
     return m_widget.get();
 }
 
-bool HTMLFrameOwnerElement::loadOrRedirectSubframe(const KURL& url, const AtomicString& frameName, bool lockBackForwardList)
+bool HTMLFrameOwnerElement::loadOrRedirectSubframe(const KURL& url, const AtomicString& frameName, bool replaceCurrentItem)
 {
     RefPtrWillBeRawPtr<LocalFrame> parentFrame = document().frame();
     if (contentFrame()) {
-        contentFrame()->navigate(document(), url, lockBackForwardList, UserGestureStatus::None);
+        contentFrame()->navigate(document(), url, replaceCurrentItem, UserGestureStatus::None);
         return true;
     }
 
@@ -261,7 +304,15 @@ bool HTMLFrameOwnerElement::loadOrRedirectSubframe(const KURL& url, const Atomic
     if (document().frame()->host()->subframeCount() >= FrameHost::maxNumberOfFrames)
         return false;
 
-    return parentFrame->loader().client()->createFrame(FrameLoadRequest(&document(), url, "_self", CheckContentSecurityPolicy), frameName, this);
+    FrameLoadRequest frameLoadRequest(&document(), url, "_self", CheckContentSecurityPolicy);
+
+    if (RuntimeEnabledFeatures::referrerPolicyAttributeEnabled()) {
+        ReferrerPolicy policy = referrerPolicyAttribute();
+        if (policy != ReferrerPolicyDefault)
+            frameLoadRequest.resourceRequest().setHTTPReferrer(SecurityPolicy::generateReferrer(policy, url, document().outgoingReferrer()));
+    }
+
+    return parentFrame->loader().client()->createFrame(frameLoadRequest, frameName, this);
 }
 
 DEFINE_TRACE(HTMLFrameOwnerElement)

@@ -39,7 +39,9 @@ struct SameSizeAsElementRareData : NodeRareData {
     short indices[2];
     LayoutSize sizeForResizing;
     IntSize scrollOffset;
-    void* pointers[13];
+    void* pointer;
+    RawPtrWillBeMember<void*> willbeMember[11];
+    PersistentWillBeMember<void*> persistent[1];
 };
 
 CSSStyleDeclaration& ElementRareData::ensureInlineCSSStyleDeclaration(Element* ownerElement)

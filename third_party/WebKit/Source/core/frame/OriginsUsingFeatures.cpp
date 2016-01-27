@@ -22,11 +22,16 @@ OriginsUsingFeatures::Value::Value()
 {
 }
 
-void OriginsUsingFeatures::count(const ScriptState* scriptState, Document& document, Feature feature)
+void OriginsUsingFeatures::countAnyWorld(Document& document, Feature feature)
+{
+    document.originsUsingFeaturesValue().count(feature);
+}
+
+void OriginsUsingFeatures::countMainWorldOnly(const ScriptState* scriptState, Document& document, Feature feature)
 {
     if (!scriptState || !scriptState->world().isMainWorld())
         return;
-    document.originsUsingFeaturesValue().count(feature);
+    countAnyWorld(document, feature);
 }
 
 static Document* documentFromEventTarget(EventTarget& target)
@@ -136,10 +141,24 @@ void OriginsUsingFeatures::Value::recordOriginToRappor(const String& origin)
 {
     if (get(Feature::ElementCreateShadowRoot))
         Platform::current()->recordRappor("WebComponents.ElementCreateShadowRoot", origin);
+    if (get(Feature::ElementAttachShadow))
+        Platform::current()->recordRappor("WebComponents.ElementAttachShadow", origin);
     if (get(Feature::DocumentRegisterElement))
         Platform::current()->recordRappor("WebComponents.DocumentRegisterElement", origin);
     if (get(Feature::EventPath))
         Platform::current()->recordRappor("WebComponents.EventPath", origin);
+    if (get(Feature::DeviceMotionInsecureOrigin))
+        Platform::current()->recordRappor("PowerfulFeatureUse.Host.DeviceMotion.Insecure", origin);
+    if (get(Feature::DeviceOrientationInsecureOrigin))
+        Platform::current()->recordRappor("PowerfulFeatureUse.Host.DeviceOrientation.Insecure", origin);
+    if (get(Feature::FullscreenInsecureOrigin))
+        Platform::current()->recordRappor("PowerfulFeatureUse.Host.Fullscreen.Insecure", origin);
+    if (get(Feature::GeolocationInsecureOrigin))
+        Platform::current()->recordRappor("PowerfulFeatureUse.Host.Geolocation.Insecure", origin);
+    if (get(Feature::GetUserMediaInsecureOrigin))
+        Platform::current()->recordRappor("PowerfulFeatureUse.Host.GetUserMedia.Insecure", origin);
+    if (get(Feature::GetUserMediaSecureOrigin))
+        Platform::current()->recordRappor("PowerfulFeatureUse.Host.GetUserMedia.Secure", origin);
 }
 
 void OriginsUsingFeatures::Value::recordNameToRappor(const String& name)

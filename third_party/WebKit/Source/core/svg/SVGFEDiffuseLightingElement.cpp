@@ -67,11 +67,6 @@ bool SVGFEDiffuseLightingElement::setFilterEffectAttribute(FilterEffect* effect,
         return diffuseLighting->setSurfaceScale(m_surfaceScale->currentValue()->value());
     if (attrName == SVGNames::diffuseConstantAttr)
         return diffuseLighting->setDiffuseConstant(m_diffuseConstant->currentValue()->value());
-    if (attrName == SVGNames::kernelUnitLengthAttr) {
-        bool changedX = diffuseLighting->setKernelUnitLengthX(m_kernelUnitLength->firstNumber()->currentValue()->value());
-        bool changedY = diffuseLighting->setKernelUnitLengthY(m_kernelUnitLength->secondNumber()->currentValue()->value());
-        return changedX || changedY;
-    }
 
     LightSource* lightSource = const_cast<LightSource*>(diffuseLighting->lightSource());
     const SVGFELightElement* lightElement = SVGFELightElement::findLightElement(*this);
@@ -100,7 +95,6 @@ void SVGFEDiffuseLightingElement::svgAttributeChanged(const QualifiedName& attrN
 {
     if (attrName == SVGNames::surfaceScaleAttr
         || attrName == SVGNames::diffuseConstantAttr
-        || attrName == SVGNames::kernelUnitLengthAttr
         || attrName == SVGNames::lighting_colorAttr) {
         SVGElement::InvalidationGuard invalidationGuard(this);
         primitiveAttributeChanged(attrName);
@@ -128,13 +122,7 @@ void SVGFEDiffuseLightingElement::lightElementAttributeChanged(const SVGFELightE
 PassRefPtrWillBeRawPtr<FilterEffect> SVGFEDiffuseLightingElement::build(SVGFilterBuilder* filterBuilder, Filter* filter)
 {
     FilterEffect* input1 = filterBuilder->getEffectById(AtomicString(m_in1->currentValue()->value()));
-
-    if (!input1)
-        return nullptr;
-
-    SVGFELightElement* lightNode = SVGFELightElement::findLightElement(*this);
-    if (!lightNode)
-        return nullptr;
+    ASSERT(input1);
 
     LayoutObject* layoutObject = this->layoutObject();
     if (!layoutObject)
@@ -143,9 +131,14 @@ PassRefPtrWillBeRawPtr<FilterEffect> SVGFEDiffuseLightingElement::build(SVGFilte
     ASSERT(layoutObject->style());
     Color color = layoutObject->style()->svgStyle().lightingColor();
 
-    RefPtr<LightSource> lightSource = lightNode->lightSource(filter);
-    RefPtrWillBeRawPtr<FilterEffect> effect = FEDiffuseLighting::create(filter, color, m_surfaceScale->currentValue()->value(), m_diffuseConstant->currentValue()->value(),
-        kernelUnitLengthX()->currentValue()->value(), kernelUnitLengthY()->currentValue()->value(), lightSource.release());
+    const SVGFELightElement* lightNode = SVGFELightElement::findLightElement(*this);
+    RefPtr<LightSource> lightSource = lightNode ? lightNode->lightSource(filter) : nullptr;
+
+    RefPtrWillBeRawPtr<FilterEffect> effect = FEDiffuseLighting::create(filter,
+        color,
+        m_surfaceScale->currentValue()->value(),
+        m_diffuseConstant->currentValue()->value(),
+        lightSource.release());
     effect->inputEffects().append(input1);
     return effect.release();
 }

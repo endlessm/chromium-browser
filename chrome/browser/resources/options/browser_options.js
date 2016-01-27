@@ -109,6 +109,18 @@ cr.define('options', function() {
      */
     initializationComplete_: false,
 
+    /**
+     * Current status of "Resolve Timezone by Geolocation" checkbox.
+     * @private {boolean}
+     */
+    resolveTimezoneByGeolocation_: false,
+
+    /**
+     * True if system timezone is managed by policy.
+     * @private {boolean}
+     */
+    systemTimezoneIsManaged_: false,
+
     /** @override */
     initializePage: function() {
       Page.prototype.initializePage.call(this);
@@ -295,7 +307,7 @@ cr.define('options', function() {
       // Device section (ChromeOS only).
       if (cr.isChromeOS) {
         if (loadTimeData.getBoolean('showPowerStatus')) {
-          $('power-settings-button').onclick = function(evt) {
+          $('power-settings-link').onclick = function(evt) {
             PageManager.showPageByName('power-overlay');
             chrome.send('coreOptionsUserMetricsAction',
                         ['Options_ShowPowerSettings']);
@@ -407,9 +419,12 @@ cr.define('options', function() {
         // Timezone
         if (loadTimeData.getBoolean('enableTimeZoneTrackingOption')) {
           $('resolve-timezone-by-geolocation-selection').hidden = false;
-          this.setSystemTimezoneManaged_(false);
-          $('timezone-value-select').disabled = loadTimeData.getBoolean(
+          this.resolveTimezoneByGeolocation_ = loadTimeData.getBoolean(
               'resolveTimezoneByGeolocationInitialValue');
+          this.updateTimezoneSectionState_();
+          Preferences.getInstance().addEventListener(
+              'settings.resolve_timezone_by_geolocation',
+              this.onResolveTimezoneByGeolocationChanged_.bind(this));
         }
       }
 
@@ -421,8 +436,6 @@ cr.define('options', function() {
         $('set-as-default-browser').onclick = function(event) {
           chrome.send('becomeDefaultBrowser');
         };
-
-        $('auto-launch').onclick = this.handleAutoLaunchChanged_;
       }
 
       // Privacy section.
@@ -494,8 +507,6 @@ cr.define('options', function() {
           loadTimeData.getBoolean('showWakeOnWifi')) {
         $('wake-on-wifi').hidden = false;
       }
-      $('spelling-enabled-container').hidden =
-          loadTimeData.getBoolean('enableMultilingualSpellChecker');
 
       // Bluetooth (CrOS only).
       if (cr.isChromeOS) {
@@ -507,7 +518,12 @@ cr.define('options', function() {
 
         $('enable-bluetooth').onchange = function(event) {
           var state = $('enable-bluetooth').checked;
-          chrome.send('bluetoothEnableChange', [Boolean(state)]);
+          chrome.bluetoothPrivate.setAdapterState({powered: state}, function() {
+            if (chrome.runtime.lastError) {
+              console.error('Error enabling bluetooth:',
+                            chrome.runtime.lastError.message);
+            }
+          });
         };
 
         $('bluetooth-reconnect-device').onclick = function(event) {
@@ -661,7 +677,6 @@ cr.define('options', function() {
             'settings.accessibility',
             updateAccessibilitySettingsButton);
         $('accessibility-learn-more').onclick = function(unused_event) {
-          window.open(loadTimeData.getString('accessibilityLearnMoreURL'));
           chrome.send('coreOptionsUserMetricsAction',
                       ['Options_AccessibilityLearnMore']);
         };
@@ -1309,16 +1324,6 @@ cr.define('options', function() {
       return url.replace(/^http:\/\//, '');
     },
 
-   /**
-    * Shows the autoLaunch preference and initializes its checkbox value.
-    * @param {boolean} enabled Whether autolaunch is enabled or or not.
-    * @private
-    */
-    updateAutoLaunchState_: function(enabled) {
-      $('auto-launch-option').hidden = false;
-      $('auto-launch').checked = enabled;
-    },
-
     /**
      * Called when the value of the download.default_directory preference
      * changes.
@@ -1408,14 +1413,6 @@ cr.define('options', function() {
         var selection = engineSelect.options[selectedIndex];
         chrome.send('setDefaultSearchEngine', [String(selection.value)]);
       }
-    },
-
-   /**
-     * Sets or clear whether Chrome should Auto-launch on computer startup.
-     * @private
-     */
-    handleAutoLaunchChanged_: function() {
-      chrome.send('toggleAutoLaunch', [$('auto-launch').checked]);
     },
 
     /**
@@ -1652,26 +1649,44 @@ cr.define('options', function() {
     },
 
     /**
+     * This enables or disables dependent settings in timezone section.
+     * @private
+     */
+    updateTimezoneSectionState_: function() {
+      if (this.systemTimezoneIsManaged_) {
+        $('resolve-timezone-by-geolocation-selection').disabled = true;
+        $('resolve-timezone-by-geolocation').onclick = function(event) {};
+      } else {
+        this.enableElementIfPossible_(
+            getRequiredElement('resolve-timezone-by-geolocation-selection'));
+        $('resolve-timezone-by-geolocation').onclick = function(event) {
+          $('timezone-value-select').disabled = event.currentTarget.checked;
+        };
+        $('timezone-value-select').disabled =
+            this.resolveTimezoneByGeolocation_;
+      }
+    },
+
+    /**
      * This is called from chromium code when system timezone "managed" state
      * is changed. Enables or disables dependent settings.
      * @param {boolean} managed Is true when system Timezone is managed by
      *     enterprise policy. False otherwize.
      */
     setSystemTimezoneManaged_: function(managed) {
-      if (loadTimeData.getBoolean('enableTimeZoneTrackingOption')) {
-        if (managed) {
-          $('resolve-timezone-by-geolocation-selection').disabled = true;
-          $('resolve-timezone-by-geolocation').onclick = function(event) {};
-        } else {
-          this.enableElementIfPossible_(
-              getRequiredElement('resolve-timezone-by-geolocation-selection'));
-          $('resolve-timezone-by-geolocation').onclick = function(event) {
-            $('timezone-value-select').disabled = event.currentTarget.checked;
-          };
-          $('timezone-value-select').disabled =
-              $('resolve-timezone-by-geolocation').checked;
-        }
-      }
+      this.systemTimezoneIsManaged_ = managed;
+      this.updateTimezoneSectionState_();
+    },
+
+    /**
+     * This is Preferences event listener, which is called when
+     * kResolveTimezoneByGeolocation preference is changed.
+     * Enables or disables dependent settings.
+     * @param {Event} value New preference state.
+     */
+    onResolveTimezoneByGeolocationChanged_: function(value) {
+      this.resolveTimezoneByGeolocation_ = value.value.value;
+      this.updateTimezoneSectionState_();
     },
 
     /**
@@ -1681,7 +1696,6 @@ cr.define('options', function() {
     handleAddBluetoothDevice_: function() {
       chrome.send('coreOptionsUserMetricsAction',
                   ['Options_BluetoothShowAddDevice']);
-      chrome.send('findBluetoothDevices');
       PageManager.showPageByName('bluetooth', false);
     },
 
@@ -2033,16 +2047,16 @@ cr.define('options', function() {
     },
 
     /**
-     * Adds an element to the list of available Bluetooth devices. If an element
-     * with a matching address is found, the existing element is updated.
-     * @param {{name: string,
-     *          address: string,
-     *          paired: boolean,
-     *          connected: boolean}} device
-     *     Decription of the Bluetooth device.
+     * Process a bluetooth pairing event. event.device will be added to the list
+     * of available Bluetooth devices or updated if a device with a matching
+     * |address| property exists. If event.pairing is defined and not empty, the
+     * pairing dialog will be shown (if not already visible) and the event will
+     * be processed.
+     * @param {!BluetoothPairingEvent} event
      * @private
      */
-    addBluetoothDevice_: function(device) {
+    bluetoothPairingEvent_: function(event) {
+      var device = event.device;
       var list = $('bluetooth-unpaired-devices-list');
       // Display the "connecting" (already paired or not yet paired) and the
       // paired devices in the same list.
@@ -2064,8 +2078,8 @@ cr.define('options', function() {
 
       // One device can be in the process of pairing.  If found, display
       // the Bluetooth pairing overlay.
-      if (device.pairing)
-        BluetoothPairing.showDialog(device);
+      if (event.pairing)
+        BluetoothPairing.showDialog(event);
     },
 
     /**
@@ -2135,9 +2149,9 @@ cr.define('options', function() {
     },
   };
 
-  //Forward public APIs to private implementations.
+  // Forward public APIs to private implementations.
   cr.makePublic(BrowserOptions, [
-    'addBluetoothDevice',
+    'bluetoothPairingEvent',
     'deleteCurrentProfile',
     'enableCertificateButton',
     'enableDisplaySettings',
@@ -2183,7 +2197,6 @@ cr.define('options', function() {
     'showTouchpadControls',
     'toggleExtensionIndicators',
     'updateAccountPicture',
-    'updateAutoLaunchState',
     'updateDefaultBrowserState',
     'updateEasyUnlock',
     'updateManagesSupervisedUsers',

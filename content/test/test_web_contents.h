@@ -45,6 +45,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
   // WebContentsTester implementation.
   void CommitPendingNavigation() override;
   TestRenderFrameHost* GetPendingMainFrame() const override;
+  void StartNavigation(const GURL& url) override;
   void NavigateAndCommit(const GURL& url) override;
   void TestSetIsLoading(bool value) override;
   void ProceedWithCrossSiteNavigation() override;
@@ -71,8 +72,7 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
       RenderViewHost* render_view_host,
       int opener_frame_routing_id,
       int proxy_routing_id,
-      const FrameReplicationState& replicated_frame_state,
-      bool for_main_frame) override;
+      const FrameReplicationState& replicated_frame_state) override;
   void UpdateRenderViewSizeForRenderManager() override {}
 
   // Returns a clone of this TestWebContents. The returned object is also a
@@ -116,15 +116,17 @@ class TestWebContents : public WebContentsImpl, public WebContentsTester {
  private:
   // WebContentsImpl overrides
   void CreateNewWindow(
-      int render_process_id,
-      int route_id,
-      int main_frame_route_id,
+      SiteInstance* source_site_instance,
+      int32_t route_id,
+      int32_t main_frame_route_id,
+      int32_t main_frame_widget_route_id,
       const ViewHostMsg_CreateWindow_Params& params,
       SessionStorageNamespace* session_storage_namespace) override;
-  void CreateNewWidget(int render_process_id,
-                       int route_id,
+  void CreateNewWidget(int32 render_process_id,
+                       int32 route_id,
                        blink::WebPopupType popup_type) override;
-  void CreateNewFullscreenWidget(int render_process_id, int route_id) override;
+  void CreateNewFullscreenWidget(int32 render_process_id,
+                                 int32 route_id) override;
   void ShowCreatedWindow(int route_id,
                          WindowOpenDisposition disposition,
                          const gfx::Rect& initial_rect,

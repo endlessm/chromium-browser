@@ -13,11 +13,12 @@
 #include "base/test/test_simple_task_runner.h"
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/notifications/notification.h"
+#include "chrome/browser/prefs/pref_service_syncable_util.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
-#include "chrome/test/base/testing_pref_service_syncable.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "sync/api/fake_sync_change_processor.h"
 #include "sync/api/sync_error_factory_mock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -149,7 +150,7 @@ class ExtensionWelcomeNotificationTest : public testing::Test {
   }
 
   void StartPreferenceSyncing() const {
-    PrefServiceSyncable::FromProfile(profile_.get())
+    PrefServiceSyncableFromProfile(profile_.get())
         ->GetSyncableService(syncer::PREFERENCES)
         ->MergeDataAndStartSyncing(syncer::PREFERENCES,
                                    syncer::SyncDataList(),
@@ -221,16 +222,12 @@ class ExtensionWelcomeNotificationTest : public testing::Test {
                         const message_center::NotifierId& notifier_id) const {
     message_center::RichNotificationData rich_notification_data;
     rich_notification_data.priority = 0;
-    Notification notification(message_center::NOTIFICATION_TYPE_BASE_FORMAT,
-                              GURL("http://tests.url"),
-                              base::UTF8ToUTF16("Title"),
-                              base::UTF8ToUTF16("Body"),
-                              gfx::Image(),
-                              notifier_id,
-                              base::UTF8ToUTF16("Source"),
-                              notification_id,
-                              rich_notification_data,
-                              new TestNotificationDelegate("TestNotification"));
+    Notification notification(
+        message_center::NOTIFICATION_TYPE_BASE_FORMAT,
+        base::UTF8ToUTF16("Title"), base::UTF8ToUTF16("Body"), gfx::Image(),
+        notifier_id, base::UTF8ToUTF16("Source"), GURL("http://tests.url"),
+        notification_id, rich_notification_data,
+        new TestNotificationDelegate("TestNotification"));
     welcome_notification_->ShowWelcomeNotificationIfNecessary(notification);
   }
 

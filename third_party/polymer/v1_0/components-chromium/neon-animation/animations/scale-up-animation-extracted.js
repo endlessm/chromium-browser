@@ -1,6 +1,4 @@
-
-
-  Polymer({
+Polymer({
 
     is: 'scale-up-animation',
 
@@ -15,13 +13,19 @@
         this.setPrefixedProperty(node, 'transformOrigin', config.transformOrigin);
       }
 
+      var scaleProperty = 'scale(0)';
+      if (config.axis === 'x') {
+        scaleProperty = 'scale(0, 1)';
+      } else if (config.axis === 'y') {
+        scaleProperty = 'scale(1, 0)';
+      }
+
       this._effect = new KeyframeEffect(node, [
-        {'transform': 'scale(0)'},
-        {'transform': 'scale(1)'}
+        {'transform': scaleProperty},
+        {'transform': 'scale(1, 1)'}
       ], this.timingFromConfig(config));
 
       return this._effect;
     }
 
   });
-

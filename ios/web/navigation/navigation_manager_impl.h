@@ -65,6 +65,7 @@ class NavigationManagerImpl : public NavigationManager {
   // Helper functions for communicating with the facade layer.
   // TODO(stuartmorgan): Make these private once the logic triggering them moves
   // into this layer.
+  void OnNavigationItemsPruned(size_t pruned_item_count);
   void OnNavigationItemChanged();
   void OnNavigationItemCommitted();
 
@@ -73,19 +74,12 @@ class NavigationManagerImpl : public NavigationManager {
   // by the navigation manager and may be deleted at any time.
   NavigationItem* GetTransientItem() const;
 
-  // Returns the committed NavigationItem at |index|.
-  NavigationItem* GetItemAtIndex(size_t index) const;
-
   // Temporary accessors and content/ class pass-throughs.
   // TODO(stuartmorgan): Re-evaluate this list once the refactorings have
   // settled down.
   CRWSessionController* GetSessionController();
-  int GetCurrentEntryIndex() const;
   int GetLastCommittedEntryIndex() const;
-  int GetEntryCount() const;
   bool RemoveEntryAtIndex(int index);
-  void DiscardNonCommittedEntries();
-  int GetPendingEntryIndex() const;
   void LoadURL(const GURL& url,
                const Referrer& referrer,
                ui::PageTransition type);
@@ -97,14 +91,13 @@ class NavigationManagerImpl : public NavigationManager {
   // Convenience accessors to get the underlying NavigationItems from the
   // SessionEntries returned from |session_controller_|'s -lastUserEntry and
   // -previousEntry methods.
-  // TODO(marq):Evaluate the long-term utility of these methods.
+  // TODO(crbug.com/546365): Remove these methods.
   NavigationItem* GetLastUserItem() const;
   NavigationItem* GetPreviousItem() const;
 
   // Temporary method. Returns a vector of NavigationItems corresponding to
   // the SessionEntries of the uderlying CRWSessionController.
-  // TOOD(marq): Remove this method and unfork its caller,
-  //     TabRestoreServiceHelper::PopulateTab
+  // TODO(crbug.com/546365): Remove this method.
   std::vector<NavigationItem*> GetItems();
 
   // NavigationManager:
@@ -113,12 +106,19 @@ class NavigationManagerImpl : public NavigationManager {
   NavigationItem* GetVisibleItem() const override;
   NavigationItem* GetLastCommittedItem() const override;
   NavigationItem* GetPendingItem() const override;
+  void DiscardNonCommittedItems() override;
+  void LoadIfNecessary() override;
   void AddTransientURLRewriter(
       BrowserURLRewriter::URLRewriter rewriter) override;
+  int GetEntryCount() const override;
+  NavigationItem* GetItemAtIndex(size_t index) const override;
+  int GetCurrentEntryIndex() const override;
+  int GetPendingItemIndex() const override;
 
   // Returns the current list of transient url rewriters, passing ownership to
   // the caller.
-  // TODO(kkhorimoto): remove once NavigationItem creation occurs in this class.
+  // TODO(crbug.com/546197): remove once NavigationItem creation occurs in this
+  // class.
   scoped_ptr<std::vector<BrowserURLRewriter::URLRewriter>>
   GetTransientURLRewriters();
 
@@ -126,8 +126,6 @@ class NavigationManagerImpl : public NavigationManager {
   void RemoveTransientURLRewriters();
 
   // Copy state from |navigation_manager|, including a copy of that object's
-  // CRWSessionController.
-  // TODO(marq): This doesn't deep-copy the SessionEntries in the
   // CRWSessionController.
   void CopyState(NavigationManagerImpl* navigation_manager);
  private:

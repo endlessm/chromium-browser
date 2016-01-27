@@ -141,10 +141,10 @@ static const size_t kMaxPartitionPagesPerSlotSpan = 4;
 
 // To avoid fragmentation via never-used freelist entries, we hand out partition
 // freelist sections gradually, in units of the dominant system page size.
-// What we're actually doing is avoiding filling the full partition page
-// (typically 16KB) will freelist pointers right away. Writing freelist
-// pointers will fault and dirty a private page, which is very wasteful if we
-// never actually store objects there.
+// What we're actually doing is avoiding filling the full partition page (16 KB)
+// with freelist pointers right away. Writing freelist pointers will fault and
+// dirty a private page, which is very wasteful if we never actually store
+// objects there.
 static const size_t kNumSystemPagesPerPartitionPage = kPartitionPageSize / kSystemPageSize;
 static const size_t kMaxSystemPagesPerSlotSpan = kNumSystemPagesPerPartitionPage * kMaxPartitionPagesPerSlotSpan;
 
@@ -316,6 +316,8 @@ struct WTF_EXPORT PartitionRootBase {
     // that.
     static PartitionPage gSeedPage;
     static PartitionBucket gPagedBucket;
+    // gOomHandlingFunction is invoked when ParitionAlloc hits OutOfMemory.
+    static void (*gOomHandlingFunction)();
 };
 
 // Never instantiate a PartitionRoot directly, instead use PartitionAlloc.
@@ -344,6 +346,17 @@ enum PartitionAllocFlags {
     PartitionAllocReturnNull = 1 << 0,
 };
 
+// Struct used to retrieve total memory usage of a partition. Used by
+// PartitionStatsDumper implementation.
+struct PartitionMemoryStats {
+    size_t totalMmappedBytes; // Total bytes mmaped from the system.
+    size_t totalCommittedBytes; // Total size of commmitted pages.
+    size_t totalResidentBytes; // Total bytes provisioned by the partition.
+    size_t totalActiveBytes; // Total active bytes in the partition.
+    size_t totalDecommittableBytes; // Total bytes that could be decommitted.
+    size_t totalDiscardableBytes; // Total bytes that could be discarded.
+};
+
 // Struct used to retrieve memory statistics about a partition bucket. Used by
 // PartitionStatsDumper implementation.
 struct PartitionBucketMemoryStats {
@@ -365,9 +378,14 @@ struct PartitionBucketMemoryStats {
 // partitionDumpStatsGeneric for using the memory statistics.
 class WTF_EXPORT PartitionStatsDumper {
 public:
+    // Called to dump total memory used by partition, once per partition.
+    virtual void partitionDumpTotals(const char* partitionName, const PartitionMemoryStats*) = 0;
+
+    // Called to dump stats about buckets, for each bucket.
     virtual void partitionsDumpBucketStats(const char* partitionName, const PartitionBucketMemoryStats*) = 0;
 };
 
+WTF_EXPORT void partitionAllocGlobalInit(void (*oomHandlingFunction)());
 WTF_EXPORT void partitionAllocInit(PartitionRoot*, size_t numBuckets, size_t maxAllocation);
 WTF_EXPORT bool partitionAllocShutdown(PartitionRoot*);
 WTF_EXPORT void partitionAllocGenericInit(PartitionRootGeneric*);
@@ -390,8 +408,48 @@ WTF_EXPORT NEVER_INLINE void* partitionAllocSlowPath(PartitionRootBase*, int, si
 WTF_EXPORT NEVER_INLINE void partitionFreeSlowPath(PartitionPage*);
 WTF_EXPORT NEVER_INLINE void* partitionReallocGeneric(PartitionRootGeneric*, void*, size_t);
 
-WTF_EXPORT void partitionDumpStats(PartitionRoot*, const char* partitionName, PartitionStatsDumper*);
-WTF_EXPORT void partitionDumpStatsGeneric(PartitionRootGeneric*, const char* partitionName, PartitionStatsDumper*);
+WTF_EXPORT void partitionDumpStats(PartitionRoot*, const char* partitionName, bool isLightDump, PartitionStatsDumper*);
+WTF_EXPORT void partitionDumpStatsGeneric(PartitionRootGeneric*, const char* partitionName, bool isLightDump, PartitionStatsDumper*);
+
+class WTF_EXPORT PartitionAllocHooks {
+public:
+    typedef void AllocationHook(void* address, size_t);
+    typedef void FreeHook(void* address);
+
+    static void setAllocationHook(AllocationHook* hook) { m_allocationHook = hook; }
+    static void setFreeHook(FreeHook* hook) { m_freeHook = hook; }
+
+    static void allocationHookIfEnabled(void* address, size_t size)
+    {
+        AllocationHook* allocationHook = m_allocationHook;
+        if (UNLIKELY(allocationHook != nullptr))
+            allocationHook(address, size);
+    }
+
+    static void freeHookIfEnabled(void* address)
+    {
+        FreeHook* freeHook = m_freeHook;
+        if (UNLIKELY(freeHook != nullptr))
+            freeHook(address);
+    }
+
+    static void reallocHookIfEnabled(void* oldAddress, void* newAddress, size_t size)
+    {
+        // Report a reallocation as a free followed by an allocation.
+        AllocationHook* allocationHook = m_allocationHook;
+        FreeHook* freeHook = m_freeHook;
+        if (UNLIKELY(allocationHook && freeHook)) {
+            freeHook(oldAddress);
+            allocationHook(newAddress, size);
+        }
+    }
+
+private:
+    // Pointers to hook functions that PartitionAlloc will call on allocation and
+    // free if the pointers are non-null.
+    static AllocationHook* m_allocationHook;
+    static FreeHook* m_freeHook;
+};
 
 ALWAYS_INLINE PartitionFreelistEntry* partitionFreelistMask(PartitionFreelistEntry* ptr)
 {
@@ -605,13 +663,16 @@ ALWAYS_INLINE void* partitionAlloc(PartitionRoot* root, size_t size)
     RELEASE_ASSERT(result);
     return result;
 #else
+    size_t requestedSize = size;
     size = partitionCookieSizeAdjustAdd(size);
     ASSERT(root->initialized);
     size_t index = size >> kBucketShift;
     ASSERT(index < root->numBuckets);
     ASSERT(size == index << kBucketShift);
     PartitionBucket* bucket = &root->buckets()[index];
-    return partitionBucketAlloc(root, 0, size, bucket);
+    void* result = partitionBucketAlloc(root, 0, size, bucket);
+    PartitionAllocHooks::allocationHookIfEnabled(result, requestedSize);
+    return result;
 #endif // defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
 }
 
@@ -650,6 +711,7 @@ ALWAYS_INLINE void partitionFree(void* ptr)
 #if defined(MEMORY_TOOL_REPLACES_ALLOCATOR)
     free(ptr);
 #else
+    PartitionAllocHooks::freeHookIfEnabled(ptr);
     ptr = partitionCookieFreePointerAdjust(ptr);
     ASSERT(partitionPointerIsValid(ptr));
     PartitionPage* page = partitionPointerToPage(ptr);
@@ -678,11 +740,19 @@ ALWAYS_INLINE void* partitionAllocGenericFlags(PartitionRootGeneric* root, int f
     return result;
 #else
     ASSERT(root->initialized);
+    size_t requestedSize = size;
     size = partitionCookieSizeAdjustAdd(size);
     PartitionBucket* bucket = partitionGenericSizeToBucket(root, size);
+    // TODO(bashi): Remove following RELEAE_ASSERT()s once we find the cause of
+    // http://crbug.com/514141
+#if OS(ANDROID)
+    RELEASE_ASSERT(bucket >= &root->buckets[0] || bucket == &PartitionRootGeneric::gPagedBucket);
+    RELEASE_ASSERT(bucket <= &root->buckets[kGenericNumBuckets - 1] || bucket == &PartitionRootGeneric::gPagedBucket);
+#endif
     spinLockLock(&root->lock);
     void* ret = partitionBucketAlloc(root, flags, size, bucket);
     spinLockUnlock(&root->lock);
+    PartitionAllocHooks::allocationHookIfEnabled(ret, requestedSize);
     return ret;
 #endif
 }
@@ -702,6 +772,7 @@ ALWAYS_INLINE void partitionFreeGeneric(PartitionRootGeneric* root, void* ptr)
     if (UNLIKELY(!ptr))
         return;
 
+    PartitionAllocHooks::freeHookIfEnabled(ptr);
     ptr = partitionCookieFreePointerAdjust(ptr);
     ASSERT(partitionPointerIsValid(ptr));
     PartitionPage* page = partitionPointerToPage(ptr);

@@ -30,6 +30,7 @@
     blur,                      // Remove: http://crbug.com/392502
     checked_state_changed,     // Implicit
     children_changed,
+    document_selection_changed,
     focus,
     hide,                      // Remove: http://crbug.com/392502
     hover,
@@ -70,6 +71,7 @@
     article,
     banner,
     blockquote,
+    // TODO(nektar): Remove busy_indicator because it's used nowhere.
     busy_indicator,
     button,
     button_drop_down,
@@ -191,14 +193,14 @@
   };
 
   // TODO(dmazzoni): switch content/ to use AX_STATE_DISABLED instead of
-  // !AX_STATE_ENABLED, and AX_STATE_EDITABLE instead of !AX_STATE_READONLY.
+  // !AX_STATE_ENABLED.
   enum AXState {
     busy,
     checked,
     collapsed,
     default,
     disabled,  // ui/views only
-    editable,  // ui/views only
+    editable,
     enabled,   // content only
     expanded,
     focusable,
@@ -206,7 +208,6 @@
     haspopup,
     horizontal,
     hovered,
-    indeterminate,
     invisible,
     linked,
     multiline,
@@ -216,6 +217,7 @@
     protected,
     read_only,
     required,
+    richly_editable,
     selectable,
     selected,
     vertical,
@@ -231,13 +233,6 @@
   };
 
   [cpp_enum_prefix_override="ax_attr"] enum AXStringAttribute {
-    // Document attributes.
-    doc_url,
-    doc_title,
-    doc_mimetype,
-    doc_doctype,
-
-    // Attributes that could apply to any node.
     access_key,
     action,
     auto_complete,
@@ -268,7 +263,7 @@
     scroll_y_min,
     scroll_y_max,
 
-    // Editable text attributes.
+    // Attributes for retrieving the endpoints of a selection.
     text_sel_start,
     text_sel_end,
 
@@ -299,9 +294,6 @@
     title_ui_element,
     activedescendant_id,
 
-    // Uniquely identifies an AXTree.
-    tree_id,
-
     // Identifies a child tree which this node hosts.
     child_tree_id,
 
@@ -331,9 +323,6 @@
   };
 
   [cpp_enum_prefix_override="ax_attr"] enum AXFloatAttribute {
-    // Document attributes.
-    doc_loading_progress,
-
     // Range attributes.
     value_for_range,
     min_value_for_range,
@@ -345,11 +334,9 @@
   };
 
   [cpp_enum_prefix_override="ax_attr"] enum AXBoolAttribute {
-    // Document attributes.
-    doc_loaded,
-
-    // True if a checkbox or radio button is in the "mixed" state.
-    button_mixed,
+    // True if an ARIA toggle button, a checkbox or
+    // a menu item checkbox is in the "mixed" state.
+    STATE_mixed,
 
     // Live region attributes.
     container_live_atomic,
@@ -368,12 +355,7 @@
     update_location_only,
 
     // Set on a canvas element if it has fallback content.
-    canvas_has_fallback,
-
-    // Set if this node is the host of an external AXTree, for
-    // example a web view that's a child of a native view, or a
-    // web iframe that's the child of another web frame.
-    is_ax_tree_host
+    canvas_has_fallback
   };
 
   [cpp_enum_prefix_override="ax_attr"] enum AXIntListAttribute {

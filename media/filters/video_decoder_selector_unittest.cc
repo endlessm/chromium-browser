@@ -24,14 +24,21 @@ using ::testing::StrictMock;
 // times across multiple test files. Sadly we can't use static for them.
 namespace {
 
-ACTION_P3(ExecuteCallbackWithVerifier, decryptor, done_cb, verifier) {
+ACTION_P3(ExecuteCallbackWithVerifier, cdm_context, done_cb, verifier) {
   // verifier must be called first since |done_cb| call will invoke it as well.
   verifier->RecordACalled();
-  arg0.Run(decryptor, done_cb);
+  arg0.Run(cdm_context, done_cb);
 }
 
 ACTION_P(ReportCallback, verifier) {
   verifier->RecordBCalled();
+}
+
+MATCHER(EncryptedConfig, "") {
+  return arg.is_encrypted();
+}
+MATCHER(ClearConfig, "") {
+  return !arg.is_encrypted();
 }
 
 }  // namespace
@@ -53,21 +60,25 @@ class VideoDecoderSelectorTest : public ::testing::Test {
   VideoDecoderSelectorTest()
       : demuxer_stream_(
             new StrictMock<MockDemuxerStream>(DemuxerStream::VIDEO)),
+        cdm_context_(new StrictMock<MockCdmContext>()),
         decryptor_(new NiceMock<MockDecryptor>()),
         decoder_1_(new StrictMock<MockVideoDecoder>()),
         decoder_2_(new StrictMock<MockVideoDecoder>()) {
     all_decoders_.push_back(decoder_1_);
     all_decoders_.push_back(decoder_2_);
+
+    EXPECT_CALL(*cdm_context_, GetDecryptor())
+        .WillRepeatedly(Return(decryptor_.get()));
   }
 
   ~VideoDecoderSelectorTest() {
     message_loop_.RunUntilIdle();
   }
 
-  MOCK_METHOD1(SetDecryptorReadyCallback, void(const media::DecryptorReadyCB&));
+  MOCK_METHOD1(SetCdmReadyCallback, void(const media::CdmReadyCB&));
   MOCK_METHOD2(OnDecoderSelected,
                void(VideoDecoder*, DecryptingDemuxerStream*));
-  MOCK_METHOD1(DecryptorSet, void(bool));
+  MOCK_METHOD1(CdmSet, void(bool));
 
   void MockOnDecoderSelected(
       scoped_ptr<VideoDecoder> decoder,
@@ -89,13 +100,12 @@ class VideoDecoderSelectorTest : public ::testing::Test {
                                  int num_decoders) {
     if (decryptor_capability == kDecryptOnly ||
         decryptor_capability == kDecryptAndDecode) {
-      EXPECT_CALL(*this, SetDecryptorReadyCallback(_))
+      EXPECT_CALL(*this, SetCdmReadyCallback(_))
           .WillRepeatedly(ExecuteCallbackWithVerifier(
-              decryptor_.get(),
-              base::Bind(&VideoDecoderSelectorTest::DecryptorSet,
-                         base::Unretained(this)),
+              cdm_context_.get(), base::Bind(&VideoDecoderSelectorTest::CdmSet,
+                                             base::Unretained(this)),
               &verifier_));
-      EXPECT_CALL(*this, DecryptorSet(true))
+      EXPECT_CALL(*this, CdmSet(true))
           .WillRepeatedly(ReportCallback(&verifier_));
 
       if (decryptor_capability == kDecryptOnly) {
@@ -106,11 +116,10 @@ class VideoDecoderSelectorTest : public ::testing::Test {
             .WillRepeatedly(RunCallback<1>(true));
       }
     } else if (decryptor_capability == kHoldSetDecryptor) {
-      // Set and cancel DecryptorReadyCB but the callback is never fired.
-      EXPECT_CALL(*this, SetDecryptorReadyCallback(_))
-          .Times(2);
+      // Set and cancel CdmReadyCB but the callback is never fired.
+      EXPECT_CALL(*this, SetCdmReadyCallback(_)).Times(2);
     } else if (decryptor_capability == kNoDecryptor) {
-      EXPECT_CALL(*this, SetDecryptorReadyCallback(_))
+      EXPECT_CALL(*this, SetCdmReadyCallback(_))
           .WillRepeatedly(
               RunCallback<0>(nullptr, base::Bind(&IgnoreCdmAttached)));
     }
@@ -127,7 +136,7 @@ class VideoDecoderSelectorTest : public ::testing::Test {
   void SelectDecoder() {
     decoder_selector_->SelectDecoder(
         demuxer_stream_.get(),
-        base::Bind(&VideoDecoderSelectorTest::SetDecryptorReadyCallback,
+        base::Bind(&VideoDecoderSelectorTest::SetCdmReadyCallback,
                    base::Unretained(this)),
         base::Bind(&VideoDecoderSelectorTest::MockOnDecoderSelected,
                    base::Unretained(this)),
@@ -156,11 +165,13 @@ class VideoDecoderSelectorTest : public ::testing::Test {
 
   // Declare |decoder_selector_| after |demuxer_stream_| and |decryptor_| since
   // |demuxer_stream_| and |decryptor_| should outlive |decoder_selector_|.
-  scoped_ptr<StrictMock<MockDemuxerStream> > demuxer_stream_;
+  scoped_ptr<StrictMock<MockDemuxerStream>> demuxer_stream_;
+
+  scoped_ptr<StrictMock<MockCdmContext>> cdm_context_;
 
   // Use NiceMock since we don't care about most of calls on the decryptor, e.g.
   // RegisterNewKeyCB().
-  scoped_ptr<NiceMock<MockDecryptor> > decryptor_;
+  scoped_ptr<NiceMock<MockDecryptor>> decryptor_;
 
   scoped_ptr<VideoDecoderSelector> decoder_selector_;
 
@@ -194,7 +205,7 @@ TEST_F(VideoDecoderSelectorTest, ClearStream_NoDecryptor_OneClearDecoder) {
   UseClearStream();
   InitializeDecoderSelector(kNoDecryptor, 1);
 
-  EXPECT_CALL(*decoder_1_, Initialize(_, _, _, _))
+  EXPECT_CALL(*decoder_1_, Initialize(ClearConfig(), _, _, _))
       .WillOnce(RunCallback<2>(true));
   EXPECT_CALL(*this, OnDecoderSelected(decoder_1_, IsNull()));
 
@@ -206,7 +217,7 @@ TEST_F(VideoDecoderSelectorTest,
   UseClearStream();
   InitializeDecoderSelector(kNoDecryptor, 1);
 
-  EXPECT_CALL(*decoder_1_, Initialize(_, _, _, _));
+  EXPECT_CALL(*decoder_1_, Initialize(ClearConfig(), _, _, _));
 
   SelectDecoderAndDestroy();
 }
@@ -217,9 +228,9 @@ TEST_F(VideoDecoderSelectorTest, ClearStream_NoDecryptor_MultipleClearDecoder) {
   UseClearStream();
   InitializeDecoderSelector(kNoDecryptor, 2);
 
-  EXPECT_CALL(*decoder_1_, Initialize(_, _, _, _))
+  EXPECT_CALL(*decoder_1_, Initialize(ClearConfig(), _, _, _))
       .WillOnce(RunCallback<2>(false));
-  EXPECT_CALL(*decoder_2_, Initialize(_, _, _, _))
+  EXPECT_CALL(*decoder_2_, Initialize(ClearConfig(), _, _, _))
       .WillOnce(RunCallback<2>(true));
   EXPECT_CALL(*this, OnDecoderSelected(decoder_2_, IsNull()));
 
@@ -231,9 +242,9 @@ TEST_F(VideoDecoderSelectorTest,
   UseClearStream();
   InitializeDecoderSelector(kNoDecryptor, 2);
 
-  EXPECT_CALL(*decoder_1_, Initialize(_, _, _, _))
+  EXPECT_CALL(*decoder_1_, Initialize(ClearConfig(), _, _, _))
       .WillOnce(RunCallback<2>(false));
-  EXPECT_CALL(*decoder_2_, Initialize(_, _, _, _));
+  EXPECT_CALL(*decoder_2_, Initialize(ClearConfig(), _, _, _));
 
   SelectDecoderAndDestroy();
 }
@@ -244,7 +255,7 @@ TEST_F(VideoDecoderSelectorTest, ClearStream_HasDecryptor) {
   UseClearStream();
   InitializeDecoderSelector(kDecryptOnly, 1);
 
-  EXPECT_CALL(*decoder_1_, Initialize(_, _, _, _))
+  EXPECT_CALL(*decoder_1_, Initialize(ClearConfig(), _, _, _))
       .WillOnce(RunCallback<2>(true));
   EXPECT_CALL(*this, OnDecoderSelected(decoder_1_, IsNull()));
 
@@ -255,24 +266,64 @@ TEST_F(VideoDecoderSelectorTest, Destroy_ClearStream_HasDecryptor) {
   UseClearStream();
   InitializeDecoderSelector(kDecryptOnly, 1);
 
-  EXPECT_CALL(*decoder_1_, Initialize(_, _, _, _));
+  EXPECT_CALL(*decoder_1_, Initialize(ClearConfig(), _, _, _));
 
   SelectDecoderAndDestroy();
 }
 
-// The stream is encrypted and there's no decryptor. No decoder can be selected.
-TEST_F(VideoDecoderSelectorTest, EncryptedStream_NoDecryptor) {
+// The stream is encrypted and there's no decryptor. The decoder only supports
+// clear streams so no decoder can be selected.
+TEST_F(VideoDecoderSelectorTest, EncryptedStream_NoDecryptor_OneClearDecoder) {
   UseEncryptedStream();
   InitializeDecoderSelector(kNoDecryptor, 1);
 
+  EXPECT_CALL(*decoder_1_, Initialize(EncryptedConfig(), _, _, _))
+      .WillOnce(RunCallback<2>(false));
   EXPECT_CALL(*this, OnDecoderSelected(IsNull(), IsNull()));
 
   SelectDecoder();
 }
 
+TEST_F(VideoDecoderSelectorTest,
+       Destroy_EncryptedStream_NoDecryptor_OneClearDecoder) {
+  UseEncryptedStream();
+  InitializeDecoderSelector(kNoDecryptor, 1);
+
+  EXPECT_CALL(*decoder_1_, Initialize(EncryptedConfig(), _, _, _));
+
+  SelectDecoderAndDestroy();
+}
+
+// The stream is encrypted and there's no decryptor. There are multiple decoders
+// and the first one that supports encrypted streams is selected.
+TEST_F(VideoDecoderSelectorTest, EncryptedStream_NoDecryptor_MultipleDecoders) {
+  UseEncryptedStream();
+  InitializeDecoderSelector(kNoDecryptor, 2);
+
+  EXPECT_CALL(*decoder_1_, Initialize(EncryptedConfig(), _, _, _))
+      .WillOnce(RunCallback<2>(false));
+  EXPECT_CALL(*decoder_2_, Initialize(EncryptedConfig(), _, _, _))
+      .WillOnce(RunCallback<2>(true));
+  EXPECT_CALL(*this, OnDecoderSelected(decoder_2_, IsNull()));
+
+  SelectDecoder();
+}
+
+TEST_F(VideoDecoderSelectorTest,
+       Destroy_EncryptedStream_NoDecryptor_MultipleDecoders) {
+  UseEncryptedStream();
+  InitializeDecoderSelector(kNoDecryptor, 2);
+
+  EXPECT_CALL(*decoder_1_, Initialize(EncryptedConfig(), _, _, _))
+      .WillOnce(RunCallback<2>(false));
+  EXPECT_CALL(*decoder_2_, Initialize(EncryptedConfig(), _, _, _));
+
+  SelectDecoderAndDestroy();
+}
+
 // Decryptor can only do decryption and there's no decoder available. No decoder
 // can be selected.
-TEST_F(VideoDecoderSelectorTest, EncryptedStream_DecryptOnly_NoClearDecoder) {
+TEST_F(VideoDecoderSelectorTest, EncryptedStream_DecryptOnly_NoDecoder) {
   UseEncryptedStream();
   InitializeDecoderSelector(kDecryptOnly, 0);
 
@@ -282,7 +333,7 @@ TEST_F(VideoDecoderSelectorTest, EncryptedStream_DecryptOnly_NoClearDecoder) {
 }
 
 TEST_F(VideoDecoderSelectorTest,
-       Destroy_EncryptedStream_DecryptOnly_NoClearDecoder) {
+       Destroy_EncryptedStream_DecryptOnly_NoDecoder) {
   UseEncryptedStream();
   InitializeDecoderSelector(kHoldSetDecryptor, 0);
 
@@ -295,7 +346,9 @@ TEST_F(VideoDecoderSelectorTest, EncryptedStream_DecryptOnly_OneClearDecoder) {
   UseEncryptedStream();
   InitializeDecoderSelector(kDecryptOnly, 1);
 
-  EXPECT_CALL(*decoder_1_, Initialize(_, _, _, _))
+  // Since we use DecryptingDemuxerStream, the decoder will be initialized with
+  // a clear config.
+  EXPECT_CALL(*decoder_1_, Initialize(ClearConfig(), _, _, _))
       .WillOnce(RunCallback<2>(true));
   EXPECT_CALL(*this, OnDecoderSelected(decoder_1_, NotNull()));
 
@@ -307,7 +360,7 @@ TEST_F(VideoDecoderSelectorTest,
   UseEncryptedStream();
   InitializeDecoderSelector(kDecryptOnly, 1);
 
-  EXPECT_CALL(*decoder_1_, Initialize(_, _, _, _));
+  EXPECT_CALL(*decoder_1_, Initialize(ClearConfig(), _, _, _));
 
   SelectDecoderAndDestroy();
 }
@@ -320,9 +373,9 @@ TEST_F(VideoDecoderSelectorTest,
   UseEncryptedStream();
   InitializeDecoderSelector(kDecryptOnly, 2);
 
-  EXPECT_CALL(*decoder_1_, Initialize(_, _, _, _))
+  EXPECT_CALL(*decoder_1_, Initialize(ClearConfig(), _, _, _))
       .WillOnce(RunCallback<2>(false));
-  EXPECT_CALL(*decoder_2_, Initialize(_, _, _, _))
+  EXPECT_CALL(*decoder_2_, Initialize(ClearConfig(), _, _, _))
       .WillOnce(RunCallback<2>(true));
   EXPECT_CALL(*this, OnDecoderSelected(decoder_2_, NotNull()));
 
@@ -334,21 +387,30 @@ TEST_F(VideoDecoderSelectorTest,
   UseEncryptedStream();
   InitializeDecoderSelector(kDecryptOnly, 2);
 
-  EXPECT_CALL(*decoder_1_, Initialize(_, _, _, _))
+  EXPECT_CALL(*decoder_1_, Initialize(ClearConfig(), _, _, _))
       .WillOnce(RunCallback<2>(false));
-  EXPECT_CALL(*decoder_2_, Initialize(_, _, _, _));
+  EXPECT_CALL(*decoder_2_, Initialize(ClearConfig(), _, _, _));
 
   SelectDecoderAndDestroy();
 }
 
-// Decryptor can do decryption and decoding. A DecryptingVideoDecoder will be
-// created and selected. The clear decoders should not be touched at all.
-// No DecryptingDemuxerStream should to be created.
+// Decryptor can do decryption and decoding.
 TEST_F(VideoDecoderSelectorTest, EncryptedStream_DecryptAndDecode) {
   UseEncryptedStream();
   InitializeDecoderSelector(kDecryptAndDecode, 1);
 
+#if !defined(OS_ANDROID)
+  // A DecryptingVideoDecoder will be created and selected. The clear decoder
+  // should not be touched at all. No DecryptingDemuxerStream should be
+  // created.
   EXPECT_CALL(*this, OnDecoderSelected(NotNull(), IsNull()));
+#else
+  // A DecryptingDemuxerStream will be created. The clear decoder will be
+  // initialized and returned.
+  EXPECT_CALL(*decoder_1_, Initialize(ClearConfig(), _, _, _))
+      .WillOnce(RunCallback<2>(true));
+  EXPECT_CALL(*this, OnDecoderSelected(NotNull(), NotNull()));
+#endif
 
   SelectDecoder();
 }

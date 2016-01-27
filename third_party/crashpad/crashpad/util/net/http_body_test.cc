@@ -16,6 +16,7 @@
 
 #include "gtest/gtest.h"
 #include "test/paths.h"
+#include "util/misc/implicit_cast.h"
 #include "util/net/http_body_test_util.h"
 
 namespace crashpad {
@@ -46,7 +47,7 @@ TEST(StringHTTPBodyStream, SmallString) {
 
   std::string string("Hello, world");
   StringHTTPBodyStream stream(string);
-  EXPECT_EQ(implicit_cast<ssize_t>(string.length()),
+  EXPECT_EQ(implicit_cast<FileOperationResult>(string.length()),
             stream.GetBytesBuffer(buf, sizeof(buf)));
 
   std::string actual(reinterpret_cast<const char*>(buf), string.length());

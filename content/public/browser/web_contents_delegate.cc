@@ -132,8 +132,9 @@ bool WebContentsDelegate::OnGoToEntryOffset(int offset) {
 
 bool WebContentsDelegate::ShouldCreateWebContents(
     WebContents* web_contents,
-    int route_id,
-    int main_frame_route_id,
+    int32_t route_id,
+    int32_t main_frame_route_id,
+    int32_t main_frame_widget_route_id,
     WindowContainerType window_container_type,
     const std::string& frame_name,
     const GURL& target_url,
@@ -144,6 +145,13 @@ bool WebContentsDelegate::ShouldCreateWebContents(
 
 JavaScriptDialogManager* WebContentsDelegate::GetJavaScriptDialogManager(
     WebContents* source) {
+  return nullptr;
+}
+
+scoped_ptr<BluetoothChooser> WebContentsDelegate::RunBluetoothChooser(
+    WebContents* web_contents,
+    const BluetoothChooser::EventHandler& event_handler,
+    const GURL& origin) {
   return nullptr;
 }
 
@@ -188,6 +196,14 @@ bool WebContentsDelegate::CheckMediaAccessPermission(
   return false;
 }
 
+#if defined(OS_ANDROID)
+void WebContentsDelegate::RequestMediaDecodePermission(
+    WebContents* web_contents,
+    const base::Callback<void(bool)>& callback) {
+  callback.Run(false);
+}
+#endif
+
 bool WebContentsDelegate::RequestPpapiBrokerPermission(
     WebContents* web_contents,
     const GURL& url,
@@ -231,6 +247,11 @@ SecurityStyle WebContentsDelegate::GetSecurityStyle(
     WebContents* web_contents,
     SecurityStyleExplanations* security_style_explanations) {
   return content::SECURITY_STYLE_UNKNOWN;
+}
+
+void WebContentsDelegate::ShowCertificateViewerInDevTools(
+    WebContents* web_contents,
+    int cert_id) {
 }
 
 }  // namespace content

@@ -228,7 +228,7 @@ def _CreateBisectOptionsFromConfig(config):
       raise RuntimeError('CrOS build selected, but BISECT_CROS_IP or'
           'BISECT_CROS_BOARD undefined.')
   elif 'android' in config['command']:
-    if 'android-chrome-shell' in config['command']:
+    if 'android-chromium' in config['command']:
       opts_dict['target_platform'] = 'android'
     elif 'android-chrome' in config['command']:
       opts_dict['target_platform'] = 'android-chrome'
@@ -528,7 +528,7 @@ def _RunBisectionScript(
 
   # Possibly set the target platform name based on the browser name in a
   # Telemetry command.
-  if 'android-chrome-shell' in config['command']:
+  if 'android-chromium' in config['command']:
     cmd.extend(['--target_platform', 'android'])
   elif 'android-chrome' in config['command']:
     cmd.extend(['--target_platform', 'android-chrome'])
@@ -583,7 +583,7 @@ def _PrintConfigStep(config):
 def _GetBrowserType(bot_platform):
   """Gets the browser type to be used in the run benchmark command."""
   if bot_platform == 'android':
-    return 'android-chrome-shell'
+    return 'android-chromium'
   elif 'x64' in bot_platform:
     return 'release_x64'
 
@@ -621,7 +621,7 @@ def _GetConfigBasedOnPlatform(config, bot_name, test_name):
     opts_dict['use_goma'] = config['use_goma']
   if 'goma_dir' in config:
     opts_dict['goma_dir'] = config['goma_dir']
-  if 'android-chrome-shell' in opts_dict['command']:
+  if 'android-chromium' in opts_dict['command']:
     opts_dict['target_platform'] = 'android'
 
   return bisect_perf_regression.BisectOptions.FromDict(opts_dict)

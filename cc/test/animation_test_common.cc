@@ -209,8 +209,9 @@ float FakeFloatTransition::GetValue(base::TimeDelta time) const {
 }
 
 FakeLayerAnimationValueObserver::FakeLayerAnimationValueObserver()
-    : opacity_(0.0f), animation_waiting_for_deletion_(false) {
-}
+    : opacity_(0.0f),
+      animation_waiting_for_deletion_(false),
+      transform_is_animating_(false) {}
 
 FakeLayerAnimationValueObserver::~FakeLayerAnimationValueObserver() {}
 
@@ -235,6 +236,11 @@ void FakeLayerAnimationValueObserver::OnScrollOffsetAnimated(
 
 void FakeLayerAnimationValueObserver::OnAnimationWaitingForDeletion() {
   animation_waiting_for_deletion_ = true;
+}
+
+void FakeLayerAnimationValueObserver::OnTransformIsPotentiallyAnimatingChanged(
+    bool is_animating) {
+  transform_is_animating_ = is_animating;
 }
 
 bool FakeLayerAnimationValueObserver::IsActive() const {
@@ -380,6 +386,33 @@ int AddAnimatedFilterToPlayer(AnimationPlayer* player,
                               float start_brightness,
                               float end_brightness) {
   return AddAnimatedFilter(player, duration, start_brightness, end_brightness);
+}
+
+int AddOpacityStepsToController(LayerAnimationController* target,
+                                double duration,
+                                float start_opacity,
+                                float end_opacity,
+                                int num_steps) {
+  scoped_ptr<KeyframedFloatAnimationCurve> curve(
+      KeyframedFloatAnimationCurve::Create());
+
+  scoped_ptr<TimingFunction> func =
+      StepsTimingFunction::Create(num_steps, 0.5f);
+  if (duration > 0.0)
+    curve->AddKeyframe(
+        FloatKeyframe::Create(base::TimeDelta(), start_opacity, func.Pass()));
+  curve->AddKeyframe(FloatKeyframe::Create(
+      base::TimeDelta::FromSecondsD(duration), end_opacity, nullptr));
+
+  int id = AnimationIdProvider::NextAnimationId();
+
+  scoped_ptr<Animation> animation(
+      Animation::Create(curve.Pass(), id, AnimationIdProvider::NextGroupId(),
+                        Animation::OPACITY));
+  animation->set_needs_synchronized_start_time(true);
+
+  target->AddAnimation(animation.Pass());
+  return id;
 }
 
 }  // namespace cc

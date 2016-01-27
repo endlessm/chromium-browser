@@ -1,8 +1,7 @@
-gl-get-tex-parameter.html
-tex-input-validation.html
-tex-mipmap-levels.html
-tex-new-formats.html
-tex-storage-2d.html
-tex-storage-and-subimage-3d.html
-texel-fetch-undefined.html
-texture-npot.html
+misc/00_test_list.txt
+canvas/00_test_list.txt
+image/00_test_list.txt
+image_data/00_test_list.txt
+svg_image/00_test_list.txt
+video/00_test_list.txt
+webgl_canvas/00_test_list.txt

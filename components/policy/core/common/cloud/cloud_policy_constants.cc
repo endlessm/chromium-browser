@@ -25,7 +25,6 @@ const char kParamDeviceType[] = "devicetype";
 const char kParamOAuthToken[] = "oauth_token";
 const char kParamPlatform[] = "platform";
 const char kParamRequest[] = "request";
-const char kParamUserAffiliation[] = "user_affiliation";
 
 // String constants for the device and app type we report to the server.
 const char kValueAppType[] = "Chrome";
@@ -39,11 +38,10 @@ const char kValueRequestUploadCertificate[] = "cert_upload";
 const char kValueRequestDeviceStateRetrieval[] = "device_state_retrieval";
 const char kValueRequestUploadStatus[] = "status_upload";
 const char kValueRequestRemoteCommands[] = "remote_commands";
-const char kValueUserAffiliationManaged[] = "managed";
-const char kValueUserAffiliationNone[] = "none";
 const char kValueRequestDeviceAttributeUpdatePermission[] =
     "device_attribute_update_permission";
 const char kValueRequestDeviceAttributeUpdate[] = "device_attribute_update";
+const char kValueRequestGcmIdUpdate[] = "gcm_id_update";
 
 const char kChromeDevicePolicyType[] = "google/chromeos/device";
 #if defined(OS_CHROMEOS)
@@ -100,15 +98,6 @@ std::string GetPolicyVerificationKey() {
     return std::string(reinterpret_cast<const char*>(kPolicyVerificationKey),
                        sizeof(kPolicyVerificationKey));
   }
-}
-
-const char* GetChromeUserPolicyType() {
-#if defined(OS_ANDROID) || defined(OS_IOS)
-  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
-  if (command_line->HasSwitch(switches::kFakeCloudPolicyType))
-    return "google/chrome/user";
-#endif
-  return dm_protocol::kChromeUserPolicyType;
 }
 
 void SetManagementMode(em::PolicyData& policy_data, ManagementMode mode) {

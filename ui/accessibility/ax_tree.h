@@ -9,6 +9,8 @@
 
 #include "base/containers/hash_tables.h"
 #include "ui/accessibility/ax_export.h"
+#include "ui/accessibility/ax_node_data.h"
+#include "ui/accessibility/ax_tree_data.h"
 #include "ui/accessibility/ax_tree_update.h"
 
 namespace ui {
@@ -36,6 +38,9 @@ class AX_EXPORT AXTreeDelegate {
  public:
   AXTreeDelegate();
   virtual ~AXTreeDelegate();
+
+  // Called when tree data changes.
+  virtual void OnTreeDataChanged(AXTree* tree) = 0;
 
   // Called just before a node is deleted. Its id and data will be valid,
   // but its links to parents and children are invalid. This is called
@@ -95,6 +100,8 @@ class AX_EXPORT AXTree {
 
   AXNode* root() const { return root_; }
 
+  const AXTreeData& data() const { return data_; }
+
   // Returns the AXNode with the given |id| if it is part of this AXTree.
   AXNode* GetFromId(int32 id) const;
 
@@ -102,6 +109,8 @@ class AX_EXPORT AXTree {
   // and this tree should be destroyed, and the source of the tree update
   // should not be trusted any longer.
   virtual bool Unserialize(const AXTreeUpdate& update);
+
+  virtual void UpdateData(const AXTreeData& data);
 
   // Return a multi-line indented string representation, for logging.
   std::string ToString() const;
@@ -149,6 +158,7 @@ class AX_EXPORT AXTree {
   AXNode* root_;
   base::hash_map<int32, AXNode*> id_map_;
   std::string error_;
+  AXTreeData data_;
 };
 
 }  // namespace ui

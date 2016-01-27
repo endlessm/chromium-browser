@@ -37,25 +37,6 @@ void RenderingStatsInstrumentation::AccumulateAndClearImplThreadStats() {
   impl_thread_rendering_stats_ = RenderingStats();
 }
 
-base::TimeDelta RenderingStatsInstrumentation::StartRecording() const {
-  if (record_rendering_stats_) {
-    if (base::ThreadTicks::IsSupported())
-      return base::ThreadTicks::Now() - base::ThreadTicks();
-    return base::TimeTicks::Now() - base::TimeTicks();
-  }
-  return base::TimeDelta();
-}
-
-base::TimeDelta RenderingStatsInstrumentation::EndRecording(
-    base::TimeDelta start_time) const {
-  if (start_time != base::TimeDelta()) {
-    if (base::ThreadTicks::IsSupported())
-      return (base::ThreadTicks::Now() - base::ThreadTicks()) - start_time;
-    return (base::TimeTicks::Now() - base::TimeTicks()) - start_time;
-  }
-  return base::TimeDelta();
-}
-
 void RenderingStatsInstrumentation::IncrementFrameCount(int64 count) {
   if (!record_rendering_stats_)
     return;
@@ -88,6 +69,24 @@ void RenderingStatsInstrumentation::AddCheckerboardedVisibleContentArea(
 
   base::AutoLock scoped_lock(lock_);
   impl_thread_rendering_stats_.checkerboarded_visible_content_area += area;
+}
+
+void RenderingStatsInstrumentation::AddCheckerboardedNoRecordingContentArea(
+    int64 area) {
+  if (!record_rendering_stats_)
+    return;
+
+  base::AutoLock scoped_lock(lock_);
+  impl_thread_rendering_stats_.checkerboarded_no_recording_content_area += area;
+}
+
+void RenderingStatsInstrumentation::AddCheckerboardedNeedsRasterContentArea(
+    int64 area) {
+  if (!record_rendering_stats_)
+    return;
+
+  base::AutoLock scoped_lock(lock_);
+  impl_thread_rendering_stats_.checkerboarded_needs_raster_content_area += area;
 }
 
 void RenderingStatsInstrumentation::AddDrawDuration(

@@ -27,12 +27,14 @@
 #include "platform/RuntimeEnabledFeatures.h"
 #include "platform/text/TextDirection.h"
 #include "platform/text/WritingMode.h"
+#include "wtf/Allocator.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefPtr.h"
 
 namespace blink {
 
 struct StylePropertyMetadata {
+    DISALLOW_NEW();
     StylePropertyMetadata(CSSPropertyID propertyID, bool isSetFromShorthand, int indexInShorthandsVector, bool important, bool implicit, bool inherited)
         : m_propertyID(propertyID)
         , m_isSetFromShorthand(isSetFromShorthand)
@@ -54,7 +56,7 @@ struct StylePropertyMetadata {
 };
 
 class CSSProperty {
-    ALLOW_ONLY_INLINE_ALLOCATION();
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     CSSProperty(CSSPropertyID propertyID, PassRefPtrWillBeRawPtr<CSSValue> value, bool important = false, bool isSetFromShorthand = false, int indexInShorthandsVector = 0, bool implicit = false)
         : m_metadata(propertyID, isSetFromShorthand, indexInShorthandsVector, important, implicit, CSSPropertyMetadata::isInheritedProperty(propertyID))

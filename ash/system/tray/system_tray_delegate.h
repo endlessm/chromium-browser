@@ -18,6 +18,8 @@
 #include "base/strings/string16.h"
 #include "ui/gfx/image/image_skia.h"
 
+class AccountId;
+
 namespace base {
 class TimeDelta;
 class TimeTicks;
@@ -141,20 +143,20 @@ class ASH_EXPORT SystemTrayDelegate {
   virtual void ChangeProfilePicture();
 
   // Returns the domain that manages the device, if it is enterprise-enrolled.
-  virtual const std::string GetEnterpriseDomain() const;
+  virtual std::string GetEnterpriseDomain() const;
 
   // Returns notification for enterprise enrolled devices.
-  virtual const base::string16 GetEnterpriseMessage() const;
+  virtual base::string16 GetEnterpriseMessage() const;
 
   // Returns the display email of the user that manages the current supervised
   // user.
-  virtual const std::string GetSupervisedUserManager() const;
+  virtual std::string GetSupervisedUserManager() const;
 
   // Returns the name of the user that manages the current supervised user.
-  virtual const base::string16 GetSupervisedUserManagerName() const;
+  virtual base::string16 GetSupervisedUserManagerName() const;
 
   // Returns the notification for supervised users.
-  virtual const base::string16 GetSupervisedUserMessage() const;
+  virtual base::string16 GetSupervisedUserMessage() const;
 
   // Returns true if the current user is supervised: has legacy supervised
   // account or kid account.
@@ -283,7 +285,7 @@ class ASH_EXPORT SystemTrayDelegate {
   virtual void ChangeProxySettings();
 
   // Returns CastConfigDelegate. May return nullptr.
-  virtual CastConfigDelegate* GetCastConfigDelegate() const;
+  virtual CastConfigDelegate* GetCastConfigDelegate();
 
   // Returns NetworkingConfigDelegate. May return nullptr.
   virtual NetworkingConfigDelegate* GetNetworkingConfigDelegate() const;
@@ -314,7 +316,7 @@ class ASH_EXPORT SystemTrayDelegate {
 
   // Returns accounts delegate for given user. May return nullptr.
   virtual tray::UserAccountsDelegate* GetUserAccountsDelegate(
-      const std::string& user_id);
+      const AccountId& account_id);
 
   // Adding observers that are notified when supervised info is being changed.
   virtual void AddCustodianInfoTrayObserver(

@@ -209,7 +209,7 @@ class PDFEngine {
       uint32_t page_range_count,
       const PP_PrintSettings_Dev& print_settings) = 0;
   virtual void PrintEnd() = 0;
-  virtual void StartFind(const char* text, bool case_sensitive) = 0;
+  virtual void StartFind(const std::string& text, bool case_sensitive) = 0;
   virtual bool SelectFindResult(bool forward) = 0;
   virtual void StopFind() = 0;
   virtual void ZoomUpdated(double new_zoom_level) = 0;
@@ -233,6 +233,9 @@ class PDFEngine {
   virtual pp::Rect GetPageRect(int index) = 0;
   // Gets the rectangle of the page excluding any additional areas.
   virtual pp::Rect GetPageContentsRect(int index) = 0;
+  // Returns a page's rect in screen coordinates, as well as its surrounding
+  // border areas and bottom separator.
+  virtual pp::Rect GetPageScreenRect(int page_index) const = 0;
   // Gets the offset of the vertical scrollbar from the top in document
   // coordinates.
   virtual int GetVerticalScrollbarYPosition() = 0;
@@ -276,6 +279,8 @@ class PDFEngine {
   virtual void SetScrollPosition(const pp::Point& position) = 0;
 
   virtual bool IsProgressiveLoad() = 0;
+
+  virtual std::string GetMetadata(const std::string& key) = 0;
 };
 
 // Interface for exports that wrap the PDF engine.

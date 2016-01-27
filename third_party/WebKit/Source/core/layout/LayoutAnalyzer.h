@@ -6,6 +6,8 @@
 #define LayoutAnalyzer_h
 
 #include "platform/LayoutUnit.h"
+#include "wtf/Allocator.h"
+#include "wtf/Noncopyable.h"
 #include "wtf/PassRefPtr.h"
 
 namespace blink {
@@ -18,6 +20,8 @@ class TracedValue;
 // Usage:
 // LayoutAnalyzer::Scope analyzer(*this);
 class LayoutAnalyzer {
+    USING_FAST_MALLOC(LayoutAnalyzer);
+    WTF_MAKE_NONCOPYABLE(LayoutAnalyzer);
 public:
     enum Counter {
         LayoutBlockWidthChanged,
@@ -45,6 +49,7 @@ public:
     static const size_t NumCounters = 21;
 
     class Scope {
+        STACK_ALLOCATED();
     public:
         explicit Scope(const LayoutObject&);
         ~Scope();
@@ -55,6 +60,7 @@ public:
     };
 
     class BlockScope {
+        STACK_ALLOCATED();
     public:
         explicit BlockScope(const LayoutBlock&);
         ~BlockScope();

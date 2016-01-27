@@ -2,15 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "mojo/edk/system/ipc_support.h"
+#include "third_party/mojo/src/mojo/edk/system/ipc_support.h"
 
 #include "base/logging.h"
-#include "mojo/edk/embedder/master_process_delegate.h"
-#include "mojo/edk/embedder/slave_process_delegate.h"
-#include "mojo/edk/system/channel_manager.h"
-#include "mojo/edk/system/master_connection_manager.h"
-#include "mojo/edk/system/message_pipe_dispatcher.h"
-#include "mojo/edk/system/slave_connection_manager.h"
+#include "third_party/mojo/src/mojo/edk/embedder/master_process_delegate.h"
+#include "third_party/mojo/src/mojo/edk/embedder/slave_process_delegate.h"
+#include "third_party/mojo/src/mojo/edk/system/channel_manager.h"
+#include "third_party/mojo/src/mojo/edk/system/master_connection_manager.h"
+#include "third_party/mojo/src/mojo/edk/system/message_pipe_dispatcher.h"
+#include "third_party/mojo/src/mojo/edk/system/slave_connection_manager.h"
 
 namespace mojo {
 namespace system {
@@ -18,15 +18,12 @@ namespace system {
 IPCSupport::IPCSupport(
     embedder::PlatformSupport* platform_support,
     embedder::ProcessType process_type,
-    scoped_refptr<base::TaskRunner> delegate_thread_task_runner,
     embedder::ProcessDelegate* process_delegate,
     scoped_refptr<base::TaskRunner> io_thread_task_runner,
     embedder::ScopedPlatformHandle platform_handle)
     : process_type_(process_type),
-      delegate_thread_task_runner_(delegate_thread_task_runner.Pass()),
       process_delegate_(process_delegate),
       io_thread_task_runner_(io_thread_task_runner.Pass()) {
-  DCHECK(delegate_thread_task_runner_);
   DCHECK(io_thread_task_runner_);
 
   switch (process_type_) {
@@ -43,7 +40,6 @@ IPCSupport::IPCSupport(
           new system::MasterConnectionManager(platform_support));
       static_cast<system::MasterConnectionManager*>(connection_manager_.get())
           ->Init(
-              delegate_thread_task_runner_,
               static_cast<embedder::MasterProcessDelegate*>(process_delegate_));
       break;
     case embedder::ProcessType::SLAVE:
@@ -51,7 +47,6 @@ IPCSupport::IPCSupport(
           new system::SlaveConnectionManager(platform_support));
       static_cast<system::SlaveConnectionManager*>(connection_manager_.get())
           ->Init(
-              delegate_thread_task_runner_,
               static_cast<embedder::SlaveProcessDelegate*>(process_delegate_),
               platform_handle.Pass());
       break;
@@ -78,7 +73,6 @@ void IPCSupport::ShutdownOnIOThread() {
 
   io_thread_task_runner_ = nullptr;
   process_delegate_ = nullptr;
-  delegate_thread_task_runner_ = nullptr;
   process_type_ = embedder::ProcessType::UNINITIALIZED;
 }
 
@@ -140,9 +134,11 @@ embedder::ScopedPlatformHandle IPCSupport::ConnectToSlaveInternal(
                                  connection_id);
 
   system::ProcessIdentifier peer_id = system::kInvalidProcessIdentifier;
+  bool is_first;
   embedder::ScopedPlatformHandle platform_connection_handle;
-  CHECK(connection_manager()->Connect(connection_id, &peer_id,
-                                      &platform_connection_handle));
+  CHECK_EQ(connection_manager()->Connect(connection_id, &peer_id, &is_first,
+                                         &platform_connection_handle),
+           ConnectionManager::Result::SUCCESS_CONNECT_NEW_CONNECTION);
   DCHECK_EQ(peer_id, *slave_process_identifier);
   DCHECK(platform_connection_handle.is_valid());
   return platform_connection_handle;
@@ -152,10 +148,12 @@ embedder::ScopedPlatformHandle IPCSupport::ConnectToMasterInternal(
     const ConnectionIdentifier& connection_id) {
   DCHECK_EQ(process_type_, embedder::ProcessType::SLAVE);
 
-  system::ProcessIdentifier peer_id;
+  system::ProcessIdentifier peer_id = system::kInvalidProcessIdentifier;
+  bool is_first;
   embedder::ScopedPlatformHandle platform_connection_handle;
-  CHECK(connection_manager()->Connect(connection_id, &peer_id,
-                                      &platform_connection_handle));
+  CHECK_EQ(connection_manager()->Connect(connection_id, &peer_id, &is_first,
+                                         &platform_connection_handle),
+           ConnectionManager::Result::SUCCESS_CONNECT_NEW_CONNECTION);
   DCHECK_EQ(peer_id, system::kMasterProcessIdentifier);
   DCHECK(platform_connection_handle.is_valid());
   return platform_connection_handle;

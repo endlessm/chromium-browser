@@ -19,7 +19,20 @@ namespace cc {
 
 // static
 scoped_refptr<TestContextProvider> TestContextProvider::Create() {
-  return Create(TestWebGraphicsContext3D::Create().Pass());
+  return Create(TestWebGraphicsContext3D::Create());
+}
+
+// static
+scoped_refptr<TestContextProvider> TestContextProvider::CreateWorker() {
+  scoped_refptr<TestContextProvider> worker_context_provider =
+      Create(TestWebGraphicsContext3D::Create());
+  if (!worker_context_provider)
+    return nullptr;
+  // Worker contexts are bound to the thread they are created on.
+  if (!worker_context_provider->BindToCurrentThread())
+    return nullptr;
+  worker_context_provider->SetupLock();
+  return worker_context_provider;
 }
 
 // static
@@ -35,7 +48,6 @@ TestContextProvider::TestContextProvider(
     : context3d_(context.Pass()),
       context_gl_(new TestGLES2Interface(context3d_.get())),
       bound_(false),
-      destroyed_(false),
       weak_ptr_factory_(this) {
   DCHECK(main_thread_checker_.CalledOnValidThread());
   DCHECK(context3d_);
@@ -56,8 +68,6 @@ bool TestContextProvider::BindToCurrentThread() {
     return true;
 
   if (context_gl_->GetGraphicsResetStatusKHR() != GL_NO_ERROR) {
-    base::AutoLock lock(destroyed_lock_);
-    destroyed_ = true;
     return false;
   }
   bound_ = true;
@@ -127,34 +137,11 @@ base::Lock* TestContextProvider::GetLock() {
   return &context_lock_;
 }
 
-void TestContextProvider::VerifyContexts() {
-  DCHECK(bound_);
-  DCHECK(context_thread_checker_.CalledOnValidThread());
-
-  if (ContextGL()->GetGraphicsResetStatusKHR() != GL_NO_ERROR) {
-    base::AutoLock lock(destroyed_lock_);
-    destroyed_ = true;
-  }
-}
-
 void TestContextProvider::DeleteCachedResources() {
-}
-
-bool TestContextProvider::DestroyedOnMainThread() {
-  DCHECK(main_thread_checker_.CalledOnValidThread());
-
-  base::AutoLock lock(destroyed_lock_);
-  return destroyed_;
 }
 
 void TestContextProvider::OnLostContext() {
   DCHECK(context_thread_checker_.CalledOnValidThread());
-  {
-    base::AutoLock lock(destroyed_lock_);
-    if (destroyed_)
-      return;
-    destroyed_ = true;
-  }
   if (!lost_context_callback_.is_null())
     base::ResetAndReturn(&lost_context_callback_).Run();
   if (gr_context_)
@@ -172,25 +159,11 @@ TestWebGraphicsContext3D* TestContextProvider::UnboundTestContext3d() {
   return context3d_.get();
 }
 
-void TestContextProvider::SetMemoryAllocation(
-    const ManagedMemoryPolicy& policy) {
-  if (memory_policy_changed_callback_.is_null())
-    return;
-  memory_policy_changed_callback_.Run(policy);
-}
-
 void TestContextProvider::SetLostContextCallback(
     const LostContextCallback& cb) {
   DCHECK(context_thread_checker_.CalledOnValidThread());
   DCHECK(lost_context_callback_.is_null() || cb.is_null());
   lost_context_callback_ = cb;
-}
-
-void TestContextProvider::SetMemoryPolicyChangedCallback(
-    const MemoryPolicyChangedCallback& cb) {
-  DCHECK(context_thread_checker_.CalledOnValidThread());
-  DCHECK(memory_policy_changed_callback_.is_null() || cb.is_null());
-  memory_policy_changed_callback_ = cb;
 }
 
 void TestContextProvider::SetMaxTransferBufferUsageBytes(

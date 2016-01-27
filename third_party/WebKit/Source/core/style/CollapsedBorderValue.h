@@ -26,10 +26,12 @@
 #define CollapsedBorderValue_h
 
 #include "core/style/BorderValue.h"
+#include "wtf/Allocator.h"
 
 namespace blink {
 
 class CollapsedBorderValue {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     CollapsedBorderValue()
         : m_color(0)

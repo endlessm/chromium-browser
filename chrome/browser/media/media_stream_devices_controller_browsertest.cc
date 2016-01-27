@@ -6,6 +6,7 @@
 
 #include "base/bind.h"
 #include "base/prefs/pref_service.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/content_settings/tab_specific_content_settings.h"
 #include "chrome/browser/media/media_capture_devices_dispatcher.h"
 #include "chrome/browser/media/media_stream_capture_indicator.h"
@@ -91,8 +92,8 @@ class MediaStreamDevicesControllerTest : public WebRtcTestBase {
   void SetContentSettings(ContentSetting mic_setting,
                           ContentSetting cam_setting) {
     HostContentSettingsMap* content_settings =
-        Profile::FromBrowserContext(GetWebContents()->GetBrowserContext())
-            ->GetHostContentSettingsMap();
+        HostContentSettingsMapFactory::GetForProfile(
+            Profile::FromBrowserContext(GetWebContents()->GetBrowserContext()));
     ContentSettingsPattern pattern =
         ContentSettingsPattern::FromURLNoWildcard(example_url_);
     content_settings->SetContentSetting(pattern, pattern,
@@ -124,24 +125,25 @@ class MediaStreamDevicesControllerTest : public WebRtcTestBase {
 
   // Creates a MediaStreamRequest, asking for those media types, which have a
   // non-empty id string.
-  content::MediaStreamRequest CreateRequest(const std::string& audio_id,
-                                            const std::string& video_id) {
+  content::MediaStreamRequest CreateRequestWithType(
+      const std::string& audio_id,
+      const std::string& video_id,
+      content::MediaStreamRequestType request_type) {
     content::MediaStreamType audio_type =
         audio_id.empty() ? content::MEDIA_NO_SERVICE
                          : content::MEDIA_DEVICE_AUDIO_CAPTURE;
     content::MediaStreamType video_type =
         video_id.empty() ? content::MEDIA_NO_SERVICE
                          : content::MEDIA_DEVICE_VIDEO_CAPTURE;
-    return content::MediaStreamRequest(0,
-                                       0,
-                                       0,
-                                       example_url(),
-                                       false,
-                                       content::MEDIA_DEVICE_ACCESS,
-                                       audio_id,
-                                       video_id,
-                                       audio_type,
-                                       video_type);
+    return content::MediaStreamRequest(0, 0, 0, example_url(), false,
+                                       request_type, audio_id, video_id,
+                                       audio_type, video_type);
+  }
+
+  content::MediaStreamRequest CreateRequest(const std::string& audio_id,
+                                            const std::string& video_id) {
+    return CreateRequestWithType(audio_id, video_id,
+                                 content::MEDIA_DEVICE_ACCESS);
   }
 
   void InitWithUrl(const GURL& url) {
@@ -679,4 +681,36 @@ IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
 
   ASSERT_EQ(content::MEDIA_DEVICE_OK, media_stream_result());
   ASSERT_TRUE(DevicesContains(true, true));
+}
+
+// For Pepper request from insecure origin, even if it's ALLOW, it won't be
+// changed to ASK.
+IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
+                       PepperRequestInsecure) {
+  InitWithUrl(GURL("http://www.example.com"));
+  SetContentSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_ALLOW);
+
+  MediaStreamDevicesController controller(
+      GetWebContents(),
+      CreateRequestWithType(example_audio_id(), std::string(),
+                            content::MEDIA_OPEN_DEVICE_PEPPER_ONLY),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
+  ASSERT_FALSE(controller.IsAskingForAudio());
+  ASSERT_FALSE(controller.IsAskingForVideo());
+}
+
+// For non-Pepper request from insecure origin, if it's ALLOW, it will be
+// changed to ASK.
+IN_PROC_BROWSER_TEST_F(MediaStreamDevicesControllerTest,
+                       NonPepperRequestInsecure) {
+  InitWithUrl(GURL("http://www.example.com"));
+  SetContentSettings(CONTENT_SETTING_ALLOW, CONTENT_SETTING_ALLOW);
+
+  MediaStreamDevicesController controller(
+      GetWebContents(), CreateRequest(example_audio_id(), example_video_id()),
+      base::Bind(&MediaStreamDevicesControllerTest::OnMediaStreamResponse,
+                 this));
+  ASSERT_TRUE(controller.IsAskingForAudio());
+  ASSERT_TRUE(controller.IsAskingForVideo());
 }

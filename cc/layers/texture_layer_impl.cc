@@ -177,7 +177,6 @@ void TextureLayerImpl::AppendQuads(RenderPass* render_pass,
                nearest_neighbor_);
   if (!valid_texture_copy_) {
     quad->set_resource_size_in_pixels(texture_mailbox_.size_in_pixels());
-    quad->set_allow_overlay(texture_mailbox_.allow_overlay());
   }
   ValidateQuadResources(quad);
 }
@@ -248,9 +247,10 @@ void TextureLayerImpl::FreeTextureMailbox() {
   if (own_mailbox_) {
     DCHECK(!external_texture_resource_);
     if (release_callback_) {
-      release_callback_->Run(texture_mailbox_.sync_point(),
-                             false,
-                             layer_tree_impl()->BlockingMainThreadTaskRunner());
+      release_callback_->Run(texture_mailbox_.sync_token(), false,
+                             layer_tree_impl()
+                                 ->task_runner_provider()
+                                 ->blocking_main_thread_task_runner());
     }
     texture_mailbox_ = TextureMailbox();
     release_callback_ = nullptr;

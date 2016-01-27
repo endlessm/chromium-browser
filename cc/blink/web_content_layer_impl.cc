@@ -4,6 +4,8 @@
 
 #include "cc/blink/web_content_layer_impl.h"
 
+#include "base/command_line.h"
+#include "cc/base/switches.h"
 #include "cc/blink/web_display_item_list_impl.h"
 #include "cc/layers/picture_layer.h"
 #include "cc/playback/display_item_list_settings.h"
@@ -17,6 +19,12 @@
 using cc::PictureLayer;
 
 namespace cc_blink {
+
+static bool UseCachedPictureRaster() {
+  static bool use = !base::CommandLine::ForCurrentProcess()->HasSwitch(
+      cc::switches::kDisableCachedPictureRaster);
+  return use;
+}
 
 static blink::WebContentLayerClient::PaintingControlSetting
 PaintingControlToWeb(
@@ -54,26 +62,12 @@ void WebContentLayerImpl::setDoubleSided(bool double_sided) {
   layer_->layer()->SetDoubleSided(double_sided);
 }
 
-void WebContentLayerImpl::setDrawCheckerboardForMissingTiles(bool enable) {
-  layer_->layer()->SetDrawCheckerboardForMissingTiles(enable);
-}
-
-void WebContentLayerImpl::PaintContents(
-    SkCanvas* canvas,
-    const gfx::Rect& clip,
-    cc::ContentLayerClient::PaintingControlSetting painting_control) {
-  if (!client_)
-    return;
-
-  client_->paintContents(canvas, clip, PaintingControlToWeb(painting_control));
-}
-
 scoped_refptr<cc::DisplayItemList>
 WebContentLayerImpl::PaintContentsToDisplayList(
     const gfx::Rect& clip,
     cc::ContentLayerClient::PaintingControlSetting painting_control) {
   cc::DisplayItemListSettings settings;
-  settings.use_cached_picture = true;
+  settings.use_cached_picture = UseCachedPictureRaster();
 
   scoped_refptr<cc::DisplayItemList> display_list =
       cc::DisplayItemList::Create(clip, settings);
@@ -87,6 +81,10 @@ WebContentLayerImpl::PaintContentsToDisplayList(
 
 bool WebContentLayerImpl::FillsBoundsCompletely() const {
   return false;
+}
+
+size_t WebContentLayerImpl::GetApproximateUnsharedMemoryUsage() const {
+  return client_->approximateUnsharedMemoryUsage();
 }
 
 }  // namespace cc_blink

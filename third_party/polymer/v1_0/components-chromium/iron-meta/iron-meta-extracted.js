@@ -1,10 +1,9 @@
-
-
-  (function() {
+(function() {
 
     // monostate data
     var metaDatas = {};
     var metaArrays = {};
+    var singleton = null;
 
     Polymer.IronMeta = Polymer({
 
@@ -15,10 +14,6 @@
         /**
          * The type of meta-data.  All meta-data of the same type is stored
          * together.
-         *
-         * @attribute type
-         * @type String
-         * @default 'default'
          */
         type: {
           type: String,
@@ -28,10 +23,6 @@
 
         /**
          * The key used to store `value` under the `type` namespace.
-         *
-         * @attribute key
-         * @type String
-         * @default ''
          */
         key: {
           type: String,
@@ -40,10 +31,6 @@
 
         /**
          * The meta-data to store or retrieve.
-         *
-         * @attribute value
-         * @type *
-         * @default this
          */
         value: {
           type: Object,
@@ -53,10 +40,6 @@
 
         /**
          * If true, `value` is set to the iron-meta instance itself.
-         *
-         * @attribute self
-         * @type Boolean
-         * @default false
          */
          self: {
           type: Boolean,
@@ -65,9 +48,6 @@
 
         /**
          * Array of all meta-data values for the given type.
-         *
-         * @property list
-         * @type Array
          */
         list: {
           type: Array,
@@ -76,9 +56,15 @@
 
       },
 
+      hostAttributes: {
+        hidden: true
+      },
+
       /**
        * Only runs if someone invokes the factory/constructor directly
        * e.g. `new Polymer.IronMeta()`
+       *
+       * @param {{type: (string|undefined), key: (string|undefined), value}=} config
        */
       factoryImpl: function(config) {
         if (config) {
@@ -131,8 +117,8 @@
        * Retrieves meta data value by key.
        *
        * @method byKey
-       * @param {String} key The key of the meta-data to be returned.
-       * @returns *
+       * @param {string} key The key of the meta-data to be returned.
+       * @return {*}
        */
       byKey: function(key) {
         return this._metaData && this._metaData[key];
@@ -170,6 +156,13 @@
 
     });
 
+    Polymer.IronMeta.getIronMeta = function getIronMeta() {
+       if (singleton === null) {
+         singleton = new Polymer.IronMeta();
+       }
+       return singleton;
+     };
+
     /**
     `iron-meta-query` can be used to access infomation stored in `iron-meta`.
 
@@ -179,7 +172,7 @@
 
         <iron-meta key="info" value="foo/bar"></iron-meta>
 
-    Note that keyUrl="foo/bar" is the metadata I've defined. I could define more
+    Note that value="foo/bar" is the metadata I've defined. I could define more
     attributes or use child nodes to define additional metadata.
 
     Now I can access that element (and it's metadata) from any `iron-meta-query` instance:
@@ -198,10 +191,6 @@
         /**
          * The type of meta-data.  All meta-data of the same type is stored
          * together.
-         *
-         * @attribute type
-         * @type String
-         * @default 'default'
          */
         type: {
           type: String,
@@ -212,9 +201,6 @@
         /**
          * Specifies a key to use for retrieving `value` from the `type`
          * namespace.
-         *
-         * @attribute key
-         * @type String
          */
         key: {
           type: String,
@@ -223,10 +209,6 @@
 
         /**
          * The meta-data to store or retrieve.
-         *
-         * @attribute value
-         * @type *
-         * @default this
          */
         value: {
           type: Object,
@@ -236,9 +218,6 @@
 
         /**
          * Array of all meta-data values for the given type.
-         *
-         * @property list
-         * @type Array
          */
         list: {
           type: Array,
@@ -250,8 +229,10 @@
       /**
        * Actually a factory method, not a true constructor. Only runs if
        * someone invokes it directly (via `new Polymer.IronMeta()`);
+       *
+       * @param {{type: (string|undefined), key: (string|undefined)}=} config
        */
-      constructor: function(config) {
+      factoryImpl: function(config) {
         if (config) {
           for (var n in config) {
             switch(n) {
@@ -284,10 +265,8 @@
 
       /**
        * Retrieves meta data value by key.
-       *
-       * @method byKey
-       * @param {String} key The key of the meta-data to be returned.
-       * @returns *
+       * @param {string} key The key of the meta-data to be returned.
+       * @return {*}
        */
       byKey: function(key) {
         return this._metaData && this._metaData[key];

@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/strings/string16.h"
+#include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/size.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/view.h"
@@ -24,21 +25,23 @@ class Label;
 class Painter;
 }
 
-// View used to draw a bubble to the left of the address, containing an icon and
-// a label.  We use this as a base for the classes that handle the EV bubble and
-// tab-to-search UI.
+// View used to draw a bubble, containing an icon and a label.  We use this as a
+// base for the classes that handle the EV bubble, tab-to-search UI, and
+// content settings.
 class IconLabelBubbleView : public views::View {
  public:
-  // |hover_background_images| is an optional set of images to be used in place
-  // of |background_images| during mouse hover.
-  IconLabelBubbleView(const int background_images[],
-                      const int hover_background_images[],
-                      int contained_image,
+  // TODO(estade): remove |text_color| which is not used for MD.
+  IconLabelBubbleView(int contained_image,
                       const gfx::FontList& font_list,
                       SkColor text_color,
                       SkColor parent_background_color,
                       bool elide_in_middle);
   ~IconLabelBubbleView() override;
+
+  // Sets a background that paints |background_images| in a scalable grid.
+  // Subclasses are required to call this or SetBackgroundImageWithInsets during
+  // construction.
+  void SetBackgroundImageGrid(const int background_images[]);
 
   void SetLabel(const base::string16& label);
   void SetImage(const gfx::ImageSkia& image);
@@ -47,40 +50,64 @@ class IconLabelBubbleView : public views::View {
   }
 
  protected:
+  views::ImageView* image() { return image_; }
+  views::Label* label() { return label_; }
+
+  // Gets the color for displaying text.
+  virtual SkColor GetTextColor() const = 0;
+
+  // Gets the color for the border (a more transparent version of
+  // which is used for the background).
+  virtual SkColor GetBorderColor() const = 0;
+
+  // Returns true when the background should be rendered.
+  virtual bool ShouldShowBackground() const;
+
+  // Returns a multiplier used to calculate the actual width of the view based
+  // on its desired width.  This ranges from 0 for a zero-width view to 1 for a
+  // full-width view and can be used to animate the width of the view.
+  virtual double WidthMultiplier() const;
+
+  // Returns the amount of horizontal space needed to draw the image and its
+  // padding before the label.
+  virtual int GetImageAndPaddingWidth() const;
+
   // views::View:
   gfx::Size GetPreferredSize() const override;
   void Layout() override;
-  void OnMouseEntered(const ui::MouseEvent& event) override;
-  void OnMouseExited(const ui::MouseEvent& event) override;
+  void OnNativeThemeChanged(const ui::NativeTheme* native_theme) override;
 
   const gfx::FontList& font_list() const { return label_->font_list(); }
 
   gfx::Size GetSizeForLabelWidth(int width) const;
 
  private:
-  // Amount of padding at the edges of the bubble.  If |by_icon| is true, this
-  // is the padding next to the icon; otherwise it's the padding next to the
-  // label.  (We increase padding next to the label by the amount of padding
-  // "built in" to the icon in order to make the bubble appear to have
-  // symmetrical padding.)
-  static int GetBubbleOuterPadding(bool by_icon);
+  // Amount of padding at the edges of the bubble.  If |leading| is true, this
+  // is the padding at the beginning of the bubble (left in LTR), otherwise it's
+  // the end padding.
+  int GetBubbleOuterPadding(bool leading) const;
+
+  // As above, but for Material Design. TODO(estade): remove/replace the above.
+  int GetBubbleOuterPaddingMd(bool leading) const;
+
+  // Sets a background color on |label_| based on |background_image_color| and
+  // |parent_background_color_|.
+  void SetLabelBackgroundColor(SkColor background_image_color);
 
   // views::View:
   const char* GetClassName() const override;
   void OnPaint(gfx::Canvas* canvas) override;
 
-  int GetPreLabelWidth() const;
-
-  // For painting the background.
+  // For painting the background. TODO(estade): remove post MD launch.
   scoped_ptr<views::Painter> background_painter_;
-  scoped_ptr<views::Painter> hover_background_painter_;
 
   // The contents of the bubble.
   views::ImageView* image_;
   views::Label* label_;
 
   bool is_extension_icon_;
-  bool in_hover_;
+
+  SkColor parent_background_color_;
 
   DISALLOW_COPY_AND_ASSIGN(IconLabelBubbleView);
 };

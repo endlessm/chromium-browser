@@ -13,6 +13,7 @@
 #include <dxgi1_2.h>
 #include <mfapi.h>
 #include <mferror.h>
+#include <ntverp.h>
 #include <wmcodecdsp.h>
 
 #include "base/base_paths_win.h"
@@ -32,6 +33,8 @@
 #include "content/public/common/content_switches.h"
 #include "media/base/win/mf_initializer.h"
 #include "media/video/video_decode_accelerator.h"
+#include "third_party/angle/include/EGL/egl.h"
+#include "third_party/angle/include/EGL/eglext.h"
 #include "ui/gl/gl_bindings.h"
 #include "ui/gl/gl_context.h"
 #include "ui/gl/gl_surface_egl.h"
@@ -90,9 +93,13 @@ const CLSID MEDIASUBTYPE_VP90 = {
 
 // The CLSID of the video processor media foundation transform which we use for
 // texture color conversion in DX11.
+// Defined in mfidl.h in the Windows 10 SDK. ntverp.h provides VER_PRODUCTBUILD
+// to detect which SDK we are compiling with.
+#if VER_PRODUCTBUILD < 10011  // VER_PRODUCTBUILD for 10.0.10158.0 SDK.
 DEFINE_GUID(CLSID_VideoProcessorMFT,
             0x88753b26, 0x5b24, 0x49bd, 0xb2, 0xe7, 0xc, 0x44, 0x5c, 0x78,
             0xc9, 0x82);
+#endif
 
 // MF_XVP_PLAYBACK_MODE
 // Data type: UINT32 (treat as BOOL)
@@ -270,6 +277,63 @@ HRESULT CreateCOMObjectFromDll(HMODULE dll, const CLSID& clsid, const IID& iid,
   hr = factory->CreateInstance(NULL, iid, object);
   return hr;
 }
+
+// Helper function to query the ANGLE device object. The template argument T
+// identifies the device interface being queried. IDirect3DDevice9Ex for d3d9
+// and ID3D11Device for dx11.
+template<class T>
+base::win::ScopedComPtr<T> QueryDeviceObjectFromANGLE(int object_type) {
+  base::win::ScopedComPtr<T> device_object;
+
+  EGLDisplay egl_display = gfx::GLSurfaceEGL::GetHardwareDisplay();
+  intptr_t egl_device = 0;
+  intptr_t device = 0;
+
+  RETURN_ON_FAILURE(
+      gfx::GLSurfaceEGL::HasEGLExtension("EGL_EXT_device_query"),
+      "EGL_EXT_device_query missing",
+      device_object);
+
+  PFNEGLQUERYDISPLAYATTRIBEXTPROC QueryDisplayAttribEXT =
+      reinterpret_cast<PFNEGLQUERYDISPLAYATTRIBEXTPROC>(eglGetProcAddress(
+        "eglQueryDisplayAttribEXT"));
+
+  RETURN_ON_FAILURE(
+      QueryDisplayAttribEXT,
+      "Failed to get the eglQueryDisplayAttribEXT function from ANGLE",
+      device_object);
+
+  PFNEGLQUERYDEVICEATTRIBEXTPROC QueryDeviceAttribEXT =
+      reinterpret_cast<PFNEGLQUERYDEVICEATTRIBEXTPROC>(eglGetProcAddress(
+          "eglQueryDeviceAttribEXT"));
+
+  RETURN_ON_FAILURE(
+      QueryDeviceAttribEXT,
+      "Failed to get the eglQueryDeviceAttribEXT function from ANGLE",
+      device_object);
+
+  RETURN_ON_FAILURE(
+      QueryDisplayAttribEXT(egl_display, EGL_DEVICE_EXT, &egl_device),
+      "The eglQueryDisplayAttribEXT function failed to get the EGL device",
+      device_object);
+
+  RETURN_ON_FAILURE(
+      egl_device,
+      "Failed to get the EGL device",
+      device_object);
+
+  RETURN_ON_FAILURE(
+      QueryDeviceAttribEXT(
+      reinterpret_cast<EGLDeviceEXT>(egl_device), object_type, &device),
+      "The eglQueryDeviceAttribEXT function failed to get the device",
+      device_object);
+
+  RETURN_ON_FAILURE(device, "Failed to get the ANGLE device", device_object);
+
+  device_object = reinterpret_cast<T*>(device);
+  return device_object;
+}
+
 
 // Maintains information about a DXVA picture buffer, i.e. whether it is
 // available for rendering, the texture information, etc.
@@ -557,6 +621,7 @@ DXVAVideoDecodeAccelerator::DXVAVideoDecodeAccelerator(
       use_dx11_(false),
       dx11_video_format_converter_media_type_needs_init_(true),
       gl_context_(gl_context),
+      using_angle_device_(false),
       weak_this_factory_(this) {
   weak_ptr_ = weak_this_factory_.GetWeakPtr();
   memset(&input_stream_info_, 0, sizeof(input_stream_info_));
@@ -589,27 +654,23 @@ bool DXVAVideoDecodeAccelerator::Initialize(media::VideoCodecProfile profile,
   // Instead of crashing while delay loading the DLL when calling MFStartup()
   // below, probe whether we can successfully load the DLL now.
   // See http://crbug.com/339678 for details.
-  HMODULE dxgi_manager_dll = NULL;
-  if ((dxgi_manager_dll = ::GetModuleHandle(L"MFPlat.dll")) == NULL) {
-    HMODULE mfplat_dll = ::LoadLibrary(L"MFPlat.dll");
-    RETURN_ON_FAILURE(mfplat_dll, "MFPlat.dll is required for decoding",
-                      false);
-    // On Windows 8+ mfplat.dll provides the MFCreateDXGIDeviceManager API.
-    // On Windows 7 mshtmlmedia.dll provides it.
-    dxgi_manager_dll = mfplat_dll;
-  }
+  HMODULE dxgi_manager_dll = ::GetModuleHandle(L"MFPlat.dll");
+  RETURN_ON_FAILURE(dxgi_manager_dll, "MFPlat.dll is required for decoding",
+                    false);
+
+  // On Windows 8+ mfplat.dll provides the MFCreateDXGIDeviceManager API.
+  // On Windows 7 mshtmlmedia.dll provides it.
 
   // TODO(ananta)
   // The code below works, as in we can create the DX11 device manager for
   // Windows 7. However the IMFTransform we use for texture conversion and
   // copy does not exist on Windows 7. Look into an alternate approach
   // and enable the code below.
-#if defined ENABLE_DX11_FOR_WIN7
-  if ((base::win::GetVersion() == base::win::VERSION_WIN7) &&
-       ((dxgi_manager_dll = ::GetModuleHandle(L"mshtmlmedia.dll")) == NULL)) {
-    HMODULE mshtml_media_dll = ::LoadLibrary(L"mshtmlmedia.dll");
-    if (mshtml_media_dll)
-      dxgi_manager_dll = mshtml_media_dll;
+#if defined(ENABLE_DX11_FOR_WIN7)
+  if (base::win::GetVersion() == base::win::VERSION_WIN7) {
+    dxgi_manager_dll = ::GetModuleHandle(L"mshtmlmedia.dll");
+    RETURN_ON_FAILURE(dxgi_manager_dll,
+        "mshtmlmedia.dll is required for decoding", false);
   }
 #endif
   // If we don't find the MFCreateDXGIDeviceManager API we fallback to D3D9
@@ -656,32 +717,46 @@ bool DXVAVideoDecodeAccelerator::Initialize(media::VideoCodecProfile profile,
 bool DXVAVideoDecodeAccelerator::CreateD3DDevManager() {
   TRACE_EVENT0("gpu", "DXVAVideoDecodeAccelerator_CreateD3DDevManager");
 
-  HRESULT hr = Direct3DCreate9Ex(D3D_SDK_VERSION, d3d9_.Receive());
+  HRESULT hr = E_FAIL;
+
+  hr = Direct3DCreate9Ex(D3D_SDK_VERSION, d3d9_.Receive());
   RETURN_ON_HR_FAILURE(hr, "Direct3DCreate9Ex failed", false);
 
-  D3DPRESENT_PARAMETERS present_params = {0};
-  present_params.BackBufferWidth = 1;
-  present_params.BackBufferHeight = 1;
-  present_params.BackBufferFormat = D3DFMT_UNKNOWN;
-  present_params.BackBufferCount = 1;
-  present_params.SwapEffect = D3DSWAPEFFECT_DISCARD;
-  present_params.hDeviceWindow = ::GetShellWindow();
-  present_params.Windowed = TRUE;
-  present_params.Flags = D3DPRESENTFLAG_VIDEO;
-  present_params.FullScreen_RefreshRateInHz = 0;
-  present_params.PresentationInterval = 0;
+  base::win::ScopedComPtr<IDirect3DDevice9> angle_device =
+      QueryDeviceObjectFromANGLE<IDirect3DDevice9>(EGL_D3D9_DEVICE_ANGLE);
+  if (angle_device.get())
+    using_angle_device_ = true;
 
-  hr = d3d9_->CreateDeviceEx(D3DADAPTER_DEFAULT,
-                             D3DDEVTYPE_HAL,
-                             ::GetShellWindow(),
-                             D3DCREATE_FPU_PRESERVE |
-                             D3DCREATE_SOFTWARE_VERTEXPROCESSING |
-                             D3DCREATE_DISABLE_PSGP_THREADING |
-                             D3DCREATE_MULTITHREADED,
-                             &present_params,
-                             NULL,
-                             d3d9_device_ex_.Receive());
-  RETURN_ON_HR_FAILURE(hr, "Failed to create D3D device", false);
+  if (using_angle_device_) {
+    hr = d3d9_device_ex_.QueryFrom(angle_device.get());
+    RETURN_ON_HR_FAILURE(hr,
+        "QueryInterface for IDirect3DDevice9Ex from angle device failed",
+        false);
+  } else {
+    D3DPRESENT_PARAMETERS present_params = {0};
+    present_params.BackBufferWidth = 1;
+    present_params.BackBufferHeight = 1;
+    present_params.BackBufferFormat = D3DFMT_UNKNOWN;
+    present_params.BackBufferCount = 1;
+    present_params.SwapEffect = D3DSWAPEFFECT_DISCARD;
+    present_params.hDeviceWindow = NULL;
+    present_params.Windowed = TRUE;
+    present_params.Flags = D3DPRESENTFLAG_VIDEO;
+    present_params.FullScreen_RefreshRateInHz = 0;
+    present_params.PresentationInterval = 0;
+
+    hr = d3d9_->CreateDeviceEx(D3DADAPTER_DEFAULT,
+                               D3DDEVTYPE_HAL,
+                               NULL,
+                               D3DCREATE_FPU_PRESERVE |
+                               D3DCREATE_HARDWARE_VERTEXPROCESSING |
+                               D3DCREATE_DISABLE_PSGP_THREADING |
+                               D3DCREATE_MULTITHREADED,
+                               &present_params,
+                               NULL,
+                               d3d9_device_ex_.Receive());
+    RETURN_ON_HR_FAILURE(hr, "Failed to create D3D device", false);
+  }
 
   hr = DXVA2CreateDirect3DDeviceManager9(&dev_manager_reset_token_,
                                          device_manager_.Receive());
@@ -705,45 +780,28 @@ bool DXVAVideoDecodeAccelerator::CreateDX11DevManager() {
                                            d3d11_device_manager_.Receive());
   RETURN_ON_HR_FAILURE(hr, "MFCreateDXGIDeviceManager failed", false);
 
-  // This array defines the set of DirectX hardware feature levels we support.
-  // The ordering MUST be preserved. All applications are assumed to support
-  // 9.1 unless otherwise stated by the application, which is not our case.
-  D3D_FEATURE_LEVEL feature_levels[] = {
-    D3D_FEATURE_LEVEL_11_1,
-    D3D_FEATURE_LEVEL_11_0,
-    D3D_FEATURE_LEVEL_10_1,
-    D3D_FEATURE_LEVEL_10_0,
-    D3D_FEATURE_LEVEL_9_3,
-    D3D_FEATURE_LEVEL_9_2,
-    D3D_FEATURE_LEVEL_9_1 };
+  base::win::ScopedComPtr<ID3D11Device> angle_device =
+      QueryDeviceObjectFromANGLE<ID3D11Device>(EGL_D3D11_DEVICE_ANGLE);
+  RETURN_ON_FAILURE(
+      angle_device.get(),
+      "Failed to query DX11 device object from ANGLE",
+      false);
 
-  UINT flags = D3D11_CREATE_DEVICE_VIDEO_SUPPORT;
-
-#if defined _DEBUG
-  flags |= D3D11_CREATE_DEVICE_DEBUG;
-#endif
-
-  D3D_FEATURE_LEVEL feature_level_out = D3D_FEATURE_LEVEL_11_0;
-  hr = D3D11CreateDevice(NULL,
-                         D3D_DRIVER_TYPE_HARDWARE,
-                         NULL,
-                         flags,
-                         feature_levels,
-                         arraysize(feature_levels),
-                         D3D11_SDK_VERSION,
-                         d3d11_device_.Receive(),
-                         &feature_level_out,
-                         d3d11_device_context_.Receive());
-  RETURN_ON_HR_FAILURE(hr, "Failed to create DX11 device", false);
+  using_angle_device_ = true;
+  d3d11_device_ = angle_device;
+  d3d11_device_->GetImmediateContext(d3d11_device_context_.Receive());
+  RETURN_ON_FAILURE(
+      d3d11_device_context_.get(),
+      "Failed to query DX11 device context from ANGLE device",
+      false);
 
   // Enable multithreaded mode on the context. This ensures that accesses to
   // context are synchronized across threads. We have multiple threads
   // accessing the context, the media foundation decoder threads and the
   // decoder thread via the video format conversion transform.
-  base::win::ScopedComPtr<ID3D10Multithread> multi_threaded;
-  hr = multi_threaded.QueryFrom(d3d11_device_context_.get());
+  hr = multi_threaded_.QueryFrom(d3d11_device_context_.get());
   RETURN_ON_HR_FAILURE(hr, "Failed to query ID3D10Multithread", false);
-  multi_threaded->SetMultithreadProtected(TRUE);
+  multi_threaded_->SetMultithreadProtected(TRUE);
 
   hr = d3d11_device_manager_->ResetDevice(d3d11_device_.get(),
                                           dx11_dev_manager_reset_token_);
@@ -757,7 +815,7 @@ bool DXVAVideoDecodeAccelerator::CreateDX11DevManager() {
       d3d11_query_.Receive());
   RETURN_ON_HR_FAILURE(hr, "Failed to create DX11 device query", false);
 
-  HMODULE video_processor_dll = ::LoadLibrary(L"msvproc.dll");
+  HMODULE video_processor_dll = ::GetModuleHandle(L"msvproc.dll");
   RETURN_ON_FAILURE(video_processor_dll, "Failed to load video processor",
                     false);
 
@@ -810,7 +868,7 @@ void DXVAVideoDecodeAccelerator::AssignPictureBuffers(
   State state = GetState();
   RETURN_AND_NOTIFY_ON_FAILURE((state != kUninitialized),
       "Invalid state: " << state, ILLEGAL_STATE,);
-  RETURN_AND_NOTIFY_ON_FAILURE((kNumPictureBuffers == buffers.size()),
+  RETURN_AND_NOTIFY_ON_FAILURE((kNumPictureBuffers >= buffers.size()),
       "Failed to provide requested picture buffers. (Got " << buffers.size() <<
       ", requested " << kNumPictureBuffers << ")", INVALID_ARGUMENT,);
 
@@ -973,6 +1031,21 @@ DXVAVideoDecodeAccelerator::GetSupportedProfiles() {
   return profiles;
 }
 
+// static
+void DXVAVideoDecodeAccelerator::PreSandboxInitialization() {
+  ::LoadLibrary(L"MFPlat.dll");
+  ::LoadLibrary(L"msmpeg2vdec.dll");
+
+  if (base::win::GetVersion() > base::win::VERSION_WIN7) {
+    LoadLibrary(L"msvproc.dll");
+  } else {
+    LoadLibrary(L"dxva2.dll");
+#if defined(ENABLE_DX11_FOR_WIN7)
+    LoadLibrary(L"mshtmlmedia.dll");
+#endif
+  }
+}
+
 bool DXVAVideoDecodeAccelerator::InitDecoder(media::VideoCodecProfile profile) {
   HMODULE decoder_dll = NULL;
 
@@ -984,7 +1057,7 @@ bool DXVAVideoDecodeAccelerator::InitDecoder(media::VideoCodecProfile profile) {
     // was previously done because it failed inside the sandbox, and now is done
     // as a more minimal approach to avoid other side-effects CCI might have (as
     // we are still in a reduced sandbox).
-    decoder_dll = ::LoadLibrary(L"msmpeg2vdec.dll");
+    decoder_dll = ::GetModuleHandle(L"msmpeg2vdec.dll");
     RETURN_ON_FAILURE(decoder_dll,
                       "msmpeg2vdec.dll required for decoding is not loaded",
                       false);
@@ -1002,6 +1075,7 @@ bool DXVAVideoDecodeAccelerator::InitDecoder(media::VideoCodecProfile profile) {
                       "blacklisted version of msmpeg2vdec.dll 6.7.7140",
                       false);
     codec_ = media::kCodecH264;
+    clsid = __uuidof(CMSH264DecoderMFT);
   } else if ((profile == media::VP8PROFILE_ANY ||
               profile == media::VP9PROFILE_ANY) &&
              base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -1277,7 +1351,7 @@ void DXVAVideoDecodeAccelerator::DoDecode() {
       return;
     }
   }
-  TRACE_EVENT_END_ETW("DXVAVideoDecodeAccelerator.Decoding", this, "");
+  TRACE_EVENT_ASYNC_END0("gpu", "DXVAVideoDecodeAccelerator.Decoding", this);
 
   TRACE_COUNTER1("DXVA Decoding", "TotalPacketsBeforeDecode",
                  inputs_before_decode_);
@@ -1433,6 +1507,7 @@ void DXVAVideoDecodeAccelerator::StopOnError(
 void DXVAVideoDecodeAccelerator::Invalidate() {
   if (GetState() == kUninitialized)
     return;
+
   decoder_thread_.Stop();
   weak_this_factory_.InvalidateWeakPtrs();
   output_picture_buffers_.clear();
@@ -1500,13 +1575,14 @@ void DXVAVideoDecodeAccelerator::RequestPictureBuffers(int width, int height) {
 
 void DXVAVideoDecodeAccelerator::NotifyPictureReady(
     int picture_buffer_id,
-    int input_buffer_id,
-    const gfx::Rect& picture_buffer_size) {
+    int input_buffer_id) {
   DCHECK(main_thread_task_runner_->BelongsToCurrentThread());
   // This task could execute after the decoder has been torn down.
   if (GetState() != kUninitialized && client_) {
+    // TODO(henryhsu): Use correct visible size instead of (0, 0). We can't use
+    // coded size here so use (0, 0) intentionally to have the client choose.
     media::Picture picture(picture_buffer_id, input_buffer_id,
-                           picture_buffer_size, false);
+                           gfx::Rect(0, 0), false);
     client_->PictureReady(picture);
   }
 }
@@ -1606,7 +1682,8 @@ void DXVAVideoDecodeAccelerator::DecodeInternal(
   }
 
   if (!inputs_before_decode_) {
-    TRACE_EVENT_BEGIN_ETW("DXVAVideoDecodeAccelerator.Decoding", this, "");
+    TRACE_EVENT_ASYNC_BEGIN0("gpu", "DXVAVideoDecodeAccelerator.Decoding",
+                             this);
   }
   inputs_before_decode_++;
 
@@ -1787,6 +1864,20 @@ void DXVAVideoDecodeAccelerator::CopySurface(IDirect3DSurface9* src_surface,
   hr = query_->Issue(D3DISSUE_END);
   RETURN_ON_HR_FAILURE(hr, "Failed to issue END",);
 
+  // If we are sharing the ANGLE device we don't need to wait for the Flush to
+  // complete.
+  if (using_angle_device_) {
+    main_thread_task_runner_->PostTask(
+        FROM_HERE,
+        base::Bind(&DXVAVideoDecodeAccelerator::CopySurfaceComplete,
+                   weak_this_factory_.GetWeakPtr(),
+                   src_surface,
+                   dest_surface,
+                   picture_buffer_id,
+                   input_buffer_id));
+    return;
+  }
+
   // Flush the decoder device to ensure that the decoded frame is copied to the
   // target surface.
   decoder_thread_task_runner_->PostDelayedTask(
@@ -1827,9 +1918,7 @@ void DXVAVideoDecodeAccelerator::CopySurfaceComplete(
   picture_buffer->CopySurfaceComplete(src_surface,
                                       dest_surface);
 
-  NotifyPictureReady(picture_buffer->id(),
-                     input_buffer_id,
-                     gfx::Rect(picture_buffer->size()));
+  NotifyPictureReady(picture_buffer->id(), input_buffer_id);
 
   {
     base::AutoLock lock(decoder_lock_);
@@ -1946,6 +2035,10 @@ void DXVAVideoDecodeAccelerator::CopyTexture(ID3D11Texture2D* src_texture,
 
   output_sample->AddBuffer(output_buffer.get());
 
+  // Lock the device here as we are accessing the destination texture created
+  // on the main thread.
+  multi_threaded_->Enter();
+
   DWORD status = 0;
   MFT_OUTPUT_DATA_BUFFER format_converter_output = {};
   format_converter_output.pSample = output_sample.get();
@@ -1958,6 +2051,8 @@ void DXVAVideoDecodeAccelerator::CopyTexture(ID3D11Texture2D* src_texture,
   d3d11_device_context_->Flush();
   d3d11_device_context_->End(d3d11_query_.get());
 
+  multi_threaded_->Leave();
+
   if (FAILED(hr)) {
     base::debug::Alias(&hr);
     // TODO(ananta)
@@ -1968,15 +2063,14 @@ void DXVAVideoDecodeAccelerator::CopyTexture(ID3D11Texture2D* src_texture,
         "Failed to convert output sample format.", PLATFORM_FAILURE,);
   }
 
-  decoder_thread_task_runner_->PostDelayedTask(
+  main_thread_task_runner_->PostTask(
       FROM_HERE,
-      base::Bind(&DXVAVideoDecodeAccelerator::FlushDecoder,
-                 base::Unretained(this), 0,
-                 reinterpret_cast<IDirect3DSurface9*>(NULL),
-                 reinterpret_cast<IDirect3DSurface9*>(NULL),
-                 picture_buffer_id, input_buffer_id),
-                 base::TimeDelta::FromMilliseconds(
-                    kFlushDecoderSurfaceTimeoutMs));
+      base::Bind(&DXVAVideoDecodeAccelerator::CopySurfaceComplete,
+                 weak_this_factory_.GetWeakPtr(),
+                 nullptr,
+                 nullptr,
+                 picture_buffer_id,
+                 input_buffer_id));
 }
 
 void DXVAVideoDecodeAccelerator::FlushDecoder(
@@ -2000,22 +2094,12 @@ void DXVAVideoDecodeAccelerator::FlushDecoder(
   // infinite loop.
   // Workaround is to have an upper limit of 4 on the number of iterations to
   // wait for the Flush to finish.
+  DCHECK(!use_dx11_);
+
   HRESULT hr = E_FAIL;
 
-  if (use_dx11_) {
-    BOOL query_data = 0;
-    hr = d3d11_device_context_->GetData(d3d11_query_.get(), &query_data,
-                                        sizeof(BOOL), 0);
-    if (FAILED(hr)) {
-      base::debug::Alias(&hr);
-      // TODO(ananta)
-      // Remove this CHECK when the change to use DX11 for H/W decoding
-      // stablizes.
-      CHECK(false);
-    }
-  } else {
-    hr = query_->GetData(NULL, 0, D3DGETDATA_FLUSH);
-  }
+  hr = query_->GetData(NULL, 0, D3DGETDATA_FLUSH);
+
   if ((hr == S_FALSE) && (++iterations < kMaxIterationsForD3DFlush)) {
     decoder_thread_task_runner_->PostDelayedTask(
         FROM_HERE,

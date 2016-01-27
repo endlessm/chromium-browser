@@ -39,9 +39,6 @@ class TrayNotificationView : public views::SlideOutView,
   // Sets/updates the icon image.
   void SetIconImage(const gfx::ImageSkia& image);
 
-  // Gets the icons image.
-  const gfx::ImageSkia& GetIconImage() const;
-
   // Replaces the contents view.
   void UpdateView(views::View* new_contents);
 
@@ -83,7 +80,7 @@ class TrayNotificationView : public views::SlideOutView,
   views::ImageView* icon_;
 
   int autoclose_delay_;
-  base::OneShotTimer<TrayNotificationView> autoclose_;
+  base::OneShotTimer autoclose_;
 
   DISALLOW_COPY_AND_ASSIGN(TrayNotificationView);
 };

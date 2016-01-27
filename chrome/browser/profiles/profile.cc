@@ -11,9 +11,9 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/first_run/first_run.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/common/pref_names.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_prefs.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/sync_driver/sync_prefs.h"
@@ -60,7 +60,7 @@ TestingProfile* Profile::AsTestingProfile() {
   return NULL;
 }
 
-chrome::ChromeZoomLevelPrefs* Profile::GetZoomLevelPrefs() {
+ChromeZoomLevelPrefs* Profile::GetZoomLevelPrefs() {
   return NULL;
 }
 
@@ -111,17 +111,13 @@ void Profile::RegisterProfilePrefs(user_prefs::PrefRegistrySyncable* registry) {
                                 false);
 #endif
   registry->RegisterStringPref(prefs::kSelectFileLastDirectory, std::string());
-  // TODO(wjmaclean): remove the following two prefs once migration to per-
-  // partition zoom is complete.
-  registry->RegisterDoublePref(prefs::kDefaultZoomLevelDeprecated, 0.0);
-  registry->RegisterDictionaryPref(prefs::kPerHostZoomLevelsDeprecated);
-
   registry->RegisterDictionaryPref(prefs::kPartitionDefaultZoomLevel);
   registry->RegisterDictionaryPref(prefs::kPartitionPerHostZoomLevels);
   registry->RegisterStringPref(prefs::kDefaultApps, "install");
   registry->RegisterBooleanPref(prefs::kSpeechRecognitionFilterProfanities,
                                 true);
   registry->RegisterIntegerPref(prefs::kProfileIconVersion, 0);
+  registry->RegisterBooleanPref(prefs::kAllowDinosaurEasterEgg, true);
 #if defined(OS_CHROMEOS)
   // TODO(dilmah): For OS_CHROMEOS we maintain kApplicationLocale in both
   // local state and user's profile.  For other platforms we maintain

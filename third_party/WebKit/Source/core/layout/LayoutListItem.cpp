@@ -29,6 +29,7 @@
 #include "core/html/HTMLOListElement.h"
 #include "core/layout/LayoutListMarker.h"
 #include "core/layout/LayoutView.h"
+#include "core/paint/ListItemPainter.h"
 #include "wtf/StdLibExtras.h"
 #include "wtf/text/StringBuilder.h"
 
@@ -53,8 +54,9 @@ void LayoutListItem::styleDidChange(StyleDifference diff, const ComputedStyle* o
 {
     LayoutBlockFlow::styleDidChange(diff, oldStyle);
 
+    StyleImage* currentImage = style()->listStyleImage();
     if (style()->listStyleType() != NoneListStyle
-        || (style()->listStyleImage() && !style()->listStyleImage()->errorOccurred())) {
+        || (currentImage && !currentImage->errorOccurred())) {
         if (!m_marker)
             m_marker = LayoutListMarker::createAnonymous(this);
         m_marker->listItemStyleDidChange();
@@ -62,6 +64,14 @@ void LayoutListItem::styleDidChange(StyleDifference diff, const ComputedStyle* o
     } else if (m_marker) {
         m_marker->destroy();
         m_marker = nullptr;
+    }
+
+    StyleImage* oldImage = oldStyle ? oldStyle->listStyleImage() : nullptr;
+    if (oldImage != currentImage) {
+        if (oldImage)
+            oldImage->removeClient(this);
+        if (currentImage)
+            currentImage->addClient(this);
     }
 }
 
@@ -71,7 +81,11 @@ void LayoutListItem::willBeDestroyed()
         m_marker->destroy();
         m_marker = nullptr;
     }
+
     LayoutBlockFlow::willBeDestroyed();
+
+    if (style() && style()->listStyleImage())
+        style()->listStyleImage()->removeClient(this);
 }
 
 void LayoutListItem::insertedIntoTree()
@@ -206,7 +220,7 @@ inline int LayoutListItem::calcValue() const
         return m_explicitValue;
 
     Node* list = enclosingList(this);
-    HTMLOListElement* oListElement = isHTMLOListElement(list) ? toHTMLOListElement(list) : 0;
+    HTMLOListElement* oListElement = isHTMLOListElement(list) ? toHTMLOListElement(list) : nullptr;
     int valueStep = 1;
     if (oListElement && oListElement->isReversed())
         valueStep = -1;
@@ -336,6 +350,8 @@ void LayoutListItem::positionListMarker()
         LayoutUnit lineTop = root.lineTop();
         LayoutUnit lineBottom = root.lineBottom();
 
+        // TODO(jchaffraix): Propagating the overflow to the line boxes seems
+        // pretty wrong (https://crbug.com/554160).
         // FIXME: Need to account for relative positioning in the layout overflow.
         if (style()->isLeftToRightDirection()) {
             LayoutUnit leftLineOffset = logicalLeftOffsetForLine(blockOffset, logicalLeftOffsetForLine(blockOffset, false), false);
@@ -356,8 +372,8 @@ void LayoutListItem::positionListMarker()
                     if (box == root)
                         adjustOverflow = true;
                 }
-                box->setOverflowFromLogicalRects(newLogicalLayoutOverflowRect, newLogicalVisualOverflowRect, lineTop, lineBottom);
-                if (box->boxModelObject()->hasSelfPaintingLayer())
+                box->overrideOverflowFromLogicalRects(newLogicalLayoutOverflowRect, newLogicalVisualOverflowRect, lineTop, lineBottom);
+                if (box->boxModelObject().hasSelfPaintingLayer())
                     hitSelfPaintingLayer = true;
             }
         } else {
@@ -377,9 +393,9 @@ void LayoutListItem::positionListMarker()
                     if (box == root)
                         adjustOverflow = true;
                 }
-                box->setOverflowFromLogicalRects(newLogicalLayoutOverflowRect, newLogicalVisualOverflowRect, lineTop, lineBottom);
+                box->overrideOverflowFromLogicalRects(newLogicalLayoutOverflowRect, newLogicalVisualOverflowRect, lineTop, lineBottom);
 
-                if (box->boxModelObject()->hasSelfPaintingLayer())
+                if (box->boxModelObject().hasSelfPaintingLayer())
                     hitSelfPaintingLayer = true;
             }
         }
@@ -411,12 +427,9 @@ void LayoutListItem::positionListMarker()
     }
 }
 
-void LayoutListItem::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+void LayoutListItem::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset) const
 {
-    if (!logicalHeight() && hasOverflowClip())
-        return;
-
-    LayoutBlockFlow::paint(paintInfo, paintOffset);
+    ListItemPainter(*this).paint(paintInfo, paintOffset);
 }
 
 const String& LayoutListItem::markerText() const

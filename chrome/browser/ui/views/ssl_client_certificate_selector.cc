@@ -8,7 +8,6 @@
 #include "base/bind_helpers.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/grit/generated_resources.h"
-#include "components/web_modal/popup_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/client_certificate_delegate.h"
 #include "content/public/browser/web_contents.h"
@@ -18,7 +17,7 @@
 #include "ui/views/controls/label.h"
 #include "ui/views/widget/widget.h"
 
-#if defined(USE_NSS_CERTS)
+#if defined(USE_NSS_CERTS) && !defined(OS_CHROMEOS)
 #include "chrome/browser/ui/crypto_module_password_dialog_nss.h"
 #endif
 
@@ -64,7 +63,7 @@ bool SSLClientCertificateSelector::Accept() {
     // notification while waiting for the unlock dialog, causing us to delete
     // ourself before the Unlocked callback gets called.
     StopObserving();
-#if defined(USE_NSS_CERTS)
+#if defined(USE_NSS_CERTS) && !defined(OS_CHROMEOS)
     chrome::UnlockCertSlotIfNecessary(
         cert.get(), chrome::kCryptoModulePasswordClientAuth,
         cert_request_info()->host_and_port, GetWidget()->GetNativeView(),

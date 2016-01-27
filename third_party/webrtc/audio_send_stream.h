@@ -17,15 +17,39 @@
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/config.h"
 #include "webrtc/modules/audio_coding/codecs/audio_encoder.h"
+#include "webrtc/stream.h"
+#include "webrtc/transport.h"
 #include "webrtc/typedefs.h"
 
 namespace webrtc {
 
-class AudioSendStream {
+class AudioSendStream : public SendStream {
  public:
-  struct Stats {};
+  struct Stats {
+    // TODO(solenberg): Harmonize naming and defaults with receive stream stats.
+    uint32_t local_ssrc = 0;
+    int64_t bytes_sent = 0;
+    int32_t packets_sent = 0;
+    int32_t packets_lost = -1;
+    float fraction_lost = -1.0f;
+    std::string codec_name;
+    int32_t ext_seqnum = -1;
+    int32_t jitter_ms = -1;
+    int64_t rtt_ms = -1;
+    int32_t audio_level = -1;
+    float aec_quality_min = -1.0f;
+    int32_t echo_delay_median_ms = -1;
+    int32_t echo_delay_std_ms = -1;
+    int32_t echo_return_loss = -100;
+    int32_t echo_return_loss_enhancement = -100;
+    bool typing_noise_detected = false;
+  };
 
   struct Config {
+    Config() = delete;
+    explicit Config(Transport* send_transport)
+        : send_transport(send_transport) {}
+
     std::string ToString() const;
 
     // Receive-stream specific RTP settings.
@@ -39,15 +63,25 @@ class AudioSendStream {
       std::vector<RtpExtension> extensions;
     } rtp;
 
-    rtc::scoped_ptr<AudioEncoder> encoder;
+    // Transport for outgoing packets. The transport is expected to exist for
+    // the entire life of the AudioSendStream and is owned by the API client.
+    Transport* send_transport = nullptr;
+
+    // Underlying VoiceEngine handle, used to map AudioSendStream to lower-level
+    // components.
+    // TODO(solenberg): Remove when VoiceEngine channels are created outside
+    // of Call.
+    int voe_channel_id = -1;
+
+    // Ownership of the encoder object is transferred to Call when the config is
+    // passed to Call::CreateAudioSendStream().
+    // TODO(solenberg): Implement, once we configure codecs through the new API.
+    // rtc::scoped_ptr<AudioEncoder> encoder;
     int cng_payload_type = -1;  // pt, or -1 to disable Comfort Noise Generator.
     int red_payload_type = -1;  // pt, or -1 to disable REDundant coding.
   };
 
   virtual Stats GetStats() const = 0;
-
- protected:
-  virtual ~AudioSendStream() {}
 };
 }  // namespace webrtc
 

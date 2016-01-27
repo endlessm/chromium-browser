@@ -36,6 +36,7 @@ void PageAnimator::serviceScriptedAnimations(double monotonicAnimationStartTime)
 {
     RefPtrWillBeRawPtr<PageAnimator> protector(this);
     TemporaryChange<bool> servicing(m_servicingAnimations, true);
+    clock().updateTime(monotonicAnimationStartTime);
 
     WillBeHeapVector<RefPtrWillBeMember<Document>> documents;
     for (Frame* frame = m_page->mainFrame(); frame; frame = frame->tree().traverseNext()) {
@@ -43,30 +44,30 @@ void PageAnimator::serviceScriptedAnimations(double monotonicAnimationStartTime)
             documents.append(toLocalFrame(frame)->document());
     }
 
-    for (size_t i = 0; i < documents.size(); ++i) {
-        if (documents[i]->view()) {
-            documents[i]->view()->scrollableArea()->serviceScrollAnimations(monotonicAnimationStartTime);
+    for (auto& document : documents) {
+        DocumentAnimations::updateAnimationTimingForAnimationFrame(*document);
+        if (document->view()) {
+            if (document->view()->shouldThrottleRendering())
+                continue;
+            document->view()->scrollableArea()->serviceScrollAnimations(monotonicAnimationStartTime);
 
-            if (const FrameView::ScrollableAreaSet* animatingScrollableAreas = documents[i]->view()->animatingScrollableAreas()) {
+            if (const FrameView::ScrollableAreaSet* animatingScrollableAreas = document->view()->animatingScrollableAreas()) {
                 // Iterate over a copy, since ScrollableAreas may deregister
                 // themselves during the iteration.
-                Vector<ScrollableArea*> animatingScrollableAreasCopy;
+                WillBeHeapVector<RawPtrWillBeMember<ScrollableArea>> animatingScrollableAreasCopy;
                 copyToVector(*animatingScrollableAreas, animatingScrollableAreasCopy);
                 for (ScrollableArea* scrollableArea : animatingScrollableAreasCopy)
                     scrollableArea->serviceScrollAnimations(monotonicAnimationStartTime);
             }
         }
+        // TODO(skyostil): These functions should not run for documents without views.
+        SVGDocumentExtensions::serviceOnAnimationFrame(*document, monotonicAnimationStartTime);
+        document->serviceScriptedAnimations(monotonicAnimationStartTime);
     }
-
-    for (size_t i = 0; i < documents.size(); ++i) {
-        DocumentAnimations::updateAnimationTimingForAnimationFrame(*documents[i], monotonicAnimationStartTime);
-        SVGDocumentExtensions::serviceOnAnimationFrame(*documents[i], monotonicAnimationStartTime);
-    }
-
-    for (size_t i = 0; i < documents.size(); ++i)
-        documents[i]->serviceScriptedAnimations(monotonicAnimationStartTime);
 
 #if ENABLE(OILPAN)
+    // TODO(esprehn): Why is this here? It doesn't make sense to explicitly
+    // clear a stack allocated vector.
     documents.clear();
 #endif
 }
@@ -86,14 +87,17 @@ void PageAnimator::scheduleVisualUpdate(LocalFrame* frame)
     }
 }
 
-void PageAnimator::updateLayoutAndStyleForPainting(LocalFrame* rootFrame)
+void PageAnimator::updateLifecycleToCompositingCleanPlusScrolling(LocalFrame& rootFrame)
 {
-    RefPtrWillBeRawPtr<FrameView> view = rootFrame->view();
-
+    RefPtrWillBeRawPtr<FrameView> view = rootFrame.view();
     TemporaryChange<bool> servicing(m_updatingLayoutAndStyleForPainting, true);
+    view->updateLifecycleToCompositingCleanPlusScrolling();
+}
 
-    // setFrameRect may have the side-effect of causing existing page layout to
-    // be invalidated, so layout needs to be called last.
+void PageAnimator::updateAllLifecyclePhases(LocalFrame& rootFrame)
+{
+    RefPtrWillBeRawPtr<FrameView> view = rootFrame.view();
+    TemporaryChange<bool> servicing(m_updatingLayoutAndStyleForPainting, true);
     view->updateAllLifecyclePhases();
 }
 

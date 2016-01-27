@@ -6,6 +6,7 @@
 
 #include "base/metrics/histogram.h"
 #include "base/metrics/histogram_samples.h"
+#include "base/metrics/sample_map.h"
 #include "base/metrics/statistics_recorder.h"
 #include "base/stl_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -73,29 +74,59 @@ void HistogramTester::ExpectTotalCount(const std::string& name,
   }
 }
 
-std::vector<Bucket> HistogramTester::GetAllSamples(const std::string& name) {
+std::vector<Bucket> HistogramTester::GetAllSamples(
+    const std::string& name) const {
   std::vector<Bucket> samples;
   scoped_ptr<HistogramSamples> snapshot =
       GetHistogramSamplesSinceCreation(name);
-  for (auto it = snapshot->Iterator(); !it->Done(); it->Next()) {
-    HistogramBase::Sample sample;
-    HistogramBase::Count count;
-    it->Get(&sample, nullptr, &count);
-    samples.push_back(Bucket(sample, count));
+  if (snapshot) {
+    for (auto it = snapshot->Iterator(); !it->Done(); it->Next()) {
+      HistogramBase::Sample sample;
+      HistogramBase::Count count;
+      it->Get(&sample, nullptr, &count);
+      samples.push_back(Bucket(sample, count));
+    }
   }
   return samples;
 }
 
+HistogramTester::CountsMap HistogramTester::GetTotalCountsForPrefix(
+    const std::string& query) const {
+  EXPECT_TRUE(query.find('.') != std::string::npos)
+      << "|query| ought to contain at least one period, to avoid matching too"
+      << " many histograms.";
+
+  // Find matches by using the prefix-matching logic built into GetSnapshot().
+  StatisticsRecorder::Histograms query_matches;
+  StatisticsRecorder::GetSnapshot(query, &query_matches);
+
+  CountsMap result;
+  for (base::HistogramBase* histogram : query_matches) {
+    scoped_ptr<HistogramSamples> new_samples =
+        GetHistogramSamplesSinceCreation(histogram->histogram_name());
+    // Omit unchanged histograms from the result.
+    if (new_samples->TotalCount()) {
+      result[histogram->histogram_name()] = new_samples->TotalCount();
+    }
+  }
+  return result;
+}
+
 scoped_ptr<HistogramSamples> HistogramTester::GetHistogramSamplesSinceCreation(
-    const std::string& histogram_name) {
+    const std::string& histogram_name) const {
   HistogramBase* histogram = StatisticsRecorder::FindHistogram(histogram_name);
+  // Whether the histogram exists or not may not depend on the current test
+  // calling this method, but rather on which tests ran before and possibly
+  // generated a histogram or not (see http://crbug.com/473689). To provide a
+  // response which is independent of the previously run tests, this method
+  // creates empty samples in the absence of the histogram, rather than
+  // returning null.
   if (!histogram)
-    return scoped_ptr<HistogramSamples>();
+    return scoped_ptr<HistogramSamples>(new SampleMap);
   scoped_ptr<HistogramSamples> named_samples(histogram->SnapshotSamples());
-  HistogramSamples* named_original_samples =
-      histograms_snapshot_[histogram_name];
-  if (named_original_samples)
-    named_samples->Subtract(*named_original_samples);
+  auto original_samples_it = histograms_snapshot_.find(histogram_name);
+  if (original_samples_it != histograms_snapshot_.end())
+    named_samples->Subtract(*original_samples_it->second);
   return named_samples.Pass();
 }
 

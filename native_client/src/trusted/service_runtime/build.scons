@@ -145,9 +145,9 @@ if env.Bit('windows'):
 elif env.Bit('mac'):
   # Rely on the c preprocessor to discover where the mach interface definitions
   # are located.
-  env.Command(
-     [GENERATED + '/exc.defs'], [],
-     "echo '#include <mach/exc.defs>' | ${CC} ${CFLAGS} -E - > ${TARGET}")
+  env.Command([GENERATED + '/exc.defs'], [],
+              "echo '#include <mach/exc.defs>'" +
+              ' | ${CC} ${CCFLAGS} ${CFLAGS} -E - > ${TARGET}')
   env.Command(
      [GENERATED + '/nacl_exc.h', GENERATED + '/nacl_exc_server.c'],
      ['osx/run_mig.py', GENERATED + '/exc.defs'],
@@ -762,18 +762,25 @@ if env.Bit('build_mips32'):
   # Use arbitrary non-page-aligned addresses for data and rodata.
   rodata_region_start = 0x10020094
   data_region_start = 0x10030098
-  untrusted_env.Append(CPPFLAGS=['--pnacl-allow-native', '-arch', 'mips32'])
+
+  if env.Bit('bitcode'):
+    pnacl_allow_native_flags=['--pnacl-allow-native', '-arch', 'mips32']
+    wl = "-Wn"
+  else:
+    pnacl_allow_native_flags=[]
+    wl = "-Wl"
+  untrusted_env.Append(CPPFLAGS=pnacl_allow_native_flags)
   unaligned_data_objs = untrusted_env.ComponentObject(
       'arch/mips/unaligned_data_test.S')
   unaligned_data_nexe = untrusted_env.ComponentProgram(
       'unaligned_data.nexe',
       unaligned_data_objs,
       LINKFLAGS=['-nostdlib',
-                 '--pnacl-allow-native', '-arch', 'mips32',
-                 '-Wn,--section-start=.text=0x%x' % (text_region_start),
-                 '-Wn,--section-start=.rodata=0x%x' % (rodata_region_start),
-                 '-Wn,--section-start=.data=0x%x' % (data_region_start)],
-      ASFLAGS=['--pnacl-allow-native', '-arch', 'mips32'])
+                 pnacl_allow_native_flags,
+                 '%s,--section-start=.text=0x%x' % (wl, text_region_start),
+                 '%s,--section-start=.rodata=0x%x' % (wl, rodata_region_start),
+                 '%s,--section-start=.data=0x%x' % (wl, data_region_start)],
+      ASFLAGS=pnacl_allow_native_flags)
 
   rodata_region_start_irt = 0x3eef0000
   text_region_start_irt = 0x0fc00000
@@ -781,10 +788,10 @@ if env.Bit('build_mips32'):
       'unaligned_data_irt.nexe',
       unaligned_data_objs,
       LINKFLAGS=['-nostdlib',
-                 '--pnacl-allow-native', '-arch', 'mips32',
+                 pnacl_allow_native_flags,
                  '-Wl,-Ttext-segment=0x%x' % text_region_start_irt,
                  '-Wl,-Trodata-segment=0x%x' % rodata_region_start_irt],
-      ASFLAGS=['--pnacl-allow-native', '-arch', 'mips32'])
+      ASFLAGS=pnacl_allow_native_flags)
 else:
   unaligned_data_nexe = env.File(os.path.join(arch_testdata_dir,
                                               'unaligned_data.nexe'))
@@ -815,39 +822,6 @@ if env.Bit('build_x86_64'):
       )
   env.AddNodeToTestSuite(node, ['small_tests'], 'run_hello_x32_test')
 
-# ----------------------------------------------------------
-# Integration Tests With Canned x86 Binaries
-# ----------------------------------------------------------
-# To update the canned tests run:
-# ./scons platform=x86-64
-# cp scons-out/nacl-x86-64/staging/{mandel.nexe,fib_*} \
-#     src/trusted/service_runtime/testdata/x86_64/
-# ./scons platform=x86-32
-# cp scons-out/nacl-x86-32/staging/{mandel.nexe,fib_*} \
-#     src/trusted/service_runtime/testdata/x86_32/
-
-# TODO: Create integration test nexes for arm.
-INTEGRATION_TESTS_X86 = [ 'mandel',
-                          'fib_scalar',
-                          'fib_array' ]
-INTEGRATION_TESTS_X86_STDIN_OUT = ['$SCONSTRUCT_DIR/tests/mandel/test',
-                                   '$SCONSTRUCT_DIR/tests/fib/fib_scalar_test',
-                                   '$SCONSTRUCT_DIR/tests/fib/fib_array_test' ]
-
-def AddIntegrationTest(test, location):
-  if not test or not location:
-    return
-
-  node = env.SelUniversalTest(
-      test + '_canned.out',
-      env.File(arch_testdata_dir + '/' + test + '.nexe'),
-      stdin = location + '.stdin',
-      stdout_golden = location + '.stdout',
-      )
-  env.AddNodeToTestSuite(node,
-                         ['medium_tests'],
-                         'run_%s_integration_test' % test)
-
 if env.Bit('build_x86') and env.Bit('nacl_static_link'):
   RE_HELLO = '^(Hello, World!)$'
   RE_IDENT = '^\[[0-9,:.]*\] (e_ident\+1 = ELF)$'
@@ -862,11 +836,6 @@ if env.Bit('build_x86') and env.Bit('nacl_static_link'):
       )
   env.AddNodeToTestSuite(node, ['medium_tests'],
                          'run_service_runtime_hello_world_test')
-
-  assert len(INTEGRATION_TESTS_X86) == len(INTEGRATION_TESTS_X86_STDIN_OUT)
-  map(AddIntegrationTest,
-      INTEGRATION_TESTS_X86,
-      INTEGRATION_TESTS_X86_STDIN_OUT)
 
 # ----------------------------------------------------------
 # Death Tests With Canned x86 Binaries

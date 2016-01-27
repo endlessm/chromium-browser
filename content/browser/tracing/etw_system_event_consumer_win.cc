@@ -129,7 +129,7 @@ bool EtwSystemEventConsumer::StopKernelSessionTracing() {
 
 // static
 EtwSystemEventConsumer* EtwSystemEventConsumer::GetInstance() {
-  return Singleton<EtwSystemEventConsumer>::get();
+  return base::Singleton<EtwSystemEventConsumer>::get();
 }
 
 // static
@@ -140,7 +140,7 @@ void EtwSystemEventConsumer::ProcessEvent(EVENT_TRACE* event) {
 void EtwSystemEventConsumer::AddSyncEventToBuffer() {
   // Sync the clocks.
   base::Time walltime = base::Time::NowFromSystemTime();
-  base::TraceTicks now = base::TraceTicks::Now();
+  base::TimeTicks now = base::TimeTicks::Now();
 
   LARGE_INTEGER walltime_in_us;
   walltime_in_us.QuadPart = walltime.ToInternalValue();

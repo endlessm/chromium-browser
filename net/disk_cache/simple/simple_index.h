@@ -130,6 +130,10 @@ class NET_EXPORT_PRIVATE SimpleIndex
   // Returns number of indexed entries.
   int32 GetEntryCount() const;
 
+  // Returns the size of the entire cache in bytes. Can only be called after the
+  // index has been initialized.
+  uint64 GetCacheSize() const;
+
   // Returns whether the index has been initialized yet.
   bool initialized() const { return initialized_; }
 
@@ -187,7 +191,7 @@ class NET_EXPORT_PRIVATE SimpleIndex
   // has been a while since last time we wrote.
   base::TimeTicks last_write_to_disk_;
 
-  base::OneShotTimer<SimpleIndex> write_to_disk_timer_;
+  base::OneShotTimer write_to_disk_timer_;
   base::Closure write_to_disk_cb_;
 
   typedef std::list<net::CompletionCallback> CallbackList;

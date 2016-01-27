@@ -18,7 +18,7 @@
 #include "webrtc/modules/audio_processing/vad/common.h"
 #include "webrtc/modules/audio_processing/vad/noise_gmm_tables.h"
 #include "webrtc/modules/audio_processing/vad/voice_gmm_tables.h"
-#include "webrtc/modules/interface/module_common_types.h"
+#include "webrtc/modules/include/module_common_types.h"
 
 namespace webrtc {
 
@@ -75,7 +75,7 @@ int PitchBasedVad::VoicingProbability(const AudioFeatures& features,
   const double kLimLowSpectralPeak = 200;
   const double kLimHighSpectralPeak = 2000;
   const double kEps = 1e-12;
-  for (int n = 0; n < features.num_frames; n++) {
+  for (size_t n = 0; n < features.num_frames; n++) {
     gmm_features[0] = features.log_pitch_gain[n];
     gmm_features[1] = features.spectral_peak[n];
     gmm_features[2] = features.pitch_lag_hz[n];

@@ -140,8 +140,8 @@ class TouchInputBrowserTest : public ContentBrowserTest {
   ~TouchInputBrowserTest() override {}
 
   RenderWidgetHostImpl* GetWidgetHost() {
-    return RenderWidgetHostImpl::From(shell()->web_contents()->
-                                          GetRenderViewHost());
+    return RenderWidgetHostImpl::From(
+        shell()->web_contents()->GetRenderViewHost()->GetWidget());
   }
 
   InputEventMessageFilter* filter() { return filter_.get(); }
@@ -153,8 +153,8 @@ class TouchInputBrowserTest : public ContentBrowserTest {
 
     WebContentsImpl* web_contents =
         static_cast<WebContentsImpl*>(shell()->web_contents());
-    RenderWidgetHostImpl* host =
-        RenderWidgetHostImpl::From(web_contents->GetRenderViewHost());
+    RenderWidgetHostImpl* host = RenderWidgetHostImpl::From(
+        web_contents->GetRenderViewHost()->GetWidget());
     host->GetView()->SetSize(gfx::Size(400, 400));
 
     // The page is loaded in the renderer, wait for a new frame to arrive.
@@ -199,7 +199,13 @@ IN_PROC_BROWSER_TEST_F(TouchInputBrowserTest, MAYBE_TouchNoHandler) {
   touch.ResetPoints();
 }
 
-IN_PROC_BROWSER_TEST_F(TouchInputBrowserTest, TouchHandlerNoConsume) {
+#if defined(OS_CHROMEOS)
+// crbug.com/514456
+#define MAYBE_TouchHandlerNoConsume DISABLED_TouchHandlerNoConsume
+#else
+#define MAYBE_TouchHandlerNoConsume TouchHandlerNoConsume
+#endif
+IN_PROC_BROWSER_TEST_F(TouchInputBrowserTest, MAYBE_TouchHandlerNoConsume) {
   LoadURLAndAddFilter();
   SyntheticWebTouchEvent touch;
 
@@ -216,7 +222,13 @@ IN_PROC_BROWSER_TEST_F(TouchInputBrowserTest, TouchHandlerNoConsume) {
   touch.ResetPoints();
 }
 
-IN_PROC_BROWSER_TEST_F(TouchInputBrowserTest, TouchHandlerConsume) {
+#if defined(OS_CHROMEOS)
+// crbug.com/514456
+#define MAYBE_TouchHandlerConsume DISABLED_TouchHandlerConsume
+#else
+#define MAYBE_TouchHandlerConsume TouchHandlerConsume
+#endif
+IN_PROC_BROWSER_TEST_F(TouchInputBrowserTest, MAYBE_TouchHandlerConsume) {
   LoadURLAndAddFilter();
   SyntheticWebTouchEvent touch;
 
@@ -232,7 +244,10 @@ IN_PROC_BROWSER_TEST_F(TouchInputBrowserTest, TouchHandlerConsume) {
   filter()->WaitForAck(WebInputEvent::TouchEnd);
 }
 
-#if defined(OS_MACOSX)
+#if defined(OS_CHROMEOS)
+// crbug.com/514456
+#define MAYBE_MultiPointTouchPress DISABLED_MultiPointTouchPress
+#elif defined(OS_MACOSX)
 // TODO(ccameron): Failing on mac: crbug.com/346363
 #define MAYBE_MultiPointTouchPress DISABLED_MultiPointTouchPress
 #else

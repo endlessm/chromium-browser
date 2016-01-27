@@ -18,6 +18,11 @@
 #include "ui/views/controls/button/radio_button.h"
 #include "ui/views/widget/widget.h"
 
+#if defined(USE_AURA)
+#include "ui/aura/client/capture_client.h"
+#include "ui/aura/window.h"
+#endif
+
 namespace views {
 
 // How long the hover animation takes if uninterrupted.
@@ -59,16 +64,19 @@ void CustomButton::SetState(ButtonState state) {
   if (animate_on_state_change_ &&
       (!is_throbbing_ || !hover_animation_->is_animating())) {
     is_throbbing_ = false;
-    if (state_ == STATE_NORMAL && state == STATE_HOVERED) {
-      // Button is hovered from a normal state, start hover animation.
-      hover_animation_->Show();
-    } else if ((state_ == STATE_HOVERED || state_ == STATE_PRESSED)
-          && state == STATE_NORMAL) {
-      // Button is returning to a normal state from hover, start hover
-      // fade animation.
+    if ((state_ == STATE_HOVERED) && (state == STATE_NORMAL)) {
+      // For HOVERED -> NORMAL, animate from hovered (1) to not hovered (0).
       hover_animation_->Hide();
+    } else if (state != STATE_HOVERED) {
+      // For HOVERED -> PRESSED/DISABLED, or any transition not involving
+      // HOVERED at all, simply set the state to not hovered (0).
+      hover_animation_->Reset();
+    } else if (state_ == STATE_NORMAL) {
+      // For NORMAL -> HOVERED, animate from not hovered (0) to hovered (1).
+      hover_animation_->Show();
     } else {
-      hover_animation_->Stop();
+      // For PRESSED/DISABLED -> HOVERED, simply set the state to hovered (1).
+      hover_animation_->Reset(1);
     }
   }
 
@@ -113,7 +121,7 @@ void CustomButton::OnEnabledChanged() {
     return;
 
   if (enabled())
-    SetState(IsMouseHovered() ? STATE_HOVERED : STATE_NORMAL);
+    SetState(ShouldEnterHoveredState() ? STATE_HOVERED : STATE_NORMAL);
   else
     SetState(STATE_DISABLED);
 }
@@ -197,12 +205,7 @@ bool CustomButton::OnKeyPressed(const ui::KeyEvent& event) {
     SetState(STATE_PRESSED);
   } else if (event.key_code() == ui::VKEY_RETURN) {
     SetState(STATE_NORMAL);
-    // TODO(beng): remove once NotifyClick takes ui::Event.
-    ui::MouseEvent synthetic_event(ui::ET_MOUSE_RELEASED, gfx::Point(),
-                                   gfx::Point(), ui::EventTimeForNow(),
-                                   ui::EF_LEFT_MOUSE_BUTTON,
-                                   ui::EF_LEFT_MOUSE_BUTTON);
-    NotifyClick(synthetic_event);
+    NotifyClick(event);
   } else {
     return false;
   }
@@ -214,11 +217,7 @@ bool CustomButton::OnKeyReleased(const ui::KeyEvent& event) {
     return false;
 
   SetState(STATE_NORMAL);
-  // TODO(beng): remove once NotifyClick takes ui::Event.
-  ui::MouseEvent synthetic_event(
-      ui::ET_MOUSE_RELEASED, gfx::Point(), gfx::Point(), ui::EventTimeForNow(),
-      ui::EF_LEFT_MOUSE_BUTTON, ui::EF_LEFT_MOUSE_BUTTON);
-  NotifyClick(synthetic_event);
+  NotifyClick(event);
   return true;
 }
 
@@ -252,6 +251,13 @@ void CustomButton::OnGestureEvent(ui::GestureEvent* event) {
 }
 
 bool CustomButton::AcceleratorPressed(const ui::Accelerator& accelerator) {
+  // Should only handle accelerators when active. However, only top level
+  // widgets can be active, so for child widgets check if they are focused
+  // instead.
+  if ((IsChildWidget() && !FocusInChildWidget()) ||
+      (!IsChildWidget() && !GetWidget()->IsActive())) {
+    return false;
+  }
   SetState(STATE_NORMAL);
   // TODO(beng): remove once NotifyClick takes ui::Event.
   ui::MouseEvent synthetic_event(
@@ -302,7 +308,7 @@ void CustomButton::GetAccessibleState(ui::AXViewState* state) {
 void CustomButton::VisibilityChanged(View* starting_from, bool visible) {
   if (state_ == STATE_DISABLED)
     return;
-  SetState(visible && IsMouseHovered() ? STATE_HOVERED : STATE_NORMAL);
+  SetState(visible && ShouldEnterHoveredState() ? STATE_HOVERED : STATE_NORMAL);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -341,6 +347,30 @@ bool CustomButton::ShouldEnterPushedState(const ui::Event& event) {
   return IsTriggerableEvent(event);
 }
 
+bool CustomButton::ShouldEnterHoveredState() {
+  if (!visible())
+    return false;
+
+  bool check_mouse_position = true;
+#if defined(USE_AURA)
+  // If another window has capture, we shouldn't check the current mouse
+  // position because the button won't receive any mouse events - so if the
+  // mouse was hovered, the button would be stuck in a hovered state (since it
+  // would never receive OnMouseExited).
+  const Widget* widget = GetWidget();
+  if (widget && widget->GetNativeWindow()) {
+    aura::Window* root_window = widget->GetNativeWindow()->GetRootWindow();
+    aura::client::CaptureClient* capture_client =
+        aura::client::GetCaptureClient(root_window);
+    aura::Window* capture_window =
+        capture_client ? capture_client->GetGlobalCaptureWindow() : nullptr;
+    check_mouse_position = !capture_window || capture_window == root_window;
+  }
+#endif
+
+  return check_mouse_position && IsMouseHovered();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // CustomButton, View overrides (protected):
 
@@ -353,6 +383,16 @@ void CustomButton::ViewHierarchyChanged(
 void CustomButton::OnBlur() {
   if (IsHotTracked())
     SetState(STATE_NORMAL);
+}
+
+bool CustomButton::IsChildWidget() const {
+  return GetWidget() && GetWidget()->GetTopLevelWidget() != GetWidget();
+}
+
+bool CustomButton::FocusInChildWidget() const {
+  return GetWidget() &&
+         GetWidget()->GetRootView()->Contains(
+             GetFocusManager()->GetFocusedView());
 }
 
 }  // namespace views

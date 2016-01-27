@@ -1,4 +1,3 @@
-
 (function() {
 
   Polymer({
@@ -37,8 +36,8 @@
     _selectedChanged: function(selected) {
 
       var selectedPage = this.selectedItem;
-      var oldPage = this._prevSelected || false;
-      this._prevSelected = selectedPage;
+      var oldPage = this._valueToItem(this._prevSelected) || false;
+      this._prevSelected = selected;
 
       // on initial load and if animateInitialSelection is negated, simply display selectedPage.
       if (!oldPage && !this.animateInitialSelection) {
@@ -75,6 +74,7 @@
           this._squelchNextFinishEvent = true;
           this.cancelAnimation();
           this._completeSelectedChanged();
+          this._squelchNextFinishEvent = false;
         }
 
         // configure the animation.
@@ -105,14 +105,14 @@
         // on first load, ensure we run animations only after element is attached.
         if (!this.isAttached) {
           this.async(function () {
-            this.playAnimation(null, {
+            this.playAnimation(undefined, {
               fromPage: null,
               toPage: selectedPage
             });
           });
 
         } else {
-          this.playAnimation(null, {
+          this.playAnimation(undefined, {
             fromPage: oldPage,
             toPage: selectedPage
           });
@@ -123,6 +123,10 @@
       }
     },
 
+    /**
+     * @param {Object=} oldPage
+     * @param {Object=} selectedPage
+     */
     _completeSelectedChanged: function(oldPage, selectedPage) {
       if (selectedPage) {
         selectedPage.classList.remove('neon-animating');
@@ -136,7 +140,7 @@
           node.classList && node.classList.remove('neon-animating');
         }
       }
-      this.async(this.notifyResize);
+      this.async(this._notifyPageResize);
     },
 
     _onNeonAnimationFinish: function(event) {
@@ -145,6 +149,14 @@
         return;
       }
       this._completeSelectedChanged(event.detail.fromPage, event.detail.toPage);
+    },
+
+    _notifyPageResize: function() {
+      var selectedPage = this.selectedItem;
+      this.resizerShouldNotify = function(element) {
+        return element == selectedPage;
+      }
+      this.notifyResize();
     }
 
   })

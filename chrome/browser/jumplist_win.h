@@ -17,11 +17,11 @@
 #include "base/timer/timer.h"
 #include "chrome/browser/jumplist_updater_win.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
-#include "chrome/browser/sessions/tab_restore_service.h"
-#include "chrome/browser/sessions/tab_restore_service_observer.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/history/core/browser/top_sites_observer.h"
+#include "components/sessions/core/tab_restore_service.h"
+#include "components/sessions/core/tab_restore_service_observer.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -49,7 +49,7 @@ class Profile;
 //
 // Note. base::CancelableTaskTracker is not thread safe, so we
 // always delete JumpList on UI thread (the same thread it got constructed on).
-class JumpList : public TabRestoreServiceObserver,
+class JumpList : public sessions::TabRestoreServiceObserver,
                  public content::NotificationObserver,
                  public history::TopSitesObserver,
                  public base::RefCountedThreadSafe<
@@ -65,11 +65,12 @@ class JumpList : public TabRestoreServiceObserver,
 
   // Observer callback for TabRestoreService::Observer to notify when a tab is
   // added or removed.
-  void TabRestoreServiceChanged(TabRestoreService* service) override;
+  void TabRestoreServiceChanged(sessions::TabRestoreService* service) override;
 
   // Observer callback to notice when our associated TabRestoreService
   // is destroyed.
-  void TabRestoreServiceDestroyed(TabRestoreService* service) override;
+  void TabRestoreServiceDestroyed(
+      sessions::TabRestoreService* service) override;
 
   // Cancel a pending jumplist update.
   void CancelPendingUpdate();
@@ -93,10 +94,10 @@ class JumpList : public TabRestoreServiceObserver,
   // given list.
   // These functions are copied from the RecentlyClosedTabsHandler class for
   // compatibility with the new-tab page.
-  bool AddTab(const TabRestoreService::Tab* tab,
+  bool AddTab(const sessions::TabRestoreService::Tab* tab,
               ShellLinkItemList* list,
               size_t max_items);
-  void AddWindow(const TabRestoreService::Window* window,
+  void AddWindow(const sessions::TabRestoreService::Window* window,
                  ShellLinkItemList* list,
                  size_t max_items);
 
@@ -169,7 +170,7 @@ class JumpList : public TabRestoreServiceObserver,
   ShellLinkItemList recently_closed_pages_;
 
   // Timer for requesting delayed updates of the jumplist.
-  base::OneShotTimer<JumpList> timer_;
+  base::OneShotTimer timer_;
 
   // A list of URLs we need to retrieve their favicons,
   // protected by the list_lock_.

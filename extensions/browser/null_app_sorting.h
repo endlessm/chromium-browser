@@ -18,11 +18,6 @@ class NullAppSorting : public AppSorting {
   ~NullAppSorting() override;
 
   // AppSorting overrides:
-  void SetExtensionScopedPrefs(ExtensionScopedPrefs* prefs) override;
-  void CheckExtensionScopedPrefs() const override;
-  void SetExtensionSyncService(
-      ExtensionSyncService* extension_sync_service) override;
-  void Initialize(const ExtensionIdList& extension_ids) override;
   void FixNTPOrdinalCollisions() override;
   void EnsureValidOrdinals(
       const std::string& extension_id,

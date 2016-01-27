@@ -1,0 +1,10 @@
+{
+  "Linux x64": {
+    "scripts": [
+      {
+        "name": "sizes",
+        "script": "sizes.py"
+      }
+    ]
+  }
+}

@@ -44,9 +44,9 @@
 
 #ifdef _WIN32
 #include <io.h>
-#define PRIx64 "llx"
-#define PRIx32 "lx"
+#if defined(_MSC_VER) && _MSC_VER < 1900
 #define snprintf _snprintf
+#endif
 #else  // _WIN32
 #include <unistd.h>
 #endif  // _WIN32
@@ -2517,6 +2517,7 @@ bool MinidumpModuleList::Read(uint32_t expected_size) {
     // MinidumpModule::ReadAuxiliaryData seeks around, and if it were
     // included in the loop above, additional seeks would be needed where
     // none are now to read contiguous data.
+    uint64_t last_end_address = 0;
     for (unsigned int module_index = 0;
          module_index < module_count;
          ++module_index) {
@@ -2554,12 +2555,29 @@ bool MinidumpModuleList::Read(uint32_t expected_size) {
         const string kDevAshmem("/dev/ashmem/");
         if (module->code_file().compare(
             0, kDevAshmem.length(), kDevAshmem) != 0) {
-          BPLOG(ERROR) << "MinidumpModuleList could not store module " <<
-                          module_index << "/" << module_count << ", " <<
-                          module->code_file() << ", " <<
-                          HexString(base_address) << "+" <<
-                          HexString(module_size);
-          return false;
+          if (base_address < last_end_address) {
+            // If failed due to apparent range overlap the cause may be
+            // the client correction applied for Android packed relocations.
+            // If this is the case, back out the client correction and retry.
+            module_size -= last_end_address - base_address;
+            base_address = last_end_address;
+            if (!range_map_->StoreRange(base_address,
+                                        module_size, module_index)) {
+              BPLOG(ERROR) << "MinidumpModuleList could not store module " <<
+                              module_index << "/" << module_count << ", " <<
+                              module->code_file() << ", " <<
+                              HexString(base_address) << "+" <<
+                              HexString(module_size) << ", after adjusting";
+              return false;
+            }
+          } else {
+            BPLOG(ERROR) << "MinidumpModuleList could not store module " <<
+                            module_index << "/" << module_count << ", " <<
+                            module->code_file() << ", " <<
+                            HexString(base_address) << "+" <<
+                            HexString(module_size);
+            return false;
+          }
         } else {
           BPLOG(INFO) << "MinidumpModuleList ignoring overlapping module " <<
                           module_index << "/" << module_count << ", " <<
@@ -2568,6 +2586,7 @@ bool MinidumpModuleList::Read(uint32_t expected_size) {
                           HexString(module_size);
         }
       }
+      last_end_address = base_address + module_size;
     }
 
     modules_ = modules.release();
@@ -3972,6 +3991,149 @@ void MinidumpMemoryInfoList::Print() {
   }
 }
 
+//
+// MinidumpLinuxMaps
+//
+
+MinidumpLinuxMaps::MinidumpLinuxMaps(Minidump *minidump)
+    : MinidumpObject(minidump) {
+}
+
+void MinidumpLinuxMaps::Print() const {
+  if (!valid_) {
+    BPLOG(ERROR) << "MinidumpLinuxMaps cannot print invalid data";
+    return;
+  }
+  std::cout << region_.line << std::endl;
+}
+
+//
+// MinidumpLinuxMapsList
+//
+
+MinidumpLinuxMapsList::MinidumpLinuxMapsList(Minidump *minidump)
+    : MinidumpStream(minidump),
+      maps_(NULL),
+      maps_count_(0) {
+}
+
+MinidumpLinuxMapsList::~MinidumpLinuxMapsList() {
+  if (maps_) {
+    for (unsigned int i = 0; i < maps_->size(); i++) {
+      delete (*maps_)[i];
+    }
+    delete maps_;
+  }
+}
+
+const MinidumpLinuxMaps *MinidumpLinuxMapsList::GetLinuxMapsForAddress(
+    uint64_t address) const {
+  if (!valid_ || (maps_ == NULL)) {
+    BPLOG(ERROR) << "Invalid MinidumpLinuxMapsList for GetLinuxMapsForAddress";
+    return NULL;
+  }
+
+  // Search every memory mapping.
+  for (unsigned int index = 0; index < maps_count_; index++) {
+    // Check if address is within bounds of the current memory region.
+    if ((*maps_)[index]->GetBase() <= address &&
+        (*maps_)[index]->GetBase() + (*maps_)[index]->GetSize() > address) {
+      return (*maps_)[index];
+    }
+  }
+
+  // No mapping encloses the memory address.
+  BPLOG(ERROR) << "MinidumpLinuxMapsList has no mapping at "
+               << HexString(address);
+  return NULL;
+}
+
+const MinidumpLinuxMaps *MinidumpLinuxMapsList::GetLinuxMapsAtIndex(
+    unsigned int index) const {
+  if (!valid_ || (maps_ == NULL)) {
+    BPLOG(ERROR) << "Invalid MinidumpLinuxMapsList for GetLinuxMapsAtIndex";
+    return NULL;
+  }
+
+  // Index out of bounds.
+  if (index >= maps_count_ || (maps_ == NULL)) {
+    BPLOG(ERROR) << "MinidumpLinuxMapsList index of out range: "
+                 << index
+                 << "/"
+                 << maps_count_;
+    return NULL;
+  }
+  return (*maps_)[index];
+}
+
+bool MinidumpLinuxMapsList::Read(uint32_t expected_size) {
+  // Invalidate cached data.
+  if (maps_) {
+    for (unsigned int i = 0; i < maps_->size(); i++) {
+      delete (*maps_)[i];
+    }
+    delete maps_;
+  }
+  maps_ = NULL;
+  maps_count_ = 0;
+
+  valid_ = false;
+
+  // Load and check expected stream length.
+  uint32_t length = 0;
+  if (!minidump_->SeekToStreamType(MD_LINUX_MAPS, &length)) {
+    BPLOG(ERROR) << "MinidumpLinuxMapsList stream type not found";
+    return false;
+  }
+  if (expected_size != length) {
+    BPLOG(ERROR) << "MinidumpLinuxMapsList size mismatch: "
+                 << expected_size
+                 << " != "
+                 << length;
+    return false;
+  }
+
+  // Create a vector to read stream data. The vector needs to have
+  // at least enough capacity to read all the data.
+  vector<char> mapping_bytes(length);
+  if (!minidump_->ReadBytes(&mapping_bytes[0], length)) {
+    BPLOG(ERROR) << "MinidumpLinuxMapsList failed to read bytes";
+    return false;
+  }
+  string map_string(mapping_bytes.begin(), mapping_bytes.end());
+  vector<MappedMemoryRegion> all_regions;
+
+  // Parse string into mapping data.
+  if (!ParseProcMaps(map_string, &all_regions)) {
+    return false;
+  }
+
+  scoped_ptr<MinidumpLinuxMappings> maps(new MinidumpLinuxMappings());
+
+  // Push mapping data into wrapper classes.
+  for (size_t i = 0; i < all_regions.size(); i++) {
+    scoped_ptr<MinidumpLinuxMaps> ele(new MinidumpLinuxMaps(minidump_));
+    ele->region_ = all_regions[i];
+    ele->valid_ = true;
+    maps->push_back(ele.release());
+  }
+
+  // Set instance variables.
+  maps_ = maps.release();
+  maps_count_ = maps_->size();
+  valid_ = true;
+  return true;
+}
+
+void MinidumpLinuxMapsList::Print() const {
+  if (!valid_ || (maps_ == NULL)) {
+    BPLOG(ERROR) << "MinidumpLinuxMapsList cannot print valid data";
+    return;
+  }
+  for (size_t i = 0; i < maps_->size(); i++) {
+    (*maps_)[i]->Print();
+  }
+}
 
 //
 // Minidump
@@ -4290,6 +4452,11 @@ MinidumpBreakpadInfo* Minidump::GetBreakpadInfo() {
 MinidumpMemoryInfoList* Minidump::GetMemoryInfoList() {
   MinidumpMemoryInfoList* memory_info_list;
   return GetStream(&memory_info_list);
+}
+
+MinidumpLinuxMapsList *Minidump::GetLinuxMapsList() {
+  MinidumpLinuxMapsList *linux_maps_list;
+  return GetStream(&linux_maps_list);
 }
 
 static const char* get_stream_name(uint32_t stream_type) {

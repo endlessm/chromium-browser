@@ -12,7 +12,7 @@ import tempfile
 import xml
 
 
-from pylib import cmd_helper
+from devil.utils import cmd_helper
 from pylib import constants
 from pylib.results.flakiness_dashboard import json_results_generator
 from pylib.utils import repo_utils
@@ -162,8 +162,8 @@ class ResultsUploader(object):
       results_generator.GenerateJSONOutput()
       results_generator.GenerateTimesMSFile()
       results_generator.UploadJSONFiles(json_files)
-    except Exception as e:
-      logging.error("Uploading results to test server failed: %s." % e)
+    except Exception as e: # pylint: disable=broad-except
+      logging.error("Uploading results to test server failed: %s.", e)
     finally:
       shutil.rmtree(tmp_folder)
 

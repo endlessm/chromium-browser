@@ -6,6 +6,8 @@
  */
 
 #include "SkTypes.h"
+#if defined(SK_BUILD_FOR_WIN32)
+
 // SkTypes will include Windows.h, which will pull in all of the GDI defines.
 // GDI #defines GetGlyphIndices to GetGlyphIndicesA or GetGlyphIndicesW, but
 // IDWriteFontFace has a method called GetGlyphIndices. Since this file does
@@ -20,6 +22,7 @@
 #include "SkOTTable_hhea.h"
 #include "SkOTTable_OS_2.h"
 #include "SkOTTable_post.h"
+#include "SkOTUtils.h"
 #include "SkScalerContext.h"
 #include "SkScalerContext_win_dw.h"
 #include "SkTypeface_win_dw.h"
@@ -29,7 +32,7 @@ void DWriteFontTypeface::onGetFamilyName(SkString* familyName) const {
     SkTScopedComPtr<IDWriteLocalizedStrings> familyNames;
     HRV(fDWriteFontFamily->GetFamilyNames(&familyNames));
 
-    sk_get_locale_string(familyNames.get(), NULL/*fMgr->fLocaleName.get()*/, familyName);
+    sk_get_locale_string(familyNames.get(), nullptr/*fMgr->fLocaleName.get()*/, familyName);
 }
 
 void DWriteFontTypeface::onGetFontDescriptor(SkFontDescriptor* desc,
@@ -39,7 +42,7 @@ void DWriteFontTypeface::onGetFontDescriptor(SkFontDescriptor* desc,
     HRV(fDWriteFontFamily->GetFamilyNames(&familyNames));
 
     SkString utf8FamilyName;
-    sk_get_locale_string(familyNames.get(), NULL/*fMgr->fLocaleName.get()*/, &utf8FamilyName);
+    sk_get_locale_string(familyNames.get(), nullptr/*fMgr->fLocaleName.get()*/, &utf8FamilyName);
 
     desc->setFamilyName(utf8FamilyName.c_str());
     *isLocalStream = SkToBool(fDWriteFontFileLoader.get());
@@ -73,7 +76,7 @@ static EncodingProc find_encoding_proc(SkTypeface::Encoding enc) {
 int DWriteFontTypeface::onCharsToGlyphs(const void* chars, Encoding encoding,
                                         uint16_t glyphs[], int glyphCount) const
 {
-    if (NULL == glyphs) {
+    if (nullptr == glyphs) {
         EncodingProc next_ucs4_proc = find_encoding_proc(encoding);
         for (int i = 0; i < glyphCount; ++i) {
             const SkUnichar c = next_ucs4_proc(&chars);
@@ -169,10 +172,14 @@ private:
 };
 
 SkTypeface::LocalizedStrings* DWriteFontTypeface::onCreateFamilyNameIterator() const {
-    SkTScopedComPtr<IDWriteLocalizedStrings> familyNames;
-    HRNM(fDWriteFontFamily->GetFamilyNames(&familyNames), "Could not obtain family names.");
-
-    return new LocalizedStrings_IDWriteLocalizedStrings(familyNames.release());
+    SkTypeface::LocalizedStrings* nameIter =
+        SkOTUtils::LocalizedStrings_NameTable::CreateForFamilyNames(*this);
+    if (nullptr == nameIter) {
+        SkTScopedComPtr<IDWriteLocalizedStrings> familyNames;
+        HRNM(fDWriteFontFamily->GetFamilyNames(&familyNames), "Could not obtain family names.");
+        nameIter = new LocalizedStrings_IDWriteLocalizedStrings(familyNames.release());
+    }
+    return nameIter;
 }
 
 int DWriteFontTypeface::onGetTableTags(SkFontTableTag tags[]) const {
@@ -212,10 +219,10 @@ SkStreamAsset* DWriteFontTypeface::onOpenStream(int* ttcIndex) const {
     *ttcIndex = fDWriteFontFace->GetIndex();
 
     UINT32 numFiles;
-    HRNM(fDWriteFontFace->GetFiles(&numFiles, NULL),
+    HRNM(fDWriteFontFace->GetFiles(&numFiles, nullptr),
          "Could not get number of font files.");
     if (numFiles != 1) {
-        return NULL;
+        return nullptr;
     }
 
     SkTScopedComPtr<IDWriteFontFile> fontFile;
@@ -234,11 +241,11 @@ SkStreamAsset* DWriteFontTypeface::onOpenStream(int* ttcIndex) const {
                                              &fontFileStream),
          "Could not create font file stream.");
 
-    return SkNEW_ARGS(SkDWriteFontFileStream, (fontFileStream.get()));
+    return new SkDWriteFontFileStream(fontFileStream.get());
 }
 
 SkScalerContext* DWriteFontTypeface::onCreateScalerContext(const SkDescriptor* desc) const {
-    return SkNEW_ARGS(SkScalerContext_DW, (const_cast<DWriteFontTypeface*>(this), desc));
+    return new SkScalerContext_DW(const_cast<DWriteFontTypeface*>(this), desc);
 }
 
 void DWriteFontTypeface::onFilterRec(SkScalerContext::Rec* rec) const {
@@ -260,7 +267,7 @@ void DWriteFontTypeface::onFilterRec(SkScalerContext::Rec* rec) const {
 
 #if SK_FONT_HOST_USE_SYSTEM_SETTINGS
     IDWriteFactory* factory = get_dwrite_factory();
-    if (factory != NULL) {
+    if (factory != nullptr) {
         SkTScopedComPtr<IDWriteRenderingParams> defaultRenderingParams;
         if (SUCCEEDED(factory->CreateRenderingParams(&defaultRenderingParams))) {
             float gamma = defaultRenderingParams->GetGamma();
@@ -327,7 +334,7 @@ SkAdvancedTypefaceMetrics* DWriteFontTypeface::onGetAdvancedTypefaceMetrics(
         const uint32_t* glyphIDs,
         uint32_t glyphIDsCount) const {
 
-    SkAdvancedTypefaceMetrics* info = NULL;
+    SkAdvancedTypefaceMetrics* info = nullptr;
 
     HRESULT hr = S_OK;
 
@@ -454,3 +461,4 @@ SkAdvancedTypefaceMetrics* DWriteFontTypeface::onGetAdvancedTypefaceMetrics(
 
     return info;
 }
+#endif//defined(SK_BUILD_FOR_WIN32)

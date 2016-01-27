@@ -62,13 +62,10 @@ ScopedJavaLocalRef<jobject> TabModelJniBridge::GetProfileAndroid(JNIEnv* env,
 void TabModelJniBridge::TabAddedToModel(JNIEnv* env,
                                         jobject obj,
                                         jobject jtab) {
-  TabAndroid* tab = TabAndroid::GetNativeTab(env, jtab);
-
   // Tab#initialize() should have been called by now otherwise we can't push
   // the window id.
-  DCHECK(tab);
-
-  tab->SetWindowSessionID(GetSessionId());
+  TabAndroid* tab = TabAndroid::GetNativeTab(env, jtab);
+  if (tab) tab->SetWindowSessionID(GetSessionId());
 }
 
 int TabModelJniBridge::GetTabCount() const {
@@ -158,7 +155,7 @@ inline static base::TimeDelta GetTimeDelta(jlong ms) {
 }
 
 void LogFromCloseMetric(JNIEnv* env,
-                        jclass jcaller,
+                        const JavaParamRef<jclass>& jcaller,
                         jlong ms,
                         jboolean perceived) {
   if (perceived) {
@@ -171,7 +168,7 @@ void LogFromCloseMetric(JNIEnv* env,
 }
 
 void LogFromExitMetric(JNIEnv* env,
-                       jclass jcaller,
+                       const JavaParamRef<jclass>& jcaller,
                        jlong ms,
                        jboolean perceived) {
   if (perceived) {
@@ -184,7 +181,7 @@ void LogFromExitMetric(JNIEnv* env,
 }
 
 void LogFromNewMetric(JNIEnv* env,
-                      jclass jcaller,
+                      const JavaParamRef<jclass>& jcaller,
                       jlong ms,
                       jboolean perceived) {
   if (perceived) {
@@ -197,7 +194,7 @@ void LogFromNewMetric(JNIEnv* env,
 }
 
 void LogFromUserMetric(JNIEnv* env,
-                       jclass jcaller,
+                       const JavaParamRef<jclass>& jcaller,
                        jlong ms,
                        jboolean perceived) {
   if (perceived) {
@@ -217,7 +214,9 @@ bool TabModelJniBridge::Register(JNIEnv* env) {
   return RegisterNativesImpl(env);
 }
 
-static jlong Init(JNIEnv* env, jobject obj, jboolean is_incognito) {
+static jlong Init(JNIEnv* env,
+                  const JavaParamRef<jobject>& obj,
+                  jboolean is_incognito) {
   TabModel* tab_model = new TabModelJniBridge(env, obj, is_incognito);
   return reinterpret_cast<intptr_t>(tab_model);
 }

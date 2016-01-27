@@ -16,9 +16,12 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/autofill/core/common/autofill_pref_names.h"
 #include "components/content_settings/core/common/pref_names.h"
+#include "components/password_manager/core/common/password_manager_pref_names.h"
 #include "components/translate/core/common/translate_pref_names.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/common/webrtc_ip_handling_policy.h"
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/test_extension_registry_observer.h"
 #include "extensions/test/extension_test_message_listener.h"
@@ -124,6 +127,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionPreferenceApiTest, MAYBE_Standard) {
   prefs->SetBoolean(prefs::kSearchSuggestEnabled, false);
 #if defined(ENABLE_WEBRTC)
   prefs->SetBoolean(prefs::kWebRTCMultipleRoutesEnabled, false);
+  prefs->SetBoolean(prefs::kWebRTCNonProxiedUdpEnabled, false);
+  prefs->SetString(prefs::kWebRTCIPHandlingPolicy,
+                   content::kWebRTCIPHandlingDefaultPublicInterfaceOnly);
 #endif
 
   const char kExtensionPath[] = "preference/standard";
@@ -225,7 +231,7 @@ IN_PROC_BROWSER_TEST_F(ExtensionPreferenceApiTest, OnChangeSplit) {
       profile_->GetOffTheRecordProfile());
 
   // Open an incognito window.
-  ui_test_utils::OpenURLOffTheRecord(profile_, GURL("chrome://newtab/"));
+  OpenURLOffTheRecord(profile_, GURL("chrome://newtab/"));
 
   // changeDefault listeners.
   ExtensionTestMessageListener listener1("changeDefault regular ready", true);

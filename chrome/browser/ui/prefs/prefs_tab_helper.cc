@@ -29,6 +29,7 @@
 #include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/proxy_config/proxy_config_pref_names.h"
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_view_host.h"
@@ -76,7 +77,6 @@ const char* kPrefsToObserve[] = {
 #endif
   prefs::kWebKitJavascriptCanOpenWindowsAutomatically,
   prefs::kWebKitJavascriptEnabled,
-  prefs::kWebKitJavaEnabled,
   prefs::kWebKitLoadsImagesAutomatically,
   prefs::kWebKitMinimumFontSize,
   prefs::kWebKitMinimumLogicalFontSize,
@@ -252,27 +252,6 @@ UScriptCode GetScriptOfFontPref(const char* pref_name) {
   return static_cast<UScriptCode>(code);
 }
 
-// If |scriptCode| is a member of a family of "similar" script codes, returns
-// the script code in that family that is used in font pref names.  For example,
-// USCRIPT_HANGUL and USCRIPT_KOREAN are considered equivalent for the purposes
-// of font selection.  Chrome uses the script code USCRIPT_HANGUL (script name
-// "Hang") in Korean font pref names (for example,
-// "webkit.webprefs.fonts.serif.Hang").  So, if |scriptCode| is USCRIPT_KOREAN,
-// the function returns USCRIPT_HANGUL.  If |scriptCode| is not a member of such
-// a family, returns |scriptCode|.
-UScriptCode GetScriptForFontPrefMatching(UScriptCode scriptCode) {
-  switch (scriptCode) {
-  case USCRIPT_HIRAGANA:
-  case USCRIPT_KATAKANA:
-  case USCRIPT_KATAKANA_OR_HIRAGANA:
-    return USCRIPT_JAPANESE;
-  case USCRIPT_KOREAN:
-    return USCRIPT_HANGUL;
-  default:
-    return scriptCode;
-  }
-}
-
 // Returns the primary script used by the browser's UI locale.  For example, if
 // the locale is "ru", the function returns USCRIPT_CYRILLIC, and if the locale
 // is "en", the function returns USCRIPT_LATIN.
@@ -286,16 +265,22 @@ UScriptCode GetScriptOfBrowserLocale() {
     return USCRIPT_SIMPLIFIED_HAN;
   if (locale == "zh-TW")
     return USCRIPT_TRADITIONAL_HAN;
+  // For Korean and Japanese, multiple scripts are returned by
+  // |uscript_getCode|, but we're passing a one entry buffer leading
+  // the buffer to be filled by USCRIPT_INVALID_CODE. We need to
+  // hard-code the results for them.
+  if (locale == "ko")
+    return USCRIPT_HANGUL;
+  if (locale == "ja")
+    return USCRIPT_JAPANESE;
 
   UScriptCode code = USCRIPT_INVALID_CODE;
   UErrorCode err = U_ZERO_ERROR;
   uscript_getCode(locale.c_str(), &code, 1, &err);
 
-  // Ignore the error that multiple scripts could be returned, since we only
-  // want one script.
-  if (U_FAILURE(err) && err != U_BUFFER_OVERFLOW_ERROR)
+  if (U_FAILURE(err))
     code = USCRIPT_INVALID_CODE;
-  return GetScriptForFontPrefMatching(code);
+  return code;
 }
 
 // Sets a font family pref in |prefs| to |pref_value|.
@@ -351,6 +336,10 @@ class PrefWatcher : public KeyedService {
 
 #if defined(ENABLE_WEBRTC)
     pref_change_registrar_.Add(prefs::kWebRTCMultipleRoutesEnabled,
+                               renderer_callback);
+    pref_change_registrar_.Add(prefs::kWebRTCNonProxiedUdpEnabled,
+                               renderer_callback);
+    pref_change_registrar_.Add(prefs::kWebRTCIPHandlingPolicy,
                                renderer_callback);
 #endif
 
@@ -427,11 +416,11 @@ class PrefWatcherFactory : public BrowserContextKeyedServiceFactory {
   }
 
   static PrefWatcherFactory* GetInstance() {
-    return Singleton<PrefWatcherFactory>::get();
+    return base::Singleton<PrefWatcherFactory>::get();
   }
 
  private:
-  friend struct DefaultSingletonTraits<PrefWatcherFactory>;
+  friend struct base::DefaultSingletonTraits<PrefWatcherFactory>;
 
   PrefWatcherFactory() : BrowserContextKeyedServiceFactory(
       "PrefWatcher",
@@ -466,7 +455,7 @@ PrefsTabHelper::PrefsTabHelper(WebContents* contents)
     // If the tab is in an incognito profile, we track changes in the default
     // zoom level of the parent profile instead.
     Profile* profile_to_track = profile_->GetOriginalProfile();
-    chrome::ChromeZoomLevelPrefs* zoom_level_prefs =
+    ChromeZoomLevelPrefs* zoom_level_prefs =
         profile_to_track->GetZoomLevelPrefs();
 
     base::Closure renderer_callback = base::Bind(
@@ -504,19 +493,6 @@ PrefsTabHelper::~PrefsTabHelper() {
 }
 
 // static
-void PrefsTabHelper::InitIncognitoUserPrefStore(
-    OverlayUserPrefStore* pref_store) {
-  // List of keys that cannot be changed in the user prefs file by the incognito
-  // profile.  All preferences that store information about the browsing history
-  // or behavior of the user should have this property.
-  pref_store->RegisterOverlayPref(prefs::kBrowserWindowPlacement);
-  pref_store->RegisterOverlayPref(prefs::kSaveFileDefaultDirectory);
-#if defined(OS_ANDROID) || defined(OS_IOS)
-  pref_store->RegisterOverlayPref(prefs::kProxy);
-#endif  // defined(OS_ANDROID) || defined(OS_IOS)
-}
-
-// static
 void PrefsTabHelper::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
   WebPreferences pref_defaults;
@@ -534,8 +510,6 @@ void PrefsTabHelper::RegisterProfilePrefs(
                                 pref_defaults.dom_paste_enabled);
   registry->RegisterBooleanPref(prefs::kWebKitTextAreasAreResizable,
                                 pref_defaults.text_areas_are_resizable);
-  registry->RegisterBooleanPref(prefs::kWebKitJavaEnabled,
-                                pref_defaults.java_enabled);
   registry->RegisterBooleanPref(prefs::kWebkitTabsToLinks,
                                 pref_defaults.tabs_to_links);
   registry->RegisterBooleanPref(prefs::kWebKitAllowRunningInsecureContent,

@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CHROME_NACL_NACL_IPC_ADAPTER_H_
-#define CHROME_NACL_NACL_IPC_ADAPTER_H_
+#ifndef COMPONENTS_NACL_LOADER_NACL_IPC_ADAPTER_H_
+#define COMPONENTS_NACL_LOADER_NACL_IPC_ADAPTER_H_
 
 #include <map>
 #include <queue>
@@ -15,8 +15,6 @@
 #include "base/files/scoped_file.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
-#include "base/memory/shared_memory.h"
 #include "base/pickle.h"
 #include "base/synchronization/condition_variable.h"
 #include "base/synchronization/lock.h"
@@ -236,4 +234,4 @@ class NaClIPCAdapter : public base::RefCountedThreadSafe<NaClIPCAdapter>,
 // Export TranslatePepperFileReadWriteOpenFlags for testing.
 int TranslatePepperFileReadWriteOpenFlagsForTesting(int32_t pp_open_flags);
 
-#endif  // CHROME_NACL_NACL_IPC_ADAPTER_H_
+#endif  // COMPONENTS_NACL_LOADER_NACL_IPC_ADAPTER_H_

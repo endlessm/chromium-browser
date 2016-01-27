@@ -9,14 +9,13 @@
 
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
-#include "base/gtest_prod_util.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/prefs/pref_change_registrar.h"
 #include "chrome/browser/bookmarks/bookmark_stats.h"
 #include "chrome/browser/ui/bookmarks/bookmark_bar.h"
 #include "chrome/browser/ui/bookmarks/bookmark_bar_instructions_delegate.h"
-#include "chrome/browser/ui/views/bookmarks/bookmark_bubble_view_observer.h"
+#include "chrome/browser/ui/bookmarks/bookmark_bubble_observer.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_menu_controller_observer.h"
 #include "components/bookmarks/browser/bookmark_model_observer.h"
 #include "components/bookmarks/browser/bookmark_node_data.h"
@@ -33,11 +32,11 @@ class BookmarkBarViewTestHelper;
 class BookmarkContextMenu;
 class Browser;
 class BrowserView;
-class ChromeBookmarkClient;
 class Profile;
 
 namespace bookmarks {
 class BookmarkModel;
+class ManagedBookmarkService;
 }
 
 namespace content {
@@ -71,7 +70,7 @@ class BookmarkBarView : public views::AccessiblePaneView,
                         public gfx::AnimationDelegate,
                         public BookmarkMenuControllerObserver,
                         public BookmarkBarInstructionsDelegate,
-                        public BookmarkBubbleViewObserver {
+                        public bookmarks::BookmarkBubbleObserver {
  public:
   // The internal view class name.
   static const char kViewClassName[];
@@ -101,9 +100,6 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // Changes the state of the bookmark bar.
   void SetBookmarkBarState(BookmarkBar::State state,
                            BookmarkBar::AnimateChangeType animate_type);
-
-  // Returns the toolbar overlap when fully detached.
-  int GetFullyDetachedToolbarOverlap() const;
 
   // Whether or not we are animating.
   bool is_animating();
@@ -178,7 +174,7 @@ class BookmarkBarView : public views::AccessiblePaneView,
   void PaintChildren(const ui::PaintContext& context) override;
   bool GetDropFormats(
       int* formats,
-      std::set<ui::OSExchangeData::CustomFormat>* custom_formats) override;
+      std::set<ui::Clipboard::FormatType>* format_types) override;
   bool AreDropTypesRequired() override;
   bool CanDrop(const ui::OSExchangeData& data) override;
   void OnDragEntered(const ui::DropTargetEvent& event) override;
@@ -203,8 +199,8 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // BookmarkBarInstructionsDelegate:
   void OnImportBookmarks() override;
 
-  // BookmarkBubbleViewObserver:
-  void OnBookmarkBubbleShown(const GURL& url) override;
+  // bookmarks::BookmarkBubbleObserver:
+  void OnBookmarkBubbleShown(const bookmarks::BookmarkNode* node) override;
   void OnBookmarkBubbleHidden() override;
 
   // bookmarks::BookmarkModelObserver:
@@ -370,8 +366,9 @@ class BookmarkBarView : public views::AccessiblePaneView,
       const bookmarks::BookmarkNode* parent,
       int old_index);
 
-  // Updates the colors for all the child objects in the bookmarks bar.
-  void UpdateColors();
+  // Sets/updates the colors and icons for all the child objects in the
+  // bookmarks bar.
+  void UpdateAppearanceForTheme();
 
   // Updates the visibility of |other_bookmarks_button_|,
   // |managed_bookmarks_button_|, and |supervised_bookmarks_button_|. Also
@@ -402,8 +399,8 @@ class BookmarkBarView : public views::AccessiblePaneView,
   // view. This is owned by the Profile.
   bookmarks::BookmarkModel* model_;
 
-  // ChromeBookmarkClient. This is owned by the Profile.
-  ChromeBookmarkClient* client_;
+  // ManagedBookmarkService. This is owned by the Profile.
+  bookmarks::ManagedBookmarkService* managed_;
 
   // Used to manage showing a Menu, either for the most recently bookmarked
   // entries, or for the starred folder.

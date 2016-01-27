@@ -16,6 +16,7 @@
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_io_data.h"
 #include "components/data_reduction_proxy/core/browser/data_reduction_proxy_request_options.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_event_creator.h"
+#include "components/data_reduction_proxy/core/common/lofi_decider.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_response_headers.h"
 #include "net/proxy/proxy_info.h"
@@ -26,8 +27,6 @@
 #include "net/url_request/url_request_status.h"
 
 namespace {
-
-class NetworkQualityEstimator;
 
 // |lofi_low_header_added| is set to true iff Lo-Fi "q=low" request header can
 // be added to the Chrome proxy headers.
@@ -103,8 +102,8 @@ DataReductionProxyNetworkDelegate::DataReductionProxyNetworkDelegate(
     net::NetLog* net_log,
     DataReductionProxyEventCreator* event_creator)
     : LayeredNetworkDelegate(network_delegate.Pass()),
-      received_content_length_(0),
-      original_content_length_(0),
+      total_received_bytes_(0),
+      total_original_received_bytes_(0),
       data_reduction_proxy_config_(config),
       data_reduction_proxy_bypass_stats_(nullptr),
       data_reduction_proxy_request_options_(request_options),
@@ -137,9 +136,9 @@ DataReductionProxyNetworkDelegate::SessionNetworkStatsInfoToValue() const {
   base::DictionaryValue* dict = new base::DictionaryValue();
   // Use strings to avoid overflow. base::Value only supports 32-bit integers.
   dict->SetString("session_received_content_length",
-                  base::Int64ToString(received_content_length_));
+                  base::Int64ToString(total_received_bytes_));
   dict->SetString("session_original_content_length",
-                  base::Int64ToString(original_content_length_));
+                  base::Int64ToString(total_original_received_bytes_));
   return dict;
 }
 
@@ -175,25 +174,23 @@ void DataReductionProxyNetworkDelegate::OnBeforeSendProxyHeadersInternal(
     net::HttpRequestHeaders* headers) {
   DCHECK(data_reduction_proxy_config_);
 
-  // TODO(bengr): Investigate a better approach to update the network
-  // quality so that state of Lo-Fi is stored per page.
-  net::NetworkQualityEstimator* network_quality_estimator = nullptr;
-  if (request && request->context())
-    network_quality_estimator = request->context()->network_quality_estimator();
+  bool is_using_lofi_mode = false;
 
-  if (request && ((request->load_flags() & net::LOAD_MAIN_FRAME) != 0)) {
-    data_reduction_proxy_config_->UpdateLoFiStatusOnMainFrameRequest(
-        ((request->load_flags() & net::LOAD_BYPASS_CACHE) != 0),
-        network_quality_estimator);
-    if (data_reduction_proxy_io_data_) {
+  if (data_reduction_proxy_io_data_ &&
+      data_reduction_proxy_io_data_->lofi_decider() && request) {
+    LoFiDecider* lofi_decider = data_reduction_proxy_io_data_->lofi_decider();
+    is_using_lofi_mode = lofi_decider->IsUsingLoFiMode(*request);
+
+    if ((request->load_flags() & net::LOAD_MAIN_FRAME) != 0) {
+      // TODO(megjablon): Need to switch to per page.
       data_reduction_proxy_io_data_->SetLoFiModeActiveOnMainFrame(
-          data_reduction_proxy_config_->ShouldUseLoFiHeaderForRequests());
+          is_using_lofi_mode);
     }
   }
 
   if (data_reduction_proxy_request_options_) {
     data_reduction_proxy_request_options_->MaybeAddRequestHeader(
-        request, proxy_info.proxy_server(), headers);
+        request, proxy_info.proxy_server(), headers, is_using_lofi_mode);
   }
 }
 
@@ -204,20 +201,14 @@ void DataReductionProxyNetworkDelegate::OnCompletedInternal(
   if (data_reduction_proxy_bypass_stats_)
     data_reduction_proxy_bypass_stats_->OnUrlRequestCompleted(request, started);
 
-  // Only record for http or https urls.
-  bool is_http = request->url().SchemeIs("http");
-  bool is_https = request->url().SchemeIs("https");
-
-  if (request->status().status() != net::URLRequestStatus::SUCCESS)
-    return;
-
   // For better accuracy, we use the actual bytes read instead of the length
   // specified with the Content-Length header, which may be inaccurate,
   // or missing, as is the case with chunked encoding.
   int64 received_content_length = request->received_response_content_length();
   if (!request->was_cached() &&   // Don't record cached content
       received_content_length &&  // Zero-byte responses aren't useful.
-      (is_http || is_https)) {    // Only record for HTTP or HTTPS urls.
+      request->response_info().network_accessed &&  // Network was accessed.
+      request->url().SchemeIsHTTPOrHTTPS()) {
     int64 original_content_length =
         request->response_info().headers->GetInt64HeaderValue(
             "x-original-content-length");
@@ -233,19 +224,42 @@ void DataReductionProxyNetworkDelegate::OnCompletedInternal(
         GetAdjustedOriginalContentLength(request_type,
                                          original_content_length,
                                          received_content_length);
-    AccumulateContentLength(received_content_length,
-                            adjusted_original_content_length,
-                            request_type);
+    int64 data_used = request->GetTotalReceivedBytes();
+    // TODO(kundaji): Investigate why |compressed_size| can sometimes be
+    // less than |received_content_length|. Bug http://crbug/536139.
+    if (data_used < received_content_length)
+      data_used = received_content_length;
+
+    int64 original_size = data_used;
+    if (request_type == VIA_DATA_REDUCTION_PROXY) {
+      // TODO(kundaji): Remove headers added by data reduction proxy when
+      // computing original size. http://crbug/535701.
+      original_size = request->response_info().headers->raw_headers().size() +
+                      adjusted_original_content_length;
+    }
+
+    std::string mime_type;
+    if (request->status().status() == net::URLRequestStatus::SUCCESS)
+      request->GetMimeType(&mime_type);
+
+    std::string data_usage_host =
+        request->first_party_for_cookies().HostNoBrackets();
+    if (data_usage_host.empty()) {
+      data_usage_host = request->url().HostNoBrackets();
+    }
+
+    AccumulateDataUsage(data_used, original_size, request_type, data_usage_host,
+                        mime_type);
 
     DCHECK(data_reduction_proxy_config_);
 
-    // TODO(bengr): Investigate a better approach to record the Lo-Fi
-    // histogram. State of Lo-Fi should be stored per page.
     RecordContentLengthHistograms(
         // |data_reduction_proxy_io_data_| can be NULL for Webview.
         data_reduction_proxy_io_data_ &&
             data_reduction_proxy_io_data_->IsEnabled() &&
-            data_reduction_proxy_config_->ShouldUseLoFiHeaderForRequests(),
+            data_reduction_proxy_io_data_->lofi_decider() &&
+            data_reduction_proxy_io_data_->lofi_decider()->IsUsingLoFiMode(
+                *request),
         received_content_length, original_content_length, freshness_lifetime);
     experiments_stats_->RecordBytes(request->request_time(), request_type,
                                     received_content_length,
@@ -256,6 +270,7 @@ void DataReductionProxyNetworkDelegate::OnCompletedInternal(
           *request, data_reduction_proxy_io_data_->IsEnabled(),
           configurator_->GetProxyConfig());
     }
+
     DVLOG(2) << __FUNCTION__
         << " received content length: " << received_content_length
         << " original content length: " << original_content_length
@@ -263,19 +278,21 @@ void DataReductionProxyNetworkDelegate::OnCompletedInternal(
   }
 }
 
-void DataReductionProxyNetworkDelegate::AccumulateContentLength(
-    int64 received_content_length,
-    int64 original_content_length,
-    DataReductionProxyRequestType request_type) {
-  DCHECK_GE(received_content_length, 0);
-  DCHECK_GE(original_content_length, 0);
+void DataReductionProxyNetworkDelegate::AccumulateDataUsage(
+    int64 data_used,
+    int64 original_size,
+    DataReductionProxyRequestType request_type,
+    const std::string& data_usage_host,
+    const std::string& mime_type) {
+  DCHECK_GE(data_used, 0);
+  DCHECK_GE(original_size, 0);
   if (data_reduction_proxy_io_data_) {
     data_reduction_proxy_io_data_->UpdateContentLengths(
-        received_content_length, original_content_length,
-        data_reduction_proxy_io_data_->IsEnabled(), request_type);
+        data_used, original_size, data_reduction_proxy_io_data_->IsEnabled(),
+        request_type, data_usage_host, mime_type);
   }
-  received_content_length_ += received_content_length;
-  original_content_length_ += original_content_length;
+  total_received_bytes_ += data_used;
+  total_original_received_bytes_ += original_size;
 }
 
 void OnResolveProxyHandler(const GURL& url,

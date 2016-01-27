@@ -4,6 +4,10 @@
 
 #include "content/browser/compositor/delegated_frame_host.h"
 
+#include <algorithm>
+#include <string>
+#include <vector>
+
 #include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/time/default_tick_clock.h"
@@ -14,8 +18,10 @@
 #include "cc/resources/texture_mailbox.h"
 #include "cc/surfaces/surface.h"
 #include "cc/surfaces/surface_factory.h"
+#include "cc/surfaces/surface_hittest.h"
 #include "cc/surfaces/surface_manager.h"
 #include "content/browser/compositor/resize_lock.h"
+#include "content/browser/compositor/surface_utils.h"
 #include "content/browser/gpu/compositor_util.h"
 #include "content/common/gpu/client/gl_helper.h"
 #include "content/public/browser/render_widget_host_view_frame_subscriber.h"
@@ -130,7 +136,7 @@ bool DelegatedFrameHost::ShouldCreateResizeLock() {
 void DelegatedFrameHost::CopyFromCompositingSurface(
     const gfx::Rect& src_subrect,
     const gfx::Size& output_size,
-    ReadbackRequestCallback& callback,
+    const ReadbackRequestCallback& callback,
     const SkColorType preferred_color_type) {
   // Only ARGB888 and RGB565 supported as of now.
   bool format_support = ((preferred_color_type == kAlpha_8_SkColorType) ||
@@ -152,11 +158,11 @@ void DelegatedFrameHost::CopyFromCompositingSurface(
 }
 
 void DelegatedFrameHost::CopyFromCompositingSurfaceToVideoFrame(
-      const gfx::Rect& src_subrect,
-      const scoped_refptr<media::VideoFrame>& target,
-      const base::Callback<void(bool)>& callback) {
+    const gfx::Rect& src_subrect,
+    const scoped_refptr<media::VideoFrame>& target,
+    const base::Callback<void(const gfx::Rect&, bool)>& callback) {
   if (!CanCopyToVideoFrame()) {
-    callback.Run(false);
+    callback.Run(gfx::Rect(), false);
     return;
   }
 
@@ -182,10 +188,6 @@ bool DelegatedFrameHost::CanCopyToVideoFrame() const {
          client_->DelegatedFrameHostGetLayer()->has_external_content();
 }
 
-bool DelegatedFrameHost::CanSubscribeFrame() const {
-  return true;
-}
-
 void DelegatedFrameHost::BeginFrameSubscription(
     scoped_ptr<RenderWidgetHostViewFrameSubscriber> subscriber) {
   frame_subscriber_ = subscriber.Pass();
@@ -201,6 +203,21 @@ uint32_t DelegatedFrameHost::GetSurfaceIdNamespace() {
     return 0;
 
   return id_allocator_->id_namespace();
+}
+
+cc::SurfaceId DelegatedFrameHost::SurfaceIdAtPoint(
+    const gfx::Point& point,
+    gfx::Point* transformed_point) {
+  if (surface_id_.is_null())
+    return surface_id_;
+  cc::SurfaceHittest hittest(GetSurfaceManager());
+  gfx::Transform target_transform;
+  cc::SurfaceId target_surface_id =
+      hittest.GetTargetSurfaceAtPoint(surface_id_, point, &target_transform);
+  *transformed_point = point;
+  if (!target_surface_id.is_null())
+    target_transform.TransformPoint(transformed_point);
+  return target_surface_id;
 }
 
 bool DelegatedFrameHost::ShouldSkipFrame(gfx::Size size_in_dip) const {
@@ -287,10 +304,9 @@ void DelegatedFrameHost::DidReceiveFrameFromRenderer(
   request->set_source(frame_subscriber());
   request->set_area(gfx::Rect(current_frame_size_in_dip_));
   if (subscriber_texture.get()) {
-    request->SetTextureMailbox(
-        cc::TextureMailbox(subscriber_texture->mailbox(),
-                           subscriber_texture->target(),
-                           subscriber_texture->sync_point()));
+    request->SetTextureMailbox(cc::TextureMailbox(
+        subscriber_texture->mailbox(), subscriber_texture->sync_token(),
+        subscriber_texture->target()));
   }
   RequestCopyOfOutput(request.Pass());
 }
@@ -309,7 +325,7 @@ void DelegatedFrameHost::SwapDelegatedFrame(
   gfx::Size frame_size_in_dip =
       gfx::ConvertSizeToDIP(frame_device_scale_factor, frame_size);
 
-  gfx::Rect damage_rect = gfx::ToEnclosingRect(root_pass->damage_rect);
+  gfx::Rect damage_rect = root_pass->damage_rect;
   damage_rect.Intersect(gfx::Rect(frame_size));
   gfx::Rect damage_rect_in_dip =
       gfx::ConvertRectToDIP(frame_device_scale_factor, damage_rect);
@@ -412,7 +428,7 @@ void DelegatedFrameHost::SwapDelegatedFrame(
         ack_callback = base::Bind(&DelegatedFrameHost::SurfaceDrawn,
                                   AsWeakPtr(), output_surface_id);
       }
-      surface_factory_->SubmitFrame(
+      surface_factory_->SubmitCompositorFrame(
           surface_id_, compositor_frame.Pass(), ack_callback);
     } else {
       if (!resource_collection_.get()) {
@@ -469,6 +485,11 @@ void DelegatedFrameHost::SwapDelegatedFrame(
   // Note: the frame may have been evicted immediately.
 }
 
+void DelegatedFrameHost::ClearDelegatedFrame() {
+  if (frame_provider_.get() || !surface_id_.is_null())
+    EvictDelegatedFrame();
+}
+
 void DelegatedFrameHost::SendDelegatedFrameAck(uint32 output_surface_id) {
   cc::CompositorFrameAck ack;
   if (!surface_returned_resources_.empty())
@@ -518,6 +539,12 @@ void DelegatedFrameHost::ReturnResources(
     SendReturnedDelegatedResources(last_output_surface_id_);
 }
 
+void DelegatedFrameHost::SetBeginFrameSource(
+    cc::SurfaceId surface_id,
+    cc::BeginFrameSource* begin_frame_source) {
+  // TODO(tansell): Hook this up.
+}
+
 void DelegatedFrameHost::EvictDelegatedFrame() {
   client_->DelegatedFrameHostGetLayer()->SetShowSolidColorContent();
   frame_provider_ = NULL;
@@ -532,7 +559,7 @@ void DelegatedFrameHost::EvictDelegatedFrame() {
 void DelegatedFrameHost::CopyFromCompositingSurfaceHasResult(
     const gfx::Size& dst_size_in_pixel,
     const SkColorType color_type,
-    ReadbackRequestCallback& callback,
+    const ReadbackRequestCallback& callback,
     scoped_ptr<cc::CopyOutputResult> result) {
   if (result->IsEmpty() || result->size().IsEmpty()) {
     callback.Run(SkBitmap(), content::READBACK_FAILED);
@@ -560,21 +587,21 @@ void DelegatedFrameHost::CopyFromCompositingSurfaceHasResult(
 }
 
 static void CopyFromCompositingSurfaceFinished(
-    ReadbackRequestCallback& callback,
+    const ReadbackRequestCallback& callback,
     scoped_ptr<cc::SingleReleaseCallback> release_callback,
     scoped_ptr<SkBitmap> bitmap,
     scoped_ptr<SkAutoLockPixels> bitmap_pixels_lock,
     bool result) {
   bitmap_pixels_lock.reset();
 
-  uint32 sync_point = 0;
+  gpu::SyncToken sync_token;
   if (result) {
     GLHelper* gl_helper = ImageTransportFactory::GetInstance()->GetGLHelper();
     if (gl_helper)
-      sync_point = gl_helper->InsertSyncPoint();
+      sync_token = gpu::SyncToken(gl_helper->InsertSyncPoint());
   }
-  bool lost_resource = sync_point == 0;
-  release_callback->Run(sync_point, lost_resource);
+  const bool lost_resource = !sync_token.HasData();
+  release_callback->Run(sync_token, lost_resource);
 
   callback.Run(*bitmap,
                result ? content::READBACK_SUCCESS : content::READBACK_FAILED);
@@ -584,7 +611,7 @@ static void CopyFromCompositingSurfaceFinished(
 void DelegatedFrameHost::PrepareTextureCopyOutputResult(
     const gfx::Size& dst_size_in_pixel,
     const SkColorType color_type,
-    ReadbackRequestCallback& callback,
+    const ReadbackRequestCallback& callback,
     scoped_ptr<cc::CopyOutputResult> result) {
   DCHECK(result->HasTexture());
   base::ScopedClosureRunner scoped_callback_runner(
@@ -619,17 +646,10 @@ void DelegatedFrameHost::PrepareTextureCopyOutputResult(
   ignore_result(scoped_callback_runner.Release());
 
   gl_helper->CropScaleReadbackAndCleanMailbox(
-      texture_mailbox.mailbox(),
-      texture_mailbox.sync_point(),
-      result->size(),
-      gfx::Rect(result->size()),
-      dst_size_in_pixel,
-      pixels,
-      color_type,
-      base::Bind(&CopyFromCompositingSurfaceFinished,
-                 callback,
-                 base::Passed(&release_callback),
-                 base::Passed(&bitmap),
+      texture_mailbox.mailbox(), texture_mailbox.sync_token(), result->size(),
+      gfx::Rect(result->size()), dst_size_in_pixel, pixels, color_type,
+      base::Bind(&CopyFromCompositingSurfaceFinished, callback,
+                 base::Passed(&release_callback), base::Passed(&bitmap),
                  base::Passed(&bitmap_pixels_lock)),
       GLHelper::SCALER_QUALITY_GOOD);
 }
@@ -638,7 +658,7 @@ void DelegatedFrameHost::PrepareTextureCopyOutputResult(
 void DelegatedFrameHost::PrepareBitmapCopyOutputResult(
     const gfx::Size& dst_size_in_pixel,
     const SkColorType preferred_color_type,
-    ReadbackRequestCallback& callback,
+    const ReadbackRequestCallback& callback,
     scoped_ptr<cc::CopyOutputResult> result) {
   SkColorType color_type = preferred_color_type;
   if (color_type != kN32_SkColorType && color_type != kAlpha_8_SkColorType) {
@@ -689,13 +709,13 @@ void DelegatedFrameHost::PrepareBitmapCopyOutputResult(
 void DelegatedFrameHost::ReturnSubscriberTexture(
     base::WeakPtr<DelegatedFrameHost> dfh,
     scoped_refptr<OwnedMailbox> subscriber_texture,
-    uint32 sync_point) {
+    const gpu::SyncToken& sync_token) {
   if (!subscriber_texture.get())
     return;
   if (!dfh)
     return;
 
-  subscriber_texture->UpdateSyncPoint(sync_point);
+  subscriber_texture->UpdateSyncToken(sync_token);
 
   if (dfh->frame_subscriber_ && subscriber_texture->texture_id())
     dfh->idle_frame_subscriber_textures_.push_back(subscriber_texture);
@@ -710,19 +730,19 @@ void DelegatedFrameHost::CopyFromCompositingSurfaceFinishedForVideo(
     bool result) {
   callback.Run(result);
 
-  uint32 sync_point = 0;
+  gpu::SyncToken sync_token;
   if (result) {
     GLHelper* gl_helper = ImageTransportFactory::GetInstance()->GetGLHelper();
-    sync_point = gl_helper->InsertSyncPoint();
+    sync_token = gpu::SyncToken(gl_helper->InsertSyncPoint());
   }
   if (release_callback) {
     // A release callback means the texture came from the compositor, so there
     // should be no |subscriber_texture|.
     DCHECK(!subscriber_texture.get());
-    bool lost_resource = sync_point == 0;
-    release_callback->Run(sync_point, lost_resource);
+    const bool lost_resource = !sync_token.HasData();
+    release_callback->Run(sync_token, lost_resource);
   }
-  ReturnSubscriberTexture(dfh, subscriber_texture, sync_point);
+  ReturnSubscriberTexture(dfh, subscriber_texture, sync_token);
 }
 
 // static
@@ -730,11 +750,13 @@ void DelegatedFrameHost::CopyFromCompositingSurfaceHasResultForVideo(
     base::WeakPtr<DelegatedFrameHost> dfh,
     scoped_refptr<OwnedMailbox> subscriber_texture,
     scoped_refptr<media::VideoFrame> video_frame,
-    const base::Callback<void(bool)>& callback,
+    const base::Callback<void(const gfx::Rect&, bool)>& callback,
     scoped_ptr<cc::CopyOutputResult> result) {
-  base::ScopedClosureRunner scoped_callback_runner(base::Bind(callback, false));
+  base::ScopedClosureRunner scoped_callback_runner(
+      base::Bind(callback, gfx::Rect(), false));
   base::ScopedClosureRunner scoped_return_subscriber_texture(
-      base::Bind(&ReturnSubscriberTexture, dfh, subscriber_texture, 0));
+      base::Bind(&ReturnSubscriberTexture, dfh, subscriber_texture,
+      gpu::SyncToken()));
 
   if (!dfh)
     return;
@@ -783,7 +805,7 @@ void DelegatedFrameHost::CopyFromCompositingSurfaceHasResultForVideo(
           video_frame.get());
     }
     ignore_result(scoped_callback_runner.Release());
-    callback.Run(true);
+    callback.Run(region_in_frame, true);
     return;
   }
 
@@ -836,14 +858,13 @@ void DelegatedFrameHost::CopyFromCompositingSurfaceHasResultForVideo(
 
   ignore_result(scoped_callback_runner.Release());
   ignore_result(scoped_return_subscriber_texture.Release());
+
   base::Callback<void(bool result)> finished_callback = base::Bind(
       &DelegatedFrameHost::CopyFromCompositingSurfaceFinishedForVideo,
-      dfh->AsWeakPtr(),
-      callback,
-      subscriber_texture,
-      base::Passed(&release_callback));
+      dfh->AsWeakPtr(), base::Bind(callback, region_in_frame),
+      subscriber_texture, base::Passed(&release_callback));
   yuv_readback_pipeline->ReadbackYUV(texture_mailbox.mailbox(),
-                                     texture_mailbox.sync_point(),
+                                     texture_mailbox.sync_token(),
                                      video_frame.get(),
                                      region_in_frame.origin(),
                                      finished_callback);

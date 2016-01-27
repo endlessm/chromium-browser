@@ -11,6 +11,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/plugins/chrome_plugin_service_filter.h"
 #include "chrome/browser/plugins/plugin_finder.h"
 #include "chrome/browser/plugins/plugin_metadata.h"
@@ -39,7 +40,6 @@
 #include "extensions/browser/guest_view/web_view/web_view_renderer_state.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
-#include "extensions/common/manifest_constants.h"
 #include "extensions/common/manifest_handlers/webview_info.h"
 #endif
 
@@ -169,17 +169,10 @@ bool IsPluginLoadingAccessibleResourceInWebView(
   }
 
   const std::string extension_id = resource.host();
-  const extensions::Extension* extension =
-      extension_registry->GetExtensionById(extension_id,
-                             extensions::ExtensionRegistry::ENABLED);
-  if (!extension)
-    return false;
-  const extensions::WebviewInfo* webview_info =
-      static_cast<const extensions::WebviewInfo*>(extension->GetManifestData(
-          extensions::manifest_keys::kWebviewAccessibleResources));
-  if (!webview_info ||
-      !webview_info->IsResourceWebviewAccessible(extension, partition_id,
-                                                 resource.path())) {
+  const extensions::Extension* extension = extension_registry->GetExtensionById(
+      extension_id, extensions::ExtensionRegistry::ENABLED);
+  if (!extension || !extensions::WebviewInfo::IsResourceWebviewAccessible(
+          extension, partition_id, resource.path())) {
     return false;
   }
 
@@ -200,7 +193,8 @@ PluginInfoMessageFilter::Context::Context(int render_process_id,
 #if defined(ENABLE_EXTENSIONS)
       extension_registry_(extensions::ExtensionRegistry::Get(profile)),
 #endif
-      host_content_settings_map_(profile->GetHostContentSettingsMap()),
+      host_content_settings_map_(HostContentSettingsMapFactory::GetForProfile(
+          profile)),
       plugin_prefs_(PluginPrefs::GetForProfile(profile)) {
   allow_outdated_plugins_.Init(prefs::kPluginsAllowOutdated,
                                profile->GetPrefs());
@@ -454,18 +448,21 @@ void PluginInfoMessageFilter::Context::DecidePluginStatus(
                   : ChromeViewHostMsg_GetPluginInfo_Status::kBlocked;
   }
 
-  if (*status == ChromeViewHostMsg_GetPluginInfo_Status::kAllowed) {
-    // Allow an embedder of <webview> to block a plugin from being loaded inside
-    // the guest. In order to do this, set the status to 'Unauthorized' here,
-    // and update the status as appropriate depending on the response from the
-    // embedder.
 #if defined(ENABLE_EXTENSIONS)
+  // Allow an embedder of <webview> to block a plugin from being loaded inside
+  // the guest. In order to do this, set the status to 'Unauthorized' here,
+  // and update the status as appropriate depending on the response from the
+  // embedder.
+  if (*status == ChromeViewHostMsg_GetPluginInfo_Status::kAllowed ||
+      *status == ChromeViewHostMsg_GetPluginInfo_Status::kBlocked ||
+      *status ==
+          ChromeViewHostMsg_GetPluginInfo_Status::kPlayImportantContent) {
     if (extensions::WebViewRendererState::GetInstance()->IsGuest(
-        render_process_id_))
+            render_process_id_))
       *status = ChromeViewHostMsg_GetPluginInfo_Status::kUnauthorized;
 
-#endif
   }
+#endif
 }
 
 bool PluginInfoMessageFilter::Context::FindEnabledPlugin(

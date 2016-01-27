@@ -14,7 +14,6 @@
 #include "base/logging.h"
 #include "base/mac/foundation_util.h"
 #include "ios/chrome/browser/ui/ui_util.h"
-#include "ios/chrome/browser/ui/ui_util.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/l10n/l10n_util_mac.h"
 #include "ui/gfx/ios/uikit_util.h"
@@ -126,9 +125,6 @@ void AddBorderShadow(UIView* view, CGFloat offset, UIColor* color) {
   CGPathRelease(outline);
 }
 
-// TODO(pkl): The implementation of this has some duplicated code with
-// AddBorderShadow and ToolsPopupView newPathForRect:withRadius:withArrow:.
-// There is an opportunity to refactor them into a common shadow library.
 void AddRoundedBorderShadow(UIView* view, CGFloat radius, UIColor* color) {
   CGRect rect = view.bounds;
   CGMutablePathRef path = CGPathCreateMutable();
@@ -426,20 +422,38 @@ UIColor* InterpolateFromColorToColor(UIColor* firstColor,
 void ApplyVisualConstraints(NSArray* constraints,
                             NSDictionary* subviewsDictionary,
                             UIView* parentView) {
-  ApplyVisualConstraintsWithMetrics(constraints, subviewsDictionary, nil,
-                                    parentView);
+  ApplyVisualConstraintsWithMetricsAndOptions(constraints, subviewsDictionary,
+                                              nil, 0, parentView);
+}
+
+void ApplyVisualConstraintsWithOptions(NSArray* constraints,
+                                       NSDictionary* subviewsDictionary,
+                                       NSLayoutFormatOptions options,
+                                       UIView* parentView) {
+  ApplyVisualConstraintsWithMetricsAndOptions(constraints, subviewsDictionary,
+                                              nil, options, parentView);
 }
 
 void ApplyVisualConstraintsWithMetrics(NSArray* constraints,
                                        NSDictionary* subviewsDictionary,
                                        NSDictionary* metrics,
                                        UIView* parentView) {
+  ApplyVisualConstraintsWithMetricsAndOptions(constraints, subviewsDictionary,
+                                              metrics, 0, parentView);
+}
+
+void ApplyVisualConstraintsWithMetricsAndOptions(
+    NSArray* constraints,
+    NSDictionary* subviewsDictionary,
+    NSDictionary* metrics,
+    NSLayoutFormatOptions options,
+    UIView* parentView) {
   for (NSString* constraint in constraints) {
     DCHECK([constraint isKindOfClass:[NSString class]]);
     [parentView
         addConstraints:[NSLayoutConstraint
                            constraintsWithVisualFormat:constraint
-                                               options:0
+                                               options:options
                                                metrics:metrics
                                                  views:subviewsDictionary]];
   }
@@ -452,6 +466,21 @@ void AddSameCenterXConstraint(UIView* parentView, UIView* subview) {
                                          attribute:NSLayoutAttributeCenterX
                                          relatedBy:NSLayoutRelationEqual
                                             toItem:parentView
+                                         attribute:NSLayoutAttributeCenterX
+                                        multiplier:1
+                                          constant:0]];
+}
+
+void AddSameCenterXConstraint(UIView *parentView, UIView *subview1,
+                              UIView *subview2) {
+  DCHECK_EQ(parentView, [subview1 superview]);
+  DCHECK_EQ(parentView, [subview2 superview]);
+  DCHECK_NE(subview1, subview2);
+  [parentView addConstraint:[NSLayoutConstraint
+                                constraintWithItem:subview1
+                                         attribute:NSLayoutAttributeCenterX
+                                         relatedBy:NSLayoutRelationEqual
+                                            toItem:subview2
                                          attribute:NSLayoutAttributeCenterX
                                         multiplier:1
                                           constant:0]];
@@ -483,4 +512,27 @@ void AddSameCenterYConstraint(UIView* parentView,
                                          attribute:NSLayoutAttributeCenterY
                                         multiplier:1
                                           constant:0]];
+}
+
+bool IsCompact(id<UITraitEnvironment> environment) {
+  if (base::ios::IsRunningOnIOS8OrLater()) {
+    return environment.traitCollection.horizontalSizeClass ==
+           UIUserInterfaceSizeClassCompact;
+  } else {
+    // Prior to iOS 8, iPad is always regular, iPhone is always compact.
+    return !IsIPadIdiom();
+  }
+}
+
+bool IsCompact() {
+  UIWindow* keyWindow = [UIApplication sharedApplication].keyWindow;
+  return IsCompact(keyWindow);
+}
+
+bool IsCompactTablet(id<UITraitEnvironment> environment) {
+  return IsIPadIdiom() && IsCompact(environment);
+}
+
+bool IsCompactTablet() {
+  return IsIPadIdiom() && IsCompact();
 }

@@ -62,11 +62,11 @@
             '<(SHARED_INTERMEDIATE_DIR)/net/<(RULE_INPUT_DIRNAME)/<(RULE_INPUT_ROOT)-inc.cc',
           ],
           'inputs': [
-            'tools/tld_cleanup/make_dafsa.py',
+            'tools/dafsa/make_dafsa.py',
           ],
           'action': [
             'python',
-            'tools/tld_cleanup/make_dafsa.py',
+            'tools/dafsa/make_dafsa.py',
             '<(RULE_INPUT_PATH)',
             '<(SHARED_INTERMEDIATE_DIR)/net/<(RULE_INPUT_DIRNAME)/<(RULE_INPUT_ROOT)-inc.cc',
           ],
@@ -181,7 +181,6 @@
             'cert/nss_cert_database_unittest.cc',
             'cert/nss_cert_database_chromeos_unittest.cc',
             'cert/nss_profile_filter_chromeos_unittest.cc',
-            'ssl/client_cert_store_chromeos_unittest.cc',
             'ssl/client_cert_store_nss_unittest.cc',
           ],
         }],
@@ -295,10 +294,7 @@
             ],
           },
         ],
-        # Always need use_v8_in_net to be 1 to run gyp on Android, so just
-        # remove net_unittest's dependency on v8 when using icu alternatives
-        # instead of setting use_v8_in_net to 0.
-        [ 'use_v8_in_net==1 and use_icu_alternatives_on_android==0', {
+        [ 'use_v8_in_net==1', {
             'dependencies': [
               'net_with_v8',
             ],
@@ -364,9 +360,13 @@
                 'action_name': 'copy_test_data',
                 'variables': {
                   'test_data_files': [
+                    'data/certificate_policies_unittest/',
+                    'data/name_constraints_unittest/',
                     'data/ssl/certificates/',
                     'data/test.html',
                     'data/url_request_unittest/',
+                    'data/verify_name_match_unittest/names/',
+                    'data/parse_certificate_unittest/',
                   ],
                   'test_data_prefix': 'net',
                 },
@@ -410,16 +410,6 @@
             '../testing/android/native_test.gyp:native_test_native_code',
           ]
         }],
-        [ 'use_icu_alternatives_on_android == 1', {
-            'dependencies!': [
-              '../base/base.gyp:base_i18n',
-            ],
-            'sources!': [
-              'base/filename_util_unittest.cc',
-              'base/net_util_icu_unittest.cc',
-            ],
-          },
-        ],
         ['use_v8_in_net==1 and v8_use_external_startup_data==1', {
           'dependencies': [
             '../gin/gin.gyp:gin',
@@ -568,6 +558,8 @@
         'test/channel_id_test_util.h',
         'test/ct_test_util.cc',
         'test/ct_test_util.h',
+        'test/embedded_test_server/default_handlers.cc',
+        'test/embedded_test_server/default_handlers.h',
         'test/embedded_test_server/embedded_test_server.cc',
         'test/embedded_test_server/embedded_test_server.h',
         'test/embedded_test_server/http_connection.cc',
@@ -576,10 +568,8 @@
         'test/embedded_test_server/http_request.h',
         'test/embedded_test_server/http_response.cc',
         'test/embedded_test_server/http_response.h',
-        'test/embedded_test_server/stream_listen_socket.cc',
-        'test/embedded_test_server/stream_listen_socket.h',
-        'test/embedded_test_server/tcp_listen_socket.cc',
-        'test/embedded_test_server/tcp_listen_socket.h',
+        'test/embedded_test_server/request_handler_util.cc',
+        'test/embedded_test_server/request_handler_util.h',
         'test/event_waiter.h',
         'test/net_test_suite.cc',
         'test/net_test_suite.h',
@@ -592,6 +582,8 @@
         'test/spawned_test_server/local_test_server_posix.cc',
         'test/spawned_test_server/local_test_server_win.cc',
         'test/spawned_test_server/spawned_test_server.h',
+        'test/url_request/ssl_certificate_error_job.cc',
+        'test/url_request/ssl_certificate_error_job.h',
         'test/url_request/url_request_failed_job.cc',
         'test/url_request/url_request_failed_job.h',
         'test/url_request/url_request_mock_data_job.cc',
@@ -607,6 +599,16 @@
         ['OS != "ios"', {
           'dependencies': [
             '../third_party/protobuf/protobuf.gyp:py_proto',
+          ],
+        }, {
+          'sources!': [
+            'test/spawned_test_server/base_test_server.cc',
+            'test/spawned_test_server/base_test_server.h',
+            'test/spawned_test_server/local_test_server.cc',
+            'test/spawned_test_server/local_test_server.h',
+            'test/spawned_test_server/local_test_server_posix.cc',
+            'test/spawned_test_server/local_test_server_win.cc',
+            'test/spawned_test_server/spawned_test_server.h',
           ],
         }],
         ['use_nss_certs == 1 or OS == "ios"', {
@@ -687,6 +689,7 @@
         {
           'action_name': 'net_resources',
           'variables': {
+            'grit_whitelist': '',
             'grit_grd_file': 'base/net_resources.grd',
           },
           'includes': [ '../build/grit_action.gypi' ],
@@ -796,17 +799,9 @@
         'net_test_support',
       ],
       'sources': [
-        'tools/dump_cache/cache_dumper.cc',
-        'tools/dump_cache/cache_dumper.h',
         'tools/dump_cache/dump_cache.cc',
         'tools/dump_cache/dump_files.cc',
         'tools/dump_cache/dump_files.h',
-        'tools/dump_cache/simple_cache_dumper.cc',
-        'tools/dump_cache/simple_cache_dumper.h',
-        'tools/dump_cache/url_to_filename_encoder.cc',
-        'tools/dump_cache/url_to_filename_encoder.h',
-        'tools/dump_cache/url_utilities.cc',
-        'tools/dump_cache/url_utilities.h',
       ],
       # TODO(jschuh): crbug.com/167187 fix size_t to int truncations.
       'msvs_disabled_warnings': [4267, ],
@@ -822,6 +817,8 @@
         'net_quic_proto',
       ],
       'sources': [
+        'tools/quic/quic_client_base.cc',
+        'tools/quic/quic_client_base.h',
         'tools/quic/quic_client_session.cc',
         'tools/quic/quic_client_session.h',
         'tools/quic/quic_dispatcher.cc',
@@ -1196,10 +1193,6 @@
             'net',
           ],
           'sources': [
-            'tools/dump_cache/url_to_filename_encoder.cc',
-            'tools/dump_cache/url_to_filename_encoder.h',
-            'tools/dump_cache/url_utilities.cc',
-            'tools/dump_cache/url_utilities.h',
             'tools/flip_server/acceptor_thread.cc',
             'tools/flip_server/acceptor_thread.h',
             'tools/flip_server/constants.h',
@@ -1209,7 +1202,6 @@
             'tools/flip_server/flip_config.h',
             'tools/flip_server/http_interface.cc',
             'tools/flip_server/http_interface.h',
-            'tools/flip_server/loadtime_measurement.h',
             'tools/flip_server/mem_cache.cc',
             'tools/flip_server/mem_cache.h',
             'tools/flip_server/output_ordering.cc',
@@ -1227,6 +1219,10 @@
             'tools/flip_server/spdy_util.h',
             'tools/flip_server/streamer_interface.cc',
             'tools/flip_server/streamer_interface.h',
+            'tools/flip_server/url_to_filename_encoder.cc',
+            'tools/flip_server/url_to_filename_encoder.h',
+            'tools/flip_server/url_utilities.cc',
+            'tools/flip_server/url_utilities.h',
           ],
         },
         {
@@ -1247,6 +1243,8 @@
             'tools/flip_server/mem_cache_test.cc',
             'tools/flip_server/run_all_tests.cc',
             'tools/flip_server/spdy_interface_test.cc',
+            'tools/flip_server/url_to_filename_encoder_unittest.cc',
+            'tools/flip_server/url_utilities_unittest.cc',
           ],
         },
         {
@@ -1333,7 +1331,6 @@
             'disable_ftp_support': 1,
             'disable_file_support': 1,
             'enable_websockets': 0,
-            'use_icu_alternatives_on_android': 1,
           },
           'dependencies': [
             '../url/url.gyp:url_lib_use_icu_alternatives_on_android',
@@ -1357,6 +1354,7 @@
             'android/java/src/org/chromium/net/AndroidKeyStore.java',
             'android/java/src/org/chromium/net/AndroidNetworkLibrary.java',
             'android/java/src/org/chromium/net/AndroidPrivateKey.java',
+            'android/java/src/org/chromium/net/AndroidTrafficStats.java',
             'android/java/src/org/chromium/net/GURLUtils.java',
             'android/java/src/org/chromium/net/HttpNegotiateAuthenticator.java',
             'android/java/src/org/chromium/net/NetStringUtil.java',
@@ -1393,9 +1391,11 @@
             'cert_verify_status_android_java',
             'certificate_mime_types_java',
             'network_change_notifier_types_java',
+            'network_change_notifier_android_types_java',
             'net_errors_java',
             'private_key_types_java',
             'remote_android_keystore_aidl',
+            'traffic_stats_error_java',
           ],
           'includes': [ '../build/java.gypi' ],
         },
@@ -1418,6 +1418,8 @@
           'type': 'none',
           'variables': {
             'java_in_dir': '../net/test/android/javatests',
+            # TODO(jbudorick): remove chromium_code: 0 line once crbug.com/488192 is fixed.
+            'chromium_code': 0,
           },
           'dependencies': [
             'net_java',
@@ -1446,6 +1448,7 @@
             '../base/base.gyp:base',
             '../base/base.gyp:base_java_test_support',
             'net_java',
+            'net_java_test_support',
           ],
           'includes': [ '../build/java.gypi' ],
         },
@@ -1486,10 +1489,26 @@
           'includes': [ '../build/android/java_cpp_enum.gypi' ],
         },
         {
+          'target_name': 'network_change_notifier_android_types_java',
+          'type': 'none',
+          'variables': {
+            'source_file': 'android/network_change_notifier_android.cc',
+          },
+          'includes': [ '../build/android/java_cpp_enum.gypi' ],
+        },
+        {
           'target_name': 'private_key_types_java',
           'type': 'none',
           'variables': {
             'source_file': 'android/keystore.h',
+          },
+          'includes': [ '../build/android/java_cpp_enum.gypi' ],
+        },
+        {
+          'target_name': 'traffic_stats_error_java',
+          'type': 'none',
+          'variables': {
+            'source_file': 'android/traffic_stats.cc',
           },
           'includes': [ '../build/android/java_cpp_enum.gypi' ],
         },
@@ -1507,15 +1526,19 @@
               'dependencies': [
                 '../v8/tools/gyp/v8.gyp:v8_external_snapshot',
               ],
-              'copies': [
-                {
-                'destination': '<(asset_location)',
-                  'files': [
-                    '<(PRODUCT_DIR)/natives_blob.bin',
-                    '<(PRODUCT_DIR)/snapshot_blob.bin',
-                  ],
-                },
-              ],
+              'variables': {
+                'dest_path': '<(asset_location)',
+                'renaming_sources': [
+                  '<(PRODUCT_DIR)/natives_blob.bin',
+                  '<(PRODUCT_DIR)/snapshot_blob.bin',
+                ],
+                'renaming_destinations': [
+                  'natives_blob_<(arch_suffix).bin',
+                  'snapshot_blob_<(arch_suffix).bin',
+                ],
+                'clear': 1,
+              },
+              'includes': ['../build/android/copy_ex.gypi'],
             }],
           ],
           'variables': {
@@ -1527,17 +1550,16 @@
               ['v8_use_external_startup_data==1', {
                 'asset_location': '<(PRODUCT_DIR)/net_unittests_apk/assets',
                 'additional_input_paths': [
-                  '<(PRODUCT_DIR)/net_unittests_apk/assets/natives_blob.bin',
-                  '<(PRODUCT_DIR)/net_unittests_apk/assets/snapshot_blob.bin',
-                ],
-                'inputs': [
-                  '<(PRODUCT_DIR)/natives_blob.bin',
-                  '<(PRODUCT_DIR)/snapshot_blob.bin',
+                  '<(PRODUCT_DIR)/net_unittests_apk/assets/natives_blob_<(arch_suffix).bin',
+                  '<(PRODUCT_DIR)/net_unittests_apk/assets/snapshot_blob_<(arch_suffix).bin',
                 ],
               }],
             ],
           },
-          'includes': [ '../build/apk_test.gypi' ],
+          'includes': [
+            '../build/apk_test.gypi',
+            '../build/android/v8_external_startup_data_arch_suffix.gypi',
+          ],
         },
         {
           'target_name': 'net_junit_tests',
@@ -1546,6 +1568,7 @@
             'net_java',
             '../base/base.gyp:base',
             '../base/base.gyp:base_java_test_support',
+            '../base/base.gyp:base_junit_test_support',
             '../testing/android/junit/junit_test.gyp:junit_test_support',
           ],
           'variables': {
@@ -1558,7 +1581,27 @@
             '../build/host_jar.gypi',
           ],
         },
-  
+      ],
+      'conditions': [
+        ['test_isolation_mode != "noop"',
+          {
+            'targets': [
+              {
+                'target_name': 'net_unittests_apk_run',
+                'type': 'none',
+                'dependencies': [
+                  'net_unittests_apk',
+                ],
+                'includes': [
+                  '../build/isolate.gypi',
+                ],
+                'sources': [
+                  'net_unittests_apk.isolate',
+                ],
+              },
+            ]
+          }
+        ],
       ],
     }],
     ['OS == "android" or OS == "linux"', {

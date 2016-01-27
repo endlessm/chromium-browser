@@ -12,9 +12,9 @@
 
 #include "webrtc/modules/video_coding/main/source/internal_defines.h"
 #include "webrtc/modules/video_coding/main/source/jitter_buffer_common.h"
-#include "webrtc/system_wrappers/interface/clock.h"
-#include "webrtc/system_wrappers/interface/metrics.h"
-#include "webrtc/system_wrappers/interface/timestamp_extrapolator.h"
+#include "webrtc/system_wrappers/include/clock.h"
+#include "webrtc/system_wrappers/include/metrics.h"
+#include "webrtc/system_wrappers/include/timestamp_extrapolator.h"
 
 
 namespace webrtc {
@@ -165,13 +165,13 @@ void VCMTiming::UpdateCurrentDelay(int64_t render_time_ms,
 }
 
 int32_t VCMTiming::StopDecodeTimer(uint32_t time_stamp,
-                                   int64_t start_time_ms,
+                                   int32_t decode_time_ms,
                                    int64_t now_ms,
                                    int64_t render_time_ms) {
   CriticalSectionScoped cs(crit_sect_);
-  int32_t time_diff_ms = codec_timer_.StopTimer(start_time_ms, now_ms);
-  assert(time_diff_ms >= 0);
-  last_decode_ms_ = time_diff_ms;
+  codec_timer_.MaxFilter(decode_time_ms, now_ms);
+  assert(decode_time_ms >= 0);
+  last_decode_ms_ = decode_time_ms;
 
   // Update stats.
   ++num_decoded_frames_;

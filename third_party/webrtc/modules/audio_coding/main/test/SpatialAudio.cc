@@ -15,8 +15,8 @@
 
 #include "webrtc/common_types.h"
 #include "webrtc/modules/audio_coding/main/test/SpatialAudio.h"
-#include "webrtc/system_wrappers/interface/trace.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/test/testsupport/fileutils.h"
 
 namespace webrtc {
@@ -159,13 +159,13 @@ void SpatialAudio::EncodeDecode(const double leftPanning,
 
   while (!_inFile.EndOfFile()) {
     _inFile.Read10MsData(audioFrame);
-    for (int n = 0; n < audioFrame.samples_per_channel_; n++) {
+    for (size_t n = 0; n < audioFrame.samples_per_channel_; n++) {
       audioFrame.data_[n] = (int16_t) floor(
           audioFrame.data_[n] * leftPanning + 0.5);
     }
     CHECK_ERROR(_acmLeft->Add10MsData(audioFrame));
 
-    for (int n = 0; n < audioFrame.samples_per_channel_; n++) {
+    for (size_t n = 0; n < audioFrame.samples_per_channel_; n++) {
       audioFrame.data_[n] = (int16_t) floor(
           audioFrame.data_[n] * rightToLeftRatio + 0.5);
     }

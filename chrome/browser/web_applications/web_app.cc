@@ -19,7 +19,6 @@
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/pref_names.h"
 #include "content/public/browser/browser_thread.h"
@@ -214,6 +213,13 @@ scoped_ptr<ShortcutInfo> ShortcutInfoForExtensionAndProfile(
   scoped_ptr<ShortcutInfo> shortcut_info(new ShortcutInfo);
   shortcut_info->extension_id = app->id();
   shortcut_info->is_platform_app = app->is_platform_app();
+
+  // Some default-installed apps are converted into bookmark apps on Chrome
+  // first run. These should not be considered as being created (by the user)
+  // from a web page.
+  shortcut_info->from_bookmark =
+      app->from_bookmark() && !app->was_installed_by_default();
+
   shortcut_info->url = extensions::AppLaunchInfo::GetLaunchWebURL(app);
   shortcut_info->title = base::UTF8ToUTF16(app->name());
   shortcut_info->description = base::UTF8ToUTF16(app->description());

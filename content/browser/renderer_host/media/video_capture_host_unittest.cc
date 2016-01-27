@@ -79,7 +79,7 @@ class DumpVideo {
   void NewVideoFrame(const void* buffer) {
     if (file_.get() != NULL) {
       const int size = media::VideoFrame::AllocationSize(
-          media::VideoFrame::I420, coded_size_);
+          media::PIXEL_FORMAT_I420, coded_size_);
       ASSERT_EQ(1U, fwrite(buffer, size, 1, file_.get()));
     }
   }
@@ -151,7 +151,8 @@ class MockVideoCaptureHost : public VideoCaptureHost {
   void ReturnReceivedDibs(int device_id)  {
     int handle = GetReceivedDib();
     while (handle) {
-      this->OnRendererFinishedWithBuffer(device_id, handle, 0, -1.0);
+      this->OnRendererFinishedWithBuffer(device_id, handle, gpu::SyncToken(),
+                                         -1.0);
       handle = GetReceivedDib();
     }
   }
@@ -231,7 +232,7 @@ class MockVideoCaptureHost : public VideoCaptureHost {
     OnBufferFilled(params.device_id);
     if (return_buffers_) {
       VideoCaptureHost::OnRendererFinishedWithBuffer(
-          params.device_id, params.buffer_id, 0, -1.0);
+          params.device_id, params.buffer_id, gpu::SyncToken(), -1.0);
     }
   }
 
@@ -274,7 +275,8 @@ class VideoCaptureHostTest : public testing::Test {
         switches::kUseFakeDeviceForMediaStream);
 #endif
     media_stream_manager_.reset(new MediaStreamManager(audio_manager_.get()));
-    media_stream_manager_->UseFakeUI(scoped_ptr<FakeMediaStreamUIProxy>());
+    media_stream_manager_->UseFakeUIForTests(
+        scoped_ptr<FakeMediaStreamUIProxy>());
 
     // Create a Host and connect it to a simulated IPC channel.
     host_ = new MockVideoCaptureHost(media_stream_manager_.get());

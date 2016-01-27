@@ -54,10 +54,8 @@ bool InfoBarAndroid::HasSetJavaInfoBar() const {
 
 void InfoBarAndroid::OnButtonClicked(JNIEnv* env,
                                      jobject obj,
-                                     jint action,
-                                     jstring action_value) {
-  std::string value = base::android::ConvertJavaStringToUTF8(env, action_value);
-  ProcessButton(action, value);
+                                     jint action) {
+  ProcessButton(action);
 }
 
 void InfoBarAndroid::OnCloseButtonClicked(JNIEnv* env, jobject obj) {
@@ -75,7 +73,7 @@ void InfoBarAndroid::CloseJavaInfoBar() {
 }
 
 int InfoBarAndroid::GetEnumeratedIconId() {
-  return ResourceMapper::MapFromChromiumId(delegate()->GetIconID());
+  return ResourceMapper::MapFromChromiumId(delegate()->GetIconId());
 }
 
 

@@ -4,12 +4,12 @@
 
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/test/integration/bookmarks_helper.h"
 #include "chrome/browser/sync/test/integration/single_client_status_change_checker.h"
 #include "chrome/browser/sync/test/integration/sync_integration_test_util.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "sync/test/fake_server/bookmark_entity_builder.h"
 #include "sync/test/fake_server/entity_builder_factory.h"
 #include "sync/test/fake_server/fake_server_verifier.h"
@@ -415,4 +415,8 @@ IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, DownloadBookmarkFolder) {
   ASSERT_TRUE(SetupSync());
 
   ASSERT_EQ(1, CountFoldersWithTitlesMatching(kSingleProfileIndex, title));
+}
+
+IN_PROC_BROWSER_TEST_F(SingleClientBookmarksSyncTest, E2E_ONLY(SanitySetup)) {
+  ASSERT_TRUE(SetupSync()) <<  "SetupSync() failed.";
 }

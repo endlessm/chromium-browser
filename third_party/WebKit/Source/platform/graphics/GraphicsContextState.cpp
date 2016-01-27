@@ -7,6 +7,15 @@
 
 namespace blink {
 
+static inline SkFilterQuality filterQualityForPaint(InterpolationQuality quality)
+{
+    // The filter quality "selected" here will primarily be used when painting a
+    // primitive using one of the SkPaints below. For the most part this will
+    // not affect things that are part of the Image class hierarchy (which use
+    // the unmodified m_interpolationQuality.)
+    return quality != InterpolationNone ? kLow_SkFilterQuality : kNone_SkFilterQuality;
+}
+
 GraphicsContextState::GraphicsContextState()
     : m_strokeColor(Color::black)
     , m_fillColor(Color::black)
@@ -21,10 +30,10 @@ GraphicsContextState::GraphicsContextState()
     m_strokePaint.setStrokeCap(SkPaint::kDefault_Cap);
     m_strokePaint.setStrokeJoin(SkPaint::kDefault_Join);
     m_strokePaint.setStrokeMiter(SkFloatToScalar(m_strokeData.miterLimit()));
-    m_strokePaint.setFilterQuality(WebCoreInterpolationQualityToSkFilterQuality(m_interpolationQuality));
+    m_strokePaint.setFilterQuality(filterQualityForPaint(m_interpolationQuality));
     m_strokePaint.setAntiAlias(m_shouldAntialias);
     m_fillPaint.setColor(m_fillColor.rgb());
-    m_fillPaint.setFilterQuality(WebCoreInterpolationQualityToSkFilterQuality(m_interpolationQuality));
+    m_fillPaint.setFilterQuality(filterQualityForPaint(m_interpolationQuality));
     m_fillPaint.setAntiAlias(m_shouldAntialias);
 }
 
@@ -52,7 +61,7 @@ void GraphicsContextState::copy(const GraphicsContextState& source)
 const SkPaint& GraphicsContextState::strokePaint(int strokedPathLength) const
 {
     if (m_strokeGradient && m_strokeGradient->shaderChanged())
-        m_strokePaint.setShader(m_strokeGradient->shader());
+        m_strokeGradient->applyToPaint(m_strokePaint);
     m_strokeData.setupPaintDashPathEffect(&m_strokePaint, strokedPathLength);
     return m_strokePaint;
 }
@@ -60,7 +69,7 @@ const SkPaint& GraphicsContextState::strokePaint(int strokedPathLength) const
 const SkPaint& GraphicsContextState::fillPaint() const
 {
     if (m_fillGradient && m_fillGradient->shaderChanged())
-        m_fillPaint.setShader(m_fillGradient->shader());
+        m_fillGradient->applyToPaint(m_fillPaint);
     return m_fillPaint;
 }
 
@@ -88,7 +97,7 @@ void GraphicsContextState::setStrokeGradient(const PassRefPtr<Gradient> gradient
     m_strokeColor = Color::black;
     m_strokeGradient = gradient;
     m_strokePaint.setColor(scaleAlpha(SK_ColorBLACK, alpha));
-    m_strokePaint.setShader(m_strokeGradient->shader());
+    m_strokeGradient->applyToPaint(m_strokePaint);
 }
 
 void GraphicsContextState::setLineCap(LineCap cap)
@@ -122,7 +131,7 @@ void GraphicsContextState::setFillGradient(const PassRefPtr<Gradient> gradient, 
     m_fillColor = Color::black;
     m_fillGradient = gradient;
     m_fillPaint.setColor(scaleAlpha(SK_ColorBLACK, alpha));
-    m_fillPaint.setShader(m_fillGradient->shader());
+    m_fillGradient->applyToPaint(m_fillPaint);
 }
 
 // Shadow. (This will need tweaking if we use draw loopers for other things.)
@@ -155,8 +164,8 @@ void GraphicsContextState::setColorFilter(PassRefPtr<SkColorFilter> colorFilter)
 void GraphicsContextState::setInterpolationQuality(InterpolationQuality quality)
 {
     m_interpolationQuality = quality;
-    m_strokePaint.setFilterQuality(WebCoreInterpolationQualityToSkFilterQuality(quality));
-    m_fillPaint.setFilterQuality(WebCoreInterpolationQualityToSkFilterQuality(quality));
+    m_strokePaint.setFilterQuality(filterQualityForPaint(quality));
+    m_fillPaint.setFilterQuality(filterQualityForPaint(quality));
 }
 
 void GraphicsContextState::setShouldAntialias(bool shouldAntialias)

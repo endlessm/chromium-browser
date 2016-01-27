@@ -42,9 +42,9 @@ namespace blink {
 
 class CSSAnimations;
 
-using AnimationCountedSet = WillBeHeapHashCountedSet<RawPtrWillBeWeakMember<Animation>>;
+using AnimationCountedSet = HeapHashCountedSet<WeakMember<Animation>>;
 
-class ElementAnimations : public NoBaseWillBeGarbageCollectedFinalized<ElementAnimations> {
+class ElementAnimations : public GarbageCollectedFinalized<ElementAnimations> {
     WTF_MAKE_NONCOPYABLE(ElementAnimations);
 public:
     ElementAnimations();
@@ -52,10 +52,10 @@ public:
 
     // Animations that are currently active for this element, their effects will be applied
     // during a style recalc. CSS Transitions are included in this stack.
-    AnimationStack& defaultStack() { return m_defaultStack; }
-    const AnimationStack& defaultStack() const { return m_defaultStack; }
+    AnimationStack& animationStack() { return m_animationStack; }
+    const AnimationStack& animationStack() const { return m_animationStack; }
     // Tracks the state of active CSS Animations and Transitions. The individual animations
-    // will also be part of the default stack, but the mapping betwen animation name and
+    // will also be part of the animation stack, but the mapping betwen animation name and
     // animation is kept here.
     CSSAnimations& cssAnimations() { return m_cssAnimations; }
     const CSSAnimations& cssAnimations() const { return m_cssAnimations; }
@@ -63,7 +63,7 @@ public:
     // Animations which have effects targeting this element.
     AnimationCountedSet& animations() { return m_animations; }
 
-    bool isEmpty() const { return m_defaultStack.isEmpty() && m_cssAnimations.isEmpty() && m_animations.isEmpty(); }
+    bool isEmpty() const { return m_animationStack.isEmpty() && m_cssAnimations.isEmpty() && m_animations.isEmpty(); }
 
     void restartAnimationOnCompositor();
 
@@ -75,8 +75,8 @@ public:
     void clearBaseComputedStyle();
 
 #if !ENABLE(OILPAN)
-    void addEffect(KeyframeEffect* effect) { m_effects.append(effect); }
-    void notifyEffectDestroyed(KeyframeEffect* effect) { m_effects.remove(m_effects.find(effect)); }
+    void addEffect(KeyframeEffect* effect) { m_effects.add(effect); }
+    void dispose();
 #endif
 
     DECLARE_TRACE();
@@ -84,16 +84,16 @@ public:
 private:
     bool isAnimationStyleChange() const;
 
-    AnimationStack m_defaultStack;
+    AnimationStack m_animationStack;
     CSSAnimations m_cssAnimations;
     AnimationCountedSet m_animations;
     bool m_animationStyleChange;
     RefPtr<ComputedStyle> m_baseComputedStyle;
 
 #if !ENABLE(OILPAN)
-    // FIXME: Oilpan: This is to avoid a reference cycle that keeps Elements alive
-    // and won't be needed once the Node hierarchy becomes traceable.
-    Vector<KeyframeEffect*> m_effects;
+    // TODO(oilpan): This is to avoid a reference cycle that keeps Elements
+    // alive and won't be needed once the Node hierarchy becomes traceable.
+    HeapHashSet<WeakMember<KeyframeEffect>> m_effects;
 #endif
 
     // CSSAnimations and DeferredLegacyStyleInterpolation checks if a style change is due to animation.

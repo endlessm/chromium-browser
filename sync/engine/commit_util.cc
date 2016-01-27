@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "base/debug/dump_without_crashing.h"
 #include "base/strings/string_util.h"
 #include "sync/engine/syncer_proto_util.h"
 #include "sync/internal_api/public/base/attachment_id_proto.h"
@@ -32,14 +33,8 @@ using std::vector;
 
 namespace syncer {
 
-using sessions::SyncSession;
 using syncable::Entry;
-using syncable::IS_DEL;
-using syncable::IS_UNAPPLIED_UPDATE;
-using syncable::IS_UNSYNCED;
 using syncable::Id;
-using syncable::SPECIFICS;
-using syncable::UNIQUE_POSITION;
 
 namespace commit_util {
 
@@ -190,6 +185,10 @@ void BuildCommitItem(
           meta_entry.GetUniquePosition().ToInt64());
       meta_entry.GetUniquePosition().ToProto(
           sync_entry->mutable_unique_position());
+      if (!meta_entry.GetUniquePosition().IsValid()) {
+        // Should never upload invalid unique position for bookmark to server.
+        base::debug::DumpWithoutCrashing();
+      }
     }
     // Always send specifics for bookmarks.
     SetEntrySpecifics(meta_entry, sync_entry);

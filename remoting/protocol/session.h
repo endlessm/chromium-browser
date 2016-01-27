@@ -10,14 +10,11 @@
 #include "remoting/protocol/errors.h"
 #include "remoting/protocol/session_config.h"
 
-namespace net {
-class IPEndPoint;
-}  // namespace net
-
 namespace remoting {
 namespace protocol {
 
 class StreamChannelFactory;
+class Transport;
 struct TransportRoute;
 
 // Generic interface for Chromotocol connection used by both client and host.
@@ -68,7 +65,6 @@ class Session {
                                       const TransportRoute& route) = 0;
   };
 
-
   Session() {}
   virtual ~Session() {}
 
@@ -82,30 +78,21 @@ class Session {
   // JID of the other side.
   virtual const std::string& jid() = 0;
 
-  // Configuration of the protocol that was sent or received in the
-  // session-initiate jingle message. Returned pointer is valid until
-  // connection is closed.
-  virtual const CandidateSessionConfig* candidate_config() = 0;
-
   // Protocol configuration. Can be called only after session has been accepted.
   // Returned pointer is valid until connection is closed.
   virtual const SessionConfig& config() = 0;
 
-  // Set protocol configuration for an incoming session. Must be
-  // called on the host before the connection is accepted, from
-  // ChromotocolServer::IncomingConnectionCallback.
-  virtual void set_config(scoped_ptr<SessionConfig> config) = 0;
+  // Returns Transport that can be used to create transport channels.
+  virtual Transport* GetTransport() = 0;
 
-  // GetTransportChannelFactory() returns a factory that creates a new transport
-  // channel for each logical channel. GetMultiplexedChannelFactory() channels
-  // share a single underlying transport channel
-  virtual StreamChannelFactory* GetTransportChannelFactory() = 0;
-  virtual StreamChannelFactory* GetMultiplexedChannelFactory() = 0;
+  // Channel factory for QUIC-based channels. Returns nullptr when QUIC is
+  // disabled for the session.
+  virtual StreamChannelFactory* GetQuicChannelFactory() = 0;
 
-  // Closes connection. Callbacks are guaranteed not to be called
-  // after this method returns. Must be called before the object is
-  // destroyed, unless the state is set to FAILED or CLOSED.
-  virtual void Close() = 0;
+  // Closes connection. Callbacks are guaranteed not to be called after this
+  // method returns. |error| specifies the error code in case when the session
+  // is being closed due to an error.
+  virtual void Close(ErrorCode error) = 0;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(Session);

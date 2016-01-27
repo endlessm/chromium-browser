@@ -16,7 +16,8 @@
 
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/thread_annotations.h"
-#include "webrtc/modules/interface/module.h"
+#include "webrtc/modules/include/module.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "webrtc/typedefs.h"
 
 namespace webrtc {
@@ -30,16 +31,8 @@ struct Packet;
 class PacketQueue;
 }  // namespace paced_sender
 
-class PacedSender : public Module {
+class PacedSender : public Module, public RtpPacketSender {
  public:
-  enum Priority {
-    kHighPriority = 0,  // Pass through; will be sent immediately.
-    kNormalPriority = 2,  // Put in back of the line.
-    kLowPriority = 3,  // Put in back of the low priority line.
-  };
-  // Low priority packets are mixed with the normal priority packets
-  // while we are paused.
-
   class Callback {
    public:
     // Note: packets sent as a result of a callback should not pass by this
@@ -58,7 +51,11 @@ class PacedSender : public Module {
     virtual ~Callback() {}
   };
 
-  static const int64_t kDefaultMaxQueueLengthMs = 2000;
+  // Expected max pacer delay in ms. If ExpectedQueueTimeMs() is higher than
+  // this value, the packet producers should wait (eg drop frames rather than
+  // encoding them). Bitrate sent may temporarily exceed target set by
+  // UpdateBitrate() so that this limit will be upheld.
+  static const int64_t kMaxQueueLengthMs;
   // Pace in kbits/s until we receive first estimate.
   static const int kDefaultInitialPaceKbps = 2000;
   // Pacing-rate relative to our target send rate.
@@ -68,6 +65,8 @@ class PacedSender : public Module {
   // overshoots from the encoder.
   static const float kDefaultPaceMultiplier;
 
+  static const size_t kMinProbePacketSize = 200;
+
   PacedSender(Clock* clock,
               Callback* callback,
               int bitrate_kbps,
@@ -75,11 +74,6 @@ class PacedSender : public Module {
               int min_bitrate_kbps);
 
   virtual ~PacedSender();
-
-  // Enable/disable pacing.
-  void SetStatus(bool enable);
-
-  bool Enabled() const;
 
   // Temporarily pause all sending.
   void Pause();
@@ -103,12 +97,12 @@ class PacedSender : public Module {
 
   // Returns true if we send the packet now, else it will add the packet
   // information to the queue and call TimeToSendPacket when it's time to send.
-  virtual bool SendPacket(Priority priority,
-                          uint32_t ssrc,
-                          uint16_t sequence_number,
-                          int64_t capture_time_ms,
-                          size_t bytes,
-                          bool retransmission);
+  void InsertPacket(RtpPacketSender::Priority priority,
+                    uint32_t ssrc,
+                    uint16_t sequence_number,
+                    int64_t capture_time_ms,
+                    size_t bytes,
+                    bool retransmission) override;
 
   // Returns the time since the oldest queued packet was enqueued.
   virtual int64_t QueueInMs() const;
@@ -119,15 +113,16 @@ class PacedSender : public Module {
   // packets in the queue, given the current size and bitrate, ignoring prio.
   virtual int64_t ExpectedQueueTimeMs() const;
 
+  // Returns the average time since being enqueued, in milliseconds, for all
+  // packets currently in the pacer queue, or 0 if queue is empty.
+  virtual int64_t AverageQueueTimeMs();
+
   // Returns the number of milliseconds until the module want a worker thread
   // to call Process.
   int64_t TimeUntilNextProcess() override;
 
   // Process any pending packets in the queue(s).
   int32_t Process() override;
-
- protected:
-  virtual bool ProbingExperimentIsEnabled() const;
 
  private:
   // Updates the number of bytes that can be sent for the next time interval.
@@ -142,7 +137,6 @@ class PacedSender : public Module {
   Callback* const callback_;
 
   rtc::scoped_ptr<CriticalSectionWrapper> critsect_;
-  bool enabled_ GUARDED_BY(critsect_);
   bool paused_ GUARDED_BY(critsect_);
   bool probing_enabled_;
   // This is the media budget, keeping track of how many bits of media
@@ -156,7 +150,10 @@ class PacedSender : public Module {
       GUARDED_BY(critsect_);
 
   rtc::scoped_ptr<BitrateProber> prober_ GUARDED_BY(critsect_);
+  // Actual configured bitrates (media_budget_ may temporarily be higher in
+  // order to meet pace time constraint).
   int bitrate_bps_ GUARDED_BY(critsect_);
+  int max_bitrate_kbps_ GUARDED_BY(critsect_);
 
   int64_t time_last_update_us_ GUARDED_BY(critsect_);
 

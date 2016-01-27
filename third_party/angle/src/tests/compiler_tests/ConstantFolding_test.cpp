@@ -71,12 +71,19 @@ class ConstantFinder : public TIntermTraverser
 
     bool isEqual(const TConstantUnion &node, const int &value) const
     {
-        return mFaultTolerance >= abs(node.getIConst() - value);
+        ASSERT(mFaultTolerance < std::numeric_limits<int>::max());
+        // abs() returns 0 at least on some platforms when the minimum int value is passed in (it
+        // doesn't have a positive counterpart).
+        return mFaultTolerance >= abs(node.getIConst() - value) &&
+               (node.getIConst() - value) != std::numeric_limits<int>::min();
     }
 
     bool isEqual(const TConstantUnion &node, const unsigned int &value) const
     {
-        return mFaultTolerance >= abs(static_cast<int>(node.getUConst() - value));
+        ASSERT(mFaultTolerance < static_cast<unsigned int>(std::numeric_limits<int>::max()));
+        return static_cast<int>(mFaultTolerance) >=
+                   abs(static_cast<int>(node.getUConst() - value)) &&
+               static_cast<int>(node.getUConst() - value) != std::numeric_limits<int>::min();
     }
 
     bool isEqual(const TConstantUnion &node, const bool &value) const
@@ -271,11 +278,13 @@ TEST_F(ConstantFoldingTest, Fold2x2MatrixInverse)
     const std::string &shaderString =
         "#version 300 es\n"
         "precision mediump float;\n"
-        "out mat2 my_Matrix;"
+        "in float i;\n"
+        "out vec2 my_Vec;\n"
         "void main() {\n"
         "   const mat2 m2 = inverse(mat2(2.0f, 3.0f,\n"
         "                                5.0f, 7.0f));\n"
-        "   my_Matrix = m2;\n"
+        "   mat2 m = m2 * mat2(i);\n"
+        "   my_Vec = m[0];\n"
         "}\n";
     compile(shaderString);
     float inputElements[] =
@@ -300,12 +309,14 @@ TEST_F(ConstantFoldingTest, Fold3x3MatrixInverse)
     const std::string &shaderString =
         "#version 300 es\n"
         "precision mediump float;\n"
-        "out mat3 my_Matrix;"
+        "in float i;\n"
+        "out vec3 my_Vec;\n"
         "void main() {\n"
         "   const mat3 m3 = inverse(mat3(11.0f, 13.0f, 19.0f,\n"
         "                                23.0f, 29.0f, 31.0f,\n"
         "                                37.0f, 41.0f, 43.0f));\n"
-        "   my_Matrix = m3;\n"
+        "   mat3 m = m3 * mat3(i);\n"
+        "   my_Vec = m3[0];\n"
         "}\n";
     compile(shaderString);
     float inputElements[] =
@@ -333,13 +344,15 @@ TEST_F(ConstantFoldingTest, Fold4x4MatrixInverse)
     const std::string &shaderString =
         "#version 300 es\n"
         "precision mediump float;\n"
-        "out mat4 my_Matrix;"
+        "in float i;\n"
+        "out vec4 my_Vec;\n"
         "void main() {\n"
         "   const mat4 m4 = inverse(mat4(29.0f, 31.0f, 37.0f, 41.0f,\n"
         "                                43.0f, 47.0f, 53.0f, 59.0f,\n"
         "                                61.0f, 67.0f, 71.0f, 73.0f,\n"
         "                                79.0f, 83.0f, 89.0f, 97.0f));\n"
-        "   my_Matrix = m4;\n"
+        "   mat4 m = m4 * mat4(i);\n"
+        "   my_Vec = m[0];\n"
         "}\n";
     compile(shaderString);
     float inputElements[] =
@@ -448,12 +461,14 @@ TEST_F(ConstantFoldingTest, Fold3x3MatrixTranspose)
     const std::string &shaderString =
         "#version 300 es\n"
         "precision mediump float;\n"
-        "out mat3 my_Matrix;"
+        "in float i;\n"
+        "out vec3 my_Vec;\n"
         "void main() {\n"
         "   const mat3 m3 = transpose(mat3(11.0f, 13.0f, 19.0f,\n"
         "                                  23.0f, 29.0f, 31.0f,\n"
         "                                  37.0f, 41.0f, 43.0f));\n"
-        "   my_Matrix = m3;\n"
+        "   mat3 m = m3 * mat3(i);\n"
+        "   my_Vec = m[0];\n"
         "}\n";
     compile(shaderString);
     float inputElements[] =
@@ -474,3 +489,78 @@ TEST_F(ConstantFoldingTest, Fold3x3MatrixTranspose)
     ASSERT_TRUE(constantVectorFoundInAST(result));
 }
 
+// Test that 0xFFFFFFFF wraps to -1 when parsed as integer.
+// This is featured in the examples of ESSL3 section 4.1.3. ESSL3 section 12.42
+// means that any 32-bit unsigned integer value is a valid literal.
+TEST_F(ConstantFoldingTest, ParseWrappedHexIntLiteral)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "precision highp int;\n"
+        "uniform int inInt;\n"
+        "out vec4 my_Vec;\n"
+        "void main() {\n"
+        "   const int i = 0xFFFFFFFF;\n"
+        "   my_Vec = vec4(i * inInt);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(-1));
+}
+
+// Test that 3000000000 wraps to -1294967296 when parsed as integer.
+// This is featured in the examples of GLSL 4.5, and ESSL behavior should match
+// desktop GLSL when it comes to integer parsing.
+TEST_F(ConstantFoldingTest, ParseWrappedDecimalIntLiteral)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "precision highp int;\n"
+        "uniform int inInt;\n"
+        "out vec4 my_Vec;\n"
+        "void main() {\n"
+        "   const int i = 3000000000;\n"
+        "   my_Vec = vec4(i * inInt);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(-1294967296));
+}
+
+// Test that 0xFFFFFFFFu is parsed correctly as an unsigned integer literal.
+// This is featured in the examples of ESSL3 section 4.1.3. ESSL3 section 12.42
+// means that any 32-bit unsigned integer value is a valid literal.
+TEST_F(ConstantFoldingTest, ParseMaxUintLiteral)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "precision highp int;\n"
+        "uniform uint inInt;\n"
+        "out vec4 my_Vec;\n"
+        "void main() {\n"
+        "   const uint i = 0xFFFFFFFFu;\n"
+        "   my_Vec = vec4(i * inInt);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(0xFFFFFFFFu));
+}
+
+// Test that unary minus applied to unsigned int is constant folded correctly.
+// This is featured in the examples of ESSL3 section 4.1.3. ESSL3 section 12.42
+// means that any 32-bit unsigned integer value is a valid literal.
+TEST_F(ConstantFoldingTest, FoldUnaryMinusOnUintLiteral)
+{
+    const std::string &shaderString =
+        "#version 300 es\n"
+        "precision mediump float;\n"
+        "precision highp int;\n"
+        "uniform uint inInt;\n"
+        "out vec4 my_Vec;\n"
+        "void main() {\n"
+        "   const uint i = -1u;\n"
+        "   my_Vec = vec4(i * inInt);\n"
+        "}\n";
+    compile(shaderString);
+    ASSERT_TRUE(constantFoundInAST(0xFFFFFFFFu));
+}

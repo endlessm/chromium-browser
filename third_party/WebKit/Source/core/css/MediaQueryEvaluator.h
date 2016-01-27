@@ -40,7 +40,7 @@ class MediaQueryResult;
 class MediaQuerySet;
 class MediaValues;
 
-typedef WillBeHeapVector<RefPtrWillBeMember<MediaQueryResult>> MediaQueryResultList;
+using MediaQueryResultList = WillBeHeapVector<RefPtrWillBeMember<MediaQueryResult>>;
 
 // Class that evaluates css media queries as defined in
 // CSS3 Module "Media Queries" (http://www.w3.org/TR/css3-mediaqueries/)
@@ -54,7 +54,7 @@ typedef WillBeHeapVector<RefPtrWillBeMember<MediaQueryResult>> MediaQueryResultL
 // of stylesheets to only those which are probable to match.
 
 class CORE_EXPORT MediaQueryEvaluator {
-    WTF_MAKE_NONCOPYABLE(MediaQueryEvaluator); WTF_MAKE_FAST_ALLOCATED(MediaQueryEvaluator);
+    WTF_MAKE_NONCOPYABLE(MediaQueryEvaluator); USING_FAST_MALLOC(MediaQueryEvaluator);
 public:
     // Creates evaluator which evaluates only simple media queries
     // Evaluator returns true for "all", and returns value of \mediaFeatureResult
@@ -92,7 +92,7 @@ private:
 
     String m_mediaType;
     bool m_expectedResult;
-    RefPtr<MediaValues> m_mediaValues;
+    RefPtrWillBePersistent<MediaValues> m_mediaValues;
 };
 
 } // namespace

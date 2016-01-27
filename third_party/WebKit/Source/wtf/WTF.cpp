@@ -33,7 +33,6 @@
 
 #include "wtf/ArrayBufferContents.h"
 #include "wtf/Assertions.h"
-#include "wtf/FastMalloc.h"
 #include "wtf/Partitions.h"
 
 namespace WTF {
@@ -47,22 +46,21 @@ void initialize(TimeFunction currentTimeFunction, TimeFunction monotonicallyIncr
 {
     // WTF, and Blink in general, cannot handle being re-initialized, even if shutdown first.
     // Make that explicit here.
-    ASSERT(!s_initialized);
-    ASSERT(!s_shutdown);
+    RELEASE_ASSERT(!s_initialized);
+    RELEASE_ASSERT(!s_shutdown);
     s_initialized = true;
     setCurrentTimeFunction(currentTimeFunction);
     setMonotonicallyIncreasingTimeFunction(monotonicallyIncreasingTimeFunction);
     setSystemTraceTimeFunction(systemTraceTimeFunction);
-    Partitions::initialize();
-    Partitions::setHistogramEnumeration(histogramEnumerationFunction);
+    Partitions::initialize(histogramEnumerationFunction);
     ArrayBufferContents::setAdjustAmoutOfExternalAllocatedMemoryFunction(adjustAmountOfExternalAllocatedMemoryFunction);
     initializeThreading();
 }
 
 void shutdown()
 {
-    ASSERT(s_initialized);
-    ASSERT(!s_shutdown);
+    RELEASE_ASSERT(s_initialized);
+    RELEASE_ASSERT(!s_shutdown);
     s_shutdown = true;
     Partitions::shutdown();
 }

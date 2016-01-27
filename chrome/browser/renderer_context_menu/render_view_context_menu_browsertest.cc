@@ -10,9 +10,12 @@
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
+#include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_browsertest_util.h"
 #include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
@@ -21,6 +24,7 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/render_messages.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/base/search_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
 #include "components/search_engines/template_url_data.h"
@@ -32,6 +36,7 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
@@ -50,60 +55,86 @@ class ContextMenuBrowserTest : public InProcessBrowserTest {
  public:
   ContextMenuBrowserTest() {}
 
-  TestRenderViewContextMenu* CreateContextMenu(
+ protected:
+  scoped_ptr<TestRenderViewContextMenu> CreateContextMenuMediaTypeNone(
+      const GURL& unfiltered_url,
+      const GURL& url) {
+    return CreateContextMenu(unfiltered_url, url, base::string16(),
+                             blink::WebContextMenuData::MediaTypeNone,
+                             ui::MENU_SOURCE_NONE);
+  }
+
+  scoped_ptr<TestRenderViewContextMenu> CreateContextMenuMediaTypeImage(
+      const GURL& url) {
+    return CreateContextMenu(GURL(), url, base::string16(),
+                             blink::WebContextMenuData::MediaTypeImage,
+                             ui::MENU_SOURCE_NONE);
+  }
+
+  scoped_ptr<TestRenderViewContextMenu> CreateContextMenu(
       const GURL& unfiltered_url,
       const GURL& url,
-      blink::WebContextMenuData::MediaType media_type) {
+      const base::string16& link_text,
+      blink::WebContextMenuData::MediaType media_type,
+      ui::MenuSourceType source_type) {
     content::ContextMenuParams params;
     params.media_type = media_type;
     params.unfiltered_link_url = unfiltered_url;
     params.link_url = url;
     params.src_url = url;
+    params.link_text = link_text;
     WebContents* web_contents =
         browser()->tab_strip_model()->GetActiveWebContents();
     params.page_url = web_contents->GetController().GetActiveEntry()->GetURL();
+    params.source_type = source_type;
 #if defined(OS_MACOSX)
     params.writing_direction_default = 0;
     params.writing_direction_left_to_right = 0;
     params.writing_direction_right_to_left = 0;
 #endif  // OS_MACOSX
-    TestRenderViewContextMenu* menu = new TestRenderViewContextMenu(
-        browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame(),
-        params);
+    scoped_ptr<TestRenderViewContextMenu> menu(
+        new TestRenderViewContextMenu(web_contents->GetMainFrame(), params));
     menu->Init();
     return menu;
   }
 
-  TestRenderViewContextMenu* CreateContextMenuMediaTypeNone(
-      const GURL& unfiltered_url,
-      const GURL& url) {
-    return CreateContextMenu(unfiltered_url, url,
-                             blink::WebContextMenuData::MediaTypeNone);
+  // Does not work on ChromeOS.
+  Profile* CreateSecondaryProfile(int profile_num) {
+    ProfileManager* profile_manager = g_browser_process->profile_manager();
+    base::FilePath profile_path = profile_manager->user_data_dir();
+    profile_path = profile_path.AppendASCII(
+        base::StringPrintf("New Profile %d", profile_num));
+    return profile_manager->GetProfile(profile_path);
   }
 };
 
 IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest,
                        OpenEntryPresentForNormalURLs) {
-  scoped_ptr<TestRenderViewContextMenu> menu(CreateContextMenuMediaTypeNone(
-      GURL("http://www.google.com/"), GURL("http://www.google.com/")));
+  scoped_ptr<TestRenderViewContextMenu> menu = CreateContextMenuMediaTypeNone(
+      GURL("http://www.google.com/"), GURL("http://www.google.com/"));
 
   ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKNEWTAB));
   ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW));
   ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_COPYLINKLOCATION));
+  ASSERT_FALSE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKINPROFILE));
+  ASSERT_FALSE(menu->IsItemInRangePresent(IDC_OPEN_LINK_IN_PROFILE_FIRST,
+                                          IDC_OPEN_LINK_IN_PROFILE_LAST));
 }
 
 IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest,
                        OpenEntryAbsentForFilteredURLs) {
-  scoped_ptr<TestRenderViewContextMenu> menu(
-      CreateContextMenuMediaTypeNone(GURL("chrome://history"), GURL()));
+  scoped_ptr<TestRenderViewContextMenu> menu =
+      CreateContextMenuMediaTypeNone(GURL("chrome://history"), GURL());
 
   ASSERT_FALSE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKNEWTAB));
   ASSERT_FALSE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW));
   ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_COPYLINKLOCATION));
+  ASSERT_FALSE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKINPROFILE));
+  ASSERT_FALSE(menu->IsItemInRangePresent(IDC_OPEN_LINK_IN_PROFILE_FIRST,
+                                          IDC_OPEN_LINK_IN_PROFILE_LAST));
 }
 
-IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest,
-                       ContextMenuForCanvas) {
+IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, ContextMenuForCanvas) {
   content::ContextMenuParams params;
   params.media_type = blink::WebContextMenuData::MediaTypeCanvas;
 
@@ -114,6 +145,42 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest,
 
   ASSERT_TRUE(menu.IsItemPresent(IDC_CONTENT_CONTEXT_SAVEIMAGEAS));
   ASSERT_TRUE(menu.IsItemPresent(IDC_CONTENT_CONTEXT_COPYIMAGE));
+}
+
+IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, CopyLinkTextMouse) {
+  scoped_ptr<TestRenderViewContextMenu> menu = CreateContextMenu(
+      GURL("http://www.google.com/"), GURL("http://www.google.com/"),
+      base::ASCIIToUTF16("Google"), blink::WebContextMenuData::MediaTypeNone,
+      ui::MENU_SOURCE_MOUSE);
+
+  ASSERT_FALSE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_COPYLINKTEXT));
+}
+
+IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, CopyLinkTextTouchNoText) {
+  scoped_ptr<TestRenderViewContextMenu> menu = CreateContextMenu(
+      GURL("http://www.google.com/"), GURL("http://www.google.com/"),
+      base::ASCIIToUTF16(""), blink::WebContextMenuData::MediaTypeNone,
+      ui::MENU_SOURCE_TOUCH);
+
+  ASSERT_FALSE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_COPYLINKTEXT));
+}
+
+IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, CopyLinkTextTouchTextOnly) {
+  scoped_ptr<TestRenderViewContextMenu> menu = CreateContextMenu(
+      GURL("http://www.google.com/"), GURL("http://www.google.com/"),
+      base::ASCIIToUTF16("Google"), blink::WebContextMenuData::MediaTypeNone,
+      ui::MENU_SOURCE_TOUCH);
+
+  ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_COPYLINKTEXT));
+}
+
+IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, CopyLinkTextTouchTextImage) {
+  scoped_ptr<TestRenderViewContextMenu> menu = CreateContextMenu(
+      GURL("http://www.google.com/"), GURL("http://www.google.com/"),
+      base::ASCIIToUTF16("Google"), blink::WebContextMenuData::MediaTypeImage,
+      ui::MENU_SOURCE_TOUCH);
+
+  ASSERT_FALSE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_COPYLINKTEXT));
 }
 
 // Opens a link in a new tab via a "real" context menu.
@@ -139,9 +206,9 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, RealMenu) {
   mouse_event.globalX = 15 + offset.x();
   mouse_event.globalY = 15 + offset.y();
   mouse_event.clickCount = 1;
-  tab->GetRenderViewHost()->ForwardMouseEvent(mouse_event);
+  tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
   mouse_event.type = blink::WebInputEvent::MouseUp;
-  tab->GetRenderViewHost()->ForwardMouseEvent(mouse_event);
+  tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
 
   // The menu_observer will select "Open in new tab", wait for the new tab to
   // be added.
@@ -276,9 +343,9 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, SuggestedFileName) {
   mouse_event.y = 15;
   content::WebContents* tab =
       browser()->tab_strip_model()->GetActiveWebContents();
-  tab->GetRenderViewHost()->ForwardMouseEvent(mouse_event);
+  tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
   mouse_event.type = blink::WebInputEvent::MouseUp;
-  tab->GetRenderViewHost()->ForwardMouseEvent(mouse_event);
+  tab->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(mouse_event);
 
   // Wait for context menu to be visible.
   menu_observer.WaitForMenuOpenAndClose();
@@ -318,9 +385,8 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, DataSaverOpenOrigImageInNewTab) {
   command_line->AppendSwitch(
       data_reduction_proxy::switches::kEnableDataReductionProxy);
 
-  scoped_ptr<TestRenderViewContextMenu> menu(
-      CreateContextMenu(GURL(), GURL("http://url.com/image.png"),
-                        blink::WebContextMenuData::MediaTypeImage));
+  scoped_ptr<TestRenderViewContextMenu> menu =
+      CreateContextMenuMediaTypeImage(GURL("http://url.com/image.png"));
 
   ASSERT_FALSE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENIMAGENEWTAB));
   ASSERT_TRUE(menu->IsItemPresent(
@@ -333,9 +399,8 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest,
   command_line->AppendSwitch(
       data_reduction_proxy::switches::kEnableDataReductionProxy);
 
-  scoped_ptr<TestRenderViewContextMenu> menu(
-      CreateContextMenu(GURL(), GURL("https://url.com/image.png"),
-                        blink::WebContextMenuData::MediaTypeImage));
+  scoped_ptr<TestRenderViewContextMenu> menu =
+      CreateContextMenuMediaTypeImage(GURL("https://url.com/image.png"));
 
   ASSERT_FALSE(
       menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPEN_ORIGINAL_IMAGE_NEW_TAB));
@@ -343,13 +408,96 @@ IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, OpenImageInNewTab) {
-  scoped_ptr<TestRenderViewContextMenu> menu(
-      CreateContextMenu(GURL(), GURL("http://url.com/image.png"),
-                        blink::WebContextMenuData::MediaTypeImage));
+  scoped_ptr<TestRenderViewContextMenu> menu =
+      CreateContextMenuMediaTypeImage(GURL("http://url.com/image.png"));
   ASSERT_FALSE(
       menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPEN_ORIGINAL_IMAGE_NEW_TAB));
   ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENIMAGENEWTAB));
 }
+
+// Functionality is not present on ChromeOS.
+#if !defined(OS_CHROMEOS)
+IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, OpenLinkInProfileEntryPresent) {
+  {
+    scoped_ptr<TestRenderViewContextMenu> menu(CreateContextMenuMediaTypeNone(
+        GURL("http://www.google.com/"), GURL("http://www.google.com/")));
+
+    ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKNEWTAB));
+    ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW));
+    ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_COPYLINKLOCATION));
+    // With only one profile exists, we don't add any items to the context menu
+    // for opening links in other profiles.
+    ASSERT_FALSE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKINPROFILE));
+    ASSERT_FALSE(menu->IsItemInRangePresent(IDC_OPEN_LINK_IN_PROFILE_FIRST,
+                                            IDC_OPEN_LINK_IN_PROFILE_LAST));
+  }
+
+  // Create one additional profile, but do not yet open windows in it.
+  CreateSecondaryProfile(1);
+
+  {
+    scoped_ptr<TestRenderViewContextMenu> menu(CreateContextMenuMediaTypeNone(
+        GURL("http://www.google.com/"), GURL("http://www.google.com/")));
+
+    ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKNEWTAB));
+    ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW));
+    ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_COPYLINKLOCATION));
+    // With two profiles (the current and another profile), no submenu is
+    // created. Instead, a single item is added to the main context menu.
+    ASSERT_FALSE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKINPROFILE));
+    ASSERT_TRUE(menu->IsItemInRangePresent(IDC_OPEN_LINK_IN_PROFILE_FIRST,
+                                           IDC_OPEN_LINK_IN_PROFILE_LAST));
+  }
+
+  CreateSecondaryProfile(2);
+
+  {
+    scoped_ptr<TestRenderViewContextMenu> menu(CreateContextMenuMediaTypeNone(
+        GURL("http://www.google.com/"), GURL("http://www.google.com/")));
+
+    ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKNEWTAB));
+    ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKNEWWINDOW));
+    ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_COPYLINKLOCATION));
+    // As soon as at least three profiles exist, we show all profiles in a
+    // submenu.
+    ASSERT_TRUE(menu->IsItemPresent(IDC_CONTENT_CONTEXT_OPENLINKINPROFILE));
+    ASSERT_FALSE(menu->IsItemInRangePresent(IDC_OPEN_LINK_IN_PROFILE_FIRST,
+                                            IDC_OPEN_LINK_IN_PROFILE_LAST));
+  }
+}
+
+IN_PROC_BROWSER_TEST_F(ContextMenuBrowserTest, OpenLinkInProfile) {
+  Profile* other_profile = CreateSecondaryProfile(1);
+  profiles::FindOrCreateNewWindowForProfile(
+      other_profile, chrome::startup::IS_NOT_PROCESS_STARTUP,
+      chrome::startup::IS_NOT_FIRST_RUN, chrome::GetActiveDesktop(), false);
+
+  ui_test_utils::WindowedTabAddedNotificationObserver tab_observer(
+      content::NotificationService::AllSources());
+
+  ASSERT_TRUE(test_server()->Start());
+  GURL url(test_server()->GetURL(std::string()));
+
+  scoped_ptr<TestRenderViewContextMenu> menu(
+      CreateContextMenuMediaTypeNone(url, url));
+
+  menu->ExecuteCommand(
+      IDC_OPEN_LINK_IN_PROFILE_FIRST +
+          g_browser_process->profile_manager()
+              ->GetProfileInfoCache()
+              .GetIndexOfProfileWithPath(other_profile->GetPath()),
+      0);
+
+  tab_observer.Wait();
+  content::WebContents* tab = tab_observer.GetTab();
+  content::WaitForLoadStop(tab);
+
+  // Verify that it's the correct tab and profile.
+  ASSERT_EQ(url, tab->GetURL());
+  ASSERT_EQ(other_profile,
+            Profile::FromBrowserContext(tab->GetBrowserContext()));
+}
+#endif  // !defined(OS_CHROMEOS)
 
 class ThumbnailResponseWatcher : public content::NotificationObserver {
  public:
@@ -478,7 +626,7 @@ class SearchByImageBrowserTest : public InProcessBrowserTest {
     TemplateURLService* model =
         TemplateURLServiceFactory::GetForProfile(browser()->profile());
     ASSERT_TRUE(model);
-    ui_test_utils::WaitForTemplateURLServiceToLoad(model);
+    search_test_utils::WaitForTemplateURLServiceToLoad(model);
     ASSERT_TRUE(model->loaded());
 
     TemplateURLData data;

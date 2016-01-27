@@ -71,11 +71,10 @@ bool ContainsURL(const std::vector<GURL>& urls, const GURL& url) {
   return std::find(urls.begin(), urls.end(), url) != urls.end();
 }
 
-bool ContainsForm(const std::vector<autofill::FormData>& forms,
+bool ContainsForm(const std::vector<FormData>& forms,
                   const PasswordForm& form) {
-  for (std::vector<autofill::FormData>::const_iterator it =
-           forms.begin(); it != forms.end(); ++it) {
-    if (it->SameFormAs(form.form_data))
+  for (const auto& form_it : forms) {
+    if (form_it.SameFormAs(form.form_data))
       return true;
   }
   return false;
@@ -84,10 +83,9 @@ bool ContainsForm(const std::vector<autofill::FormData>& forms,
 void CopyElementValueToOtherInputElements(
     const blink::WebInputElement* element,
     std::vector<blink::WebInputElement>* elements) {
-  for (std::vector<blink::WebInputElement>::iterator it = elements->begin();
-       it != elements->end(); ++it) {
-    if (*element != *it) {
-      it->setValue(element->value(), true /* sendEvents */);
+  for (blink::WebInputElement& it : *elements) {
+    if (*element != it) {
+      it.setValue(element->value(), true /* sendEvents */);
     }
   }
 }
@@ -195,7 +193,7 @@ void PasswordGenerationAgent::FindPossibleGenerationForm() {
     // If we can't get a valid PasswordForm, we skip this form because the
     // the password won't get saved even if we generate it.
     scoped_ptr<PasswordForm> password_form(
-        CreatePasswordForm(forms[i], nullptr, nullptr));
+        CreatePasswordFormFromWebForm(forms[i], nullptr, nullptr));
     if (!password_form.get()) {
       VLOG(2) << "Skipping form as it would not be saved";
       continue;
@@ -274,7 +272,7 @@ void PasswordGenerationAgent::OnPasswordAccepted(
 }
 
 void PasswordGenerationAgent::OnAccountCreationFormsDetected(
-    const std::vector<autofill::FormData>& forms) {
+    const std::vector<FormData>& forms) {
   generation_enabled_forms_.insert(
       generation_enabled_forms_.end(), forms.begin(), forms.end());
   DetermineGenerationElement();
@@ -329,6 +327,9 @@ void PasswordGenerationAgent::DetermineGenerationElement() {
     password_generation::LogPasswordGenerationEvent(
         password_generation::GENERATION_AVAILABLE);
     possible_account_creation_forms_.clear();
+    Send(new AutofillHostMsg_GenerationAvailableForForm(
+        routing_id(),
+        *generation_form_data_->form));
     return;
   }
 }
@@ -410,7 +411,7 @@ bool PasswordGenerationAgent::TextDidChangeInTextField(
 }
 
 void PasswordGenerationAgent::ShowGenerationPopup() {
-  gfx::RectF bounding_box_scaled = GetScaledBoundingBox(
+  gfx::RectF bounding_box_scaled = form_util::GetScaledBoundingBox(
       render_frame()->GetRenderView()->GetWebView()->pageScaleFactor(),
       &generation_element_);
 
@@ -424,7 +425,7 @@ void PasswordGenerationAgent::ShowGenerationPopup() {
 }
 
 void PasswordGenerationAgent::ShowEditingPopup() {
-  gfx::RectF bounding_box_scaled = GetScaledBoundingBox(
+  gfx::RectF bounding_box_scaled = form_util::GetScaledBoundingBox(
       render_frame()->GetRenderView()->GetWebView()->pageScaleFactor(),
       &generation_element_);
 

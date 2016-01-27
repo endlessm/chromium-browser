@@ -11,24 +11,25 @@
 #include "chrome/browser/engagement/site_engagement_helper.h"
 #include "chrome/browser/engagement/site_engagement_service.h"
 #include "chrome/browser/external_protocol/external_protocol_observer.h"
-#include "chrome/browser/favicon/favicon_helper.h"
+#include "chrome/browser/favicon/favicon_utils.h"
 #include "chrome/browser/history/history_tab_helper.h"
 #include "chrome/browser/history/top_sites_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/net/net_error_tab_helper.h"
 #include "chrome/browser/net/predictor_tab_helper.h"
+#include "chrome/browser/page_load_metrics/page_load_metrics_initialize.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/predictors/resource_prefetch_predictor_factory.h"
 #include "chrome/browser/predictors/resource_prefetch_predictor_tab_helper.h"
 #include "chrome/browser/prerender/prerender_tab_helper.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
+#include "chrome/browser/ssl/security_state_model.h"
 #include "chrome/browser/tab_contents/navigation_metrics_recorder.h"
 #include "chrome/browser/tracing/navigation_tracing.h"
 #include "chrome/browser/translate/chrome_translate_client.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
 #include "chrome/browser/ui/blocked_content/popup_blocker_tab_helper.h"
-#include "chrome/browser/ui/bookmarks/bookmark_tab_helper.h"
 #include "chrome/browser/ui/find_bar/find_tab_helper.h"
 #include "chrome/browser/ui/navigation_correction_tab_observer.h"
 #include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
@@ -40,13 +41,16 @@
 #include "chrome/common/chrome_switches.h"
 #include "components/autofill/content/browser/content_autofill_driver_factory.h"
 #include "components/autofill/core/browser/autofill_manager.h"
-#include "components/dom_distiller/content/web_contents_main_frame_observer.h"
+#include "components/dom_distiller/content/browser/web_contents_main_frame_observer.h"
+#include "components/dom_distiller/core/dom_distiller_switches.h"
 #include "components/history/content/browser/web_contents_top_sites_observer.h"
 #include "components/history/core/browser/top_sites.h"
 #include "components/password_manager/core/browser/password_manager.h"
+#include "components/tracing/tracing_switches.h"
 #include "content/public/browser/web_contents.h"
 
 #if defined(OS_ANDROID)
+#include "chrome/browser/android/data_usage/data_use_tab_helper.h"
 #include "chrome/browser/android/voice_search_tab_helper.h"
 #include "chrome/browser/android/webapps/single_tab_mode_tab_helper.h"
 #include "chrome/browser/ui/android/context_menu_helper.h"
@@ -56,6 +60,7 @@
 #include "chrome/browser/plugins/plugin_observer.h"
 #include "chrome/browser/safe_browsing/safe_browsing_tab_observer.h"
 #include "chrome/browser/thumbnails/thumbnail_tab_helper.h"
+#include "chrome/browser/ui/bookmarks/bookmark_tab_helper.h"
 #include "chrome/browser/ui/hung_plugin_tab_helper.h"
 #include "chrome/browser/ui/sad_tab_helper.h"
 #include "chrome/browser/ui/search_engines/search_engine_tab_helper.h"
@@ -89,6 +94,7 @@
 #if defined(ENABLE_PRINT_PREVIEW)
 #include "chrome/browser/printing/print_preview_message_handler.h"
 #include "chrome/browser/printing/print_view_manager.h"
+#include "chrome/browser/ui/webui/print_preview/print_preview_distiller.h"
 #else
 #include "chrome/browser/printing/print_view_manager_basic.h"
 #endif  // defined(ENABLE_PRINT_PREVIEW)
@@ -139,7 +145,6 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
       autofill::ChromeAutofillClient::FromWebContents(web_contents),
       g_browser_process->GetApplicationLocale(),
       autofill::AutofillManager::ENABLE_AUTOFILL_DOWNLOAD_MANAGER);
-  BookmarkTabHelper::CreateForWebContents(web_contents);
   chrome_browser_net::NetErrorTabHelper::CreateForWebContents(web_contents);
   chrome_browser_net::PredictorTabHelper::CreateForWebContents(web_contents);
   ChromeContentSettingsClient::CreateForWebContents(web_contents);
@@ -160,10 +165,12 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
   ManagePasswordsUIController::CreateForWebContents(web_contents);
   NavigationCorrectionTabObserver::CreateForWebContents(web_contents);
   NavigationMetricsRecorder::CreateForWebContents(web_contents);
+  chrome::InitializePageLoadMetricsForWebContents(web_contents);
   PopupBlockerTabHelper::CreateForWebContents(web_contents);
   PrefsTabHelper::CreateForWebContents(web_contents);
   prerender::PrerenderTabHelper::CreateForWebContents(web_contents);
   SearchTabHelper::CreateForWebContents(web_contents);
+  SecurityStateModel::CreateForWebContents(web_contents);
   if (SiteEngagementService::IsEnabled())
     SiteEngagementHelper::CreateForWebContents(web_contents);
   // TODO(vabr): Remove TabSpecificContentSettings from here once their function
@@ -174,10 +181,12 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
 
 #if defined(OS_ANDROID)
   ContextMenuHelper::CreateForWebContents(web_contents);
+  DataUseTabHelper::CreateForWebContents(web_contents);
   SingleTabModeTabHelper::CreateForWebContents(web_contents);
   VoiceSearchTabHelper::CreateForWebContents(web_contents);
   WindowAndroidHelper::CreateForWebContents(web_contents);
 #else
+  BookmarkTabHelper::CreateForWebContents(web_contents);
   extensions::ChromeExtensionWebContentsObserver::CreateForWebContents(
       web_contents);
   extensions::WebNavigationTabObserver::CreateForWebContents(web_contents);
@@ -228,8 +237,14 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
 #endif  // defined(ENABLE_PRINT_PREVIEW)
 #endif  // defined(ENABLE_PRINTING) && !defined(OS_ANDROID)
 
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableDomDistiller)) {
+  bool enabled_distiller = base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableDomDistiller);
+#if defined(ENABLE_PRINT_PREVIEW)
+  if (PrintPreviewDistiller::IsEnabled())
+    enabled_distiller = true;
+#endif  // defined(ENABLE_PRINT_PREVIEW)
+
+  if (enabled_distiller) {
     dom_distiller::WebContentsMainFrameObserver::CreateForWebContents(
         web_contents);
   }
@@ -240,10 +255,6 @@ void TabHelpers::AttachTabHelpers(WebContents* web_contents) {
         web_contents);
   }
 
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kEnableNavigationTracing) &&
-      base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kTraceUploadURL)) {
+  if (tracing::NavigationTracingObserver::IsEnabled())
     tracing::NavigationTracingObserver::CreateForWebContents(web_contents);
-  }
 }

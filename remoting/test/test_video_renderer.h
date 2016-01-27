@@ -8,7 +8,6 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
-#include "media/base/video_frame.h"
 #include "remoting/client/video_renderer.h"
 #include "remoting/protocol/session_config.h"
 #include "remoting/protocol/video_stub.h"
@@ -23,10 +22,10 @@ class DesktopFrame;
 class DesktopRect;
 }
 
-typedef uint32 RgbaColor;
-
 namespace remoting {
 namespace test {
+
+struct RGBValue;
 
 // Processes video packets as they are received from the remote host. Must be
 // used from a thread running a message loop and this class will use that
@@ -39,7 +38,6 @@ class TestVideoRenderer : public VideoRenderer, public protocol::VideoStub {
 
   // VideoRenderer interface.
   void OnSessionConfig(const protocol::SessionConfig& config) override;
-  ChromotingStats* GetStats() override;
   protocol::VideoStub* GetVideoStub() override;
 
   // protocol::VideoStub interface.
@@ -49,20 +47,23 @@ class TestVideoRenderer : public VideoRenderer, public protocol::VideoStub {
   // Initialize a decoder to decode video packets.
   void SetCodecForDecoding(const protocol::ChannelConfig::Codec codec);
 
-  // Returns a copy of the current buffer.
-  scoped_ptr<webrtc::DesktopFrame> GetBufferForTest() const;
+  // Returns a copy of the current frame.
+  scoped_ptr<webrtc::DesktopFrame> GetCurrentFrameForTest() const;
 
   // Gets a weak pointer for this object.
   base::WeakPtr<TestVideoRenderer> GetWeakPtr() {
     return weak_factory_.GetWeakPtr();
   }
 
-  // Set expected image pattern for comparison and the callback will be called
-  // when the pattern is matched.
-  void SetImagePatternAndMatchedCallback(
+  // Set expected rect and average color for comparison and the callback will be
+  // called when the pattern is matched.
+  void ExpectAverageColorInRect(
       const webrtc::DesktopRect& expected_rect,
-      const RgbaColor& expected_color,
+      const RGBValue& expected_average_color,
       const base::Closure& image_pattern_matched_callback);
+
+  // Turn on/off saving video frames to disk.
+  void SaveFrameDataToDisk(bool save_frame_data_to_disk);
 
  private:
   // The actual implementation resides in Core class.

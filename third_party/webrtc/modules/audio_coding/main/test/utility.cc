@@ -18,7 +18,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/common.h"
 #include "webrtc/common_types.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module.h"
 #include "webrtc/modules/audio_coding/main/acm2/acm_common_defs.h"
 
 #define NUM_CODECS_WITH_FIXED_PAYLOAD_TYPE 13
@@ -279,32 +279,6 @@ bool FixedPayloadTypeCodec(const char* payloadName) {
   return false;
 }
 
-DTMFDetector::DTMFDetector() {
-  for (int16_t n = 0; n < 1000; n++) {
-    _toneCntr[n] = 0;
-  }
-}
-
-DTMFDetector::~DTMFDetector() {
-}
-
-int32_t DTMFDetector::IncomingDtmf(const uint8_t digitDtmf,
-                                   const bool /* toneEnded */) {
-  fprintf(stdout, "%d-", digitDtmf);
-  _toneCntr[digitDtmf]++;
-  return 0;
-}
-
-void DTMFDetector::PrintDetectedDigits() {
-  for (int16_t n = 0; n < 1000; n++) {
-    if (_toneCntr[n] > 0) {
-      fprintf(stdout, "%d %u  msec, \n", n, _toneCntr[n] * 10);
-    }
-  }
-  fprintf(stdout, "\n");
-  return;
-}
-
 void VADCallback::Reset() {
   memset(_numFrameTypes, 0, sizeof(_numFrameTypes));
 }
@@ -314,7 +288,7 @@ VADCallback::VADCallback() {
 }
 
 void VADCallback::PrintFrameTypes() {
-  printf("kFrameEmpty......... %d\n", _numFrameTypes[kFrameEmpty]);
+  printf("kEmptyFrame......... %d\n", _numFrameTypes[kEmptyFrame]);
   printf("kAudioFrameSpeech... %d\n", _numFrameTypes[kAudioFrameSpeech]);
   printf("kAudioFrameCN....... %d\n", _numFrameTypes[kAudioFrameCN]);
   printf("kVideoFrameKey...... %d\n", _numFrameTypes[kVideoFrameKey]);

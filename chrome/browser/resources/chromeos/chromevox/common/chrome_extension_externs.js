@@ -273,76 +273,6 @@ chrome.automation.TreeChange;
  */
 chrome.automation.AutomationNode = function() {};
 
-/**
- * @typedef {{
- *   activedescendant: chrome.automation.AutomationNode
- * }}
- */
-chrome.automation.ActiveDescendantMixin;
-
-/**
- * @typedef {{
- *   url: string
- * }}
- */
-chrome.automation.LinkMixins;
-
-/**
- * @typedef {{
- *   docUrl: string,
- *   docTitle: string,
- *   docLoaded: boolean,
- *   docLoadingProgress: number
- * }}
- */
-chrome.automation.DocumentMixins;
-
-/**
- * @typedef {{
- *   scrollX: number,
- *   scrollXMin: number,
- *   scrollXMax: number,
- *   scrollY: number,
- *   scrollYMin: number,
- *   scrollYMax: number
- * }}
- */
-chrome.automation.ScrollableMixins;
-
-/**
- * @typedef {{
- *   textSelStart: number,
- *   textSelEnd: number
- * }}
- */
-chrome.automation.EditableTextMixins;
-
-/**
- * @typedef {{
- *   valueForRange: number,
- *   minValueForRange: number,
- *   maxValueForRange: number
- * }}
- */
-chrome.automation.RangeMixins;
-
-/**
- * @typedef {{
- *   tableRowCount: number,
- *   tableColumnCount: number
- * }}
- */
-chrome.automation.TableMixins;
-
-/**
- * @typedef {{
- *   tableCellColumnIndex: number,
- *   tableCellColumnSpan: number,
- *   tableCellRowIndex: number,
- *   tableCellRowSpan: number
- * }}
- */
-chrome.automation.TableCellMixins;
 
 /**
  * Get the automation tree for the tab with the given tabId, or the current tab
@@ -359,7 +289,7 @@ chrome.automation.getTree = function(tabId, callback) {};
 /**
  * Get the automation tree for the whole desktop which consists of all on screen
  * views. Note this API is currently only supported on Chrome OS.
- * @param {function(chrome.automation.AutomationNode):void} callback
+ * @param {function(!chrome.automation.AutomationNode):void} callback
  *     Called when the <code>AutomationNode</code> for the page is available.
  */
 chrome.automation.getDesktop = function(callback) {};
@@ -408,11 +338,22 @@ chrome.automation.AutomationNode.prototype.indexInParent;
  */
 chrome.automation.AutomationNode.prototype.name;
 
+/**
+ * @type {string}
+ */
+chrome.automation.AutomationNode.prototype.description;
+
 
 /**
  * @type {string}
  */
 chrome.automation.AutomationNode.prototype.url;
+
+
+/**
+ * @type {string}
+ */
+chrome.automation.AutomationNode.prototype.docUrl;
 
 
 /**
@@ -495,7 +436,7 @@ chrome.automation.AutomationNode.prototype.location;
 
 /**
  * @param {chrome.automation.EventType} eventType
- * @param {function(chrome.automation.AutomationNode) : void} callback
+ * @param {function(!chrome.automation.AutomationEvent) : void} callback
  * @param {boolean} capture
  */
 chrome.automation.AutomationNode.prototype.addEventListener =
@@ -504,7 +445,7 @@ chrome.automation.AutomationNode.prototype.addEventListener =
 
 /**
  * @param {chrome.automation.EventType} eventType
- * @param {function(chrome.automation.AutomationNode) : void} callback
+ * @param {function(!chrome.automation.AutomationEvent) : void} callback
  * @param {boolean} capture
  */
 chrome.automation.AutomationNode.prototype.removeEventListener =
@@ -548,6 +489,14 @@ chrome.automation.AutomationNode.prototype.focus = function() {};
 chrome.automation.AutomationNode.prototype.showContextMenu = function() {};
 
 
+/**
+ * @param {number} start
+ * @param {number} end
+ */
+chrome.automation.AutomationNode.prototype.setSelection =
+    function(start, end) {};
+
+
 /** @type {string} */
 chrome.automation.AutomationNode.prototype.containerLiveStatus;
 
@@ -565,3 +514,8 @@ chrome.automation.AutomationNode.prototype.containerLiveBusy;
  * @param {Object} findParams
  */
 chrome.automation.AutomationNode.prototype.find = function(findParams) {};
+
+/**
+ * @type {string}
+ */
+chrome.automation.AutomationNode.prototype.inputType;

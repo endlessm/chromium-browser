@@ -27,25 +27,16 @@ enum State {
   // to be visible, in the management state.
   MANAGE_STATE,
 
-  // The user has blacklisted the site rendered in the current WebContents.
-  // The icon needs to be visible, in the blacklisted state.
-  BLACKLIST_STATE,
-
   // The site has asked user to choose a credential.
   CREDENTIAL_REQUEST_STATE,
 
   // The user was auto signed in to the site. The icon and the auto-signin toast
   // should be visible.
   AUTO_SIGNIN_STATE,
-};
 
-// The position of a password item in a list of credentials.
-enum PasswordItemPosition {
-  // The password item is the first in the list.
-  FIRST_ITEM,
-
-  // The password item is not the first item in the list.
-  SUBSEQUENT_ITEM,
+  // The user submitted a form that we consider to be a change password form.
+  // Chrome needs to ask the user to confirm password updating.
+  PENDING_PASSWORD_UPDATE_STATE,
 };
 
 }  // namespace ui

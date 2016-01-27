@@ -90,7 +90,6 @@ const CGFloat kContentWidth = kWindowWidth - 2 * kFramePadding;
 - (NSPopUpButton*)addPopUpButton:(ui::ComboboxModel*)model
                           action:(SEL)action
                           toView:(NSView*)view;
-- (void)handleTranslateButtonPressed;
 - (void)handleNopeButtonPressed;
 - (void)handleDoneButtonPressed;
 - (void)handleCancelButtonPressed;
@@ -219,6 +218,7 @@ const CGFloat kContentWidth = kWindowWidth - 2 * kFramePadding;
       [self addButton:title
                action:@selector(handleTranslateButtonPressed)
                toView:view];
+  [translateButton setKeyEquivalent:@"\r"];
 
   base::string16 originalLanguageName =
       model_->GetLanguageNameAt(model_->GetOriginalLanguageIndex());

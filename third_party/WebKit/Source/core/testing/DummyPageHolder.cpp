@@ -40,36 +40,46 @@
 
 namespace blink {
 
+void RootLayerScrollsFrameSettingOverride(Settings& settings)
+{
+    settings.setRootLayerScrolls(true);
+}
+
 PassOwnPtr<DummyPageHolder> DummyPageHolder::create(
     const IntSize& initialViewSize,
     Page::PageClients* pageClients,
-    PassOwnPtr<FrameLoaderClient> frameLoaderClient) {
-    return adoptPtr(new DummyPageHolder(initialViewSize, pageClients, frameLoaderClient));
+    PassOwnPtrWillBeRawPtr<FrameLoaderClient> frameLoaderClient,
+    FrameSettingOverrideFunction settingOverrider) {
+    return adoptPtr(new DummyPageHolder(initialViewSize, pageClients, frameLoaderClient, settingOverrider));
 }
 
 DummyPageHolder::DummyPageHolder(
     const IntSize& initialViewSize,
-    Page::PageClients* pageClients,
-    PassOwnPtr<FrameLoaderClient> frameLoaderClient)
+    Page::PageClients* pageClientsArgument,
+    PassOwnPtrWillBeRawPtr<FrameLoaderClient> frameLoaderClient,
+    FrameSettingOverrideFunction settingOverrider)
 {
-    if (!pageClients) {
-        fillWithEmptyClients(m_pageClients);
+    Page::PageClients pageClients;
+    if (!pageClientsArgument) {
+        fillWithEmptyClients(pageClients);
     } else {
-        m_pageClients.chromeClient = pageClients->chromeClient;
-        m_pageClients.contextMenuClient = pageClients->contextMenuClient;
-        m_pageClients.editorClient = pageClients->editorClient;
-        m_pageClients.dragClient = pageClients->dragClient;
-        m_pageClients.spellCheckerClient = pageClients->spellCheckerClient;
+        pageClients.chromeClient = pageClientsArgument->chromeClient;
+        pageClients.contextMenuClient = pageClientsArgument->contextMenuClient;
+        pageClients.editorClient = pageClientsArgument->editorClient;
+        pageClients.dragClient = pageClientsArgument->dragClient;
+        pageClients.spellCheckerClient = pageClientsArgument->spellCheckerClient;
     }
-    m_page = adoptPtrWillBeNoop(new Page(m_pageClients));
+    m_page = adoptPtrWillBeNoop(new Page(pageClients));
     Settings& settings = m_page->settings();
     // FIXME: http://crbug.com/363843. This needs to find a better way to
     // not create graphics layers.
     settings.setAcceleratedCompositingEnabled(false);
+    if (settingOverrider)
+        (*settingOverrider)(settings);
 
     m_frameLoaderClient = frameLoaderClient;
     if (!m_frameLoaderClient)
-        m_frameLoaderClient = adoptPtr(new EmptyFrameLoaderClient);
+        m_frameLoaderClient = EmptyFrameLoaderClient::create();
 
     m_frame = LocalFrame::create(m_frameLoaderClient.get(), &m_page->frameHost(), 0);
     m_frame->setView(FrameView::create(m_frame.get(), initialViewSize));

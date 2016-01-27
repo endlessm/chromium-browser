@@ -4,8 +4,8 @@
 
 #include "ash/display/screen_ash.h"
 
-#include "ash/display/display_controller.h"
 #include "ash/display/display_manager.h"
+#include "ash/display/window_tree_host_manager.h"
 #include "ash/root_window_controller.h"
 #include "ash/root_window_settings.h"
 #include "ash/shelf/shelf_layout_manager.h"
@@ -138,7 +138,15 @@ gfx::NativeWindow ScreenAsh::GetWindowUnderCursor() {
 }
 
 gfx::NativeWindow ScreenAsh::GetWindowAtScreenPoint(const gfx::Point& point) {
-  return wm::GetRootWindowAt(point)->GetTopWindowContainingPoint(point);
+  aura::Window* root_window = wm::GetRootWindowAt(point);
+  aura::client::ScreenPositionClient* position_client =
+      aura::client::GetScreenPositionClient(root_window);
+
+  gfx::Point local_point = point;
+  if (position_client)
+    position_client->ConvertPointFromScreen(root_window, &local_point);
+
+  return root_window->GetTopWindowContainingPoint(local_point);
 }
 
 int ScreenAsh::GetNumDisplays() const {
@@ -194,7 +202,7 @@ gfx::Display ScreenAsh::GetDisplayMatching(const gfx::Rect& match_rect) const {
 
 gfx::Display ScreenAsh::GetPrimaryDisplay() const {
   return GetDisplayManager()->GetDisplayForId(
-      DisplayController::GetPrimaryDisplayId());
+      WindowTreeHostManager::GetPrimaryDisplayId());
 }
 
 void ScreenAsh::AddObserver(gfx::DisplayObserver* observer) {

@@ -8,15 +8,14 @@
 #ifndef SkImageFilter_DEFINED
 #define SkImageFilter_DEFINED
 
+#include "../private/SkTemplates.h"
 #include "SkFilterQuality.h"
 #include "SkFlattenable.h"
 #include "SkMatrix.h"
 #include "SkRect.h"
 #include "SkSurfaceProps.h"
-#include "SkTemplates.h"
 
 class GrFragmentProcessor;
-class GrProcessorDataManager;
 class GrTexture;
 class SkBaseDevice;
 class SkBitmap;
@@ -32,24 +31,6 @@ struct SkIPoint;
  */
 class SK_API SkImageFilter : public SkFlattenable {
 public:
-    class CropRect {
-    public:
-        enum CropEdge {
-            kHasLeft_CropEdge   = 0x01,
-            kHasTop_CropEdge    = 0x02,
-            kHasRight_CropEdge  = 0x04,
-            kHasBottom_CropEdge = 0x08,
-            kHasAll_CropEdge    = 0x0F,
-        };
-        CropRect() {}
-        explicit CropRect(const SkRect& rect, uint32_t flags = kHasAll_CropEdge) : fRect(rect), fFlags(flags) {}
-        uint32_t flags() const { return fFlags; }
-        const SkRect& rect() const { return fRect; }
-    private:
-        SkRect fRect;
-        uint32_t fFlags;
-    };
-
     // This cache maps from (filter's unique ID + CTM + clipBounds + src bitmap generation ID) to
     // (result, offset).
     class Cache : public SkRefCnt {
@@ -63,35 +44,95 @@ public:
         virtual void purge() {}
     };
 
+    enum SizeConstraint {
+        kExact_SizeConstraint,
+        kApprox_SizeConstraint,
+    };
+
     class Context {
     public:
-        Context(const SkMatrix& ctm, const SkIRect& clipBounds, Cache* cache) :
-            fCTM(ctm), fClipBounds(clipBounds), fCache(cache) {
-        }
+        Context(const SkMatrix& ctm, const SkIRect& clipBounds, Cache* cache,
+                SizeConstraint constraint)
+            : fCTM(ctm)
+            , fClipBounds(clipBounds)
+            , fCache(cache)
+            , fSizeConstraint(constraint)
+        {}
+
         const SkMatrix& ctm() const { return fCTM; }
         const SkIRect& clipBounds() const { return fClipBounds; }
         Cache* cache() const { return fCache; }
+        SizeConstraint sizeConstraint() const { return fSizeConstraint; }
+
     private:
-        SkMatrix fCTM;
-        SkIRect  fClipBounds;
-        Cache*   fCache;
+        SkMatrix        fCTM;
+        SkIRect         fClipBounds;
+        Cache*          fCache;
+        SizeConstraint  fSizeConstraint;
+    };
+
+    class CropRect {
+    public:
+        enum CropEdge {
+            kHasLeft_CropEdge   = 0x01,
+            kHasTop_CropEdge    = 0x02,
+            kHasWidth_CropEdge  = 0x04,
+            kHasHeight_CropEdge = 0x08,
+            kHasAll_CropEdge    = 0x0F,
+        };
+        CropRect() {}
+        explicit CropRect(const SkRect& rect, uint32_t flags = kHasAll_CropEdge)
+            : fRect(rect), fFlags(flags) {}
+        uint32_t flags() const { return fFlags; }
+        const SkRect& rect() const { return fRect; }
+#ifndef SK_IGNORE_TO_STRING
+        void toString(SkString* str) const;
+#endif
+
+        /**
+         *  Apply this cropRect to the imageBounds. If a given edge of the cropRect is not
+         *  set, then the corresponding edge from imageBounds will be used.
+         *
+         *  Note: imageBounds is in "device" space, as the output cropped rectangle will be,
+         *  so the context's CTM is ignore for those. It is only applied the croprect's bounds.
+         *
+         *  The resulting rect will be intersected with the context's clip. If that intersection is
+         *  empty, then this returns false and cropped is unmodified.
+         */
+        bool applyTo(const SkIRect& imageBounds, const Context&, SkIRect* cropped) const;
+
+    private:
+        SkRect fRect;
+        uint32_t fFlags;
     };
 
     class Proxy {
     public:
-        Proxy(SkBaseDevice* device) : fDevice(device) { }
+        virtual ~Proxy() {}
 
-        SkBaseDevice* createDevice(int width, int height);
+        virtual SkBaseDevice* createDevice(int width, int height) = 0;
+
+        // Returns true if the proxy handled the filter itself. If this returns
+        // false then the filter's code will be called.
+        virtual bool filterImage(const SkImageFilter*, const SkBitmap& src,
+                                 const SkImageFilter::Context&,
+                                 SkBitmap* result, SkIPoint* offset) = 0;
+    };
+
+    class DeviceProxy : public Proxy {
+    public:
+        DeviceProxy(SkBaseDevice* device) : fDevice(device) {}
+
+        SkBaseDevice* createDevice(int width, int height) override;
 
         // Returns true if the proxy handled the filter itself. If this returns
         // false then the filter's code will be called.
         bool filterImage(const SkImageFilter*, const SkBitmap& src, const SkImageFilter::Context&,
-                         SkBitmap* result, SkIPoint* offset);
+                         SkBitmap* result, SkIPoint* offset) override;
 
     private:
         SkBaseDevice* fDevice;
     };
-
 
     /**
      *  Request a new (result) image to be created from the src image.
@@ -161,6 +202,7 @@ public:
     bool asAColorFilter(SkColorFilter** filterPtr) const {
         return this->countInputs() > 0 &&
                NULL == this->getInput(0) &&
+               !this->affectsTransparentBlack() &&
                this->isColorFilterNode(filterPtr);
     }
 
@@ -182,7 +224,8 @@ public:
     /**
      *  Returns whether any edges of the crop rect have been set. The crop
      *  rect is set at construction time, and determines which pixels from the
-     *  input image will be processed. The size of the crop rect should be
+     *  input image will be processed, and which pixels in the output image will be allowed.
+     *  The size of the crop rect should be
      *  used as the size of the destination image. The origin of this rect
      *  should be used to offset access to the input images, and should also
      *  be added to the "offset" parameter in onFilterImage and
@@ -195,6 +238,15 @@ public:
 
     // Default impl returns union of all input bounds.
     virtual void computeFastBounds(const SkRect&, SkRect*) const;
+
+    // Can this filter DAG compute the resulting bounds of an object-space rectangle?
+    bool canComputeFastBounds() const;
+
+    /**
+     *  If this filter can be represented by another filter + a localMatrix, return that filter,
+     *  else return null.
+     */
+    SkImageFilter* newWithLocalMatrix(const SkMatrix& matrix) const;
 
     /**
      * Create an SkMatrixImageFilter, which transforms its input by the given matrix.
@@ -209,12 +261,14 @@ public:
      */
     static void WrapTexture(GrTexture* texture, int width, int height, SkBitmap* result);
 
-    /**
-     * Recursively evaluate this filter on the GPU. If the filter has no GPU
-     * implementation, it will be processed in software and uploaded to the GPU.
-     */
-    bool getInputResultGPU(SkImageFilter::Proxy* proxy, const SkBitmap& src, const Context&,
-                           SkBitmap* result, SkIPoint* offset) const;
+    // Helper function which invokes GPU filter processing on the
+    // input at the specified "index". If the input is null, it leaves
+    // "result" and "offset" untouched, and returns true. If the input
+    // has a GPU implementation, it will be invoked directly.
+    // Otherwise, the filter will be processed in software and
+    // uploaded to the GPU.
+    bool filterInputGPU(int index, SkImageFilter::Proxy* proxy, const SkBitmap& src, const Context&,
+                        SkBitmap* result, SkIPoint* offset, bool relaxSizeConstraint = true) const;
 #endif
 
     SK_TO_STRING_PUREVIRT()
@@ -298,6 +352,14 @@ protected:
     // no inputs.
     virtual bool onFilterBounds(const SkIRect&, const SkMatrix&, SkIRect*) const;
 
+    // Helper function which invokes filter processing on the input at the
+    // specified "index". If the input is null, it leaves "result" and
+    // "offset" untouched, and returns true. If the input is non-null, it
+    // calls filterImage() on that input, and returns true on success.
+    // i.e., return !getInput(index) || getInput(index)->filterImage(...);
+    bool filterInput(int index, Proxy*, const SkBitmap& src, const Context&,
+                     SkBitmap* result, SkIPoint* offset, bool relaxSizeConstraint = true) const;
+
     /**
      *  Return true (and return a ref'd colorfilter) if this node in the DAG is just a
      *  colorfilter w/o CropRect constraints.
@@ -306,14 +368,18 @@ protected:
         return false;
     }
 
-    /** Computes source bounds as the src bitmap bounds offset by srcOffset.
-     *  Apply the transformed crop rect to the bounds if any of the
-     *  corresponding edge flags are set. Intersects the result against the
-     *  context's clipBounds, and returns the result in "bounds". If there is
-     *  no intersection, returns false and leaves "bounds" unchanged.
+    /** Given a "src" bitmap and its "srcOffset", computes source and
+     *  destination bounds for this filter. Initial bounds are the
+     *  "src" bitmap bounds offset by "srcOffset". "dstBounds" are
+     *  computed by transforming the crop rect by the context's CTM,
+     *  applying it to the initial bounds, and intersecting the result
+     *  with the context's clip bounds.  "srcBounds" (if non-null) are
+     *  computed by intersecting the initial bounds with "dstBounds", to
+     *  ensure that we never sample outside of the crop rect (this restriction
+     *  may be relaxed in the future).
      */
     bool applyCropRect(const Context&, const SkBitmap& src, const SkIPoint& srcOffset,
-                       SkIRect* bounds) const;
+                       SkIRect* dstBounds, SkIRect* srcBounds = nullptr) const;
 
     /** Same as the above call, except that if the resulting crop rect is not
      *  entirely contained by the source bitmap's bounds, it creates a new
@@ -341,8 +407,16 @@ protected:
      *  will be called with (NULL, NULL, SkMatrix::I()) to query for support,
      *  so returning "true" indicates support for all possible matrices.
      */
-    virtual bool asFragmentProcessor(GrFragmentProcessor**, GrProcessorDataManager*, GrTexture*,
-                                     const SkMatrix&, const SkIRect& bounds) const;
+    virtual bool asFragmentProcessor(GrFragmentProcessor**, GrTexture*, const SkMatrix&,
+                                     const SkIRect& bounds) const;
+
+    /**
+     * Returns true if this filter can cause transparent black pixels to become
+     * visible (ie., alpha > 0). The default implementation returns false. This
+     * function is non-recursive, i.e., only queries this filter and not its
+     * inputs.
+     */
+    virtual bool affectsTransparentBlack() const;
 
 private:
     friend class SkGraphics;

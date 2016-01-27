@@ -7,8 +7,9 @@ import glob
 import os
 import shutil
 import sys
+import tempfile
 
-from pylib import cmd_helper
+from devil.utils import cmd_helper
 from pylib import constants
 
 
@@ -49,19 +50,19 @@ def DefaultConfigVariables():
     'use_ozone': '0',
     'use_x11': '0',
     'v8_use_external_startup_data': '1',
+    'msvs_version': '0',
   }
 
 
 class Isolator(object):
   """Manages calls to isolate.py for the android test runner scripts."""
 
-  def __init__(self, isolate_deps_dir):
-    """
-    Args:
-      isolate_deps_dir: The directory in which dependencies specified by
-        isolate are or should be stored.
-    """
-    self._isolate_deps_dir = isolate_deps_dir
+  def __init__(self):
+    self._isolate_deps_dir = tempfile.mkdtemp()
+
+  @property
+  def isolate_deps_dir(self):
+    return self._isolate_deps_dir
 
   def Clear(self):
     """Deletes the isolate dependency directory."""
@@ -164,7 +165,8 @@ class Isolator(object):
         shutil.move(os.path.join(root, filename), paks_dir)
 
     # Move everything in PRODUCT_DIR to top level.
-    deps_product_dir = os.path.join(deps_out_dir, constants.GetBuildType())
+    deps_product_dir = os.path.join(
+        deps_out_dir, os.path.basename(constants.GetOutDirectory()))
     if os.path.isdir(deps_product_dir):
       for p in os.listdir(deps_product_dir):
         shutil.move(os.path.join(deps_product_dir, p), self._isolate_deps_dir)

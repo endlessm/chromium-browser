@@ -23,7 +23,8 @@
 #include "base/test/test_timeouts.h"
 #include "base/threading/thread.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/chrome_version_info.h"
+#include "components/version_info/version_info.h"
+#include "content/public/common/content_switches.h"
 #include "testing/multiprocess_func_list.h"
 
 #if defined(OS_WIN)
@@ -54,7 +55,8 @@ void ShutdownTask(base::MessageLoop* loop) {
   // Quit the main message loop.
   ASSERT_FALSE(g_good_shutdown);
   g_good_shutdown = true;
-  loop->task_runner()->PostTask(FROM_HERE, base::MessageLoop::QuitClosure());
+  loop->task_runner()->PostTask(FROM_HERE,
+                                base::MessageLoop::QuitWhenIdleClosure());
 }
 
 }  // namespace
@@ -62,9 +64,10 @@ void ShutdownTask(base::MessageLoop* loop) {
 TEST(ServiceProcessUtilTest, ScopedVersionedName) {
   std::string test_str = "test";
   std::string scoped_name = GetServiceProcessScopedVersionedName(test_str);
-  chrome::VersionInfo version_info;
-  EXPECT_TRUE(base::EndsWith(scoped_name, test_str, true));
-  EXPECT_NE(std::string::npos, scoped_name.find(version_info.Version()));
+  EXPECT_TRUE(base::EndsWith(scoped_name, test_str,
+                             base::CompareCase::SENSITIVE));
+  EXPECT_NE(std::string::npos,
+            scoped_name.find(version_info::GetVersionNumber()));
 }
 
 class ServiceProcessStateTest : public base::MultiProcessTest {
@@ -149,8 +152,9 @@ TEST_F(ServiceProcessStateTest, AutoRun) {
   ASSERT_EQ(std::string::npos, exec_value.find('"'));
   ASSERT_EQ(std::string::npos, exec_value.find('\''));
 
-  base::CommandLine::StringVector argv;
-  base::SplitString(exec_value, ' ', &argv);
+  base::CommandLine::StringVector argv = base::SplitString(
+      exec_value, base::CommandLine::StringType(1, ' '),
+      base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   ASSERT_GE(argv.size(), 2U)
       << "Expected at least one command-line option in: " << exec_value;
   autorun_command_line.reset(new base::CommandLine(argv));
@@ -233,7 +237,7 @@ MULTIPROCESS_TEST_MAIN(ServiceProcessStateTestShutdown) {
       io_thread_.task_runner().get(),
       base::Bind(&ShutdownTask, base::MessageLoop::current())));
   message_loop.task_runner()->PostDelayedTask(
-      FROM_HERE, base::MessageLoop::QuitClosure(),
+      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
       TestTimeouts::action_max_timeout());
   EXPECT_FALSE(g_good_shutdown);
   message_loop.Run();
@@ -277,8 +281,7 @@ class ServiceProcessStateFileManipulationTest : public ::testing::Test {
     ASSERT_TRUE(service_process_state_.Initialize());
     ASSERT_TRUE(service_process_state_.SignalReady(
         io_thread_.task_runner().get(), base::Closure()));
-    loop_.PostDelayedTask(FROM_HERE,
-                          base::MessageLoop::QuitClosure(),
+    loop_.PostDelayedTask(FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
                           TestTimeouts::action_max_timeout());
   }
 

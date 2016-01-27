@@ -15,6 +15,7 @@
 // NOTE(ajm): Path provided by gyp.
 #include "libyuv/scale.h"  // NOLINT
 
+#include "webrtc/base/checks.h"
 #include "webrtc/common.h"
 #include "webrtc/modules/video_coding/codecs/vp8/screenshare_layers.h"
 
@@ -232,7 +233,7 @@ int SimulcastEncoderAdapter::InitEncode(const VideoCodec* inst,
 int SimulcastEncoderAdapter::Encode(
     const VideoFrame& input_image,
     const CodecSpecificInfo* codec_specific_info,
-    const std::vector<VideoFrameType>* frame_types) {
+    const std::vector<FrameType>* frame_types) {
   if (!Initialized()) {
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
@@ -245,7 +246,7 @@ int SimulcastEncoderAdapter::Encode(
   bool send_key_frame = false;
   if (frame_types) {
     for (size_t i = 0; i < frame_types->size(); ++i) {
-      if (frame_types->at(i) == kKeyFrame) {
+      if (frame_types->at(i) == kVideoFrameKey) {
         send_key_frame = true;
         break;
       }
@@ -262,12 +263,16 @@ int SimulcastEncoderAdapter::Encode(
   int src_width = input_image.width();
   int src_height = input_image.height();
   for (size_t stream_idx = 0; stream_idx < streaminfos_.size(); ++stream_idx) {
-    std::vector<VideoFrameType> stream_frame_types;
+    // Don't encode frames in resolutions that we don't intend to send.
+    if (!streaminfos_[stream_idx].send_stream)
+      continue;
+
+    std::vector<FrameType> stream_frame_types;
     if (send_key_frame) {
-      stream_frame_types.push_back(kKeyFrame);
+      stream_frame_types.push_back(kVideoFrameKey);
       streaminfos_[stream_idx].key_frame_request = false;
     } else {
-      stream_frame_types.push_back(kDeltaFrame);
+      stream_frame_types.push_back(kVideoFrameDelta);
     }
 
     int dst_width = streaminfos_[stream_idx].width;
@@ -390,23 +395,8 @@ int32_t SimulcastEncoderAdapter::Encoded(
   CodecSpecificInfoVP8* vp8Info = &(stream_codec_specific.codecSpecific.VP8);
   vp8Info->simulcastIdx = stream_idx;
 
-  if (streaminfos_[stream_idx].send_stream) {
-    return encoded_complete_callback_->Encoded(encodedImage,
-                                               &stream_codec_specific,
-                                               fragmentation);
-  } else {
-    EncodedImage dummy_image;
-    // Required in case padding is applied to dropped frames.
-    dummy_image._timeStamp = encodedImage._timeStamp;
-    dummy_image.capture_time_ms_ = encodedImage.capture_time_ms_;
-    dummy_image._encodedWidth = encodedImage._encodedWidth;
-    dummy_image._encodedHeight = encodedImage._encodedHeight;
-    dummy_image._length = 0;
-    dummy_image._frameType = kSkipFrame;
-    vp8Info->keyIdx = kNoKeyIdx;
-    return encoded_complete_callback_->Encoded(dummy_image,
-                                               &stream_codec_specific, NULL);
-  }
+  return encoded_complete_callback_->Encoded(
+      encodedImage, &stream_codec_specific, fragmentation);
 }
 
 uint32_t SimulcastEncoderAdapter::GetStreamBitrate(
@@ -502,6 +492,19 @@ bool SimulcastEncoderAdapter::Initialized() const {
 
 void SimulcastEncoderAdapter::OnDroppedFrame() {
   streaminfos_[0].encoder->OnDroppedFrame();
+}
+
+int SimulcastEncoderAdapter::GetTargetFramerate() {
+  return streaminfos_[0].encoder->GetTargetFramerate();
+}
+
+bool SimulcastEncoderAdapter::SupportsNativeHandle() const {
+  // We should not be calling this method before streaminfos_ are configured.
+  RTC_DCHECK(!streaminfos_.empty());
+  // TODO(pbos): Support textures when using more than one encoder.
+  if (streaminfos_.size() != 1)
+    return false;
+  return streaminfos_[0].encoder->SupportsNativeHandle();
 }
 
 }  // namespace webrtc

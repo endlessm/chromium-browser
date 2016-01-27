@@ -12,8 +12,8 @@ import static org.junit.Assert.fail;
 import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
+import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -29,7 +29,9 @@ import android.os.Bundle;
 import android.os.Handler;
 
 import org.chromium.base.BaseChromiumApplication;
+import org.chromium.base.test.shadows.ShadowMultiDex;
 import org.chromium.testing.local.LocalRobolectricTestRunner;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -44,23 +46,47 @@ import java.io.IOException;
  * Robolectric tests for HttpNegotiateAuthenticator
  */
 @RunWith(LocalRobolectricTestRunner.class)
-@Config(manifest = Config.NONE,
-        shadows = HttpNegotiateAuthenticatorTest.ExtendedShadowAccountManager.class,
-        application = BaseChromiumApplication.class)
+@Config(manifest = Config.NONE, application = BaseChromiumApplication.class,
+        shadows = {HttpNegotiateAuthenticatorTest.ExtendedShadowAccountManager.class,
+                ShadowMultiDex.class})
 public class HttpNegotiateAuthenticatorTest {
-    static int sCallCount = 0;
-    static String sAccountTypeReceived;
-    static String sAuthTokenTypeReceived;
-    static String sFeaturesReceived[];
-    static Bundle sAddAccountOptionsReceived;
-    static Bundle sAuthTokenOptionsReceived;
-    static AccountManagerCallback<Bundle> sCallbackReceived;
-    static Handler sHandlerReceived;
+    private static class GetAuthTokenByFeaturesInvocation {
+        // Since the account manager is an SDK singleton (it is fetched using AccountManager.get()),
+        // we can't validate its method calls with Mockito, so do so using our shadow method.
+        int mCallCount;
+        String mAccountTypeReceived;
+        String mAuthTokenTypeReceived;
+        String mFeaturesReceived[];
+        Bundle mAddAccountOptionsReceived;
+        Bundle mAuthTokenOptionsReceived;
+        AccountManagerCallback<Bundle> mCallbackReceived;
+        Handler mHandlerReceived;
+
+        public AccountManagerFuture<Bundle> getAuthTokenByFeatures(String accountType,
+                String authTokenType, String[] features, Activity activity,
+                Bundle addAccountOptions, Bundle getAuthTokenOptions,
+                AccountManagerCallback<Bundle> callback, Handler handler) {
+            mCallCount++;
+            mAccountTypeReceived = accountType;
+            mAuthTokenTypeReceived = authTokenType;
+            mFeaturesReceived = features;
+            mAddAccountOptionsReceived = addAccountOptions;
+            mAuthTokenOptionsReceived = getAuthTokenOptions;
+            mCallbackReceived = callback;
+            mHandlerReceived = handler;
+
+            return null;
+        }
+    }
+
+    private static GetAuthTokenByFeaturesInvocation sInvocation;
 
     /**
      * Robolectic's ShadowAccountManager doesn't implement getAccountsByTypeAndFeature so extend it.
-     * We simply check the call is correct, and don't try to emulate it Note: Shadow classes need to
-     * be public and static.
+     * We simply check the call is correct, and don't try to emulate it. This also allows us to do
+     * more checking than we could using a vanilla shadow.
+     *
+     * Note: Shadow classes need to be public and static.
      */
     @Implements(AccountManager.class)
     public static class ExtendedShadowAccountManager extends ShadowAccountManager {
@@ -69,17 +95,14 @@ public class HttpNegotiateAuthenticatorTest {
                 String authTokenType, String[] features, Activity activity,
                 Bundle addAccountOptions, Bundle getAuthTokenOptions,
                 AccountManagerCallback<Bundle> callback, Handler handler) {
-            sCallCount++;
-            sAccountTypeReceived = accountType;
-            sAuthTokenTypeReceived = authTokenType;
-            sFeaturesReceived = features;
-            sAddAccountOptionsReceived = addAccountOptions;
-            sAuthTokenOptionsReceived = getAuthTokenOptions;
-            sCallbackReceived = callback;
-            sHandlerReceived = handler;
-
-            return null;
+            return sInvocation.getAuthTokenByFeatures(accountType, authTokenType, features,
+                    activity, addAccountOptions, getAuthTokenOptions, callback, handler);
         }
+    }
+
+    @Before
+    public void setUp() {
+        sInvocation = new GetAuthTokenByFeaturesInvocation();
     }
 
     /**
@@ -91,26 +114,30 @@ public class HttpNegotiateAuthenticatorTest {
                 HttpNegotiateAuthenticator.create("Dummy_Account");
         Robolectric.buildActivity(Activity.class).create().start().resume().visible();
         authenticator.getNextAuthToken(0, "test_principal", "", true);
-        assertThat("getAuthTokenByFeatures called precisely once", sCallCount, equalTo(1));
-        assertThat("Received account type matches input", sAccountTypeReceived,
+        assertThat(
+                "getAuthTokenByFeatures called precisely once", sInvocation.mCallCount, equalTo(1));
+        assertThat("Received account type matches input", sInvocation.mAccountTypeReceived,
                 equalTo("Dummy_Account"));
-        assertThat("AuthTokenType is \"SPNEGO:HOSTBASED:test_principal\"", sAuthTokenTypeReceived,
-                equalTo("SPNEGO:HOSTBASED:test_principal"));
-        assertThat("Features are precisely {\"SPNEGO\"}", sFeaturesReceived,
+        assertThat("AuthTokenType is \"SPNEGO:HOSTBASED:test_principal\"",
+                sInvocation.mAuthTokenTypeReceived, equalTo("SPNEGO:HOSTBASED:test_principal"));
+        assertThat("Features are precisely {\"SPNEGO\"}", sInvocation.mFeaturesReceived,
                 equalTo(new String[] {"SPNEGO"}));
-        assertThat("No account options requested", sAddAccountOptionsReceived, nullValue());
+        assertThat("No account options requested", sInvocation.mAddAccountOptionsReceived,
+                nullValue());
         assertThat("There is no existing context",
-                sAuthTokenOptionsReceived.get(HttpNegotiateConstants.KEY_SPNEGO_CONTEXT),
+                sInvocation.mAuthTokenOptionsReceived.get(
+                        HttpNegotiateConstants.KEY_SPNEGO_CONTEXT),
                 nullValue());
         assertThat("The existing token is empty",
-                sAuthTokenOptionsReceived.getString(HttpNegotiateConstants.KEY_INCOMING_AUTH_TOKEN),
+                sInvocation.mAuthTokenOptionsReceived.getString(
+                        HttpNegotiateConstants.KEY_INCOMING_AUTH_TOKEN),
                 equalTo(""));
-        assertThat("Delegation is allowed",
-                sAuthTokenOptionsReceived.getBoolean(HttpNegotiateConstants.KEY_CAN_DELEGATE),
+        assertThat("Delegation is allowed", sInvocation.mAuthTokenOptionsReceived.getBoolean(
+                                                    HttpNegotiateConstants.KEY_CAN_DELEGATE),
                 equalTo(true));
-        assertThat("getAuthTokenByFeatures was called with a callback", sCallbackReceived,
-                notNullValue());
-        assertThat("getAuthTokenByFeatures was called with a handler", sHandlerReceived,
+        assertThat("getAuthTokenByFeatures was called with a callback",
+                sInvocation.mCallbackReceived, notNullValue());
+        assertThat("getAuthTokenByFeatures was called with a handler", sInvocation.mHandlerReceived,
                 notNullValue());
     }
 
@@ -145,13 +172,14 @@ public class HttpNegotiateAuthenticatorTest {
             // Can never happen - artifact of Mockito.
             fail();
         }
-        sCallbackReceived.run(accountManagerFuture);
+        sInvocation.mCallbackReceived.run(accountManagerFuture);
         verify(authenticator).nativeSetResult(1234, 0, "output_token");
 
         // Check that the next call to getNextAuthToken uses the correct context
         authenticator.getNextAuthToken(5678, "test_principal", "", true);
         assertThat("The spnego context is preserved between calls",
-                sAuthTokenOptionsReceived.getBundle(HttpNegotiateConstants.KEY_SPNEGO_CONTEXT),
+                sInvocation.mAuthTokenOptionsReceived.getBundle(
+                        HttpNegotiateConstants.KEY_SPNEGO_CONTEXT),
                 equalTo(context));
 
         // Test exception path
@@ -161,7 +189,7 @@ public class HttpNegotiateAuthenticatorTest {
             // Can never happen - artifact of Mockito.
             fail();
         }
-        sCallbackReceived.run(accountManagerFuture);
+        sInvocation.mCallbackReceived.run(accountManagerFuture);
         verify(authenticator).nativeSetResult(5678, NetError.ERR_ABORTED, null);
     }
 
@@ -190,7 +218,7 @@ public class HttpNegotiateAuthenticatorTest {
             // Can never happen - artifact of Mockito.
             fail();
         }
-        sCallbackReceived.run(accountManagerFuture);
+        sInvocation.mCallbackReceived.run(accountManagerFuture);
         verify(authenticator).nativeSetResult(anyLong(), eq(expectedError), anyString());
     }
 

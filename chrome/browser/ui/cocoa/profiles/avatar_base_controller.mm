@@ -13,7 +13,7 @@
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/profiles/profiles_state.h"
-#include "chrome/browser/signin/signin_header_helper.h"
+#include "chrome/browser/signin/chrome_signin_helper.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -93,11 +93,6 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
       [avatarController_ updateAvatarButtonAndLayoutParent:YES];
   }
 
-  void OnProfileAvatarChanged(const base::FilePath& profile_path) override {
-    if (!switches::IsNewAvatarMenu() && profile_->GetPath() == profile_path)
-      [avatarController_ updateAvatarButtonAndLayoutParent:YES];
-  }
-
   void OnProfileSupervisedUserIdChanged(
       const base::FilePath& profile_path) override {
     if (profile_->GetPath() == profile_path)
@@ -152,18 +147,16 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
                           withMode:(BrowserWindow::AvatarBubbleMode)mode
                    withServiceType:(signin::GAIAServiceType)serviceType {
   if (menuController_) {
-    if (switches::IsNewAvatarMenu()) {
-      profiles::BubbleViewMode viewMode;
-      profiles::TutorialMode tutorialMode;
-      profiles::BubbleViewModeFromAvatarBubbleMode(
-          mode, &viewMode, &tutorialMode);
-      if (tutorialMode != profiles::TUTORIAL_MODE_NONE) {
-        ProfileChooserController* profileChooserController =
-            base::mac::ObjCCastStrict<ProfileChooserController>(
-                menuController_);
-        [profileChooserController setTutorialMode:tutorialMode];
-        [profileChooserController initMenuContentsWithView:viewMode];
-      }
+    profiles::BubbleViewMode viewMode;
+    profiles::TutorialMode tutorialMode;
+    profiles::BubbleViewModeFromAvatarBubbleMode(
+        mode, &viewMode, &tutorialMode);
+    if (tutorialMode != profiles::TUTORIAL_MODE_NONE) {
+      ProfileChooserController* profileChooserController =
+          base::mac::ObjCCastStrict<ProfileChooserController>(
+              menuController_);
+      [profileChooserController setTutorialMode:tutorialMode];
+      [profileChooserController initMenuContentsWithView:viewMode];
     }
     return;
   }
@@ -179,39 +172,31 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
 
   // The new avatar bubble does not have an arrow, and it should be anchored
   // to the edge of the avatar button.
-  int anchorX = switches::IsNewAvatarMenu() ?
-      NSMaxX([anchor bounds]) - kMenuXOffsetAdjust :
-      NSMidX([anchor bounds]);
+  int anchorX = NSMaxX([anchor bounds]) - kMenuXOffsetAdjust;
   NSPoint point = NSMakePoint(anchorX,
                               NSMaxY([anchor bounds]) + kMenuYOffsetAdjust);
   point = [anchor convertPoint:point toView:nil];
   point = [[anchor window] convertBaseToScreen:point];
 
   // |menuController_| will automatically release itself on close.
-  if (switches::IsNewAvatarMenu()) {
-    profiles::BubbleViewMode viewMode;
-    profiles::TutorialMode tutorialMode;
-    profiles::BubbleViewModeFromAvatarBubbleMode(
-        mode, &viewMode, &tutorialMode);
-    // Don't start creating the view if it would be an empty fast user switcher.
-    // It has to happen here to prevent the view system from creating an empty
-    // container.
-    if (viewMode == profiles::BUBBLE_VIEW_MODE_FAST_PROFILE_CHOOSER &&
-        !profiles::HasProfileSwitchTargets(browser_->profile())) {
-      return;
-    }
-
-    menuController_ =
-        [[ProfileChooserController alloc] initWithBrowser:browser_
-                                               anchoredAt:point
-                                                 viewMode:viewMode
-                                             tutorialMode:tutorialMode
-                                              serviceType:serviceType];
-  } else {
-    menuController_ =
-      [[AvatarMenuBubbleController alloc] initWithBrowser:browser_
-                                               anchoredAt:point];
+  profiles::BubbleViewMode viewMode;
+  profiles::TutorialMode tutorialMode;
+  profiles::BubbleViewModeFromAvatarBubbleMode(
+      mode, &viewMode, &tutorialMode);
+  // Don't start creating the view if it would be an empty fast user switcher.
+  // It has to happen here to prevent the view system from creating an empty
+  // container.
+  if (viewMode == profiles::BUBBLE_VIEW_MODE_FAST_PROFILE_CHOOSER &&
+      !profiles::HasProfileSwitchTargets(browser_->profile())) {
+    return;
   }
+
+  menuController_ =
+      [[ProfileChooserController alloc] initWithBrowser:browser_
+                                             anchoredAt:point
+                                               viewMode:viewMode
+                                           tutorialMode:tutorialMode
+                                            serviceType:serviceType];
 
   [[NSNotificationCenter defaultCenter]
       addObserver:self
@@ -223,9 +208,15 @@ class ProfileInfoUpdateObserver : public ProfileInfoCacheObserver,
   ProfileMetrics::LogProfileOpenMethod(ProfileMetrics::ICON_AVATAR_BUBBLE);
 }
 
+- (BOOL)isCtrlPressed {
+  return [NSEvent modifierFlags] & NSControlKeyMask ? YES : NO;
+}
+
 - (IBAction)buttonClicked:(id)sender {
   BrowserWindow::AvatarBubbleMode mode =
       BrowserWindow::AVATAR_BUBBLE_MODE_DEFAULT;
+  if ([self isCtrlPressed])
+    mode = BrowserWindow::AVATAR_BUBBLE_MODE_FAST_USER_SWITCH;
 
   [self showAvatarBubbleAnchoredAt:button_
                           withMode:mode

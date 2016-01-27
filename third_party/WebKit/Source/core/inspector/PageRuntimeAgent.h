@@ -38,16 +38,16 @@
 
 namespace blink {
 
-class InspectorPageAgent;
+class InspectedFrames;
 class SecurityOrigin;
 
 class CORE_EXPORT PageRuntimeAgent final : public InspectorRuntimeAgent {
 public:
-    static PassOwnPtrWillBeRawPtr<PageRuntimeAgent> create(InjectedScriptManager* injectedScriptManager, InspectorRuntimeAgent::Client* client, V8Debugger* debugger, InspectorPageAgent* pageAgent)
+    static PassOwnPtrWillBeRawPtr<PageRuntimeAgent> create(InjectedScriptManager* injectedScriptManager, InspectorRuntimeAgent::Client* client, V8Debugger* debugger, InspectedFrames* inspectedFrames)
     {
-        return adoptPtrWillBeNoop(new PageRuntimeAgent(injectedScriptManager, client, debugger, pageAgent));
+        return adoptPtrWillBeNoop(new PageRuntimeAgent(injectedScriptManager, client, debugger, inspectedFrames));
     }
-    virtual ~PageRuntimeAgent();
+    ~PageRuntimeAgent() override;
     DECLARE_VIRTUAL_TRACE();
     void init() override;
     void enable(ErrorString*) override;
@@ -58,15 +58,15 @@ public:
     void willReleaseScriptContext(LocalFrame*, ScriptState*);
 
 private:
-    PageRuntimeAgent(InjectedScriptManager*, Client*, V8Debugger*, InspectorPageAgent*);
+    PageRuntimeAgent(InjectedScriptManager*, Client*, V8Debugger*, InspectedFrames*);
 
-    virtual InjectedScript injectedScriptForEval(ErrorString*, const int* executionContextId) override;
-    virtual void muteConsole() override;
-    virtual void unmuteConsole() override;
+    ScriptState* defaultScriptState() override;
+    void muteConsole() override;
+    void unmuteConsole() override;
     void reportExecutionContextCreation();
     void reportExecutionContext(ScriptState*, bool isPageContext, const String& origin, const String& frameId);
 
-    RawPtrWillBeMember<InspectorPageAgent> m_pageAgent;
+    InspectedFrames* m_inspectedFrames;
     bool m_mainWorldContextCreated;
     typedef HashMap<RefPtr<ScriptState>, int> ScriptStateToId;
     ScriptStateToId m_scriptStateToId;

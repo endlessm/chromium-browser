@@ -32,6 +32,7 @@
 #define DocumentOrderedMap_h
 
 #include "platform/heap/Handle.h"
+#include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 #include "wtf/HashMap.h"
 #include "wtf/text/AtomicString.h"
@@ -44,6 +45,7 @@ class Element;
 class TreeScope;
 
 class DocumentOrderedMap : public NoBaseWillBeGarbageCollected<DocumentOrderedMap> {
+    USING_FAST_MALLOC_WILL_BE_REMOVED(DocumentOrderedMap);
 public:
     static PassOwnPtrWillBeRawPtr<DocumentOrderedMap> create();
     void add(const AtomicString&, Element*);

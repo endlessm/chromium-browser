@@ -5,6 +5,7 @@
 #include "net/socket/tcp_socket.h"
 #include "net/socket/tcp_socket_win.h"
 
+#include <errno.h>
 #include <mstcpip.h>
 
 #include "base/callback_helpers.h"
@@ -235,14 +236,14 @@ void TCPSocketWin::Core::WatchForRead() {
   // We grab an extra reference because there is an IO operation in progress.
   // Balanced in ReadDelegate::OnObjectSignaled().
   AddRef();
-  read_watcher_.StartWatching(read_overlapped_.hEvent, &reader_);
+  read_watcher_.StartWatchingOnce(read_overlapped_.hEvent, &reader_);
 }
 
 void TCPSocketWin::Core::WatchForWrite() {
   // We grab an extra reference because there is an IO operation in progress.
   // Balanced in WriteDelegate::OnObjectSignaled().
   AddRef();
-  write_watcher_.StartWatching(write_overlapped_.hEvent, &writer_);
+  write_watcher_.StartWatchingOnce(write_overlapped_.hEvent, &writer_);
 }
 
 void TCPSocketWin::Core::ReadDelegate::OnObjectSignaled(HANDLE object) {
@@ -402,7 +403,7 @@ int TCPSocketWin::Accept(scoped_ptr<TCPSocketWin>* socket,
   if (result == ERR_IO_PENDING) {
     // Start watching.
     WSAEventSelect(socket_, accept_event_, FD_ACCEPT);
-    accept_watcher_.StartWatching(accept_event_, this);
+    accept_watcher_.StartWatchingOnce(accept_event_, this);
 
     accept_socket_ = socket;
     accept_address_ = address;
@@ -425,7 +426,7 @@ int TCPSocketWin::Connect(const IPEndPoint& address,
   // completed and failed. Although it is allowed to connect the same |socket_|
   // again after a connection attempt failed on Windows, it results in
   // unspecified behavior according to POSIX. Therefore, we make it behave in
-  // the same way as TCPSocketLibevent.
+  // the same way as TCPSocketPosix.
   DCHECK(!peer_address_ && !core_.get());
 
   if (!logging_multiple_connect_attempts_)
@@ -698,6 +699,10 @@ void TCPSocketWin::Close() {
   connect_os_error_ = 0;
 }
 
+void TCPSocketWin::DetachFromThread() {
+  base::NonThreadSafe::DetachFromThread();
+}
+
 void TCPSocketWin::StartLoggingMultipleConnectAttempts(
     const AddressList& addresses) {
   if (!logging_multiple_connect_attempts_) {
@@ -772,7 +777,7 @@ void TCPSocketWin::OnObjectSignaled(HANDLE object) {
 
     // Start watching the next FD_ACCEPT event.
     WSAEventSelect(socket_, accept_event_, FD_ACCEPT);
-    accept_watcher_.StartWatching(accept_event_, this);
+    accept_watcher_.StartWatchingOnce(accept_event_, this);
   }
 }
 
@@ -841,7 +846,7 @@ void TCPSocketWin::DoConnectComplete(int result) {
   connect_os_error_ = 0;
   if (result != OK) {
     net_log_.EndEvent(NetLog::TYPE_TCP_CONNECT_ATTEMPT,
-                      NetLog::IntegerCallback("os_error", os_error));
+                      NetLog::IntCallback("os_error", os_error));
   } else {
     net_log_.EndEvent(NetLog::TYPE_TCP_CONNECT_ATTEMPT);
   }

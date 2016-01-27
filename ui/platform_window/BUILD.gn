@@ -6,8 +6,11 @@ import("//build/config/ui.gni")
 
 source_set("platform_window") {
   sources = [
+    "platform_ime_controller.h",
     "platform_window.h",
     "platform_window_delegate.h",
+    "text_input_state.cc",
+    "text_input_state.h",
   ]
 
   deps = [
@@ -18,17 +21,17 @@ source_set("platform_window") {
 }
 
 group("platform_impls") {
-  deps = [
+  public_deps = [
     "//ui/platform_window/stub",
   ]
   if (is_android) {
-    deps += [
+    public_deps += [
       "//ui/platform_window/android",
       "//ui/platform_window/android:jni_headers",
     ]
   } else if (use_x11) {
-    deps += [ "//ui/platform_window/x11" ]
+    public_deps += [ "//ui/platform_window/x11" ]
   } else if (is_win) {
-    deps += [ "//ui/platform_window/win" ]
+    public_deps += [ "//ui/platform_window/win" ]
   }
 }

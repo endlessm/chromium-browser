@@ -21,7 +21,7 @@ JavaHandlerThread::JavaHandlerThread(const char* name) {
   JNIEnv* env = base::android::AttachCurrentThread();
 
   java_thread_.Reset(Java_JavaHandlerThread_create(
-      env, ConvertUTF8ToJavaString(env, name).Release()));
+      env, ConvertUTF8ToJavaString(env, name).obj()));
 }
 
 JavaHandlerThread::~JavaHandlerThread() {
@@ -64,7 +64,7 @@ void JavaHandlerThread::InitializeThread(JNIEnv* env, jobject obj,
 }
 
 void JavaHandlerThread::StopThread(JNIEnv* env, jobject obj, jlong event) {
-  static_cast<MessageLoopForUI*>(message_loop_.get())->Quit();
+  static_cast<MessageLoopForUI*>(message_loop_.get())->QuitWhenIdle();
   reinterpret_cast<base::WaitableEvent*>(event)->Signal();
 }
 

@@ -9,6 +9,7 @@
  */
 
 #include "libyuv/row.h"
+#include "libyuv/scale_row.h"
 
 #ifdef __cplusplus
 namespace libyuv {
@@ -16,7 +17,8 @@ extern "C" {
 #endif
 
 // This module is for GCC x86 and x64.
-#if !defined(LIBYUV_DISABLE_X86) && (defined(__x86_64__) || defined(__i386__))
+#if !defined(LIBYUV_DISABLE_X86) && \
+    (defined(__x86_64__) || (defined(__i386__) && !defined(_MSC_VER)))
 
 // Offsets for source bytes 0 to 9
 static uvec8 kShuf0 =
@@ -574,49 +576,64 @@ void ScaleRowDown38_3_Box_SSSE3(const uint8* src_ptr,
 }
 
 // Reads 16xN bytes and produces 16 shorts at a time.
-void ScaleAddRows_SSE2(const uint8* src_ptr, ptrdiff_t src_stride,
-                       uint16* dst_ptr, int src_width, int src_height) {
-  int tmp_height = 0;
-  intptr_t tmp_src = 0;
+void ScaleAddRow_SSE2(const uint8* src_ptr, uint16* dst_ptr, int src_width) {
   asm volatile (
-    "mov       %0,%3                           \n"  // row pointer
-    "mov       %5,%2                           \n"  // height
-    "pxor      %%xmm0,%%xmm0                   \n"  // clear accumulators
-    "pxor      %%xmm1,%%xmm1                   \n"
-    "pxor      %%xmm4,%%xmm4                   \n"
+    "pxor      %%xmm5,%%xmm5                   \n"
 
     LABELALIGN
   "1:                                          \n"
-    "movdqu    " MEMACCESS(3) ",%%xmm2         \n"
-    "add       %6,%3                           \n"
-    "movdqa    %%xmm2,%%xmm3                   \n"
-    "punpcklbw %%xmm4,%%xmm2                   \n"
-    "punpckhbw %%xmm4,%%xmm3                   \n"
+    "movdqu    " MEMACCESS(0) ",%%xmm3         \n"
+    "lea       " MEMLEA(0x10,0) ",%0           \n"  // src_ptr += 16
+    "movdqu    " MEMACCESS(1) ",%%xmm0         \n"
+    "movdqu    " MEMACCESS2(0x10,1) ",%%xmm1   \n"
+    "movdqa    %%xmm3,%%xmm2                   \n"
+    "punpcklbw %%xmm5,%%xmm2                   \n"
+    "punpckhbw %%xmm5,%%xmm3                   \n"
     "paddusw   %%xmm2,%%xmm0                   \n"
     "paddusw   %%xmm3,%%xmm1                   \n"
-    "sub       $0x1,%2                         \n"
-    "jg        1b                              \n"
-
     "movdqu    %%xmm0," MEMACCESS(1) "         \n"
     "movdqu    %%xmm1," MEMACCESS2(0x10,1) "   \n"
     "lea       " MEMLEA(0x20,1) ",%1           \n"
-    "lea       " MEMLEA(0x10,0) ",%0           \n"  // src_ptr += 16
-    "mov       %0,%3                           \n"  // row pointer
-    "mov       %5,%2                           \n"  // height
-    "pxor      %%xmm0,%%xmm0                   \n"  // clear accumulators
-    "pxor      %%xmm1,%%xmm1                   \n"
-    "sub       $0x10,%4                        \n"
+    "sub       $0x10,%2                        \n"
     "jg        1b                              \n"
   : "+r"(src_ptr),     // %0
     "+r"(dst_ptr),     // %1
-    "+r"(tmp_height),  // %2
-    "+r"(tmp_src),     // %3
-    "+r"(src_width),   // %4
-    "+rm"(src_height)  // %5
-  : "rm"((intptr_t)(src_stride))  // %6
-  : "memory", "cc", "xmm0", "xmm1", "xmm2", "xmm3", "xmm4"
+    "+r"(src_width)    // %2
+  :
+  : "memory", "cc", "xmm0", "xmm1", "xmm2", "xmm3", "xmm5"
   );
 }
+
+
+#ifdef HAS_SCALEADDROW_AVX2
+// Reads 32 bytes and accumulates to 32 shorts at a time.
+void ScaleAddRow_AVX2(const uint8* src_ptr, uint16* dst_ptr, int src_width) {
+  asm volatile (
+    "vpxor      %%ymm5,%%ymm5,%%ymm5           \n"
+
+    LABELALIGN
+  "1:                                          \n"
+    "vmovdqu    " MEMACCESS(0) ",%%ymm3        \n"
+    "lea        " MEMLEA(0x20,0) ",%0          \n"  // src_ptr += 32
+    "vpermq     $0xd8,%%ymm3,%%ymm3            \n"
+    "vpunpcklbw %%ymm5,%%ymm3,%%ymm2           \n"
+    "vpunpckhbw %%ymm5,%%ymm3,%%ymm3           \n"
+    "vpaddusw   " MEMACCESS(1) ",%%ymm2,%%ymm0 \n"
+    "vpaddusw   " MEMACCESS2(0x20,1) ",%%ymm3,%%ymm1 \n"
+    "vmovdqu    %%ymm0," MEMACCESS(1) "        \n"
+    "vmovdqu    %%ymm1," MEMACCESS2(0x20,1) "  \n"
+    "lea       " MEMLEA(0x40,1) ",%1           \n"
+    "sub       $0x20,%2                        \n"
+    "jg        1b                              \n"
+    "vzeroupper                                \n"
+  : "+r"(src_ptr),     // %0
+    "+r"(dst_ptr),     // %1
+    "+r"(src_width)    // %2
+  :
+  : "memory", "cc", "xmm0", "xmm1", "xmm2", "xmm3", "xmm5"
+  );
+}
+#endif  // HAS_SCALEADDROW_AVX2
 
 // Bilinear column filtering. SSSE3 version.
 void ScaleFilterCols_SSSE3(uint8* dst_ptr, const uint8* src_ptr,

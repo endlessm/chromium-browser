@@ -128,7 +128,7 @@ WebInspector.FileSystemView.EntryTreeElement.prototype = {
      */
     onattach: function()
     {
-        var selection = this.listItemElement.createChild("div", "selection");
+        var selection = this.listItemElement.createChild("div", "selection fill");
         this.listItemElement.insertBefore(selection, this.listItemElement.firstChild);
     },
 
@@ -165,7 +165,7 @@ WebInspector.FileSystemView.EntryTreeElement.prototype = {
      */
     _directoryContentReceived: function(errorCode, entries)
     {
-        WebInspector.userMetrics.FileSystemDirectoryContentReceived.record();
+        WebInspector.userMetrics.actionTaken(WebInspector.UserMetrics.Action.FileSystemDirectoryContentReceived);
         if (errorCode === FileError.NOT_FOUND_ERR) {
             if (this.parent)
                 this.parent.refresh();

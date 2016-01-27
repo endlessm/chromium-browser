@@ -10,7 +10,6 @@
 #include "base/strings/string_util.h"
 #include "base/values.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/extensions/api/extension_action/action_info.h"
 #include "chrome/common/extensions/api/generated_schemas.h"
 #include "chrome/common/extensions/chrome_manifest_handlers.h"
@@ -23,6 +22,7 @@
 #include "chrome/grit/common_resources.h"
 #include "chrome/grit/extensions_api_resources.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/version_info/version_info.h"
 #include "content/public/common/url_constants.h"
 #include "extensions/common/api/generated_schemas.h"
 #include "extensions/common/common_manifest_handlers.h"
@@ -43,7 +43,6 @@
 #include "extensions/common/manifest_handler.h"
 #include "extensions/common/manifest_handlers/icons_handler.h"
 #include "extensions/common/permissions/api_permission_set.h"
-#include "extensions/common/permissions/permission_message.h"
 #include "extensions/common/permissions/permissions_info.h"
 #include "extensions/common/url_pattern.h"
 #include "extensions/common/url_pattern_set.h"
@@ -71,7 +70,7 @@ SimpleFeature* CreateFeature() {
   return feature;
 }
 
-// Mirrors chrome::VersionInfo for histograms.
+// Mirrors version_info::Channel for histograms.
 enum ChromeChannelForHistogram {
   CHANNEL_UNKNOWN,
   CHANNEL_CANARY,
@@ -82,20 +81,20 @@ enum ChromeChannelForHistogram {
 };
 
 ChromeChannelForHistogram GetChromeChannelForHistogram(
-    chrome::VersionInfo::Channel channel) {
+    version_info::Channel channel) {
   switch (channel) {
-    case chrome::VersionInfo::CHANNEL_UNKNOWN:
+    case version_info::Channel::UNKNOWN:
       return CHANNEL_UNKNOWN;
-    case chrome::VersionInfo::CHANNEL_CANARY:
+    case version_info::Channel::CANARY:
       return CHANNEL_CANARY;
-    case chrome::VersionInfo::CHANNEL_DEV:
+    case version_info::Channel::DEV:
       return CHANNEL_DEV;
-    case chrome::VersionInfo::CHANNEL_BETA:
+    case version_info::Channel::BETA:
       return CHANNEL_BETA;
-    case chrome::VersionInfo::CHANNEL_STABLE:
+    case version_info::Channel::STABLE:
       return CHANNEL_STABLE;
   }
-  NOTREACHED() << channel;
+  NOTREACHED() << static_cast<int>(channel);
   return CHANNEL_UNKNOWN;
 }
 
@@ -192,31 +191,6 @@ ChromeExtensionsClient::CreateFeatureProviderSource(
 void ChromeExtensionsClient::FilterHostPermissions(
     const URLPatternSet& hosts,
     URLPatternSet* new_hosts,
-    std::set<PermissionMessage>* messages) const {
-  // When editing this function, be sure to add the same functionality to
-  // FilterHostPermissions() below.
-  // TODO(sashab): Deprecate and remove this function.
-  for (URLPatternSet::const_iterator i = hosts.begin();
-       i != hosts.end(); ++i) {
-    // Filters out every URL pattern that matches chrome:// scheme.
-    if (i->scheme() == content::kChromeUIScheme) {
-      // chrome://favicon is the only URL for chrome:// scheme that we
-      // want to support. We want to deprecate the "chrome" scheme.
-      // We should not add any additional "host" here.
-      if (GURL(chrome::kChromeUIFaviconURL).host() != i->host())
-        continue;
-      messages->insert(PermissionMessage(
-          PermissionMessage::kFavicon,
-          l10n_util::GetStringUTF16(IDS_EXTENSION_PROMPT_WARNING_FAVICON)));
-    } else {
-      new_hosts->AddPattern(*i);
-    }
-  }
-}
-
-void ChromeExtensionsClient::FilterHostPermissions(
-    const URLPatternSet& hosts,
-    URLPatternSet* new_hosts,
     PermissionIDSet* permissions) const {
   // When editing this function, be sure to add the same functionality to
   // FilterHostPermissions() above.
@@ -288,17 +262,17 @@ bool ChromeExtensionsClient::IsScriptableURL(
 bool ChromeExtensionsClient::IsAPISchemaGenerated(
     const std::string& name) const {
   // Test from most common to least common.
-  return api::GeneratedSchemas::IsGenerated(name) ||
-         core_api::GeneratedSchemas::IsGenerated(name);
+  return api::ChromeGeneratedSchemas::IsGenerated(name) ||
+         api::GeneratedSchemas::IsGenerated(name);
 }
 
 base::StringPiece ChromeExtensionsClient::GetAPISchema(
     const std::string& name) const {
   // Test from most common to least common.
-  if (api::GeneratedSchemas::IsGenerated(name))
-    return api::GeneratedSchemas::Get(name);
+  if (api::ChromeGeneratedSchemas::IsGenerated(name))
+    return api::ChromeGeneratedSchemas::Get(name);
 
-  return core_api::GeneratedSchemas::Get(name);
+  return api::GeneratedSchemas::Get(name);
 }
 
 void ChromeExtensionsClient::RegisterAPISchemaResources(
@@ -330,7 +304,7 @@ void ChromeExtensionsClient::RegisterAPISchemaResources(
 bool ChromeExtensionsClient::ShouldSuppressFatalErrors() const {
   // Suppress fatal everywhere until the cause of bugs like http://crbug/471599
   // are fixed. This would typically be:
-  // return GetCurrentChannel() > chrome::VersionInfo::CHANNEL_DEV;
+  // return GetCurrentChannel() > version_info::Channel::DEV;
   return true;
 }
 
@@ -347,7 +321,7 @@ std::string ChromeExtensionsClient::GetWebstoreBaseURL() const {
     gallery_prefix =
         base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
             switches::kAppsGalleryURL);
-  if (base::EndsWith(gallery_prefix, "/", true))
+  if (base::EndsWith(gallery_prefix, "/", base::CompareCase::SENSITIVE))
     gallery_prefix = gallery_prefix.substr(0, gallery_prefix.length() - 1);
   return gallery_prefix;
 }

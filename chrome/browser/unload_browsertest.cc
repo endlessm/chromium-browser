@@ -23,6 +23,7 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/test/url_request/url_request_mock_http_job.h"
 #include "net/url_request/url_request_test_util.h"
@@ -146,8 +147,7 @@ class UnloadTest : public InProcessBrowserTest {
   }
 
   void NavigateToNolistenersFileTwice() {
-    GURL url(net::URLRequestMockHTTPJob::GetMockUrl(
-        base::FilePath(FILE_PATH_LITERAL("title2.html"))));
+    GURL url(net::URLRequestMockHTTPJob::GetMockUrl("title2.html"));
     ui_test_utils::NavigateToURL(browser(), url);
     CheckTitle("Title Of Awesomeness");
     ui_test_utils::NavigateToURL(browser(), url);
@@ -158,8 +158,7 @@ class UnloadTest : public InProcessBrowserTest {
   // load is purposely async to test the case where the user loads another
   // page without waiting for the first load to complete.
   void NavigateToNolistenersFileTwiceAsync() {
-    GURL url(net::URLRequestMockHTTPJob::GetMockUrl(
-        base::FilePath(FILE_PATH_LITERAL("title2.html"))));
+    GURL url(net::URLRequestMockHTTPJob::GetMockUrl("title2.html"));
     ui_test_utils::NavigateToURLWithDisposition(browser(), url, CURRENT_TAB, 0);
     ui_test_utils::NavigateToURL(browser(), url);
     CheckTitle("Title Of Awesomeness");

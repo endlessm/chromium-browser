@@ -35,7 +35,7 @@ namespace blink {
 
 class NodeListsNodeData final : public NoBaseWillBeGarbageCollectedFinalized<NodeListsNodeData> {
     WTF_MAKE_NONCOPYABLE(NodeListsNodeData);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(NodeListsNodeData);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(NodeListsNodeData);
 public:
     ChildNodeList* childNodeList(ContainerNode& node)
     {
@@ -80,6 +80,7 @@ public:
 #endif
 
     struct NodeListAtomicCacheMapEntryHash {
+        STATIC_ONLY(NodeListAtomicCacheMapEntryHash);
         static unsigned hash(const std::pair<unsigned char, StringImpl*>& entry)
         {
             return DefaultHash<StringImpl*>::Hash::hash(entry.second) + entry.first;

@@ -1,9 +1,9 @@
 # Copyright 2014 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
+from telemetry.core import android_platform
 from telemetry.core import platform
-from telemetry.core.platform import android_device
-from telemetry.core.platform import android_platform
+from telemetry.internal.platform import android_device
 from telemetry import story as story_module
 from telemetry.web_perf import timeline_based_measurement
 
@@ -54,6 +54,10 @@ class SharedAndroidState(story_module.SharedState):
         story.start_intent, story.is_app_ready_predicate)
     self._test.WillRunStory(self._android_platform.tracing_controller)
 
+  def CanRunStory(self, story):
+    """This does not apply to android app stories."""
+    return True
+
   def RunStory(self, results):
     self._current_story.Run(self)
     self._test.Measure(self._android_platform.tracing_controller, results)
@@ -63,10 +67,6 @@ class SharedAndroidState(story_module.SharedState):
     if self._android_app:
       self._android_app.Close()
       self._android_app = None
-
-  def GetTestExpectationAndSkipValue(self, expectations):
-    """This does not apply to android app stories."""
-    return 'pass', None
 
   def TearDownState(self):
     """Tear down anything created in the __init__ method that is not needed.

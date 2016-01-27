@@ -1,5 +1,4 @@
 include_rules = [
-  "+breakpad",  # For Breakpad constants.
   "+chrome/grit",  # For generated headers
   "+chromeos",  # For chromeos_switches.h
   "+components/autofill/content/common",
@@ -7,9 +6,12 @@ include_rules = [
   "+components/bookmarks/common",
   "+components/cloud_devices/common",
   "+components/content_settings/core/common",
+  "+components/crash/core/common",
   "+components/crx_file",
+  "+components/data_reduction_proxy/content/common",
   "+components/data_reduction_proxy/core/common",
   "+components/dom_distiller/core",
+  "+components/gcm_driver",
   "+components/metrics/client_info.h",
   "+components/metrics/metrics_pref_names.h",
   "+components/nacl/common",
@@ -18,6 +20,8 @@ include_rules = [
   "+components/policy/core/common",
   "+components/signin/core/common",
   "+components/translate/core/common",
+  "+components/url_formatter",
+  "+components/version_info",
   "+extensions/common",
   "+gin/public",  # For profiling.cc
   "+google_apis/gaia",  # For gaia_switches.h

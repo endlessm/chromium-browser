@@ -42,8 +42,8 @@ public:
 
     bool pointInArea(LayoutPoint, const LayoutSize& containerSize);
 
-    LayoutRect computeRect(LayoutObject*) const;
-    Path computePath(LayoutObject*) const;
+    LayoutRect computeRect(const LayoutObject*) const;
+    Path computePath(const LayoutObject*) const;
 
     // The parent map's image.
     HTMLImageElement* imageElement() const;
@@ -56,7 +56,7 @@ private:
     bool isKeyboardFocusable() const override;
     bool isMouseFocusable() const override;
     bool layoutObjectIsFocusable() const override;
-    void updateFocusAppearance(bool /*restorePreviousSelection*/) override;
+    void updateFocusAppearance(SelectionBehaviorOnFocus) override;
     void setFocus(bool) override;
 
     enum Shape { Default, Poly, Rect, Circle, Unknown };

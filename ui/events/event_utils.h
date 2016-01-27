@@ -9,6 +9,7 @@
 #include "base/event_types.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
+#include "ui/events/event.h"
 #include "ui/events/event_constants.h"
 #include "ui/events/keycodes/keyboard_codes.h"
 #include "ui/gfx/display.h"
@@ -85,17 +86,16 @@ EVENTS_EXPORT KeyboardCode KeyboardCodeFromNative(
 // keyboard) from a native event.
 EVENTS_EXPORT DomCode CodeFromNative(const base::NativeEvent& native_event);
 
-// Returns the platform related key code (interpretation, not scan code).
-// For X11 and xkbcommon, this is the KeySym value.
-EVENTS_EXPORT uint32 PlatformKeycodeFromNative(
-    const base::NativeEvent& native_event);
-
 // Returns true if the keyboard event is a character event rather than
 // a keystroke event.
 EVENTS_EXPORT bool IsCharFromNative(const base::NativeEvent& native_event);
 
 // Returns the flags of the button that changed during a press/release.
 EVENTS_EXPORT int GetChangedMouseButtonFlagsFromNative(
+    const base::NativeEvent& native_event);
+
+// Returns the detailed pointer information for mouse events.
+EVENTS_EXPORT PointerDetails GetMousePointerDetailsFromNative(
     const base::NativeEvent& native_event);
 
 // Gets the mouse wheel offsets from a native event.

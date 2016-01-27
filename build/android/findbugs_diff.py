@@ -20,6 +20,7 @@ import argparse
 import os
 import sys
 
+from devil.utils import run_tests_helper
 from pylib import constants
 from pylib.utils import findbugs
 
@@ -28,12 +29,14 @@ _DEFAULT_BASE_DIR = os.path.join(
 
 sys.path.append(
     os.path.join(constants.DIR_SOURCE_ROOT, 'build', 'android', 'gyp'))
-from util import build_utils
+from util import build_utils # pylint: disable=import-error
 
 
 def main():
   parser = argparse.ArgumentParser()
 
+  parser.add_argument(
+      '-v', '--verbose', action='count', help='Enable verbose logging.')
   parser.add_argument(
       '-a', '--auxclasspath', default=None, dest='auxclasspath',
       help='Set aux classpath for analysis.')
@@ -69,6 +72,9 @@ def main():
       help='JAR file to analyze')
 
   args = parser.parse_args(build_utils.ExpandFileArgs(sys.argv[1:]))
+
+  run_tests_helper.SetLogLevel(args.verbose)
+
   if args.auxclasspath:
     args.auxclasspath = args.auxclasspath.split(':')
   elif args.auxclasspath_gyp:

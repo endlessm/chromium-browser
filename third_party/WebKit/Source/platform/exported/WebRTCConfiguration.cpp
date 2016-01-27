@@ -144,4 +144,16 @@ WebRTCRtcpMuxPolicy WebRTCConfiguration::rtcpMuxPolicy() const
     return WebRTCRtcpMuxPolicyNegotiate;
 }
 
+size_t WebRTCConfiguration::numberOfCertificates() const
+{
+    ASSERT(!isNull());
+    return m_private->numberOfCertificates();
+}
+
+WebRTCCertificate* WebRTCConfiguration::certificate(size_t index) const
+{
+    ASSERT(!isNull());
+    return m_private->certificate(index);
+}
+
 } // namespace blink

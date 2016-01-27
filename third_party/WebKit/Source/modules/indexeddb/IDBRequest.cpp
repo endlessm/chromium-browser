@@ -33,6 +33,8 @@
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "bindings/modules/v8/ToV8ForModules.h"
 #include "bindings/modules/v8/V8BindingForModules.h"
+#include "core/dom/DOMException.h"
+#include "core/dom/ExceptionCode.h"
 #include "core/dom/ExecutionContext.h"
 #include "core/events/EventQueue.h"
 #include "modules/IndexedDBNames.h"
@@ -60,19 +62,9 @@ IDBRequest* IDBRequest::create(ScriptState* scriptState, IDBAny* source, IDBTran
 
 IDBRequest::IDBRequest(ScriptState* scriptState, IDBAny* source, IDBTransaction* transaction)
     : ActiveDOMObject(scriptState->executionContext())
-    , m_contextStopped(false)
     , m_transaction(transaction)
-    , m_readyState(PENDING)
-    , m_requestAborted(false)
     , m_scriptState(scriptState)
     , m_source(source)
-    , m_hasPendingActivity(true)
-    , m_cursorType(IndexedDB::CursorKeyAndValue)
-    , m_cursorDirection(WebIDBCursorDirectionNext)
-    , m_pendingCursor(nullptr)
-    , m_didFireUpgradeNeededEvent(false)
-    , m_preventPropagation(false)
-    , m_resultDirty(true)
 {
 }
 
@@ -87,9 +79,7 @@ DEFINE_TRACE(IDBRequest)
     visitor->trace(m_source);
     visitor->trace(m_result);
     visitor->trace(m_error);
-#if ENABLE(OILPAN)
     visitor->trace(m_enqueuedEvents);
-#endif
     visitor->trace(m_pendingCursor);
     visitor->trace(m_cursorKey);
     visitor->trace(m_cursorPrimaryKey);
@@ -110,7 +100,7 @@ ScriptValue IDBRequest::result(ExceptionState& exceptionState)
     return value;
 }
 
-DOMError* IDBRequest::error(ExceptionState& exceptionState) const
+DOMException* IDBRequest::error(ExceptionState& exceptionState) const
 {
     if (m_readyState != DONE) {
         exceptionState.throwDOMException(InvalidStateError, IDBDatabase::requestNotFinishedErrorMessage);
@@ -155,7 +145,7 @@ void IDBRequest::abort()
 
     m_error.clear();
     m_result.clear();
-    onError(DOMError::create(AbortError, "The transaction was aborted, so the request cannot be fulfilled."));
+    onError(DOMException::create(AbortError, "The transaction was aborted, so the request cannot be fulfilled."));
     m_requestAborted = true;
 }
 
@@ -232,7 +222,7 @@ bool IDBRequest::shouldEnqueueEvent() const
     return true;
 }
 
-void IDBRequest::onError(DOMError* error)
+void IDBRequest::onError(DOMException* error)
 {
     IDB_TRACE("IDBRequest::onError()");
     if (!shouldEnqueueEvent())
@@ -421,7 +411,7 @@ ExecutionContext* IDBRequest::executionContext() const
     return ActiveDOMObject::executionContext();
 }
 
-bool IDBRequest::dispatchEvent(PassRefPtrWillBeRawPtr<Event> event)
+bool IDBRequest::dispatchEventInternal(PassRefPtrWillBeRawPtr<Event> event)
 {
     IDB_TRACE("IDBRequest::dispatchEvent");
     if (m_contextStopped || !executionContext())
@@ -500,7 +490,7 @@ bool IDBRequest::dispatchEvent(PassRefPtrWillBeRawPtr<Event> event)
 void IDBRequest::uncaughtExceptionInEventHandler()
 {
     if (m_transaction && !m_requestAborted) {
-        m_transaction->setError(DOMError::create(AbortError, "Uncaught exception in event handler."));
+        m_transaction->setError(DOMException::create(AbortError, "Uncaught exception in event handler."));
         m_transaction->abort(IGNORE_EXCEPTION);
     }
 }

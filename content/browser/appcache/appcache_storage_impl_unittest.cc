@@ -100,16 +100,16 @@ class MockHttpServer {
                               std::string* headers,
                               std::string* body) {
     const char manifest_headers[] =
-        "HTTP/1.1 200 OK\0"
-        "Content-type: text/cache-manifest\0"
-        "\0";
+        "HTTP/1.1 200 OK\n"
+        "Content-type: text/cache-manifest\n"
+        "\n";
     const char page_headers[] =
-        "HTTP/1.1 200 OK\0"
-        "Content-type: text/html\0"
-        "\0";
+        "HTTP/1.1 200 OK\n"
+        "Content-type: text/html\n"
+        "\n";
     const char not_found_headers[] =
-        "HTTP/1.1 404 NOT FOUND\0"
-        "\0";
+        "HTTP/1.1 404 NOT FOUND\n"
+        "\n";
 
     if (path == "/manifest") {
       (*headers) = std::string(manifest_headers, arraysize(manifest_headers));
@@ -163,9 +163,8 @@ class IOThread : public base::Thread {
     scoped_ptr<net::URLRequestJobFactoryImpl> factory(
         new net::URLRequestJobFactoryImpl());
     factory->SetProtocolHandler(
-        "http",
-        new MockHttpServerJobFactory(
-            make_scoped_ptr(new AppCacheInterceptor())));
+        "http", make_scoped_ptr(new MockHttpServerJobFactory(
+                    make_scoped_ptr(new AppCacheInterceptor()))));
     job_factory_ = factory.Pass();
     request_context_.reset(new net::TestURLRequestContext());
     request_context_->set_job_factory(job_factory_.get());

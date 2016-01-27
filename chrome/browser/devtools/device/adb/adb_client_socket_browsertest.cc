@@ -41,7 +41,7 @@ class AdbClientSocketTest : public InProcessBrowserTest,
       const DevToolsAndroidBridge::RemoteDevices& devices) override {
     devices_ = devices;
     android_bridge_->RemoveDeviceListListener(this);
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
   }
 
   void CheckDevices() {
@@ -134,8 +134,22 @@ class AdbClientSocketTest : public InProcessBrowserTest,
   DevToolsAndroidBridge::RemoteDevices devices_;
 };
 
-IN_PROC_BROWSER_TEST_F(AdbClientSocketTest, TestAdbClientSocket) {
-  StartMockAdbServer();
+IN_PROC_BROWSER_TEST_F(AdbClientSocketTest, TestFlushWithoutSize) {
+  StartMockAdbServer(FlushWithoutSize);
+  StartTest();
+  CheckDevices();
+  StopMockAdbServer();
+}
+
+IN_PROC_BROWSER_TEST_F(AdbClientSocketTest, TestFlushWithSize) {
+  StartMockAdbServer(FlushWithSize);
+  StartTest();
+  CheckDevices();
+  StopMockAdbServer();
+}
+
+IN_PROC_BROWSER_TEST_F(AdbClientSocketTest, TestFlushWithData) {
+  StartMockAdbServer(FlushWithData);
   StartTest();
   CheckDevices();
   StopMockAdbServer();

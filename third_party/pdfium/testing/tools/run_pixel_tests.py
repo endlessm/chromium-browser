@@ -24,6 +24,14 @@ def generate_and_test(input_filename, source_dir, working_dir,
   input_root, _ = os.path.splitext(input_filename)
   input_path = os.path.join(source_dir, input_root + '.in')
   pdf_path = os.path.join(working_dir, input_root + '.pdf')
+
+  # Remove any existing generated images from previous runs.
+  actual_images = image_differ.GetActualFiles(
+      input_filename, source_dir, working_dir)
+  for image in actual_images:
+    if os.path.exists(image):
+      os.remove(image)
+
   try:
     sys.stdout.flush()
     subprocess.check_call(
@@ -36,6 +44,7 @@ def generate_and_test(input_filename, source_dir, working_dir,
     print "FAILURE: " + input_filename
     return False
   return True
+
 
 def main():
   parser = optparse.OptionParser()
@@ -57,9 +66,16 @@ def main():
   test_suppressor = suppressor.Suppressor(finder)
   image_differ = pngdiffer.PNGDiffer(finder)
 
+  input_files = []
+  if len(args):
+    for file_name in args:
+      input_files.append(file_name.replace(".pdf", ".in"))
+  else:
+    input_files = os.listdir(source_dir)
+
   failures = []
   input_file_re = re.compile('^[a-zA-Z0-9_.]+[.]in$')
-  for input_filename in os.listdir(source_dir):
+  for input_filename in input_files:
     if input_file_re.match(input_filename):
       input_path = os.path.join(source_dir, input_filename)
       if os.path.isfile(input_path):
@@ -70,11 +86,13 @@ def main():
           failures.append(input_path)
 
   if failures:
+    failures.sort()
     print '\n\nSummary of Failures:'
     for failure in failures:
       print failure
     return 1
   return 0
+
 
 if __name__ == '__main__':
   sys.exit(main())

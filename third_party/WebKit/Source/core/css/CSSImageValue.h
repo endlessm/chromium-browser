@@ -21,6 +21,7 @@
 #ifndef CSSImageValue_h
 #define CSSImageValue_h
 
+#include "core/CoreExport.h"
 #include "core/css/CSSValue.h"
 #include "core/fetch/ResourceFetcher.h"
 #include "platform/weborigin/Referrer.h"
@@ -34,22 +35,26 @@ class StyleFetchedImage;
 class StyleImage;
 class LayoutObject;
 
-class CSSImageValue : public CSSValue {
+class CORE_EXPORT CSSImageValue : public CSSValue {
 public:
-    static PassRefPtrWillBeRawPtr<CSSImageValue> create(const KURL& url, StyleImage* image = 0)
+    static PassRefPtrWillBeRawPtr<CSSImageValue> create(const KURL& url, StyleFetchedImage* image = 0)
     {
-        return adoptRefWillBeNoop(new CSSImageValue(url, url, image));
+        return create(url.string(), url, image);
     }
-    static PassRefPtrWillBeRawPtr<CSSImageValue> create(const String& rawValue, const KURL& url, StyleImage* image = 0)
+    static PassRefPtrWillBeRawPtr<CSSImageValue> create(const String& rawValue, const KURL& url, StyleFetchedImage* image = 0)
+    {
+        return create(AtomicString(rawValue), url, image);
+    }
+    static PassRefPtrWillBeRawPtr<CSSImageValue> create(const AtomicString& rawValue, const KURL& url, StyleFetchedImage* image = 0)
     {
         return adoptRefWillBeNoop(new CSSImageValue(rawValue, url, image));
     }
     ~CSSImageValue();
 
-    StyleFetchedImage* cachedImage(Document*, const ResourceLoaderOptions&);
-    StyleFetchedImage* cachedImage(Document* document) { return cachedImage(document, ResourceFetcher::defaultResourceOptions()); }
-    // Returns a StyleFetchedImage if the image is cached already, otherwise a StylePendingImage.
-    StyleImage* cachedOrPendingImage();
+    bool isCachePending() const { return m_isCachePending; }
+    StyleFetchedImage* cachedImage() const { ASSERT(!isCachePending()); return m_cachedImage.get(); }
+    StyleFetchedImage* cacheImage(Document*, const ResourceLoaderOptions&);
+    StyleFetchedImage* cacheImage(Document* document) { return cacheImage(document, ResourceFetcher::defaultResourceOptions()); }
 
     const String& url() { return m_absoluteURL; }
 
@@ -66,19 +71,24 @@ public:
 
     bool knownToBeOpaque(const LayoutObject*) const;
 
+    PassRefPtrWillBeRawPtr<CSSImageValue> valueWithURLMadeAbsolute()
+    {
+        return create(KURL(ParsedURLString, m_absoluteURL), m_cachedImage.get());
+    }
+
     void setInitiator(const AtomicString& name) { m_initiatorName = name; }
 
     DECLARE_TRACE_AFTER_DISPATCH();
-    void restoreCachedResourceIfNeeded(Document&);
+    void restoreCachedResourceIfNeeded(Document&) const;
 
 private:
-    CSSImageValue(const String& rawValue, const KURL&, StyleImage*);
+    CSSImageValue(const AtomicString& rawValue, const KURL&, StyleFetchedImage*);
 
-    String m_relativeURL;
-    String m_absoluteURL;
+    AtomicString m_relativeURL;
+    AtomicString m_absoluteURL;
     Referrer m_referrer;
-    RefPtr<StyleImage> m_image;
-    bool m_accessedImage;
+    bool m_isCachePending;
+    RefPtrWillBeMember<StyleFetchedImage> m_cachedImage;
     AtomicString m_initiatorName;
 };
 

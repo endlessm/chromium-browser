@@ -41,6 +41,15 @@ PolymerElement.prototype.isAttached;
 PolymerElement.prototype.root;
 
 /**
+ * The root node for the element.
+ * Only exists if running under Shady Dom.
+ * You usually want to use `this.root`.
+ *
+ * @type {?Node|undefined}
+ */
+PolymerElement.prototype.shadyRoot;
+
+/**
  * Returns the first node in this element’s local DOM that matches selector.
  * @param {string} selector
  */
@@ -72,6 +81,8 @@ PolymerElement.prototype.observers;
 PolymerElement.prototype.created = function() {};
 /** On ready callback. */
 PolymerElement.prototype.ready = function() {};
+/** On registered callback. */
+PolymerElement.prototype.registered = function() {};
 /** On attached to the DOM callback. */
 PolymerElement.prototype.attached = function() {};
 /** On detached from the DOM callback. */
@@ -120,8 +131,12 @@ PolymerElement.prototype.domHost;
  * Notifies the event binding system of a change to a property.
  * @param  {string} path  The path to set.
  * @param  {*}      value The value to send in the update notification.
+ * @param {boolean=} fromAbove When true, specifies that the change came from
+ *     above this element and thus upward notification is not necessary.
+ * @return {boolean} True if notification actually took place, based on a dirty
+ *     check of whether the new value was already known.
  */
-PolymerElement.prototype.notifyPath = function(path, value) {};
+PolymerElement.prototype.notifyPath = function(path, value, fromAbove) {};
 
 /**
  * Convienence method for setting a value to a path and notifying any
@@ -164,10 +179,86 @@ PolymerElement.prototype.set = function(path, value, root) {};
 PolymerElement.prototype.get = function(path, root) {};
 
 /**
+ * Adds items onto the end of the array at the path specified.
+ *
+ * The arguments after `path` and return value match that of
+ * `Array.prototype.push`.
+ *
+ * This method notifies other paths to the same array that a
+ * splice occurred to the array.
+ *
+ * @param {string} path Path to array.
+ * @param {...*} var_args Items to push onto array
+ * @return {number} New length of the array.
+ */
+PolymerElement.prototype.push = function(path, var_args) {};
+
+/**
+ * Removes an item from the end of array at the path specified.
+ *
+ * The arguments after `path` and return value match that of
+ * `Array.prototype.pop`.
+ *
+ * This method notifies other paths to the same array that a
+ * splice occurred to the array.
+ *
+ * @param {string} path Path to array.
+ * @return {*} Item that was removed.
+ */
+PolymerElement.prototype.pop = function(path) {};
+
+/**
+ * Starting from the start index specified, removes 0 or more items
+ * from the array and inserts 0 or more new itms in their place.
+ *
+ * The arguments after `path` and return value match that of
+ * `Array.prototype.splice`.
+ *
+ * This method notifies other paths to the same array that a
+ * splice occurred to the array.
+ *
+ * @param {string} path Path to array.
+ * @param {number} start Index from which to start removing/inserting.
+ * @param {number} deleteCount Number of items to remove.
+ * @param {...*} var_args Items to insert into array.
+ * @return {!Array} Array of removed items.
+ */
+PolymerElement.prototype.splice = function(path, start, deleteCount, var_args) {};
+
+/**
+ * Removes an item from the beginning of array at the path specified.
+ *
+ * The arguments after `path` and return value match that of
+ * `Array.prototype.pop`.
+ *
+ * This method notifies other paths to the same array that a
+ * splice occurred to the array.
+ *
+ * @param {string} path Path to array.
+ * @return {*} Item that was removed.
+ */
+PolymerElement.prototype.shift = function(path) {};
+
+/**
+ * Adds items onto the beginning of the array at the path specified.
+ *
+ * The arguments after `path` and return value match that of
+ * `Array.prototype.push`.
+ *
+ * This method notifies other paths to the same array that a
+ * splice occurred to the array.
+ *
+ * @param {string} path Path to array.
+ * @param {...*} var_args Items to insert info array
+ * @return {number} New length of the array.
+ */
+PolymerElement.prototype.unshift = function(path, var_args) {};
+
+/**
  * Fire an event.
  *
  * @param {string} type An event name.
- * @param {Object=} detail
+ * @param {*=} detail
  * @param {{
  *   bubbles: (boolean|undefined),
  *   cancelable: (boolean|undefined),
@@ -208,11 +299,19 @@ PolymerElement.prototype.attributeFollows = function(name, newNode, oldNode) {};
 /**
  * Convenience method to add an event listener on a given element, late bound to
  * a named method on this element.
- * @param {!Element} node Element to add event listener to.
+ * @param {!EventTarget} node Element to add event listener to.
  * @param {string} eventName Name of event to listen for.
  * @param {string} methodName Name of handler method on this to call.
  */
 PolymerElement.prototype.listen = function(node, eventName, methodName) {};
+
+/**
+ * Convenience method to remove an event listener from a given element.
+ * @param {!EventTarget} node Element to remove event listener from.
+ * @param {string} eventName Name of event to stop listening for.
+ * @param {string} methodName Name of handler method on this to remove.
+ */
+PolymerElement.prototype.unlisten = function(node, eventName, methodName) {};
 
 /**
  * Override scrolling behavior to all direction, one direction, or none.
@@ -236,6 +335,11 @@ PolymerElement.prototype.setScrollDirection = function(direction, node) {};
  */
 PolymerElement.prototype.async = function(method, wait) {};
 
+/**
+ * @param {...*} var_args
+ */
+PolymerElement.prototype.factoryImpl = function(var_args) {};
+
 Polymer.Base;
 
 /**
@@ -246,6 +350,32 @@ Polymer.Base;
  * @return {number} A handle which can be used to cancel the job.
  */
 Polymer.Base.async = function(method, wait) {};
+
+/**
+ * Returns a property descriptor object for the property specified.
+ *
+ * This method allows introspecting the configuration of a Polymer element's
+ * properties as configured in its `properties` object.  Note, this method
+ * normalizes shorthand forms of the `properties` object into longhand form.
+ *
+ * @param {string} property Name of property to introspect.
+ * @return {Object} Property descriptor for specified property.
+*/
+Polymer.Base.getPropertyInfo = function(property) {};
+
+Polymer.Gestures;
+
+/**
+ * Gets the original target of the given event.
+ *
+ * Cheaper than Polymer.dom(ev).path[0];
+ * See https://github.com/Polymer/polymer/blob/master/src/standard/gestures.html#L191
+ *
+ * @param {Event} ev .
+ * @return {Element} The original target of the event.
+ */
+Polymer.Gestures.findOriginalTarget = function(ev) {};
+
 
 /**
  * @param {number} handle
@@ -308,9 +438,18 @@ PolymerElement.prototype.translate3d = function(x, y, z, node) {};
 PolymerElement.prototype.importHref = function(href, onload, onerror) {};
 
 /**
+ * Checks whether an element is in this element's light DOM tree.
+ * @param {HTMLElement=} node The element to be checked.
+ * @return {boolean} true if node is in this element's light DOM tree.
+ */
+PolymerElement.prototype.isLightDescendant = function(node) {};
+
+/**
  * Delete an element from an array.
- * @param {!Array} array
- * @param {*} item
+ * @param {!Array|string} array Path to array from which to remove the item (or
+ *     the array itself).
+ * @param {*} item Item to remove
+ * @return {!Array} The array with the item removed.
  */
 PolymerElement.prototype.arrayDelete = function(array, item) {};
 
@@ -320,6 +459,26 @@ PolymerElement.prototype.arrayDelete = function(array, item) {};
  * @return {string}
  */
 PolymerElement.prototype.resolveUrl = function(url) {};
+
+/**
+ * Re-evaluates and applies custom CSS properties based on dynamic
+ * changes to this element's scope, such as adding or removing classes
+ * in this element's local DOM.
+ *
+ * For performance reasons, Polymer's custom CSS property shim relies
+ * on this explicit signal from the user to indicate when changes have
+ * been made that affect the values of custom properties.
+ *
+ * @param {Object=} properties Properties object which, if provided is mixed
+ *     into the element's `customStyle` property. This argument provides a
+ *     shortcut for setting `customStyle` and then calling `updateStyles`.
+ */
+PolymerElement.prototype.updateStyles = function(properties) {};
+
+/**
+ * @type {!Object<string, string|undefined>}
+ */
+PolymerElement.prototype.customStyle;
 
 /**
  * Logs a message to the console.
@@ -365,6 +524,12 @@ var PolymerDomApi = function() {};
 
 /** @param {!Node} node */
 PolymerDomApi.prototype.appendChild = function(node) {};
+
+/**
+ * @param {!Node} oldNode
+ * @param {!Node} newNode
+ */
+PolymerDomApi.prototype.replaceChild = function(oldNode, newNode) {};
 
 /**
  * @param {!Node} node
@@ -413,7 +578,7 @@ PolymerDomApi.prototype.querySelector = function(selector) {};
 
 /**
  * @param {string} selector
- * @return {!Array<?HTMLElement>}
+ * @return {!Array<!HTMLElement>}
  */
 PolymerDomApi.prototype.querySelectorAll = function(selector) {};
 
@@ -437,8 +602,23 @@ PolymerDomApi.prototype.setAttribute = function(attribute, value) {};
 /** @param {string} attribute */
 PolymerDomApi.prototype.removeAttribute = function(attribute) {};
 
+/**
+ * @param {!Function} callback
+ * @return {!{fn: (!Function|undefined), _nodes: !Array<!Node>}}
+ */
+PolymerDomApi.prototype.observeNodes = function(callback) {};
+
+/** @param {!{fn: (!Function|undefined), _nodes: !Array<!Node>}} handle */
+PolymerDomApi.prototype.unobserveNodes = function(handle) {};
+
 /** @type {?DOMTokenList} */
 PolymerDomApi.prototype.classList;
+
+/**
+ * @param {string} selector
+ * @return {!Array<!HTMLElement>}
+ */
+PolymerDomApi.prototype.queryDistributedElements = function(selector) {};
 
 /**
  * A Polymer Event API.
@@ -485,6 +665,246 @@ Polymer.CaseMap.camelToDashCase = function(camel) {};
 
 
 /**
+ * A Polymer data structure abstraction.
+ *
+ * @param {?Array} userArray
+ * @constructor
+ */
+Polymer.Collection = function(userArray) {};
+
+Polymer.Collection.prototype.initMap = function() {};
+
+/**
+ * @param {*} item
+ */
+Polymer.Collection.prototype.add = function(item) {};
+
+/**
+ * @param {number|string} key
+ */
+Polymer.Collection.prototype.removeKey = function(key) {};
+
+/**
+ * @param {*} item
+ * @return {number|string} The key of the item removed.
+ */
+Polymer.Collection.prototype.remove = function(item) {};
+
+/**
+ * @param {*} item
+ * @return {number|string} The key of the item.
+ */
+Polymer.Collection.prototype.getKey = function(item) {};
+
+/**
+ * @return {!Array<number|string>} The key of the item removed.
+ */
+Polymer.Collection.prototype.getKeys = function() {};
+
+/**
+ * @param {number|string} key
+ * @param {*} item
+ */
+Polymer.Collection.prototype.setItem = function(key, item) {};
+
+/**
+ * @param {number|string} key
+ * @return {*} The item for the given key if present.
+ */
+Polymer.Collection.prototype.getItem = function(key) {};
+
+/**
+ * @return {!Array} The items in the collection
+ */
+Polymer.Collection.prototype.getItems = function() {};
+
+/**
+ * @param {!Array} userArray
+ * @return {!Polymer.Collection} A new Collection wrapping the given array.
+ */
+Polymer.Collection.get = function(userArray) {};
+
+/**
+ * @param {!Array} userArray
+ * @param {!Array<!PolymerSplice>} splices
+ * @return {!Array<!PolymerKeySplice>} KeySplices with added and removed keys
+ */
+Polymer.Collection.applySplices = function(userArray, splices) {};
+
+/**
+ * Settings pulled from
+ * https://github.com/Polymer/polymer/blob/master/src/lib/settings.html
+ */
+Polymer.Settings;
+
+/** @type {boolean} */
+Polymer.Settings.wantShadow;
+
+/** @type {boolean} */
+Polymer.Settings.hasShadow;
+
+/** @type {boolean} */
+Polymer.Settings.nativeShadow;
+
+/** @type {boolean} */
+Polymer.Settings.useShadow;
+
+/** @type {boolean} */
+Polymer.Settings.useNativeShadow;
+
+/** @type {boolean} */
+Polymer.Settings.useNativeImports;
+
+/** @type {boolean} */
+Polymer.Settings.useNativeCustomElements;
+
+
+/**
+ * @see https://github.com/Polymer/polymer/blob/master/src/lib/template/templatizer.html
+ * @polymerBehavior
+ */
+Polymer.Templatizer = {
+  ctor: function() {},
+
+  /**
+   * @param {?Object} model
+   * @return {?Element}
+   */
+  stamp: function(model) {},
+
+  /**
+   * @param {?Element} template
+   */
+  templatize: function(template) {},
+
+  /**
+   * Returns the template "model" associated with a given element, which
+   * serves as the binding scope for the template instance the element is
+   * contained in. A template model is an instance of `Polymer.Base`, and
+   * should be used to manipulate data associated with this template instance.
+   *
+   * Example:
+   *
+   *   var model = modelForElement(el);
+   *   if (model.index < 10) {
+   *     model.set('item.checked', true);
+   *   }
+   *
+   * @param {!HTMLElement} el Element for which to return a template model.
+   * @return {(!PolymerElement)|undefined} Model representing the binding scope for
+   *   the element.
+   */
+  modelForElement: function(el) {}
+};
+
+
+
+/**
+ * A node produced by Templatizer which has a templateInstance property.
+ *
+ * @constructor
+ * @extends {HTMLElement}
+ */
+var TemplatizerNode = function() {};
+
+
+/** @type {?PolymerElement} */
+TemplatizerNode.prototype._templateInstance;
+
+
+
+/**
+ * @see https://github.com/Polymer/polymer/blob/master/src/lib/template/dom-repeat.html
+ * @extends {PolymerElement}
+ * @constructor
+ */
+var DomRepeatElement = function() {};
+
+
+/**
+ * Forces the element to render its content. Normally rendering is
+ * asynchronous to a provoking change. This is done for efficiency so
+ * that multiple changes trigger only a single render. The render method
+ * should be called if, for example, template rendering is required to
+ * validate application state.
+ */
+DomRepeatElement.prototype.render = function() {};
+
+
+/**
+ * Returns the item associated with a given element stamped by
+ * this `dom-repeat`.
+ *
+ * @param {!HTMLElement} el Element for which to return the item.
+ * @return {*} Item associated with the element.
+ */
+DomRepeatElement.prototype.itemForElement = function(el) {};
+
+
+/**
+ * Returns the `Polymer.Collection` key associated with a given
+ * element stamped by this `dom-repeat`.
+ *
+ * @param {!HTMLElement} el Element for which to return the key.
+ * @return {*} Key associated with the element.
+ */
+DomRepeatElement.prototype.keyForElement = function(el) {};
+
+
+/**
+ * Returns the inst index for a given element stamped by this `dom-repeat`.
+ * If `sort` is provided, the index will reflect the sorted order (rather
+ * than the original array order).
+ *
+ * @param {!HTMLElement} el Element for which to return the index.
+ * @return {*} Row index associated with the element (note this may
+ *   not correspond to the array index if a user `sort` is applied).
+ */
+DomRepeatElement.prototype.indexForElement = function(el) {};
+
+
+
+/**
+ * @see https://github.com/Polymer/polymer/blob/master/src/lib/template/array-selector.html
+ * @extends {PolymerElement}
+ * @constructor
+ */
+var ArraySelectorElement = function() {};
+
+
+/**
+ * Returns whether the item is currently selected.
+ *
+ * @param {*} item Item from `items` array to test
+ * @return {boolean} Whether the item is selected
+ */
+ArraySelectorElement.prototype.isSelected = function(item) {};
+
+
+/**
+ * Clears the selection state.
+ */
+ArraySelectorElement.prototype.clearSelection = function() {};
+
+
+/**
+ * Deselects the given item if it is already selected.
+ *
+ * @param {*} item Item from `items` array to deselect
+ */
+ArraySelectorElement.prototype.deselect = function(item) {};
+
+
+/**
+ * Selects the given item.  When `toggle` is true, this will automatically
+ * deselect the item if already selected.
+ *
+ * @param {*} item Item from `items` array to select
+ */
+ArraySelectorElement.prototype.select = function(item) {};
+
+
+/**
  * An Event type fired when moving while finger/button is down.
  * state - a string indicating the tracking state:
  *     + start: fired when tracking is first detected (finger/button down and
@@ -526,3 +946,52 @@ var PolymerTrackEvent;
  * }}
  */
 var PolymerTouchEvent;
+
+/**
+ * @typedef {{
+ *   index: number,
+ *   removed: !Array,
+ *   addedCount: number
+ * }}
+ */
+var PolymerSplice;
+
+/**
+ * @typedef {{
+ *   added: !Array<string|number>,
+ *   removed: !Array<string|number>
+ * }}
+ */
+var PolymerKeySplice;
+
+/**
+ * @typedef {{
+ *   indexSplices: ?Array<!PolymerSplice>,
+ *   keySplices: ?Array<!PolymerKeySplice>
+ * }}
+ */
+var PolymerSpliceChange;
+
+/**
+ * The interface that iconsets should obey. Iconsets are registered by setting
+ * their name in the IronMeta 'iconset' db, and a value of type Polymer.Iconset.
+ *
+ * Used by iron-icon but needs to live here since iron-icon, iron-iconset, etc don't
+ * depend on each other at all and talk only through iron-meta.
+ *
+ * @interface
+ */
+Polymer.Iconset = function() {};
+
+/**
+ * Applies an icon to the given element as a css background image. This
+ * method does not size the element, and it's usually necessary to set
+ * the element's height and width so that the background image is visible.
+ *
+ * @param {Element} element The element to which the icon is applied.
+ * @param {string} icon The name of the icon to apply.
+ * @param {string=} theme (optional) The name or index of the icon to apply.
+ * @param {number=} scale (optional, defaults to 1) Icon scaling factor.
+ */
+Polymer.Iconset.prototype.applyIcon = function(
+      element, icon, theme, scale) {};

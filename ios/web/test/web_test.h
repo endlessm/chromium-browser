@@ -10,6 +10,7 @@
 #import "base/mac/scoped_nsobject.h"
 #include "base/message_loop/message_loop.h"
 #include "ios/web/public/test/test_browser_state.h"
+#import "ios/web/public/test/test_web_client.h"
 #include "ios/web/public/test/test_web_thread_bundle.h"
 #include "ios/web/public/web_client.h"
 #import "ios/web/web_state/ui/crw_ui_web_view_web_controller.h"
@@ -30,16 +31,44 @@
 
 namespace web {
 
-// An abstract class of tests that need to create real WebControllers that can
-// be loaded with test HTML and JavaScripts. Concrete subclasses override
+// A test fixture for web tests that need a minimum environment set up that
+// mimics a web embedder.
+class WebTest : public PlatformTest {
+ protected:
+  WebTest();
+  ~WebTest() override;
+
+  // PlatformTest methods.
+  void SetUp() override;
+  void TearDown() override;
+
+  // Returns the WebClient that is used for testing.
+  TestWebClient* GetWebClient() { return &client_; }
+
+  // Returns the BrowserState that is used for testing.
+  BrowserState* GetBrowserState() { return &browser_state_; }
+
+ private:
+  // The WebClient used in tests.
+  TestWebClient client_;
+  // The threads used for testing.
+  web::TestWebThreadBundle thread_bundle_;
+  // The browser state used in tests.
+  TestBrowserState browser_state_;
+};
+
+#pragma mark -
+
+// An abstract test fixture that sets up a WebControllers that can be loaded
+// with test HTML and JavaScripts. Concrete subclasses override
 // |CreateWebController| specifying the test WebController object.
-class WebTestBase : public PlatformTest,
-                    public base::MessageLoop::TaskObserver {
+class WebTestWithWebController : public WebTest,
+                                 public base::MessageLoop::TaskObserver {
  public:
-  ~WebTestBase() override;
+  ~WebTestWithWebController() override;
 
  protected:
-  WebTestBase();
+  WebTestWithWebController();
   void SetUp() override;
   void TearDown() override;
   // Loads the specified HTML content into the WebController via public APIs.
@@ -74,25 +103,20 @@ class WebTestBase : public PlatformTest,
   void WillProcessTask(const base::PendingTask& pending_task) override;
   void DidProcessTask(const base::PendingTask& pending_task) override;
 
-  // The threads used for testing.
-  web::TestWebThreadBundle thread_bundle_;
   // The web controller for testing.
   base::scoped_nsobject<CRWWebController> webController_;
   // true if a task has been processed.
   bool processed_a_task_;
-  // The WebClient used in tests.
-  scoped_ptr<web::WebClient> client_;
-  // The browser state used in tests.
-  TestBrowserState browser_state_;
 };
 
 #pragma mark -
 
-// A concrete test class that is needed to create a real
-// CRWUIWebViewWebController.
-class UIWebViewWebTest : public WebTestBase {
+// A test fixtures thats creates a CRWUIWebViewWebController for testing.
+class WebTestWithUIWebViewWebController : public WebTestWithWebController {
  protected:
+  // WebTestWithWebController methods.
   CRWWebController* CreateWebController() override;
+
   // Invokes JS->ObjC messages directly on the web controller, registering a
   // human interaction if userIsInteraction==YES. |commands| should be a
   // stringified message queue.
@@ -103,10 +127,10 @@ class UIWebViewWebTest : public WebTestBase {
 
 #pragma mark -
 
-// A concrete test class that is needed to create a real
-// CRWWKWebViewWebController.
-class WKWebViewWebTest : public WebTestBase {
+// A test fixtures thats creates a CRWWKWebViewWebController for testing.
+class WebTestWithWKWebViewWebController : public WebTestWithWebController {
  protected:
+  // WebTestWithWebController methods.
   CRWWebController* CreateWebController() override;
 };
 

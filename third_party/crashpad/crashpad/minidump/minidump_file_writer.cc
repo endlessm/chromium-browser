@@ -17,6 +17,8 @@
 #include "base/logging.h"
 #include "minidump/minidump_crashpad_info_writer.h"
 #include "minidump/minidump_exception_writer.h"
+#include "minidump/minidump_handle_writer.h"
+#include "minidump/minidump_memory_info_writer.h"
 #include "minidump/minidump_memory_writer.h"
 #include "minidump/minidump_misc_info_writer.h"
 #include "minidump/minidump_module_writer.h"
@@ -99,6 +101,23 @@ void MinidumpFileWriter::InitializeFromSnapshot(
     AddStream(crashpad_info.Pass());
   }
 
+  std::vector<const MemoryMapRegionSnapshot*> memory_map_snapshot =
+      process_snapshot->MemoryMap();
+  if (!memory_map_snapshot.empty()) {
+    auto memory_info_list = make_scoped_ptr(new MinidumpMemoryInfoListWriter());
+    memory_info_list->InitializeFromSnapshot(memory_map_snapshot);
+    AddStream(memory_info_list.Pass());
+  }
+
+  std::vector<HandleSnapshot> handles_snapshot = process_snapshot->Handles();
+  if (!handles_snapshot.empty()) {
+    auto handle_data_writer = make_scoped_ptr(new MinidumpHandleDataWriter());
+    handle_data_writer->InitializeFromSnapshot(handles_snapshot);
+    AddStream(handle_data_writer.Pass());
+  }
+
+  memory_list->AddFromSnapshot(process_snapshot->ExtraMemory());
+
   AddStream(memory_list.Pass());
 }
 
@@ -154,7 +173,7 @@ bool MinidumpFileWriter::WriteEverything(FileWriterInterface* file_writer) {
 
   // Seek back to the end of the file, in case some non-minidump content will be
   // written to the file after the minidump content.
-  return file_writer->Seek(end_offset, SEEK_SET);
+  return file_writer->Seek(end_offset, SEEK_SET) >= 0;
 }
 
 bool MinidumpFileWriter::Freeze() {

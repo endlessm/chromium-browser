@@ -23,8 +23,8 @@
 #include "core/svg/SVGFEColorMatrixElement.h"
 
 #include "core/SVGNames.h"
-#include "platform/graphics/filters/FilterEffect.h"
 #include "core/svg/graphics/filters/SVGFilterBuilder.h"
+#include "platform/graphics/filters/FilterEffect.h"
 
 namespace blink {
 
@@ -93,41 +93,10 @@ void SVGFEColorMatrixElement::svgAttributeChanged(const QualifiedName& attrName)
 PassRefPtrWillBeRawPtr<FilterEffect> SVGFEColorMatrixElement::build(SVGFilterBuilder* filterBuilder, Filter* filter)
 {
     FilterEffect* input1 = filterBuilder->getEffectById(AtomicString(m_in1->currentValue()->value()));
+    ASSERT(input1);
 
-    if (!input1)
-        return nullptr;
-
-    Vector<float> filterValues;
     ColorMatrixType filterType = m_type->currentValue()->enumValue();
-
-    // Use defaults if values is empty (SVG 1.1 15.10).
-    if (!hasAttribute(SVGNames::valuesAttr)) {
-        switch (filterType) {
-        case FECOLORMATRIX_TYPE_MATRIX:
-            for (size_t i = 0; i < 20; i++)
-                filterValues.append((i % 6) ? 0 : 1);
-            break;
-        case FECOLORMATRIX_TYPE_HUEROTATE:
-            filterValues.append(0);
-            break;
-        case FECOLORMATRIX_TYPE_SATURATE:
-            filterValues.append(1);
-            break;
-        default:
-            break;
-        }
-    } else {
-        RefPtrWillBeRawPtr<SVGNumberList> values = m_values->currentValue();
-        size_t size = values->length();
-
-        if ((filterType == FECOLORMATRIX_TYPE_MATRIX && size != 20)
-            || (filterType == FECOLORMATRIX_TYPE_HUEROTATE && size != 1)
-            || (filterType == FECOLORMATRIX_TYPE_SATURATE && size != 1))
-            return nullptr;
-
-        filterValues = values->toFloatVector();
-    }
-
+    Vector<float> filterValues = m_values->currentValue()->toFloatVector();
     RefPtrWillBeRawPtr<FilterEffect> effect = FEColorMatrix::create(filter, filterType, filterValues);
     effect->inputEffects().append(input1);
     return effect.release();

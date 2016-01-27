@@ -20,6 +20,7 @@ class Profile;
 
 namespace net {
 class FtpTransactionFactory;
+class HttpNetworkSession;
 class HttpTransactionFactory;
 class SdchManager;
 class SdchOwner;
@@ -66,8 +67,8 @@ class OffTheRecordProfileIOData : public ProfileIOData {
             content::URLRequestInterceptorScopedVector
                 request_interceptors) const;
 
-    // Returns the DevToolsNetworkController attached to ProfileIOData.
-    DevToolsNetworkController* GetDevToolsNetworkController() const;
+    // Returns the DevToolsNetworkControllerHandle attached to ProfileIOData.
+    DevToolsNetworkControllerHandle* GetDevToolsNetworkControllerHandle() const;
 
    private:
     typedef std::map<StoragePartitionDescriptor,
@@ -144,6 +145,7 @@ class OffTheRecordProfileIOData : public ProfileIOData {
 
   mutable scoped_ptr<ChromeNetworkDelegate> network_delegate_;
 
+  mutable scoped_ptr<net::HttpNetworkSession> http_network_session_;
   mutable scoped_ptr<net::HttpTransactionFactory> main_http_factory_;
   mutable scoped_ptr<net::FtpTransactionFactory> ftp_factory_;
 

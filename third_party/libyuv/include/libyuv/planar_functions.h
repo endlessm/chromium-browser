@@ -85,6 +85,17 @@ int UYVYToI422(const uint8* src_uyvy, int src_stride_uyvy,
                uint8* dst_v, int dst_stride_v,
                int width, int height);
 
+LIBYUV_API
+int YUY2ToNV12(const uint8* src_yuy2, int src_stride_yuy2,
+               uint8* dst_y, int dst_stride_y,
+               uint8* dst_uv, int dst_stride_uv,
+               int width, int height);
+
+LIBYUV_API
+int UYVYToNV12(const uint8* src_uyvy, int src_stride_uyvy,
+               uint8* dst_y, int dst_stride_y,
+               uint8* dst_uv, int dst_stride_uv,
+               int width, int height);
 
 // Convert I420 to I400. (calls CopyPlane ignoring u/v).
 LIBYUV_API
@@ -134,13 +145,6 @@ int NV12ToRGB565(const uint8* src_y, int src_stride_y,
                  uint8* dst_rgb565, int dst_stride_rgb565,
                  int width, int height);
 
-// Convert NV21 to RGB565.
-LIBYUV_API
-int NV21ToRGB565(const uint8* src_y, int src_stride_y,
-                 const uint8* src_uv, int src_stride_uv,
-                 uint8* dst_rgb565, int dst_stride_rgb565,
-                 int width, int height);
-
 // I422ToARGB is in convert_argb.h
 // Convert I422 to BGRA.
 LIBYUV_API
@@ -164,6 +168,14 @@ int I422ToRGBA(const uint8* src_y, int src_stride_y,
                const uint8* src_u, int src_stride_u,
                const uint8* src_v, int src_stride_v,
                uint8* dst_rgba, int dst_stride_rgba,
+               int width, int height);
+
+// Alias
+#define RGB24ToRAW RAWToRGB24
+
+LIBYUV_API
+int RAWToRGB24(const uint8* src_raw, int src_stride_raw,
+               uint8* dst_rgb24, int dst_stride_rgb24,
                int width, int height);
 
 // Draw a rectangle into I420.
@@ -270,13 +282,13 @@ int ARGBCopy(const uint8* src_argb, int src_stride_argb,
              uint8* dst_argb, int dst_stride_argb,
              int width, int height);
 
-// Copy ARGB to ARGB.
+// Copy Alpha channel of ARGB to alpha of ARGB.
 LIBYUV_API
 int ARGBCopyAlpha(const uint8* src_argb, int src_stride_argb,
                   uint8* dst_argb, int dst_stride_argb,
                   int width, int height);
 
-// Copy ARGB to ARGB.
+// Copy Y channel to Alpha of ARGB.
 LIBYUV_API
 int ARGBCopyYToAlpha(const uint8* src_y, int src_stride_y,
                      uint8* dst_argb, int dst_stride_argb,
@@ -390,26 +402,24 @@ int ARGBInterpolate(const uint8* src_argb0, int src_stride_argb0,
                     uint8* dst_argb, int dst_stride_argb,
                     int width, int height, int interpolation);
 
-#if defined(__pnacl__) || defined(__CLR_VER) || defined(COVERAGE_ENABLED) || \
-    defined(TARGET_IPHONE_SIMULATOR) || \
-    (defined(__i386__) && !defined(__SSE2__)) || \
-    ((defined(_MSC_VER) && !defined(__clang__)) && defined(__clang__))
+#if defined(__pnacl__) || defined(__CLR_VER) || \
+    (defined(__i386__) && !defined(__SSE2__))
 #define LIBYUV_DISABLE_X86
 #endif
+// The following are available on all x86 platforms:
+#if !defined(LIBYUV_DISABLE_X86) && \
+    (defined(_M_IX86) || defined(__x86_64__) || defined(__i386__))
+#define HAS_ARGBAFFINEROW_SSE2
+#endif
 
-// Row functions for copying a pixels from a source with a slope to a row
+// Row function for copying pixels from a source with a slope to a row
 // of destination. Useful for scaling, rotation, mirror, texture mapping.
 LIBYUV_API
 void ARGBAffineRow_C(const uint8* src_argb, int src_argb_stride,
                      uint8* dst_argb, const float* uv_dudv, int width);
-// The following are available on all x86 platforms:
-#if !defined(LIBYUV_DISABLE_X86) && \
-    (defined(_M_IX86) || defined(__x86_64__) || defined(__i386__))
 LIBYUV_API
 void ARGBAffineRow_SSE2(const uint8* src_argb, int src_argb_stride,
                         uint8* dst_argb, const float* uv_dudv, int width);
-#define HAS_ARGBAFFINEROW_SSE2
-#endif  // LIBYUV_DISABLE_X86
 
 // Shuffle ARGB channel order.  e.g. BGRA to ARGB.
 // shuffler is 16 bytes and must be aligned.

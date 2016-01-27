@@ -25,9 +25,12 @@ class TracingOptions(object):
 
   Options:
       enable_chrome_trace: a boolean that specifies whether to enable
-                           chrome tracing.
+          chrome tracing.
       enable_platform_display_trace: a boolean that specifies whether to
-                                     platform display tracing.
+          platform display tracing.
+      enable_android_graphics_memtrack: a boolean that specifies whether
+          to enable the memtrack_helper daemon to track graphics memory on
+          Android (see goo.gl/4Y30p9). Doesn't have any effects on other OSs.
 
       The following ones are specific to chrome tracing. See
       base/trace_event/trace_config.h for more information.
@@ -35,9 +38,19 @@ class TracingOptions(object):
                        record modes in chrome.
           enable_systrace: a boolean that specifies whether to enable systrace.
   """
+  # Map telemetry's tracing record_mode to the DevTools API string.
+  # (The keys happen to be the same as the values.)
+  _RECORD_MODE_MAP = {
+    RECORD_UNTIL_FULL: 'record-until-full',
+    RECORD_CONTINUOUSLY: 'record-continuously',
+    RECORD_AS_MUCH_AS_POSSIBLE: 'record-as-much-as-possible',
+    ECHO_TO_CONSOLE: 'trace-to-console'
+  }
+
   def __init__(self):
     self.enable_chrome_trace = False
     self.enable_platform_display_trace = False
+    self.enable_android_graphics_memtrack = False
 
     self._record_mode = RECORD_AS_MUCH_AS_POSSIBLE
     self._enable_systrace = False
@@ -61,15 +74,18 @@ class TracingOptions(object):
 
   def GetTraceOptionsStringForChromeDevtool(self):
     """Map Chrome tracing options in Telemetry to the DevTools API string."""
-    # Map telemetry's tracing record_mode to the DevTools API string.
-    # (The keys happen to be the same as the values.)
-    m = {
-      RECORD_UNTIL_FULL: 'record-until-full',
-      RECORD_CONTINUOUSLY: 'record-continuously',
-      RECORD_AS_MUCH_AS_POSSIBLE: 'record-as-much-as-possible',
-      ECHO_TO_CONSOLE: 'trace-to-console'
-    }
-    result = [m[self._record_mode]]
+    result = [TracingOptions._RECORD_MODE_MAP[self._record_mode]]
     if self._enable_systrace:
       result.append(ENABLE_SYSTRACE)
     return ','.join(result)
+
+  def GetDictForChromeTracing(self):
+    RECORD_MODE_PARAM = 'record_mode'
+    ENABLE_SYSTRACE_PARAM = 'enable_systrace'
+
+    result = {}
+    result[RECORD_MODE_PARAM] = (
+        TracingOptions._RECORD_MODE_MAP[self._record_mode])
+    if self._enable_systrace:
+      result[ENABLE_SYSTRACE_PARAM] = True
+    return result

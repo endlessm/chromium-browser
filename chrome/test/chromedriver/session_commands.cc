@@ -92,17 +92,14 @@ scoped_ptr<base::DictionaryValue> CreateCapabilities(Chrome* chrome) {
   caps->SetBoolean("acceptSslCerts", true);
   caps->SetBoolean("nativeEvents", true);
   caps->SetBoolean("hasTouchScreen", chrome->HasTouchScreen());
-  scoped_ptr<base::DictionaryValue> chrome_caps(new base::DictionaryValue());
 
   ChromeDesktopImpl* desktop = NULL;
   Status status = chrome->GetAsDesktop(&desktop);
   if (status.IsOk()) {
-    chrome_caps->SetString(
-        "userDataDir",
-        desktop->command().GetSwitchValueNative("user-data-dir"));
+    caps->SetString("chrome.userDataDir",
+                    desktop->command().GetSwitchValueNative("user-data-dir"));
   }
 
-  caps->Set("chrome", chrome_caps.release());
   return caps.Pass();
 }
 
@@ -195,40 +192,6 @@ Status InitSessionHelper(
   return CheckSessionCreated(session);
 }
 
-Status SwitchToWebView(Session* session, const std::string& web_view_id) {
-  if (session->overridden_geoposition) {
-    WebView* web_view;
-    Status status = session->chrome->GetWebViewById(web_view_id, &web_view);
-    if (status.IsError())
-      return status;
-    status = web_view->ConnectIfNecessary();
-    if (status.IsError())
-      return status;
-    status = web_view->OverrideGeolocation(*session->overridden_geoposition);
-    if (status.IsError())
-      return status;
-  }
-
-  if (session->overridden_network_conditions) {
-    WebView* web_view;
-    Status status = session->chrome->GetWebViewById(web_view_id, &web_view);
-    if (status.IsError())
-      return status;
-    status = web_view->ConnectIfNecessary();
-    if (status.IsError())
-      return status;
-    status = web_view->OverrideNetworkConditions(
-        *session->overridden_network_conditions);
-    if (status.IsError())
-      return status;
-  }
-
-  session->window = web_view_id;
-  session->SwitchToTopFrame();
-  session->mouse_position = WebPoint(0, 0);
-  return Status(kOk);
-}
-
 }  // namespace
 
 Status ExecuteInitSession(
@@ -297,17 +260,7 @@ Status ExecuteLaunchApp(
   if (status.IsError())
     return status;
 
-  status = extension->LaunchApp(id);
-  if (status.IsError())
-    return status;
-
-  std::string web_view_id;
-  base::TimeDelta timeout = base::TimeDelta::FromSeconds(60);
-  status = desktop->WaitForNewAppWindow(timeout, id, &web_view_id);
-  if (status.IsError())
-    return status;
-
-  return SwitchToWebView(session, web_view_id);
+  return extension->LaunchApp(id);
 }
 
 Status ExecuteClose(
@@ -363,8 +316,8 @@ Status ExecuteSwitchToWindow(
     const base::DictionaryValue& params,
     scoped_ptr<base::Value>* value) {
   std::string name;
-  if (!params.GetString("name", &name) || name.empty())
-    return Status(kUnknownError, "'name' must be a nonempty string");
+  if (!params.GetString("name", &name))
+    return Status(kUnknownError, "'name' must be a string");
 
   std::list<std::string> web_view_ids;
   Status status = session->chrome->GetWebViewIds(&web_view_ids);
@@ -413,7 +366,38 @@ Status ExecuteSwitchToWindow(
 
   if (!found)
     return Status(kNoSuchWindow);
-  return SwitchToWebView(session, web_view_id);
+
+  if (session->overridden_geoposition) {
+    WebView* web_view;
+    Status status = session->chrome->GetWebViewById(web_view_id, &web_view);
+    if (status.IsError())
+      return status;
+    status = web_view->ConnectIfNecessary();
+    if (status.IsError())
+      return status;
+    status = web_view->OverrideGeolocation(*session->overridden_geoposition);
+    if (status.IsError())
+      return status;
+  }
+
+  if (session->overridden_network_conditions) {
+    WebView* web_view;
+    Status status = session->chrome->GetWebViewById(web_view_id, &web_view);
+    if (status.IsError())
+      return status;
+    status = web_view->ConnectIfNecessary();
+    if (status.IsError())
+      return status;
+    status = web_view->OverrideNetworkConditions(
+        *session->overridden_network_conditions);
+    if (status.IsError())
+      return status;
+  }
+
+  session->window = web_view_id;
+  session->SwitchToTopFrame();
+  session->mouse_position = WebPoint(0, 0);
+  return Status(kOk);
 }
 
 Status ExecuteSetTimeout(

@@ -11,7 +11,8 @@ cr.define('options', function() {
   /**
    * ResetProfileSettingsOverlay class
    * Encapsulated handling of the 'Reset Profile Settings' overlay page.
-   * @class
+   * @constructor
+   * @extends {cr.ui.pageManager.Page}
    */
   function ResetProfileSettingsOverlay() {
     Page.call(this, 'resetProfileSettings',
@@ -51,6 +52,11 @@ cr.define('options', function() {
      * chrome/browser/resources/options/automatic_settings_reset_banner.js.
      */
     didShowPage: function() {
+      $('reset-profile-settings-title').textContent =
+          loadTimeData.getString('resetProfileSettingsOverlay');
+      $('reset-profile-settings-explanation').textContent =
+          loadTimeData.getString('resetProfileSettingsExplanation');
+
       ResetProfileSettingsBanner.dismiss();
       chrome.send('onShowResetProfileDialog');
     },

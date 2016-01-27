@@ -16,10 +16,10 @@
 
 #include <string>
 
-#include "base/basictypes.h"
 #include "base/strings/string16.h"
 #include "gtest/gtest.h"
 #include "util/file/file_writer.h"
+#include "util/misc/implicit_cast.h"
 
 namespace crashpad {
 namespace test {
@@ -181,6 +181,22 @@ struct MinidumpThreadListTraits {
   }
 };
 
+struct MinidumpHandleDataStreamTraits {
+  using ListType = MINIDUMP_HANDLE_DATA_STREAM;
+  enum : size_t { kElementSize = sizeof(MINIDUMP_HANDLE_DESCRIPTOR) };
+  static size_t ElementCount(const ListType* list) {
+    return static_cast<size_t>(list->NumberOfDescriptors);
+  }
+};
+
+struct MinidumpMemoryInfoListTraits {
+  using ListType = MINIDUMP_MEMORY_INFO_LIST;
+  enum : size_t { kElementSize = sizeof(MINIDUMP_MEMORY_INFO) };
+  static size_t ElementCount(const ListType* list) {
+    return static_cast<size_t>(list->NumberOfEntries);
+  }
+};
+
 struct MinidumpModuleCrashpadInfoListTraits {
   using ListType = MinidumpModuleCrashpadInfoList;
   enum : size_t { kElementSize = sizeof(MinidumpModuleCrashpadInfoLink) };
@@ -245,6 +261,22 @@ const MINIDUMP_THREAD_LIST* MinidumpWritableAtLocationDescriptor<
 }
 
 template <>
+const MINIDUMP_HANDLE_DATA_STREAM* MinidumpWritableAtLocationDescriptor<
+    MINIDUMP_HANDLE_DATA_STREAM>(const std::string& file_contents,
+                                 const MINIDUMP_LOCATION_DESCRIPTOR& location) {
+  return MinidumpListAtLocationDescriptor<MinidumpHandleDataStreamTraits>(
+      file_contents, location);
+}
+
+template <>
+const MINIDUMP_MEMORY_INFO_LIST* MinidumpWritableAtLocationDescriptor<
+    MINIDUMP_MEMORY_INFO_LIST>(const std::string& file_contents,
+                               const MINIDUMP_LOCATION_DESCRIPTOR& location) {
+  return MinidumpListAtLocationDescriptor<MinidumpMemoryInfoListTraits>(
+      file_contents, location);
+}
+
+template <>
 const MinidumpModuleCrashpadInfoList*
 MinidumpWritableAtLocationDescriptor<MinidumpModuleCrashpadInfoList>(
     const std::string& file_contents,
@@ -291,21 +323,19 @@ const T* MinidumpCVPDBAtLocationDescriptor(
 }  // namespace
 
 template <>
-const MinidumpModuleCodeViewRecordPDB20*
-MinidumpWritableAtLocationDescriptor<MinidumpModuleCodeViewRecordPDB20>(
-    const std::string& file_contents,
-    const MINIDUMP_LOCATION_DESCRIPTOR& location) {
-  return MinidumpCVPDBAtLocationDescriptor<MinidumpModuleCodeViewRecordPDB20>(
-      file_contents, location);
+const CodeViewRecordPDB20* MinidumpWritableAtLocationDescriptor<
+    CodeViewRecordPDB20>(const std::string& file_contents,
+                         const MINIDUMP_LOCATION_DESCRIPTOR& location) {
+  return MinidumpCVPDBAtLocationDescriptor<CodeViewRecordPDB20>(file_contents,
+                                                                location);
 }
 
 template <>
-const MinidumpModuleCodeViewRecordPDB70*
-MinidumpWritableAtLocationDescriptor<MinidumpModuleCodeViewRecordPDB70>(
-    const std::string& file_contents,
-    const MINIDUMP_LOCATION_DESCRIPTOR& location) {
-  return MinidumpCVPDBAtLocationDescriptor<MinidumpModuleCodeViewRecordPDB70>(
-      file_contents, location);
+const CodeViewRecordPDB70* MinidumpWritableAtLocationDescriptor<
+    CodeViewRecordPDB70>(const std::string& file_contents,
+                         const MINIDUMP_LOCATION_DESCRIPTOR& location) {
+  return MinidumpCVPDBAtLocationDescriptor<CodeViewRecordPDB70>(file_contents,
+                                                                location);
 }
 
 TestUInt32MinidumpWritable::TestUInt32MinidumpWritable(uint32_t value)

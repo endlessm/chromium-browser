@@ -29,9 +29,9 @@ class WebHistoryServiceFactory : public BrowserContextKeyedServiceFactory {
       content::BrowserContext* context) const override;
 
  private:
-  friend struct DefaultSingletonTraits<WebHistoryServiceFactory>;
+  friend struct base::DefaultSingletonTraits<WebHistoryServiceFactory>;
 
-  explicit WebHistoryServiceFactory();
+  WebHistoryServiceFactory();
   ~WebHistoryServiceFactory() override;
 
   DISALLOW_COPY_AND_ASSIGN(WebHistoryServiceFactory);

@@ -136,7 +136,7 @@ const int kVeryBigTimeoutMillis = 60 * 60 * 24 * 1000;
 const int kVeryTinyTimeoutMillis = 1;
 
 // Enough quota to pass any test.
-const int64 kPlentyOfQuota = INT_MAX;
+const int64_t kPlentyOfQuota = INT_MAX;
 
 typedef WebSocketEventInterface::ChannelState ChannelState;
 const ChannelState CHANNEL_ALIVE = WebSocketEventInterface::CHANNEL_ALIVE;
@@ -158,11 +158,11 @@ class MockWebSocketEventInterface : public WebSocketEventInterface {
                ChannelState(bool,
                             WebSocketMessageType,
                             const std::vector<char>&));  // NOLINT
-  MOCK_METHOD1(OnFlowControl, ChannelState(int64));  // NOLINT
+  MOCK_METHOD1(OnFlowControl, ChannelState(int64_t));             // NOLINT
   MOCK_METHOD0(OnClosingHandshake, ChannelState(void));  // NOLINT
   MOCK_METHOD1(OnFailChannel, ChannelState(const std::string&));  // NOLINT
   MOCK_METHOD3(OnDropChannel,
-               ChannelState(bool, uint16, const std::string&));  // NOLINT
+               ChannelState(bool, uint16_t, const std::string&));  // NOLINT
 
   // We can't use GMock with scoped_ptr.
   ChannelState OnStartOpeningHandshake(
@@ -204,13 +204,13 @@ class FakeWebSocketEventInterface : public WebSocketEventInterface {
                            const std::vector<char>& data) override {
     return CHANNEL_ALIVE;
   }
-  ChannelState OnFlowControl(int64 quota) override { return CHANNEL_ALIVE; }
+  ChannelState OnFlowControl(int64_t quota) override { return CHANNEL_ALIVE; }
   ChannelState OnClosingHandshake() override { return CHANNEL_ALIVE; }
   ChannelState OnFailChannel(const std::string& message) override {
     return CHANNEL_DELETED;
   }
   ChannelState OnDropChannel(bool was_clean,
-                             uint16 code,
+                             uint16_t code,
                              const std::string& reason) override {
     return CHANNEL_DELETED;
   }
@@ -767,7 +767,7 @@ class WebSocketChannelTest : public ::testing::Test {
   // A struct containing the data that will be used to connect the channel.
   // Grouped for readability.
   struct ConnectData {
-    ConnectData() : socket_url("ws://ws/"), origin("http://ws") {}
+    ConnectData() : socket_url("ws://ws/"), origin(GURL("http://ws")) {}
 
     // URLRequestContext object.
     URLRequestContext url_request_context;
@@ -856,7 +856,7 @@ class ChannelDeletingFakeWebSocketEventInterface
     return fixture_->DeleteIfDeleting(EVENT_ON_DATA_FRAME);
   }
 
-  ChannelState OnFlowControl(int64 quota) override {
+  ChannelState OnFlowControl(int64_t quota) override {
     return fixture_->DeleteIfDeleting(EVENT_ON_FLOW_CONTROL);
   }
 
@@ -869,7 +869,7 @@ class ChannelDeletingFakeWebSocketEventInterface
   }
 
   ChannelState OnDropChannel(bool was_clean,
-                             uint16 code,
+                             uint16_t code,
                              const std::string& reason) override {
     return fixture_->DeleteIfDeleting(EVENT_ON_DROP_CHANNEL);
   }
@@ -967,7 +967,7 @@ class WebSocketChannelFlowControlTest
  protected:
   // Tests using this fixture should use CreateChannelAndConnectWithQuota()
   // instead of CreateChannelAndConnectSuccessfully().
-  void CreateChannelAndConnectWithQuota(int64 quota) {
+  void CreateChannelAndConnectWithQuota(int64_t quota) {
     CreateChannelAndConnect();
     channel_->SendFlowControl(quota);
     connect_data_.creator.connect_delegate->OnSuccess(stream_.Pass());
@@ -992,7 +992,7 @@ class WebSocketChannelReceiveUtf8Test : public WebSocketChannelStreamTest {
 // passed to the creator function.
 TEST_F(WebSocketChannelTest, EverythingIsPassedToTheCreatorFunction) {
   connect_data_.socket_url = GURL("ws://example.com/test");
-  connect_data_.origin = url::Origin("http://example.com");
+  connect_data_.origin = url::Origin(GURL("http://example.com"));
   connect_data_.requested_subprotocols.push_back("Sinbad");
 
   CreateChannelAndConnect();
@@ -1004,7 +1004,7 @@ TEST_F(WebSocketChannelTest, EverythingIsPassedToTheCreatorFunction) {
   EXPECT_EQ(connect_data_.socket_url, actual.socket_url);
   EXPECT_EQ(connect_data_.requested_subprotocols,
             actual.requested_subprotocols);
-  EXPECT_EQ(connect_data_.origin.string(), actual.origin.string());
+  EXPECT_EQ(connect_data_.origin.Serialize(), actual.origin.Serialize());
 }
 
 // Verify that calling SendFlowControl before the connection is established does

@@ -26,10 +26,10 @@ source_set("sources") {
     "application_impl.h",
     "application_runner.h",
     "connect.h",
+    "initialize_base_and_icu.cc",
     "interface_factory.h",
     "interface_factory_impl.h",
     "lib/app_lifetime_helper.cc",
-    "lib/application_connection.cc",
     "lib/application_delegate.cc",
     "lib/application_impl.cc",
     "lib/application_runner.cc",
@@ -45,11 +45,13 @@ source_set("sources") {
 
   deps = [
     "//base",
+    "//base:i18n",
     "//mojo/application/public/interfaces",
     "//mojo/common",
     "//mojo/environment:chromium",
-    "//third_party/mojo/src/mojo/public/cpp/bindings",
-    "//third_party/mojo/src/mojo/public/cpp/system",
+    "//mojo/message_pump",
+    "//mojo/public/cpp/bindings",
+    "//mojo/public/cpp/system",
   ]
 }
 
@@ -66,7 +68,11 @@ source_set("content_handler") {
   ]
   deps = [
     ":cpp",
+
+    # TODO: this code should not depend on base.
     "//base",
+    "//mojo/application/public/interfaces:interfaces_cpp_sources",
+    "//mojo/message_pump",
     "//mojo/services/network/public/interfaces",
   ]
 }
@@ -79,21 +85,23 @@ source_set("test_support") {
     "lib/application_test_main.cc",
   ]
 
-  deps = [
+  public_deps = [
     ":cpp",
+  ]
+
+  deps = [
     "//base",
     "//base/test:test_support",
-    "//third_party/mojo/src/mojo/public/cpp/bindings",
-    "//third_party/mojo/src/mojo/public/cpp/environment",
-    "//third_party/mojo/src/mojo/public/cpp/system",
+    "//mojo/application/public/interfaces:interfaces_cpp_sources",
+    "//mojo/logging",
+    "//mojo/public/cpp/bindings",
+    "//mojo/public/cpp/environment",
+    "//mojo/public/cpp/system",
     "//testing/gtest",
   ]
 
   data_deps = []
   if (is_android) {
     data_deps += [ "//mojo/android" ]
-  }
-  if (!is_component_build) {
-    data_deps += [ "//mojo/runner" ]
   }
 }

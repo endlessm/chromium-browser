@@ -7,7 +7,6 @@
 #include "base/bind.h"
 #include "base/callback.h"
 #include "base/logging.h"
-#include "chrome/browser/drive/drive_api_service.h"
 #include "chrome/browser/sync_file_system/drive_backend/drive_backend_constants.h"
 #include "chrome/browser/sync_file_system/drive_backend/drive_backend_util.h"
 #include "chrome/browser/sync_file_system/drive_backend/metadata_database.h"
@@ -15,6 +14,7 @@
 #include "chrome/browser/sync_file_system/drive_backend/sync_task_manager.h"
 #include "chrome/browser/sync_file_system/drive_backend/sync_task_token.h"
 #include "chrome/browser/sync_file_system/logger.h"
+#include "components/drive/service/drive_api_service.h"
 #include "google_apis/drive/drive_api_parser.h"
 
 namespace sync_file_system {
@@ -223,8 +223,10 @@ void SyncEngineInitializer::DidFindSyncRoot(
 void SyncEngineInitializer::CreateSyncRoot(scoped_ptr<SyncTaskToken> token) {
   DCHECK(!sync_root_folder_);
   set_used_network(true);
+  drive::AddNewDirectoryOptions options;
+  options.visibility = google_apis::drive::FILE_VISIBILITY_PRIVATE;
   cancel_callback_ = sync_context_->GetDriveService()->AddNewDirectory(
-      root_folder_id_, kSyncRootFolderTitle, drive::AddNewDirectoryOptions(),
+      root_folder_id_, kSyncRootFolderTitle, options,
       base::Bind(&SyncEngineInitializer::DidCreateSyncRoot,
                  weak_ptr_factory_.GetWeakPtr(), base::Passed(&token)));
 }

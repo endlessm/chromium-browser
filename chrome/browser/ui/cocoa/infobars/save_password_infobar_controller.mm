@@ -20,13 +20,13 @@
   // Set the link inside the message.
   SavePasswordInfoBarDelegate* delegate =
       static_cast<SavePasswordInfoBarDelegate*>([self delegate]);
-  gfx::Range linkRange = delegate->title_link_range();
+  gfx::Range linkRange = delegate->message_link_range();
   if (!linkRange.is_empty()) {
     NSColor* linkColor =
         gfx::SkColorToCalibratedNSColor(chrome_style::GetLinkColor());
     HyperlinkTextView* view = (HyperlinkTextView*)label_.get();
     [view addLinkRange:linkRange.ToNSRange()
-              withName:@""
+               withURL:@"about:blank"  // using a link here is bad ui
              linkColor:linkColor];
   }
 }

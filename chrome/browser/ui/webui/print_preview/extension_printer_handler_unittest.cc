@@ -21,6 +21,7 @@
 #include "chrome/browser/local_discovery/pwg_raster_converter.h"
 #include "chrome/browser/ui/webui/print_preview/extension_printer_handler.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/version_info/version_info.h"
 #include "device/core/device_client.h"
 #include "device/usb/mock_usb_device.h"
 #include "device/usb/mock_usb_service.h"

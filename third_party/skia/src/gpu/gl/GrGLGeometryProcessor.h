@@ -10,7 +10,7 @@
 
 #include "GrGLPrimitiveProcessor.h"
 
-class GrGLGPBuilder;
+class GrGLSLGPBuilder;
 
 /**
  * If a GL effect needs a GrGLFullShaderBuilder* object to emit vertex code, then it must inherit
@@ -23,17 +23,17 @@ public:
     void emitCode(EmitArgs&) override;
 
     // By default we use the identity matrix
-    virtual void setTransformData(const GrPrimitiveProcessor&,
-                                  const GrGLProgramDataManager& pdman,
-                                  int index,
-                                  const SkTArray<const GrCoordTransform*, true>& transforms) {
+    void setTransformData(const GrPrimitiveProcessor&,
+                          const GrGLSLProgramDataManager& pdman,
+                          int index,
+                          const SkTArray<const GrCoordTransform*, true>& transforms) override {
         this->setTransformDataMatrix(SkMatrix::I(), pdman, index, transforms);
     }
 
     // A helper which subclasses can use if needed
     template <class GeometryProcessor>
     void setTransformDataHelper(const GrPrimitiveProcessor& primProc,
-                                const GrGLProgramDataManager& pdman,
+                                const GrGLSLProgramDataManager& pdman,
                                 int index,
                                 const SkTArray<const GrCoordTransform*, true>& transforms) {
         const GeometryProcessor& gp = primProc.cast<GeometryProcessor>();
@@ -41,8 +41,8 @@ public:
     }
 
 protected:
-    // A helper for subclasses which don't have an explicit local matrix
-    void emitTransforms(GrGLGPBuilder* gp,
+    // Emit a uniform matrix for each coord transform.
+    void emitTransforms(GrGLSLGPBuilder* gp,
                         const GrShaderVar& posVar,
                         const char* localCoords,
                         const TransformsIn& tin,
@@ -50,12 +50,19 @@ protected:
         this->emitTransforms(gp, posVar, localCoords, SkMatrix::I(), tin, tout);
     }
 
-    void emitTransforms(GrGLGPBuilder*,
+    // Emit pre-transformed coords as a vertex attribute per coord-transform.
+    void emitTransforms(GrGLSLGPBuilder*,
                         const GrShaderVar& posVar,
                         const char* localCoords,
                         const SkMatrix& localMatrix,
                         const TransformsIn&,
                         TransformsOut*);
+
+    // caller has emitted transforms via attributes
+    void emitTransforms(GrGLSLGPBuilder*,
+                        const char* localCoords,
+                        const TransformsIn& tin,
+                        TransformsOut* tout);
 
     struct GrGPArgs {
         // The variable used by a GP to store its position. It can be
@@ -64,8 +71,8 @@ protected:
     };
 
     // Create the correct type of position variable given the CTM
-    void setupPosition(GrGLGPBuilder*, GrGPArgs*, const char* posName);
-    void setupPosition(GrGLGPBuilder*, GrGPArgs*, const char* posName, const SkMatrix& mat,
+    void setupPosition(GrGLSLGPBuilder*, GrGPArgs*, const char* posName);
+    void setupPosition(GrGLSLGPBuilder*, GrGPArgs*, const char* posName, const SkMatrix& mat,
                        UniformHandle* viewMatrixUniform);
 
     static uint32_t ComputePosKey(const SkMatrix& mat) {
@@ -80,7 +87,7 @@ protected:
 
 private:
     void setTransformDataMatrix(const SkMatrix& localMatrix,
-                                const GrGLProgramDataManager& pdman,
+                                const GrGLSLProgramDataManager& pdman,
                                 int index,
                                 const SkTArray<const GrCoordTransform*, true>& transforms) {
         SkSTArray<2, Transform, true>& procTransforms = fInstalledTransforms[index];
@@ -89,7 +96,7 @@ private:
             SkASSERT(procTransforms[t].fHandle.isValid());
             const SkMatrix& transform = GetTransformMatrix(localMatrix, *transforms[t]);
             if (!procTransforms[t].fCurrentValue.cheapEqualTo(transform)) {
-                pdman.setSkMatrix(procTransforms[t].fHandle.convertToUniformHandle(), transform);
+                pdman.setSkMatrix(procTransforms[t].fHandle.toIndex(), transform);
                 procTransforms[t].fCurrentValue = transform;
             }
         }

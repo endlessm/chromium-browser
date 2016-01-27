@@ -33,6 +33,7 @@
 
 #include "public/platform/WebMIDIAccessor.h"
 #include "public/platform/WebMIDIAccessorClient.h"
+#include "wtf/Allocator.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
 
@@ -41,6 +42,7 @@ namespace blink {
 class MIDIAccessorClient;
 
 class MIDIAccessor final : public WebMIDIAccessorClient {
+    USING_FAST_MALLOC(MIDIAccessor);
 public:
     static PassOwnPtr<MIDIAccessor> create(MIDIAccessorClient*);
 

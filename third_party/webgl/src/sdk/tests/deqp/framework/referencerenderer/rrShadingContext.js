@@ -50,6 +50,25 @@ goog.scope(function() {
      */
     rrShadingContext.FragmentShadingContext = function(varying0, varying1, varying2) {
         /** @type {Array<Array<Array<number>>>} */ this.varyings = [varying0, varying1, varying2]; //!< Vertex shader outputs. Pointer will be NULL if there is no such vertex.
+        this.m_width = 0xFFFFFFFF;
+        this.m_height = 0xFFFFFFFF;
+    };
+
+    /**
+     * @param {number} width
+     * @param {number} height
+     */
+    rrShadingContext.FragmentShadingContext.prototype.setSize = function(width, height) {
+        this.m_width = width;
+        this.m_height = height;
+    };
+
+    rrShadingContext.FragmentShadingContext.prototype.getWidth = function() {
+        return this.m_width;
+    };
+
+    rrShadingContext.FragmentShadingContext.prototype.getHeight = function() {
+        return this.m_height;
     };
 
     // Read Varying
@@ -61,22 +80,24 @@ goog.scope(function() {
      * @return {Array<number>} (Vector<T, 4>)
      */
     rrShadingContext.readTriangleVarying = function(packet, context, varyingLoc) {
-        return deMath.add(
-            deMath.scale(
-                context.varyings[0][varyingLoc],
-                packet.barycentric[0]
-            ),
-            deMath.add(
-                deMath.scale(
-                    context.varyings[1][varyingLoc],
-                    packet.barycentric[1]
-                ),
-                deMath.scale(
-                    context.varyings[2][varyingLoc],
-                    packet.barycentric[2]
-                )
-            )
+        var result = deMath.scale(
+            context.varyings[0][varyingLoc],
+            packet.barycentric[0]
         );
+
+        if (context.varyings[1])
+            result = deMath.add(result, deMath.scale(
+                context.varyings[1][varyingLoc],
+                packet.barycentric[1]
+            ));
+
+        if (context.varyings[2])
+            result = deMath.add(result, deMath.scale(
+                context.varyings[2][varyingLoc],
+                packet.barycentric[2]
+            ));
+
+        return result;
     };
 
     /**
@@ -88,7 +109,5 @@ goog.scope(function() {
     rrShadingContext.readVarying = function(packet, context, varyingLoc) {
         return rrShadingContext.readTriangleVarying(packet, context, varyingLoc);
     };
-
-    // Fragent depth
 
 });

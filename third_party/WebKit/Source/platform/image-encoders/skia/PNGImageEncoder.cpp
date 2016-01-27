@@ -30,57 +30,31 @@
 
 #include "config.h"
 #include "platform/image-encoders/skia/PNGImageEncoder.h"
-
-#include "SkBitmap.h"
-#include "SkColorPriv.h"
-#include "SkUnPreMultiply.h"
-#include "platform/geometry/IntSize.h"
 #include "platform/graphics/ImageBuffer.h"
-extern "C" {
-#include "png.h"
-}
+#include "wtf/OwnPtr.h"
 
 namespace blink {
+
+PNGImageEncoderState::~PNGImageEncoderState()
+{
+    png_destroy_write_struct(&m_png, &m_pngInfo);
+}
 
 static void writeOutput(png_structp png, png_bytep data, png_size_t size)
 {
     static_cast<Vector<unsigned char>*>(png_get_io_ptr(png))->append(data, size);
 }
 
-static void preMultipliedBGRAtoRGBA(const void* pixels, int pixelCount, unsigned char* output)
-{
-    static const SkUnPreMultiply::Scale* scale = SkUnPreMultiply::GetScaleTable();
-
-    const SkPMColor* input = static_cast<const SkPMColor*>(pixels);
-
-    for (; pixelCount-- > 0; ++input) {
-        unsigned char alpha = SkGetPackedA32(*input);
-        if ((alpha != 0) && (alpha != 255)) {
-            *output++ = SkUnPreMultiply::ApplyScale(scale[alpha], SkGetPackedR32(*input));
-            *output++ = SkUnPreMultiply::ApplyScale(scale[alpha], SkGetPackedG32(*input));
-            *output++ = SkUnPreMultiply::ApplyScale(scale[alpha], SkGetPackedB32(*input));
-            *output++ = alpha;
-        } else {
-            *output++ = SkGetPackedR32(*input);
-            *output++ = SkGetPackedG32(*input);
-            *output++ = SkGetPackedB32(*input);
-            *output++ = alpha;
-        }
-    }
-}
-
-static bool encodePixels(IntSize imageSize, const unsigned char* inputPixels, bool premultiplied, Vector<unsigned char>* output)
+PassOwnPtr<PNGImageEncoderState> PNGImageEncoderState::create(const IntSize& imageSize, Vector<unsigned char>* output)
 {
     if (imageSize.width() <= 0 || imageSize.height() <= 0)
-        return false;
-
-    Vector<unsigned char> row;
+        return nullptr;
 
     png_struct* png = png_create_write_struct(PNG_LIBPNG_VER_STRING, 0, 0, 0);
     png_info* info = png_create_info_struct(png);
     if (!png || !info || setjmp(png_jmpbuf(png))) {
         png_destroy_write_struct(png ? &png : 0, info ? &info : 0);
-        return false;
+        return nullptr;
     }
 
     // Optimize compression for speed.
@@ -91,7 +65,7 @@ static bool encodePixels(IntSize imageSize, const unsigned char* inputPixels, bo
     //
     // Avoid the zlib strategies Z_HUFFMAN_ONLY or Z_RLE.
     // Although they are the fastest for poorly-compressible images (e.g. photographs),
-    // they are very slow for highly-compressible images (e.g. text, drawings or business graphics).
+    // they are very slow for highly-compressible images (e.g. text, drawings or business graphics)
     png_set_compression_level(png, 3);
     png_set_filter(png, PNG_FILTER_TYPE_BASE, PNG_FILTER_SUB);
 
@@ -100,31 +74,34 @@ static bool encodePixels(IntSize imageSize, const unsigned char* inputPixels, bo
                  8, PNG_COLOR_TYPE_RGB_ALPHA, 0, 0, 0);
     png_write_info(png, info);
 
+    return adoptPtr(new PNGImageEncoderState(png, info));
+}
+
+void PNGImageEncoder::writeOneRowToPng(unsigned char* pixels, PNGImageEncoderState* encoderState)
+{
+    png_write_row(encoderState->png(), pixels);
+}
+
+void PNGImageEncoder::finalizePng(PNGImageEncoderState* encoderState)
+{
+    png_write_end(encoderState->png(), encoderState->pngInfo());
+}
+
+static bool encodePixels(IntSize imageSize, const unsigned char* inputPixels, Vector<unsigned char>* output)
+{
+    OwnPtr<PNGImageEncoderState> encoderState = PNGImageEncoderState::create(imageSize, output);
+    if (!encoderState.get())
+        return false;
+
     unsigned char* pixels = const_cast<unsigned char*>(inputPixels);
-    row.resize(imageSize.width() * sizeof(SkPMColor));
     const size_t pixelRowStride = imageSize.width() * 4;
     for (int y = 0; y < imageSize.height(); ++y) {
-        if (premultiplied) {
-            preMultipliedBGRAtoRGBA(pixels, imageSize.width(), row.data());
-            png_write_row(png, row.data());
-        } else
-            png_write_row(png, pixels);
+        PNGImageEncoder::writeOneRowToPng(pixels, encoderState.get());
         pixels += pixelRowStride;
     }
 
-    png_write_end(png, info);
-    png_destroy_write_struct(&png, &info);
+    PNGImageEncoder::finalizePng(encoderState.get());
     return true;
-}
-
-bool PNGImageEncoder::encode(const SkBitmap& bitmap, Vector<unsigned char>* output)
-{
-    SkAutoLockPixels bitmapLock(bitmap);
-
-    if (bitmap.colorType() != kN32_SkColorType || !bitmap.getPixels())
-        return false; // Only support 32 bit/pixel skia bitmaps.
-
-    return encodePixels(IntSize(bitmap.width(), bitmap.height()), static_cast<unsigned char*>(bitmap.getPixels()), true, output);
 }
 
 bool PNGImageEncoder::encode(const ImageDataBuffer& imageData, Vector<unsigned char>* output)
@@ -132,7 +109,7 @@ bool PNGImageEncoder::encode(const ImageDataBuffer& imageData, Vector<unsigned c
     if (!imageData.pixels())
         return false;
 
-    return encodePixels(IntSize(imageData.width(), imageData.height()), imageData.pixels(), false, output);
+    return encodePixels(IntSize(imageData.width(), imageData.height()), imageData.pixels(), output);
 }
 
 } // namespace blink

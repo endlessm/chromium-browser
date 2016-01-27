@@ -274,4 +274,5 @@ class MenuModelAdapterTest : public ViewEventTestBase,
   scoped_ptr<views::MenuRunner> menu_runner_;
 };
 
+// If this flakes, disable and log details in http://crbug.com/523255.
 VIEW_TEST(MenuModelAdapterTest, RebuildMenu)

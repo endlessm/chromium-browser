@@ -18,8 +18,8 @@
 #include "chrome/browser/extensions/extension_sync_data.h"
 #include "chrome/browser/extensions/extension_sync_service.h"
 #include "chrome/browser/extensions/extension_util.h"
-#include "chrome/browser/notifications/desktop_notification_service.h"
-#include "chrome/browser/notifications/desktop_notification_service_factory.h"
+#include "chrome/browser/notifications/notifier_state_tracker.h"
+#include "chrome/browser/notifications/notifier_state_tracker_factory.h"
 #include "content/public/browser/power_save_blocker.h"
 #include "content/public/test/browser_test.h"
 #include "content/public/test/test_utils.h"
@@ -58,7 +58,7 @@ using extensions::ResultCatcher;
 
 namespace {
 
-namespace alarms = extensions::core_api::alarms;
+namespace alarms = extensions::api::alarms;
 
 const char kPowerTestApp[] = "ephemeral_apps/power";
 
@@ -445,7 +445,8 @@ class EphemeralAppBrowserTest : public EphemeralAppTestBase {
 
   void PromoteEphemeralAppAndVerify(
       const Extension* app,
-      ExtensionRegistry::IncludeFlag expected_set) {
+      ExtensionRegistry::IncludeFlag expected_set,
+      bool expect_sync_enabled) {
     ASSERT_TRUE(app);
 
     // Ephemeral apps should not be synced.
@@ -467,8 +468,14 @@ class EphemeralAppBrowserTest : public EphemeralAppTestBase {
 
     // The installation should now be synced.
     sync_change = GetLastSyncChangeForApp(app->id());
-    VerifySyncChange(sync_change.get(),
-                     expected_set == ExtensionRegistry::ENABLED);
+    VerifySyncChange(sync_change.get(), expect_sync_enabled);
+  }
+
+  void PromoteEphemeralAppAndVerify(
+      const Extension* app,
+      ExtensionRegistry::IncludeFlag expected_set) {
+    PromoteEphemeralAppAndVerify(app, expected_set,
+                                 expected_set == ExtensionRegistry::ENABLED);
   }
 
   void PromoteEphemeralAppFromSyncAndVerify(
@@ -495,8 +502,10 @@ class EphemeralAppBrowserTest : public EphemeralAppTestBase {
     std::string app_id = app->id();
     app = NULL;
 
-    ExtensionSyncService* sync_service = ExtensionSyncService::Get(profile());
-    sync_service->ApplySyncData(app_sync_data);
+    ExtensionSyncService::Get(profile())->ProcessSyncChanges(
+        FROM_HERE,
+        syncer::SyncChangeList(
+            1, app_sync_data.GetSyncChange(syncer::SyncChange::ACTION_ADD)));
 
     // Verify the installation.
     VerifyPromotedApp(app_id, expected_set);
@@ -697,15 +706,15 @@ IN_PROC_BROWSER_TEST_F(EphemeralAppBrowserTest, StickyNotificationSettings) {
   ASSERT_TRUE(app);
 
   // Disable notifications for this app.
-  DesktopNotificationService* notification_service =
-      DesktopNotificationServiceFactory::GetForProfile(profile());
-  ASSERT_TRUE(notification_service);
+  NotifierStateTracker* notifier_state_tracker =
+      NotifierStateTrackerFactory::GetForProfile(profile());
+  ASSERT_TRUE(notifier_state_tracker);
 
   message_center::NotifierId notifier_id(
       message_center::NotifierId::APPLICATION, app->id());
-  EXPECT_TRUE(notification_service->IsNotifierEnabled(notifier_id));
-  notification_service->SetNotifierEnabled(notifier_id, false);
-  EXPECT_FALSE(notification_service->IsNotifierEnabled(notifier_id));
+  EXPECT_TRUE(notifier_state_tracker->IsNotifierEnabled(notifier_id));
+  notifier_state_tracker->SetNotifierEnabled(notifier_id, false);
+  EXPECT_FALSE(notifier_state_tracker->IsNotifierEnabled(notifier_id));
 
   // Remove the app.
   CloseAppWaitForUnload(app->id());
@@ -716,7 +725,7 @@ IN_PROC_BROWSER_TEST_F(EphemeralAppBrowserTest, StickyNotificationSettings) {
   ASSERT_TRUE(app);
   message_center::NotifierId reinstalled_notifier_id(
       message_center::NotifierId::APPLICATION, app->id());
-  EXPECT_FALSE(notification_service->IsNotifierEnabled(
+  EXPECT_FALSE(notifier_state_tracker->IsNotifierEnabled(
       reinstalled_notifier_id));
 }
 
@@ -841,7 +850,11 @@ IN_PROC_BROWSER_TEST_F(EphemeralAppBrowserTest,
   DisableEphemeralApp(app, Extension::DISABLE_UNSUPPORTED_REQUIREMENT);
 
   // When promoted to a regular installed app, it should remain disabled.
-  PromoteEphemeralAppAndVerify(app, ExtensionRegistry::DISABLED);
+  // However, DISABLE_UNSUPPORTED_REQUIREMENT is not a syncable disable reason,
+  // so sync should still say "enabled".
+  bool expect_sync_enabled = true;
+  PromoteEphemeralAppAndVerify(app, ExtensionRegistry::DISABLED,
+                               expect_sync_enabled);
 }
 
 // Verifies that promoting an ephemeral app that is blacklisted will not enable

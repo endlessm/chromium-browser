@@ -13,6 +13,8 @@
 namespace chromecast {
 namespace media {
 
+class MediaPipelineBackend;
+struct MediaPipelineDeviceParams;
 class VideoPlane;
 
 // Provides access to platform-specific media systems and hardware resources.
@@ -39,6 +41,12 @@ class CHROMECAST_EXPORT CastMediaShlib {
   // While an implementation is in an initialized state, this function may be
   // called at any time.  The VideoPlane object must be destroyed in Finalize.
   static VideoPlane* GetVideoPlane();
+
+  // Creates a media pipeline backend.  Called in the browser process for each
+  // media pipeline and raw audio stream. The caller owns the returned
+  // MediaPipelineBackend instance.
+  static MediaPipelineBackend* CreateMediaPipelineBackend(
+      const MediaPipelineDeviceParams& params);
 };
 
 }  // namespace media

@@ -250,17 +250,15 @@ gl::Error FramebufferD3D::readPixels(const gl::State &state, const gl::Rectangle
 {
     const gl::PixelPackState &packState = state.getPackState();
 
-    if (packState.rowLength != 0 || packState.skipRows != 0 || packState.skipPixels != 0)
-    {
-        UNIMPLEMENTED();
-        return gl::Error(GL_INVALID_OPERATION, "invalid pixel store parameters in readPixels");
-    }
-
     GLenum sizedInternalFormat = gl::GetSizedInternalFormat(format, type);
     const gl::InternalFormat &sizedFormatInfo = gl::GetInternalFormatInfo(sizedInternalFormat);
-    GLuint outputPitch = sizedFormatInfo.computeRowPitch(type, area.width, packState.alignment, 0);
+    GLuint outputPitch =
+        sizedFormatInfo.computeRowPitch(type, area.width, packState.alignment, packState.rowLength);
+    GLsizei outputSkipBytes = sizedFormatInfo.computeSkipPixels(
+        outputPitch, 0, 0, packState.skipRows, packState.skipPixels);
 
-    return readPixels(area, format, type, outputPitch, packState, reinterpret_cast<uint8_t*>(pixels));
+    return readPixelsImpl(area, format, type, outputPitch, packState,
+                          reinterpret_cast<uint8_t *>(pixels) + outputSkipBytes);
 }
 
 gl::Error FramebufferD3D::blit(const gl::State &state, const gl::Rectangle &sourceArea, const gl::Rectangle &destArea,
@@ -337,7 +335,8 @@ GLenum FramebufferD3D::checkStatus() const
     return GL_FRAMEBUFFER_COMPLETE;
 }
 
-const gl::AttachmentList &FramebufferD3D::getColorAttachmentsForRender(const Workarounds &workarounds) const
+const gl::AttachmentList &FramebufferD3D::getColorAttachmentsForRender(
+    const WorkaroundsD3D &workarounds) const
 {
     if (!mInvalidateColorAttachmentCache)
     {
@@ -368,47 +367,6 @@ const gl::AttachmentList &FramebufferD3D::getColorAttachmentsForRender(const Wor
 
     mInvalidateColorAttachmentCache = false;
     return mColorAttachmentsForRender;
-}
-
-// Note: RenderTarget serials should ideally be in the RenderTargets themselves.
-unsigned int GetAttachmentSerial(const gl::FramebufferAttachment *attachment)
-{
-    if (attachment->type() == GL_TEXTURE)
-    {
-        gl::Texture *texture = attachment->getTexture();
-        ASSERT(texture);
-        TextureD3D *textureD3D = GetImplAs<TextureD3D>(texture);
-        const gl::ImageIndex &index = attachment->getTextureImageIndex();
-        return textureD3D->getRenderTargetSerial(index);
-    }
-    else if (attachment->type() == GL_RENDERBUFFER)
-    {
-        gl::Renderbuffer *renderbuffer = attachment->getRenderbuffer();
-        ASSERT(renderbuffer);
-        RenderbufferD3D *renderbufferD3D = GetImplAs<RenderbufferD3D>(renderbuffer);
-        return renderbufferD3D->getRenderTargetSerial();
-    }
-    else if (attachment->type() == GL_FRAMEBUFFER_DEFAULT)
-    {
-        const egl::Surface *surface = attachment->getSurface();
-        ASSERT(surface);
-        const SurfaceD3D *surfaceD3D = GetImplAs<SurfaceD3D>(surface);
-        ASSERT(surfaceD3D);
-
-        if (attachment->getBinding() == GL_BACK)
-        {
-            return surfaceD3D->getSwapChain()->getColorRenderTarget()->getSerial();
-        }
-        else
-        {
-            return surfaceD3D->getSwapChain()->getDepthStencilRenderTarget()->getSerial();
-        }
-    }
-    else
-    {
-        UNREACHABLE();
-        return 0;
-    }
 }
 
 }

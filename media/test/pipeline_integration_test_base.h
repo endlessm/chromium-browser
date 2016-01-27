@@ -71,9 +71,10 @@ class PipelineIntegrationTestBase {
 
   // Starts the pipeline in a particular mode for advanced testing and
   // benchmarking purposes (e.g., underflow is disabled to ensure consistent
-  // hashes).
-  enum kTestType { kHashed, kClockless };
-  PipelineStatus Start(const std::string& filename, kTestType test_type);
+  // hashes).  May be combined using the bitwise or operator (and as such must
+  // have values that are powers of two).
+  enum TestTypeFlags { kHashed = 1, kClockless = 2};
+  PipelineStatus Start(const std::string& filename, uint8_t test_type);
 
   void Play();
   void Pause();
@@ -110,8 +111,8 @@ class PipelineIntegrationTestBase {
   bool ended_;
   PipelineStatus pipeline_status_;
   Demuxer::EncryptedMediaInitDataCB encrypted_media_init_data_cb_;
-  VideoFrame::Format last_video_frame_format_;
-  VideoFrame::ColorSpace last_video_frame_color_space_;
+  VideoPixelFormat last_video_frame_format_;
+  ColorSpace last_video_frame_color_space_;
   DummyTickClock dummy_clock_;
   AudioHardwareConfig hardware_config_;
   PipelineMetadata metadata_;

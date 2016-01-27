@@ -11,6 +11,7 @@
 #include "base/location.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
+#include "components/data_use_measurement/core/data_use_user_data.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
@@ -99,17 +100,6 @@ bool FailedWithProxy(const net::URLFetcher* fetcher) {
   return false;
 }
 
-const char* UserAffiliationToString(UserAffiliation affiliation) {
-  switch (affiliation) {
-    case USER_AFFILIATION_MANAGED:
-      return dm_protocol::kValueUserAffiliationManaged;
-    case USER_AFFILIATION_NONE:
-      return dm_protocol::kValueUserAffiliationNone;
-  }
-  NOTREACHED() << "Invalid user affiliation " << affiliation;
-  return dm_protocol::kValueUserAffiliationNone;
-}
-
 const char* JobTypeToRequestType(DeviceManagementRequestJob::JobType type) {
   switch (type) {
     case DeviceManagementRequestJob::TYPE_AUTO_ENROLLMENT:
@@ -134,6 +124,8 @@ const char* JobTypeToRequestType(DeviceManagementRequestJob::JobType type) {
       return dm_protocol::kValueRequestDeviceAttributeUpdatePermission;
     case DeviceManagementRequestJob::TYPE_ATTRIBUTE_UPDATE:
       return dm_protocol::kValueRequestDeviceAttributeUpdate;
+    case DeviceManagementRequestJob::TYPE_GCM_ID_UPDATE:
+      return dm_protocol::kValueRequestGcmIdUpdate;
   }
   NOTREACHED() << "Invalid job type " << type;
   return "";
@@ -371,12 +363,6 @@ void DeviceManagementRequestJob::SetOAuthToken(const std::string& oauth_token) {
   AddParameter(dm_protocol::kParamOAuthToken, oauth_token);
 }
 
-void DeviceManagementRequestJob::SetUserAffiliation(
-    UserAffiliation user_affiliation) {
-  AddParameter(dm_protocol::kParamUserAffiliation,
-               UserAffiliationToString(user_affiliation));
-}
-
 void DeviceManagementRequestJob::SetDMToken(const std::string& dm_token) {
   dm_token_ = dm_token;
 }
@@ -478,6 +464,8 @@ void DeviceManagementService::StartJob(DeviceManagementRequestJobImpl* job) {
   net::URLFetcher* fetcher =
       net::URLFetcher::Create(kURLFetcherID, job->GetURL(server_url),
                               net::URLFetcher::POST, this).release();
+  data_use_measurement::DataUseUserData::AttachToFetcher(
+      fetcher, data_use_measurement::DataUseUserData::POLICY);
   job->ConfigureRequest(fetcher);
   pending_jobs_[fetcher] = job;
   fetcher->Start();

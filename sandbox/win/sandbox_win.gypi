@@ -104,6 +104,8 @@
             'src/sandbox_policy_base.cc',
             'src/sandbox_policy_base.h',
             'src/sandbox_policy.h',
+            'src/sandbox_rand.cc',
+            'src/sandbox_rand.h',
             'src/sandbox_types.h',
             'src/sandbox_utils.cc',
             'src/sandbox_utils.h',
@@ -112,8 +114,6 @@
             'src/security_level.h',
             'src/service_resolver.cc',
             'src/service_resolver.h',
-            'src/shared_handles.cc',
-            'src/shared_handles.h',
             'src/sharedmem_ipc_client.cc',
             'src/sharedmem_ipc_client.h',
             'src/sharedmem_ipc_server.cc',
@@ -187,12 +187,6 @@
       'include_dirs': [
         '../..',
       ],
-      'direct_dependent_settings': {
-        'include_dirs': [
-          'src',
-          '../..',
-        ],
-      },
       'target_conditions': [
         ['target_arch=="ia32"', {
           'copies': [
@@ -276,6 +270,7 @@
         'src/policy_low_level_unittest.cc',
         'src/policy_opcodes_unittest.cc',
         'src/ipc_unittest.cc',
+        'src/sandbox_nt_util_unittest.cc',
         'src/threadpool_unittest.cc',
         'src/win_utils_unittest.cc',
         'tests/common/test_utils.cc',
@@ -355,12 +350,6 @@
           'include_dirs': [
             '../..',
           ],
-          'direct_dependent_settings': {
-            'include_dirs': [
-              'src',
-              '../..',
-            ],
-          },
           'defines': [
             '<@(nacl_win64_defines)',
           ]
@@ -380,6 +369,32 @@
           ],
           'sources': [
             '../sbox_integration_tests.isolate',
+          ],
+        },
+        {
+          'target_name': 'sbox_unittests_run',
+          'type': 'none',
+          'dependencies': [
+            'sbox_unittests',
+          ],
+          'includes': [
+            '../../build/isolate.gypi',
+          ],
+          'sources': [
+            '../sbox_unittests.isolate',
+          ],
+        },
+        {
+          'target_name': 'sbox_validation_tests_run',
+          'type': 'none',
+          'dependencies': [
+            'sbox_validation_tests',
+          ],
+          'includes': [
+            '../../build/isolate.gypi',
+          ],
+          'sources': [
+            '../sbox_validation_tests.isolate',
           ],
         },
       ],

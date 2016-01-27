@@ -7,6 +7,7 @@
 #include "ash/ash_switches.h"
 #include "ash/display/display_layout_store.h"
 #include "ash/display/display_manager.h"
+#include "ash/display/display_util.h"
 #include "ash/shell.h"
 #include "base/command_line.h"
 #include "base/logging.h"
@@ -48,13 +49,13 @@ void DisplayLayoutStore::RegisterLayoutForDisplayIdPair(
     int64 id1,
     int64 id2,
     const DisplayLayout& layout) {
-  auto key = std::make_pair(id1, id2);
+  auto key = CreateDisplayIdPair(id1, id2);
+
+  // Do not overwrite the valid data with old invalid date.
+  if (paired_layouts_.count(key) && !CompareDisplayIds(id1, id2))
+    return;
+
   paired_layouts_[key] = layout;
-#if defined(OS_CHROMEOS)
-  // Force disabling unified desktop if the flag is not set.
-  if (!switches::UnifiedDesktopEnabled())
-    paired_layouts_[key].default_unified = false;
-#endif
 }
 
 DisplayLayout DisplayLayoutStore::GetRegisteredDisplayLayout(

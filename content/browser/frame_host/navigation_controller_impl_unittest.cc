@@ -22,6 +22,8 @@
 #include "content/browser/site_instance_impl.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/common/frame_messages.h"
+#include "content/common/site_isolation_policy.h"
+#include "content/common/ssl_status_serialization.h"
 #include "content/common/view_messages.h"
 #include "content/public/browser/navigation_details.h"
 #include "content/public/browser/notification_registrar.h"
@@ -42,6 +44,7 @@
 #include "net/base/net_util.h"
 #include "skia/ext/platform_canvas.h"
 #include "testing/gtest/include/gtest/gtest.h"
+#include "third_party/WebKit/public/web/WebFrameOwnerProperties.h"
 #include "third_party/WebKit/public/web/WebSandboxFlags.h"
 
 using base::Time;
@@ -550,9 +553,13 @@ void CheckNavigationEntryMatchLoadParams(
 }
 
 TEST_F(NavigationControllerTest, LoadURLWithParams) {
+  // Start a navigation in order to have enough state to fake a transfer.
+  contents()->NavigateAndCommit(GURL("http://foo"));
+  contents()->StartNavigation(GURL("http://bar"));
+
   NavigationControllerImpl& controller = controller_impl();
 
-  NavigationController::LoadURLParams load_params(GURL("http://foo"));
+  NavigationController::LoadURLParams load_params(GURL("http://foo/2"));
   load_params.referrer =
       Referrer(GURL("http://referrer"), blink::WebReferrerPolicyDefault);
   load_params.transition_type = ui::PAGE_TRANSITION_GENERATED;
@@ -1102,21 +1109,19 @@ TEST_F(NavigationControllerTest, LoadURL_RedirectAbortDoesntShowPendingURL) {
 
   // Now make a pending new navigation, initiated by the renderer.
   const GURL kNewURL("http://foo/bee");
-  NavigationController::LoadURLParams load_url_params(kNewURL);
-  load_url_params.transition_type = ui::PAGE_TRANSITION_TYPED;
-  load_url_params.is_renderer_initiated = true;
-  controller.LoadURLWithParams(load_url_params);
+  main_test_rfh()->SimulateNavigationStart(kNewURL);
   EXPECT_EQ(0U, notifications.size());
   EXPECT_EQ(-1, controller.GetPendingEntryIndex());
   EXPECT_TRUE(controller.GetPendingEntry());
   EXPECT_EQ(0, controller.GetLastCommittedEntryIndex());
-  EXPECT_EQ(0, delegate->navigation_state_change_count());
+  EXPECT_EQ(1, delegate->navigation_state_change_count());
 
   // The visible entry should be the last committed URL, not the pending one.
   EXPECT_EQ(kExistingURL, controller.GetVisibleEntry()->GetURL());
 
-  // Now the navigation redirects. (There is no corresponding message here.)
+  // Now the navigation redirects.
   const GURL kRedirectURL("http://foo/see");
+  main_test_rfh()->SimulateRedirect(kRedirectURL);
 
   // We don't want to change the NavigationEntry's url, in case it cancels.
   // Prevents regression of http://crbug.com/77786.
@@ -1124,21 +1129,14 @@ TEST_F(NavigationControllerTest, LoadURL_RedirectAbortDoesntShowPendingURL) {
 
   // It may abort before committing, if it's a download or due to a stop or
   // a new navigation from the user.
-  FrameHostMsg_DidFailProvisionalLoadWithError_Params params;
-  params.error_code = net::ERR_ABORTED;
-  params.error_description = base::string16();
-  params.url = kRedirectURL;
-  params.showing_repost_interstitial = false;
-  main_test_rfh()->OnMessageReceived(
-      FrameHostMsg_DidFailProvisionalLoadWithError(0,  // routing_id
-                                                   params));
+  main_test_rfh()->SimulateNavigationError(kRedirectURL, net::ERR_ABORTED);
 
   // Because the pending entry is renderer initiated and not visible, we
   // clear it when it fails.
   EXPECT_EQ(-1, controller.GetPendingEntryIndex());
   EXPECT_FALSE(controller.GetPendingEntry());
   EXPECT_EQ(0, controller.GetLastCommittedEntryIndex());
-  EXPECT_EQ(1, delegate->navigation_state_change_count());
+  EXPECT_EQ(2, delegate->navigation_state_change_count());
 
   // The visible entry should be the last committed URL, not the pending one,
   // so that no spoof is possible.
@@ -2029,7 +2027,7 @@ TEST_F(NavigationControllerTest, NewSubframe) {
   // Prereq: add a subframe with an initial auto-subframe navigation.
   main_test_rfh()->OnCreateChildFrame(
       MSG_ROUTING_NONE, blink::WebTreeScopeType::Document, std::string(),
-      blink::WebSandboxFlags::None);
+      blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
   RenderFrameHostImpl* subframe =
       contents()->GetFrameTree()->root()->child_at(0)->current_frame_host();
   const GURL subframe_url("http://foo1/subframe");
@@ -2082,9 +2080,8 @@ TEST_F(NavigationControllerTest, NewSubframe) {
   EXPECT_EQ(url1, entry->GetURL());
   EXPECT_EQ(params.page_id, entry->GetPageID());
 
-  // Verify subframe entries if we're in --site-per-process mode.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kSitePerProcess)) {
+  // Verify subframe entries if they're enabled (e.g. in --site-per-process).
+  if (SiteIsolationPolicy::UseSubframeNavigationEntries()) {
     // The entry should have a subframe FrameNavigationEntry.
     ASSERT_EQ(1U, entry->root_node()->children.size());
     EXPECT_EQ(url2, entry->root_node()->children[0]->frame_entry->url());
@@ -2110,7 +2107,7 @@ TEST_F(NavigationControllerTest, AutoSubframe) {
   // Add a subframe and navigate it.
   main_test_rfh()->OnCreateChildFrame(
       MSG_ROUTING_NONE, blink::WebTreeScopeType::Document, std::string(),
-      blink::WebSandboxFlags::None);
+      blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
   RenderFrameHostImpl* subframe =
       contents()->GetFrameTree()->root()->child_at(0)->current_frame_host();
   const GURL url2("http://foo/2");
@@ -2140,9 +2137,8 @@ TEST_F(NavigationControllerTest, AutoSubframe) {
   FrameNavigationEntry* root_entry = entry->root_node()->frame_entry.get();
   EXPECT_EQ(url1, root_entry->url());
 
-  // Verify subframe entries if we're in --site-per-process mode.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kSitePerProcess)) {
+  // Verify subframe entries if they're enabled (e.g. in --site-per-process).
+  if (SiteIsolationPolicy::UseSubframeNavigationEntries()) {
     // The entry should now have a subframe FrameNavigationEntry.
     ASSERT_EQ(1U, entry->root_node()->children.size());
     FrameNavigationEntry* frame_entry =
@@ -2156,7 +2152,7 @@ TEST_F(NavigationControllerTest, AutoSubframe) {
   // Add a second subframe and navigate.
   main_test_rfh()->OnCreateChildFrame(
       MSG_ROUTING_NONE, blink::WebTreeScopeType::Document, std::string(),
-      blink::WebSandboxFlags::None);
+      blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
   RenderFrameHostImpl* subframe2 =
       contents()->GetFrameTree()->root()->child_at(1)->current_frame_host();
   const GURL url3("http://foo/3");
@@ -2186,9 +2182,8 @@ TEST_F(NavigationControllerTest, AutoSubframe) {
   EXPECT_EQ(root_entry, entry->root_node()->frame_entry.get());
   EXPECT_EQ(url1, root_entry->url());
 
-  // Verify subframe entries if we're in --site-per-process mode.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kSitePerProcess)) {
+  // Verify subframe entries if they're enabled (e.g. in --site-per-process).
+  if (SiteIsolationPolicy::UseSubframeNavigationEntries()) {
     // The entry should now have 2 subframe FrameNavigationEntries.
     ASSERT_EQ(2U, entry->root_node()->children.size());
     FrameNavigationEntry* new_frame_entry =
@@ -2202,7 +2197,8 @@ TEST_F(NavigationControllerTest, AutoSubframe) {
   // Add a nested subframe and navigate.
   subframe->OnCreateChildFrame(MSG_ROUTING_NONE,
                                blink::WebTreeScopeType::Document, std::string(),
-                               blink::WebSandboxFlags::None);
+                               blink::WebSandboxFlags::None,
+                               blink::WebFrameOwnerProperties());
   RenderFrameHostImpl* subframe3 = contents()
                                        ->GetFrameTree()
                                        ->root()
@@ -2236,9 +2232,8 @@ TEST_F(NavigationControllerTest, AutoSubframe) {
   EXPECT_EQ(root_entry, entry->root_node()->frame_entry.get());
   EXPECT_EQ(url1, root_entry->url());
 
-  // Verify subframe entries if we're in --site-per-process mode.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kSitePerProcess)) {
+  // Verify subframe entries if they're enabled (e.g. in --site-per-process).
+  if (SiteIsolationPolicy::UseSubframeNavigationEntries()) {
     // The entry should now have a nested FrameNavigationEntry.
     EXPECT_EQ(2U, entry->root_node()->children.size());
     ASSERT_EQ(1U, entry->root_node()->children[0]->children.size());
@@ -2267,7 +2262,7 @@ TEST_F(NavigationControllerTest, BackSubframe) {
   // Prereq: add a subframe with an initial auto-subframe navigation.
   main_test_rfh()->OnCreateChildFrame(
       MSG_ROUTING_NONE, blink::WebTreeScopeType::Document, std::string(),
-      blink::WebSandboxFlags::None);
+      blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
   RenderFrameHostImpl* subframe =
       contents()->GetFrameTree()->root()->child_at(0)->current_frame_host();
   const GURL subframe_url("http://foo1/subframe");
@@ -2310,9 +2305,8 @@ TEST_F(NavigationControllerTest, BackSubframe) {
   navigation_entry_committed_counter_ = 0;
   EXPECT_EQ(2, controller.GetEntryCount());
 
-  // Verify subframe entries if we're in --site-per-process mode.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kSitePerProcess)) {
+  // Verify subframe entries if they're enabled (e.g. in --site-per-process).
+  if (SiteIsolationPolicy::UseSubframeNavigationEntries()) {
     // The entry should have a subframe FrameNavigationEntry.
     ASSERT_EQ(1U, entry2->root_node()->children.size());
     EXPECT_EQ(url2, entry2->root_node()->children[0]->frame_entry->url());
@@ -2335,9 +2329,8 @@ TEST_F(NavigationControllerTest, BackSubframe) {
   EXPECT_EQ(3, controller.GetEntryCount());
   EXPECT_EQ(2, controller.GetCurrentEntryIndex());
 
-  // Verify subframe entries if we're in --site-per-process mode.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kSitePerProcess)) {
+  // Verify subframe entries if they're enabled (e.g. in --site-per-process).
+  if (SiteIsolationPolicy::UseSubframeNavigationEntries()) {
     // The entry should have a subframe FrameNavigationEntry.
     ASSERT_EQ(1U, entry3->root_node()->children.size());
     EXPECT_EQ(url3, entry3->root_node()->children[0]->frame_entry->url());
@@ -2769,7 +2762,7 @@ TEST_F(NavigationControllerTest, EnforceMaxNavigationCount) {
 TEST_F(NavigationControllerTest, RestoreNavigate) {
   // Create a NavigationController with a restored set of tabs.
   GURL url("http://foo");
-  ScopedVector<NavigationEntry> entries;
+  std::vector<scoped_ptr<NavigationEntry>> entries;
   scoped_ptr<NavigationEntry> entry =
       NavigationControllerImpl::CreateNavigationEntry(
           url, Referrer(), ui::PAGE_TRANSITION_RELOAD, false, std::string(),
@@ -2797,15 +2790,11 @@ TEST_F(NavigationControllerTest, RestoreNavigate) {
   EXPECT_FALSE(our_controller.GetEntryAtIndex(0)->site_instance());
 
   // After navigating, we should have one entry, and it should be "pending".
-  // It should now have a SiteInstance and no restore_type.
   our_controller.GoToIndex(0);
   EXPECT_EQ(1, our_controller.GetEntryCount());
   EXPECT_EQ(our_controller.GetEntryAtIndex(0),
             our_controller.GetPendingEntry());
   EXPECT_EQ(0, our_controller.GetEntryAtIndex(0)->GetPageID());
-  EXPECT_EQ(NavigationEntryImpl::RESTORE_NONE,
-            our_controller.GetEntryAtIndex(0)->restore_type());
-  EXPECT_TRUE(our_controller.GetEntryAtIndex(0)->site_instance());
 
   // Timestamp should remain the same before the navigation finishes.
   EXPECT_EQ(timestamp, our_controller.GetEntryAtIndex(0)->GetTimestamp());
@@ -2846,7 +2835,7 @@ TEST_F(NavigationControllerTest, RestoreNavigate) {
 TEST_F(NavigationControllerTest, RestoreNavigateAfterFailure) {
   // Create a NavigationController with a restored set of tabs.
   GURL url("http://foo");
-  ScopedVector<NavigationEntry> entries;
+  std::vector<scoped_ptr<NavigationEntry>> entries;
   scoped_ptr<NavigationEntry> new_entry =
       NavigationControllerImpl::CreateNavigationEntry(
           url, Referrer(), ui::PAGE_TRANSITION_RELOAD, false, std::string(),
@@ -2874,15 +2863,11 @@ TEST_F(NavigationControllerTest, RestoreNavigateAfterFailure) {
   EXPECT_FALSE(our_controller.GetEntryAtIndex(0)->site_instance());
 
   // After navigating, we should have one entry, and it should be "pending".
-  // It should now have a SiteInstance and no restore_type.
   our_controller.GoToIndex(0);
   EXPECT_EQ(1, our_controller.GetEntryCount());
   EXPECT_EQ(our_controller.GetEntryAtIndex(0),
             our_controller.GetPendingEntry());
   EXPECT_EQ(0, our_controller.GetEntryAtIndex(0)->GetPageID());
-  EXPECT_EQ(NavigationEntryImpl::RESTORE_NONE,
-            our_controller.GetEntryAtIndex(0)->restore_type());
-  EXPECT_TRUE(our_controller.GetEntryAtIndex(0)->site_instance());
 
   // This pending navigation may have caused a different navigation to fail,
   // which causes the pending entry to be cleared.
@@ -3615,6 +3600,21 @@ TEST_F(NavigationControllerTest, IsInPageNavigation) {
   EXPECT_TRUE(controller.IsURLInPageNavigation(other_url, true,
       main_test_rfh()));
 
+  // Don't believe the renderer if it claims a cross-origin navigation is
+  // in-page.
+  const GURL different_origin_url("http://www.example.com");
+  MockRenderProcessHost* rph = main_test_rfh()->GetProcess();
+  EXPECT_EQ(0, rph->bad_msg_count());
+  EXPECT_FALSE(controller.IsURLInPageNavigation(different_origin_url, true,
+                                                main_test_rfh()));
+  EXPECT_EQ(1, rph->bad_msg_count());
+}
+
+// Tests that IsInPageNavigation behaves properly with the
+// allow_universal_access_from_file_urls flag.
+TEST_F(NavigationControllerTest, IsInPageNavigationWithUniversalFileAccess) {
+  NavigationControllerImpl& controller = controller_impl();
+
   // Test allow_universal_access_from_file_urls flag.
   const GURL different_origin_url("http://www.example.com");
   MockRenderProcessHost* rph = main_test_rfh()->GetProcess();
@@ -3623,32 +3623,51 @@ TEST_F(NavigationControllerTest, IsInPageNavigation) {
   test_rvh()->UpdateWebkitPreferences(prefs);
   prefs = test_rvh()->GetWebkitPreferences();
   EXPECT_TRUE(prefs.allow_universal_access_from_file_urls);
-  // Allow in page navigation if existing URL is file scheme.
+
+  // Allow in page navigation to be cross-origin if existing URL is file scheme.
   const GURL file_url("file:///foo/index.html");
-  main_test_rfh()->NavigateAndCommitRendererInitiated(0, false, file_url);
+  const url::Origin file_origin(file_url);
+  main_test_rfh()->NavigateAndCommitRendererInitiated(0, true, file_url);
+  EXPECT_TRUE(file_origin.IsSameOriginWith(
+      main_test_rfh()->frame_tree_node()->current_origin()));
   EXPECT_EQ(0, rph->bad_msg_count());
   EXPECT_TRUE(controller.IsURLInPageNavigation(different_origin_url, true,
       main_test_rfh()));
   EXPECT_EQ(0, rph->bad_msg_count());
-  // Don't honor allow_universal_access_from_file_urls if existing URL is
+
+  // Doing a replaceState to a cross-origin URL is thus allowed.
+  FrameHostMsg_DidCommitProvisionalLoad_Params params;
+  params.page_id = 1;
+  params.nav_entry_id = 1;
+  params.did_create_new_entry = false;
+  params.url = different_origin_url;
+  params.origin = file_origin;
+  params.transition = ui::PAGE_TRANSITION_LINK;
+  params.gesture = NavigationGestureUser;
+  params.page_state = PageState::CreateFromURL(different_origin_url);
+  params.was_within_same_page = true;
+  params.is_post = false;
+  params.post_id = -1;
+  main_test_rfh()->SendRendererInitiatedNavigationRequest(different_origin_url,
+                                                          false);
+  main_test_rfh()->PrepareForCommit();
+  contents()->GetMainFrame()->SendNavigateWithParams(&params);
+
+  // At this point, we should still consider the current origin to be file://,
+  // so that a file URL would still be in-page.  See https://crbug.com/553418.
+  EXPECT_TRUE(file_origin.IsSameOriginWith(
+      main_test_rfh()->frame_tree_node()->current_origin()));
+  EXPECT_TRUE(
+      controller.IsURLInPageNavigation(file_url, true, main_test_rfh()));
+  EXPECT_EQ(0, rph->bad_msg_count());
+
+  // Don't honor allow_universal_access_from_file_urls if actual URL is
   // not file scheme.
-  main_test_rfh()->NavigateAndCommitRendererInitiated(0, false, url);
+  const GURL url("http://www.google.com/home.html");
+  main_test_rfh()->NavigateAndCommitRendererInitiated(2, true, url);
   EXPECT_FALSE(controller.IsURLInPageNavigation(different_origin_url, true,
       main_test_rfh()));
   EXPECT_EQ(1, rph->bad_msg_count());
-
-  // Remove allow_universal_access_from_file_urls flag.
-  prefs.allow_universal_access_from_file_urls = false;
-  test_rvh()->UpdateWebkitPreferences(prefs);
-  prefs = test_rvh()->GetWebkitPreferences();
-  EXPECT_FALSE(prefs.allow_universal_access_from_file_urls);
-
-  // Don't believe the renderer if it claims a cross-origin navigation is
-  // in-page.
-  EXPECT_EQ(1, rph->bad_msg_count());
-  EXPECT_FALSE(controller.IsURLInPageNavigation(different_origin_url, true,
-      main_test_rfh()));
-  EXPECT_EQ(2, rph->bad_msg_count());
 }
 
 // Some pages can have subframes with the same base URL (minus the reference) as
@@ -3668,7 +3687,7 @@ TEST_F(NavigationControllerTest, SameSubframe) {
   // Add and navigate a subframe that would normally count as in-page.
   main_test_rfh()->OnCreateChildFrame(
       MSG_ROUTING_NONE, blink::WebTreeScopeType::Document, std::string(),
-      blink::WebSandboxFlags::None);
+      blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
   RenderFrameHostImpl* subframe =
       contents()->GetFrameTree()->root()->child_at(0)->current_frame_host();
   const GURL subframe_url("http://www.google.com/#");
@@ -3779,8 +3798,23 @@ TEST_F(NavigationControllerTest, LazyReload) {
             controller.GetPendingEntry()->GetTransitionType());
 }
 
-// Test requesting and triggering a lazy reload without any committed entry.
+// Test requesting and triggering a lazy reload without any committed entry nor
+// pending entry.
 TEST_F(NavigationControllerTest, LazyReloadWithoutCommittedEntry) {
+  NavigationControllerImpl& controller = controller_impl();
+  ASSERT_EQ(-1, controller.GetLastCommittedEntryIndex());
+  EXPECT_FALSE(controller.NeedsReload());
+  controller.SetNeedsReload();
+  EXPECT_TRUE(controller.NeedsReload());
+
+  // Doing a "load if necessary" shouldn't DCHECK.
+  controller.LoadIfNecessary();
+  ASSERT_FALSE(controller.NeedsReload());
+}
+
+// Test requesting and triggering a lazy reload without any committed entry and
+// only a pending entry.
+TEST_F(NavigationControllerTest, LazyReloadWithOnlyPendingEntry) {
   NavigationControllerImpl& controller = controller_impl();
   const GURL url("http://foo");
   controller.LoadURL(url, Referrer(), ui::PAGE_TRANSITION_TYPED, std::string());
@@ -3819,7 +3853,7 @@ TEST_F(NavigationControllerTest, SubframeWhilePending) {
   // automatically loaded. Auto subframes don't increment the page ID.
   main_test_rfh()->OnCreateChildFrame(
       MSG_ROUTING_NONE, blink::WebTreeScopeType::Document, std::string(),
-      blink::WebSandboxFlags::None);
+      blink::WebSandboxFlags::None, blink::WebFrameOwnerProperties());
   RenderFrameHostImpl* subframe =
       contents()->GetFrameTree()->root()->child_at(0)->current_frame_host();
   const GURL url1_sub("http://foo/subframe");
@@ -4345,7 +4379,7 @@ TEST_F(NavigationControllerTest, CopyRestoredStateAndNavigate) {
   };
   const GURL kInitialUrl("http://site3.com");
 
-  ScopedVector<NavigationEntry> entries;
+  std::vector<scoped_ptr<NavigationEntry>> entries;
   for (size_t i = 0; i < arraysize(kRestoredUrls); ++i) {
     scoped_ptr<NavigationEntry> entry =
         NavigationControllerImpl::CreateNavigationEntry(
@@ -4563,6 +4597,7 @@ TEST_F(NavigationControllerTest, IsInitialNavigation) {
 
   // Initial state.
   EXPECT_TRUE(controller.IsInitialNavigation());
+  EXPECT_TRUE(controller.IsInitialBlankNavigation());
 
   // After commit, it stays false.
   const GURL url1("http://foo1");
@@ -4570,11 +4605,20 @@ TEST_F(NavigationControllerTest, IsInitialNavigation) {
   EXPECT_EQ(1U, navigation_entry_committed_counter_);
   navigation_entry_committed_counter_ = 0;
   EXPECT_FALSE(controller.IsInitialNavigation());
+  EXPECT_FALSE(controller.IsInitialBlankNavigation());
 
   // After starting a new navigation, it stays false.
   const GURL url2("http://foo2");
   controller.LoadURL(
       url2, Referrer(), ui::PAGE_TRANSITION_TYPED, std::string());
+  EXPECT_FALSE(controller.IsInitialNavigation());
+  EXPECT_FALSE(controller.IsInitialBlankNavigation());
+
+  // For cloned tabs, IsInitialNavigationShould be true but
+  // IsInitialBlankNavigation should be false.
+  scoped_ptr<WebContents> clone(controller.GetWebContents()->Clone());
+  EXPECT_TRUE(clone->GetController().IsInitialNavigation());
+  EXPECT_FALSE(clone->GetController().IsInitialBlankNavigation());
 }
 
 // Check that the favicon is not reused across a client redirect.
@@ -4687,7 +4731,7 @@ TEST_F(NavigationControllerTest, MAYBE_PurgeScreenshot) {
 
   MockScreenshotManager* screenshot_manager =
       new MockScreenshotManager(&controller);
-  controller.SetScreenshotManager(screenshot_manager);
+  controller.SetScreenshotManager(make_scoped_ptr(screenshot_manager));
   for (int i = 0; i < controller.GetEntryCount(); ++i) {
     entry = controller.GetEntryAtIndex(i);
     screenshot_manager->TakeScreenshotFor(entry);
@@ -5007,6 +5051,44 @@ TEST_F(NavigationControllerTest, StaleNavigationsResurrected) {
   EXPECT_EQ(url_a, controller.GetEntryAtIndex(0)->GetURL());
   EXPECT_EQ(url_c, controller.GetEntryAtIndex(1)->GetURL());
   EXPECT_EQ(url_b, controller.GetEntryAtIndex(2)->GetURL());
+}
+
+// Test that if a renderer provides bogus security info (that fails to
+// deserialize properly) when reporting a navigation, the renderer gets
+// killed.
+TEST_F(NavigationControllerTest, RendererNavigateBogusSecurityInfo) {
+  GURL url("http://foo.test");
+  FrameHostMsg_DidCommitProvisionalLoad_Params params;
+  params.page_id = 0;
+  params.nav_entry_id = 0;
+  params.did_create_new_entry = true;
+  params.url = url;
+  params.transition = ui::PAGE_TRANSITION_LINK;
+  params.should_update_history = true;
+  params.gesture = NavigationGestureUser;
+  params.is_post = false;
+  params.page_state = PageState::CreateFromURL(url);
+  params.was_within_same_page = false;
+  params.security_info = "bogus security info!";
+
+  LoadCommittedDetails details;
+  EXPECT_EQ(0, main_test_rfh()->GetProcess()->bad_msg_count());
+  EXPECT_TRUE(
+      controller_impl().RendererDidNavigate(main_test_rfh(), params, &details));
+
+  SSLStatus default_ssl_status;
+  EXPECT_EQ(default_ssl_status.security_style,
+            details.ssl_status.security_style);
+  EXPECT_EQ(default_ssl_status.cert_id, details.ssl_status.cert_id);
+  EXPECT_EQ(default_ssl_status.cert_status, details.ssl_status.cert_status);
+  EXPECT_EQ(default_ssl_status.security_bits, details.ssl_status.security_bits);
+  EXPECT_EQ(default_ssl_status.connection_status,
+            details.ssl_status.connection_status);
+  EXPECT_EQ(default_ssl_status.content_status,
+            details.ssl_status.content_status);
+  EXPECT_EQ(0u, details.ssl_status.signed_certificate_timestamp_ids.size());
+
+  EXPECT_EQ(1, main_test_rfh()->GetProcess()->bad_msg_count());
 }
 
 }  // namespace content

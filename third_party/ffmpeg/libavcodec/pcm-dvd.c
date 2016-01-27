@@ -140,9 +140,9 @@ static int pcm_dvd_parse_header(AVCodecContext *avctx, const uint8_t *header)
 
     if (avctx->debug & FF_DEBUG_PICT_INFO)
         ff_dlog(avctx,
-                "pcm_dvd_parse_header: %d channels, %d bits per sample, %d Hz, %d bit/s\n",
+                "pcm_dvd_parse_header: %d channels, %d bits per sample, %d Hz, %"PRId64" bit/s\n",
                 avctx->channels, avctx->bits_per_coded_sample,
-                avctx->sample_rate, avctx->bit_rate);
+                avctx->sample_rate, (int64_t)avctx->bit_rate);
 
     s->last_header = header_int;
 
@@ -311,7 +311,7 @@ AVCodec ff_pcm_dvd_decoder = {
     .init           = pcm_dvd_decode_init,
     .decode         = pcm_dvd_decode_frame,
     .close          = pcm_dvd_decode_uninit,
-    .capabilities   = CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1,
     .sample_fmts    = (const enum AVSampleFormat[]) {
         AV_SAMPLE_FMT_S16, AV_SAMPLE_FMT_S32, AV_SAMPLE_FMT_NONE
     }

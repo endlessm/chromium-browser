@@ -228,7 +228,7 @@ AccessibilityMatchPredicate PredicateForSearchKey(NSString* searchKey) {
     };
   } else if ([searchKey isEqualToString:@"AXTextFieldSearchKey"]) {
     return [](BrowserAccessibility* start, BrowserAccessibility* current) {
-      return current->GetRole() == ui::AX_ROLE_TEXT_FIELD;
+      return current->IsSimpleTextControl() || current->IsRichTextControl();
     };
   } else if ([searchKey isEqualToString:@"AXUnderlineSearchKey"]) {
     // TODO(dmazzoni): implement this.
@@ -259,11 +259,10 @@ bool InitializeAccessibilityTreeSearch(
   NSDictionary* dictionary = parameter;
 
   id startElementParameter = [dictionary objectForKey:@"AXStartElement"];
-  BrowserAccessibility* startNode = nullptr;
   if ([startElementParameter isKindOfClass:[BrowserAccessibilityCocoa class]]) {
     BrowserAccessibilityCocoa* startNodeCocoa =
         (BrowserAccessibilityCocoa*)startElementParameter;
-    startNode = [startNodeCocoa browserAccessibility];
+    search->SetStartNode([startNodeCocoa browserAccessibility]);
   }
 
   bool immediateDescendantsOnly = false;
@@ -297,7 +296,6 @@ bool InitializeAccessibilityTreeSearch(
   if ([searchTextParameter isKindOfClass:[NSString class]])
     searchText = base::SysNSStringToUTF8(searchTextParameter);
 
-  search->SetStartNode(startNode);
   search->SetDirection(direction);
   search->SetImmediateDescendantsOnly(immediateDescendantsOnly);
   search->SetVisibleOnly(visibleOnly);
@@ -362,6 +360,7 @@ bool InitializeAccessibilityTreeSearch(
     { NSAccessibilityNumberOfCharactersAttribute, @"numberOfCharacters" },
     { NSAccessibilityOrientationAttribute, @"orientation" },
     { NSAccessibilityParentAttribute, @"parent" },
+    { NSAccessibilityPlaceholderValueAttribute, @"placeholderValue" },
     { NSAccessibilityPositionAttribute, @"position" },
     { NSAccessibilityRoleAttribute, @"role" },
     { NSAccessibilityRoleDescriptionAttribute, @"roleDescription" },
@@ -397,7 +396,6 @@ bool InitializeAccessibilityTreeSearch(
     { @"AXInvalid", @"invalid" },
     { @"AXLoaded", @"loaded" },
     { @"AXLoadingProgress", @"loadingProgress" },
-    { @"AXPlaceholder", @"placeholder" },
     { @"AXRequired", @"required" },
     { @"AXSortDirection", @"sortDirection" },
     { @"AXVisited", @"visited" },
@@ -736,7 +734,7 @@ bool InitializeAccessibilityTreeSearch(
   return @"false";
 }
 
-- (NSString*)placeholder {
+- (NSString*)placeholderValue {
   return NSStringForStringAttribute(
       browserAccessibility_, ui::AX_ATTR_PLACEHOLDER);
 }
@@ -768,8 +766,8 @@ bool InitializeAccessibilityTreeSearch(
 }
 
 - (NSNumber*)loadingProgress {
-  float floatValue = browserAccessibility_->GetFloatAttribute(
-      ui::AX_ATTR_DOC_LOADING_PROGRESS);
+  BrowserAccessibilityManager* manager = browserAccessibility_->manager();
+  float floatValue = manager->GetTreeData().loading_progress;
   return [NSNumber numberWithFloat:floatValue];
 }
 
@@ -869,6 +867,9 @@ bool InitializeAccessibilityTreeSearch(
 
 // Returns a string indicating the NSAccessibility role of this object.
 - (NSString*)role {
+  if (!browserAccessibility_)
+    return nil;
+
   ui::AXRole role = [self internalRole];
   if (role == ui::AX_ROLE_CANVAS &&
       browserAccessibility_->GetBoolAttribute(
@@ -886,8 +887,10 @@ bool InitializeAccessibilityTreeSearch(
     else
       return NSAccessibilityButtonRole;
   }
-  if (role == ui::AX_ROLE_TEXT_FIELD &&
-      browserAccessibility_->HasState(ui::AX_STATE_MULTILINE)) {
+
+  if ((browserAccessibility_->IsSimpleTextControl() &&
+       browserAccessibility_->HasState(ui::AX_STATE_MULTILINE)) ||
+      browserAccessibility_->IsRichTextControl()) {
     return NSAccessibilityTextAreaRole;
   }
 
@@ -944,6 +947,9 @@ bool InitializeAccessibilityTreeSearch(
   case ui::AX_ROLE_BANNER:
     return base::SysUTF16ToNSString(content_client->GetLocalizedString(
         IDS_AX_ROLE_BANNER));
+  case ui::AX_ROLE_CHECK_BOX:
+    return base::SysUTF16ToNSString(content_client->GetLocalizedString(
+        IDS_AX_ROLE_CHECK_BOX));
   case ui::AX_ROLE_COMPLEMENTARY:
     return base::SysUTF16ToNSString(content_client->GetLocalizedString(
         IDS_AX_ROLE_COMPLEMENTARY));
@@ -1202,16 +1208,16 @@ bool InitializeAccessibilityTreeSearch(
 }
 
 - (NSURL*)url {
-  StringAttribute urlAttribute =
-      [[self role] isEqualToString:@"AXWebArea"] ?
-          ui::AX_ATTR_DOC_URL :
-          ui::AX_ATTR_URL;
+  std::string url;
+  if ([[self role] isEqualToString:@"AXWebArea"])
+    url = browserAccessibility_->manager()->GetTreeData().url;
+  else
+    url = browserAccessibility_->GetStringAttribute(ui::AX_ATTR_URL);
 
-  std::string urlStr = browserAccessibility_->GetStringAttribute(urlAttribute);
-  if (urlStr.empty())
+  if (url.empty())
     return nil;
 
-  return [NSURL URLWithString:(base::SysUTF8ToNSString(urlStr))];
+  return [NSURL URLWithString:(base::SysUTF8ToNSString(url))];
 }
 
 - (id)value {
@@ -1250,8 +1256,7 @@ bool InitializeAccessibilityTreeSearch(
             1 :
             value;
 
-    if (browserAccessibility_->GetBoolAttribute(
-        ui::AX_ATTR_BUTTON_MIXED)) {
+    if (browserAccessibility_->GetBoolAttribute(ui::AX_ATTR_STATE_MIXED)) {
       value = 2;
     }
     return [NSNumber numberWithInt:value];
@@ -1508,14 +1513,14 @@ bool InitializeAccessibilityTreeSearch(
     return [NSValue valueWithRect:nsrect];
   }
   if ([attribute isEqualToString:@"AXUIElementCountForSearchPredicate"]) {
-    OneShotAccessibilityTreeSearch search(browserAccessibility_->manager());
+    OneShotAccessibilityTreeSearch search(browserAccessibility_);
     if (InitializeAccessibilityTreeSearch(&search, parameter))
       return [NSNumber numberWithInt:search.CountMatches()];
     return nil;
   }
 
   if ([attribute isEqualToString:@"AXUIElementsForSearchPredicate"]) {
-    OneShotAccessibilityTreeSearch search(browserAccessibility_->manager());
+    OneShotAccessibilityTreeSearch search(browserAccessibility_);
     if (InitializeAccessibilityTreeSearch(&search, parameter)) {
       size_t count = search.CountMatches();
       NSMutableArray* result = [NSMutableArray arrayWithCapacity:count];
@@ -1559,8 +1564,7 @@ bool InitializeAccessibilityTreeSearch(
         NSAccessibilityCellForColumnAndRowParameterizedAttribute,
         nil]];
   }
-  if ([[self role] isEqualToString:NSAccessibilityTextFieldRole] ||
-      [[self role] isEqualToString:NSAccessibilityTextAreaRole]) {
+  if (browserAccessibility_->IsEditableText()) {
     [ret addObjectsFromArray:[NSArray arrayWithObjects:
         NSAccessibilityLineForIndexParameterizedAttribute,
         NSAccessibilityRangeForLineParameterizedAttribute,
@@ -1696,15 +1700,6 @@ bool InitializeAccessibilityTreeSearch(
         @"AXLoaded",
         @"AXLoadingProgress",
         nil]];
-  } else if ([role isEqualToString:NSAccessibilityTextFieldRole] ||
-             [role isEqualToString:NSAccessibilityTextAreaRole]) {
-    [ret addObjectsFromArray:[NSArray arrayWithObjects:
-        NSAccessibilityInsertionPointLineNumberAttribute,
-        NSAccessibilityNumberOfCharactersAttribute,
-        NSAccessibilitySelectedTextAttribute,
-        NSAccessibilitySelectedTextRangeAttribute,
-        NSAccessibilityVisibleCharacterRangeAttribute,
-        nil]];
   } else if ([role isEqualToString:NSAccessibilityTabGroupRole]) {
     [ret addObject:NSAccessibilityTabsAttribute];
   } else if ([role isEqualToString:NSAccessibilityProgressIndicatorRole] ||
@@ -1746,6 +1741,17 @@ bool InitializeAccessibilityTreeSearch(
     [ret addObjectsFromArray:[NSArray arrayWithObjects:
         NSAccessibilitySelectedChildrenAttribute,
         NSAccessibilityVisibleChildrenAttribute,
+        nil]];
+  }
+
+  // Caret navigation and text selection attributes.
+  if (browserAccessibility_->IsEditableText()) {
+    [ret addObjectsFromArray:[NSArray arrayWithObjects:
+        NSAccessibilityInsertionPointLineNumberAttribute,
+        NSAccessibilityNumberOfCharactersAttribute,
+        NSAccessibilitySelectedTextAttribute,
+        NSAccessibilitySelectedTextRangeAttribute,
+        NSAccessibilityVisibleCharacterRangeAttribute,
         nil]];
   }
 
@@ -1824,7 +1830,7 @@ bool InitializeAccessibilityTreeSearch(
 
   if (browserAccessibility_->HasStringAttribute(ui::AX_ATTR_PLACEHOLDER)) {
     [ret addObjectsFromArray:[NSArray arrayWithObjects:
-        @"AXPlaceholder", nil]];
+        NSAccessibilityPlaceholderValueAttribute, nil]];
   }
 
   if (GetState(browserAccessibility_, ui::AX_STATE_REQUIRED)) {
@@ -1875,8 +1881,7 @@ bool InitializeAccessibilityTreeSearch(
         ui::AX_ATTR_CAN_SET_VALUE);
   }
   if ([attribute isEqualToString:NSAccessibilitySelectedTextRangeAttribute] &&
-      ([[self role] isEqualToString:NSAccessibilityTextFieldRole] ||
-       [[self role] isEqualToString:NSAccessibilityTextAreaRole]))
+      browserAccessibility_->IsEditableText())
     return YES;
 
   return NO;
@@ -1936,9 +1941,9 @@ bool InitializeAccessibilityTreeSearch(
   }
   if ([attribute isEqualToString:NSAccessibilitySelectedTextRangeAttribute]) {
     NSRange range = [(NSValue*)value rangeValue];
-    [self delegate]->AccessibilitySetTextSelection(
-        browserAccessibility_->GetId(),
-        range.location, range.location + range.length);
+    [self delegate]->AccessibilitySetSelection(
+        browserAccessibility_->GetId(), range.location,
+        browserAccessibility_->GetId(), range.location + range.length);
   }
 }
 

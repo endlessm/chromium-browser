@@ -1,4 +1,5 @@
-/* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com) * All rights reserved.
+/* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
+ * All rights reserved.
  *
  * This package is an SSL implementation written
  * by Eric Young (eay@cryptsoft.com).
@@ -87,7 +88,7 @@ OPENSSL_EXPORT int MD4_Final(uint8_t *md, MD4_CTX *md4);
 OPENSSL_EXPORT void MD4_Transform(MD4_CTX *md4, const uint8_t *block);
 
 struct md4_state_st {
-  uint32_t A, B, C, D;
+  uint32_t h[4];
   uint32_t Nl, Nh;
   uint32_t data[16];
   unsigned int num;

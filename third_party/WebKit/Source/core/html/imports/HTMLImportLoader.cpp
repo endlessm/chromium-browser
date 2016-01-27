@@ -65,7 +65,6 @@ void HTMLImportLoader::dispose()
         if (m_document->parser())
             m_document->parser()->removeClient(this);
         m_document->setImportsController(nullptr);
-        m_document->cancelParsing();
         m_document.clear();
     }
 }
@@ -148,6 +147,8 @@ void HTMLImportLoader::setState(State state)
     }
 
     // Since DocumentWriter::end() can let setState() reenter, we shouldn't refer to m_state here.
+    if (state == StateLoaded)
+        m_document->setReadyState(Document::Complete);
     if (state == StateLoaded || state == StateError)
         didFinishLoading();
 }

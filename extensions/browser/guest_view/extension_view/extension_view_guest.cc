@@ -11,6 +11,7 @@
 #include "extensions/browser/api/extensions_api_client.h"
 #include "extensions/browser/bad_message.h"
 #include "extensions/browser/guest_view/extension_view/extension_view_constants.h"
+#include "extensions/browser/guest_view/extension_view/whitelist/extension_view_whitelist.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension_messages.h"
 #include "extensions/strings/grit/extensions_strings.h"
@@ -18,24 +19,21 @@
 using content::WebContents;
 using guest_view::GuestViewBase;
 using guest_view::GuestViewEvent;
-using namespace extensions::core_api;
+using namespace extensions::api;
 
 namespace extensions {
 
 // static
 const char ExtensionViewGuest::Type[] = "extensionview";
 
-ExtensionViewGuest::ExtensionViewGuest(
-    content::WebContents* owner_web_contents)
-    : GuestView<ExtensionViewGuest>(owner_web_contents) {
-}
+ExtensionViewGuest::ExtensionViewGuest(WebContents* owner_web_contents)
+    : GuestView<ExtensionViewGuest>(owner_web_contents) {}
 
 ExtensionViewGuest::~ExtensionViewGuest() {
 }
 
 // static
-GuestViewBase* ExtensionViewGuest::Create(
-    content::WebContents* owner_web_contents) {
+GuestViewBase* ExtensionViewGuest::Create(WebContents* owner_web_contents) {
   return new ExtensionViewGuest(owner_web_contents);
 }
 
@@ -74,7 +72,8 @@ void ExtensionViewGuest::CreateWebContents(
   std::string extension_id;
   create_params.GetString(extensionview::kAttributeExtension, &extension_id);
 
-  if (!crx_file::id_util::IdIsValid(extension_id)) {
+  if (!crx_file::id_util::IdIsValid(extension_id) ||
+      !IsExtensionIdWhitelisted(extension_id)) {
     callback.Run(nullptr);
     return;
   }
@@ -116,7 +115,6 @@ int ExtensionViewGuest::GetTaskPrefix() const {
   return IDS_EXTENSION_TASK_MANAGER_EXTENSIONVIEW_TAG_PREFIX;
 }
 
-// content::WebContentsObserver implementation.
 void ExtensionViewGuest::DidCommitProvisionalLoadForFrame(
     content::RenderFrameHost* render_frame_host,
     const GURL& url,

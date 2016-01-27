@@ -38,7 +38,7 @@ class FakeServerHelperAndroid {
                                           jobject obj,
                                           jlong fake_server,
                                           jlong count,
-                                          jstring model_type_string,
+                                          jint model_type_int,
                                           jstring name);
 
   // Returns true iff |fake_server| has exactly one window of sessions with
@@ -47,6 +47,13 @@ class FakeServerHelperAndroid {
                           jobject obj,
                           jlong fake_server,
                           jobjectArray url_array);
+
+  // Return the entities for |model_type_string| on |fake_server|.
+  base::android::ScopedJavaLocalRef<jobjectArray> GetSyncEntitiesByModelType(
+      JNIEnv* env,
+      jobject obj,
+      jlong fake_server,
+      jint model_type_int);
 
   // Injects a UniqueClientEntity into |fake_server|.
   void InjectUniqueClientEntity(JNIEnv* env,

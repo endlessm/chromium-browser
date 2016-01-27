@@ -14,16 +14,13 @@ import signal
 import subprocess
 import time
 
-# TODO(craigdh): Move these pylib dependencies to pylib/utils/.
-from pylib import cmd_helper
+from devil.android import device_errors
+from devil.android import device_utils
+from devil.android.sdk import adb_wrapper
+from devil.utils import cmd_helper
 from pylib import constants
 from pylib import pexpect
-from pylib.device import device_errors
-from pylib.device import device_utils
 from pylib.utils import time_profile
-
-import errors
-import run_command
 
 # SD card size
 SDCARD_SIZE = '512M'
@@ -52,7 +49,7 @@ hw.trackBall=no
 hw.device.name=Galaxy Nexus
 hw.battery=yes
 hw.sensors.proximity=yes
-image.sysdir.1=system-images/android-{api.level}/{abi.type}/
+image.sysdir.1=system-images/android-{api.level}/default/{abi.type}/
 hw.sensors.orientation=yes
 hw.audioInput=yes
 hw.camera.front=none
@@ -82,23 +79,23 @@ class EmulatorLaunchException(Exception):
   """Emulator failed to launch."""
   pass
 
-def _KillAllEmulators():
+def KillAllEmulators():
   """Kill all running emulators that look like ones we started.
 
   There are odd 'sticky' cases where there can be no emulator process
   running but a device slot is taken.  A little bot trouble and we're out of
   room forever.
   """
-  emulators = [d for d in device_utils.DeviceUtils.HealthyDevices()
-               if d.adb.is_emulator]
+  emulators = [device_utils.DeviceUtils(a)
+               for a in adb_wrapper.AdbWrapper.Devices()
+               if a.is_emulator]
   if not emulators:
     return
   for e in emulators:
     e.adb.Emu(['kill'])
   logging.info('Emulator killing is async; give a few seconds for all to die.')
   for _ in range(5):
-    if not any(d.adb.is_emulator for d
-               in device_utils.DeviceUtils.HealthyDevices()):
+    if not any(a.is_emulator for a in adb_wrapper.AdbWrapper.Devices()):
       return
     time.sleep(1)
 
@@ -116,7 +113,7 @@ def DeleteAllTempAVDs():
     if 'run_tests_avd' in avd_name:
       cmd = ['android', '-s', 'delete', 'avd', '--name', avd_name]
       cmd_helper.RunCmd(cmd)
-      logging.info('Delete AVD %s' % avd_name)
+      logging.info('Delete AVD %s', avd_name)
 
 
 class PortPool(object):
@@ -142,8 +139,9 @@ class PortPool(object):
 def _GetAvailablePort():
   """Returns an available TCP port for the console."""
   used_ports = []
-  emulators = [d for d in device_utils.DeviceUtils.HealthyDevices()
-               if d.adb.is_emulator]
+  emulators = [device_utils.DeviceUtils(a)
+               for a in adb_wrapper.AdbWrapper.Devices()
+               if a.is_emulator]
   for emulator in emulators:
     used_ports.append(emulator.adb.GetDeviceSerial().split('-')[1])
   for port in PortPool.port_range():
@@ -236,7 +234,7 @@ class Emulator(object):
       avd_name: name of the AVD to create
       abi: target platform for emulator being created, defaults to x86
     """
-    android_sdk_root = os.path.join(constants.EMULATOR_SDK_ROOT, 'sdk')
+    android_sdk_root = constants.ANDROID_SDK_ROOT
     self.emulator = os.path.join(android_sdk_root, 'tools', 'emulator')
     self.android = os.path.join(android_sdk_root, 'tools', 'android')
     self.popen = None
@@ -336,7 +334,7 @@ class Emulator(object):
     If fails, an exception will be raised.
     """
     if kill_all_emulators:
-      _KillAllEmulators()  # just to be sure
+      KillAllEmulators()  # just to be sure
     self._AggressiveImageCleanup()
     (self.device_serial, port) = self._DeviceName()
     emulator_command = [

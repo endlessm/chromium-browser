@@ -17,7 +17,6 @@ import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.device.DeviceClassManager;
 import org.chromium.chrome.browser.preferences.NetworkPredictionOptions;
 import org.chromium.chrome.browser.preferences.PrefServiceBridge;
-import org.chromium.chrome.browser.preferences.bandwidth.BandwidthType;
 
 /**
  * Reads, writes, and migrates preferences related to network usage and privacy.
@@ -191,8 +190,15 @@ public class PrivacyPreferencesManager implements CrashReportingPermissionManage
     }
 
     protected boolean isMobileNetworkCapable() {
-        return ((ConnectivityManager) mContext.getSystemService(Context.CONNECTIVITY_SERVICE))
-            .getNetworkInfo(ConnectivityManager.TYPE_MOBILE) != null;
+        ConnectivityManager connectivityManager =
+                (ConnectivityManager) mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+        // Android telephony team said it is OK to continue using getNetworkInfo() for our purposes.
+        // We cannot use ConnectivityManager#getAllNetworks() because that one only reports enabled
+        // networks. See crbug.com/532455.
+        @SuppressWarnings("deprecation")
+        NetworkInfo networkInfo = connectivityManager
+                .getNetworkInfo(ConnectivityManager.TYPE_MOBILE);
+        return networkInfo != null;
     }
 
     /**
@@ -349,15 +355,35 @@ public class PrivacyPreferencesManager implements CrashReportingPermissionManage
     }
 
     /**
-     * Check whether uploading crash dump should be in constrained mode based on user experiments.
-     * This function shows whether in general uploads should be limited for this user and does not
-     * determine whether crash uploads are currently possible or not. Use |isUploadPermitted|
-     * function for that before calling |isUploadLimited|.
+     * Check whether the user allows uploading.
+     * This doesn't take network condition into consideration.
+     * A crash dump may be retried if this check passes.
+     *
+     * @return whether user's preference allows uploading crash dump.
+     */
+    @Override
+    public boolean isUploadUserPermitted() {
+        if (!mCrashUploadingEnabled) return false;
+        if (isCellularExperimentEnabled()) return isUsageAndCrashReportingEnabled();
+
+        if (isMobileNetworkCapable()) {
+            String option =
+                    mSharedPreferences.getString(PREF_CRASH_DUMP_UPLOAD, mCrashDumpNeverUpload);
+            return option.equals(mCrashDumpAlwaysUpload) || option.equals(mCrashDumpWifiOnlyUpload);
+        }
+        return mSharedPreferences.getBoolean(PREF_CRASH_DUMP_UPLOAD_NO_CELLULAR, false);
+    }
+
+    /**
+     * Check whether uploading crash dump should be in constrained mode based on user experiments
+     * and current connection type. This function shows whether in general uploads should be limited
+     * for this user and does not determine whether crash uploads are currently possible or not. Use
+     * |isUploadPermitted| function for that before calling |isUploadLimited|.
      *
      * @return whether uploading logic should be constrained.
      */
     @Override
     public boolean isUploadLimited() {
-        return isCellularExperimentEnabled();
+        return isCellularExperimentEnabled() && !isWiFiOrEthernetNetwork();
     }
 }

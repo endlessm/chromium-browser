@@ -115,6 +115,8 @@ public:
     // A data url from <canvas> or <img> is passed to the method's argument.
     virtual void saveImageFromDataURL(const WebString&) { }
 
+    // Called when PageImportanceSignals for the WebView is updated.
+    virtual void pageImportanceSignalsChanged() { }
 
     // Editing -------------------------------------------------------------
 
@@ -197,7 +199,7 @@ public:
     virtual void didUpdateLayout() { }
 
     // Return true to swallow the input event if the embedder will start a disambiguation popup
-    virtual bool didTapMultipleTargets(const WebSize& pinchViewportOffset, const WebRect& touchRect, const WebVector<WebRect>& targetRects) { return false; }
+    virtual bool didTapMultipleTargets(const WebSize& visualViewportOffset, const WebRect& touchRect, const WebVector<WebRect>& targetRects) { return false; }
 
     // Returns comma separated list of accept languages.
     virtual WebString acceptLanguages() { return WebString(); }
@@ -237,10 +239,6 @@ public:
     // the default values.
     virtual void zoomLimitsChanged(double minimumLevel, double maximumLevel) { }
 
-    // Informs the browser that the zoom level has changed as a result of an
-    // action that wasn't initiated by the client.
-    virtual void zoomLevelChanged() { }
-
     // Informs the browser that the page scale has changed.
     virtual void pageScaleFactorChanged() { }
 
@@ -262,7 +260,9 @@ public:
     virtual WebContentDetectionResult detectContentAround(const WebHitTestResult&) { return WebContentDetectionResult(); }
 
     // Schedules a new content intent with the provided url.
-    virtual void scheduleContentIntent(const WebURL&) { }
+    // The boolean flag is set to true when the user gesture has been applied
+    // to the element from the main frame.
+    virtual void scheduleContentIntent(const WebURL&, bool isMainFrame) { }
 
     // Cancels any previously scheduled content intents that have not yet launched.
     virtual void cancelScheduledContentIntents() { }

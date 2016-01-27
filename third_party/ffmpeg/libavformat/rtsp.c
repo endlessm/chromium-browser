@@ -1155,8 +1155,7 @@ start:
                 return AVERROR_EOF;
             if (ch == '\n')
                 break;
-            if (ch == '$') {
-                /* XXX: only parse it if first char on line ? */
+            if (ch == '$' && q == buf) {
                 if (return_on_interleaved_data) {
                     return 1;
                 } else
@@ -2122,6 +2121,8 @@ redo:
     }
     if (len == AVERROR(EAGAIN) && first_queue_st &&
         rt->transport == RTSP_TRANSPORT_RTP) {
+        av_log(s, AV_LOG_WARNING,
+                "max delay reached. need to consume packet\n");
         rtsp_st = first_queue_st;
         ret = ff_rtp_parse_packet(rtsp_st->transport_priv, pkt, NULL, 0);
         goto end;

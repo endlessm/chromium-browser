@@ -16,15 +16,14 @@
 #include "webrtc/common_types.h"
 #include "webrtc/audio_receive_stream.h"
 #include "webrtc/audio_send_stream.h"
+#include "webrtc/audio_state.h"
+#include "webrtc/base/socket.h"
 #include "webrtc/video_receive_stream.h"
 #include "webrtc/video_send_stream.h"
 
 namespace webrtc {
 
-class AudioDeviceModule;
 class AudioProcessing;
-class VoiceEngine;
-class VoiceEngineObserver;
 
 const char* Version();
 
@@ -45,7 +44,9 @@ class PacketReceiver {
 
   virtual DeliveryStatus DeliverPacket(MediaType media_type,
                                        const uint8_t* packet,
-                                       size_t length) = 0;
+                                       size_t length,
+                                       const PacketTime& packet_time) = 0;
+
  protected:
   virtual ~PacketReceiver() {}
 };
@@ -68,27 +69,8 @@ class LoadObserver {
 // etc.
 class Call {
  public:
-  enum NetworkState {
-    kNetworkUp,
-    kNetworkDown,
-  };
   struct Config {
-    Config() = delete;
-    explicit Config(newapi::Transport* send_transport)
-        : send_transport(send_transport) {}
-
     static const int kDefaultStartBitrateBps;
-
-    // TODO(solenberg): Need to add media type to the interface for outgoing
-    // packets too.
-    newapi::Transport* send_transport = nullptr;
-
-    // VoiceEngine used for audio/video synchronization for this Call.
-    VoiceEngine* voice_engine = nullptr;
-
-    // Callback for overuse and normal usage based on the jitter of incoming
-    // captured frames. 'nullptr' disables the callback.
-    LoadObserver* overuse_callback = nullptr;
 
     // Bitrate config used until valid bitrate estimates are calculated. Also
     // used to cap total bitrate used.
@@ -98,11 +80,13 @@ class Call {
       int max_bitrate_bps = -1;
     } bitrate_config;
 
-    struct AudioConfig {
-      AudioDeviceModule* audio_device_manager = nullptr;
-      AudioProcessing* audio_processing = nullptr;
-      VoiceEngineObserver* voice_engine_observer = nullptr;
-    } audio_config;
+    // AudioState which is possibly shared between multiple calls.
+    // TODO(solenberg): Change this to a shared_ptr once we can use C++11.
+    rtc::scoped_refptr<AudioState> audio_state;
+
+    // Audio Processing Module to be used in this call.
+    // TODO(solenberg): Change this to a shared_ptr once we can use C++11.
+    AudioProcessing* audio_processing = nullptr;
   };
 
   struct Stats {
@@ -151,8 +135,11 @@ class Call {
       const Config::BitrateConfig& bitrate_config) = 0;
   virtual void SignalNetworkState(NetworkState state) = 0;
 
+  virtual void OnSentPacket(const rtc::SentPacket& sent_packet) = 0;
+
   virtual ~Call() {}
 };
+
 }  // namespace webrtc
 
 #endif  // WEBRTC_CALL_H_

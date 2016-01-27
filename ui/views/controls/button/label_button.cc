@@ -15,11 +15,8 @@
 #include "ui/views/background.h"
 #include "ui/views/controls/button/label_button_border.h"
 #include "ui/views/painter.h"
+#include "ui/views/style/platform_style.h"
 #include "ui/views/window/dialog_delegate.h"
-
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-#include "ui/views/linux_ui/linux_ui.h"
-#endif
 
 namespace {
 
@@ -83,10 +80,9 @@ LabelButton::LabelButton(ButtonListener* listener, const base::string16& text)
   label_->SetAutoColorReadabilityEnabled(false);
   label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
 
-  // Initialize the colors, border, and layout.
-  SetStyle(style_);
-
-  SetAccessibleName(text);
+  // Inset the button focus rect from the actual border; roughly match Windows.
+  SetFocusPainter(
+      Painter::CreateDashedFocusPainterWithInsets(gfx::Insets(3, 3, 3, 3)));
 }
 
 LabelButton::~LabelButton() {}
@@ -118,6 +114,12 @@ void LabelButton::SetTextColor(ButtonState for_state, SkColor color) {
   else if (for_state == state())
     label_->SetEnabledColor(color);
   explicitly_set_colors_[for_state] = true;
+}
+
+void LabelButton::SetEnabledTextColors(SkColor color) {
+  ButtonState states[] = {STATE_NORMAL, STATE_HOVERED, STATE_PRESSED};
+  for (auto state : states)
+    SetTextColor(state, color);
 }
 
 void LabelButton::SetTextShadows(const gfx::ShadowValues& shadows) {
@@ -189,22 +191,21 @@ void LabelButton::SetIsDefault(bool is_default) {
 }
 
 void LabelButton::SetStyle(ButtonStyle style) {
+  // All callers currently pass STYLE_BUTTON, and should only call this once, to
+  // change from the default style.
+  DCHECK_EQ(style, STYLE_BUTTON);
+  DCHECK_EQ(style_, STYLE_TEXTBUTTON);
+  DCHECK(!GetWidget()) << "Can't change button style after adding to a Widget.";
+
   style_ = style;
-  // Inset the button focus rect from the actual border; roughly match Windows.
-  if (style == STYLE_BUTTON) {
-    SetFocusPainter(nullptr);
-  } else {
-    SetFocusPainter(Painter::CreateDashedFocusPainterWithInsets(
-                        gfx::Insets(3, 3, 3, 3)));
-  }
-  if (style == STYLE_BUTTON) {
-    label_->SetHorizontalAlignment(gfx::ALIGN_CENTER);
-    SetFocusable(true);
-  }
-  if (style == STYLE_BUTTON)
-    SetMinSize(gfx::Size(70, 33));
-  OnNativeThemeChanged(GetNativeTheme());
-  ResetCachedPreferredSize();
+
+  SetFocusPainter(nullptr);
+  label_->SetHorizontalAlignment(gfx::ALIGN_CENTER);
+  SetFocusable(true);
+  SetMinSize(gfx::Size(70, 33));
+
+  // Themed borders will be set once the button is added to a Widget, since that
+  // provides the value of GetNativeTheme().
 }
 
 void LabelButton::SetImageLabelSpacing(int spacing) {
@@ -341,8 +342,13 @@ const char* LabelButton::GetClassName() const {
   return kViewClassName;
 }
 
+void LabelButton::EnableCanvasFlippingForRTLUI(bool flip) {
+  CustomButton::EnableCanvasFlippingForRTLUI(flip);
+  image_->EnableCanvasFlippingForRTLUI(flip);
+}
+
 scoped_ptr<LabelButtonBorder> LabelButton::CreateDefaultBorder() const {
-  return make_scoped_ptr(new LabelButtonBorder(style_));
+  return PlatformStyle::CreateLabelButtonBorder(style());
 }
 
 void LabelButton::SetBorder(scoped_ptr<Border> border) {
@@ -370,6 +376,24 @@ void LabelButton::OnBlur() {
   View::OnBlur();
   // Typically the border renders differently when focused.
   SchedulePaint();
+}
+
+void LabelButton::OnNativeThemeChanged(const ui::NativeTheme* theme) {
+  ResetColorsFromNativeTheme();
+  UpdateThemedBorder();
+  // Invalidate the layout to pickup the new insets from the border.
+  InvalidateLayout();
+}
+
+void LabelButton::StateChanged() {
+  const gfx::Size previous_image_size(image_->GetPreferredSize());
+  UpdateImage();
+  const SkColor color = button_state_colors_[state()];
+  if (state() != STATE_DISABLED && label_->enabled_color() != color)
+    label_->SetEnabledColor(color);
+  label_->SetEnabled(state() != STATE_DISABLED);
+  if (image_->GetPreferredSize() != previous_image_size)
+    Layout();
 }
 
 void LabelButton::GetExtraParams(ui::NativeTheme::ExtraParams* params) const {
@@ -441,43 +465,13 @@ void LabelButton::UpdateThemedBorder() {
   if (!border_is_themed_border_)
     return;
 
-  scoped_ptr<LabelButtonBorder> label_button_border = CreateDefaultBorder();
-
-#if defined(OS_LINUX) && !defined(OS_CHROMEOS)
-  views::LinuxUI* linux_ui = views::LinuxUI::instance();
-  if (linux_ui) {
-    SetBorder(linux_ui->CreateNativeBorder(
-        this, label_button_border.Pass()));
-  } else
-#endif
-  {
-    SetBorder(label_button_border.Pass());
-  }
-
+  SetBorder(PlatformStyle::CreateThemedLabelButtonBorder(this));
   border_is_themed_border_ = true;
-}
-
-void LabelButton::StateChanged() {
-  const gfx::Size previous_image_size(image_->GetPreferredSize());
-  UpdateImage();
-  const SkColor color = button_state_colors_[state()];
-  if (state() != STATE_DISABLED && label_->enabled_color() != color)
-    label_->SetEnabledColor(color);
-  label_->SetEnabled(state() != STATE_DISABLED);
-  if (image_->GetPreferredSize() != previous_image_size)
-    Layout();
 }
 
 void LabelButton::ChildPreferredSizeChanged(View* child) {
   ResetCachedPreferredSize();
   PreferredSizeChanged();
-}
-
-void LabelButton::OnNativeThemeChanged(const ui::NativeTheme* theme) {
-  ResetColorsFromNativeTheme();
-  UpdateThemedBorder();
-  // Invalidate the layout to pickup the new insets from the border.
-  InvalidateLayout();
 }
 
 ui::NativeTheme::Part LabelButton::GetThemePart() const {

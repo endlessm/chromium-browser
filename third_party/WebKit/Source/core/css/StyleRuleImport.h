@@ -34,7 +34,7 @@ class MediaQuerySet;
 class StyleSheetContents;
 
 class StyleRuleImport : public StyleRuleBase {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(StyleRuleImport);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(StyleRuleImport);
 public:
     static PassRefPtrWillBeRawPtr<StyleRuleImport> create(const String& href, PassRefPtrWillBeRawPtr<MediaQuerySet>);
 
@@ -59,15 +59,23 @@ private:
     // NOTE: We put the StyleSheetResourceClient in a member instead of inheriting from it
     // to avoid adding a vptr to StyleRuleImport.
     class ImportedStyleSheetClient final : public StyleSheetResourceClient {
+        DISALLOW_NEW();
     public:
         ImportedStyleSheetClient(StyleRuleImport* ownerRule) : m_ownerRule(ownerRule) { }
-        virtual ~ImportedStyleSheetClient() { }
-        virtual void setCSSStyleSheet(const String& href, const KURL& baseURL, const String& charset, const CSSStyleSheetResource* sheet) override
+        ~ImportedStyleSheetClient() override { }
+        void setCSSStyleSheet(const String& href, const KURL& baseURL, const String& charset, const CSSStyleSheetResource* sheet) override
         {
             m_ownerRule->setCSSStyleSheet(href, baseURL, charset, sheet);
         }
+        String debugName() const override { return "ImportedStyleSheetClient"; }
+
+        DEFINE_INLINE_TRACE()
+        {
+            visitor->trace(m_ownerRule);
+        }
+
     private:
-        StyleRuleImport* m_ownerRule;
+        RawPtrWillBeMember<StyleRuleImport> m_ownerRule;
     };
 
     void setCSSStyleSheet(const String& href, const KURL& baseURL, const String& charset, const CSSStyleSheetResource*);

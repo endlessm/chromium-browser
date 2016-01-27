@@ -29,20 +29,24 @@
 #include "core/CoreExport.h"
 #include "core/fetch/ClientHintsPreferences.h"
 #include "core/fetch/FetchInitiatorInfo.h"
+#include "core/fetch/IntegrityMetadata.h"
 #include "core/fetch/ResourceLoaderOptions.h"
 #include "platform/network/ResourceLoadPriority.h"
 #include "platform/network/ResourceRequest.h"
+#include "wtf/Allocator.h"
 #include "wtf/text/AtomicString.h"
 
 namespace blink {
 class SecurityOrigin;
 
 class CORE_EXPORT FetchRequest {
+    STACK_ALLOCATED();
 public:
     enum DeferOption { NoDefer, LazyLoad, DeferredByClient };
     enum OriginRestriction { UseDefaultOriginRestrictionForType, RestrictToSameOrigin, NoOriginRestriction };
 
     struct ResourceWidth {
+        DISALLOW_NEW();
         float width;
         bool isSet;
 
@@ -61,26 +65,38 @@ public:
     ResourceRequest& mutableResourceRequest() { return m_resourceRequest; }
     const ResourceRequest& resourceRequest() const { return m_resourceRequest; }
     const KURL& url() const { return m_resourceRequest.url(); }
+
     const String& charset() const { return m_charset; }
     void setCharset(const String& charset) { m_charset = charset; }
+
     const ResourceLoaderOptions& options() const { return m_options; }
     void setOptions(const ResourceLoaderOptions& options) { m_options = options; }
+
     ResourceLoadPriority priority() const { return m_priority; }
     void setPriority(ResourceLoadPriority priority) { m_priority = priority; }
+
+    DeferOption defer() const { return m_defer; }
+    void setDefer(DeferOption defer) { m_defer = defer; }
+
+    ResourceWidth resourceWidth() const { return m_resourceWidth; }
+    void setResourceWidth(ResourceWidth);
+
+    ClientHintsPreferences& clientHintsPreferences() { return m_clientHintPreferences; }
+
     bool forPreload() const { return m_forPreload; }
     void setForPreload(bool forPreload) { m_forPreload = forPreload; }
-    DeferOption defer() const { return m_defer; }
-    ResourceWidth resourceWidth() const { return m_resourceWidth; }
-    const ClientHintsPreferences& clientHintsPreferences() const { return m_clientHintPreferences; }
-    void setDefer(DeferOption defer) { m_defer = defer; }
+
+    bool avoidBlockingOnLoad() { return m_avoidBlockingOnLoad; }
+    void setAvoidBlockingOnLoad(bool doNotBlock) { m_avoidBlockingOnLoad = doNotBlock; }
+
     void setContentSecurityCheck(ContentSecurityPolicyDisposition contentSecurityPolicyOption) { m_options.contentSecurityPolicyOption = contentSecurityPolicyOption; }
     void setCrossOriginAccessControl(SecurityOrigin*, StoredCredentials, CredentialRequest);
     void setCrossOriginAccessControl(SecurityOrigin*, StoredCredentials);
     void setCrossOriginAccessControl(SecurityOrigin*, const AtomicString& crossOriginMode);
     OriginRestriction originRestriction() const { return m_originRestriction; }
     void setOriginRestriction(OriginRestriction restriction) { m_originRestriction = restriction; }
-    void setResourceWidth(ResourceWidth);
-    void setClientHintsPreferences(ClientHintsPreferences& preferences) { m_clientHintPreferences.set(preferences); }
+    const IntegrityMetadataSet& integrityMetadata() const { return m_integrityMetadata; }
+    void setIntegrityMetadata(const IntegrityMetadataSet& metadata) { m_integrityMetadata = metadata; }
 
 private:
     ResourceRequest m_resourceRequest;
@@ -88,10 +104,12 @@ private:
     ResourceLoaderOptions m_options;
     ResourceLoadPriority m_priority;
     bool m_forPreload;
+    bool m_avoidBlockingOnLoad;
     DeferOption m_defer;
     OriginRestriction m_originRestriction;
     ResourceWidth m_resourceWidth;
     ClientHintsPreferences m_clientHintPreferences;
+    IntegrityMetadataSet m_integrityMetadata;
 };
 
 } // namespace blink

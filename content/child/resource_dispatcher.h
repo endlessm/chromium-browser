@@ -39,6 +39,7 @@ namespace content {
 class RequestPeer;
 class ResourceDispatcherDelegate;
 class ResourceRequestBody;
+class ResourceSchedulingFilter;
 class ThreadedDataProvider;
 struct ResourceResponseInfo;
 struct RequestInfo;
@@ -129,6 +130,9 @@ class CONTENT_EXPORT ResourceDispatcher : public IPC::Listener {
     main_thread_task_runner_ = main_thread_task_runner;
   }
 
+  void SetResourceSchedulingFilter(
+      scoped_refptr<ResourceSchedulingFilter> resource_scheduling_filter);
+
  private:
   friend class ResourceDispatcherTest;
 
@@ -203,7 +207,7 @@ class CONTENT_EXPORT ResourceDispatcher : public IPC::Listener {
   void DispatchMessage(const IPC::Message& message);
 
   // Dispatch any deferred messages for the given request, provided it is not
-  // again in the deferred state.
+  // again in the deferred state. This method may mutate |pending_requests_|.
   void FlushDeferredMessages(int request_id);
 
   void ToResourceResponseInfo(const PendingRequestInfo& request_info,
@@ -249,6 +253,7 @@ class CONTENT_EXPORT ResourceDispatcher : public IPC::Listener {
   base::TimeTicks io_timestamp_;
 
   scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
+  scoped_refptr<ResourceSchedulingFilter> resource_scheduling_filter_;
 
   base::WeakPtrFactory<ResourceDispatcher> weak_factory_;
 

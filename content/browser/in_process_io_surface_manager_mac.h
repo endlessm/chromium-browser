@@ -12,29 +12,31 @@
 #include "base/memory/singleton.h"
 #include "base/synchronization/lock.h"
 #include "content/common/content_export.h"
-#include "content/common/mac/io_surface_manager.h"
+#include "ui/gfx/mac/io_surface_manager.h"
 
 namespace content {
 
-class CONTENT_EXPORT InProcessIOSurfaceManager : public IOSurfaceManager {
+class CONTENT_EXPORT InProcessIOSurfaceManager : public gfx::IOSurfaceManager {
  public:
   static InProcessIOSurfaceManager* GetInstance();
 
   // Overridden from IOSurfaceManager:
-  bool RegisterIOSurface(int io_surface_id,
+  bool RegisterIOSurface(gfx::IOSurfaceId io_surface_id,
                          int client_id,
                          IOSurfaceRef io_surface) override;
-  void UnregisterIOSurface(int io_surface_id, int client_id) override;
-  IOSurfaceRef AcquireIOSurface(int io_surface_id) override;
+  void UnregisterIOSurface(gfx::IOSurfaceId io_surface_id,
+                           int client_id) override;
+  IOSurfaceRef AcquireIOSurface(gfx::IOSurfaceId io_surface_id) override;
 
  private:
-  friend struct DefaultSingletonTraits<InProcessIOSurfaceManager>;
+  friend struct base::DefaultSingletonTraits<InProcessIOSurfaceManager>;
 
   InProcessIOSurfaceManager();
   ~InProcessIOSurfaceManager() override;
 
   using IOSurfaceMap =
-      base::ScopedPtrHashMap<int, scoped_ptr<base::mac::ScopedMachSendRight>>;
+      base::ScopedPtrHashMap<gfx::IOSurfaceId,
+                             scoped_ptr<base::mac::ScopedMachSendRight>>;
   IOSurfaceMap io_surfaces_;
   base::Lock lock_;
 

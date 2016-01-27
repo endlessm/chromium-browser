@@ -20,9 +20,9 @@ WebInspector.ShortcutRegistry = function(actionRegistry, document)
 WebInspector.ShortcutRegistry.prototype = {
     /**
      * @param {number} key
-     * @return {!Array.<string>}
+     * @return {!Array.<!WebInspector.Action>}
      */
-    applicableActions: function(key)
+    _applicableActions: function(key)
     {
         return this._actionRegistry.applicableActions(this._defaultActionsForKey(key).valuesArray(), WebInspector.context);
     },
@@ -61,6 +61,17 @@ WebInspector.ShortcutRegistry.prototype = {
     },
 
     /**
+     * @param {string} actionId
+     * @return {string|undefined}
+     */
+    shortcutTitleForAction: function(actionId)
+    {
+        var descriptors = this.shortcutDescriptorsForAction(actionId);
+        if (descriptors.length)
+            return descriptors[0].name;
+    },
+
+    /**
      * @param {!KeyboardEvent} event
      */
     handleShortcut: function(event)
@@ -76,8 +87,8 @@ WebInspector.ShortcutRegistry.prototype = {
     handleKey: function(key, keyIdentifier, event)
     {
         var keyModifiers = key >> 8;
-        var actionIds = this.applicableActions(key);
-        if (!actionIds.length)
+        var actions = this._applicableActions(key);
+        if (!actions.length)
             return;
         if (WebInspector.GlassPane.DefaultFocusedViewStack.length > 1) {
             if (event && !isPossiblyInputKey())
@@ -88,22 +99,23 @@ WebInspector.ShortcutRegistry.prototype = {
         if (!isPossiblyInputKey()) {
             if (event)
                 event.consume(true);
-            processNextAction.call(this);
+            processNextAction.call(this, false);
         } else {
-            this._pendingActionTimer = setTimeout(processNextAction.bind(this), 0);
+            this._pendingActionTimer = setTimeout(processNextAction.bind(this, false), 0);
         }
 
         /**
+         * @param {boolean} handled
          * @this {WebInspector.ShortcutRegistry}
          */
-        function processNextAction()
+        function processNextAction(handled)
         {
             delete this._pendingActionTimer;
-            var actionId = actionIds.shift();
-            if (!actionId)
+            var action = actions.shift();
+            if (!action || handled)
                 return;
 
-            this._actionRegistry.execute(actionId).then(processNextAction.bind(this));
+            action.execute().then(processNextAction.bind(this));
         }
 
         /**

@@ -11,6 +11,7 @@
 #include "base/power_monitor/power_monitor_source.h"
 #include "base/run_loop.h"
 #include "content/browser/background_sync/background_sync_context_impl.h"
+#include "content/browser/background_sync/background_sync_network_observer.h"
 #include "content/browser/service_worker/embedded_worker_test_helper.h"
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/public/browser/browser_thread.h"
@@ -25,7 +26,7 @@ namespace {
 
 const char kServiceWorkerPattern[] = "https://example.com/a";
 const char kServiceWorkerScript[] = "https://example.com/a/script.js";
-const int kRenderProcessId = 99;
+const int kProviderId = 1;
 
 // Callbacks from SetUp methods
 
@@ -57,6 +58,16 @@ void ErrorAndRegistrationCallback(bool* called,
   *called = true;
   *out_error = error;
   *out_registration = registration.Clone();
+}
+
+void ErrorAndStateCallback(bool* called,
+                           BackgroundSyncError* out_error,
+                           BackgroundSyncState* out_state,
+                           BackgroundSyncError error,
+                           BackgroundSyncState state) {
+  *called = true;
+  *out_error = error;
+  *out_state = state;
 }
 
 void ErrorCallback(bool* called,
@@ -96,6 +107,9 @@ class BackgroundSyncServiceImplTest : public testing::Test {
   }
 
   void SetUp() override {
+    // Don't let the tests be confused by the real-world device connectivity
+    BackgroundSyncNetworkObserver::SetIgnoreNetworkChangeNotifierForTests(true);
+
     CreateTestHelper();
     CreateBackgroundSyncContext();
     CreateServiceWorkerRegistration();
@@ -106,13 +120,19 @@ class BackgroundSyncServiceImplTest : public testing::Test {
     // This must be explicitly destroyed here to ensure that destruction
     // of both the BackgroundSyncContext and the BackgroundSyncManager occurs on
     // the correct thread.
+    background_sync_context_->Shutdown();
+    base::RunLoop().RunUntilIdle();
     background_sync_context_ = nullptr;
+
+    // Restore the network observer functionality for subsequent tests
+    BackgroundSyncNetworkObserver::SetIgnoreNetworkChangeNotifierForTests(
+        false);
   }
 
   // SetUp helper methods
   void CreateTestHelper() {
     embedded_worker_helper_.reset(
-        new EmbeddedWorkerTestHelper(base::FilePath(), kRenderProcessId));
+        new EmbeddedWorkerTestHelper(base::FilePath()));
   }
 
   void CreateBackgroundSyncContext() {
@@ -129,7 +149,10 @@ class BackgroundSyncServiceImplTest : public testing::Test {
     //       BackgroundSyncManager has been setup, including any asynchronous
     //       initialization.
     base::RunLoop().RunUntilIdle();
-    net::NetworkChangeNotifier::NotifyObserversOfNetworkChangeForTests(
+    BackgroundSyncNetworkObserver* network_observer =
+        background_sync_context_->background_sync_manager()
+            ->GetNetworkObserverForTesting();
+    network_observer->NotifyManagerIfNetworkChangedForTesting(
         net::NetworkChangeNotifier::CONNECTION_NONE);
     base::RunLoop().RunUntilIdle();
   }
@@ -142,11 +165,27 @@ class BackgroundSyncServiceImplTest : public testing::Test {
                    &sw_registration_id_));
     base::RunLoop().RunUntilIdle();
     EXPECT_TRUE(called);
-    embedded_worker_helper_->context_wrapper()->FindRegistrationForId(
+
+    embedded_worker_helper_->context_wrapper()->FindReadyRegistrationForId(
         sw_registration_id_, GURL(kServiceWorkerPattern).GetOrigin(),
         base::Bind(FindServiceWorkerRegistrationCallback, &sw_registration_));
     base::RunLoop().RunUntilIdle();
     EXPECT_TRUE(sw_registration_);
+
+    // Register window client for the service worker
+    ServiceWorkerProviderHost* provider_host = new ServiceWorkerProviderHost(
+        embedded_worker_helper_->mock_render_process_id(),
+        MSG_ROUTING_NONE /* render_frame_id */, kProviderId,
+        SERVICE_WORKER_PROVIDER_FOR_WINDOW,
+        embedded_worker_helper_->context()->AsWeakPtr(), nullptr);
+    provider_host->SetDocumentUrl(GURL(kServiceWorkerPattern));
+    embedded_worker_helper_->context()->AddProviderHost(
+        make_scoped_ptr(provider_host));
+  }
+
+  void RemoveWindowClient() {
+    embedded_worker_helper_->context()->RemoveAllProviderHostsForProcess(
+        embedded_worker_helper_->mock_render_process_id());
   }
 
   void CreateBackgroundSyncServiceImpl() {
@@ -155,25 +194,36 @@ class BackgroundSyncServiceImplTest : public testing::Test {
     mojo::InterfaceRequest<BackgroundSyncService> service_request =
         mojo::GetProxy(&service_ptr_);
     // Create a new BackgroundSyncServiceImpl bound to the dummy channel
-    service_impl_.reset(new BackgroundSyncServiceImpl(background_sync_context_,
-                                                      service_request.Pass()));
+    background_sync_context_->CreateService(service_request.Pass());
     base::RunLoop().RunUntilIdle();
+
+    service_impl_ = *background_sync_context_->services_.begin();
+    ASSERT_TRUE(service_impl_);
   }
 
   // Helpers for testing BackgroundSyncServiceImpl methods
   void RegisterOneShot(
       SyncRegistrationPtr sync,
       const BackgroundSyncService::RegisterCallback& callback) {
-    service_impl_->Register(sync.Pass(), sw_registration_id_, callback);
+    service_impl_->Register(sync.Pass(), sw_registration_id_,
+                            true /* requested_from_service_worker */, callback);
+    base::RunLoop().RunUntilIdle();
+  }
+
+  void RegisterOneShotFromDocument(
+      SyncRegistrationPtr sync,
+      const BackgroundSyncService::RegisterCallback& callback) {
+    service_impl_->Register(sync.Pass(), sw_registration_id_,
+                            false /* requested_from_service_worker */,
+                            callback);
     base::RunLoop().RunUntilIdle();
   }
 
   void UnregisterOneShot(
-      SyncRegistrationPtr sync,
+      int32 handle_id,
       const BackgroundSyncService::UnregisterCallback& callback) {
     service_impl_->Unregister(
-        BackgroundSyncPeriodicity::BACKGROUND_SYNC_PERIODICITY_ONE_SHOT,
-        sync->id, sync->tag, sw_registration_id_, callback);
+        handle_id, sw_registration_id_, callback);
     base::RunLoop().RunUntilIdle();
   }
 
@@ -194,6 +244,13 @@ class BackgroundSyncServiceImplTest : public testing::Test {
     base::RunLoop().RunUntilIdle();
   }
 
+  void NotifyWhenDone(
+      int32 handle_id,
+      const BackgroundSyncService::NotifyWhenFinishedCallback& callback) {
+    service_impl_->NotifyWhenFinished(handle_id, callback);
+    base::RunLoop().RunUntilIdle();
+  }
+
   scoped_ptr<TestBrowserThreadBundle> thread_bundle_;
   scoped_ptr<net::NetworkChangeNotifier> network_change_notifier_;
   scoped_ptr<EmbeddedWorkerTestHelper> embedded_worker_helper_;
@@ -202,7 +259,8 @@ class BackgroundSyncServiceImplTest : public testing::Test {
   int64 sw_registration_id_;
   scoped_refptr<ServiceWorkerRegistration> sw_registration_;
   BackgroundSyncServicePtr service_ptr_;
-  scoped_ptr<BackgroundSyncServiceImpl> service_impl_;
+  BackgroundSyncServiceImpl*
+      service_impl_;  // Owned by background_sync_context_
   SyncRegistrationPtr default_sync_registration_;
 };
 
@@ -220,15 +278,63 @@ TEST_F(BackgroundSyncServiceImplTest, Register) {
   EXPECT_EQ("", reg->tag);
 }
 
+TEST_F(BackgroundSyncServiceImplTest, RegisterFromServiceWorkerWithWindow) {
+  bool called = false;
+  BackgroundSyncError error;
+  SyncRegistrationPtr reg;
+  RegisterOneShot(
+      default_sync_registration_.Clone(),
+      base::Bind(&ErrorAndRegistrationCallback, &called, &error, &reg));
+  EXPECT_TRUE(called);
+  EXPECT_EQ(BackgroundSyncError::BACKGROUND_SYNC_ERROR_NONE, error);
+}
+
+TEST_F(BackgroundSyncServiceImplTest, RegisterFromServiceWorkerWithoutWindow) {
+  bool called = false;
+  BackgroundSyncError error;
+  SyncRegistrationPtr reg;
+  RemoveWindowClient();
+  RegisterOneShot(
+      default_sync_registration_.Clone(),
+      base::Bind(&ErrorAndRegistrationCallback, &called, &error, &reg));
+  EXPECT_TRUE(called);
+  EXPECT_EQ(BackgroundSyncError::BACKGROUND_SYNC_ERROR_NOT_ALLOWED, error);
+}
+
+TEST_F(BackgroundSyncServiceImplTest, RegisterFromDocumentWithWindow) {
+  bool called = false;
+  BackgroundSyncError error;
+  SyncRegistrationPtr reg;
+  RegisterOneShotFromDocument(
+      default_sync_registration_.Clone(),
+      base::Bind(&ErrorAndRegistrationCallback, &called, &error, &reg));
+  EXPECT_TRUE(called);
+  EXPECT_EQ(BackgroundSyncError::BACKGROUND_SYNC_ERROR_NONE, error);
+  EXPECT_EQ("", reg->tag);
+}
+
+TEST_F(BackgroundSyncServiceImplTest, RegisterFromDocumentWithoutWindow) {
+  bool called = false;
+  BackgroundSyncError error;
+  SyncRegistrationPtr reg;
+  RemoveWindowClient();
+  RegisterOneShotFromDocument(
+      default_sync_registration_.Clone(),
+      base::Bind(&ErrorAndRegistrationCallback, &called, &error, &reg));
+  EXPECT_TRUE(called);
+  EXPECT_EQ(BackgroundSyncError::BACKGROUND_SYNC_ERROR_NONE, error);
+  EXPECT_EQ("", reg->tag);
+}
+
 TEST_F(BackgroundSyncServiceImplTest, Unregister) {
   bool unregister_called = false;
   BackgroundSyncError unregister_error;
   SyncRegistrationPtr reg;
   UnregisterOneShot(
-      default_sync_registration_.Clone(),
+      default_sync_registration_->handle_id,
       base::Bind(&ErrorCallback, &unregister_called, &unregister_error));
   EXPECT_TRUE(unregister_called);
-  EXPECT_EQ(BackgroundSyncError::BACKGROUND_SYNC_ERROR_NOT_FOUND,
+  EXPECT_EQ(BackgroundSyncError::BACKGROUND_SYNC_ERROR_NOT_ALLOWED,
             unregister_error);
 }
 
@@ -243,8 +349,9 @@ TEST_F(BackgroundSyncServiceImplTest, UnregisterWithRegisteredSync) {
                              &register_error, &reg));
   EXPECT_TRUE(register_called);
   EXPECT_EQ(BackgroundSyncError::BACKGROUND_SYNC_ERROR_NONE, register_error);
-  UnregisterOneShot(reg.Pass(), base::Bind(&ErrorCallback, &unregister_called,
-                                           &unregister_error));
+  UnregisterOneShot(
+      reg->handle_id,
+      base::Bind(&ErrorCallback, &unregister_called, &unregister_error));
   EXPECT_TRUE(unregister_called);
   EXPECT_EQ(BackgroundSyncError::BACKGROUND_SYNC_ERROR_NONE, unregister_error);
 }
@@ -310,6 +417,39 @@ TEST_F(BackgroundSyncServiceImplTest, GetRegistrationsWithRegisteredSync) {
   EXPECT_EQ(BackgroundSyncError::BACKGROUND_SYNC_ERROR_NONE,
             getregistrations_error);
   EXPECT_EQ(1UL, array_size);
+}
+
+TEST_F(BackgroundSyncServiceImplTest, NotifyWhenFinished) {
+  // Register a sync event.
+  bool register_called = false;
+  BackgroundSyncError register_error;
+  SyncRegistrationPtr reg;
+  RegisterOneShot(default_sync_registration_.Clone(),
+                  base::Bind(&ErrorAndRegistrationCallback, &register_called,
+                             &register_error, &reg));
+  EXPECT_TRUE(register_called);
+  EXPECT_EQ(BACKGROUND_SYNC_ERROR_NONE, register_error);
+
+  // Unregister it.
+  bool unregister_called = false;
+  BackgroundSyncError unregister_error;
+  UnregisterOneShot(
+      reg->handle_id,
+      base::Bind(&ErrorCallback, &unregister_called, &unregister_error));
+  EXPECT_TRUE(unregister_called);
+  EXPECT_EQ(BACKGROUND_SYNC_ERROR_NONE, unregister_error);
+
+  // Call NotifyWhenDone and verify that it calls back with unregistered.
+  bool notify_done_called = false;
+  BackgroundSyncError notify_done_error = BACKGROUND_SYNC_ERROR_NONE;
+  BackgroundSyncState notify_done_sync_state = BACKGROUND_SYNC_STATE_SUCCESS;
+
+  NotifyWhenDone(reg->handle_id,
+                 base::Bind(&ErrorAndStateCallback, &notify_done_called,
+                            &notify_done_error, &notify_done_sync_state));
+  EXPECT_TRUE(notify_done_called);
+  EXPECT_EQ(BACKGROUND_SYNC_ERROR_NONE, notify_done_error);
+  EXPECT_EQ(BACKGROUND_SYNC_STATE_UNREGISTERED, notify_done_sync_state);
 }
 
 }  // namespace content

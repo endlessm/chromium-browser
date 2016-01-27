@@ -26,11 +26,11 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_constants.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/bookmarks/browser/startup_task_runner_service.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_utils.h"
 #include "net/base/net_errors.h"
@@ -109,8 +109,7 @@ void CreatePrefsFileInDirectory(const base::FilePath& directory_path) {
 void CheckChromeVersion(Profile *profile, bool is_new) {
   std::string created_by_version;
   if (is_new) {
-    chrome::VersionInfo version_info;
-    created_by_version = version_info.Version();
+    created_by_version = version_info::GetVersionNumber();
   } else {
     created_by_version = "1.0.0.0";
   }
@@ -537,8 +536,7 @@ IN_PROC_BROWSER_TEST_F(ProfileBrowserTest,
 IN_PROC_BROWSER_TEST_F(ProfileBrowserTest,
                        URLFetcherUsingMainContextDuringIncognitoTeardown) {
   Browser* incognito_browser =
-      ui_test_utils::OpenURLOffTheRecord(browser()->profile(),
-                                         GURL("about:blank"));
+      OpenURLOffTheRecord(browser()->profile(), GURL("about:blank"));
   RunURLFetcherActiveDuringIncognitoTeardownTest(
       incognito_browser, incognito_browser->profile()->GetRequestContext());
 }
@@ -546,8 +544,8 @@ IN_PROC_BROWSER_TEST_F(ProfileBrowserTest,
 IN_PROC_BROWSER_TEST_F(ProfileBrowserTest,
                        URLFetcherUsingExtensionContextDuringIncognitoTeardown) {
   Browser* incognito_browser =
-      ui_test_utils::OpenURLOffTheRecord(browser()->profile(),
-                                         GURL("about:blank"));
+      OpenURLOffTheRecord(browser()->profile(), GURL("about:blank"));
+
   RunURLFetcherActiveDuringIncognitoTeardownTest(
       incognito_browser,
       incognito_browser->profile()->GetRequestContextForExtensions());

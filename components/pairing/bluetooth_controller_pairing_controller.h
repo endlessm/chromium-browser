@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CHROMEOS_PAIRING_BLUETOOTH_CONTROLLER_PAIRING_FLOW_H_
-#define CHROMEOS_PAIRING_BLUETOOTH_CONTROLLER_PAIRING_FLOW_H_
+#ifndef COMPONENTS_PAIRING_BLUETOOTH_CONTROLLER_PAIRING_CONTROLLER_H_
+#define COMPONENTS_PAIRING_BLUETOOTH_CONTROLLER_PAIRING_CONTROLLER_H_
 
 #include <set>
 
@@ -66,6 +66,7 @@ class BluetoothControllerPairingController
   void RepeatDiscovery() override;
   std::string GetConfirmationCode() override;
   void SetConfirmationCodeIsCorrect(bool correct) override;
+  void SetHostNetwork(const std::string& onc_spec) override;
   void SetHostConfiguration(bool accepted_eula,
                             const std::string& lang,
                             const std::string& timezone,
@@ -121,4 +122,4 @@ class BluetoothControllerPairingController
 
 }  // namespace pairing_chromeos
 
-#endif  // CHROMEOS_PAIRING_BLUETOOTH_CONTROLLER_PAIRING_FLOW_H_
+#endif  // COMPONENTS_PAIRING_BLUETOOTH_CONTROLLER_PAIRING_CONTROLLER_H_

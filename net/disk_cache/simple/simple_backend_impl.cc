@@ -442,19 +442,6 @@ int SimpleBackendImpl::DoomAllEntries(const CompletionCallback& callback) {
   return DoomEntriesBetween(Time(), Time(), callback);
 }
 
-void SimpleBackendImpl::IndexReadyForDoom(Time initial_time,
-                                          Time end_time,
-                                          const CompletionCallback& callback,
-                                          int result) {
-  if (result != net::OK) {
-    callback.Run(result);
-    return;
-  }
-  scoped_ptr<std::vector<uint64> > removed_key_hashes(
-      index_->GetEntriesBetween(initial_time, end_time).release());
-  DoomEntries(removed_key_hashes.get(), callback);
-}
-
 int SimpleBackendImpl::DoomEntriesBetween(
     const Time initial_time,
     const Time end_time,
@@ -468,6 +455,12 @@ int SimpleBackendImpl::DoomEntriesSince(
     const Time initial_time,
     const CompletionCallback& callback) {
   return DoomEntriesBetween(initial_time, Time(), callback);
+}
+
+int SimpleBackendImpl::CalculateSizeOfAllEntries(
+    const CompletionCallback& callback) {
+  return index_->ExecuteWhenReady(base::Bind(
+      &SimpleBackendImpl::IndexReadyForSizeCalculation, AsWeakPtr(), callback));
 }
 
 class SimpleBackendImpl::SimpleIterator final : public Iterator {
@@ -562,6 +555,27 @@ void SimpleBackendImpl::InitializeIndex(const CompletionCallback& callback,
     index_->Initialize(result.cache_dir_mtime);
   }
   callback.Run(result.net_error);
+}
+
+void SimpleBackendImpl::IndexReadyForDoom(Time initial_time,
+                                          Time end_time,
+                                          const CompletionCallback& callback,
+                                          int result) {
+  if (result != net::OK) {
+    callback.Run(result);
+    return;
+  }
+  scoped_ptr<std::vector<uint64>> removed_key_hashes(
+      index_->GetEntriesBetween(initial_time, end_time).release());
+  DoomEntries(removed_key_hashes.get(), callback);
+}
+
+void SimpleBackendImpl::IndexReadyForSizeCalculation(
+    const CompletionCallback& callback,
+    int result) {
+  if (result == net::OK)
+    result = static_cast<int>(index_->GetCacheSize());
+  callback.Run(result);
 }
 
 SimpleBackendImpl::DiskStatResult SimpleBackendImpl::InitCacheStructureOnDisk(
@@ -725,10 +739,8 @@ void SimpleBackendImpl::DoomEntriesComplete(
     scoped_ptr<std::vector<uint64> > entry_hashes,
     const net::CompletionCallback& callback,
     int result) {
-  std::for_each(
-      entry_hashes->begin(), entry_hashes->end(),
-      std::bind1st(std::mem_fun(&SimpleBackendImpl::OnDoomComplete),
-                   this));
+  for (const uint64& entry_hash : *entry_hashes)
+    OnDoomComplete(entry_hash);
   callback.Run(result);
 }
 

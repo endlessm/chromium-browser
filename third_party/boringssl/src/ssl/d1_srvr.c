@@ -112,6 +112,8 @@
  * [including the GNU Public Licence.]
  */
 
+#include <openssl/ssl.h>
+
 #include <assert.h>
 #include <stdio.h>
 
@@ -130,7 +132,7 @@
 
 int dtls1_accept(SSL *s) {
   BUF_MEM *buf = NULL;
-  void (*cb)(const SSL *ssl, int type, int val) = NULL;
+  void (*cb)(const SSL *ssl, int type, int value) = NULL;
   uint32_t alg_a;
   int ret = -1;
   int new_state, state, skip = 0;
@@ -149,11 +151,6 @@ int dtls1_accept(SSL *s) {
   }
 
   s->in_handshake++;
-
-  if (s->cert == NULL) {
-    OPENSSL_PUT_ERROR(SSL, dtls1_accept, SSL_R_NO_CERTIFICATE_SET);
-    return -1;
-  }
 
   for (;;) {
     state = s->state;
@@ -181,8 +178,8 @@ int dtls1_accept(SSL *s) {
           goto end;
         }
 
-        if (!ssl3_init_finished_mac(s)) {
-          OPENSSL_PUT_ERROR(SSL, dtls1_accept, ERR_R_INTERNAL_ERROR);
+        if (!ssl3_init_handshake_buffer(s)) {
+          OPENSSL_PUT_ERROR(SSL, ERR_R_INTERNAL_ERROR);
           ret = -1;
           goto end;
         }
@@ -244,8 +241,19 @@ int dtls1_accept(SSL *s) {
         s->init_num = 0;
         break;
 
+      case SSL3_ST_SW_CERT_STATUS_A:
+      case SSL3_ST_SW_CERT_STATUS_B:
+        ret = ssl3_send_certificate_status(s);
+        if (ret <= 0) {
+          goto end;
+        }
+        s->state = SSL3_ST_SW_KEY_EXCH_A;
+        s->init_num = 0;
+        break;
+
       case SSL3_ST_SW_KEY_EXCH_A:
       case SSL3_ST_SW_KEY_EXCH_B:
+      case SSL3_ST_SW_KEY_EXCH_C:
         alg_a = s->s3->tmp.new_cipher->algorithm_auth;
 
         /* Send a ServerKeyExchange message if:
@@ -322,6 +330,7 @@ int dtls1_accept(SSL *s) {
 
       case SSL3_ST_SR_KEY_EXCH_A:
       case SSL3_ST_SR_KEY_EXCH_B:
+      case SSL3_ST_SR_KEY_EXCH_C:
         ret = ssl3_get_client_key_exchange(s);
         if (ret <= 0) {
           goto end;
@@ -439,7 +448,7 @@ int dtls1_accept(SSL *s) {
         goto end;
 
       default:
-        OPENSSL_PUT_ERROR(SSL, dtls1_accept, SSL_R_UNKNOWN_STATE);
+        OPENSSL_PUT_ERROR(SSL, SSL_R_UNKNOWN_STATE);
         ret = -1;
         goto end;
     }

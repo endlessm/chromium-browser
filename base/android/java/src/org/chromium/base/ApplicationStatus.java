@@ -10,6 +10,10 @@ import android.app.Application.ActivityLifecycleCallbacks;
 import android.content.Context;
 import android.os.Bundle;
 
+import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.JNINamespace;
+import org.chromium.base.annotations.MainDex;
+
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * to register / unregister listeners for state changes.
  */
 @JNINamespace("base::android")
+@MainDex
 public class ApplicationStatus {
     private static class ActivityInfo {
         private int mStatus = ActivityState.DESTROYED;
@@ -304,6 +309,7 @@ public class ApplicationStatus {
     /**
      * @return The state of the application (see {@link ApplicationState}).
      */
+    @CalledByNative
     public static int getStateForApplication() {
         synchronized (sCachedApplicationStateLock) {
             if (sCachedApplicationState == null) {

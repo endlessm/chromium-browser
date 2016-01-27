@@ -32,7 +32,7 @@
 #define AsyncMethodRunner_h
 
 #include "platform/Timer.h"
-#include "wtf/FastAllocBase.h"
+#include "wtf/Allocator.h"
 #include "wtf/Noncopyable.h"
 
 namespace blink {
@@ -40,7 +40,7 @@ namespace blink {
 template <typename TargetClass>
 class AsyncMethodRunner final {
     WTF_MAKE_NONCOPYABLE(AsyncMethodRunner);
-    WTF_MAKE_FAST_ALLOCATED(AsyncMethodRunner);
+    USING_FAST_MALLOC(AsyncMethodRunner);
 public:
     typedef void (TargetClass::*TargetMethod)();
 
@@ -66,7 +66,7 @@ public:
 
         // FIXME: runAsync should take a TraceLocation and pass it to timer here.
         if (!m_timer.isActive())
-            m_timer.startOneShot(0, FROM_HERE);
+            m_timer.startOneShot(0, BLINK_FROM_HERE);
     }
 
     // If it's scheduled to run the method, cancel it and remember to schedule
@@ -97,7 +97,7 @@ public:
 
         m_runWhenResumed = false;
         // FIXME: resume should take a TraceLocation and pass it to timer here.
-        m_timer.startOneShot(0, FROM_HERE);
+        m_timer.startOneShot(0, BLINK_FROM_HERE);
     }
 
     void stop()

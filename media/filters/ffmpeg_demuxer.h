@@ -27,7 +27,7 @@
 #include <vector>
 
 #include "base/callback.h"
-#include "base/gtest_prod_util.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/threading/thread.h"
 #include "media/base/audio_decoder_config.h"
@@ -56,9 +56,14 @@ typedef scoped_ptr<AVPacket, ScopedPtrAVFreePacket> ScopedAVPacket;
 
 class FFmpegDemuxerStream : public DemuxerStream {
  public:
-  // Keeps a copy of |demuxer| and initializes itself using information inside
-  // |stream|.  Both parameters must outlive |this|.
-  FFmpegDemuxerStream(FFmpegDemuxer* demuxer, AVStream* stream);
+  // Attempts to create FFmpegDemuxerStream form the given AVStream. Will return
+  // null if the AVStream cannot be translated into a valid decoder config.
+  //
+  // FFmpegDemuxerStream keeps a copy of |demuxer| and initializes itself using
+  // information inside |stream|. Both parameters must outlive |this|.
+  static scoped_ptr<FFmpegDemuxerStream> Create(FFmpegDemuxer* demuxer,
+                                                AVStream* stream);
+
   ~FFmpegDemuxerStream() override;
 
   // Enqueues the given AVPacket. It is invalid to queue a |packet| after
@@ -77,12 +82,17 @@ class FFmpegDemuxerStream : public DemuxerStream {
 
   base::TimeDelta duration() const { return duration_; }
 
-  // Enables fixes for ogg files with negative timestamps.  For AUDIO streams,
-  // all packets with negative timestamps will be marked for post-decode
-  // discard.  For all other stream types, if FFmpegDemuxer::start_time() is
-  // negative, it will not be used to shift timestamps during EnqueuePacket().
-  void enable_negative_timestamp_fixups_for_ogg() {
-    fixup_negative_ogg_timestamps_ = true;
+  // Enables fixes for files with negative timestamps.  Normally all timestamps
+  // are rebased against FFmpegDemuxer::start_time() whenever that value is
+  // negative.  When this fix is enabled, only AUDIO stream packets will be
+  // rebased to time zero, all other stream types will use the muxed timestamp.
+  //
+  // Further, when no codec delay is present, all AUDIO packets which originally
+  // had negative timestamps will be marked for post-decode discard.  When codec
+  // delay is present, it is assumed the decoder will handle discard and does
+  // not need the AUDIO packets to be marked for discard; just rebased to zero.
+  void enable_negative_timestamp_fixups() {
+    fixup_negative_timestamps_ = true;
   }
 
   // DemuxerStream implementation.
@@ -119,6 +129,15 @@ class FFmpegDemuxerStream : public DemuxerStream {
  private:
   friend class FFmpegDemuxerTest;
 
+  // Use FFmpegDemuxerStream::Create to construct.
+  // Audio/Video streams must include their respective DecoderConfig. At most
+  // one DecoderConfig should be provided (leaving the other nullptr). Both
+  // configs should be null for text streams.
+  FFmpegDemuxerStream(FFmpegDemuxer* demuxer,
+                      AVStream* stream,
+                      scoped_ptr<AudioDecoderConfig> audio_config,
+                      scoped_ptr<VideoDecoderConfig> video_config);
+
   // Runs |read_cb_| if present with the front of |buffer_queue_|, calling
   // NotifyCapacityAvailable() if capacity is still available.
   void SatisfyPendingRead();
@@ -136,8 +155,8 @@ class FFmpegDemuxerStream : public DemuxerStream {
   FFmpegDemuxer* demuxer_;
   scoped_refptr<base::SingleThreadTaskRunner> task_runner_;
   AVStream* stream_;
-  AudioDecoderConfig audio_config_;
-  VideoDecoderConfig video_config_;
+  scoped_ptr<AudioDecoderConfig> audio_config_;
+  scoped_ptr<VideoDecoderConfig> video_config_;
   Type type_;
   Liveness liveness_;
   base::TimeDelta duration_;
@@ -155,7 +174,7 @@ class FFmpegDemuxerStream : public DemuxerStream {
 #endif
 
   std::string encryption_key_id_;
-  bool fixup_negative_ogg_timestamps_;
+  bool fixup_negative_timestamps_;
 
   DISALLOW_COPY_AND_ASSIGN(FFmpegDemuxerStream);
 };
@@ -178,6 +197,7 @@ class MEDIA_EXPORT FFmpegDemuxer : public Demuxer {
   base::Time GetTimelineOffset() const override;
   DemuxerStream* GetStream(DemuxerStream::Type type) override;
   base::TimeDelta GetStartTime() const override;
+  int64_t GetMemoryUsage() const override;
 
   // Calls |encrypted_media_init_data_cb_| with the initialization data
   // encountered in the file.
@@ -213,8 +233,9 @@ class MEDIA_EXPORT FFmpegDemuxer : public Demuxer {
   // go over capacity depending on how the file is muxed.
   bool StreamsHaveAvailableCapacity();
 
-  // Returns true if the maximum allowed memory usage has been reached.
-  bool IsMaxMemoryUsageReached() const;
+  // Updates |stream_memory_usage_| to the memory usage in bytes of all
+  // FFmpegDemuxerStreams.  Returns the current memory usage.
+  int64_t UpdateMemoryUsage();
 
   // Signal all FFmpegDemuxerStreams that the stream has ended.
   void StreamHasEnded();
@@ -302,6 +323,10 @@ class MEDIA_EXPORT FFmpegDemuxer : public Demuxer {
   scoped_ptr<FFmpegGlue> glue_;
 
   const EncryptedMediaInitDataCB encrypted_media_init_data_cb_;
+
+  // Last stream size as calculated by UpdateMemoryUsage().
+  mutable base::Lock stream_memory_usage_lock_;
+  int64_t stream_memory_usage_;
 
   // NOTE: Weak pointers must be invalidated before all other member variables.
   base::WeakPtrFactory<FFmpegDemuxer> weak_factory_;

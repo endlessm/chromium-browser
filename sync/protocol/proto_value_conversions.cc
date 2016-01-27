@@ -190,7 +190,6 @@ scoped_ptr<base::DictionaryValue> TabNavigationToValue(
   SET_STR(virtual_url);
   SET_STR(referrer);
   SET_STR(title);
-  SET_STR(state);
   SET_ENUM(page_transition, GetPageTransitionString);
   SET_ENUM(redirect_type, GetPageTransitionRedirectTypeString);
   SET_INT32(unique_id);
@@ -572,6 +571,7 @@ scoped_ptr<base::DictionaryValue> NigoriSpecificsToValue(
   SET_BOOL(encrypt_articles);
   SET_BOOL(encrypt_app_list);
   SET_BOOL(encrypt_everything);
+  SET_BOOL(server_only_was_missing_keystore_migration_time);
   SET_BOOL(sync_tab_favicons);
   SET_ENUM(passphrase_type, PassphraseTypeString);
   SET(keystore_decryptor_token, EncryptedDataToValue);

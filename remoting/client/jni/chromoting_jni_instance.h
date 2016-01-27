@@ -14,8 +14,6 @@
 #include "remoting/client/chromoting_client.h"
 #include "remoting/client/client_context.h"
 #include "remoting/client/client_user_interface.h"
-#include "remoting/client/frame_consumer_proxy.h"
-#include "remoting/client/jni/jni_frame_consumer.h"
 #include "remoting/protocol/clipboard_stub.h"
 #include "remoting/protocol/cursor_shape_stub.h"
 #include "remoting/signaling/xmpp_signal_strategy.h"
@@ -25,11 +23,14 @@ namespace remoting {
 namespace protocol {
 class ClipboardEvent;
 class CursorShapeInfo;
+class PerformanceTracker;
 }  // namespace protocol
 
+class ChromotingJniRuntime;
 class ClientStatusLogger;
-class VideoRenderer;
+class JniFrameConsumer;
 class TokenFetcherProxy;
+class VideoRenderer;
 
 // ClientUserInterface that indirectly makes and receives JNI calls.
 class ChromotingJniInstance
@@ -83,18 +84,17 @@ class ChromotingJniInstance
   void SendMouseWheelEvent(int delta_x, int delta_y);
 
   // Sends the provided keyboard scan code to the host.
-  bool SendKeyEvent(int key_code, bool key_down);
+  bool SendKeyEvent(int scan_code, int key_code, bool key_down);
 
   void SendTextEvent(const std::string& text);
+
+  // Sends the provided touch event payload to the host.
+  void SendTouchEvent(const protocol::TouchEvent& touch_event);
 
   // Enables or disables the video channel. May be called from any thread.
   void EnableVideoChannel(bool enable);
 
   void SendClientMessage(const std::string& type, const std::string& data);
-
-  // Records paint time for statistics logging, if enabled. May be called from
-  // any thread.
-  void RecordPaintTime(int64 paint_time_ms);
 
   // ClientUserInterface implementation.
   void OnConnectionState(protocol::ConnectionToHost::State state,
@@ -118,9 +118,7 @@ class ChromotingJniInstance
   // This object is ref-counted, so it cleans itself up.
   ~ChromotingJniInstance() override;
 
-  void ConnectToHostOnDisplayThread();
   void ConnectToHostOnNetworkThread();
-  void DisconnectFromHostOnNetworkThread();
 
   // Notifies the user interface that the user needs to enter a PIN. The
   // current authentication attempt is put on hold until |callback| is invoked.
@@ -149,13 +147,10 @@ class ChromotingJniInstance
   std::string host_id_;
   std::string host_jid_;
 
-  // This group of variables is to be used on the display thread.
-  scoped_refptr<FrameConsumerProxy> frame_consumer_;
-  scoped_ptr<JniFrameConsumer> view_;
-  scoped_ptr<base::WeakPtrFactory<JniFrameConsumer> > view_weak_factory_;
-
   // This group of variables is to be used on the network thread.
   scoped_ptr<ClientContext> client_context_;
+  scoped_ptr<protocol::PerformanceTracker> perf_tracker_;
+  scoped_ptr<JniFrameConsumer> view_;
   scoped_ptr<VideoRenderer> video_renderer_;
   scoped_ptr<protocol::Authenticator> authenticator_;
   scoped_ptr<ChromotingClient> client_;

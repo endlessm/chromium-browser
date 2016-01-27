@@ -4,25 +4,18 @@
 
 #include "chrome/browser/prefs/session_startup_pref.h"
 #include "chrome/common/pref_names.h"
-#include "chrome/test/base/testing_pref_service_syncable.h"
 #include "components/pref_registry/pref_registry_syncable.h"
+#include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
-
-#if defined(OS_MACOSX)
-#include "chrome/browser/ui/cocoa/window_restore_utils.h"
-#endif
 
 // Unit tests for SessionStartupPref.
 class SessionStartupPrefTest : public testing::Test {
  public:
   void SetUp() override {
-    pref_service_.reset(new TestingPrefServiceSyncable);
+    pref_service_.reset(new syncable_prefs::TestingPrefServiceSyncable);
     SessionStartupPref::RegisterProfilePrefs(registry());
     registry()->RegisterBooleanPref(prefs::kHomePageIsNewTabPage, true);
-    // Make the tests independent of the Mac startup pref migration (see
-    // SessionStartupPref::MigrateMacDefaultPrefIfNecessary).
-    registry()->RegisterStringPref(prefs::kProfileCreatedByVersion, "22.0.0.0");
   }
 
   bool IsUseLastOpenDefault() {
@@ -38,7 +31,7 @@ class SessionStartupPrefTest : public testing::Test {
     return pref_service_->registry();
   }
 
-  scoped_ptr<TestingPrefServiceSyncable> pref_service_;
+  scoped_ptr<syncable_prefs::TestingPrefServiceSyncable> pref_service_;
 };
 
 TEST_F(SessionStartupPrefTest, URLListIsFixedUp) {
@@ -163,23 +156,3 @@ TEST_F(SessionStartupPrefTest, HomePageMigrationHomepageIsNTP) {
 
   EXPECT_EQ(SessionStartupPref::DEFAULT, pref.type);
 }
-
-#if defined(OS_MACOSX)
-// See SessionStartupPref::MigrateMacDefaultPrefIfNecessary.
-TEST_F(SessionStartupPrefTest, MacDefaultStartupPrefMigration) {
-  if (!restore_utils::IsWindowRestoreEnabled())
-    return;
-
-  // Use an old profile.
-  pref_service_->SetString(prefs::kProfileCreatedByVersion, "19.0.0.0");
-  ASSERT_TRUE(SessionStartupPref::TypeIsDefault(pref_service_.get()));
-
-  // Trigger the migration.
-  SessionStartupPref pref = SessionStartupPref::GetStartupPref(
-      pref_service_.get());
-
-  // The pref is now explicit.
-  EXPECT_EQ(SessionStartupPref::LAST, pref.type);
-  EXPECT_FALSE(SessionStartupPref::TypeIsDefault(pref_service_.get()));
-}
-#endif

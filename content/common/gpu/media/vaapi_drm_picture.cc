@@ -11,12 +11,42 @@
 #include "third_party/libva/va/va_drmcommon.h"
 #include "ui/gfx/gpu_memory_buffer.h"
 #include "ui/gl/gl_bindings.h"
-#include "ui/gl/gl_image_linux_dma_buffer.h"
+#include "ui/gl/gl_image_ozone_native_pixmap.h"
 #include "ui/gl/scoped_binders.h"
-#include "ui/ozone/gpu/gpu_memory_buffer_factory_ozone_native_buffer.h"
 #include "ui/ozone/public/native_pixmap.h"
 #include "ui/ozone/public/ozone_platform.h"
 #include "ui/ozone/public/surface_factory_ozone.h"
+
+namespace {
+// We decode video into YUV420, but for usage with GLImages we have to convert
+// to BGRX_8888.
+const gfx::BufferFormat kPictureForGLImageFormat = gfx::BufferFormat::BGRX_8888;
+
+uint32_t BufferFormatToVAFourCC(gfx::BufferFormat fmt) {
+  switch (fmt) {
+    case gfx::BufferFormat::BGRX_8888:
+      return VA_FOURCC_BGRX;
+    case gfx::BufferFormat::UYVY_422:
+      return VA_FOURCC_UYVY;
+    default:
+      NOTREACHED();
+      return 0;
+  }
+}
+
+uint32_t BufferFormatToVARTFormat(gfx::BufferFormat fmt) {
+  switch (fmt) {
+    case gfx::BufferFormat::UYVY_422:
+      return VA_RT_FORMAT_YUV422;
+    case gfx::BufferFormat::BGRX_8888:
+      return VA_RT_FORMAT_RGB32;
+    default:
+      NOTREACHED();
+      return 0;
+  }
+}
+
+}  // namespace
 
 namespace content {
 
@@ -55,7 +85,8 @@ scoped_refptr<VASurface> VaapiDrmPicture::CreateVASurfaceForPixmap(
   // Create a VASurface out of the created buffer using the dmabuf.
   VASurfaceAttribExternalBuffers va_attrib_extbuf;
   memset(&va_attrib_extbuf, 0, sizeof(va_attrib_extbuf));
-  va_attrib_extbuf.pixel_format = VA_FOURCC_BGRX;
+  va_attrib_extbuf.pixel_format =
+      BufferFormatToVAFourCC(pixmap->GetBufferFormat());
   va_attrib_extbuf.width = pixmap_size.width();
   va_attrib_extbuf.height = pixmap_size.height();
   va_attrib_extbuf.data_size = pixmap_size.height() * dmabuf_pitch;
@@ -81,7 +112,8 @@ scoped_refptr<VASurface> VaapiDrmPicture::CreateVASurfaceForPixmap(
   va_attribs[1].value.value.p = &va_attrib_extbuf;
 
   scoped_refptr<VASurface> va_surface = vaapi_wrapper_->CreateUnownedSurface(
-      VA_RT_FORMAT_RGB32, pixmap_size, va_attribs);
+      BufferFormatToVARTFormat(pixmap->GetBufferFormat()), pixmap_size,
+      va_attribs);
   if (!va_surface) {
     LOG(ERROR) << "Failed to create VASurface for an Ozone NativePixmap";
     return nullptr;
@@ -91,21 +123,21 @@ scoped_refptr<VASurface> VaapiDrmPicture::CreateVASurfaceForPixmap(
 }
 
 scoped_refptr<ui::NativePixmap> VaapiDrmPicture::CreateNativePixmap(
-    gfx::Size size) {
+    gfx::Size size,
+    gfx::BufferFormat format) {
   ui::OzonePlatform* platform = ui::OzonePlatform::GetInstance();
   ui::SurfaceFactoryOzone* factory = platform->GetSurfaceFactoryOzone();
 
   // Create a buffer from Ozone.
-  return factory->CreateNativePixmap(gfx::kNullAcceleratedWidget, size,
-                                     ui::SurfaceFactoryOzone::RGBX_8888,
-                                     ui::SurfaceFactoryOzone::SCANOUT);
+  return factory->CreateNativePixmap(gfx::kNullAcceleratedWidget, size, format,
+                                     gfx::BufferUsage::SCANOUT);
 }
 
 bool VaapiDrmPicture::Initialize() {
   // We want to create a VASurface and an EGLImage out of the same
   // memory buffer, so we can output decoded pictures to it using
   // VAAPI and also use it to paint with GL.
-  pixmap_ = CreateNativePixmap(size());
+  pixmap_ = CreateNativePixmap(size(), kPictureForGLImageFormat);
   if (!pixmap_) {
     LOG(ERROR) << "Failed creating an Ozone NativePixmap";
     return false;
@@ -118,22 +150,23 @@ bool VaapiDrmPicture::Initialize() {
   }
 
   // Weak pointers can only bind to methods without return values,
-  // hence we cannot bind ScalePixmap here. Instead we use a
+  // hence we cannot bind ProcessPixmap here. Instead we use a
   // static function to solve this problem.
-  pixmap_->SetScalingCallback(base::Bind(&VaapiDrmPicture::CallScalePixmap,
-                                         weak_this_factory_.GetWeakPtr()));
+  pixmap_->SetProcessingCallback(base::Bind(&VaapiDrmPicture::CallProcessPixmap,
+                                            weak_this_factory_.GetWeakPtr()));
 
   if (!make_context_current_.Run())
     return false;
 
   gfx::ScopedTextureBinder texture_binder(GL_TEXTURE_EXTERNAL_OES,
                                           texture_id());
-  gl_image_ = ui::GpuMemoryBufferFactoryOzoneNativeBuffer::CreateImageForPixmap(
-      pixmap_, size(), gfx::GpuMemoryBuffer::RGBX_8888, GL_BGRA_EXT);
-  if (!gl_image_) {
+  scoped_refptr<gfx::GLImageOzoneNativePixmap> image(
+      new gfx::GLImageOzoneNativePixmap(size(), GL_BGRA_EXT));
+  if (!image->Initialize(pixmap_.get())) {
     LOG(ERROR) << "Failed to create GLImage";
     return false;
   }
+  gl_image_ = image;
   if (!gl_image_->BindTexImage(GL_TEXTURE_EXTERNAL_OES)) {
     LOG(ERROR) << "Failed to bind texture to GLImage";
     return false;
@@ -144,54 +177,58 @@ bool VaapiDrmPicture::Initialize() {
 
 bool VaapiDrmPicture::DownloadFromSurface(
     const scoped_refptr<VASurface>& va_surface) {
-  return vaapi_wrapper_->BlitSurface(va_surface->id(), va_surface->size(),
-                                     va_surface_->id(), va_surface_->size());
+  return vaapi_wrapper_->BlitSurface(va_surface, va_surface_);
 }
 
 // static
-scoped_refptr<ui::NativePixmap> VaapiDrmPicture::CallScalePixmap(
+scoped_refptr<ui::NativePixmap> VaapiDrmPicture::CallProcessPixmap(
     base::WeakPtr<VaapiDrmPicture> weak_ptr,
-    gfx::Size new_size) {
+    gfx::Size target_size,
+    gfx::BufferFormat target_format) {
   if (!weak_ptr.get()) {
-    LOG(ERROR) << "Failed scaling NativePixmap as scaling "
+    LOG(ERROR) << "Failed processing NativePixmap as processing "
                   "unit(VaapiDrmPicture) is deleted";
     return nullptr;
   }
-  return weak_ptr->ScalePixmap(new_size);
+  return weak_ptr->ProcessPixmap(target_size, target_format);
 }
 
-scoped_refptr<ui::NativePixmap> VaapiDrmPicture::ScalePixmap(
-    gfx::Size new_size) {
-  if (!scaled_va_surface_.get() || scaled_va_surface_->size() != new_size) {
-    scaled_pixmap_ = CreateNativePixmap(new_size);
-    if (!scaled_pixmap_) {
-      LOG(ERROR) << "Failed creating an Ozone NativePixmap for scaling";
-      scaled_va_surface_ = nullptr;
+scoped_refptr<ui::NativePixmap> VaapiDrmPicture::ProcessPixmap(
+    gfx::Size target_size,
+    gfx::BufferFormat target_format) {
+  if (!processed_va_surface_.get() ||
+      processed_va_surface_->size() != target_size ||
+      processed_va_surface_->format() !=
+          BufferFormatToVARTFormat(target_format)) {
+    processed_pixmap_ = CreateNativePixmap(target_size, target_format);
+    if (!processed_pixmap_) {
+      LOG(ERROR) << "Failed creating an Ozone NativePixmap for processing";
+      processed_va_surface_ = nullptr;
       return nullptr;
     }
-    scaled_va_surface_ = CreateVASurfaceForPixmap(scaled_pixmap_, new_size);
-    if (!scaled_va_surface_) {
+    processed_va_surface_ =
+        CreateVASurfaceForPixmap(processed_pixmap_, target_size);
+    if (!processed_va_surface_) {
       LOG(ERROR) << "Failed creating VA Surface for pixmap";
-      scaled_pixmap_ = nullptr;
+      processed_pixmap_ = nullptr;
       return nullptr;
     }
   }
 
-  DCHECK(scaled_pixmap_);
-  bool vpp_result = vaapi_wrapper_->BlitSurface(
-      va_surface_->id(), va_surface_->size(), scaled_va_surface_->id(),
-      scaled_va_surface_->size());
+  DCHECK(processed_pixmap_);
+  bool vpp_result =
+      vaapi_wrapper_->BlitSurface(va_surface_, processed_va_surface_);
   if (!vpp_result) {
     LOG(ERROR) << "Failed scaling NativePixmap";
-    scaled_pixmap_ = nullptr;
-    scaled_va_surface_ = nullptr;
+    processed_pixmap_ = nullptr;
+    processed_va_surface_ = nullptr;
     return nullptr;
   }
 
-  return scaled_pixmap_;
+  return processed_pixmap_;
 }
 
-scoped_refptr<gfx::GLImage> VaapiDrmPicture::GetImageToBind() {
+scoped_refptr<gl::GLImage> VaapiDrmPicture::GetImageToBind() {
   return gl_image_;
 }
 

@@ -30,7 +30,7 @@
 #define AudioParamTimeline_h
 
 #include "core/dom/DOMTypedArray.h"
-#include "modules/webaudio/AudioContext.h"
+#include "modules/webaudio/AbstractAudioContext.h"
 #include "wtf/Forward.h"
 #include "wtf/Threading.h"
 #include "wtf/Vector.h"
@@ -38,6 +38,7 @@
 namespace blink {
 
 class AudioParamTimeline {
+    DISALLOW_NEW();
 public:
     AudioParamTimeline()
     {
@@ -52,16 +53,18 @@ public:
 
     // hasValue is set to true if a valid timeline value is returned.
     // otherwise defaultValue is returned.
-    float valueForContextTime(AudioContext*, float defaultValue, bool& hasValue);
+    float valueForContextTime(AbstractAudioContext*, float defaultValue, bool& hasValue);
 
-    // Given the time range, calculates parameter values into the values buffer
-    // and returns the last parameter value calculated for "values" or the defaultValue if none were calculated.
-    // controlRate is the rate (number per second) at which parameter values will be calculated.
-    // It should equal sampleRate for sample-accurate parameter changes, and otherwise will usually match
-    // the render quantum size such that the parameter value changes once per render quantum.
-    float valuesForTimeRange(double startTime, double endTime, float defaultValue, float* values, unsigned numberOfValues, double sampleRate, double controlRate);
+    // Given the time range in frames, calculates parameter values into the values buffer and
+    // returns the last parameter value calculated for "values" or the defaultValue if none were
+    // calculated.  controlRate is the rate (number per second) at which parameter values will be
+    // calculated.  It should equal sampleRate for sample-accurate parameter changes, and otherwise
+    // will usually match the render quantum size such that the parameter value changes once per
+    // render quantum.
+    float valuesForFrameRange(size_t startFrame, size_t endFrame, float defaultValue, float* values, unsigned numberOfValues, double sampleRate, double controlRate);
 
-    bool hasValues() { return m_events.size(); }
+    // Returns true if this AudioParam has any events on it.
+    bool hasValues() const;
 
 private:
     class ParamEvent {
@@ -75,6 +78,20 @@ private:
             LastType
         };
 
+        static ParamEvent createLinearRampEvent(float value, double time);
+        static ParamEvent createExponentialRampEvent(float value, double time);
+        static ParamEvent createSetValueEvent(float value, double time);
+        static ParamEvent createSetTargetEvent(float value, double time, double timeConstant);
+        static ParamEvent createSetValueCurveEvent(DOMFloat32Array* curve, double time, double duration);
+
+        Type type() const { return m_type; }
+        float value() const { return m_value; }
+        double time() const { return m_time; }
+        double timeConstant() const { return m_timeConstant; }
+        double duration() const { return m_duration; }
+        DOMFloat32Array* curve() { return m_curve.get(); }
+
+    private:
         ParamEvent(Type type, float value, double time, double timeConstant, double duration, PassRefPtr<DOMFloat32Array> curve)
             : m_type(type)
             , m_value(value)
@@ -85,28 +102,24 @@ private:
         {
         }
 
-        unsigned type() const { return m_type; }
-        float value() const { return m_value; }
-        double time() const { return m_time; }
-        double timeConstant() const { return m_timeConstant; }
-        double duration() const { return m_duration; }
-        DOMFloat32Array* curve() { return m_curve.get(); }
-
-    private:
-        unsigned m_type;
+        Type m_type;
         float m_value;
         double m_time;
+        // Only used for SetTarget events
         double m_timeConstant;
+        // Only used for SetValueCurve events.
         double m_duration;
         RefPtr<DOMFloat32Array> m_curve;
     };
 
-    void insertEvent(const ParamEvent&);
-    float valuesForTimeRangeImpl(double startTime, double endTime, float defaultValue, float* values, unsigned numberOfValues, double sampleRate, double controlRate);
+    void insertEvent(const ParamEvent&, ExceptionState&);
+    float valuesForFrameRangeImpl(size_t startFrame, size_t endFrame, float defaultValue, float* values, unsigned numberOfValues, double sampleRate, double controlRate);
 
+    // Produce a nice string describing the event in human-readable form.
+    String eventToString(const ParamEvent&);
     Vector<ParamEvent> m_events;
 
-    Mutex m_eventsLock;
+    mutable Mutex m_eventsLock;
 };
 
 } // namespace blink

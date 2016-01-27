@@ -8,11 +8,9 @@
 
 #include "base/memory/scoped_ptr.h"
 #include "base/test/simple_test_tick_clock.h"
-#include "media/cast/logging/logging_impl.h"
-#include "media/cast/logging/simple_event_subscriber.h"
 #include "media/cast/net/pacing/paced_sender.h"
 #include "media/cast/net/rtp/packet_storage.h"
-#include "media/cast/net/rtp/rtp_header_parser.h"
+#include "media/cast/net/rtp/rtp_parser.h"
 #include "media/cast/test/fake_single_thread_task_runner.h"
 #include "testing/gmock/include/gmock/gmock.h"
 
@@ -39,33 +37,40 @@ class TestRtpPacketTransport : public PacketSender {
         expected_frame_id_(0),
         expected_rtp_timestamp_(0) {}
 
-  void VerifyRtpHeader(const RtpCastTestHeader& rtp_header) {
+  void VerifyRtpHeader(const RtpCastHeader& rtp_header) {
     VerifyCommonRtpHeader(rtp_header);
     VerifyCastRtpHeader(rtp_header);
   }
 
-  void VerifyCommonRtpHeader(const RtpCastTestHeader& rtp_header) {
+  void VerifyCommonRtpHeader(const RtpCastHeader& rtp_header) {
     EXPECT_EQ(kPayload, rtp_header.payload_type);
     EXPECT_EQ(sequence_number_, rtp_header.sequence_number);
     EXPECT_EQ(expected_rtp_timestamp_, rtp_header.rtp_timestamp);
-    EXPECT_EQ(config_.ssrc, rtp_header.ssrc);
+    EXPECT_EQ(config_.ssrc, rtp_header.sender_ssrc);
     EXPECT_EQ(0, rtp_header.num_csrcs);
   }
 
-  void VerifyCastRtpHeader(const RtpCastTestHeader& rtp_header) {
+  void VerifyCastRtpHeader(const RtpCastHeader& rtp_header) {
     EXPECT_FALSE(rtp_header.is_key_frame);
     EXPECT_EQ(expected_frame_id_, rtp_header.frame_id);
     EXPECT_EQ(expected_packet_id_, rtp_header.packet_id);
     EXPECT_EQ(expected_number_of_packets_ - 1, rtp_header.max_packet_id);
     EXPECT_TRUE(rtp_header.is_reference);
     EXPECT_EQ(expected_frame_id_ - 1u, rtp_header.reference_frame_id);
+    if (rtp_header.packet_id != 0) {
+      EXPECT_EQ(rtp_header.num_extensions, 0)
+          << "Extensions only allowed on first packet of a frame";
+    }
   }
 
   bool SendPacket(PacketRef packet, const base::Closure& cb) final {
     ++packets_sent_;
-    RtpHeaderParser parser(&packet->data[0], packet->data.size());
-    RtpCastTestHeader rtp_header;
-    parser.Parse(&rtp_header);
+    RtpParser parser(kSsrc, kPayload);
+    RtpCastHeader rtp_header;
+    const uint8* payload_data;
+    size_t payload_size;
+    parser.ParsePacket(&packet->data[0], packet->data.size(), &rtp_header,
+                       &payload_data, &payload_size);
     VerifyRtpHeader(rtp_header);
     ++sequence_number_;
     ++expected_packet_id_;
@@ -94,6 +99,7 @@ class TestRtpPacketTransport : public PacketSender {
   uint32 expected_frame_id_;
   uint32 expected_rtp_timestamp_;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(TestRtpPacketTransport);
 };
 
@@ -106,11 +112,8 @@ class RtpPacketizerTest : public ::testing::Test {
     config_.payload_type = kPayload;
     config_.max_payload_length = kMaxPacketLength;
     transport_.reset(new TestRtpPacketTransport(config_));
-    pacer_.reset(new PacedSender(kTargetBurstSize,
-                                 kMaxBurstSize,
-                                 &testing_clock_,
-                                 &logging_,
-                                 transport_.get(),
+    pacer_.reset(new PacedSender(kTargetBurstSize, kMaxBurstSize,
+                                 &testing_clock_, nullptr, transport_.get(),
                                  task_runner_));
     pacer_->RegisterVideoSsrc(config_.ssrc);
     rtp_packetizer_.reset(new RtpPacketizer(
@@ -136,10 +139,10 @@ class RtpPacketizerTest : public ::testing::Test {
   PacketStorage packet_storage_;
   RtpPacketizerConfig config_;
   scoped_ptr<TestRtpPacketTransport> transport_;
-  LoggingImpl logging_;
   scoped_ptr<PacedSender> pacer_;
   scoped_ptr<RtpPacketizer> rtp_packetizer_;
 
+ private:
   DISALLOW_COPY_AND_ASSIGN(RtpPacketizerTest);
 };
 
@@ -150,6 +153,19 @@ TEST_F(RtpPacketizerTest, SendStandardPackets) {
 
   testing_clock_.Advance(base::TimeDelta::FromMilliseconds(kTimestampMs));
   video_frame_.reference_time = testing_clock_.NowTicks();
+  rtp_packetizer_->SendFrameAsPackets(video_frame_);
+  RunTasks(33 + 1);
+  EXPECT_EQ(expected_num_of_packets, transport_->number_of_packets_received());
+}
+
+TEST_F(RtpPacketizerTest, SendPacketsWithAdaptivePlayoutExtension) {
+  size_t expected_num_of_packets = kFrameSize / kMaxPacketLength + 1;
+  transport_->set_expected_number_of_packets(expected_num_of_packets);
+  transport_->set_rtp_timestamp(video_frame_.rtp_timestamp);
+
+  testing_clock_.Advance(base::TimeDelta::FromMilliseconds(kTimestampMs));
+  video_frame_.reference_time = testing_clock_.NowTicks();
+  video_frame_.new_playout_delay_ms = 500;
   rtp_packetizer_->SendFrameAsPackets(video_frame_);
   RunTasks(33 + 1);
   EXPECT_EQ(expected_num_of_packets, transport_->number_of_packets_received());

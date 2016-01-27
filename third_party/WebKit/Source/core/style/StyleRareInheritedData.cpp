@@ -40,7 +40,12 @@ struct SameSizeAsStyleRareInheritedData : public RefCounted<SameSizeAsStyleRareI
     Color colors[5];
     void* ownPtrs[1];
     AtomicString atomicStrings[4];
+#if ENABLE(OILPAN)
+    void* refPtrs[1];
+    Persistent<void*> persistentHandles[2];
+#else
     void* refPtrs[3];
+#endif
     Length lengths[1];
     float secondFloat;
     unsigned m_bitfields[2];
@@ -49,9 +54,10 @@ struct SameSizeAsStyleRareInheritedData : public RefCounted<SameSizeAsStyleRareI
 
     Color touchColors;
     TabSize tabSize;
+    void* variables[1];
 };
 
-static_assert(sizeof(StyleRareInheritedData) == sizeof(SameSizeAsStyleRareInheritedData), "StyleRareInheritedData should stay small");
+static_assert(sizeof(StyleRareInheritedData) <= sizeof(SameSizeAsStyleRareInheritedData), "StyleRareInheritedData should stay small");
 
 StyleRareInheritedData::StyleRareInheritedData()
     : listStyleImage(ComputedStyle::initialListStyleImage())
@@ -80,16 +86,16 @@ StyleRareInheritedData::StyleRareInheritedData()
     , textEmphasisPosition(TextEmphasisPositionOver)
     , m_textAlignLast(ComputedStyle::initialTextAlignLast())
     , m_textJustify(ComputedStyle::initialTextJustify())
-    , m_textOrientation(TextOrientationVerticalRight)
+    , m_textOrientation(TextOrientationMixed)
     , m_textCombine(ComputedStyle::initialTextCombine())
     , m_textIndentLine(ComputedStyle::initialTextIndentLine())
     , m_textIndentType(ComputedStyle::initialTextIndentLine())
-    , m_lineBoxContain(ComputedStyle::initialLineBoxContain())
     , m_imageRendering(ComputedStyle::initialImageRendering())
     , m_textUnderlinePosition(ComputedStyle::initialTextUnderlinePosition())
     , m_rubyPosition(ComputedStyle::initialRubyPosition())
     , m_subtreeWillChangeContents(false)
     , m_selfOrAncestorHasDirAutoAttribute(false)
+    , m_respectImageOrientation(false)
     , hyphenationLimitBefore(-1)
     , hyphenationLimitAfter(-1)
     , hyphenationLimitLines(-1)
@@ -139,12 +145,12 @@ StyleRareInheritedData::StyleRareInheritedData(const StyleRareInheritedData& o)
     , m_textCombine(o.m_textCombine)
     , m_textIndentLine(o.m_textIndentLine)
     , m_textIndentType(o.m_textIndentType)
-    , m_lineBoxContain(o.m_lineBoxContain)
     , m_imageRendering(o.m_imageRendering)
     , m_textUnderlinePosition(o.m_textUnderlinePosition)
     , m_rubyPosition(o.m_rubyPosition)
     , m_subtreeWillChangeContents(o.m_subtreeWillChangeContents)
     , m_selfOrAncestorHasDirAutoAttribute(o.m_selfOrAncestorHasDirAutoAttribute)
+    , m_respectImageOrientation(o.m_respectImageOrientation)
     , hyphenationString(o.hyphenationString)
     , hyphenationLimitBefore(o.hyphenationLimitBefore)
     , hyphenationLimitAfter(o.hyphenationLimitAfter)
@@ -154,6 +160,7 @@ StyleRareInheritedData::StyleRareInheritedData(const StyleRareInheritedData& o)
     , tapHighlightColor(o.tapHighlightColor)
     , appliedTextDecorations(o.appliedTextDecorations)
     , m_tabSize(o.m_tabSize)
+    , variables(o.variables)
 {
 }
 
@@ -205,9 +212,9 @@ bool StyleRareInheritedData::operator==(const StyleRareInheritedData& o) const
         && m_textCombine == o.m_textCombine
         && m_textIndentLine == o.m_textIndentLine
         && m_textIndentType == o.m_textIndentType
-        && m_lineBoxContain == o.m_lineBoxContain
         && m_subtreeWillChangeContents == o.m_subtreeWillChangeContents
         && m_selfOrAncestorHasDirAutoAttribute == o.m_selfOrAncestorHasDirAutoAttribute
+        && m_respectImageOrientation == o.m_respectImageOrientation
         && hyphenationString == o.hyphenationString
         && locale == o.locale
         && textEmphasisCustomMark == o.textEmphasisCustomMark
@@ -217,7 +224,8 @@ bool StyleRareInheritedData::operator==(const StyleRareInheritedData& o) const
         && m_textUnderlinePosition == o.m_textUnderlinePosition
         && m_rubyPosition == o.m_rubyPosition
         && dataEquivalent(listStyleImage.get(), o.listStyleImage.get())
-        && dataEquivalent(appliedTextDecorations, o.appliedTextDecorations);
+        && dataEquivalent(appliedTextDecorations, o.appliedTextDecorations)
+        && variables == o.variables;
 }
 
 bool StyleRareInheritedData::shadowDataEquivalent(const StyleRareInheritedData& o) const

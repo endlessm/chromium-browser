@@ -17,14 +17,15 @@
 #include "base/strings/sys_string_conversions.h"
 #include "base/strings/utf_string_conversions.h"
 #import "chrome/browser/ui/cocoa/bubble_view.h"
-#include "chrome/browser/ui/elide_url.h"
-#include "net/base/net_util.h"
+#include "components/url_formatter/elide_url.h"
+#include "components/url_formatter/url_formatter.h"
 #import "third_party/google_toolbox_for_mac/src/AppKit/GTMNSAnimation+Duration.h"
 #import "third_party/google_toolbox_for_mac/src/AppKit/GTMNSBezierPath+RoundRect.h"
 #import "third_party/google_toolbox_for_mac/src/AppKit/GTMNSColor+Luminance.h"
 #include "ui/base/cocoa/window_size_constants.h"
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/point.h"
+#include "ui/gfx/platform_font.h"
 #include "ui/gfx/text_elider.h"
 #include "ui/gfx/text_utils.h"
 
@@ -232,11 +233,11 @@ void StatusBubbleMac::SetURL(const GURL& url, const std::string& languages) {
   text_width = static_cast<int>(scaled_width.width);
   NSFont* font = [[window_ contentView] font];
   gfx::FontList font_list_chr(
-      gfx::Font(base::SysNSStringToUTF8([font fontName]), [font pointSize]));
+      gfx::Font(gfx::PlatformFont::CreateFromNativeFont(font)));
 
-  base::string16 original_url_text = net::FormatUrl(url, languages);
+  base::string16 original_url_text = url_formatter::FormatUrl(url, languages);
   base::string16 status =
-      ElideUrl(url, font_list_chr, text_width, languages);
+      url_formatter::ElideUrl(url, font_list_chr, text_width, languages);
 
   SetText(status, true);
 
@@ -704,8 +705,8 @@ void StatusBubbleMac::ExpandBubble() {
   // Generate the URL string that fits in the expanded bubble.
   NSFont* font = [[window_ contentView] font];
   gfx::FontList font_list_chr(
-      gfx::Font(base::SysNSStringToUTF8([font fontName]), [font pointSize]));
-  base::string16 expanded_url = ElideUrl(
+      gfx::Font(gfx::PlatformFont::CreateFromNativeFont(font)));
+  base::string16 expanded_url = url_formatter::ElideUrl(
       url_, font_list_chr, max_bubble_width, languages_);
 
   // Scale width from gfx::Font in view coordinates to window coordinates.

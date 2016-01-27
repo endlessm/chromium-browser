@@ -16,6 +16,15 @@
 namespace base {
 namespace {
 
+namespace namespace_with_ignore_result {
+
+class Value {};
+
+template <typename T>
+void ignore_result(const T&) {}
+
+}  // namespace namespace_with_ignore_result
+
 // A ScopedDestroyer sets a Boolean to true upon destruction.
 class ScopedDestroyer {
  public:
@@ -147,15 +156,30 @@ TEST(ScopedPtrMapTest, Clear) {
 
 TEST(ScopedPtrMapTest, Compare) {
   // Construct a ScopedPtrMap with a custom comparison function.
-  bool destroyed = false;
-  ScopedPtrMap<int, scoped_ptr<ScopedDestroyer>, std::greater<int>> scoped_map;
-  scoped_map.insert(0, make_scoped_ptr(new ScopedDestroyer(&destroyed)));
-  scoped_map.insert(1, make_scoped_ptr(new ScopedDestroyer(&destroyed)));
+  ScopedPtrMap<int, scoped_ptr<int>, std::greater<int>> scoped_map1;
+  scoped_map1.insert(0, make_scoped_ptr(new int(0)));
+  scoped_map1.insert(1, make_scoped_ptr(new int(0)));
 
-  auto it = scoped_map.begin();
+  auto it = scoped_map1.begin();
   EXPECT_EQ(1, it->first);
   ++it;
   EXPECT_EQ(0, it->first);
+
+  // Test the move constructor.
+  ScopedPtrMap<int, scoped_ptr<int>, std::greater<int>> scoped_map2(
+      scoped_map1.Pass());
+  EXPECT_EQ(2u, scoped_map2.size());
+  EXPECT_TRUE(scoped_map1.empty());
+
+  // Test move assignment.
+  scoped_map1 = scoped_map2.Pass();
+  EXPECT_EQ(2u, scoped_map1.size());
+  EXPECT_TRUE(scoped_map2.empty());
+
+  // Test swap.
+  scoped_map2.swap(scoped_map1);
+  EXPECT_EQ(2u, scoped_map2.size());
+  EXPECT_TRUE(scoped_map1.empty());
 }
 
 TEST(ScopedPtrMapTest, Scope) {
@@ -235,6 +259,14 @@ TEST(ScopedPtrMapTest, Passed) {
   result.clear();
   EXPECT_TRUE(destroyed);
 };
+
+// Test that using a value type from a namespace containing an ignore_result
+// function compiles correctly.
+TEST(ScopedPtrMapTest, IgnoreResultCompile) {
+  ScopedPtrMap<int, scoped_ptr<namespace_with_ignore_result::Value>> scoped_map;
+  scoped_map.insert(1,
+                    make_scoped_ptr(new namespace_with_ignore_result::Value));
+}
 
 }  // namespace
 }  // namespace base

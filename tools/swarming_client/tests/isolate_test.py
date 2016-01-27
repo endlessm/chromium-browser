@@ -19,12 +19,14 @@ sys.path.insert(0, ROOT_DIR)
 sys.path.insert(0, os.path.join(ROOT_DIR, 'third_party'))
 
 from depot_tools import auto_stub
+from depot_tools import fix_encoding
 import auth
 import isolate
 import isolate_format
 import isolated_format
 import isolateserver
 from utils import file_path
+from utils import logging_utils
 from utils import tools
 import test_utils
 
@@ -103,6 +105,9 @@ class IsolateBase(auto_stub.TestCase):
         unicode(tempfile.mkdtemp(prefix=u'isolate_')))
     # Everything should work even from another directory.
     os.chdir(self.cwd)
+    self.mock(
+        logging_utils.OptionParserWithLogging, 'logger_root',
+        logging.Logger('unittest'))
 
   def tearDown(self):
     try:
@@ -1376,7 +1381,8 @@ class IsolateCommand(IsolateBase):
       join('y.isolated.gen.json'),
     ]
     self.assertEqual(
-        0, isolate.CMDbatcharchive(tools.OptionParserWithLogging(), cmd))
+        0,
+        isolate.CMDbatcharchive(logging_utils.OptionParserWithLogging(), cmd))
     expected = [
         {
           'base_url': 'http://localhost:1',
@@ -1411,8 +1417,10 @@ class IsolateCommand(IsolateBase):
     self.assertEqual(expected, actual)
 
     expected_json = {
-      'x': isolated_format.hash_file('x.isolated', ALGO),
-      'y': isolated_format.hash_file('y.isolated', ALGO),
+      'x': isolated_format.hash_file(
+          os.path.join(self.cwd, 'x.isolated'), ALGO),
+      'y': isolated_format.hash_file(
+          os.path.join(self.cwd, 'y.isolated'), ALGO),
     }
     self.assertEqual(expected_json, tools.read_json('json_output.json'))
 
@@ -1614,5 +1622,6 @@ def clear_env_vars():
 
 
 if __name__ == '__main__':
+  fix_encoding.fix_encoding()
   clear_env_vars()
   test_utils.main()

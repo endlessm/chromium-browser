@@ -144,7 +144,7 @@ class FirefoxObserver : public ProfileWriter,
   void ImportItemStarted(importer::ImportItem item) override {}
   void ImportItemEnded(importer::ImportItem item) override {}
   void ImportEnded() override {
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
     EXPECT_EQ(arraysize(kFirefoxBookmarks), bookmark_count_);
     EXPECT_EQ(1U, history_count_);
     EXPECT_EQ(arraysize(kFirefoxPasswords), password_count_);
@@ -349,4 +349,11 @@ IN_PROC_BROWSER_TEST_F(FirefoxProfileImporterBrowserTest,
                        MAYBE_IMPORTER(FirefoxImporter)) {
   scoped_refptr<FirefoxObserver> observer(new FirefoxObserver(true));
   FirefoxImporterBrowserTest("firefox_profile", observer.get(), observer.get());
+}
+
+IN_PROC_BROWSER_TEST_F(FirefoxProfileImporterBrowserTest,
+                       MAYBE_IMPORTER(Firefox320Importer)) {
+  scoped_refptr<FirefoxObserver> observer(new FirefoxObserver(true));
+  FirefoxImporterBrowserTest("firefox320_profile", observer.get(),
+                             observer.get());
 }

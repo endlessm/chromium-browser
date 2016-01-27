@@ -183,7 +183,6 @@ void AutofillMergeTest::MergeProfiles(const std::string& profiles,
   form.name = base::ASCIIToUTF16("MyTestForm");
   form.origin = GURL("https://www.example.com/origin.html");
   form.action = GURL("https://www.example.com/action.html");
-  form.user_submitted = true;
 
   // Parse the input line by line.
   std::vector<std::string> lines = base::SplitString(
@@ -226,7 +225,7 @@ void AutofillMergeTest::MergeProfiles(const std::string& profiles,
       // Import the profile.
       scoped_ptr<CreditCard> imported_credit_card;
       personal_data_.ImportFormData(form_structure, &imported_credit_card);
-      EXPECT_EQ(static_cast<CreditCard*>(NULL), imported_credit_card.get());
+      EXPECT_FALSE(imported_credit_card);
 
       // Clear the |form| to start a new profile.
       form.fields.clear();

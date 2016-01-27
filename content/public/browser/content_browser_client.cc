@@ -7,6 +7,8 @@
 #include "base/files/file_path.h"
 #include "content/public/browser/client_certificate_delegate.h"
 #include "content/public/common/sandbox_type.h"
+#include "media/base/cdm_factory.h"
+#include "storage/browser/quota/quota_manager.h"
 #include "ui/gfx/image/image_skia.h"
 #include "url/gurl.h"
 
@@ -39,6 +41,21 @@ bool ContentBrowserClient::ShouldUseProcessPerSite(
   return false;
 }
 
+bool ContentBrowserClient::DoesSiteRequireDedicatedProcess(
+    BrowserContext* browser_context,
+    const GURL& effective_url) {
+  return false;
+}
+
+bool ContentBrowserClient::ShouldLockToOrigin(BrowserContext* browser_context,
+                                              const GURL& effective_url) {
+  return true;
+}
+
+bool ContentBrowserClient::LogWebUIUrl(const GURL& web_ui_url) const {
+  return false;
+}
+
 net::URLRequestContextGetter* ContentBrowserClient::CreateRequestContext(
     BrowserContext* browser_context,
     ProtocolHandlerMap* protocol_handlers,
@@ -65,6 +82,12 @@ bool ContentBrowserClient::CanCommitURL(RenderProcessHost* process_host,
   return true;
 }
 
+bool ContentBrowserClient::IsIllegalOrigin(ResourceContext* resource_context,
+                                           int child_process_id,
+                                           const GURL& origin) {
+  return false;
+}
+
 bool ContentBrowserClient::ShouldAllowOpenURL(SiteInstance* site_instance,
                                               const GURL& url) {
   return true;
@@ -89,6 +112,10 @@ bool ContentBrowserClient::ShouldSwapBrowsingInstancesForNavigation(
     const GURL& current_url,
     const GURL& new_url) {
   return false;
+}
+
+scoped_ptr<media::CdmFactory> ContentBrowserClient::CreateCdmFactory() {
+  return nullptr;
 }
 
 bool ContentBrowserClient::ShouldSwapProcessesForRedirect(
@@ -194,6 +221,12 @@ QuotaPermissionContext* ContentBrowserClient::CreateQuotaPermissionContext() {
   return nullptr;
 }
 
+scoped_ptr<storage::QuotaEvictionPolicy>
+ContentBrowserClient::GetTemporaryStorageEvictionPolicy(
+    content::BrowserContext* context) {
+  return scoped_ptr<storage::QuotaEvictionPolicy>();
+}
+
 void ContentBrowserClient::SelectClientCertificate(
     WebContents* web_contents,
     net::SSLCertRequestInfo* cert_request_info,
@@ -285,6 +318,10 @@ std::string ContentBrowserClient::GetDefaultDownloadName() {
   return std::string();
 }
 
+base::FilePath ContentBrowserClient::GetShaderDiskCacheDirectory() {
+  return base::FilePath();
+}
+
 BrowserPpapiHost*
     ContentBrowserClient::GetExternalBrowserPpapiHost(int plugin_process_id) {
   return nullptr;
@@ -344,9 +381,19 @@ void ContentBrowserClient::OpenURL(
   callback.Run(nullptr);
 }
 
+ScopedVector<NavigationThrottle>
+ContentBrowserClient::CreateThrottlesForNavigation(
+    NavigationHandle* navigation_handle) {
+  return ScopedVector<NavigationThrottle>();
+}
+
 #if defined(OS_WIN)
 const wchar_t* ContentBrowserClient::GetResourceDllName() {
   return nullptr;
+}
+
+bool ContentBrowserClient::PreSpawnRenderer(sandbox::TargetPolicy* policy) {
+  return true;
 }
 
 base::string16 ContentBrowserClient::GetAppContainerSidForSandboxType(

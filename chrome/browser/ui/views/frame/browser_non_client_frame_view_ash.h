@@ -29,7 +29,7 @@ class ToggleImageButton;
 
 class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
                                      public ash::ShellObserver,
-                                     public chrome::TabIconViewModel,
+                                     public TabIconViewModel,
                                      public views::ButtonListener {
  public:
   static const char kViewClassName[];
@@ -41,7 +41,7 @@ class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
 
   // BrowserNonClientFrameView:
   gfx::Rect GetBoundsForTabStrip(views::View* tabstrip) const override;
-  int GetTopInset() const override;
+  int GetTopInset(bool restored) const override;
   int GetThemeBackgroundXInset() const override;
   void UpdateThrobber(bool running) override;
   void UpdateToolbar() override;
@@ -70,7 +70,7 @@ class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
   void OnMaximizeModeStarted() override;
   void OnMaximizeModeEnded() override;
 
-  // chrome::TabIconViewModel:
+  // TabIconViewModel:
   bool ShouldTabIconViewAnimate() const override;
   gfx::ImageSkia GetFaviconForTabIconView() override;
 
@@ -120,7 +120,9 @@ class BrowserNonClientFrameViewAsh : public BrowserNonClientFrameView,
 
   // Layout the avatar button.
   void LayoutAvatar();
+#if defined(FRAME_AVATAR_BUTTON)
   void LayoutNewStyleAvatar();
+#endif
 
   // Returns true if there is anything to paint. Some fullscreen windows do not
   // need their frames painted.

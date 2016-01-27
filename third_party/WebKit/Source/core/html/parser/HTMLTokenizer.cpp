@@ -36,7 +36,6 @@
 #include "core/xml/parser/MarkupTokenizerInlines.h"
 #include "platform/NotImplemented.h"
 #include "wtf/ASCIICType.h"
-#include "wtf/text/AtomicString.h"
 #include "wtf/text/Unicode.h"
 
 // Please don't use DEFINE_STATIC_LOCAL in this file. The HTMLTokenizer is used
@@ -46,23 +45,6 @@
 namespace blink {
 
 using namespace HTMLNames;
-
-// This has to go in a .cpp file, as the linker doesn't like it being included more than once.
-// We don't have an HTMLToken.cpp though, so this is the next best place.
-QualifiedName AtomicHTMLToken::nameForAttribute(const HTMLToken::Attribute& attribute) const
-{
-    return QualifiedName(nullAtom, AtomicString(attribute.name), nullAtom);
-}
-
-bool AtomicHTMLToken::usesName() const
-{
-    return m_type == HTMLToken::StartTag || m_type == HTMLToken::EndTag || m_type == HTMLToken::DOCTYPE;
-}
-
-bool AtomicHTMLToken::usesAttributes() const
-{
-    return m_type == HTMLToken::StartTag || m_type == HTMLToken::EndTag;
-}
 
 static inline UChar toLowerCase(UChar cc)
 {
@@ -122,37 +104,6 @@ void HTMLTokenizer::reset()
     m_forceNullCharacterReplacement = false;
     m_shouldAllowCDATA = false;
     m_additionalAllowedCharacter = '\0';
-}
-
-bool HTMLTokenizer::canCreateCheckpoint() const
-{
-    if (!m_appropriateEndTagName.isEmpty())
-        return false;
-    if (!m_temporaryBuffer.isEmpty())
-        return false;
-    if (!m_bufferedEndTagName.isEmpty())
-        return false;
-    return true;
-}
-
-void HTMLTokenizer::createCheckpoint(Checkpoint& result) const
-{
-    ASSERT(canCreateCheckpoint());
-    result.options = m_options;
-    result.state = m_state;
-    result.additionalAllowedCharacter = m_additionalAllowedCharacter;
-    result.skipNextNewLine = m_inputStreamPreprocessor.skipNextNewLine();
-    result.shouldAllowCDATA = m_shouldAllowCDATA;
-}
-
-void HTMLTokenizer::restoreFromCheckpoint(const Checkpoint& checkpoint)
-{
-    m_token = 0;
-    m_options = checkpoint.options;
-    m_state = checkpoint.state;
-    m_additionalAllowedCharacter = checkpoint.additionalAllowedCharacter;
-    m_inputStreamPreprocessor.reset(checkpoint.skipNextNewLine);
-    m_shouldAllowCDATA = checkpoint.shouldAllowCDATA;
 }
 
 inline bool HTMLTokenizer::processEntity(SegmentedString& source)

@@ -9,7 +9,7 @@
 #include "cc/layers/append_quads_data.h"
 #include "cc/layers/solid_color_layer.h"
 #include "cc/quads/solid_color_draw_quad.h"
-#include "cc/test/fake_impl_proxy.h"
+#include "cc/test/fake_impl_task_runner_provider.h"
 #include "cc/test/fake_layer_tree_host.h"
 #include "cc/test/layer_test_common.h"
 #include "cc/test/test_task_graph_runner.h"
@@ -26,9 +26,10 @@ TEST(SolidColorLayerImplTest, VerifyTilingCompleteAndNoOverlap) {
   gfx::Size layer_size = gfx::Size(800, 600);
   gfx::Rect visible_layer_rect = gfx::Rect(layer_size);
 
-  FakeImplProxy proxy;
+  FakeImplTaskRunnerProvider task_runner_provider;
   TestTaskGraphRunner task_graph_runner;
-  FakeLayerTreeHostImpl host_impl(&proxy, nullptr, &task_graph_runner);
+  FakeLayerTreeHostImpl host_impl(&task_runner_provider, nullptr,
+                                  &task_graph_runner);
   scoped_ptr<SolidColorLayerImpl> layer =
       SolidColorLayerImpl::Create(host_impl.active_tree(), 1);
   layer->draw_properties().visible_layer_rect = visible_layer_rect;
@@ -51,9 +52,10 @@ TEST(SolidColorLayerImplTest, VerifyCorrectBackgroundColorInQuad) {
   gfx::Size layer_size = gfx::Size(100, 100);
   gfx::Rect visible_layer_rect = gfx::Rect(layer_size);
 
-  FakeImplProxy proxy;
+  FakeImplTaskRunnerProvider task_runner_provider;
   TestTaskGraphRunner task_graph_runner;
-  FakeLayerTreeHostImpl host_impl(&proxy, nullptr, &task_graph_runner);
+  FakeLayerTreeHostImpl host_impl(&task_runner_provider, nullptr,
+                                  &task_graph_runner);
   scoped_ptr<SolidColorLayerImpl> layer =
       SolidColorLayerImpl::Create(host_impl.active_tree(), 1);
   layer->draw_properties().visible_layer_rect = visible_layer_rect;
@@ -79,9 +81,10 @@ TEST(SolidColorLayerImplTest, VerifyCorrectOpacityInQuad) {
   gfx::Size layer_size = gfx::Size(100, 100);
   gfx::Rect visible_layer_rect = gfx::Rect(layer_size);
 
-  FakeImplProxy proxy;
+  FakeImplTaskRunnerProvider task_runner_provider;
   TestTaskGraphRunner task_graph_runner;
-  FakeLayerTreeHostImpl host_impl(&proxy, nullptr, &task_graph_runner);
+  FakeLayerTreeHostImpl host_impl(&task_runner_provider, nullptr,
+                                  &task_graph_runner);
   scoped_ptr<SolidColorLayerImpl> layer =
       SolidColorLayerImpl::Create(host_impl.active_tree(), 1);
   layer->draw_properties().visible_layer_rect = visible_layer_rect;
@@ -107,13 +110,14 @@ TEST(SolidColorLayerImplTest, VerifyCorrectBlendModeInQuad) {
   gfx::Size layer_size = gfx::Size(100, 100);
   gfx::Rect visible_layer_rect = gfx::Rect(layer_size);
 
-  FakeImplProxy proxy;
+  FakeImplTaskRunnerProvider task_runner_provider;
   TestTaskGraphRunner task_graph_runner;
-  FakeLayerTreeHostImpl host_impl(&proxy, nullptr, &task_graph_runner);
+  FakeLayerTreeHostImpl host_impl(&task_runner_provider, nullptr,
+                                  &task_graph_runner);
   scoped_ptr<SolidColorLayerImpl> layer =
       SolidColorLayerImpl::Create(host_impl.active_tree(), 1);
   layer->SetBounds(layer_size);
-  layer->draw_properties().blend_mode = blend_mode;
+  layer->set_draw_blend_mode(blend_mode);
 
   AppendQuadsData data;
   layer->AppendQuads(render_pass.get(), &data);
@@ -143,9 +147,8 @@ TEST(SolidColorLayerImplTest, VerifyOpaqueRect) {
       FakeLayerTreeHost::Create(&client, &task_graph_runner);
   host->SetRootLayer(root);
 
-  RenderSurfaceLayerList render_surface_layer_list;
-  LayerTreeHostCommon::CalcDrawPropsMainInputsForTesting inputs(
-      root.get(), gfx::Size(500, 500), &render_surface_layer_list);
+  LayerTreeHostCommon::CalcDrawPropsMainInputs inputs(root.get(),
+                                                      gfx::Size(500, 500));
   LayerTreeHostCommon::CalculateDrawProperties(&inputs);
 
   EXPECT_FALSE(layer->contents_opaque());

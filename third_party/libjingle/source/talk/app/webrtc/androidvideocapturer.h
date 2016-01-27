@@ -32,6 +32,7 @@
 
 #include "talk/media/base/videocapturer.h"
 #include "webrtc/base/thread_checker.h"
+#include "webrtc/common_video/interface/video_frame_buffer.h"
 
 namespace webrtc {
 
@@ -49,10 +50,6 @@ class AndroidVideoCapturerDelegate : public rtc::RefCountInterface {
   // The delegate may not call into AndroidVideoCapturer after this call.
   virtual void Stop() = 0;
 
-  // Notify that a frame received in OnIncomingFrame with |time_stamp| has been
-  // processed and can be returned. May be called on an arbitrary thread.
-  virtual void ReturnBuffer(int64 time_stamp) = 0;
-
   // Must returns a JSON string "{{width=xxx, height=xxx, framerate = xxx}}"
   virtual std::string GetSupportedFormats() = 0;
 };
@@ -69,15 +66,20 @@ class AndroidVideoCapturer : public cricket::VideoCapturer {
   void OnCapturerStarted(bool success);
 
   // Called from JNI when a new frame has been captured.
-  void OnIncomingFrame(void* video_frame,
-                       int length,
-                       int rotation,
-                       int64 time_stamp);
+  // Argument |buffer| is intentionally by value, for use with rtc::Bind.
+  void OnIncomingFrame(
+      const rtc::scoped_refptr<webrtc::VideoFrameBuffer>& buffer,
+      int rotation,
+      int64_t time_stamp);
 
   // Called from JNI to request a new video format.
   void OnOutputFormatRequest(int width, int height, int fps);
 
   AndroidVideoCapturerDelegate* delegate() { return delegate_.get(); }
+
+  // cricket::VideoCapturer implementation.
+  bool GetBestCaptureFormat(const cricket::VideoFormat& desired,
+                            cricket::VideoFormat* best_format) override;
 
  private:
   // cricket::VideoCapturer implementation.
@@ -88,7 +90,7 @@ class AndroidVideoCapturer : public cricket::VideoCapturer {
   void Stop() override;
   bool IsRunning() override;
   bool IsScreencast() const override { return false; }
-  bool GetPreferredFourccs(std::vector<uint32>* fourccs) override;
+  bool GetPreferredFourccs(std::vector<uint32_t>* fourccs) override;
 
   bool running_;
   rtc::scoped_refptr<AndroidVideoCapturerDelegate> delegate_;

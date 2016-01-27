@@ -28,7 +28,7 @@ class LocationBarViewMac;
 class Profile;
 @class ReloadButton;
 @class ToolbarButton;
-@class WrenchMenuController;
+@class AppMenuController;
 
 namespace content {
 class WebContents;
@@ -73,7 +73,7 @@ class NotificationBridge;
       browserActionsContainerDelegate_;
 
   // Lazily-instantiated menu controller.
-  base::scoped_nsobject<WrenchMenuController> wrenchMenuController_;
+  base::scoped_nsobject<AppMenuController> appMenuController_;
 
   // Used for monitoring the optional toolbar button prefs.
   scoped_ptr<ToolbarControllerInternal::NotificationBridge> notificationBridge_;
@@ -81,10 +81,6 @@ class NotificationBridge;
   BOOL hasToolbar_;  // If NO, we may have only the location bar.
   BOOL hasLocationBar_;  // If |hasToolbar_| is YES, this must also be YES.
   BOOL locationBarAtMinSize_; // If the location bar is at the minimum size.
-
-  // We have an extra retain in the locationBar_.
-  // See comments in awakeFromNib for more info.
-  base::scoped_nsobject<AutocompleteTextField> locationBarRetainer_;
 
   // Tracking area for mouse enter/exit/moved in the toolbar.
   ui::ScopedCrTrackingArea trackingArea_;
@@ -99,10 +95,12 @@ class NotificationBridge;
 
 // Initialize the toolbar and register for command updates. The profile is
 // needed for initializing the location bar. The browser is needed for
-// the toolbar model and back/forward menus.
+// the toolbar model and back/forward menus. The resizeDelegate is used
+// to smoothly animate height changes for the toolbar.
 - (id)initWithCommands:(CommandUpdater*)commands
                profile:(Profile*)profile
-               browser:(Browser*)browser;
+               browser:(Browser*)browser
+        resizeDelegate:(id<ViewResizer>)resizeDelegate;
 
 // Get the C++ bridge object representing the location bar for this tab.
 - (LocationBarViewMac*)locationBarBridge;
@@ -133,10 +131,6 @@ class NotificationBridge;
 
 // Sets whether or not the current page is translated.
 - (void)setTranslateIconLit:(BOOL)on;
-
-// Sets whether or not an overflowed toolbar action wants to run.
-// Only used if the extension toolbar redesign is on.
-- (void)setOverflowedToolbarActionWantsToRun:(BOOL)overflowedActionWantsToRun;
 
 // Happens when the zoom for the active tab changes, the active tab switches, or
 // a new tab or browser window is created. |canShowBubble| indicates if it is
@@ -171,26 +165,18 @@ class NotificationBridge;
 // Create and add the Browser Action buttons to the toolbar view.
 - (void)createBrowserActionButtons;
 
+// Updates the visibility of the toolbar, with an optional animation.
+- (void)updateVisibility:(BOOL)visible withAnimation:(BOOL)animate;
+
 // Return the BrowserActionsController for this toolbar.
 - (BrowserActionsController*)browserActionsController;
 
 // Returns the wrench button.
 - (NSButton*)wrenchButton;
 
-// Returns the wrench menu controller.
-- (WrenchMenuController*)wrenchMenuController;
+// Returns the app menu controller.
+- (AppMenuController*)appMenuController;
 
-@end
-
-// A set of private methods used by subclasses. Do not call these directly
-// unless a subclass of ToolbarController.
-@interface ToolbarController(ProtectedMethods)
-// Designated initializer which takes a nib name in order to allow subclasses
-// to load a different nib file.
-- (id)initWithCommands:(CommandUpdater*)commands
-               profile:(Profile*)profile
-               browser:(Browser*)browser
-          nibFileNamed:(NSString*)nibName;
 @end
 
 // A set of private methods used by tests, in the absence of "friends" in ObjC.

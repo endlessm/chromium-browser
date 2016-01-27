@@ -67,6 +67,7 @@ class FakeSocket : public net::StreamSocket {
   void ClearConnectionAttempts() override {}
   void AddConnectionAttempts(const net::ConnectionAttempts& attempts) override {
   }
+  int64_t GetTotalReceivedBytes() const override;
 
  private:
   void DoAsyncWrite(scoped_refptr<net::IOBuffer> buf, int buf_len,
@@ -95,7 +96,7 @@ void CreateStunRequest(std::vector<char>* packet);
 void CreateStunResponse(std::vector<char>* packet);
 void CreateStunError(std::vector<char>* packet);
 
-net::IPEndPoint ParseAddress(const std::string ip_str, uint16 port);
+net::IPEndPoint ParseAddress(const std::string& ip_str, uint16 port);
 
 MATCHER_P(MatchMessage, type, "") {
   return arg->type() == type;

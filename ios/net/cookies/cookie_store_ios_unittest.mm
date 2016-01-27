@@ -38,10 +38,11 @@ struct CookieStoreIOSTestTraits {
   static const bool is_cookie_monster = false;
   static const bool supports_http_only = false;
   static const bool supports_non_dotted_domains = false;
-  static const bool supports_trailing_dots = false;
+  static const bool preserves_trailing_dots = false;
   static const bool filters_schemes = false;
   static const bool has_path_prefix_bug = true;
   static const int creation_time_granularity_in_ms = 1000;
+  static const int enforces_prefixes = true;
 
   base::MessageLoop loop_;
 };
@@ -54,10 +55,11 @@ struct InactiveCookieStoreIOSTestTraits {
   static const bool is_cookie_monster = false;
   static const bool supports_http_only = false;
   static const bool supports_non_dotted_domains = true;
-  static const bool supports_trailing_dots = true;
+  static const bool preserves_trailing_dots = true;
   static const bool filters_schemes = false;
   static const bool has_path_prefix_bug = false;
   static const int creation_time_granularity_in_ms = 0;
+  static const int enforces_prefixes = true;
 
   base::MessageLoop loop_;
 };
@@ -164,10 +166,11 @@ struct RoundTripTestCookieStoreTraits {
   static const bool is_cookie_monster = false;
   static const bool supports_http_only = false;
   static const bool supports_non_dotted_domains = false;
-  static const bool supports_trailing_dots = false;
+  static const bool preserves_trailing_dots = false;
   static const bool filters_schemes = false;
   static const bool has_path_prefix_bug = true;
   static const int creation_time_granularity_in_ms = 1000;
+  static const int enforces_prefixes = true;
 };
 
 }  // namespace net

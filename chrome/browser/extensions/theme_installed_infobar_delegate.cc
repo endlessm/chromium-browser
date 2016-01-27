@@ -22,7 +22,7 @@
 #include "extensions/common/extension.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
-
+#include "ui/gfx/vector_icons_public.h"
 
 // static
 void ThemeInstalledInfoBarDelegate::Create(
@@ -108,10 +108,16 @@ ThemeInstalledInfoBarDelegate::GetInfoBarType() const {
   return PAGE_ACTION_TYPE;
 }
 
-int ThemeInstalledInfoBarDelegate::GetIconID() const {
-  // TODO(aa): Reply with the theme's icon, but this requires reading it
-  // asynchronously from disk.
+int ThemeInstalledInfoBarDelegate::GetIconId() const {
   return IDR_INFOBAR_THEME;
+}
+
+gfx::VectorIconId ThemeInstalledInfoBarDelegate::GetVectorIconId() const {
+#if defined(OS_MACOSX)
+  return gfx::VectorIconId::VECTOR_ICON_NONE;
+#else
+  return gfx::VectorIconId::PAINTBRUSH;
+#endif
 }
 
 ThemeInstalledInfoBarDelegate*

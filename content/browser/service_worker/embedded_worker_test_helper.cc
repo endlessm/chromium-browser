@@ -18,9 +18,13 @@
 #include "content/browser/service_worker/service_worker_context_wrapper.h"
 #include "content/common/service_worker/embedded_worker_messages.h"
 #include "content/common/service_worker/service_worker_messages.h"
+#include "content/public/test/mock_render_process_host.h"
+#include "content/public/test/test_browser_context.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace content {
+
+namespace {
 
 class MockMessagePortMessageFilter : public MessagePortMessageFilter {
  public:
@@ -40,6 +44,8 @@ class MockMessagePortMessageFilter : public MessagePortMessageFilter {
   ScopedVector<IPC::Message> message_queue_;
 };
 
+}  // namespace
+
 EmbeddedWorkerTestHelper::EmbeddedWorkerTestHelper(
     const base::FilePath& user_data_directory,
     int mock_render_process_id)
@@ -57,6 +63,24 @@ EmbeddedWorkerTestHelper::EmbeddedWorkerTestHelper(
                          NULL);
   wrapper_->process_manager()->SetProcessIdForTest(mock_render_process_id);
   registry()->AddChildProcessSender(mock_render_process_id, this,
+                                    NewMessagePortMessageFilter());
+}
+
+EmbeddedWorkerTestHelper::EmbeddedWorkerTestHelper(
+    const base::FilePath& user_data_directory)
+    : browser_context_(new TestBrowserContext),
+      render_process_host_(new MockRenderProcessHost(browser_context_.get())),
+      wrapper_(new ServiceWorkerContextWrapper(browser_context_.get())),
+      next_thread_id_(0),
+      mock_render_process_id_(render_process_host_->GetID()),
+      weak_factory_(this) {
+  scoped_ptr<MockServiceWorkerDatabaseTaskManager> database_task_manager(
+      new MockServiceWorkerDatabaseTaskManager(
+          base::ThreadTaskRunnerHandle::Get()));
+  wrapper_->InitInternal(user_data_directory, database_task_manager.Pass(),
+                         base::ThreadTaskRunnerHandle::Get(), nullptr, nullptr);
+  wrapper_->process_manager()->SetProcessIdForTest(mock_render_process_id_);
+  registry()->AddChildProcessSender(mock_render_process_id_, this,
                                     NewMessagePortMessageFilter());
 }
 
@@ -114,7 +138,8 @@ void EmbeddedWorkerTestHelper::OnStartWorker(int embedded_worker_id,
       service_worker_version_id;
   SimulateWorkerReadyForInspection(embedded_worker_id);
   SimulateWorkerScriptCached(embedded_worker_id);
-  SimulateWorkerScriptLoaded(next_thread_id_++, embedded_worker_id);
+  SimulateWorkerScriptLoaded(embedded_worker_id);
+  SimulateWorkerThreadStarted(next_thread_id_++, embedded_worker_id);
   SimulateWorkerScriptEvaluated(embedded_worker_id);
   SimulateWorkerStarted(embedded_worker_id);
 }
@@ -135,7 +160,6 @@ bool EmbeddedWorkerTestHelper::OnMessageToWorker(
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_InstallEvent, OnInstallEventStub)
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_FetchEvent, OnFetchEventStub)
     IPC_MESSAGE_HANDLER(ServiceWorkerMsg_PushEvent, OnPushEventStub)
-    IPC_MESSAGE_HANDLER(ServiceWorkerMsg_SyncEvent, OnSyncEventStub)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   // Record all messages directed to inner script context.
@@ -183,13 +207,6 @@ void EmbeddedWorkerTestHelper::OnPushEvent(int embedded_worker_id,
       blink::WebServiceWorkerEventResultCompleted));
 }
 
-void EmbeddedWorkerTestHelper::OnSyncEvent(int embedded_worker_id,
-                                           int request_id) {
-  SimulateSend(new ServiceWorkerHostMsg_SyncEventFinished(
-      embedded_worker_id, request_id,
-      blink::WebServiceWorkerEventResultCompleted));
-}
-
 void EmbeddedWorkerTestHelper::SimulateWorkerReadyForInspection(
     int embedded_worker_id) {
   EmbeddedWorkerInstance* worker = registry()->GetWorker(embedded_worker_id);
@@ -215,11 +232,19 @@ void EmbeddedWorkerTestHelper::SimulateWorkerScriptCached(
 }
 
 void EmbeddedWorkerTestHelper::SimulateWorkerScriptLoaded(
-    int thread_id, int embedded_worker_id) {
+    int embedded_worker_id) {
   EmbeddedWorkerInstance* worker = registry()->GetWorker(embedded_worker_id);
   ASSERT_TRUE(worker != NULL);
-  registry()->OnWorkerScriptLoaded(
-      worker->process_id(), thread_id, embedded_worker_id);
+  registry()->OnWorkerScriptLoaded(worker->process_id(), embedded_worker_id);
+}
+
+void EmbeddedWorkerTestHelper::SimulateWorkerThreadStarted(
+    int thread_id,
+    int embedded_worker_id) {
+  EmbeddedWorkerInstance* worker = registry()->GetWorker(embedded_worker_id);
+  ASSERT_TRUE(worker != NULL);
+  registry()->OnWorkerThreadStarted(worker->process_id(), thread_id,
+                                    embedded_worker_id);
 }
 
 void EmbeddedWorkerTestHelper::SimulateWorkerScriptEvaluated(
@@ -329,13 +354,6 @@ void EmbeddedWorkerTestHelper::OnPushEventStub(int request_id,
       FROM_HERE, base::Bind(&EmbeddedWorkerTestHelper::OnPushEvent,
                             weak_factory_.GetWeakPtr(),
                             current_embedded_worker_id_, request_id, data));
-}
-
-void EmbeddedWorkerTestHelper::OnSyncEventStub(int request_id) {
-  base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::Bind(&EmbeddedWorkerTestHelper::OnSyncEvent,
-                            weak_factory_.GetWeakPtr(),
-                            current_embedded_worker_id_, request_id));
 }
 
 EmbeddedWorkerRegistry* EmbeddedWorkerTestHelper::registry() {

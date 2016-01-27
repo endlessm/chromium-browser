@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/android/content_settings/popup_blocked_infobar_delegate.h"
 
 #include "base/prefs/pref_service.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/blocked_content/popup_blocker_tab_helper.h"
@@ -27,7 +28,9 @@ void PopupBlockedInfoBarDelegate::Create(content::WebContents* web_contents,
       InfoBarService::FromWebContents(web_contents);
   scoped_ptr<infobars::InfoBar> infobar(infobar_service->CreateConfirmInfoBar(
       scoped_ptr<ConfirmInfoBarDelegate>(new PopupBlockedInfoBarDelegate(
-          num_popups, url, profile->GetHostContentSettingsMap()))));
+          num_popups,
+          url,
+          HostContentSettingsMapFactory::GetForProfile(profile)))));
 
   // See if there is an existing popup infobar already.
   // TODO(dfalcantara) When triggering more than one popup the infobar
@@ -47,7 +50,7 @@ void PopupBlockedInfoBarDelegate::Create(content::WebContents* web_contents,
 PopupBlockedInfoBarDelegate::~PopupBlockedInfoBarDelegate() {
 }
 
-int PopupBlockedInfoBarDelegate::GetIconID() const {
+int PopupBlockedInfoBarDelegate::GetIconId() const {
   return IDR_BLOCKED_POPUPS;
 }
 
@@ -89,8 +92,8 @@ bool PopupBlockedInfoBarDelegate::Accept() {
   DCHECK(can_show_popups_);
 
   // Create exceptions.
-  map_->AddExceptionForURL(
-      url_, url_, CONTENT_SETTINGS_TYPE_POPUPS, CONTENT_SETTING_ALLOW);
+  map_->SetNarrowestContentSetting(url_, url_, CONTENT_SETTINGS_TYPE_POPUPS,
+                                   CONTENT_SETTING_ALLOW);
 
   // Launch popups.
   content::WebContents* web_contents =

@@ -124,7 +124,6 @@ def SetupWindowsEnvironment(context):
 
 
 def SetupGyp(context, extra_vars=[]):
-  context.SetEnv('GYP_GENERATORS', 'ninja')
   if RunningOnBuildbot():
     goma_opts = [
         'use_goma=1',
@@ -137,6 +136,12 @@ def SetupGyp(context, extra_vars=[]):
 
 
 def SetupLinuxEnvironment(context):
+  if context['arch'] == 'mips32':
+    # Ensure the trusted mips toolchain is installed.
+    cmd = ['build/package_version/package_version.py', '--packages',
+           'linux_x86/mips_trusted', 'sync', '-x']
+    Command(context, cmd)
+
   SetupGyp(context, ['target_arch='+context['gyp_arch']])
 
 
@@ -146,7 +151,6 @@ def SetupMacEnvironment(context):
 
 def SetupAndroidEnvironment(context):
   SetupGyp(context, ['OS=android', 'target_arch='+context['gyp_arch']])
-  context.SetEnv('GYP_GENERATORS', 'ninja')
   context.SetEnv('GYP_CROSSCOMPILE', '1')
 
 

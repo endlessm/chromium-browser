@@ -344,14 +344,12 @@ EventResponseDelta* CalculateOnHeadersReceivedDelta(
     std::string name;
     std::string value;
     while (old_response_headers->EnumerateHeaderLines(&iter, &name, &value)) {
-      std::string name_lowercase(name);
-      base::StringToLowerASCII(&name_lowercase);
+      std::string name_lowercase = base::ToLowerASCII(name);
 
       bool header_found = false;
-      for (ResponseHeaders::const_iterator i = new_response_headers->begin();
-           i != new_response_headers->end(); ++i) {
-        if (base::LowerCaseEqualsASCII(i->first, name_lowercase.c_str()) &&
-            value == i->second) {
+      for (const auto& i : *new_response_headers) {
+        if (base::LowerCaseEqualsASCII(i.first, name_lowercase) &&
+            value == i.second) {
           header_found = true;
           break;
         }
@@ -363,17 +361,21 @@ EventResponseDelta* CalculateOnHeadersReceivedDelta(
 
   // Find added headers (header keys are treated case insensitively).
   {
-    for (ResponseHeaders::const_iterator i = new_response_headers->begin();
-         i != new_response_headers->end(); ++i) {
-      void* iter = NULL;
+    for (const auto& i : *new_response_headers) {
+      std::string name_lowercase = base::ToLowerASCII(i.first);
+      void* iter = nullptr;
+      std::string name;
       std::string value;
       bool header_found = false;
-      while (old_response_headers->EnumerateHeader(&iter, i->first, &value) &&
-             !header_found) {
-        header_found = (value == i->second);
+      while (old_response_headers->EnumerateHeaderLines(&iter, &name, &value)) {
+        if (base::LowerCaseEqualsASCII(name, name_lowercase) &&
+            value == i.second) {
+          header_found = true;
+          break;
+        }
       }
       if (!header_found)
-        result->added_response_headers.push_back(*i);
+        result->added_response_headers.push_back(i);
     }
   }
 
@@ -1019,9 +1021,7 @@ void MergeCookiesInOnHeadersReceivedResponses(
 
 // Converts the key of the (key, value) pair to lower case.
 static ResponseHeader ToLowerCase(const ResponseHeader& header) {
-  std::string lower_key(header.first);
-  base::StringToLowerASCII(&lower_key);
-  return ResponseHeader(lower_key, header.second);
+  return ResponseHeader(base::ToLowerASCII(header.first), header.second);
 }
 
 // Returns the extension ID of the first extension in |deltas| that removes the
@@ -1029,14 +1029,11 @@ static ResponseHeader ToLowerCase(const ResponseHeader& header) {
 static std::string FindRemoveResponseHeader(
     const EventResponseDeltas& deltas,
     const std::string& key) {
-  std::string lower_key = base::StringToLowerASCII(key);
-  EventResponseDeltas::const_iterator delta;
-  for (delta = deltas.begin(); delta != deltas.end(); ++delta) {
-    ResponseHeaders::const_iterator i;
-    for (i = (*delta)->deleted_response_headers.begin();
-         i != (*delta)->deleted_response_headers.end(); ++i) {
-      if (base::StringToLowerASCII(i->first) == lower_key)
-        return (*delta)->extension_id;
+  std::string lower_key = base::ToLowerASCII(key);
+  for (const auto& delta : deltas) {
+    for (const auto& deleted_hdr : delta->deleted_response_headers) {
+      if (base::ToLowerASCII(deleted_hdr.first) == lower_key)
+        return delta->extension_id;
     }
   }
   return std::string();

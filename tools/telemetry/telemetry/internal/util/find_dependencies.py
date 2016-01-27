@@ -5,19 +5,20 @@
 import fnmatch
 import imp
 import logging
-import modulefinder
 import optparse
 import os
 import sys
 import zipfile
 
-from catapult_base import cloud_storage
 from telemetry import benchmark
 from telemetry.core import discover
 from telemetry.internal.util import bootstrap
 from telemetry.internal.util import command_line
 from telemetry.internal.util import path
 from telemetry.internal.util import path_set
+
+from modulegraph import modulegraph
+
 
 DEPS_FILE = 'bootstrap_deps'
 
@@ -28,33 +29,51 @@ def FindBootstrapDependencies(base_dir):
     return []
   deps_paths = bootstrap.ListAllDepsPaths(deps_file)
   return set(os.path.realpath(os.path.join(
-      path.GetChromiumSrcDir(), os.pardir, deps_path))
+      path.GetChromiumSrcDir(), '..', deps_path))
       for deps_path in deps_paths)
 
 
 def FindPythonDependencies(module_path):
   logging.info('Finding Python dependencies of %s' % module_path)
 
-  # Load the module to inherit its sys.path modifications.
-  imp.load_source(
-      os.path.splitext(os.path.basename(module_path))[0], module_path)
+  sys_path = sys.path
+  sys.path = list(sys_path)
+  try:
+    # Load the module to inherit its sys.path modifications.
+    sys.path.insert(0, os.path.abspath(os.path.dirname(module_path)))
+    imp.load_source(
+        os.path.splitext(os.path.basename(module_path))[0], module_path)
 
-  # Analyze the module for its imports.
-  finder = modulefinder.ModuleFinder()
-  finder.run_script(module_path)
+    # Analyze the module for its imports.
+    graph = modulegraph.ModuleGraph()
+    graph.run_script(module_path)
 
-  # Filter for only imports in Chromium.
-  for module in finder.modules.itervalues():
-    # If it's an __init__.py, module.__path__ gives the package's folder.
-    module_path = module.__path__[0] if module.__path__ else module.__file__
-    if not module_path:
-      continue
+    # Filter for only imports in Chromium.
+    for node in graph.nodes():
+      if not node.filename:
+        continue
+      module_path = os.path.realpath(node.filename)
 
-    module_path = os.path.realpath(module_path)
-    if not path.IsSubpath(module_path, path.GetChromiumSrcDir()):
-      continue
+      _, incoming_edges = graph.get_edges(node)
+      message = 'Discovered %s (Imported by: %s)' % (
+          node.filename, ', '.join(
+              d.filename for d in incoming_edges
+              if d is not None and d.filename is not None))
+      logging.info(message)
 
-    yield module_path
+      # This check is done after the logging/printing above to make sure that
+      # we also print out the dependency edges that include python packages
+      # that are not in chromium.
+      if not path.IsSubpath(module_path, path.GetChromiumSrcDir()):
+        continue
+
+      yield module_path
+      if node.packagepath is not None:
+        for p in node.packagepath:
+          yield p
+
+  finally:
+    sys.path = sys_path
 
 
 def FindPageSetDependencies(base_dir):
@@ -180,35 +199,6 @@ def ZipDependencies(target_paths, dependencies, options):
         % relative_path)
 
       zip_file.writestr(link_info, link_script)
-
-    # Add gsutil to the archive, if it's available. The gsutil in
-    # depot_tools is modified to allow authentication using prodaccess.
-    # TODO: If there's a gsutil in telemetry/third_party/, bootstrap_deps
-    # will include it. Then there will be two copies of gsutil at the same
-    # location in the archive. This can be confusing for users.
-    gsutil_path = os.path.realpath(cloud_storage.FindGsutil())
-    if cloud_storage.SupportsProdaccess(gsutil_path):
-      gsutil_base_dir = os.path.join(os.path.dirname(gsutil_path), os.pardir)
-      gsutil_dependencies = path_set.PathSet()
-      gsutil_dependencies.add(os.path.dirname(gsutil_path))
-      # Also add modules from depot_tools that are needed by gsutil.
-      gsutil_dependencies.add(os.path.join(gsutil_base_dir, 'boto'))
-      gsutil_dependencies.add(os.path.join(gsutil_base_dir, 'fancy_urllib'))
-      gsutil_dependencies.add(os.path.join(gsutil_base_dir, 'retry_decorator'))
-      gsutil_dependencies -= FindExcludedFiles(
-          set(gsutil_dependencies), options)
-
-      # Also add upload.py to the archive from depot_tools, if it is available.
-      # This allows us to post patches without requiring a full depot_tools
-      # install. There's no real point in including upload.py if we do not
-      # also have gsutil, which is why this is inside the gsutil block.
-      gsutil_dependencies.add(os.path.join(gsutil_base_dir, 'upload.py'))
-
-      for dependency_path in gsutil_dependencies:
-        path_in_archive = os.path.join(
-            'telemetry', os.path.relpath(path.GetTelemetryDir(), base_dir),
-            'third_party', os.path.relpath(dependency_path, gsutil_base_dir))
-        zip_file.write(dependency_path, path_in_archive)
 
 
 class FindDependenciesCommand(command_line.OptparseCommand):

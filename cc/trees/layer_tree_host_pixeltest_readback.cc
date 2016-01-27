@@ -105,14 +105,14 @@ class LayerTreeHostReadbackPixelTest
   }
 
   void ReadbackResultAsBitmap(scoped_ptr<CopyOutputResult> result) {
-    EXPECT_TRUE(proxy()->IsMainThread());
+    EXPECT_TRUE(task_runner_provider()->IsMainThread());
     EXPECT_TRUE(result->HasBitmap());
     result_bitmap_ = result->TakeBitmap().Pass();
     EndTest();
   }
 
   void ReadbackResultAsTexture(scoped_ptr<CopyOutputResult> result) {
-    EXPECT_TRUE(proxy()->IsMainThread());
+    EXPECT_TRUE(task_runner_provider()->IsMainThread());
     EXPECT_TRUE(result->HasTexture());
 
     TextureMailbox texture_mailbox;
@@ -123,7 +123,7 @@ class LayerTreeHostReadbackPixelTest
 
     scoped_ptr<SkBitmap> bitmap =
         CopyTextureMailboxToBitmap(result->size(), texture_mailbox);
-    release_callback->Run(0, false);
+    release_callback->Run(gpu::SyncToken(), false);
 
     ReadbackResultAsBitmap(CopyOutputResult::CreateBitmapResult(bitmap.Pass()));
   }
@@ -391,7 +391,7 @@ TEST_P(LayerTreeHostReadbackPixelTest, ReadbackNonRootLayerOutsideViewport) {
       CreateSolidColorLayer(gfx::Rect(200, 200), SK_ColorGREEN);
   // Only the top left quarter of the layer is inside the viewport, so the
   // blue layer is entirely outside.
-  green->SetPosition(gfx::Point(100, 100));
+  green->SetPosition(gfx::PointF(100.f, 100.f));
   background->AddChild(green);
 
   scoped_refptr<SolidColorLayer> blue =
@@ -497,7 +497,7 @@ TEST_P(LayerTreeHostReadbackDeviceScalePixelTest, ReadbackSubrect) {
 
   scoped_refptr<FakePictureLayer> blue =
       FakePictureLayer::Create(layer_settings(), &blue_client_);
-  blue->SetPosition(gfx::Point(50, 50));
+  blue->SetPosition(gfx::PointF(50.f, 50.f));
   blue->SetBounds(gfx::Size(25, 25));
   blue->SetIsDrawable(true);
   green->AddChild(blue);
@@ -518,14 +518,14 @@ TEST_P(LayerTreeHostReadbackDeviceScalePixelTest, ReadbackNonRootLayerSubrect) {
 
   scoped_refptr<FakePictureLayer> green =
       FakePictureLayer::Create(layer_settings(), &green_client_);
-  green->SetPosition(gfx::Point(10, 20));
+  green->SetPosition(gfx::PointF(10.f, 20.f));
   green->SetBounds(gfx::Size(90, 80));
   green->SetIsDrawable(true);
   background->AddChild(green);
 
   scoped_refptr<FakePictureLayer> blue =
       FakePictureLayer::Create(layer_settings(), &blue_client_);
-  blue->SetPosition(gfx::Point(50, 50));
+  blue->SetPosition(gfx::PointF(50.f, 50.f));
   blue->SetBounds(gfx::Size(25, 25));
   blue->SetIsDrawable(true);
   green->AddChild(blue);

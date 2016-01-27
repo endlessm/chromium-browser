@@ -5,7 +5,7 @@
 #ifndef AsyncOperationMap_h
 #define AsyncOperationMap_h
 
-#include "core/inspector/InspectorDebuggerAgent.h"
+#include "core/inspector/v8/V8DebuggerAgent.h"
 #include "platform/heap/Handle.h"
 #include "wtf/HashMap.h"
 #include "wtf/PassRefPtr.h"
@@ -15,10 +15,10 @@ namespace blink {
 
 template <class K>
 class AsyncOperationMap final {
-    ALLOW_ONLY_INLINE_ALLOCATION();
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     using MapType = WillBeHeapHashMap<K, int>;
-    explicit AsyncOperationMap(InspectorDebuggerAgent* debuggerAgent)
+    explicit AsyncOperationMap(V8DebuggerAgent* debuggerAgent)
         : m_debuggerAgent(debuggerAgent)
     {
     }
@@ -75,12 +75,11 @@ public:
 
     DEFINE_INLINE_TRACE()
     {
-        visitor->trace(m_debuggerAgent);
         visitor->trace(m_asyncOperations);
     }
 
 private:
-    RawPtrWillBeMember<InspectorDebuggerAgent> m_debuggerAgent;
+    V8DebuggerAgent* m_debuggerAgent;
     MapType m_asyncOperations;
 };
 

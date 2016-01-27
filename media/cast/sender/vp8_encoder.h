@@ -10,7 +10,7 @@
 #include "base/threading/thread_checker.h"
 #include "media/cast/cast_config.h"
 #include "media/cast/sender/software_video_encoder.h"
-#include "third_party/libvpx/source/libvpx/vpx/vpx_encoder.h"
+#include "third_party/libvpx_new/source/libvpx/vpx/vpx_encoder.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace media {
@@ -113,6 +113,11 @@ class Vp8Encoder : public SoftwareVideoEncoder {
 
   // This is bound to the thread where Initialize() is called.
   base::ThreadChecker thread_checker_;
+
+  // Set to true once a frame with zero-length encoded data has been
+  // encountered.
+  // TODO(miu): Remove after discovering cause.  http://crbug.com/519022
+  bool has_seen_zero_length_encoded_frame_;
 
   DISALLOW_COPY_AND_ASSIGN(Vp8Encoder);
 };

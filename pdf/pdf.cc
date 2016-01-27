@@ -16,9 +16,13 @@
 #include "ppapi/cpp/private/pdf.h"
 #include "v8/include/v8.h"
 
+namespace chrome_pdf {
+
+namespace {
+
 bool g_sdk_initialized_via_pepper = false;
 
-namespace chrome_pdf {
+}  // namespace
 
 PDFModule::PDFModule() {
 }

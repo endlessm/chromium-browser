@@ -18,11 +18,14 @@
 #include "extensions/browser/event_router.h"
 #include "ui/shell_dialogs/select_file_dialog.h"
 
-class ChromeBookmarkClient;
-
 namespace base {
 class FilePath;
 class ListValue;
+}
+
+namespace bookmarks {
+class BookmarkModel;
+class ManagedBookmarkService;
 }
 
 namespace content {
@@ -76,12 +79,13 @@ class BookmarkEventRouter : public bookmarks::BookmarkModelObserver {
 
  private:
   // Helper to actually dispatch an event to extension listeners.
-  void DispatchEvent(const std::string& event_name,
+  void DispatchEvent(events::HistogramValue histogram_value,
+                     const std::string& event_name,
                      scoped_ptr<base::ListValue> event_args);
 
   content::BrowserContext* browser_context_;
   bookmarks::BookmarkModel* model_;
-  ChromeBookmarkClient* client_;
+  bookmarks::ManagedBookmarkService* managed_;
 
   DISALLOW_COPY_AND_ASSIGN(BookmarkEventRouter);
 };
@@ -131,8 +135,8 @@ class BookmarksFunction : public ChromeAsyncExtensionFunction,
   // Helper to get the BookmarkModel.
   bookmarks::BookmarkModel* GetBookmarkModel();
 
-  // Helper to get the ChromeBookmarkClient.
-  ChromeBookmarkClient* GetChromeBookmarkClient();
+  // Helper to get the ManagedBookmarkService.
+  bookmarks::ManagedBookmarkService* GetManagedBookmarkService();
 
   // Helper to get the bookmark id as int64 from the given string id.
   // Sets error_ to an error string if the given id string can't be parsed

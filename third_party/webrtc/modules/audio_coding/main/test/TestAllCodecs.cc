@@ -18,10 +18,10 @@
 
 #include "webrtc/common_types.h"
 #include "webrtc/engine_configurations.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module_typedefs.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module_typedefs.h"
 #include "webrtc/modules/audio_coding/main/test/utility.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/test/testsupport/fileutils.h"
 #include "webrtc/typedefs.h"
 
@@ -74,7 +74,7 @@ int32_t TestPack::SendData(FrameType frame_type, uint8_t payload_type,
   } else {
     rtp_info.type.Audio.isCNG = false;
   }
-  if (frame_type == kFrameEmpty) {
+  if (frame_type == kEmptyFrame) {
     // Skip this frame.
     return 0;
   }
@@ -223,7 +223,6 @@ void TestAllCodecs::Perform() {
   Run(channel_a_to_b_);
   outfile_b_.Close();
 #endif
-#ifdef WEBRTC_CODEC_PCM16
   if (test_mode_ != 0) {
     printf("===============================================================\n");
   }
@@ -263,7 +262,6 @@ void TestAllCodecs::Perform() {
   RegisterSendCodec('A', codec_l16, 32000, 512000, 640, 0);
   Run(channel_a_to_b_);
   outfile_b_.Close();
-#endif
   if (test_mode_ != 0) {
     printf("===============================================================\n");
   }
@@ -338,9 +336,6 @@ void TestAllCodecs::Perform() {
 #endif
 #ifndef WEBRTC_CODEC_ISACFX
     printf("   ISAC fix\n");
-#endif
-#ifndef WEBRTC_CODEC_PCM16
-    printf("   PCM16\n");
 #endif
 
     printf("\nTo complete the test, listen to the %d number of output files.\n",
@@ -482,8 +477,7 @@ void TestAllCodecs::OpenOutFile(int test_number) {
 
 void TestAllCodecs::DisplaySendReceiveCodec() {
   CodecInst my_codec_param;
-  acm_a_->SendCodec(&my_codec_param);
-  printf("%s -> ", my_codec_param.plname);
+  printf("%s -> ", acm_a_->SendCodec()->plname);
   acm_b_->ReceiveCodec(&my_codec_param);
   printf("%s\n", my_codec_param.plname);
 }

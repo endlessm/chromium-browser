@@ -11,7 +11,6 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/time.h"
 #include "chrome/browser/supervised_user/supervised_users.h"
@@ -93,10 +92,15 @@ class SupervisedUserWhitelistService : public syncer::SyncableService {
       const sync_pb::ManagedUserWhitelistSpecifics& whitelist);
   void RemoveWhitelist(base::DictionaryValue* pref_dict, const std::string& id);
 
+  enum WhitelistSource {
+    FROM_SYNC,
+    FROM_COMMAND_LINE,
+  };
+
   // Registers a new or existing whitelist.
   void RegisterWhitelist(const std::string& id,
                          const std::string& name,
-                         bool new_installation);
+                         WhitelistSource source);
 
   void GetLoadedWhitelists(
       std::vector<scoped_refptr<SupervisedUserSiteList>>* whitelists);

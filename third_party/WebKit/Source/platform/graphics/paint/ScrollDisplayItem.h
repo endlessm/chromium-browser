@@ -7,41 +7,50 @@
 
 #include "platform/geometry/IntSize.h"
 #include "platform/graphics/paint/DisplayItem.h"
-#include "wtf/FastAllocBase.h"
+#include "wtf/Allocator.h"
 #include "wtf/PassOwnPtr.h"
 
 namespace blink {
 
-class PLATFORM_EXPORT BeginScrollDisplayItem : public PairedBeginDisplayItem {
+class PLATFORM_EXPORT BeginScrollDisplayItem final : public PairedBeginDisplayItem {
 public:
     BeginScrollDisplayItem(const DisplayItemClientWrapper& client, Type type, const IntSize& currentOffset)
-        : PairedBeginDisplayItem(client, type)
+        : PairedBeginDisplayItem(client, type, sizeof(*this))
         , m_currentOffset(currentOffset)
     {
         ASSERT(isScrollType(type));
     }
 
-    void replay(GraphicsContext&) override;
-    void appendToWebDisplayItemList(WebDisplayItemList*) const override;
+    void replay(GraphicsContext&) const override;
+    void appendToWebDisplayItemList(const IntRect&, WebDisplayItemList*) const override;
+
+    const IntSize& currentOffset() const { return m_currentOffset; }
 
 private:
 #ifndef NDEBUG
     void dumpPropertiesAsDebugString(WTF::StringBuilder&) const final;
 #endif
+#if ENABLE(ASSERT)
+    bool equals(const DisplayItem& other) const final
+    {
+        return DisplayItem::equals(other)
+            && m_currentOffset == static_cast<const BeginScrollDisplayItem&>(other).m_currentOffset;
+    }
+#endif
 
     const IntSize m_currentOffset;
 };
 
-class PLATFORM_EXPORT EndScrollDisplayItem : public PairedEndDisplayItem {
+class PLATFORM_EXPORT EndScrollDisplayItem final : public PairedEndDisplayItem {
 public:
     EndScrollDisplayItem(const DisplayItemClientWrapper& client, Type type)
-        : PairedEndDisplayItem(client, type)
+        : PairedEndDisplayItem(client, type, sizeof(*this))
     {
         ASSERT(isEndScrollType(type));
     }
 
-    void replay(GraphicsContext&) override;
-    void appendToWebDisplayItemList(WebDisplayItemList*) const override;
+    void replay(GraphicsContext&) const override;
+    void appendToWebDisplayItemList(const IntRect&, WebDisplayItemList*) const override;
 
 private:
 #if ENABLE(ASSERT)

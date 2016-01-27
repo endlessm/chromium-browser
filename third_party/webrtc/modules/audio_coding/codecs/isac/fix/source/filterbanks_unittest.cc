@@ -13,7 +13,7 @@
 #include "webrtc/modules/audio_coding/codecs/isac/fix/source/filterbank_internal.h"
 #include "webrtc/modules/audio_coding/codecs/isac/fix/source/filterbank_tables.h"
 #include "webrtc/modules/audio_coding/codecs/isac/fix/source/settings.h"
-#include "webrtc/system_wrappers/interface/cpu_features_wrapper.h"
+#include "webrtc/system_wrappers/include/cpu_features_wrapper.h"
 #include "webrtc/typedefs.h"
 
 class FilterBanksTest : public testing::Test {
@@ -64,18 +64,12 @@ class FilterBanksTest : public testing::Test {
 
 TEST_F(FilterBanksTest, AllpassFilter2FixDec16Test) {
   CalculateResidualEnergyTester(WebRtcIsacfix_AllpassFilter2FixDec16C);
-
-// Disable AllpassFilter2FixDec16Neon function due to a clang bug.
-// Refer more details at:
-// https://code.google.com/p/webrtc/issues/detail?id=4567
-#if !(defined __clang__) || !defined(WEBRTC_ARCH_ARM64)
 #ifdef WEBRTC_DETECT_NEON
   if ((WebRtc_GetCPUFeaturesARM() & kCPUFeatureNEON) != 0) {
     CalculateResidualEnergyTester(WebRtcIsacfix_AllpassFilter2FixDec16Neon);
   }
 #elif defined(WEBRTC_HAS_NEON)
   CalculateResidualEnergyTester(WebRtcIsacfix_AllpassFilter2FixDec16Neon);
-#endif
 #endif
 }
 

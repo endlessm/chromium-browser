@@ -9,19 +9,19 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/thread_task_runner_handle.h"
-#include "chromecast/media/base/decrypt_context.h"
+#include "chromecast/media/base/decrypt_context_impl.h"
 #include "chromecast/media/cdm/browser_cdm_cast.h"
-#include "chromecast/media/cma/backend/media_clock_device.h"
-#include "chromecast/media/cma/backend/media_component_device.h"
 #include "chromecast/media/cma/base/buffering_frame_provider.h"
 #include "chromecast/media/cma/base/buffering_state.h"
 #include "chromecast/media/cma/base/cma_logging.h"
 #include "chromecast/media/cma/base/coded_frame_provider.h"
 #include "chromecast/media/cma/base/decoder_buffer_base.h"
 #include "chromecast/media/cma/pipeline/decrypt_util.h"
+#include "chromecast/public/media/cast_decrypt_config.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/decrypt_config.h"
+#include "media/base/timestamp_constants.h"
 
 namespace chromecast {
 namespace media {
@@ -32,30 +32,27 @@ const int kNoCallbackId = -1;
 
 }  // namespace
 
-AvPipelineImpl::AvPipelineImpl(
-    MediaComponentDevice* media_component_device,
-    const UpdateConfigCB& update_config_cb)
+AvPipelineImpl::AvPipelineImpl(MediaPipelineBackend::Decoder* decoder,
+                               const UpdateConfigCB& update_config_cb)
     : update_config_cb_(update_config_cb),
-      media_component_device_(media_component_device),
+      decoder_(decoder),
       state_(kUninitialized),
       buffered_time_(::media::kNoTimestamp()),
       playable_buffered_time_(::media::kNoTimestamp()),
       enable_feeding_(false),
       pending_read_(false),
-      pending_push_(false),
       enable_time_update_(false),
       pending_time_update_task_(false),
       media_keys_(NULL),
       media_keys_callback_id_(kNoCallbackId),
       weak_factory_(this) {
-  DCHECK(media_component_device);
+  DCHECK(decoder_);
   weak_this_ = weak_factory_.GetWeakPtr();
   thread_checker_.DetachFromThread();
 }
 
 AvPipelineImpl::~AvPipelineImpl() {
   DCHECK(thread_checker_.CalledOnValidThread());
-  media_component_device_->SetClient(MediaComponentDevice::Client());
 
   if (media_keys_ && media_keys_callback_id_ != kNoCallbackId)
     media_keys_->UnregisterPlayer(media_keys_callback_id_);
@@ -64,6 +61,14 @@ AvPipelineImpl::~AvPipelineImpl() {
 void AvPipelineImpl::TransitionToState(State state) {
   DCHECK(thread_checker_.CalledOnValidThread());
   state_ = state;
+
+  if (state_ == kFlushing) {
+    // Break the feeding loop.
+    enable_feeding_ = false;
+
+    // Remove any pending buffer.
+    pending_buffer_ = nullptr;
+  }
 }
 
 void AvPipelineImpl::SetCodedFrameProvider(
@@ -74,31 +79,11 @@ void AvPipelineImpl::SetCodedFrameProvider(
   DCHECK(frame_provider);
 
   // Wrap the incoming frame provider to add some buffering capabilities.
-  frame_provider_.reset(
-      new BufferingFrameProvider(
-          frame_provider.Pass(),
-          max_buffer_size,
-          max_frame_size,
-          base::Bind(&AvPipelineImpl::OnFrameBuffered, weak_this_)));
-}
-
-void AvPipelineImpl::SetClient(const AvPipelineClient& client) {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK_EQ(state_, kUninitialized);
-  client_ = client;
-}
-
-bool AvPipelineImpl::Initialize() {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK_EQ(state_, kUninitialized);
-
-  MediaComponentDevice::Client client;
-  client.eos_cb = base::Bind(&AvPipelineImpl::OnEos, weak_this_);
-  media_component_device_->SetClient(client);
-  if (!media_component_device_->SetState(MediaComponentDevice::kStateIdle))
-    return false;
-
-  return true;
+  frame_provider_.reset(new BufferingFrameProvider(
+      frame_provider.Pass(),
+      max_buffer_size,
+      max_frame_size,
+      base::Bind(&AvPipelineImpl::OnDataBuffered, weak_this_)));
 }
 
 bool AvPipelineImpl::StartPlayingFrom(
@@ -107,21 +92,11 @@ bool AvPipelineImpl::StartPlayingFrom(
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_EQ(state_, kFlushed);
 
-  // Media time where rendering should start
-  // and switch to a state where the audio device accepts incoming buffers.
-  if (!media_component_device_->SetStartPts(time) ||
-      !media_component_device_->SetState(MediaComponentDevice::kStatePaused)) {
-    return false;
-  }
-
   // Buffering related initialization.
   DCHECK(frame_provider_);
   buffering_state_ = buffering_state;
   if (buffering_state_.get())
     buffering_state_->SetMediaTime(time);
-
-  if (!media_component_device_->SetState(MediaComponentDevice::kStateRunning))
-    return false;
 
   // Start feeding the pipeline.
   enable_feeding_ = true;
@@ -134,24 +109,20 @@ bool AvPipelineImpl::StartPlayingFrom(
 void AvPipelineImpl::Flush(const base::Closure& done_cb) {
   DCHECK(thread_checker_.CalledOnValidThread());
   DCHECK_EQ(state_, kFlushing);
-  DCHECK_EQ(
-      media_component_device_->GetState(), MediaComponentDevice::kStateRunning);
-  // Note: returning to idle state aborts any pending frame push.
-  media_component_device_->SetState(MediaComponentDevice::kStateIdle);
-  pending_push_ = false;
 
-  // Break the feeding loop.
-  enable_feeding_ = false;
-
-  // Remove any pending buffer.
-  pending_buffer_ = scoped_refptr<DecoderBufferBase>();
-
-  // Finally, remove any frames left in the frame provider.
+  // Remove any frames left in the frame provider.
   pending_read_ = false;
   buffered_time_ = ::media::kNoTimestamp();
   playable_buffered_time_ = ::media::kNoTimestamp();
   non_playable_frames_.clear();
   frame_provider_->Flush(done_cb);
+}
+
+void AvPipelineImpl::BackendStopped() {
+  DCHECK(thread_checker_.CalledOnValidThread());
+
+  // Note: returning to idle state aborts any pending frame push.
+  pushed_buffer_ = nullptr;
 }
 
 void AvPipelineImpl::Stop() {
@@ -163,18 +134,6 @@ void AvPipelineImpl::Stop() {
 
   // Stop feeding the pipeline.
   enable_feeding_ = false;
-
-  // Release hardware resources on Stop.
-  if (media_component_device_->GetState() ==
-          MediaComponentDevice::kStatePaused ||
-      media_component_device_->GetState() ==
-          MediaComponentDevice::kStateRunning) {
-    media_component_device_->SetState(MediaComponentDevice::kStateIdle);
-  }
-  if (media_component_device_->GetState() == MediaComponentDevice::kStateIdle) {
-    media_component_device_->SetState(
-        MediaComponentDevice::kStateUninitialized);
-  }
 }
 
 void AvPipelineImpl::SetCdm(BrowserCdmCast* media_keys) {
@@ -190,22 +149,12 @@ void AvPipelineImpl::SetCdm(BrowserCdmCast* media_keys) {
       base::Bind(&AvPipelineImpl::OnCdmDestroyed, weak_this_));
 }
 
-void AvPipelineImpl::OnEos() {
-  DCHECK(thread_checker_.CalledOnValidThread());
-  CMALOG(kLogControl) << __FUNCTION__;
-  if (state_ != kPlaying)
-    return;
-
-  if (!client_.eos_cb.is_null())
-    client_.eos_cb.Run();
-}
-
 void AvPipelineImpl::FetchBufferIfNeeded() {
   DCHECK(thread_checker_.CalledOnValidThread());
   if (!enable_feeding_)
     return;
 
-  if (pending_read_ || pending_buffer_.get())
+  if (pending_read_ || pending_buffer_)
     return;
 
   pending_read_ = true;
@@ -219,6 +168,9 @@ void AvPipelineImpl::OnNewFrame(
     const ::media::VideoDecoderConfig& video_config) {
   DCHECK(thread_checker_.CalledOnValidThread());
   pending_read_ = false;
+
+  if (!enable_feeding_)
+    return;
 
   if (audio_config.IsValidConfig() || video_config.IsValidConfig())
     update_config_cb_.Run(buffer->stream_id(), audio_config, video_config);
@@ -235,14 +187,14 @@ void AvPipelineImpl::ProcessPendingBuffer() {
     return;
 
   // Initiate a read if there isn't already one.
-  if (!pending_buffer_.get() && !pending_read_) {
+  if (!pending_buffer_ && !pending_read_) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&AvPipelineImpl::FetchBufferIfNeeded, weak_this_));
     return;
   }
 
-  if (!pending_buffer_.get() || pending_push_)
+  if (!pending_buffer_ || pushed_buffer_)
     return;
 
   // Break the feeding loop when the end of stream is reached.
@@ -251,7 +203,7 @@ void AvPipelineImpl::ProcessPendingBuffer() {
     enable_feeding_ = false;
   }
 
-  scoped_refptr<DecryptContext> decrypt_context;
+  scoped_ptr<DecryptContextImpl> decrypt_context;
   if (!pending_buffer_->end_of_stream() &&
       pending_buffer_->decrypt_config()) {
     // Verify that CDM has the key ID.
@@ -259,13 +211,12 @@ void AvPipelineImpl::ProcessPendingBuffer() {
     std::string key_id(pending_buffer_->decrypt_config()->key_id());
     if (!media_keys_) {
       CMALOG(kLogControl) << "No CDM for frame: pts="
-                          << pending_buffer_->timestamp().InMilliseconds();
+                          << pending_buffer_->timestamp();
       return;
     }
     decrypt_context = media_keys_->GetDecryptContext(key_id);
     if (!decrypt_context.get()) {
-      CMALOG(kLogControl) << "frame(pts="
-                          << pending_buffer_->timestamp().InMilliseconds()
+      CMALOG(kLogControl) << "frame(pts=" << pending_buffer_->timestamp()
                           << "): waiting for key id "
                           << base::HexEncode(&key_id[0], key_id.size());
       return;
@@ -276,31 +227,33 @@ void AvPipelineImpl::ProcessPendingBuffer() {
     crypto::SymmetricKey* key = decrypt_context->GetKey();
     if (key != NULL) {
       pending_buffer_ = DecryptDecoderBuffer(pending_buffer_, key);
-      decrypt_context = scoped_refptr<DecryptContext>();
+      decrypt_context.reset();
     }
   }
 
   if (!pending_buffer_->end_of_stream() && buffering_state_.get()) {
-    base::TimeDelta timestamp = pending_buffer_->timestamp();
+    base::TimeDelta timestamp =
+        base::TimeDelta::FromMicroseconds(pending_buffer_->timestamp());
     if (timestamp != ::media::kNoTimestamp())
       buffering_state_->SetMaxRenderingTime(timestamp);
   }
 
-  MediaComponentDevice::FrameStatus status = media_component_device_->PushFrame(
-      decrypt_context,
-      pending_buffer_,
-      base::Bind(&AvPipelineImpl::OnFramePushed, weak_this_));
-  pending_buffer_ = scoped_refptr<DecoderBufferBase>();
+  DCHECK(!pushed_buffer_);
+  pushed_buffer_ = pending_buffer_;
+  if (decrypt_context && decrypt_context->GetKeySystem() != KEY_SYSTEM_NONE)
+    pushed_buffer_->set_decrypt_context(decrypt_context.Pass());
+  pending_buffer_ = nullptr;
+  MediaPipelineBackend::BufferStatus status =
+      decoder_->PushBuffer(pushed_buffer_.get());
 
-  pending_push_ = (status == MediaComponentDevice::kFramePending);
-  if (!pending_push_)
-    OnFramePushed(status);
+  if (status != MediaPipelineBackend::kBufferPending)
+    OnBufferPushed(status);
 }
 
-void AvPipelineImpl::OnFramePushed(MediaComponentDevice::FrameStatus status) {
+void AvPipelineImpl::OnBufferPushed(MediaPipelineBackend::BufferStatus status) {
   DCHECK(thread_checker_.CalledOnValidThread());
-  pending_push_ = false;
-  if (status == MediaComponentDevice::kFrameFailed) {
+  pushed_buffer_ = nullptr;
+  if (status == MediaPipelineBackend::kBufferFailed) {
     LOG(WARNING) << "AvPipelineImpl: PushFrame failed";
     enable_feeding_ = false;
     state_ = kError;
@@ -326,7 +279,7 @@ void AvPipelineImpl::OnCdmDestroyed() {
   media_keys_ = NULL;
 }
 
-void AvPipelineImpl::OnFrameBuffered(
+void AvPipelineImpl::OnDataBuffered(
     const scoped_refptr<DecoderBufferBase>& buffer,
     bool is_at_max_capacity) {
   DCHECK(thread_checker_.CalledOnValidThread());
@@ -336,8 +289,9 @@ void AvPipelineImpl::OnFrameBuffered(
 
   if (!buffer->end_of_stream() &&
       (buffered_time_ == ::media::kNoTimestamp() ||
-       buffered_time_ < buffer->timestamp())) {
-    buffered_time_ = buffer->timestamp();
+       buffered_time_ <
+           base::TimeDelta::FromMicroseconds(buffer->timestamp()))) {
+    buffered_time_ = base::TimeDelta::FromMicroseconds(buffer->timestamp());
   }
 
   if (is_at_max_capacity)
@@ -359,7 +313,7 @@ void AvPipelineImpl::UpdatePlayableFrames() {
     if (non_playable_frame->end_of_stream()) {
       buffering_state_->NotifyEos();
     } else {
-      const ::media::DecryptConfig* decrypt_config =
+      const CastDecryptConfig* decrypt_config =
           non_playable_frame->decrypt_config();
       if (decrypt_config &&
           !(media_keys_ &&
@@ -370,8 +324,10 @@ void AvPipelineImpl::UpdatePlayableFrames() {
       }
 
       if (playable_buffered_time_ == ::media::kNoTimestamp() ||
-          playable_buffered_time_ < non_playable_frame->timestamp()) {
-        playable_buffered_time_ = non_playable_frame->timestamp();
+          playable_buffered_time_ < base::TimeDelta::FromMicroseconds(
+                                        non_playable_frame->timestamp())) {
+        playable_buffered_time_ =
+            base::TimeDelta::FromMicroseconds(non_playable_frame->timestamp());
         buffering_state_->SetBufferedTime(playable_buffered_time_);
       }
     }

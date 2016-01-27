@@ -102,7 +102,7 @@ class MockDiskEntry : public disk_cache::Entry,
   bool fail_sparse_requests_;
   bool busy_;
   bool delayed_;
-  static bool cancel_;
+  bool cancel_;
   static bool ignore_callbacks_;
 };
 
@@ -127,6 +127,7 @@ class MockDiskCache : public disk_cache::Backend {
                          const CompletionCallback& callback) override;
   int DoomEntriesSince(base::Time initial_time,
                        const CompletionCallback& callback) override;
+  int CalculateSizeOfAllEntries(const CompletionCallback& callback) override;
   scoped_ptr<Iterator> CreateIterator() override;
   void GetStats(base::StringPairs* stats) override;
   void OnExternalCacheHit(const std::string& key) override;
@@ -176,7 +177,8 @@ class MockBackendFactory : public HttpCache::BackendFactory {
 class MockHttpCache {
  public:
   MockHttpCache();
-  explicit MockHttpCache(HttpCache::BackendFactory* disk_cache_factory);
+  explicit MockHttpCache(
+      scoped_ptr<HttpCache::BackendFactory> disk_cache_factory);
 
   HttpCache* http_cache() { return &http_cache_; }
 

@@ -22,15 +22,16 @@
 #ifndef PseudoStyleRequest_h
 #define PseudoStyleRequest_h
 
+#include "core/layout/LayoutScrollbar.h"
 #include "core/style/ComputedStyleConstants.h"
 #include "platform/scroll/ScrollTypes.h"
 
 namespace blink {
 
-class LayoutScrollbar;
 class ComputedStyle;
 
 class PseudoStyleRequest {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
 
     enum RequestType { ForRenderer, ForComputedStyle };
@@ -47,8 +48,13 @@ public:
         : pseudoId(pseudoId)
         , type(requestType)
         , scrollbarPart(NoPart)
-        , scrollbar(0)
+        , scrollbar(nullptr)
     {
+    }
+
+    DEFINE_INLINE_TRACE()
+    {
+        visitor->trace(scrollbar);
     }
 
     // The spec disallows inheritance for ::backdrop.
@@ -60,7 +66,7 @@ public:
     PseudoId pseudoId;
     RequestType type;
     ScrollbarPart scrollbarPart;
-    LayoutScrollbar* scrollbar;
+    RawPtrWillBeMember<LayoutScrollbar> scrollbar;
 };
 
 } // namespace blink

@@ -76,6 +76,7 @@ RTCDataChannel::RTCDataChannel(ExecutionContext* context, RTCPeerConnection* con
     , m_binaryType(BinaryTypeArrayBuffer)
     , m_scheduledEventTimer(this, &RTCDataChannel::scheduledEventTimerFired)
     , m_connection(connection)
+    , m_bufferedAmountLowThreshold(0U)
 {
     m_handler->setClient(this);
 }
@@ -154,6 +155,16 @@ String RTCDataChannel::readyState() const
 unsigned RTCDataChannel::bufferedAmount() const
 {
     return m_handler->bufferedAmount();
+}
+
+unsigned RTCDataChannel::bufferedAmountLowThreshold() const
+{
+    return m_bufferedAmountLowThreshold;
+}
+
+void RTCDataChannel::setBufferedAmountLowThreshold(unsigned threshold)
+{
+    m_bufferedAmountLowThreshold = threshold;
 }
 
 String RTCDataChannel::binaryType() const
@@ -250,6 +261,14 @@ void RTCDataChannel::didChangeReadyState(WebRTCDataChannelHandlerClient::ReadySt
     }
 }
 
+void RTCDataChannel::didDecreaseBufferedAmount(unsigned previousAmount)
+{
+    if (previousAmount > m_bufferedAmountLowThreshold
+        && bufferedAmount() <= m_bufferedAmountLowThreshold) {
+        scheduleDispatchEvent(Event::create(EventTypeNames::bufferedamountlow));
+    }
+}
+
 void RTCDataChannel::didReceiveStringData(const WebString& text)
 {
     if (m_stopped)
@@ -306,7 +325,7 @@ void RTCDataChannel::scheduleDispatchEvent(PassRefPtrWillBeRawPtr<Event> event)
     m_scheduledEvents.append(event);
 
     if (!m_scheduledEventTimer.isActive())
-        m_scheduledEventTimer.startOneShot(0, FROM_HERE);
+        m_scheduledEventTimer.startOneShot(0, BLINK_FROM_HERE);
 }
 
 void RTCDataChannel::scheduledEventTimerFired(Timer<RTCDataChannel>*)

@@ -28,7 +28,7 @@
 #ifndef ResourceRequest_h
 #define ResourceRequest_h
 
-#include "platform/network/FormData.h"
+#include "platform/network/EncodedFormData.h"
 #include "platform/network/HTTPHeaderMap.h"
 #include "platform/network/HTTPParsers.h"
 #include "platform/network/ResourceLoadPriority.h"
@@ -48,6 +48,15 @@ enum ResourceRequestCachePolicy {
     ReloadBypassingCache, // end-to-end reload
 };
 
+enum ResourceRequestBlockedReason {
+    ResourceRequestBlockedReasonCSP,
+    ResourceRequestBlockedReasonMixedContent,
+    ResourceRequestBlockedReasonOrigin,
+    ResourceRequestBlockedReasonInspector,
+    ResourceRequestBlockedReasonOther,
+    ResourceRequestBlockedReasonNone
+};
+
 enum InputToLoadPerfMetricReportPolicy {
     NoReport, // Don't report metrics for this ResourceRequest.
     ReportLink, // Report metrics for this request as initiated by a link click.
@@ -57,7 +66,7 @@ enum InputToLoadPerfMetricReportPolicy {
 struct CrossThreadResourceRequestData;
 
 class PLATFORM_EXPORT ResourceRequest {
-    WTF_MAKE_FAST_ALLOCATED(ResourceRequest);
+    USING_FAST_MALLOC(ResourceRequest);
 public:
     class ExtraData : public RefCounted<ExtraData> {
     public:
@@ -137,8 +146,8 @@ public:
     const AtomicString& httpAccept() const { return httpHeaderField("Accept"); }
     void setHTTPAccept(const AtomicString& httpAccept) { setHTTPHeaderField("Accept", httpAccept); }
 
-    FormData* httpBody() const;
-    void setHTTPBody(PassRefPtr<FormData> httpBody);
+    EncodedFormData* httpBody() const;
+    void setHTTPBody(PassRefPtr<EncodedFormData>);
 
     bool allowStoredCredentials() const;
     void setAllowStoredCredentials(bool allowCredentials);
@@ -209,6 +218,12 @@ public:
     WebURLRequest::FetchCredentialsMode fetchCredentialsMode() const { return m_fetchCredentialsMode; }
     void setFetchCredentialsMode(WebURLRequest::FetchCredentialsMode mode) { m_fetchCredentialsMode = mode; }
 
+    WebURLRequest::FetchRedirectMode fetchRedirectMode() const { return m_fetchRedirectMode; }
+    void setFetchRedirectMode(WebURLRequest::FetchRedirectMode redirect) { m_fetchRedirectMode = redirect; }
+
+    WebURLRequest::LoFiState loFiState() const { return m_loFiState; }
+    void setLoFiState(WebURLRequest::LoFiState loFiState) { m_loFiState = loFiState; }
+
     bool cacheControlContainsNoCache() const;
     bool cacheControlContainsNoStore() const;
     bool hasCacheValidatorFields() const;
@@ -242,7 +257,7 @@ private:
     RefPtr<SecurityOrigin> m_requestorOrigin;
     AtomicString m_httpMethod;
     HTTPHeaderMap m_httpHeaderFields;
-    RefPtr<FormData> m_httpBody;
+    RefPtr<EncodedFormData> m_httpBody;
     bool m_allowStoredCredentials : 1;
     bool m_reportUploadProgress : 1;
     bool m_reportRawHeaders : 1;
@@ -261,6 +276,8 @@ private:
     WebURLRequest::FrameType m_frameType;
     WebURLRequest::FetchRequestMode m_fetchRequestMode;
     WebURLRequest::FetchCredentialsMode m_fetchCredentialsMode;
+    WebURLRequest::FetchRedirectMode m_fetchRedirectMode;
+    WebURLRequest::LoFiState m_loFiState;
     ReferrerPolicy m_referrerPolicy;
     bool m_didSetHTTPReferrer;
     bool m_checkForBrowserSideNavigation;
@@ -281,7 +298,7 @@ inline bool operator==(const ResourceRequest& a, const ResourceRequest& b) { ret
 inline bool operator!=(ResourceRequest& a, const ResourceRequest& b) { return !(a == b); }
 
 struct CrossThreadResourceRequestData {
-    WTF_MAKE_NONCOPYABLE(CrossThreadResourceRequestData); WTF_MAKE_FAST_ALLOCATED(CrossThreadResourceRequestData);
+    WTF_MAKE_NONCOPYABLE(CrossThreadResourceRequestData); USING_FAST_MALLOC(CrossThreadResourceRequestData);
 public:
     CrossThreadResourceRequestData() { }
     KURL m_url;
@@ -293,7 +310,7 @@ public:
 
     String m_httpMethod;
     OwnPtr<CrossThreadHTTPHeaderMapData> m_httpHeaders;
-    RefPtr<FormData> m_httpBody;
+    RefPtr<EncodedFormData> m_httpBody;
     bool m_allowStoredCredentials;
     bool m_reportUploadProgress;
     bool m_hasUserGesture;
@@ -310,6 +327,8 @@ public:
     WebURLRequest::FrameType m_frameType;
     WebURLRequest::FetchRequestMode m_fetchRequestMode;
     WebURLRequest::FetchCredentialsMode m_fetchCredentialsMode;
+    WebURLRequest::FetchRedirectMode m_fetchRedirectMode;
+    WebURLRequest::LoFiState m_loFiState;
     ReferrerPolicy m_referrerPolicy;
     bool m_didSetHTTPReferrer;
     bool m_checkForBrowserSideNavigation;

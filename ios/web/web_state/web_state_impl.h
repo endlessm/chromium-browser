@@ -22,6 +22,8 @@
 @protocol CRWRequestTrackerDelegate;
 @class CRWWebController;
 @protocol CRWWebViewProxy;
+@class NSURLRequest;
+@class NSURLResponse;
 
 namespace net {
 class HttpResponseHeaders;
@@ -36,10 +38,11 @@ struct LoadCommittedDetails;
 class NavigationManager;
 class WebInterstitialImpl;
 class WebStateFacadeDelegate;
+class WebStatePolicyDecider;
 class WebUIIOS;
 
 // Implementation of WebState.
-// Generally mirrors upstream's WebContents implementation.
+// Generally mirrors //content's WebContents implementation.
 // General notes on expected WebStateImpl ownership patterns:
 //  - Outside of tests, WebStateImpls are created
 //      (a) By @Tab, when creating a new Tab.
@@ -68,13 +71,14 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
   // controller, or facade set, but which otherwise has the same state variables
   // as the calling object (including copies of the NavigationManager and its
   // attendant CRWSessionController).
-  // TODO(marq): Revisit this function and the ownership model described above;
-  // too this depends on and interacts directly with above-the-web-level
-  // information.
+  // TODO(crbug.com/546377): Clean up this method.
   WebStateImpl* CopyForSessionWindow();
 
   // Notifies the observers that a provisional navigation has started.
   void OnProvisionalNavigationStarted(const GURL& url);
+
+  // Called when a navigation is committed.
+  void OnNavigationCommitted(const GURL& url);
 
   // Notifies the observers that the URL hash of the current page changed.
   void OnUrlHashChanged();
@@ -104,11 +108,6 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
                                 const std::string& value,
                                 int key_code,
                                 bool input_missing);
-
-  // Called when autocomplete is requested.
-  void OnAutocompleteRequested(const GURL& source_url,
-                               const std::string& form_name,
-                               bool user_initiated);
 
   // Called when new FaviconURL candidates are received.
   void OnFaviconUrlUpdated(const std::vector<FaviconURL>& candidates);
@@ -161,8 +160,6 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
   // specific scheme.
   virtual void LoadWebUIHtml(const base::string16& html, const GURL& url);
 
-  const base::string16& GetTitle() const;
-
   // Gets the HTTP response headers associated with the current page.
   // NOTE: For a WKWebView-based WebState, these headers are generated via
   // net::CreateHeadersFromNSHTTPURLResponse(); see comments in
@@ -176,10 +173,22 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
   void OnHttpResponseHeadersReceived(net::HttpResponseHeaders* response_headers,
                                      const GURL& resource_url);
 
+  // Explicitly sets the MIME type, overwriting any MIME type that was set by
+  // headers. Note that this should be called after OnNavigationCommitted, as
+  // that is the point where MIME type is set from HTTP headers.
+  void SetContentsMimeType(const std::string& mime_type);
+
   // Executes a JavaScript string on the page asynchronously.
-  // TODO(shreyasv): Rename this to ExecuteJavaScript for consitency with
+  // TODO(shreyasv): Rename this to ExecuteJavaScript for consistency with
   // upstream API.
   virtual void ExecuteJavaScriptAsync(const base::string16& script);
+
+  // Returns whether the navigation corresponding to |request| should be allowed
+  // to continue by asking its policy deciders. Defaults to true.
+  bool ShouldAllowRequest(NSURLRequest* request);
+  // Returns whether the navigation corresponding to |response| should be
+  // allowed to continue by asking its policy deciders. Defaults to true.
+  bool ShouldAllowResponse(NSURLResponse* response);
 
   // Request tracker management. For now, this exposes the RequestTracker for
   // embedders to use.
@@ -218,7 +227,9 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
   const std::string& GetContentLanguageHeader() const override;
   const std::string& GetContentsMimeType() const override;
   bool ContentIsHTML() const override;
+  const base::string16& GetTitle() const override;
   bool IsLoading() const override;
+  bool IsBeingDestroyed() const override;
   const GURL& GetVisibleURL() const override;
   const GURL& GetLastCommittedURL() const override;
   GURL GetCurrentURL(URLVerificationTrustLevel* trust_level) const override;
@@ -243,6 +254,8 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
 
   // NavigationManagerDelegate:
   void NavigateToPendingEntry() override;
+  void OnNavigationItemsPruned(size_t pruned_item_count) override;
+  void OnNavigationItemChanged() override;
   void OnNavigationItemCommitted(
       const LoadCommittedDetails& load_details) override;
   WebState* GetWebState() override;
@@ -250,6 +263,8 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
  protected:
   void AddObserver(WebStateObserver* observer) override;
   void RemoveObserver(WebStateObserver* observer) override;
+  void AddPolicyDecider(WebStatePolicyDecider* decider) override;
+  void RemovePolicyDecider(WebStatePolicyDecider* decider) override;
 
  private:
   // Creates a WebUIIOS object for |url| that is owned by the caller. Returns
@@ -267,6 +282,9 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
   // Stores whether the web state is currently loading a page.
   bool is_loading_;
 
+  // Stores whether the web state is currently being destroyed.
+  bool is_being_destroyed_;
+
   // The delegate used to pass state to the web contents facade.
   WebStateFacadeDelegate* facade_delegate_;
 
@@ -281,6 +299,13 @@ class WebStateImpl : public WebState, public NavigationManagerDelegate {
 
   // A list of observers notified when page state changes. Weak references.
   base::ObserverList<WebStateObserver, true> observers_;
+
+  // All the WebStatePolicyDeciders asked for navigation decision. Weak
+  // references.
+  // WebStatePolicyDeciders are semantically different from observers (they
+  // modify the behavior of the WebState) but are used like observers in the
+  // code, hence the ObserverList.
+  base::ObserverList<WebStatePolicyDecider, true> policy_deciders_;
 
   // Map of all the HTTP response headers received, for each URL.
   // This map is cleared after each page load, and only the headers of the main

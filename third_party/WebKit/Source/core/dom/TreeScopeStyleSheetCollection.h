@@ -33,7 +33,6 @@
 #include "core/dom/DocumentOrderedList.h"
 #include "core/dom/StyleSheetCollection.h"
 #include "core/dom/TreeScope.h"
-#include "wtf/FastAllocBase.h"
 #include "wtf/HashMap.h"
 #include "wtf/ListHashSet.h"
 #include "wtf/RefPtr.h"
@@ -51,8 +50,6 @@ public:
     void addStyleSheetCandidateNode(Node*, bool createdByParser);
     void removeStyleSheetCandidateNode(Node* node) { m_styleSheetCandidateNodes.remove(node); }
     bool hasStyleSheetCandidateNodes() const { return !m_styleSheetCandidateNodes.isEmpty(); }
-
-    bool usesRemUnits() const { return m_usesRemUnits; }
 
     void clearMediaQueryRuleSetStyleSheets();
 
@@ -83,7 +80,6 @@ protected:
     };
 
     void analyzeStyleSheetChange(StyleResolverUpdateMode, const StyleSheetCollection&, StyleSheetChange&);
-    void updateUsesRemUnits();
 
 private:
     static StyleResolverUpdateType compareStyleSheets(const WillBeHeapVector<RefPtrWillBeMember<CSSStyleSheet>>& oldStyleSheets, const WillBeHeapVector<RefPtrWillBeMember<CSSStyleSheet>>& newStylesheets, WillBeHeapVector<RawPtrWillBeMember<StyleSheetContents>>& addedSheets);
@@ -94,7 +90,6 @@ private:
 protected:
     RawPtrWillBeMember<TreeScope> m_treeScope;
     bool m_hadActiveLoadingStylesheet;
-    bool m_usesRemUnits;
 
     DocumentOrderedList m_styleSheetCandidateNodes;
 };

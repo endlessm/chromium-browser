@@ -11,6 +11,7 @@
 
 namespace blink {
 
+class ExecutionContext;
 class SyncRegistrationOptions;
 class ScriptPromise;
 class ScriptState;
@@ -26,11 +27,8 @@ public:
 
     unsigned long minAllowablePeriod();
 
-    ScriptPromise registerFunction(ScriptState*);
-    ScriptPromise registerFunction(ScriptState*, const SyncRegistrationOptions&);
-    ScriptPromise getRegistration(ScriptState*, const String&);
-    ScriptPromise getRegistrations(ScriptState*);
-    ScriptPromise permissionState(ScriptState*);
+    ScriptPromise registerFunction(ScriptState*, ExecutionContext*, const String&);
+    ScriptPromise getTags(ScriptState*);
 
     DECLARE_TRACE();
 

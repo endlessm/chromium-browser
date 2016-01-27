@@ -57,12 +57,6 @@ void StringBuilder::reifyString()
         return;
     }
 
-    if (m_buffer->hasOneRef()) {
-        m_buffer->truncateAssumingIsolated(m_length);
-        m_string = m_buffer.release();
-        return;
-    }
-
     m_string = m_buffer->substring(0, m_length);
 }
 
@@ -167,11 +161,7 @@ void StringBuilder::reallocateBuffer<LChar>(unsigned requiredLength)
     ASSERT(m_is8Bit);
     ASSERT(m_buffer->is8Bit());
 
-    if (m_buffer->hasOneRef()) {
-        m_buffer = StringImpl::reallocate(m_buffer.release(), requiredLength);
-        m_bufferCharacters8 = const_cast<LChar*>(m_buffer->characters8());
-    } else
-        allocateBuffer(m_buffer->characters8(), requiredLength);
+    allocateBuffer(m_buffer->characters8(), requiredLength);
 }
 
 template <>
@@ -181,12 +171,9 @@ void StringBuilder::reallocateBuffer<UChar>(unsigned requiredLength)
     // otherwise fall back to "allocate and copy" method.
     m_string = String();
 
-    if (m_buffer->is8Bit()) {
+    if (m_buffer->is8Bit())
         allocateBufferUpConvert(m_buffer->characters8(), requiredLength);
-    } else if (m_buffer->hasOneRef()) {
-        m_buffer = StringImpl::reallocate(m_buffer.release(), requiredLength);
-        m_bufferCharacters16 = const_cast<UChar*>(m_buffer->characters16());
-    } else
+    else
         allocateBuffer(m_buffer->characters16(), requiredLength);
 }
 
@@ -206,10 +193,11 @@ void StringBuilder::reserveCapacity(unsigned newCapacity)
             if (!m_length) {
                 LChar* nullPlaceholder = 0;
                 allocateBuffer(nullPlaceholder, newCapacity);
-            } else if (m_string.is8Bit())
+            } else if (m_string.is8Bit()) {
                 allocateBuffer(m_string.characters8(), newCapacity);
-            else
+            } else {
                 allocateBuffer(m_string.characters16(), newCapacity);
+            }
         }
     }
 }
@@ -290,8 +278,9 @@ void StringBuilder::append(const UChar* characters, unsigned length)
 
         memcpy(m_bufferCharacters16 + m_length, characters, static_cast<size_t>(length) * sizeof(UChar));
         m_length = requiredLength;
-    } else
+    } else {
         memcpy(appendUninitialized<UChar>(length), characters, static_cast<size_t>(length) * sizeof(UChar));
+    }
 }
 
 void StringBuilder::append(const LChar* characters, unsigned length)
@@ -302,9 +291,9 @@ void StringBuilder::append(const LChar* characters, unsigned length)
 
     if (m_is8Bit) {
         LChar* dest = appendUninitialized<LChar>(length);
-        if (length > 8)
+        if (length > 8) {
             memcpy(dest, characters, static_cast<size_t>(length) * sizeof(LChar));
-        else {
+        } else {
             const LChar* end = characters + length;
             while (characters < end)
                 *(dest++) = *(characters++);

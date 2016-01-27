@@ -127,9 +127,11 @@ struct bn_blinding_st {
   BIGNUM *mod; /* just a reference */
   int counter;
   unsigned long flags;
-  BN_MONT_CTX *m_ctx;
+  /* mont is the Montgomery context used for this |BN_BLINDING|. It is not
+   * owned and must outlive this structure. */
+  const BN_MONT_CTX *mont;
   int (*bn_mod_exp)(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
-                    const BIGNUM *m, BN_CTX *ctx, BN_MONT_CTX *m_ctx);
+                    const BIGNUM *m, BN_CTX *ctx, const BN_MONT_CTX *mont);
 };
 
 BN_BLINDING *BN_BLINDING_new(const BIGNUM *A, const BIGNUM *Ai, BIGNUM *mod) {
@@ -137,7 +139,7 @@ BN_BLINDING *BN_BLINDING_new(const BIGNUM *A, const BIGNUM *Ai, BIGNUM *mod) {
 
   ret = (BN_BLINDING*) OPENSSL_malloc(sizeof(BN_BLINDING));
   if (ret == NULL) {
-    OPENSSL_PUT_ERROR(RSA, BN_BLINDING_new, ERR_R_MALLOC_FAILURE);
+    OPENSSL_PUT_ERROR(RSA, ERR_R_MALLOC_FAILURE);
     return NULL;
   }
   memset(ret, 0, sizeof(BN_BLINDING));
@@ -190,7 +192,7 @@ int BN_BLINDING_update(BN_BLINDING *b, BN_CTX *ctx) {
   int ret = 0;
 
   if (b->A == NULL || b->Ai == NULL) {
-    OPENSSL_PUT_ERROR(RSA, BN_BLINDING_update, RSA_R_BN_NOT_INITIALIZED);
+    OPENSSL_PUT_ERROR(RSA, RSA_R_BN_NOT_INITIALIZED);
     goto err;
   }
 
@@ -230,7 +232,7 @@ int BN_BLINDING_convert_ex(BIGNUM *n, BIGNUM *r, BN_BLINDING *b, BN_CTX *ctx) {
   int ret = 1;
 
   if (b->A == NULL || b->Ai == NULL) {
-    OPENSSL_PUT_ERROR(RSA, BN_BLINDING_convert_ex, RSA_R_BN_NOT_INITIALIZED);
+    OPENSSL_PUT_ERROR(RSA, RSA_R_BN_NOT_INITIALIZED);
     return 0;
   }
 
@@ -266,7 +268,7 @@ int BN_BLINDING_invert_ex(BIGNUM *n, const BIGNUM *r, BN_BLINDING *b,
     ret = BN_mod_mul(n, n, r, b->mod, ctx);
   } else {
     if (b->Ai == NULL) {
-      OPENSSL_PUT_ERROR(RSA, BN_BLINDING_invert_ex, RSA_R_BN_NOT_INITIALIZED);
+      OPENSSL_PUT_ERROR(RSA, RSA_R_BN_NOT_INITIALIZED);
       return 0;
     }
     ret = BN_mod_mul(n, n, b->Ai, b->mod, ctx);
@@ -284,8 +286,8 @@ void BN_BLINDING_set_flags(BN_BLINDING *b, unsigned long flags) {
 BN_BLINDING *BN_BLINDING_create_param(
     BN_BLINDING *b, const BIGNUM *e, BIGNUM *m, BN_CTX *ctx,
     int (*bn_mod_exp)(BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
-                      const BIGNUM *m, BN_CTX *ctx, BN_MONT_CTX *m_ctx),
-    BN_MONT_CTX *m_ctx) {
+                      const BIGNUM *m, BN_CTX *ctx, const BN_MONT_CTX *mont),
+    const BN_MONT_CTX *mont) {
   int retry_counter = 32;
   BN_BLINDING *ret = NULL;
 
@@ -317,21 +319,21 @@ BN_BLINDING *BN_BLINDING_create_param(
   if (bn_mod_exp != NULL) {
     ret->bn_mod_exp = bn_mod_exp;
   }
-  if (m_ctx != NULL) {
-    ret->m_ctx = m_ctx;
+  if (mont != NULL) {
+    ret->mont = mont;
   }
 
   do {
     if (!BN_rand_range(ret->A, ret->mod)) {
       goto err;
     }
-    if (BN_mod_inverse(ret->Ai, ret->A, ret->mod, ctx) == NULL) {
+
+    int no_inverse;
+    if (BN_mod_inverse_ex(ret->Ai, &no_inverse, ret->A, ret->mod, ctx) == NULL) {
       /* this should almost never happen for good RSA keys */
-      uint32_t error = ERR_peek_last_error();
-      if (ERR_GET_REASON(error) == BN_R_NO_INVERSE) {
+      if (no_inverse) {
         if (retry_counter-- == 0) {
-          OPENSSL_PUT_ERROR(RSA, BN_BLINDING_create_param,
-                            RSA_R_TOO_MANY_ITERATIONS);
+          OPENSSL_PUT_ERROR(RSA, RSA_R_TOO_MANY_ITERATIONS);
           goto err;
         }
         ERR_clear_error();
@@ -343,8 +345,8 @@ BN_BLINDING *BN_BLINDING_create_param(
     }
   } while (1);
 
-  if (ret->bn_mod_exp != NULL && ret->m_ctx != NULL) {
-    if (!ret->bn_mod_exp(ret->A, ret->A, ret->e, ret->mod, ctx, ret->m_ctx)) {
+  if (ret->bn_mod_exp != NULL && ret->mont != NULL) {
+    if (!ret->bn_mod_exp(ret->A, ret->A, ret->e, ret->mod, ctx, ret->mont)) {
       goto err;
     }
   } else {
@@ -416,14 +418,14 @@ BN_BLINDING *rsa_setup_blinding(RSA *rsa, BN_CTX *in_ctx) {
   BN_CTX_start(ctx);
   e = BN_CTX_get(ctx);
   if (e == NULL) {
-    OPENSSL_PUT_ERROR(RSA, rsa_setup_blinding, ERR_R_MALLOC_FAILURE);
+    OPENSSL_PUT_ERROR(RSA, ERR_R_MALLOC_FAILURE);
     goto err;
   }
 
   if (rsa->e == NULL) {
     e = rsa_get_public_exp(rsa->d, rsa->p, rsa->q, ctx);
     if (e == NULL) {
-      OPENSSL_PUT_ERROR(RSA, rsa_setup_blinding, RSA_R_NO_PUBLIC_EXPONENT);
+      OPENSSL_PUT_ERROR(RSA, RSA_R_NO_PUBLIC_EXPONENT);
       goto err;
     }
   } else {
@@ -434,8 +436,7 @@ BN_BLINDING *rsa_setup_blinding(RSA *rsa, BN_CTX *in_ctx) {
   BN_with_flags(n, rsa->n, BN_FLG_CONSTTIME);
 
   if (rsa->flags & RSA_FLAG_CACHE_PUBLIC) {
-    mont_ctx =
-        BN_MONT_CTX_set_locked(&rsa->_method_mod_n, &rsa->lock, rsa->n, ctx);
+    mont_ctx = BN_MONT_CTX_set_locked(&rsa->mont_n, &rsa->lock, rsa->n, ctx);
     if (mont_ctx == NULL) {
       goto err;
     }
@@ -444,7 +445,7 @@ BN_BLINDING *rsa_setup_blinding(RSA *rsa, BN_CTX *in_ctx) {
   ret = BN_BLINDING_create_param(NULL, e, n, ctx, rsa->meth->bn_mod_exp,
                                  mont_ctx);
   if (ret == NULL) {
-    OPENSSL_PUT_ERROR(RSA, rsa_setup_blinding, ERR_R_BN_LIB);
+    OPENSSL_PUT_ERROR(RSA, ERR_R_BN_LIB);
     goto err;
   }
 

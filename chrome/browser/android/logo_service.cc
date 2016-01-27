@@ -125,7 +125,7 @@ void LogoService::GetLogo(search_provider_logos::LogoObserver* observer) {
       GetGoogleDoodleURL(profile_),
       base::Bind(&search_provider_logos::GoogleParseLogoResponse),
       base::Bind(&search_provider_logos::GoogleAppendQueryparamsToLogoURL),
-      false);
+      true);
   logo_tracker_->GetLogo(observer);
 }
 
@@ -139,7 +139,7 @@ LogoService* LogoServiceFactory::GetForProfile(Profile* profile) {
 
 // static
 LogoServiceFactory* LogoServiceFactory::GetInstance() {
-  return Singleton<LogoServiceFactory>::get();
+  return base::Singleton<LogoServiceFactory>::get();
 }
 
 LogoServiceFactory::LogoServiceFactory()

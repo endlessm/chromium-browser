@@ -43,14 +43,9 @@ PassRefPtrWillBeRawPtr<FilterEffect> SVGFEMergeElement::build(SVGFilterBuilder* 
     FilterEffectVector& mergeInputs = effect->inputEffects();
     for (SVGFEMergeNodeElement* element = Traversal<SVGFEMergeNodeElement>::firstChild(*this); element; element = Traversal<SVGFEMergeNodeElement>::nextSibling(*element)) {
         FilterEffect* mergeEffect = filterBuilder->getEffectById(AtomicString(element->in1()->currentValue()->value()));
-        if (!mergeEffect)
-            return nullptr;
+        ASSERT(mergeEffect);
         mergeInputs.append(mergeEffect);
     }
-
-    if (mergeInputs.isEmpty())
-        return nullptr;
-
     return effect.release();
 }
 

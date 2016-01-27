@@ -11,13 +11,12 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/notifications/desktop_notification_service.h"
-#include "chrome/browser/notifications/desktop_notification_service_factory.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_conversion_helper.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
+#include "chrome/browser/notifications/notifier_state_tracker.h"
+#include "chrome/browser/notifications/notifier_state_tracker_factory.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/extensions/api/notifications/notification_style.h"
 #include "components/keyed_service/content/browser_context_keyed_service_shutdown_notifier_factory.h"
 #include "components/keyed_service/core/keyed_service_shutdown_notifier.h"
@@ -58,6 +57,11 @@ const char kExtraListItemsProvided[] =
     "List items provided for notification type != list";
 const char kExtraImageProvided[] =
     "Image resource provided for notification type != image";
+
+#if !defined(OS_CHROMEOS)
+const char kLowPriorityDeprecatedOnPlatform[] =
+    "Low-priority notifications are deprecated on this platform.";
+#endif
 
 // Given an extension id and another id, returns an id that is unique
 // relative to other extensions.
@@ -107,11 +111,11 @@ class ShutdownNotifierFactory
     : public BrowserContextKeyedServiceShutdownNotifierFactory {
  public:
   static ShutdownNotifierFactory* GetInstance() {
-    return Singleton<ShutdownNotifierFactory>::get();
+    return base::Singleton<ShutdownNotifierFactory>::get();
   }
 
  private:
-  friend struct DefaultSingletonTraits<ShutdownNotifierFactory>;
+  friend struct base::DefaultSingletonTraits<ShutdownNotifierFactory>;
 
   ShutdownNotifierFactory()
       : BrowserContextKeyedServiceShutdownNotifierFactory(
@@ -147,14 +151,15 @@ class NotificationsApiDelegate : public NotificationDelegate {
                 : EventRouter::USER_GESTURE_NOT_ENABLED;
     scoped_ptr<base::ListValue> args(CreateBaseEventArgs());
     args->Append(new base::FundamentalValue(by_user));
-    SendEvent(notifications::OnClosed::kEventName, gesture, args.Pass());
+    SendEvent(events::NOTIFICATIONS_ON_CLOSED,
+              notifications::OnClosed::kEventName, gesture, args.Pass());
   }
 
   void Click() override {
     scoped_ptr<base::ListValue> args(CreateBaseEventArgs());
-    SendEvent(notifications::OnClicked::kEventName,
-              EventRouter::USER_GESTURE_ENABLED,
-              args.Pass());
+    SendEvent(events::NOTIFICATIONS_ON_CLICKED,
+              notifications::OnClicked::kEventName,
+              EventRouter::USER_GESTURE_ENABLED, args.Pass());
   }
 
   bool HasClickedListener() override {
@@ -168,9 +173,9 @@ class NotificationsApiDelegate : public NotificationDelegate {
   void ButtonClick(int index) override {
     scoped_ptr<base::ListValue> args(CreateBaseEventArgs());
     args->Append(new base::FundamentalValue(index));
-    SendEvent(notifications::OnButtonClicked::kEventName,
-              EventRouter::USER_GESTURE_ENABLED,
-              args.Pass());
+    SendEvent(events::NOTIFICATIONS_ON_BUTTON_CLICKED,
+              notifications::OnButtonClicked::kEventName,
+              EventRouter::USER_GESTURE_ENABLED, args.Pass());
   }
 
   std::string id() const override { return scoped_id_; }
@@ -178,13 +183,14 @@ class NotificationsApiDelegate : public NotificationDelegate {
  private:
   ~NotificationsApiDelegate() override {}
 
-  void SendEvent(const std::string& name,
+  void SendEvent(events::HistogramValue histogram_value,
+                 const std::string& name,
                  EventRouter::UserGestureState user_gesture,
                  scoped_ptr<base::ListValue> args) {
     if (!event_router_)
       return;
 
-    scoped_ptr<Event> event(new Event(events::UNKNOWN, name, args.Pass()));
+    scoped_ptr<Event> event(new Event(histogram_value, name, args.Pass()));
     event->user_gesture = user_gesture;
     event_router_->DispatchEventToExtension(extension_id_, event.Pass());
   }
@@ -244,6 +250,14 @@ bool NotificationsApiFunction::CreateNotification(
     SetError(kMissingRequiredPropertiesForCreateNotification);
     return false;
   }
+
+#if !defined(OS_CHROMEOS)
+  if (options->priority &&
+      *options->priority < message_center::DEFAULT_PRIORITY) {
+    SetError(kLowPriorityDeprecatedOnPlatform);
+    return false;
+  }
+#endif
 
   NotificationBitmapSizes bitmap_sizes = GetNotificationBitmapSizes();
 
@@ -357,18 +371,12 @@ bool NotificationsApiFunction::CreateNotification(
   NotificationsApiDelegate* api_delegate(new NotificationsApiDelegate(
       this, GetProfile(), extension_->id(), id));  // ownership is passed to
                                                    // Notification
-  Notification notification(type,
-                            extension_->url(),
-                            title,
-                            message,
-                            icon,
-                            message_center::NotifierId(
-                                message_center::NotifierId::APPLICATION,
-                                extension_->id()),
-                            base::UTF8ToUTF16(extension_->name()),
-                            api_delegate->id(),
-                            optional_fields,
-                            api_delegate);
+  Notification notification(
+      type, title, message, icon,
+      message_center::NotifierId(message_center::NotifierId::APPLICATION,
+                                 extension_->id()),
+      base::UTF8ToUTF16(extension_->name()), extension_->url(),
+      api_delegate->id(), optional_fields, api_delegate);
 
   g_browser_process->notification_ui_manager()->Add(notification, GetProfile());
   return true;
@@ -378,6 +386,14 @@ bool NotificationsApiFunction::UpdateNotification(
     const std::string& id,
     api::notifications::NotificationOptions* options,
     Notification* notification) {
+#if !defined(OS_CHROMEOS)
+  if (options->priority &&
+      *options->priority < message_center::DEFAULT_PRIORITY) {
+    SetError(kLowPriorityDeprecatedOnPlatform);
+    return false;
+  }
+#endif
+
   NotificationBitmapSizes bitmap_sizes = GetNotificationBitmapSizes();
   float image_scale =
       ui::GetScaleForScaleFactor(ui::GetSupportedScaleFactors().back());
@@ -504,10 +520,12 @@ bool NotificationsApiFunction::UpdateNotification(
 }
 
 bool NotificationsApiFunction::AreExtensionNotificationsAllowed() const {
-  DesktopNotificationService* service =
-      DesktopNotificationServiceFactory::GetForProfile(GetProfile());
-  return service->IsNotifierEnabled(message_center::NotifierId(
-             message_center::NotifierId::APPLICATION, extension_->id()));
+  NotifierStateTracker* notifier_state_tracker =
+      NotifierStateTrackerFactory::GetForProfile(GetProfile());
+
+  return notifier_state_tracker->IsNotifierEnabled(
+      message_center::NotifierId(message_center::NotifierId::APPLICATION,
+                                 extension_->id()));
 }
 
 bool NotificationsApiFunction::IsNotificationsApiEnabled() const {

@@ -69,7 +69,7 @@ void V8Window::eventAttributeGetterCustom(const v8::PropertyCallbackInfo<v8::Val
 {
     LocalFrame* frame = toLocalDOMWindow(V8Window::toImpl(info.Holder()))->frame();
     ExceptionState exceptionState(ExceptionState::GetterContext, "event", "Window", info.Holder(), info.GetIsolate());
-    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), frame, exceptionState)) {
+    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), frame, exceptionState)) {
         exceptionState.throwIfNeeded();
         return;
     }
@@ -90,7 +90,7 @@ void V8Window::eventAttributeSetterCustom(v8::Local<v8::Value> value, const v8::
 {
     LocalFrame* frame = toLocalDOMWindow(V8Window::toImpl(info.Holder()))->frame();
     ExceptionState exceptionState(ExceptionState::SetterContext, "event", "Window", info.Holder(), info.GetIsolate());
-    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), frame, exceptionState)) {
+    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), frame, exceptionState)) {
         exceptionState.throwIfNeeded();
         return;
     }
@@ -107,16 +107,14 @@ void V8Window::eventAttributeSetterCustom(v8::Local<v8::Value> value, const v8::
 void V8Window::frameElementAttributeGetterCustom(const v8::PropertyCallbackInfo<v8::Value>& info)
 {
     LocalDOMWindow* impl = toLocalDOMWindow(V8Window::toImpl(info.Holder()));
-    ExceptionState exceptionState(ExceptionState::GetterContext, "frame", "Window", info.Holder(), info.GetIsolate());
 
     // Do the security check against the parent frame rather than
     // frameElement() itself, so that a remote parent frame can be handled
     // properly. In that case, there's no frameElement(), yet we should still
-    // throw a proper exception and deny access.
+    // return null and deny access.
     Frame* target = impl->frame() ? impl->frame()->tree().parent() : nullptr;
-    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), target, exceptionState)) {
+    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), target, DoNotReportSecurityError)) {
         v8SetReturnValueNull(info);
-        exceptionState.throwIfNeeded();
         return;
     }
 
@@ -133,7 +131,7 @@ void V8Window::openerAttributeSetterCustom(v8::Local<v8::Value> value, const v8:
     v8::Isolate* isolate = info.GetIsolate();
     DOMWindow* impl = V8Window::toImpl(info.Holder());
     ExceptionState exceptionState(ExceptionState::SetterContext, "opener", "Window", info.Holder(), isolate);
-    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), impl->frame(), exceptionState)) {
+    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), impl->frame(), exceptionState)) {
         exceptionState.throwIfNeeded();
         return;
     }
@@ -238,7 +236,7 @@ void V8Window::openMethodCustom(const v8::FunctionCallbackInfo<v8::Value>& info)
 {
     DOMWindow* impl = V8Window::toImpl(info.Holder());
     ExceptionState exceptionState(ExceptionState::ExecutionContext, "open", "Window", info.Holder(), info.GetIsolate());
-    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), impl->frame(), exceptionState)) {
+    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), impl->frame(), exceptionState)) {
         exceptionState.throwIfNeeded();
         return;
     }
@@ -300,9 +298,6 @@ static bool installTestInterfaceIfNeeded(LocalFrame& frame, v8::Local<v8::String
 
 void V8Window::namedPropertyGetterCustom(v8::Local<v8::Name> name, const v8::PropertyCallbackInfo<v8::Value>& info)
 {
-    if (!name->IsString())
-        return;
-
     auto nameString = name.As<v8::String>();
     DOMWindow* window = V8Window::toImpl(info.Holder());
     if (!window)
@@ -324,16 +319,6 @@ void V8Window::namedPropertyGetterCustom(v8::Local<v8::Name> name, const v8::Pro
         return;
     }
 
-    // Search IDL functions defined in the prototype
-    if (!info.Holder()->GetRealNamedProperty(info.GetIsolate()->GetCurrentContext(), nameString).IsEmpty())
-        return;
-
-    // Frame could have been detached in call to GetRealNamedProperty.
-    frame = window->frame();
-    // window is detached.
-    if (!frame)
-        return;
-
     // If the frame is remote, the caller will never be able to access further named results.
     if (!frame->isLocalFrame())
         return;
@@ -347,7 +332,7 @@ void V8Window::namedPropertyGetterCustom(v8::Local<v8::Name> name, const v8::Pro
         return;
 
     // This is an AllCanRead interceptor.  Check that the caller has access to the named results.
-    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), frame, DoNotReportSecurityError))
+    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), frame, DoNotReportSecurityError))
         return;
 
     bool hasNamedItem = toHTMLDocument(doc)->hasNamedItem(propName);
@@ -395,17 +380,13 @@ static bool securityCheck(v8::Local<v8::Object> host)
     if (target->loader().stateMachine()->isDisplayingInitialEmptyDocument())
         target->loader().didAccessInitialDocument();
 
-    return BindingSecurity::shouldAllowAccessToFrame(isolate, target, DoNotReportSecurityError);
+    return BindingSecurity::shouldAllowAccessToFrame(isolate, callingDOMWindow(isolate), target, DoNotReportSecurityError);
 }
 
-bool V8Window::namedSecurityCheckCustom(v8::Local<v8::Object> host, v8::Local<v8::Value> key, v8::AccessType type, v8::Local<v8::Value>)
+bool V8Window::securityCheckCustom(v8::Local<v8::Context> accessingContext, v8::Local<v8::Object> accessedObject)
 {
-    return securityCheck(host);
-}
-
-bool V8Window::indexedSecurityCheckCustom(v8::Local<v8::Object> host, uint32_t index, v8::AccessType type, v8::Local<v8::Value>)
-{
-    return securityCheck(host);
+    // TODO(jochen): Take accessingContext into account.
+    return securityCheck(accessedObject);
 }
 
 } // namespace blink

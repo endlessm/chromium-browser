@@ -6,6 +6,7 @@
 #include "modules/device_orientation/DeviceOrientationController.h"
 
 #include "core/dom/Document.h"
+#include "core/frame/OriginsUsingFeatures.h"
 #include "core/frame/Settings.h"
 #include "core/frame/UseCounter.h"
 #include "modules/EventModules.h"
@@ -58,10 +59,11 @@ void DeviceOrientationController::didAddEventListener(LocalDOMWindow* window, co
 
     if (document().frame()) {
         String errorMessage;
-        if (document().isPrivilegedContext(errorMessage)) {
+        if (document().isSecureContext(errorMessage)) {
             UseCounter::count(document().frame(), UseCounter::DeviceOrientationSecureOrigin);
         } else {
-            UseCounter::count(document().frame(), UseCounter::DeviceOrientationInsecureOrigin);
+            UseCounter::countDeprecation(document().frame(), UseCounter::DeviceOrientationInsecureOrigin);
+            OriginsUsingFeatures::countAnyWorld(document(), OriginsUsingFeatures::Feature::DeviceOrientationInsecureOrigin);
             if (document().frame()->settings()->strictPowerfulFeatureRestrictions())
                 return;
         }
@@ -75,7 +77,7 @@ void DeviceOrientationController::didAddEventListener(LocalDOMWindow* window, co
 
 DeviceOrientationData* DeviceOrientationController::lastData() const
 {
-    return m_overrideOrientationData ? m_overrideOrientationData.get() : DeviceOrientationDispatcher::instance().latestDeviceOrientationData();
+    return m_overrideOrientationData ? m_overrideOrientationData.get() : dispatcherInstance().latestDeviceOrientationData();
 }
 
 bool DeviceOrientationController::hasLastData()
@@ -85,12 +87,12 @@ bool DeviceOrientationController::hasLastData()
 
 void DeviceOrientationController::registerWithDispatcher()
 {
-    DeviceOrientationDispatcher::instance().addController(this);
+    dispatcherInstance().addController(this);
 }
 
 void DeviceOrientationController::unregisterWithDispatcher()
 {
-    DeviceOrientationDispatcher::instance().removeController(this);
+    dispatcherInstance().removeController(this);
 }
 
 PassRefPtrWillBeRawPtr<Event> DeviceOrientationController::lastEvent() const
@@ -123,6 +125,11 @@ void DeviceOrientationController::clearOverride()
     m_overrideOrientationData.clear();
     if (lastData())
         didUpdateData();
+}
+
+DeviceOrientationDispatcher& DeviceOrientationController::dispatcherInstance() const
+{
+    return DeviceOrientationDispatcher::instance(false);
 }
 
 DEFINE_TRACE(DeviceOrientationController)

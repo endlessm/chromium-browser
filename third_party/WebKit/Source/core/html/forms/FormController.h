@@ -24,6 +24,7 @@
 
 #include "core/html/forms/RadioButtonGroupScope.h"
 #include "platform/heap/Handle.h"
+#include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 #include "wtf/ListHashSet.h"
 #include "wtf/Vector.h"
@@ -37,6 +38,7 @@ class HTMLFormElement;
 class SavedFormState;
 
 class FormControlState {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     FormControlState() : m_type(TypeSkip) { }
     explicit FormControlState(const String& value) : m_type(TypeRestore) { m_values.append(value); }
@@ -89,7 +91,7 @@ private:
 };
 
 class FormController final : public NoBaseWillBeGarbageCollectedFinalized<FormController> {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(FormController);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(FormController);
 public:
     static PassOwnPtrWillBeRawPtr<FormController> create()
     {

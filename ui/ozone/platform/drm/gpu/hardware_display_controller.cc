@@ -23,11 +23,16 @@
 
 namespace ui {
 
+namespace {
+
+void EmptyFlipCallback(gfx::SwapResult) {}
+
+}  // namespace
+
 HardwareDisplayController::HardwareDisplayController(
     scoped_ptr<CrtcController> controller,
     const gfx::Point& origin)
     : origin_(origin),
-      mode_(controller->mode()),
       is_disabled_(controller->is_disabled()) {
   AddCrtc(controller.Pass());
 }
@@ -46,7 +51,20 @@ bool HardwareDisplayController::Modeset(const OverlayPlane& primary,
     status &= crtc_controllers_[i]->Modeset(primary, mode);
 
   is_disabled_ = false;
-  mode_ = mode;
+
+  return status;
+}
+
+bool HardwareDisplayController::Enable(const OverlayPlane& primary) {
+  TRACE_EVENT0("drm", "HDC::Enable");
+  DCHECK(primary.buffer.get());
+  bool status = true;
+  for (size_t i = 0; i < crtc_controllers_.size(); ++i) {
+    status &=
+        crtc_controllers_[i]->Modeset(primary, crtc_controllers_[i]->mode());
+  }
+
+  is_disabled_ = false;
 
   return status;
 }
@@ -60,9 +78,20 @@ void HardwareDisplayController::Disable() {
   is_disabled_ = true;
 }
 
-bool HardwareDisplayController::SchedulePageFlip(
+void HardwareDisplayController::SchedulePageFlip(
     const OverlayPlaneList& plane_list,
-    bool is_sync,
+    const PageFlipCallback& callback) {
+  ActualSchedulePageFlip(plane_list, false /* test_only */, callback);
+}
+
+bool HardwareDisplayController::TestPageFlip(
+    const OverlayPlaneList& plane_list) {
+  return ActualSchedulePageFlip(plane_list, true /* test_only */,
+                                base::Bind(&EmptyFlipCallback));
+}
+
+bool HardwareDisplayController::ActualSchedulePageFlip(
+    const OverlayPlaneList& plane_list,
     bool test_only,
     const PageFlipCallback& callback) {
   TRACE_EVENT0("drm", "HDC::SchedulePageFlip");
@@ -83,8 +112,10 @@ bool HardwareDisplayController::SchedulePageFlip(
             [](const OverlayPlane& l, const OverlayPlane& r) {
               return l.z_order < r.z_order;
             });
-  if (pending_planes.front().z_order != 0)
+  if (pending_planes.front().z_order != 0) {
+    callback.Run(gfx::SwapResult::SWAP_FAILED);
     return false;
+  }
 
   for (const auto& planes : owned_hardware_planes_)
     planes.first->plane_manager()->BeginFrame(planes.second);
@@ -97,13 +128,32 @@ bool HardwareDisplayController::SchedulePageFlip(
   }
 
   for (const auto& planes : owned_hardware_planes_) {
-    if (!planes.first->plane_manager()->Commit(planes.second, is_sync,
-                                               test_only)) {
+    if (!planes.first->plane_manager()->Commit(planes.second, test_only)) {
       status = false;
     }
   }
 
   return status;
+}
+
+std::vector<uint32_t> HardwareDisplayController::GetCompatibleHardwarePlaneIds(
+    const OverlayPlane& plane) const {
+  std::vector<uint32_t> plane_ids =
+      crtc_controllers_[0]->GetCompatibleHardwarePlaneIds(plane);
+
+  if (plane_ids.empty())
+    return plane_ids;
+
+  for (size_t i = 1; i < crtc_controllers_.size(); ++i) {
+    // Make sure all mirrored displays have overlays to support this
+    // plane.
+    if (crtc_controllers_[i]->GetCompatibleHardwarePlaneIds(plane).empty())
+      return std::vector<uint32_t>();
+  }
+
+  // TODO(kalyank): We Should ensure that this list doesn't contain any planes
+  // which mirrored displays share with primary.
+  return plane_ids;
 }
 
 bool HardwareDisplayController::SetCursor(
@@ -139,9 +189,21 @@ bool HardwareDisplayController::MoveCursor(const gfx::Point& location) {
 }
 
 void HardwareDisplayController::AddCrtc(scoped_ptr<CrtcController> controller) {
-  owned_hardware_planes_.add(
-      controller->drm().get(),
-      scoped_ptr<HardwareDisplayPlaneList>(new HardwareDisplayPlaneList()));
+  scoped_refptr<DrmDevice> drm = controller->drm();
+  owned_hardware_planes_.add(drm.get(), scoped_ptr<HardwareDisplayPlaneList>(
+                                            new HardwareDisplayPlaneList()));
+
+  // Check if this controller owns any planes and ensure we keep track of them.
+  const ScopedVector<HardwareDisplayPlane>& all_planes =
+      drm->plane_manager()->planes();
+  HardwareDisplayPlaneList* crtc_plane_list =
+      owned_hardware_planes_.get(drm.get());
+  uint32_t crtc = controller->crtc();
+  for (auto* plane : all_planes) {
+    if (plane->in_use() && (plane->owning_crtc() == crtc))
+      crtc_plane_list->old_plane_list.push_back(plane);
+  }
+
   crtc_controllers_.push_back(controller.Pass());
 }
 
@@ -163,8 +225,18 @@ scoped_ptr<CrtcController> HardwareDisplayController::RemoveCrtc(
           break;
         }
       }
-      if (!found)
+      if (found) {
+        std::vector<HardwareDisplayPlane*> all_planes;
+        HardwareDisplayPlaneList* plane_list =
+            owned_hardware_planes_.get(drm.get());
+        all_planes.swap(plane_list->old_plane_list);
+        for (auto* plane : all_planes) {
+          if (plane->owning_crtc() != crtc)
+            plane_list->old_plane_list.push_back(plane);
+        }
+      } else {
         owned_hardware_planes_.erase(controller->drm().get());
+      }
 
       return controller.Pass();
     }
@@ -192,7 +264,9 @@ bool HardwareDisplayController::IsDisabled() const {
 }
 
 gfx::Size HardwareDisplayController::GetModeSize() const {
-  return gfx::Size(mode_.hdisplay, mode_.vdisplay);
+  // If there are multiple CRTCs they should all have the same size.
+  return gfx::Size(crtc_controllers_[0]->mode().hdisplay,
+                   crtc_controllers_[0]->mode().vdisplay);
 }
 
 uint64_t HardwareDisplayController::GetTimeOfLastFlip() const {

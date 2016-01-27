@@ -32,7 +32,6 @@ class ShellContentBrowserClient : public ContentBrowserClient {
   // ContentBrowserClient overrides.
   BrowserMainParts* CreateBrowserMainParts(
       const MainFunctionParams& parameters) override;
-  void RenderProcessWillLaunch(RenderProcessHost* host) override;
   net::URLRequestContextGetter* CreateRequestContext(
       BrowserContext* browser_context,
       ProtocolHandlerMap* protocol_handlers,
@@ -45,6 +44,8 @@ class ShellContentBrowserClient : public ContentBrowserClient {
       URLRequestInterceptorScopedVector request_interceptors) override;
   bool IsHandledURL(const GURL& url) override;
   bool IsNPAPIEnabled() override;
+  void RegisterOutOfProcessMojoApplications(
+      OutOfProcessMojoApplicationMap* apps) override;
   void AppendExtraCommandLineSwitches(base::CommandLine* command_line,
                                       int child_process_id) override;
   void OverrideWebkitPrefs(RenderViewHost* render_view_host,
@@ -85,7 +86,7 @@ class ShellContentBrowserClient : public ContentBrowserClient {
       content::FileDescriptorInfo* mappings) override;
 #endif  // defined(OS_ANDROID)
 #if defined(OS_WIN)
-  void PreSpawnRenderer(sandbox::TargetPolicy* policy, bool* success) override;
+  bool PreSpawnRenderer(sandbox::TargetPolicy* policy) override;
 #endif
 
   ShellBrowserContext* browser_context();

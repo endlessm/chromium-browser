@@ -10,6 +10,7 @@
 #include "net/base/address_list.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
+#include "net/base/net_util.h"
 #include "net/base/rand_callback.h"
 #include "net/socket/client_socket_factory.h"
 #include "net/socket/client_socket_handle.h"
@@ -179,7 +180,7 @@ void TLSSocket::UpgradeSocketToTLS(
     net::CertVerifier* cert_verifier,
     net::TransportSecurityState* transport_security_state,
     const std::string& extension_id,
-    core_api::socket::SecureOptions* options,
+    api::socket::SecureOptions* options,
     const TLSSocket::SecureCallback& callback) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::IO);
   TCPSocket* tcp_socket = static_cast<TCPSocket*>(socket);
@@ -244,8 +245,7 @@ void TLSSocket::UpgradeSocketToTLS(
   ssl_config_service->GetSSLConfig(&ssl_config);
   if (options && options->tls_version.get()) {
     uint16 version_min = 0, version_max = 0;
-    core_api::socket::TLSVersionConstraints* versions =
-        options->tls_version.get();
+    api::socket::TLSVersionConstraints* versions = options->tls_version.get();
     if (versions->min.get()) {
       version_min = SSLProtocolVersionFromString(*versions->min.get());
     }

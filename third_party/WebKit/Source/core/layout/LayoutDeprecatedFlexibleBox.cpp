@@ -29,7 +29,7 @@
 #include "core/layout/LayoutView.h"
 #include "core/layout/TextAutosizer.h"
 #include "core/layout/TextRunConstructor.h"
-#include "core/paint/DeprecatedPaintLayer.h"
+#include "core/paint/PaintLayer.h"
 #include "platform/fonts/Font.h"
 #include "wtf/StdLibExtras.h"
 #include "wtf/text/CharacterNames.h"
@@ -260,14 +260,10 @@ void LayoutDeprecatedFlexibleBox::layoutBlock(bool relayoutChildren)
     }
 
     updateLayerTransformAfterLayout();
+    updateScrollInfoAfterLayout();
 
     if (view()->layoutState()->pageLogicalHeight())
         setPageLogicalOffset(view()->layoutState()->pageLogicalOffset(*this, logicalTop()));
-
-    // Update our scrollbars if we're overflow:auto/scroll/hidden now that we know if
-    // we overflow or not.
-    if (hasOverflowClip())
-        layer()->scrollableArea()->updateAfterLayout();
 
     clearNeedsLayout();
 }
@@ -381,7 +377,7 @@ void LayoutDeprecatedFlexibleBox::layoutHorizontalBox(bool relayoutChildren)
         for (LayoutBox* child = iterator.first(); child; child = iterator.next()) {
             if (child->isOutOfFlowPositioned()) {
                 child->containingBlock()->insertPositionedObject(child);
-                DeprecatedPaintLayer* childLayer = child->layer();
+                PaintLayer* childLayer = child->layer();
                 childLayer->setStaticInlinePosition(xPos);
                 if (childLayer->staticBlockPosition() != yPos) {
                     childLayer->setStaticBlockPosition(yPos);
@@ -622,7 +618,7 @@ void LayoutDeprecatedFlexibleBox::layoutVerticalBox(bool relayoutChildren)
         for (LayoutBox* child = iterator.first(); child; child = iterator.next()) {
             if (child->isOutOfFlowPositioned()) {
                 child->containingBlock()->insertPositionedObject(child);
-                DeprecatedPaintLayer* childLayer = child->layer();
+                PaintLayer* childLayer = child->layer();
                 childLayer->setStaticInlinePosition(borderStart() + paddingStart());
                 if (childLayer->staticBlockPosition() != size().height()) {
                     childLayer->setStaticBlockPosition(size().height());
@@ -900,7 +896,7 @@ void LayoutDeprecatedFlexibleBox::applyLineClamp(FlexBoxIterator& iterator, bool
 
         DEFINE_STATIC_LOCAL(AtomicString, ellipsisStr, (&horizontalEllipsisCharacter, 1));
         const Font& font = style(numVisibleLines == 1)->font();
-        float totalWidth = font.width(constructTextRun(this, font, &horizontalEllipsisCharacter, 1, styleRef(), style()->direction()));
+        float totalWidth = font.width(constructTextRun(font, &horizontalEllipsisCharacter, 1, styleRef(), style()->direction()));
 
         // See if this width can be accommodated on the last visible line
         LayoutBlockFlow& destBlock = lastVisibleLine->block();
@@ -967,10 +963,6 @@ LayoutUnit LayoutDeprecatedFlexibleBox::allowedChildFlex(LayoutBox* child, bool 
             LayoutUnit width = contentWidthForChild(child);
             if (child->style()->maxWidth().isFixed())
                 maxWidth = child->style()->maxWidth().value();
-            else if (child->style()->maxWidth().type() == Intrinsic)
-                maxWidth = child->maxPreferredLogicalWidth();
-            else if (child->style()->maxWidth().type() == MinIntrinsic)
-                maxWidth = child->minPreferredLogicalWidth();
             if (maxWidth == LayoutUnit::max())
                 return maxWidth;
             return std::max<LayoutUnit>(0, maxWidth - width);
@@ -991,10 +983,6 @@ LayoutUnit LayoutDeprecatedFlexibleBox::allowedChildFlex(LayoutBox* child, bool 
         LayoutUnit width = contentWidthForChild(child);
         if (child->style()->minWidth().isFixed())
             minWidth = child->style()->minWidth().value();
-        else if (child->style()->minWidth().type() == Intrinsic)
-            minWidth = child->maxPreferredLogicalWidth();
-        else if (child->style()->minWidth().type() == MinIntrinsic)
-            minWidth = child->minPreferredLogicalWidth();
         else if (child->style()->minWidth().type() == Auto)
             minWidth = 0;
 

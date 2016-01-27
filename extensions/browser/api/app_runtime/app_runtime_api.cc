@@ -20,7 +20,7 @@ using content::BrowserContext;
 
 namespace extensions {
 
-namespace app_runtime = core_api::app_runtime;
+namespace app_runtime = api::app_runtime;
 
 namespace {
 
@@ -52,6 +52,11 @@ void DispatchOnLaunchedEventImpl(const std::string& extension_id,
   launch_data->SetBoolean(
       "isKioskSession",
       ExtensionsBrowserClient::Get()->IsRunningInForcedAppMode());
+
+  launch_data->SetBoolean(
+      "isPublicSession",
+      ExtensionsBrowserClient::Get()->IsLoggedInAsPublicAccount());
+
   scoped_ptr<base::ListValue> args(new base::ListValue());
   args->Append(launch_data.release());
   scoped_ptr<Event> event(new Event(events::APP_RUNTIME_ON_LAUNCHED,
@@ -93,7 +98,7 @@ app_runtime::LaunchSource getLaunchSourceEnum(
       return app_runtime::LAUNCH_SOURCE_EXTENSIONS_PAGE;
     case extensions::SOURCE_MANAGEMENT_API:
       return app_runtime::LAUNCH_SOURCE_MANAGEMENT_API;
-    case extensions::SOURCE_EPHEMERAL_APP:
+    case extensions::SOURCE_EPHEMERAL_APP_UNUSED:
       return app_runtime::LAUNCH_SOURCE_EPHEMERAL_APP;
     case extensions::SOURCE_BACKGROUND:
       return app_runtime::LAUNCH_SOURCE_BACKGROUND;

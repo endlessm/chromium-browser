@@ -133,12 +133,15 @@ class LayerTestCommon {
     LayerImpl* root_layer() const { return root_layer_impl_.get(); }
     FakeLayerTreeHost* host() { return host_.get(); }
     FakeLayerTreeHostImpl* host_impl() const { return host_->host_impl(); }
-    Proxy* proxy() const { return host_->host_impl()->proxy(); }
+    TaskRunnerProvider* task_runner_provider() const {
+      return host_->host_impl()->task_runner_provider();
+    }
     const QuadList& quad_list() const { return render_pass_->quad_list; }
 
    private:
     FakeLayerTreeHostClient client_;
     TestTaskGraphRunner task_graph_runner_;
+    scoped_ptr<OutputSurface> output_surface_;
     scoped_ptr<FakeLayerTreeHost> host_;
     scoped_ptr<LayerImpl> root_layer_impl_;
     scoped_ptr<RenderPass> render_pass_;

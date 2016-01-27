@@ -94,7 +94,8 @@ class StreamingListenerTest : public Test {
   StreamingListenerTest()
       : fake_sock_writer_(new FakeSocketWriter),
         streamer_(fake_sock_writer_),
-        test_info_obj_("FooTest", "Bar", NULL, NULL, 0, NULL) {}
+        test_info_obj_("FooTest", "Bar", NULL, NULL,
+                       CodeLocation(__FILE__, __LINE__), 0, NULL) {}
 
  protected:
   string* output() { return &(fake_sock_writer_->output_); }
@@ -287,7 +288,6 @@ using testing::internal::edit_distance::CreateUnifiedDiff;
 using testing::internal::edit_distance::EditType;
 using testing::internal::kMaxRandomSeed;
 using testing::internal::kTestTypeIdInGoogleTest;
-using testing::internal::scoped_ptr;
 using testing::kMaxStackTraceDepth;
 
 #if GTEST_HAS_STREAM_REDIRECTION
@@ -1518,6 +1518,16 @@ TEST(TestResultPropertyTest, GetTestProperty) {
   EXPECT_DEATH_IF_SUPPORTED(test_result.GetTestProperty(-1), "");
 }
 
+// Tests the Test class.
+//
+// It's difficult to test every public method of this class (we are
+// already stretching the limit of Google Test by using it to test itself!).
+// Fortunately, we don't have to do that, as we are already testing
+// the functionalities of the Test class extensively by using Google Test
+// alone.
+//
+// Therefore, this section only contains one test.
+
 // Tests that GTestFlagSaver works on Windows and Mac.
 
 class GTestFlagSaverTest : public Test {
@@ -1661,6 +1671,8 @@ TEST(Int32FromGTestEnvTest, ReturnsDefaultWhenVariableIsNotSet) {
   EXPECT_EQ(10, Int32FromGTestEnv("temp", 10));
 }
 
+# if !defined(GTEST_GET_INT32_FROM_ENV_)
+
 // Tests that Int32FromGTestEnv() returns the default value when the
 // environment variable overflows as an Int32.
 TEST(Int32FromGTestEnvTest, ReturnsDefaultWhenValueOverflows) {
@@ -1684,6 +1696,8 @@ TEST(Int32FromGTestEnvTest, ReturnsDefaultWhenValueIsInvalid) {
   SetEnv(GTEST_FLAG_PREFIX_UPPER_ "TEMP", "12X");
   EXPECT_EQ(50, Int32FromGTestEnv("temp", 50));
 }
+
+# endif  // !defined(GTEST_GET_INT32_FROM_ENV_)
 
 // Tests that Int32FromGTestEnv() parses and returns the value of the
 // environment variable when it represents a valid decimal integer in
@@ -5319,6 +5333,59 @@ TEST_F(TestInfoTest, result) {
   ASSERT_EQ(0, GetTestResult(test_info)->total_part_count());
 }
 
+#define VERIFY_CODE_LOCATION \
+  const int expected_line = __LINE__ - 1; \
+  const TestInfo* const test_info = GetUnitTestImpl()->current_test_info(); \
+  ASSERT_TRUE(test_info); \
+  EXPECT_STREQ(__FILE__, test_info->file()); \
+  EXPECT_EQ(expected_line, test_info->line())
+
+TEST(CodeLocationForTEST, Verify) {
+  VERIFY_CODE_LOCATION;
+}
+
+class CodeLocationForTESTF : public Test {
+};
+
+TEST_F(CodeLocationForTESTF, Verify) {
+  VERIFY_CODE_LOCATION;
+}
+
+class CodeLocationForTESTP : public TestWithParam<int> {
+};
+
+TEST_P(CodeLocationForTESTP, Verify) {
+  VERIFY_CODE_LOCATION;
+}
+
+INSTANTIATE_TEST_CASE_P(, CodeLocationForTESTP, Values(0));
+
+template <typename T>
+class CodeLocationForTYPEDTEST : public Test {
+};
+
+TYPED_TEST_CASE(CodeLocationForTYPEDTEST, int);
+
+TYPED_TEST(CodeLocationForTYPEDTEST, Verify) {
+  VERIFY_CODE_LOCATION;
+}
+
+template <typename T>
+class CodeLocationForTYPEDTESTP : public Test {
+};
+
+TYPED_TEST_CASE_P(CodeLocationForTYPEDTESTP);
+
+TYPED_TEST_P(CodeLocationForTYPEDTESTP, Verify) {
+  VERIFY_CODE_LOCATION;
+}
+
+REGISTER_TYPED_TEST_CASE_P(CodeLocationForTYPEDTESTP, Verify);
+
+INSTANTIATE_TYPED_TEST_CASE_P(My, CodeLocationForTYPEDTESTP, int);
+
+#undef VERIFY_CODE_LOCATION
+
 // Tests setting up and tearing down a test case.
 
 class SetUpTestCaseTest : public Test {
@@ -6334,7 +6401,108 @@ TEST_F(InitGoogleTestTest, WideStrings) {
 
   GTEST_TEST_PARSING_FLAGS_(argv, argv2, expected_flags, false);
 }
-#endif  // GTEST_OS_WINDOWS
+# endif  // GTEST_OS_WINDOWS
+
+#if GTEST_USE_OWN_FLAGFILE_FLAG_
+class FlagfileTest : public InitGoogleTestTest {
+ public:
+  virtual void SetUp() {
+    InitGoogleTestTest::SetUp();
+
+    testdata_path_.Set(internal::FilePath(
+        internal::TempDir() + internal::GetCurrentExecutableName().string() +
+        "_flagfile_test"));
+    testing::internal::posix::RmDir(testdata_path_.c_str());
+    EXPECT_TRUE(testdata_path_.CreateFolder());
+  }
+
+  virtual void TearDown() {
+    testing::internal::posix::RmDir(testdata_path_.c_str());
+    InitGoogleTestTest::TearDown();
+  }
+
+  internal::FilePath CreateFlagfile(const char* contents) {
+    internal::FilePath file_path(internal::FilePath::GenerateUniqueFileName(
+        testdata_path_, internal::FilePath("unique"), "txt"));
+    FILE* f = testing::internal::posix::FOpen(file_path.c_str(), "w");
+    fprintf(f, "%s", contents);
+    fclose(f);
+    return file_path;
+  }
+
+ private:
+  internal::FilePath testdata_path_;
+};
+
+// Tests an empty flagfile.
+TEST_F(FlagfileTest, Empty) {
+  internal::FilePath flagfile_path(CreateFlagfile(""));
+  std::string flagfile_flag =
+      std::string("--" GTEST_FLAG_PREFIX_ "flagfile=") + flagfile_path.c_str();
+
+  const char* argv[] = {
+    "foo.exe",
+    flagfile_flag.c_str(),
+    NULL
+  };
+
+  const char* argv2[] = {
+    "foo.exe",
+    NULL
+  };
+
+  GTEST_TEST_PARSING_FLAGS_(argv, argv2, Flags(), false);
+}
+
+// Tests passing a non-empty --gtest_filter flag via --gtest_flagfile.
+TEST_F(FlagfileTest, FilterNonEmpty) {
+  internal::FilePath flagfile_path(CreateFlagfile(
+      "--"  GTEST_FLAG_PREFIX_  "filter=abc"));
+  std::string flagfile_flag =
+      std::string("--" GTEST_FLAG_PREFIX_ "flagfile=") + flagfile_path.c_str();
+
+  const char* argv[] = {
+    "foo.exe",
+    flagfile_flag.c_str(),
+    NULL
+  };
+
+  const char* argv2[] = {
+    "foo.exe",
+    NULL
+  };
+
+  GTEST_TEST_PARSING_FLAGS_(argv, argv2, Flags::Filter("abc"), false);
+}
+
+// Tests passing several flags via --gtest_flagfile.
+TEST_F(FlagfileTest, SeveralFlags) {
+  internal::FilePath flagfile_path(CreateFlagfile(
+      "--"  GTEST_FLAG_PREFIX_  "filter=abc\n"
+      "--"  GTEST_FLAG_PREFIX_  "break_on_failure\n"
+      "--"  GTEST_FLAG_PREFIX_  "list_tests"));
+  std::string flagfile_flag =
+      std::string("--" GTEST_FLAG_PREFIX_ "flagfile=") + flagfile_path.c_str();
+
+  const char* argv[] = {
+    "foo.exe",
+    flagfile_flag.c_str(),
+    NULL
+  };
+
+  const char* argv2[] = {
+    "foo.exe",
+    NULL
+  };
+
+  Flags expected_flags;
+  expected_flags.break_on_failure = true;
+  expected_flags.filter = "abc";
+  expected_flags.list_tests = true;
+
+  GTEST_TEST_PARSING_FLAGS_(argv, argv2, expected_flags, false);
+}
+#endif  // GTEST_USE_OWN_FLAGFILE_FLAG_
 
 // Tests current_test_info() in UnitTest.
 class CurrentTestInfoTest : public Test {

@@ -43,9 +43,9 @@ CSSValuePool::CSSValuePool()
     , m_implicitInitialValue(CSSInitialValue::createImplicit())
     , m_explicitInitialValue(CSSInitialValue::createExplicit())
     , m_unsetValue(CSSUnsetValue::create())
-    , m_colorTransparent(CSSPrimitiveValue::createColor(Color::transparent))
-    , m_colorWhite(CSSPrimitiveValue::createColor(Color::white))
-    , m_colorBlack(CSSPrimitiveValue::createColor(Color::black))
+    , m_colorTransparent(CSSColorValue::create(Color::transparent))
+    , m_colorWhite(CSSColorValue::create(Color::white))
+    , m_colorBlack(CSSColorValue::create(Color::black))
 {
     m_identifierValueCache.resize(numCSSValueKeywords);
     m_pixelValueCache.resize(maximumCacheableIntegerValue + 1);
@@ -63,12 +63,12 @@ PassRefPtrWillBeRawPtr<CSSPrimitiveValue> CSSValuePool::createIdentifierValue(CS
     return m_identifierValueCache[ident];
 }
 
-PassRefPtrWillBeRawPtr<CSSPrimitiveValue> CSSValuePool::createIdentifierValue(CSSPropertyID ident)
+PassRefPtrWillBeRawPtr<CSSCustomIdentValue> CSSValuePool::createIdentifierValue(CSSPropertyID ident)
 {
-    return CSSPrimitiveValue::createIdentifier(ident);
+    return CSSCustomIdentValue::create(ident);
 }
 
-PassRefPtrWillBeRawPtr<CSSPrimitiveValue> CSSValuePool::createColorValue(unsigned rgbValue)
+PassRefPtrWillBeRawPtr<CSSColorValue> CSSValuePool::createColorValue(RGBA32 rgbValue)
 {
     // These are the empty and deleted values of the hash table.
     if (rgbValue == Color::transparent)
@@ -84,10 +84,10 @@ PassRefPtrWillBeRawPtr<CSSPrimitiveValue> CSSValuePool::createColorValue(unsigne
     if (m_colorValueCache.size() > maximumColorCacheSize)
         m_colorValueCache.clear();
 
-    RefPtrWillBeRawPtr<CSSPrimitiveValue> dummyValue = nullptr;
+    RefPtrWillBeRawPtr<CSSColorValue> dummyValue = nullptr;
     ColorValueCache::AddResult entry = m_colorValueCache.add(rgbValue, dummyValue);
     if (entry.isNewEntry)
-        entry.storedValue->value = CSSPrimitiveValue::createColor(rgbValue);
+        entry.storedValue->value = CSSColorValue::create(rgbValue);
     return entry.storedValue->value;
 }
 
@@ -104,17 +104,18 @@ PassRefPtrWillBeRawPtr<CSSPrimitiveValue> CSSValuePool::createValue(double value
         return CSSPrimitiveValue::create(value, type);
 
     switch (type) {
-    case CSSPrimitiveValue::CSS_PX:
+    case CSSPrimitiveValue::UnitType::Pixels:
         if (!m_pixelValueCache[intValue])
             m_pixelValueCache[intValue] = CSSPrimitiveValue::create(value, type);
         return m_pixelValueCache[intValue];
-    case CSSPrimitiveValue::CSS_PERCENTAGE:
+    case CSSPrimitiveValue::UnitType::Percentage:
         if (!m_percentValueCache[intValue])
             m_percentValueCache[intValue] = CSSPrimitiveValue::create(value, type);
         return m_percentValueCache[intValue];
-    case CSSPrimitiveValue::CSS_NUMBER:
+    case CSSPrimitiveValue::UnitType::Number:
+    case CSSPrimitiveValue::UnitType::Integer:
         if (!m_numberValueCache[intValue])
-            m_numberValueCache[intValue] = CSSPrimitiveValue::create(value, type);
+            m_numberValueCache[intValue] = CSSPrimitiveValue::create(value, CSSPrimitiveValue::UnitType::Integer);
         return m_numberValueCache[intValue];
     default:
         return CSSPrimitiveValue::create(value, type);
@@ -126,11 +127,11 @@ PassRefPtrWillBeRawPtr<CSSPrimitiveValue> CSSValuePool::createValue(const Length
     return CSSPrimitiveValue::create(value, style.effectiveZoom());
 }
 
-PassRefPtrWillBeRawPtr<CSSPrimitiveValue> CSSValuePool::createFontFamilyValue(const String& familyName)
+PassRefPtrWillBeRawPtr<CSSCustomIdentValue> CSSValuePool::createFontFamilyValue(const String& familyName)
 {
-    RefPtrWillBeMember<CSSPrimitiveValue>& value = m_fontFamilyValueCache.add(familyName, nullptr).storedValue->value;
+    RefPtrWillBeMember<CSSCustomIdentValue>& value = m_fontFamilyValueCache.add(familyName, nullptr).storedValue->value;
     if (!value)
-        value = CSSPrimitiveValue::create(familyName, CSSPrimitiveValue::CSS_CUSTOM_IDENT);
+        value = CSSCustomIdentValue::create(familyName);
     return value;
 }
 

@@ -32,9 +32,12 @@
 #include "extensions/browser/uninstall_reason.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_set.h"
+#include "grit/components_scaled_resources.h"
 #include "grit/theme_resources.h"
 #include "ui/base/layout.h"
+#include "ui/base/resource/material_design/material_design_controller.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/color_palette.h"
 #include "ui/gfx/image/image_skia.h"
 #include "ui/native_theme/common_theme.h"
 #include "ui/native_theme/native_theme.h"
@@ -221,6 +224,12 @@ SkColor ThemeService::GetColor(int id) const {
   // For backward compat with older themes, some newer colors are generated from
   // older ones if they are missing.
   switch (id) {
+    case Properties::COLOR_TOOLBAR_BUTTON_ICON:
+      return color_utils::HSLShift(gfx::kChromeIconGrey,
+                                   GetTint(Properties::TINT_BUTTONS));
+    case Properties::COLOR_TOOLBAR_BUTTON_ICON_INACTIVE:
+      // The active color is overridden in Gtk2UI.
+      return SkColorSetA(GetColor(Properties::COLOR_TOOLBAR_BUTTON_ICON), 0x33);
     case Properties::COLOR_NTP_SECTION_HEADER_TEXT:
       return IncreaseLightness(GetColor(Properties::COLOR_NTP_TEXT), 0.30);
     case Properties::COLOR_NTP_SECTION_HEADER_TEXT_HOVER:
@@ -283,18 +292,22 @@ int ThemeService::GetDisplayProperty(int id) const {
     return result;
   }
 
-  if (id == Properties::NTP_LOGO_ALTERNATE) {
-    if (UsingDefaultTheme() || UsingSystemTheme())
-      return 0;  // Colorful logo.
+  switch (id) {
+    case Properties::NTP_BACKGROUND_ALIGNMENT:
+      return Properties::ALIGN_CENTER;
 
-    if (HasCustomImage(IDR_THEME_NTP_BACKGROUND))
-      return 1;  // White logo.
+    case Properties::NTP_BACKGROUND_TILING:
+      return Properties::NO_REPEAT;
 
-    SkColor background_color = GetColor(Properties::COLOR_NTP_BACKGROUND);
-    return IsColorGrayscale(background_color) ? 0 : 1;
+    case Properties::NTP_LOGO_ALTERNATE:
+      return UsingDefaultTheme() || UsingSystemTheme() ||
+          (!HasCustomImage(IDR_THEME_NTP_BACKGROUND) &&
+           IsColorGrayscale(GetColor(Properties::COLOR_NTP_BACKGROUND))) ?
+          0 : 1;
+
+    default:
+      return -1;
   }
-
-  return Properties::GetDefaultDisplayProperty(id);
 }
 
 bool ThemeService::ShouldUseNativeFrame() const {
@@ -381,7 +394,13 @@ void ThemeService::SetTheme(const Extension* extension) {
   content::RecordAction(UserMetricsAction("Themes_Installed"));
 
   if (previous_theme_id != kDefaultThemeID &&
-      previous_theme_id != extension->id()) {
+      previous_theme_id != extension->id() &&
+      service->GetInstalledExtension(previous_theme_id)) {
+    // Do not disable the previous theme if it is already uninstalled. Sending
+    // NOTIFICATION_BROWSER_THEME_CHANGED causes the previous theme to be
+    // uninstalled when the notification causes the remaining infobar to close
+    // and does not open any new infobars. See crbug.com/468280.
+
     // Disable the old theme.
     service->DisableExtension(previous_theme_id,
                               extensions::Extension::DISABLE_USER_ACTION);
@@ -525,9 +544,13 @@ void ThemeService::LoadThemePrefs() {
 
   bool loaded_pack = false;
 
-  // If we don't have a file pack, we're updating from an old version.
+  // If we don't have a file pack, we're updating from an old version, or the
+  // pack was created for an alternative MaterialDesignController::Mode.
   base::FilePath path = prefs->GetFilePath(prefs::kCurrentThemePackFilename);
   if (path != base::FilePath()) {
+    path = path.Append(ui::MaterialDesignController::IsModeMaterial()
+                           ? chrome::kThemePackMaterialDesignFilename
+                           : chrome::kThemePackFilename);
     SwapThemeSupplier(BrowserThemePack::BuildFromDataPack(path, current_id));
     loaded_pack = theme_supplier_.get() != nullptr;
   }
@@ -646,12 +669,16 @@ void ThemeService::BuildFromExtension(const Extension* extension) {
 
   // Write the packed file to disk.
   base::FilePath pack_path =
-      extension->path().Append(chrome::kThemePackFilename);
+      extension->path().Append(ui::MaterialDesignController::IsModeMaterial()
+                                   ? chrome::kThemePackMaterialDesignFilename
+                                   : chrome::kThemePackFilename);
   service->GetFileTaskRunner()->PostTask(
       FROM_HERE,
       base::Bind(&WritePackToDiskCallback, pack, pack_path));
 
-  SavePackName(pack_path);
+  // Save only the extension path. The packed file which matches the
+  // MaterialDesignController::Mode will be loaded via LoadThemePrefs().
+  SavePackName(extension->path());
   SwapThemeSupplier(pack);
 }
 

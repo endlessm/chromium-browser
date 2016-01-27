@@ -68,6 +68,7 @@
         # the tools compile correctly.
         'cast_tools',
         '<(DEPTH)/base/base.gyp:test_support_base',
+        '<(DEPTH)/media/media.gyp:media_test_support',
         '<(DEPTH)/net/net.gyp:net',
         '<(DEPTH)/testing/gmock.gyp:gmock',
         '<(DEPTH)/testing/gtest.gyp:gtest',
@@ -75,8 +76,6 @@
       'sources': [
         '<(DEPTH)/media/base/run_all_unittests.cc',
         'logging/encoding_event_subscriber_unittest.cc',
-        'logging/logging_impl_unittest.cc',
-        'logging/logging_raw_unittest.cc',
         'logging/receiver_time_offset_estimator_impl_unittest.cc',
         'logging/serialize_deserialize_test.cc',
         'logging/simple_event_subscriber_unittest.cc',
@@ -102,12 +101,11 @@
         'net/rtp/mock_rtp_payload_feedback.h',
         'net/rtp/packet_storage_unittest.cc',
         'net/rtp/receiver_stats_unittest.cc',
-        'net/rtp/rtp_header_parser.cc',
-        'net/rtp/rtp_header_parser.h',
         'net/rtp/rtp_packet_builder.cc',
         'net/rtp/rtp_packetizer_unittest.cc',
+        'net/rtp/rtp_parser.cc',
+        'net/rtp/rtp_parser.h',
         'net/rtp/rtp_parser_unittest.cc',
-        'net/rtp/rtp_receiver_defines.h',
         'net/udp_transport_unittest.cc',
         'receiver/audio_decoder_unittest.cc',
         'receiver/frame_receiver_unittest.cc',
@@ -115,10 +113,12 @@
         'sender/audio_encoder_unittest.cc',
         'sender/audio_sender_unittest.cc',
         'sender/congestion_control_unittest.cc',
+        'sender/external_video_encoder_unittest.cc',
         'sender/fake_video_encode_accelerator_factory.cc',
         'sender/fake_video_encode_accelerator_factory.h',
         'sender/video_encoder_unittest.cc',
         'sender/video_sender_unittest.cc',
+        'sender/vp8_quantizer_parser_unittest.cc',
         'test/end2end_unittest.cc',
         'test/fake_receiver_time_offset_estimator.cc',
         'test/fake_receiver_time_offset_estimator.h',
@@ -376,6 +376,15 @@
           ],
           'sources': [
             'cast_unittests.isolate',
+          ],
+          'conditions': [
+            ['use_x11==1',
+              {
+                'dependencies': [
+                  '../../tools/xdisplaycheck/xdisplaycheck.gyp:xdisplaycheck',
+                ],
+              }
+            ],
           ],
         },
       ],

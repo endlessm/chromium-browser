@@ -118,7 +118,8 @@ void SetPolicy(user_prefs::TestingPrefServiceSyncable* prefs,
   prefs->SetManagedPref(kDefaultSearchProviderData, entry.release());
 }
 
-scoped_ptr<TemplateURLData> GenerateDummyTemplateURLData(std::string type) {
+scoped_ptr<TemplateURLData> GenerateDummyTemplateURLData(
+    const std::string& type) {
   scoped_ptr<TemplateURLData> data(new TemplateURLData());
   data->SetShortName(base::UTF8ToUTF16(std::string(type).append("name")));
   data->SetKeyword(base::UTF8ToUTF16(std::string(type).append("key")));
@@ -129,7 +130,8 @@ scoped_ptr<TemplateURLData> GenerateDummyTemplateURLData(std::string type) {
   data->favicon_url = GURL("http://icon1");
   data->safe_for_autoreplace = true;
   data->show_in_default_list = true;
-  base::SplitString("UTF-8;UTF-16", ';', &data->input_encodings);
+  data->input_encodings = base::SplitString(
+      "UTF-8;UTF-16", ";", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   data->date_created = base::Time();
   data->last_modified = base::Time();
   return data.Pass();
@@ -170,7 +172,8 @@ TEST_F(DefaultSearchManagerTest, ReadAndWritePref) {
   data.favicon_url = GURL("http://icon1");
   data.safe_for_autoreplace = true;
   data.show_in_default_list = true;
-  base::SplitString("UTF-8;UTF-16", ';', &data.input_encodings);
+  data.input_encodings = base::SplitString(
+      "UTF-8;UTF-16", ";", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   data.date_created = base::Time();
   data.last_modified = base::Time();
 

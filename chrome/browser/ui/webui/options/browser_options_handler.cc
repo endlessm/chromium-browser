@@ -22,7 +22,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/value_conversions.h"
 #include "base/values.h"
-#include "chrome/browser/auto_launch_trial.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/custom_home_pages_table_model.h"
@@ -50,7 +49,6 @@
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/signin/easy_unlock_service.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/themes/theme_service.h"
@@ -58,6 +56,7 @@
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/chrome_select_file_policy.h"
 #include "chrome/browser/ui/host_desktop.h"
+#include "chrome/browser/ui/passwords/manage_passwords_view_utils_desktop.h"
 #include "chrome/browser/ui/webui/favicon_source.h"
 #include "chrome/browser/ui/webui/options/options_handlers_helper.h"
 #include "chrome/common/chrome_constants.h"
@@ -69,15 +68,18 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/locale_settings.h"
-#include "components/password_manager/core/browser/password_bubble_experiment.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/metrics/metrics_pref_names.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_namespace.h"
 #include "components/policy/core/common/policy_service.h"
 #include "components/proximity_auth/switches.h"
+#include "components/proxy_config/proxy_config_pref_names.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/common/profile_management_switches.h"
+#include "components/signin/core/common/signin_pref_names.h"
 #include "components/ui/zoom/page_zoom.h"
 #include "components/user_manager/user_type.h"
 #include "content/public/browser/browser_thread.h"
@@ -131,7 +133,6 @@
 
 #if defined(OS_WIN)
 #include "chrome/browser/extensions/settings_api_helpers.h"
-#include "chrome/installer/util/auto_launch_util.h"
 #include "content/public/browser/browser_url_handler.h"
 #endif  // defined(OS_WIN)
 
@@ -173,6 +174,9 @@ BrowserOptionsHandler::BrowserOptionsHandler()
     : page_initialized_(false),
       template_url_service_(NULL),
       cloud_print_mdns_ui_enabled_(false),
+#if defined(OS_CHROMEOS)
+      enable_factory_reset_(false),
+#endif  // defined(OS_CHROMEOS)
       signin_observer_(this),
       weak_ptr_factory_(this) {
   default_browser_worker_ = new ShellIntegration::DefaultBrowserWorker(this);
@@ -226,7 +230,6 @@ void BrowserOptionsHandler::GetLocalizedValues(base::DictionaryValue* values) {
     { "advancedSectionTitlePrivacy",
       IDS_OPTIONS_ADVANCED_SECTION_TITLE_PRIVACY },
     { "advancedSectionTitleSystem", IDS_OPTIONS_ADVANCED_SECTION_TITLE_SYSTEM },
-    { "autoLaunchText", IDS_AUTOLAUNCH_TEXT },
     { "autoOpenFileTypesInfo", IDS_OPTIONS_OPEN_FILE_TYPES_AUTOMATICALLY },
     { "autoOpenFileTypesResetToDefault",
       IDS_OPTIONS_AUTOOPENFILETYPES_RESETTODEFAULT },
@@ -312,12 +315,9 @@ void BrowserOptionsHandler::GetLocalizedValues(base::DictionaryValue* values) {
     { "metricsReportingResetRestart", IDS_OPTIONS_ENABLE_LOGGING_RESTART },
     { "networkPredictionEnabledDescription",
       IDS_NETWORK_PREDICTION_ENABLED_DESCRIPTION },
-    { "passwordManagerEnabled",
-      password_bubble_experiment::IsSmartLockBrandingEnabled(
-          ProfileSyncServiceFactory::GetForProfile(
-              Profile::FromWebUI(web_ui()))) ?
-      IDS_OPTIONS_PASSWORD_MANAGER_SMART_LOCK_ENABLE :
-      IDS_OPTIONS_PASSWORD_MANAGER_ENABLE },
+    { "passwordManagerEnabled", GetPasswordManagerSettingsStringId(
+        ProfileSyncServiceFactory::GetForProfile(Profile::FromWebUI(web_ui())))
+    },
     { "passwordsAndAutofillGroupName",
       IDS_OPTIONS_PASSWORDS_AND_FORMS_GROUP_NAME },
     { "privacyClearDataButton", IDS_OPTIONS_PRIVACY_CLEAR_DATA_BUTTON },
@@ -332,8 +332,6 @@ void BrowserOptionsHandler::GetLocalizedValues(base::DictionaryValue* values) {
     { "profilesManage", IDS_PROFILES_MANAGE_BUTTON_LABEL },
     { "profilesSingleUser", IDS_PROFILES_SINGLE_USER_MESSAGE,
       IDS_PRODUCT_NAME },
-    { "profilesSupervisedDashboardTip",
-      IDS_PROFILES_SUPERVISED_USER_DASHBOARD_TIP },
     { "proxiesLabelExtension", IDS_OPTIONS_EXTENSION_PROXIES_LABEL },
     { "proxiesLabelSystem", IDS_OPTIONS_SYSTEM_PROXIES_LABEL,
       IDS_PRODUCT_NAME },
@@ -364,7 +362,7 @@ void BrowserOptionsHandler::GetLocalizedValues(base::DictionaryValue* values) {
     { "startupShowNewTab", IDS_OPTIONS_STARTUP_SHOW_NEWTAB },
     { "startupShowPages", IDS_OPTIONS_STARTUP_SHOW_PAGES },
     { "suggestPref", IDS_OPTIONS_SUGGEST_PREF },
-    { "supervisedUserLabel", IDS_PROFILES_LIST_SUPERVISED_USER_LABEL },
+    { "supervisedUserLabel", IDS_PROFILES_LIST_LEGACY_SUPERVISED_USER_LABEL },
     { "syncButtonTextInProgress", IDS_SYNC_NTP_SETUP_IN_PROGRESS },
     { "syncButtonTextSignIn", IDS_SYNC_START_SYNC_BUTTON_LABEL,
       IDS_SHORT_PRODUCT_NAME },
@@ -543,6 +541,12 @@ void BrowserOptionsHandler::GetLocalizedValues(base::DictionaryValue* values) {
                 IDS_HOTWORD_CONFIRM_BUBBLE_TITLE);
   values->SetString("hotwordManageAudioHistoryURL",
                     chrome::kManageAudioHistoryURL);
+  base::string16 supervised_user_dashboard =
+      base::ASCIIToUTF16(chrome::kLegacySupervisedUserManagementURL);
+  values->SetString("profilesSupervisedDashboardTip",
+      l10n_util::GetStringFUTF16(
+          IDS_PROFILES_LEGACY_SUPERVISED_USER_DASHBOARD_TIP,
+          supervised_user_dashboard));
 
 #if defined(OS_CHROMEOS)
   Profile* profile = Profile::FromWebUI(web_ui());
@@ -566,8 +570,9 @@ void BrowserOptionsHandler::GetLocalizedValues(base::DictionaryValue* values) {
   values->SetString("doNotTrackLearnMoreURL", chrome::kDoNotTrackLearnMoreURL);
 
 #if !defined(OS_CHROMEOS)
-  values->SetBoolean("metricsReportingEnabledAtStart",
-       ChromeMetricsServiceAccessor::IsMetricsReportingEnabled());
+  values->SetBoolean(
+      "metricsReportingEnabledAtStart",
+      ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled());
 #endif
 
 #if defined(OS_CHROMEOS)
@@ -663,13 +668,14 @@ void BrowserOptionsHandler::GetLocalizedValues(base::DictionaryValue* values) {
 
   RegisterTitle(values, "thirdPartyImeConfirmOverlay",
                 IDS_OPTIONS_SETTINGS_LANGUAGES_THIRD_PARTY_WARNING_TITLE);
+  values->SetBoolean("usingNewProfilesUI", false);
+#else
+  values->SetBoolean("usingNewProfilesUI", true);
 #endif
 
   values->SetBoolean("showSetDefault", ShouldShowSetDefaultBrowser());
 
   values->SetBoolean("allowAdvancedSettings", ShouldAllowAdvancedSettings());
-
-  values->SetBoolean("usingNewProfilesUI", switches::IsNewAvatarMenu());
 
 #if defined(OS_CHROMEOS)
   values->SetBoolean(
@@ -853,7 +859,7 @@ void BrowserOptionsHandler::PageLoadStarted() {
 void BrowserOptionsHandler::InitializeHandler() {
   Profile* profile = Profile::FromWebUI(web_ui());
   PrefService* prefs = profile->GetPrefs();
-  chrome::ChromeZoomLevelPrefs* zoom_level_prefs = profile->GetZoomLevelPrefs();
+  ChromeZoomLevelPrefs* zoom_level_prefs = profile->GetZoomLevelPrefs();
   // Only regular profiles are able to edit default zoom level, or delete per-
   // host zoom levels, via the settings menu. We only require a zoom_level_prefs
   // if the profile is able to change these preference types.
@@ -906,15 +912,6 @@ void BrowserOptionsHandler::InitializeHandler() {
 
 #if defined(OS_WIN)
   ExtensionRegistry::Get(Profile::FromWebUI(web_ui()))->AddObserver(this);
-
-  const base::CommandLine& command_line =
-      *base::CommandLine::ForCurrentProcess();
-  if (!command_line.HasSwitch(switches::kUserDataDir)) {
-    BrowserThread::PostTask(BrowserThread::FILE, FROM_HERE,
-        base::Bind(&BrowserOptionsHandler::CheckAutoLaunch,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   profile->GetPath()));
-  }
 #endif
 
   // No preferences below this point may be modified by guest profiles.
@@ -983,7 +980,7 @@ void BrowserOptionsHandler::InitializeHandler() {
                  weak_ptr_factory_.GetWeakPtr()));
 #else  // !defined(OS_CHROMEOS)
   profile_pref_registrar_.Add(
-      prefs::kProxy,
+      proxy_config::prefs::kProxy,
       base::Bind(&BrowserOptionsHandler::SetupProxySettingsSection,
                  base::Unretained(this)));
 #endif  // !defined(OS_CHROMEOS)
@@ -1014,9 +1011,10 @@ void BrowserOptionsHandler::InitializePage() {
   SetupAccessibilityFeatures();
   policy::BrowserPolicyConnectorChromeOS* connector =
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
-  if (!connector->IsEnterpriseManaged() &&
+  enable_factory_reset_ = !connector->IsEnterpriseManaged() &&
       !user_manager::UserManager::Get()->IsLoggedInAsGuest() &&
-      !user_manager::UserManager::Get()->IsLoggedInAsSupervisedUser()) {
+      !user_manager::UserManager::Get()->IsLoggedInAsSupervisedUser();
+  if (enable_factory_reset_) {
     web_ui()->CallJavascriptFunction(
         "BrowserOptions.enableFactoryResetSection");
   }
@@ -1039,50 +1037,6 @@ void BrowserOptionsHandler::InitializePage() {
   if (consumer_management) {
     OnConsumerManagementStatusChanged();
     consumer_management->AddObserver(this);
-  }
-#endif
-}
-
-// static
-void BrowserOptionsHandler::CheckAutoLaunch(
-    base::WeakPtr<BrowserOptionsHandler> weak_this,
-    const base::FilePath& profile_path) {
-#if defined(OS_WIN)
-  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
-
-  // Auto-launch is not supported for secondary profiles yet.
-  if (profile_path.BaseName().value() !=
-          base::ASCIIToUTF16(chrome::kInitialProfile)) {
-    return;
-  }
-
-  // Pass in weak pointer to this to avoid race if BrowserOptionsHandler is
-  // deleted.
-  BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-      base::Bind(&BrowserOptionsHandler::CheckAutoLaunchCallback,
-                 weak_this,
-                 auto_launch_trial::IsInAutoLaunchGroup(),
-                 auto_launch_util::AutoStartRequested(
-                     profile_path.BaseName().value(),
-                     true,  // Window requested.
-                     base::FilePath())));
-#endif
-}
-
-void BrowserOptionsHandler::CheckAutoLaunchCallback(
-    bool is_in_auto_launch_group,
-    bool will_launch_at_login) {
-#if defined(OS_WIN)
-  DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
-  if (is_in_auto_launch_group) {
-    web_ui()->RegisterMessageCallback("toggleAutoLaunch",
-        base::Bind(&BrowserOptionsHandler::ToggleAutoLaunch,
-        base::Unretained(this)));
-
-    base::FundamentalValue enabled(will_launch_at_login);
-    web_ui()->CallJavascriptFunction("BrowserOptions.updateAutoLaunchState",
-                                     enabled);
   }
 #endif
 }
@@ -1323,26 +1277,6 @@ void BrowserOptionsHandler::OnProfileAvatarChanged(
   SendProfilesInfo();
 }
 
-void BrowserOptionsHandler::ToggleAutoLaunch(const base::ListValue* args) {
-#if defined(OS_WIN)
-  if (!auto_launch_trial::IsInAutoLaunchGroup())
-    return;
-
-  bool enable;
-  CHECK_EQ(args->GetSize(), 1U);
-  CHECK(args->GetBoolean(0, &enable));
-
-  Profile* profile = Profile::FromWebUI(web_ui());
-  content::BrowserThread::PostTask(
-      content::BrowserThread::FILE, FROM_HERE,
-      enable ?
-          base::Bind(&auto_launch_util::EnableForegroundStartAtLogin,
-                     profile->GetPath().BaseName().value(), base::FilePath()) :
-          base::Bind(&auto_launch_util::DisableForegroundStartAtLogin,
-                      profile->GetPath().BaseName().value()));
-#endif  // OS_WIN
-}
-
 scoped_ptr<base::ListValue> BrowserOptionsHandler::GetProfilesInfoList() {
   ProfileInfoCache& cache =
       g_browser_process->profile_manager()->GetProfileInfoCache();
@@ -1507,13 +1441,14 @@ BrowserOptionsHandler::GetSyncStateDictionary() {
   sync_status->SetBoolean("setupCompleted",
                           service && service->HasSyncSetupCompleted());
   sync_status->SetBoolean("setupInProgress",
-      service && !service->IsManaged() && service->FirstSetupInProgress());
+      service && !service->IsManaged() && service->IsFirstSetupInProgress());
 
   base::string16 status_label;
   base::string16 link_label;
-  bool status_has_error = sync_ui_util::GetStatusLabels(
-      service, *signin, sync_ui_util::WITH_HTML, &status_label, &link_label) ==
-          sync_ui_util::SYNC_ERROR;
+  bool status_has_error =
+      sync_ui_util::GetStatusLabels(profile, service, *signin,
+                                    sync_ui_util::WITH_HTML, &status_label,
+                                    &link_label) == sync_ui_util::SYNC_ERROR;
   sync_status->SetString("statusText", status_label);
   sync_status->SetString("actionLinkText", link_label);
   sync_status->SetBoolean("hasError", status_has_error);
@@ -1664,8 +1599,7 @@ void BrowserOptionsHandler::HandleRestartBrowser(const base::ListValue* args) {
   // environment variable is defined. So we undefine this environment variable
   // before restarting, as the restarted processes will inherit their
   // environment variables from ours, thus suppressing crash uploads.
-  PrefService* pref_service = g_browser_process->local_state();
-  if (!pref_service->GetBoolean(prefs::kMetricsReportingEnabled)) {
+  if (!ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled()) {
     HMODULE exe_module = GetModuleHandle(chrome::kBrowserProcessExecutableName);
     if (exe_module) {
       typedef void (__cdecl *ClearBreakpadPipeEnvVar)();
@@ -1812,7 +1746,8 @@ void BrowserOptionsHandler::HandleRequestHotwordAvailable(
     // in, audio history is meaningless. This is only displayed if always-on
     // hotwording is available.
     if (authenticated && always_on) {
-      std::string user_display_name = signin->GetAuthenticatedUsername();
+      std::string user_display_name =
+          signin->GetAuthenticatedAccountInfo().email;
       DCHECK(!user_display_name.empty());
       base::string16 audio_history_state =
           l10n_util::GetStringFUTF16(IDS_HOTWORD_AUDIO_HISTORY_ENABLED,
@@ -1904,9 +1839,7 @@ void BrowserOptionsHandler::VirtualKeyboardChangeCallback(
 
 void BrowserOptionsHandler::PerformFactoryResetRestart(
     const base::ListValue* args) {
-  policy::BrowserPolicyConnectorChromeOS* connector =
-      g_browser_process->platform_part()->browser_policy_connector_chromeos();
-  if (connector->IsEnterpriseManaged())
+  if (!enable_factory_reset_)
     return;
 
   PrefService* prefs = g_browser_process->local_state();
@@ -2046,7 +1979,7 @@ void BrowserOptionsHandler::SetupProxySettingsSection() {
 #endif
   PrefService* pref_service = Profile::FromWebUI(web_ui())->GetPrefs();
   const PrefService::Preference* proxy_config =
-      pref_service->FindPreference(prefs::kProxy);
+      pref_service->FindPreference(proxy_config::prefs::kProxy);
   bool is_extension_controlled = (proxy_config &&
                                   proxy_config->IsExtensionControlled());
 
@@ -2143,7 +2076,8 @@ void BrowserOptionsHandler::SetupExtensionControlledIndicators() {
 void BrowserOptionsHandler::SetupMetricsReportingCheckbox() {
   // This function does not work for ChromeOS and non-official builds.
 #if !defined(OS_CHROMEOS) && defined(GOOGLE_CHROME_BUILD)
-  bool checked = ChromeMetricsServiceAccessor::IsMetricsReportingEnabled();
+  bool checked =
+      ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled();
   bool disabled = !IsMetricsReportingUserChangable();
 
   SetMetricsReportingCheckbox(checked, disabled);

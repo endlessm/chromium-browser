@@ -56,7 +56,6 @@ std::set<std::string> MakeFileSet(const char** files) {
            (child = file_enumerator.Next()) != empty; ) {
         // If the path contains /.svn/, ignore it.
         if (child.value().find(svn_dir_component) == std::string::npos) {
-          child = base::MakeAbsoluteFilePath(child);
           file_set.insert(child.value());
         }
       }
@@ -79,11 +78,11 @@ int main(int argc, const char* argv[]) {
   std::string digest;
   for (std::set<std::string>::const_iterator it = files.begin();
        it != files.end(); ++it) {
-    if (!MD5Sum(it->c_str(), &digest))
+    if (!MD5Sum(it->c_str(), &digest)) {
       failed = true;
-    base::FilePath file_path(*it);
-    std::cout << digest << "  "
-              << base::MakeAbsoluteFilePath(file_path).value() << std::endl;
+    } else {
+      std::cout << digest << "  " << *it << std::endl;
+    }
   }
   return failed;
 }

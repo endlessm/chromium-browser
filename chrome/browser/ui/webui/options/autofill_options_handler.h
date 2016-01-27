@@ -8,9 +8,11 @@
 #include <string>
 
 #include "base/compiler_specific.h"
-#include "chrome/browser/sync/profile_sync_service.h"
+#include "base/gtest_prod_util.h"
+#include "base/scoped_observer.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
 #include "components/autofill/core/browser/personal_data_manager_observer.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/sync_driver/sync_service_observer.h"
 
 namespace autofill {
@@ -53,13 +55,6 @@ class AutofillOptionsHandler : public OptionsPageUIHandler,
 
   // Loads Autofill addresses and credit cards using the PersonalDataManager.
   void LoadAutofillData();
-
-#if defined(OS_MACOSX) && !defined(OS_IOS)
-  // The user wants to grant Chrome access to the user's Address Book.
-  // Immediately try to access the Address Book so that the blocking dialog is
-  // shown in context, rather than at a later, surprising time.
-  void AccessAddressBook(const base::ListValue* args);
-#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
 
   // Removes data from the PersonalDataManager.
   // |args| - A string, the GUID of the address or credit card to remove.

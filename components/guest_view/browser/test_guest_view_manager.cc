@@ -15,7 +15,9 @@ TestGuestViewManager::TestGuestViewManager(
     : GuestViewManager(context, delegate.Pass()),
       num_embedder_processes_destroyed_(0),
       num_guests_created_(0),
-      num_views_garbage_collected_(0) {
+      expected_num_guests_created_(0),
+      num_views_garbage_collected_(0),
+      waiting_for_guests_created_(false) {
 }
 
 TestGuestViewManager::~TestGuestViewManager() {
@@ -51,20 +53,32 @@ void TestGuestViewManager::WaitForLastGuestDeleted() {
   guest_web_contents_watchers_.back()->Wait();
 };
 
-void TestGuestViewManager::WaitForGuestCreated() {
-  created_message_loop_runner_ = new content::MessageLoopRunner;
-  created_message_loop_runner_->Run();
-}
-
 content::WebContents* TestGuestViewManager::WaitForSingleGuestCreated() {
   if (!GetNumGuestsActive()) {
     // Guests have been created and subsequently destroyed.
     if (num_guests_created() > 0)
       return nullptr;
-    WaitForGuestCreated();
+    WaitForNumGuestsCreated(1u);
   }
 
   return GetLastGuestCreated();
+}
+
+content::WebContents* TestGuestViewManager::WaitForNextGuestCreated() {
+  created_message_loop_runner_ = new content::MessageLoopRunner();
+  created_message_loop_runner_->Run();
+  return GetLastGuestCreated();
+}
+
+void TestGuestViewManager::WaitForNumGuestsCreated(size_t count) {
+  if (count == num_guests_created_)
+    return;
+
+  waiting_for_guests_created_ = true;
+  expected_num_guests_created_ = count;
+
+  num_created_message_loop_runner_ = new content::MessageLoopRunner;
+  num_created_message_loop_runner_->Run();
 }
 
 void TestGuestViewManager::WaitForViewGarbageCollected() {
@@ -85,19 +99,32 @@ void TestGuestViewManager::AddGuest(int guest_instance_id,
       linked_ptr<content::WebContentsDestroyedWatcher>(
           new content::WebContentsDestroyedWatcher(guest_web_contents)));
 
-  ++num_guests_created_;
-
   if (created_message_loop_runner_.get())
     created_message_loop_runner_->Quit();
+
+  ++num_guests_created_;
+  if (!waiting_for_guests_created_ &&
+      num_guests_created_ != expected_num_guests_created_) {
+    return;
+  }
+
+  if (num_created_message_loop_runner_.get())
+    num_created_message_loop_runner_->Quit();
+}
+
+void TestGuestViewManager::GetGuestWebContentsList(
+    std::vector<content::WebContents*>* guest_web_contents_list) {
+  for (auto& watcher : guest_web_contents_watchers_)
+    guest_web_contents_list->push_back(watcher->web_contents());
 }
 
 void TestGuestViewManager::RemoveGuest(int guest_instance_id) {
   GuestViewManager::RemoveGuest(guest_instance_id);
 }
 
-void TestGuestViewManager::EmbedderWillBeDestroyed(int embedder_process_id) {
+void TestGuestViewManager::EmbedderProcessDestroyed(int embedder_process_id) {
   ++num_embedder_processes_destroyed_;
-  GuestViewManager::EmbedderWillBeDestroyed(embedder_process_id);
+  GuestViewManager::EmbedderProcessDestroyed(embedder_process_id);
 }
 
 void TestGuestViewManager::ViewGarbageCollected(int embedder_process_id,

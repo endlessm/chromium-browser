@@ -19,8 +19,8 @@
 #include "webrtc/modules/video_coding/main/source/test/stream_generator.h"
 #include "webrtc/modules/video_coding/main/source/timing.h"
 #include "webrtc/modules/video_coding/main/test/test_util.h"
-#include "webrtc/system_wrappers/interface/clock.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/clock.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 
 namespace webrtc {
 
@@ -63,10 +63,8 @@ class TestVCMReceiver : public ::testing::Test {
   int32_t InsertFrame(FrameType frame_type, bool complete) {
     int num_of_packets = complete ? 1 : 2;
     stream_generator_->GenerateFrame(
-        frame_type,
-        (frame_type != kFrameEmpty) ? num_of_packets : 0,
-        (frame_type == kFrameEmpty) ? 1 : 0,
-        clock_->TimeInMilliseconds());
+        frame_type, (frame_type != kEmptyFrame) ? num_of_packets : 0,
+        (frame_type == kEmptyFrame) ? 1 : 0, clock_->TimeInMilliseconds());
     int32_t ret = InsertPacketAndPop(0);
     if (!complete) {
       // Drop the second packet.
@@ -348,7 +346,7 @@ class SimulatedClockWithFrames : public SimulatedClock {
     bool frame_injected = false;
     while (!timestamps_.empty() &&
            timestamps_.front().arrive_time <= end_time) {
-      DCHECK(timestamps_.front().arrive_time >= start_time);
+      RTC_DCHECK(timestamps_.front().arrive_time >= start_time);
 
       SimulatedClock::AdvanceTimeMicroseconds(timestamps_.front().arrive_time -
                                               TimeInMicroseconds());
@@ -376,7 +374,7 @@ class SimulatedClockWithFrames : public SimulatedClock {
                  size_t size) {
     int64_t previous_arrive_timestamp = 0;
     for (size_t i = 0; i < size; i++) {
-      CHECK(arrive_timestamps[i] >= previous_arrive_timestamp);
+      RTC_CHECK(arrive_timestamps[i] >= previous_arrive_timestamp);
       timestamps_.push(TimestampPair(arrive_timestamps[i] * 1000,
                                      render_timestamps[i] * 1000));
       previous_arrive_timestamp = arrive_timestamps[i];

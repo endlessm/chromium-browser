@@ -82,7 +82,7 @@ static const int kTargetPlayoutDelayMs = 100;
 // receiver.
 static const int kMaxAllowedPlayoutErrorMs = 30;
 
-std::string ConvertFromBase16String(const std::string base_16) {
+std::string ConvertFromBase16String(const std::string& base_16) {
   std::string compressed;
   DCHECK_EQ(base_16.size() % 2, 0u) << "Must be a multiple of 2";
   compressed.reserve(base_16.size() / 2);
@@ -385,8 +385,8 @@ class TestReceiverVideoCallback
 
     const gfx::Size size(kVideoHdWidth, kVideoHdHeight);
     scoped_refptr<media::VideoFrame> expected_I420_frame =
-        media::VideoFrame::CreateFrame(
-            VideoFrame::I420, size, gfx::Rect(size), size, base::TimeDelta());
+        media::VideoFrame::CreateFrame(PIXEL_FORMAT_I420, size, gfx::Rect(size),
+                                       size, base::TimeDelta());
     PopulateVideoFrame(expected_I420_frame.get(),
                        expected_video_frame.start_value);
 
@@ -448,8 +448,7 @@ class End2EndTest : public ::testing::Test {
         test_receiver_video_callback_(new TestReceiverVideoCallback()) {
     testing_clock_.Advance(
         base::TimeDelta::FromMilliseconds(kStartMillisecond));
-    cast_environment_sender_->Logging()->AddRawEventSubscriber(
-        &event_subscriber_sender_);
+    cast_environment_sender_->logger()->Subscribe(&event_subscriber_sender_);
   }
 
   void Configure(Codec video_codec,
@@ -575,28 +574,21 @@ class End2EndTest : public ::testing::Test {
   void Create() {
     net::IPEndPoint dummy_endpoint;
     transport_sender_.reset(new CastTransportSenderImpl(
-        NULL,
-        testing_clock_sender_,
-        dummy_endpoint,
-        dummy_endpoint,
+        nullptr, testing_clock_sender_, dummy_endpoint, dummy_endpoint,
         make_scoped_ptr(new base::DictionaryValue),
         base::Bind(&UpdateCastTransportStatus),
-        base::Bind(&End2EndTest::LogRawEvents, base::Unretained(this)),
-        base::TimeDelta::FromMilliseconds(1),
-        task_runner_sender_,
-        PacketReceiverCallback(),
-        &sender_to_receiver_));
+        base::Bind(&LogEventDispatcher::DispatchBatchOfEvents,
+                   base::Unretained(cast_environment_sender_->logger())),
+        base::TimeDelta::FromMilliseconds(1), task_runner_sender_,
+        PacketReceiverCallback(), &sender_to_receiver_));
 
     transport_receiver_.reset(new CastTransportSenderImpl(
-        NULL,
-        testing_clock_sender_,
-        dummy_endpoint,
-        dummy_endpoint,
+        nullptr, testing_clock_sender_, dummy_endpoint, dummy_endpoint,
         make_scoped_ptr(new base::DictionaryValue),
         base::Bind(&UpdateCastTransportStatus),
-        base::Bind(&End2EndTest::LogRawEvents, base::Unretained(this)),
-        base::TimeDelta::FromMilliseconds(1),
-        task_runner_sender_,
+        base::Bind(&LogEventDispatcher::DispatchBatchOfEvents,
+                   base::Unretained(cast_environment_receiver_->logger())),
+        base::TimeDelta::FromMilliseconds(1), task_runner_sender_,
         base::Bind(&End2EndTest::ReceivePacket, base::Unretained(this)),
         &receiver_to_sender_));
 
@@ -639,8 +631,7 @@ class End2EndTest : public ::testing::Test {
   }
 
   ~End2EndTest() override {
-    cast_environment_sender_->Logging()->RemoveRawEventSubscriber(
-        &event_subscriber_sender_);
+    cast_environment_sender_->logger()->Unsubscribe(&event_subscriber_sender_);
   }
 
   void TearDown() final {
@@ -656,13 +647,12 @@ class End2EndTest : public ::testing::Test {
     // since the video clock may not be the same as the reference clock.
     const base::TimeDelta time_diff = reference_time - start_time_;
     const gfx::Size size(kVideoHdWidth, kVideoHdHeight);
-    EXPECT_TRUE(VideoFrame::IsValidConfig(VideoFrame::I420,
+    EXPECT_TRUE(VideoFrame::IsValidConfig(PIXEL_FORMAT_I420,
                                           VideoFrame::STORAGE_UNKNOWN, size,
                                           gfx::Rect(size), size));
     scoped_refptr<media::VideoFrame> video_frame =
-        media::VideoFrame::CreateFrame(
-            VideoFrame::I420, size, gfx::Rect(size), size,
-            time_diff);
+        media::VideoFrame::CreateFrame(PIXEL_FORMAT_I420, size, gfx::Rect(size),
+                                       size, time_diff);
     PopulateVideoFrame(video_frame.get(), start_value);
     video_frame_input_->InsertRawVideoFrame(video_frame, reference_time);
   }
@@ -741,33 +731,6 @@ class End2EndTest : public ::testing::Test {
     cast_receiver_->RequestDecodedAudioFrame(
         base::Bind(&End2EndTest::BasicPlayerGotAudioFrame,
                    base::Unretained(this)));
-  }
-
-  void LogRawEvents(const std::vector<PacketEvent>& packet_events,
-                    const std::vector<FrameEvent>& frame_events) {
-    for (std::vector<media::cast::PacketEvent>::const_iterator it =
-             packet_events.begin();
-         it != packet_events.end();
-         ++it) {
-      cast_environment_sender_->Logging()->InsertPacketEvent(it->timestamp,
-                                                             it->type,
-                                                             it->media_type,
-                                                             it->rtp_timestamp,
-                                                             it->frame_id,
-                                                             it->packet_id,
-                                                             it->max_packet_id,
-                                                             it->size);
-    }
-    for (std::vector<media::cast::FrameEvent>::const_iterator it =
-             frame_events.begin();
-         it != frame_events.end();
-         ++it) {
-      cast_environment_sender_->Logging()->InsertFrameEvent(it->timestamp,
-                                                            it->type,
-                                                            it->media_type,
-                                                            it->rtp_timestamp,
-                                                            it->frame_id);
-    }
   }
 
   FrameReceiverConfig audio_receiver_config_;
@@ -1251,6 +1214,8 @@ TEST_F(End2EndTest, AudioLogging) {
 
   EXPECT_EQ(num_audio_frames_requested,
             test_receiver_audio_callback_->number_times_called());
+
+  RunTasks(750);  // Make sure that we send a RTCP message with the log.
 
   // Logging tests.
   // Verify that all frames and all required events were logged.

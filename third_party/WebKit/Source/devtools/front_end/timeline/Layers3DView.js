@@ -39,7 +39,7 @@ WebInspector.Layers3DView = function(layerViewHost)
     WebInspector.VBox.call(this);
     this.element.classList.add("layers-3d-view");
     this._failBanner = new WebInspector.VBox();
-    this._failBanner.element.classList.add("fail-banner", "fill");
+    this._failBanner.element.classList.add("banner");
     this._failBanner.element.createTextChild(WebInspector.UIString("Layer information is not yet available."));
 
     this._layerViewHost = layerViewHost;
@@ -66,7 +66,6 @@ WebInspector.Layers3DView = function(layerViewHost)
     this._chromeTextures = [];
     this._rects = [];
 
-    WebInspector.moduleSetting("showPaintRects").addChangeListener(this._update, this);
     this._layerViewHost.showInternalLayersSetting().addChangeListener(this._update, this);
 }
 

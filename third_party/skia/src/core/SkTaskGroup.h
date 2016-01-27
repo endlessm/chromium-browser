@@ -53,6 +53,8 @@ private:
 // Returns best estimate of number of CPU cores available to use.
 int sk_num_cores();
 
+int sk_parallel_for_thread_count();
+
 // Call f(i) for i in [0, end).
 template <typename Func>
 void sk_parallel_for(int end, const Func& f) {
@@ -69,8 +71,13 @@ void sk_parallel_for(int end, const Func& f) {
         nchunks     = (end + stride - 1 ) / stride;
     SkASSERT(nchunks <= max_chunks);
 
+#if defined(GOOGLE3)
+    // Stack frame size is limited in GOOGLE3.
+    SkAutoSTMalloc<512, Chunk> chunks(nchunks);
+#else
     // With the chunking strategy above this won't malloc until we have a machine with >512 cores.
     SkAutoSTMalloc<1024, Chunk> chunks(nchunks);
+#endif
 
     for (int i = 0; i < nchunks; i++) {
         Chunk& c = chunks[i];

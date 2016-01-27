@@ -14,10 +14,19 @@
 #include <GLES2/gl2.h>
 #include <GLES3/gl3.h>
 
+namespace egl
+{
+class Display;
+class Image;
+}
+
 namespace gl
 {
 
 class Context;
+class Program;
+class Shader;
+class ValidationContext;
 
 bool ValidCap(const Context *context, GLenum cap);
 bool ValidTextureTarget(const Context *context, GLenum target);
@@ -26,10 +35,25 @@ bool ValidFramebufferTarget(GLenum target);
 bool ValidBufferTarget(const Context *context, GLenum target);
 bool ValidBufferParameter(const Context *context, GLenum pname);
 bool ValidMipLevel(const Context *context, GLenum target, GLint level);
-bool ValidImageSize(const Context *context, GLenum target, GLint level, GLsizei width, GLsizei height, GLsizei depth);
+bool ValidImageSizeParameters(const Context *context,
+                              GLenum target,
+                              GLint level,
+                              GLsizei width,
+                              GLsizei height,
+                              GLsizei depth,
+                              bool isSubImage);
 bool ValidCompressedImageSize(const Context *context, GLenum internalFormat, GLsizei width, GLsizei height);
 bool ValidQueryType(const Context *context, GLenum queryType);
-bool ValidProgram(Context *context, GLuint id);
+
+// Returns valid program if id is a valid program name
+// Errors INVALID_OPERATION if valid shader is given and returns NULL
+// Errors INVALID_VALUE otherwise and returns NULL
+Program *GetValidProgram(Context *context, GLuint id);
+
+// Returns valid shader if id is a valid shader name
+// Errors INVALID_OPERATION if valid program is given and returns NULL
+// Errors INVALID_VALUE otherwise and returns NULL
+Shader *GetValidShader(Context *context, GLuint id);
 
 bool ValidateAttachmentTarget(Context *context, GLenum attachment);
 bool ValidateRenderbufferStorageParametersBase(Context *context, GLenum target, GLsizei samples,
@@ -70,13 +94,28 @@ bool ValidateDrawArrays(Context *context, GLenum mode, GLint first, GLsizei coun
 bool ValidateDrawArraysInstanced(Context *context, GLenum mode, GLint first, GLsizei count, GLsizei primcount);
 bool ValidateDrawArraysInstancedANGLE(Context *context, GLenum mode, GLint first, GLsizei count, GLsizei primcount);
 
-bool ValidateDrawElements(Context *context, GLenum mode, GLsizei count, GLenum type,
-                          const GLvoid *indices, GLsizei primcount, RangeUI *indexRangeOut);
+bool ValidateDrawElements(ValidationContext *context,
+                          GLenum mode,
+                          GLsizei count,
+                          GLenum type,
+                          const GLvoid *indices,
+                          GLsizei primcount,
+                          IndexRange *indexRangeOut);
 
-bool ValidateDrawElementsInstanced(Context *context, GLenum mode, GLsizei count, GLenum type,
-                                   const GLvoid *indices, GLsizei primcount, RangeUI *indexRangeOut);
-bool ValidateDrawElementsInstancedANGLE(Context *context, GLenum mode, GLsizei count, GLenum type,
-                                        const GLvoid *indices, GLsizei primcount, RangeUI *indexRangeOut);
+bool ValidateDrawElementsInstanced(Context *context,
+                                   GLenum mode,
+                                   GLsizei count,
+                                   GLenum type,
+                                   const GLvoid *indices,
+                                   GLsizei primcount,
+                                   IndexRange *indexRangeOut);
+bool ValidateDrawElementsInstancedANGLE(Context *context,
+                                        GLenum mode,
+                                        GLsizei count,
+                                        GLenum type,
+                                        const GLvoid *indices,
+                                        GLsizei primcount,
+                                        IndexRange *indexRangeOut);
 
 bool ValidateFramebufferTextureBase(Context *context, GLenum target, GLenum attachment,
                                     GLuint texture, GLint level);
@@ -94,6 +133,22 @@ bool ValidateDiscardFramebufferBase(Context *context, GLenum target, GLsizei num
 
 bool ValidateInsertEventMarkerEXT(Context *context, GLsizei length, const char *marker);
 bool ValidatePushGroupMarkerEXT(Context *context, GLsizei length, const char *marker);
+
+bool ValidateEGLImageTargetTexture2DOES(Context *context,
+                                        egl::Display *display,
+                                        GLenum target,
+                                        egl::Image *image);
+bool ValidateEGLImageTargetRenderbufferStorageOES(Context *context,
+                                                  egl::Display *display,
+                                                  GLenum target,
+                                                  egl::Image *image);
+
+bool ValidateBindVertexArrayBase(Context *context, GLuint array);
+bool ValidateDeleteVertexArraysBase(Context *context, GLsizei n);
+bool ValidateGenVertexArraysBase(Context *context, GLsizei n);
+
+// Error messages shared here for use in testing.
+extern const char *g_ExceedsMaxElementErrorMessage;
 }
 
 #endif // LIBANGLE_VALIDATION_ES_H_

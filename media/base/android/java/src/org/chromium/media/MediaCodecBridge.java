@@ -17,9 +17,9 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.Surface;
 
-import org.chromium.base.CalledByNative;
-import org.chromium.base.JNINamespace;
 import org.chromium.base.Log;
+import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.JNINamespace;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -32,7 +32,7 @@ import java.util.Map;
  */
 @JNINamespace("media")
 class MediaCodecBridge {
-    private static final String TAG = "cr.media";
+    private static final String TAG = "cr_media";
 
     // Error code for MediaCodecBridge. Keep this value in sync with
     // MediaCodecStatus in media_codec_bridge.h.
@@ -74,6 +74,7 @@ class MediaCodecBridge {
 
     private MediaCodec mMediaCodec;
     private AudioTrack mAudioTrack;
+    private byte[] mPendingAudioBuffer;
     private boolean mFlushed;
     private long mLastPresentationTimeUs;
     private String mMime;
@@ -302,6 +303,7 @@ class MediaCodecBridge {
             MediaCodec mediaCodec, String mime, boolean adaptivePlaybackSupported) {
         assert mediaCodec != null;
         mMediaCodec = mediaCodec;
+        mPendingAudioBuffer = null;
         mMime = mime;
         mLastPresentationTimeUs = 0;
         mFlushed = true;
@@ -355,6 +357,7 @@ class MediaCodecBridge {
     @CalledByNative
     private void release() {
         try {
+            Log.w(TAG, "calling MediaCodec.release()");
             mMediaCodec.release();
         } catch (IllegalStateException e) {
             // The MediaCodec is stuck in a wrong state, possibly due to losing
@@ -365,6 +368,7 @@ class MediaCodecBridge {
         if (mAudioTrack != null) {
             mAudioTrack.release();
         }
+        mPendingAudioBuffer = null;
     }
 
     @SuppressWarnings("deprecation")
@@ -393,7 +397,6 @@ class MediaCodecBridge {
                 status = MEDIA_CODEC_OK;
                 index = indexOrStatus;
             } else if (indexOrStatus == MediaCodec.INFO_TRY_AGAIN_LATER) {
-                Log.e(TAG, "dequeueInputBuffer: MediaCodec.INFO_TRY_AGAIN_LATER");
                 status = MEDIA_CODEC_DEQUEUE_INPUT_AGAIN_LATER;
             } else {
                 Log.e(TAG, "Unexpected index_or_status: " + indexOrStatus);
@@ -413,6 +416,7 @@ class MediaCodecBridge {
                 // Need to call pause() here, or otherwise flush() is a no-op.
                 mAudioTrack.pause();
                 mAudioTrack.flush();
+                mPendingAudioBuffer = null;
             }
             mMediaCodec.flush();
         } catch (IllegalStateException e) {
@@ -534,7 +538,7 @@ class MediaCodecBridge {
             Log.e(TAG, "MediaCodec.CryptoException with error code " + e.getErrorCode());
             return MEDIA_CODEC_ERROR;
         } catch (IllegalStateException e) {
-            Log.e(TAG, "Failed to queue secure input buffer", e);
+            Log.e(TAG, "Failed to queue secure input buffer, IllegalStateException " + e);
             return MEDIA_CODEC_ERROR;
         }
         return MEDIA_CODEC_OK;
@@ -608,7 +612,13 @@ class MediaCodecBridge {
             }
             mMediaCodec.configure(format, surface, crypto, flags);
             return true;
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Cannot configure the video codec, wrong format or surface", e);
         } catch (IllegalStateException e) {
+            Log.e(TAG, "Cannot configure the video codec", e);
+        } catch (MediaCodec.CryptoException e) {
+            Log.e(TAG, "Cannot configure the video codec: DRM error", e);
+        } catch (Exception e) {
             Log.e(TAG, "Cannot configure the video codec", e);
         }
         return false;
@@ -706,12 +716,19 @@ class MediaCodecBridge {
                 mAudioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, sampleRate, channelConfig,
                         AudioFormat.ENCODING_PCM_16BIT, minBufferSize, AudioTrack.MODE_STREAM);
                 if (mAudioTrack.getState() == AudioTrack.STATE_UNINITIALIZED) {
+                    Log.e(TAG, "Cannot create AudioTrack");
                     mAudioTrack = null;
                     return false;
                 }
             }
             return true;
+        } catch (IllegalArgumentException e) {
+            Log.e(TAG, "Cannot configure the audio codec", e);
         } catch (IllegalStateException e) {
+            Log.e(TAG, "Cannot configure the audio codec", e);
+        } catch (MediaCodec.CryptoException e) {
+            Log.e(TAG, "Cannot configure the audio codec: DRM error", e);
+        } catch (Exception e) {
             Log.e(TAG, "Cannot configure the audio codec", e);
         }
         return false;
@@ -721,19 +738,39 @@ class MediaCodecBridge {
      *  Play the audio buffer that is passed in.
      *
      *  @param buf Audio buffer to be rendered.
+     *  @param postpone If true, save audio buffer for playback with the next
+     *  audio buffer. Must be followed by playOutputBuffer() without postpone,
+     *  flush() or release().
      *  @return The number of frames that have already been consumed by the
      *  hardware. This number resets to 0 after each flush call.
      */
     @CalledByNative
-    private long playOutputBuffer(byte[] buf) {
+    private long playOutputBuffer(byte[] buf, boolean postpone) {
         if (mAudioTrack == null) {
+            return 0;
+        }
+
+        if (postpone) {
+            assert mPendingAudioBuffer == null;
+            mPendingAudioBuffer = buf;
             return 0;
         }
 
         if (AudioTrack.PLAYSTATE_PLAYING != mAudioTrack.getPlayState()) {
             mAudioTrack.play();
         }
-        int size = mAudioTrack.write(buf, 0, buf.length);
+
+        int size = 0;
+        if (mPendingAudioBuffer != null) {
+            size = mAudioTrack.write(mPendingAudioBuffer, 0, mPendingAudioBuffer.length);
+            if (mPendingAudioBuffer.length != size) {
+                Log.i(TAG, "Failed to send all data to audio output, expected size: "
+                                + mPendingAudioBuffer.length + ", actual size: " + size);
+            }
+            mPendingAudioBuffer = null;
+        }
+
+        size = mAudioTrack.write(buf, 0, buf.length);
         if (buf.length != size) {
             Log.i(TAG, "Failed to send all data to audio output, expected size: "
                     + buf.length + ", actual size: " + size);
@@ -746,7 +783,11 @@ class MediaCodecBridge {
         // If the stream runs too long, getPlaybackHeadPosition() could
         // overflow. AudioTimestampHelper in MediaSourcePlayer has the same
         // issue. See http://crbug.com/358801.
-        return mAudioTrack.getPlaybackHeadPosition();
+
+        // The method AudioTrack.getPlaybackHeadPosition() returns int that should be
+        // interpreted as unsigned 32 bit value. Convert the return value of
+        // getPlaybackHeadPosition() into unsigned int using the long mask.
+        return 0xFFFFFFFFL & mAudioTrack.getPlaybackHeadPosition();
     }
 
     @SuppressWarnings("deprecation")
@@ -765,6 +806,7 @@ class MediaCodecBridge {
         }
     }
 
+    @SuppressWarnings("deprecation")
     private int getAudioFormat(int channelCount) {
         switch (channelCount) {
             case 1:
@@ -776,7 +818,11 @@ class MediaCodecBridge {
             case 6:
                 return AudioFormat.CHANNEL_OUT_5POINT1;
             case 8:
-                return AudioFormat.CHANNEL_OUT_7POINT1;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    return AudioFormat.CHANNEL_OUT_7POINT1_SURROUND;
+                } else {
+                    return AudioFormat.CHANNEL_OUT_7POINT1;
+                }
             default:
                 return AudioFormat.CHANNEL_OUT_DEFAULT;
         }

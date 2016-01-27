@@ -157,7 +157,7 @@ void HTMLTrackElement::scheduleLoad()
         return;
 
     // 4. Run the remainder of these steps in parallel, allowing whatever caused these steps to run to continue.
-    m_loadTimer.startOneShot(0, FROM_HERE);
+    m_loadTimer.startOneShot(0, BLINK_FROM_HERE);
 
     // 5. Top: Await a stable state. The synchronous section consists of the following steps. (The steps in the
     // synchronous section are marked with [X])
@@ -270,7 +270,7 @@ void HTMLTrackElement::newCuesAvailable(TextTrackLoader* loader)
     ASSERT_UNUSED(loader, m_loader == loader);
     ASSERT(m_track);
 
-    WillBeHeapVector<RefPtrWillBeMember<TextTrackCue>> newCues;
+    HeapVector<Member<TextTrackCue>> newCues;
     m_loader->getNewCues(newCues);
 
     m_track->addListOfCues(newCues);
@@ -281,7 +281,7 @@ void HTMLTrackElement::newRegionsAvailable(TextTrackLoader* loader)
     ASSERT_UNUSED(loader, m_loader == loader);
     ASSERT(m_track);
 
-    WillBeHeapVector<RefPtrWillBeMember<VTTRegion>> newRegions;
+    HeapVector<Member<VTTRegion>> newRegions;
     m_loader->getNewRegions(newRegions);
 
     m_track->addRegions(newRegions);

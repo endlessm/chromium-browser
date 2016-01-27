@@ -27,6 +27,7 @@
 #include "config.h"
 #include "platform/SharedBuffer.h"
 
+#include "public/platform/WebProcessMemoryDump.h"
 #include "wtf/text/UTF8.h"
 #include "wtf/text/Unicode.h"
 
@@ -34,13 +35,13 @@
 
 #ifdef SHARED_BUFFER_STATS
 #include "public/platform/Platform.h"
+#include "public/platform/WebTaskRunner.h"
 #include "public/platform/WebTraceLocation.h"
 #include "wtf/DataLog.h"
+#include <set>
 #endif
 
 namespace blink {
-
-STATIC_CONST_MEMBER_DEFINITION const unsigned SharedBuffer::kSegmentSize;
 
 static inline unsigned segmentIndex(unsigned position)
 {
@@ -54,12 +55,12 @@ static inline unsigned offsetInSegment(unsigned position)
 
 static inline char* allocateSegment()
 {
-    return static_cast<char*>(fastMalloc(SharedBuffer::kSegmentSize));
+    return static_cast<char*>(WTF::Partitions::fastMalloc(SharedBuffer::kSegmentSize));
 }
 
 static inline void freeSegment(char* p)
 {
-    fastFree(p);
+    WTF::Partitions::fastFree(p);
 }
 
 #ifdef SHARED_BUFFER_STATS
@@ -70,9 +71,11 @@ static Mutex& statsMutex()
     return mutex;
 }
 
-static HashSet<SharedBuffer*>& liveBuffers()
+static std::set<SharedBuffer*>& liveBuffers()
 {
-    DEFINE_STATIC_LOCAL(HashSet<SharedBuffer*>, buffers, ());
+    // Use std::set instead of WTF::HashSet to avoid increasing PartitionAlloc
+    // memory usage.
+    DEFINE_STATIC_LOCAL(std::set<SharedBuffer*>, buffers, ());
     return buffers;
 }
 
@@ -110,8 +113,8 @@ static void printStats()
 {
     MutexLocker locker(statsMutex());
     Vector<SharedBuffer*> buffers;
-    for (HashSet<SharedBuffer*>::const_iterator iter = liveBuffers().begin(); iter != liveBuffers().end(); ++iter)
-        buffers.append(*iter);
+    for (auto* buffer : liveBuffers())
+        buffers.append(buffer);
     std::sort(buffers.begin(), buffers.end(), sizeComparator);
 
     dataLogF("---- Shared Buffer Stats ----\n");
@@ -124,15 +127,15 @@ static void printStats()
 static void didCreateSharedBuffer(SharedBuffer* buffer)
 {
     MutexLocker locker(statsMutex());
-    liveBuffers().add(buffer);
+    liveBuffers().insert(buffer);
 
-    Platform::current()->mainThread()->postTask(FROM_HERE, bind(&printStats));
+    Platform::current()->mainThread()->taskRunner()->postTask(BLINK_FROM_HERE, bind(&printStats));
 }
 
 static void willDestroySharedBuffer(SharedBuffer* buffer)
 {
     MutexLocker locker(statsMutex());
-    liveBuffers().remove(buffer);
+    liveBuffers().erase(buffer);
 }
 
 #endif
@@ -271,7 +274,7 @@ void SharedBuffer::append(const char* data, unsigned length)
         data += bytesToCopy;
         segment = allocateSegment();
         m_segments.append(segment);
-        bytesToCopy = std::min(length, kSegmentSize);
+        bytesToCopy = std::min(length, static_cast<unsigned>(kSegmentSize));
     }
 }
 
@@ -314,7 +317,7 @@ void SharedBuffer::mergeSegmentsIntoBuffer() const
     if (m_size > bufferSize) {
         unsigned bytesLeft = m_size - bufferSize;
         for (unsigned i = 0; i < m_segments.size(); ++i) {
-            unsigned bytesToCopy = std::min(bytesLeft, kSegmentSize);
+            unsigned bytesToCopy = std::min(bytesLeft, static_cast<unsigned>(kSegmentSize));
             m_buffer.append(m_segments[i], bytesToCopy);
             bytesLeft -= bytesToCopy;
             freeSegment(m_segments[i]);
@@ -410,6 +413,20 @@ void SharedBuffer::unlock()
 bool SharedBuffer::isLocked() const
 {
     return m_buffer.isLocked();
+}
+
+void SharedBuffer::onMemoryDump(const String& dumpPrefix, WebProcessMemoryDump* memoryDump) const
+{
+    if (m_buffer.size()) {
+        m_buffer.onMemoryDump(dumpPrefix + "/shared_buffer", memoryDump);
+    } else {
+        // If there is data in the segments, then it should have been allocated
+        // using fastMalloc.
+        const String dataDumpName = dumpPrefix + "/segments";
+        auto dump = memoryDump->createMemoryAllocatorDump(dataDumpName);
+        dump->addScalar("size", "bytes", m_size);
+        memoryDump->addSuballocation(dump->guid(), String(WTF::Partitions::kAllocatedObjectPoolName));
+    }
 }
 
 } // namespace blink

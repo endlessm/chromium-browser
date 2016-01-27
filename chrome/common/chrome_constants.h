@@ -41,16 +41,6 @@ extern const base::FilePath::CharType kHelperProcessExecutablePathChromium[];
 // TODO(tfarina): Remove the comment above, when you fix components to use plist
 // on Mac.
 extern const base::FilePath::CharType kFrameworkName[];
-
-// The helper .app bundle name and executable name may have one of these
-// suffixes to identify specific features, or it may have no suffix at all.
-// This is a NULL-terminated array of strings. If kHelperFlavorSuffixes
-// contains "EN", "MF", and NULL, it indicates that if the normal helper is
-// named Chromium Helper.app, helper executables could show up at any of
-// Chromium Helper.app/Contents/MacOS/Chromium Helper,
-// Chromium Helper EN.app/Contents/MacOS/Chromium Helper EN, and
-// Chromium Helper MF.app/Contents/MacOS/Chromium Helper MF.
-extern const base::FilePath::CharType* const kHelperFlavorSuffixes[];
 #endif  // OS_MACOSX
 #if defined(OS_WIN)
 extern const base::FilePath::CharType kBrowserResourcesDll[];
@@ -64,7 +54,6 @@ extern const base::FilePath::CharType kGuestProfileDir[];
 extern const base::FilePath::CharType kSystemProfileDir[];
 
 // filenames
-extern const base::FilePath::CharType kAffiliationDatabaseFileName[];
 extern const base::FilePath::CharType kCacheDirname[];
 extern const base::FilePath::CharType kChannelIDFilename[];
 extern const base::FilePath::CharType kCookieFilename[];
@@ -76,9 +65,10 @@ extern const base::FilePath::CharType kFirstRunSentinel[];
 extern const base::FilePath::CharType kGCMStoreDirname[];
 extern const base::FilePath::CharType kLocalStateFilename[];
 extern const base::FilePath::CharType kLocalStorePoolName[];
-extern const base::FilePath::CharType kLoginDataFileName[];
 extern const base::FilePath::CharType kMediaCacheDirname[];
 extern const base::FilePath::CharType kNetworkPersistentStateFilename[];
+extern const base::FilePath::CharType kOfflinePageArchviesDirname[];
+extern const base::FilePath::CharType kOfflinePageMetadataDirname[];
 extern const base::FilePath::CharType kPreferencesFilename[];
 extern const base::FilePath::CharType kProtectedPreferencesFilenameDeprecated[];
 extern const base::FilePath::CharType kReadmeFilename[];
@@ -86,12 +76,12 @@ extern const base::FilePath::CharType kResetPromptMementoFilename[];
 extern const base::FilePath::CharType kSafeBrowsingBaseFilename[];
 extern const base::FilePath::CharType kSecurePreferencesFilename[];
 extern const base::FilePath::CharType kServiceStateFileName[];
-extern const base::FilePath::CharType kShortcutsDatabaseName[];
 extern const base::FilePath::CharType kSingletonCookieFilename[];
 extern const base::FilePath::CharType kSingletonLockFilename[];
 extern const base::FilePath::CharType kSingletonSocketFilename[];
 extern const base::FilePath::CharType kSupervisedUserSettingsFilename[];
 extern const base::FilePath::CharType kThemePackFilename[];
+extern const base::FilePath::CharType kThemePackMaterialDesignFilename[];
 extern const base::FilePath::CharType kWebAppDirname[];
 
 #if defined(OS_WIN)

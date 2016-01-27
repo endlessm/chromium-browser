@@ -84,8 +84,8 @@ using cricket::RtpHeaderExtension;
 using cricket::SEC_DISABLED;
 using cricket::SEC_ENABLED;
 using cricket::SEC_REQUIRED;
-using cricket::CS_AES_CM_128_HMAC_SHA1_32;
-using cricket::CS_AES_CM_128_HMAC_SHA1_80;
+using rtc::CS_AES_CM_128_HMAC_SHA1_32;
+using rtc::CS_AES_CM_128_HMAC_SHA1_80;
 
 static const AudioCodec kAudioCodecs1[] = {
   AudioCodec(103, "ISAC",   16000, -1,    1, 6),
@@ -147,6 +147,11 @@ static const RtpHeaderExtension kAudioRtpExtension2[] = {
   RtpHeaderExtension("http://google.com/testing/both_audio_and_video", 7),
 };
 
+static const RtpHeaderExtension kAudioRtpExtension3[] = {
+  RtpHeaderExtension("http://google.com/testing/audio_something", 2),
+  RtpHeaderExtension("http://google.com/testing/both_audio_and_video", 3),
+};
+
 static const RtpHeaderExtension kAudioRtpExtensionAnswer[] = {
   RtpHeaderExtension("urn:ietf:params:rtp-hdrext:ssrc-audio-level", 8),
 };
@@ -162,15 +167,20 @@ static const RtpHeaderExtension kVideoRtpExtension2[] = {
   RtpHeaderExtension("http://google.com/testing/both_audio_and_video", 7),
 };
 
+static const RtpHeaderExtension kVideoRtpExtension3[] = {
+  RtpHeaderExtension("http://google.com/testing/video_something", 4),
+  RtpHeaderExtension("http://google.com/testing/both_audio_and_video", 5),
+};
+
 static const RtpHeaderExtension kVideoRtpExtensionAnswer[] = {
   RtpHeaderExtension("urn:ietf:params:rtp-hdrext:toffset", 14),
 };
 
-static const uint32 kSimulcastParamsSsrc[] = {10, 11, 20, 21, 30, 31};
-static const uint32 kSimSsrc[] = {10, 20, 30};
-static const uint32 kFec1Ssrc[] = {10, 11};
-static const uint32 kFec2Ssrc[] = {20, 21};
-static const uint32 kFec3Ssrc[] = {30, 31};
+static const uint32_t kSimulcastParamsSsrc[] = {10, 11, 20, 21, 30, 31};
+static const uint32_t kSimSsrc[] = {10, 20, 30};
+static const uint32_t kFec1Ssrc[] = {10, 11};
+static const uint32_t kFec2Ssrc[] = {20, 21};
+static const uint32_t kFec3Ssrc[] = {30, 31};
 
 static const char kMediaStream1[] = "stream_1";
 static const char kMediaStream2[] = "stream_2";
@@ -216,15 +226,20 @@ static std::vector<std::string> GetCodecNames(const std::vector<T>& codecs) {
 class MediaSessionDescriptionFactoryTest : public testing::Test {
  public:
   MediaSessionDescriptionFactoryTest()
-      : f1_(&tdf1_), f2_(&tdf2_), id1_("id1"), id2_("id2") {
+      : f1_(&tdf1_),
+        f2_(&tdf2_) {
     f1_.set_audio_codecs(MAKE_VECTOR(kAudioCodecs1));
     f1_.set_video_codecs(MAKE_VECTOR(kVideoCodecs1));
     f1_.set_data_codecs(MAKE_VECTOR(kDataCodecs1));
     f2_.set_audio_codecs(MAKE_VECTOR(kAudioCodecs2));
     f2_.set_video_codecs(MAKE_VECTOR(kVideoCodecs2));
     f2_.set_data_codecs(MAKE_VECTOR(kDataCodecs2));
-    tdf1_.set_identity(&id1_);
-    tdf2_.set_identity(&id2_);
+    tdf1_.set_certificate(rtc::RTCCertificate::Create(
+        rtc::scoped_ptr<rtc::SSLIdentity>(
+            new rtc::FakeSSLIdentity("id1")).Pass()));
+    tdf2_.set_certificate(rtc::RTCCertificate::Create(
+        rtc::scoped_ptr<rtc::SSLIdentity>(
+            new rtc::FakeSSLIdentity("id2")).Pass()));
   }
 
   // Create a video StreamParamsVec object with:
@@ -280,18 +295,15 @@ class MediaSessionDescriptionFactoryTest : public testing::Test {
       current_desc.reset(new SessionDescription());
       EXPECT_TRUE(current_desc->AddTransportInfo(
           TransportInfo("audio",
-                        TransportDescription("",
-                                             current_audio_ufrag,
+                        TransportDescription(current_audio_ufrag,
                                              current_audio_pwd))));
       EXPECT_TRUE(current_desc->AddTransportInfo(
           TransportInfo("video",
-                        TransportDescription("",
-                                             current_video_ufrag,
+                        TransportDescription(current_video_ufrag,
                                              current_video_pwd))));
       EXPECT_TRUE(current_desc->AddTransportInfo(
           TransportInfo("data",
-                        TransportDescription("",
-                                             current_data_ufrag,
+                        TransportDescription(current_data_ufrag,
                                              current_data_pwd))));
     }
     if (offer) {
@@ -463,8 +475,6 @@ class MediaSessionDescriptionFactoryTest : public testing::Test {
   MediaSessionDescriptionFactory f2_;
   TransportDescriptionFactory tdf1_;
   TransportDescriptionFactory tdf2_;
-  rtc::FakeSSLIdentity id1_;
-  rtc::FakeSSLIdentity id2_;
 };
 
 // Create a typical audio offer, and ensure it matches what we expect.
@@ -1800,10 +1810,10 @@ TEST_F(MediaSessionDescriptionFactoryTest, SimSsrcsGenerateMultipleRtxSsrcs) {
   EXPECT_TRUE(streams[0].has_ssrc_group("SIM"));
   // And a FID group for RTX.
   EXPECT_TRUE(streams[0].has_ssrc_group("FID"));
-  std::vector<uint32> primary_ssrcs;
+  std::vector<uint32_t> primary_ssrcs;
   streams[0].GetPrimarySsrcs(&primary_ssrcs);
   EXPECT_EQ(3u, primary_ssrcs.size());
-  std::vector<uint32> fid_ssrcs;
+  std::vector<uint32_t> fid_ssrcs;
   streams[0].GetFidSsrcs(primary_ssrcs, &fid_ssrcs);
   EXPECT_EQ(3u, fid_ssrcs.size());
 }
@@ -1864,6 +1874,46 @@ TEST_F(MediaSessionDescriptionFactoryTest,
       GetFirstVideoContentDescription(updated_offer.get());
   EXPECT_EQ(MAKE_VECTOR(kUpdatedVideoRtpExtensions),
             updated_vcd->rtp_header_extensions());
+}
+
+// Verify that if the same RTP extension URI is used for audio and video, the
+// same ID is used. Also verify that the ID isn't changed when creating an
+// updated offer (this was previously a bug).
+TEST_F(MediaSessionDescriptionFactoryTest,
+       RtpHeaderExtensionIdReused) {
+  MediaSessionOptions opts;
+  opts.recv_audio = true;
+  opts.recv_video = true;
+
+  f1_.set_audio_rtp_header_extensions(MAKE_VECTOR(kAudioRtpExtension3));
+  f1_.set_video_rtp_header_extensions(MAKE_VECTOR(kVideoRtpExtension3));
+
+  rtc::scoped_ptr<SessionDescription> offer(f1_.CreateOffer(opts, NULL));
+
+  // Since the audio extensions used ID 3 for "both_audio_and_video", so should
+  // the video extensions.
+  const RtpHeaderExtension kExpectedVideoRtpExtension[] = {
+    kVideoRtpExtension3[0],
+    kAudioRtpExtension3[1],
+  };
+
+  EXPECT_EQ(MAKE_VECTOR(kAudioRtpExtension3),
+            GetFirstAudioContentDescription(
+                offer.get())->rtp_header_extensions());
+  EXPECT_EQ(MAKE_VECTOR(kExpectedVideoRtpExtension),
+            GetFirstVideoContentDescription(
+                offer.get())->rtp_header_extensions());
+
+  // Nothing should change when creating a new offer
+  rtc::scoped_ptr<SessionDescription> updated_offer(
+      f1_.CreateOffer(opts, offer.get()));
+
+  EXPECT_EQ(MAKE_VECTOR(kAudioRtpExtension3),
+            GetFirstAudioContentDescription(
+                updated_offer.get())->rtp_header_extensions());
+  EXPECT_EQ(MAKE_VECTOR(kExpectedVideoRtpExtension),
+            GetFirstVideoContentDescription(
+                updated_offer.get())->rtp_header_extensions());
 }
 
 TEST(MediaSessionDescription, CopySessionDescription) {

@@ -8,9 +8,10 @@
 #ifndef GrGLXferProcessor_DEFINED
 #define GrGLXferProcessor_DEFINED
 
-#include "GrGLProcessor.h"
+#include "glsl/GrGLSLProgramDataManager.h"
+#include "glsl/GrGLSLTextureSampler.h"
 
-class GrGLXPBuilder;
+class GrGLSLXPBuilder;
 class GrXferProcessor;
 
 class GrGLXferProcessor {
@@ -18,9 +19,9 @@ public:
     GrGLXferProcessor() {}
     virtual ~GrGLXferProcessor() {}
 
-    typedef GrGLProcessor::TextureSamplerArray TextureSamplerArray;
+    typedef GrGLSLTextureSampler::TextureSamplerArray TextureSamplerArray;
     struct EmitArgs {
-        EmitArgs(GrGLXPBuilder* pb,
+        EmitArgs(GrGLSLXPBuilder* pb,
                  const GrXferProcessor& xp,
                  const char* inputColor,
                  const char* inputCoverage,
@@ -35,7 +36,7 @@ public:
             , fOutputSecondary(outputSecondary)
             , fSamplers(samplers) {}
 
-        GrGLXPBuilder* fPB;
+        GrGLSLXPBuilder* fPB;
         const GrXferProcessor& fXP;
         const char* fInputColor;
         const char* fInputCoverage;
@@ -56,7 +57,7 @@ public:
         to have an identical processor key as the one that created this GrGLXferProcessor. This
         function calls onSetData on the subclass of GrGLXferProcessor
      */
-    void setData(const GrGLProgramDataManager& pdm, const GrXferProcessor& xp);
+    void setData(const GrGLSLProgramDataManager& pdm, const GrXferProcessor& xp);
 
 private:
     /**
@@ -73,16 +74,17 @@ private:
      * the blending logic. The base class applies coverage. A subclass only needs to implement this
      * method if it can construct a GrXferProcessor that reads the dst color.
      */
-    virtual void emitBlendCodeForDstRead(GrGLXPBuilder*, const char* srcColor, const char* dstColor,
-                                         const char* outColor, const GrXferProcessor&) {
+    virtual void emitBlendCodeForDstRead(GrGLSLXPBuilder*,
+                                         const char* srcColor,
+                                         const char* dstColor,
+                                         const char* outColor,
+                                         const GrXferProcessor&) {
         SkFAIL("emitBlendCodeForDstRead not implemented.");
     }
 
-    virtual void onSetData(const GrGLProgramDataManager&, const GrXferProcessor&) = 0;
+    virtual void onSetData(const GrGLSLProgramDataManager&, const GrXferProcessor&) = 0;
 
-    GrGLProgramDataManager::UniformHandle fDstTopLeftUni;
-    GrGLProgramDataManager::UniformHandle fDstScaleUni;
-
-    typedef GrGLProcessor INHERITED;
+    GrGLSLProgramDataManager::UniformHandle fDstTopLeftUni;
+    GrGLSLProgramDataManager::UniformHandle fDstScaleUni;
 };
 #endif

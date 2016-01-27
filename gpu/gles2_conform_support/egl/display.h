@@ -30,6 +30,10 @@ class GLES2Implementation;
 }  // namespace gles2
 }  // namespace gpu
 
+namespace base {
+class AtExitManager;
+}  // namespace base
+
 namespace egl {
 
 class Config;
@@ -94,14 +98,32 @@ class Display : private gpu::GpuControl {
   uint32 CreateStreamTexture(uint32 texture_id) override;
   void SetLock(base::Lock*) override;
   bool IsGpuChannelLost() override;
+  gpu::CommandBufferNamespace GetNamespaceID() const override;
+  uint64_t GetCommandBufferID() const override;
+  uint64_t GenerateFenceSyncRelease() override;
+  bool IsFenceSyncRelease(uint64_t release) override;
+  bool IsFenceSyncFlushed(uint64_t release) override;
+  bool IsFenceSyncFlushReceived(uint64_t release) override;
+  void SignalSyncToken(const gpu::SyncToken& sync_token,
+                       const base::Closure& callback) override;
+  bool CanWaitUnverifiedSyncToken(const gpu::SyncToken* sync_token) override;
 
  private:
   EGLNativeDisplayType display_id_;
 
   bool is_initialized_;
+
+// elg::Display is used for comformance tests and command_buffer_gles.  We only
+// need the exit manager for the command_buffer_gles library.
+// TODO(hendrikw): Find a cleaner solution for this.
+#if defined(COMMAND_BUFFER_GLES_LIB_SUPPORT_ONLY)
+  scoped_ptr<base::AtExitManager> exit_manager_;
+#endif  // COMMAND_BUFFER_GLES_LIB_SUPPORT_ONLY
+
   bool create_offscreen_;
   int create_offscreen_width_;
   int create_offscreen_height_;
+  uint64_t next_fence_sync_release_;
 
   scoped_refptr<gpu::TransferBufferManagerInterface> transfer_buffer_manager_;
   scoped_ptr<gpu::CommandBufferService> command_buffer_;

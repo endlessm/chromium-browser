@@ -67,11 +67,11 @@ float GetDPIScale() {
 namespace win {
 
 Point ScreenToDIPPoint(const Point& pixel_point) {
-  return ToFlooredPoint(ScalePoint(pixel_point, 1.0f / GetDPIScale()));
+  return ScaleToFlooredPoint(pixel_point, 1.0f / GetDPIScale());
 }
 
 Point DIPToScreenPoint(const Point& dip_point) {
-  return ToFlooredPoint(ScalePoint(dip_point, GetDPIScale()));
+  return ScaleToFlooredPoint(dip_point, GetDPIScale());
 }
 
 Rect ScreenToDIPRect(const Rect& pixel_bounds) {
@@ -92,12 +92,12 @@ Rect DIPToScreenRect(const Rect& dip_bounds) {
 
 Size ScreenToDIPSize(const Size& size_in_pixels) {
   // Always ceil sizes. Otherwise we may be leaving off part of the bounds.
-  return ToCeiledSize(ScaleSize(size_in_pixels, 1.0f / GetDPIScale()));
+  return ScaleToCeiledSize(size_in_pixels, 1.0f / GetDPIScale());
 }
 
 Size DIPToScreenSize(const Size& dip_size) {
   // Always ceil sizes. Otherwise we may be leaving off part of the bounds.
-  return ToCeiledSize(ScaleSize(dip_size, GetDPIScale()));
+  return ScaleToCeiledSize(dip_size, GetDPIScale());
 }
 
 int GetSystemMetricsInDIP(int metric) {

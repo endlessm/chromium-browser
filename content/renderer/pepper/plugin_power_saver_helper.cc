@@ -10,68 +10,32 @@
 #include "base/metrics/histogram.h"
 #include "base/strings/string_number_conversions.h"
 #include "content/common/frame_messages.h"
-#include "content/public/common/content_constants.h"
 #include "content/public/common/content_switches.h"
-#include "content/public/renderer/plugin_instance_throttler.h"
 #include "content/public/renderer/render_frame.h"
+#include "content/renderer/peripheral_content_heuristic.h"
 #include "ppapi/shared_impl/ppapi_constants.h"
-#include "third_party/WebKit/public/web/WebDocument.h"
 #include "third_party/WebKit/public/web/WebLocalFrame.h"
-#include "third_party/WebKit/public/web/WebPluginParams.h"
-#include "third_party/WebKit/public/web/WebView.h"
 
 namespace content {
 
 namespace {
 
-// Initial decision of the peripheral content decision.
-// These numeric values are used in UMA logs; do not change them.
-enum PeripheralHeuristicDecision {
-  HEURISTIC_DECISION_PERIPHERAL = 0,
-  HEURISTIC_DECISION_ESSENTIAL_SAME_ORIGIN = 1,
-  HEURISTIC_DECISION_ESSENTIAL_CROSS_ORIGIN_BIG = 2,
-  HEURISTIC_DECISION_ESSENTIAL_CROSS_ORIGIN_WHITELISTED = 3,
-  HEURISTIC_DECISION_ESSENTIAL_CROSS_ORIGIN_TINY = 4,
-  HEURISTIC_DECISION_NUM_ITEMS
-};
-
 const char kPeripheralHeuristicHistogram[] =
     "Plugin.PowerSaver.PeripheralHeuristic";
-
-// Plugin content below this size in height and width is considered "tiny".
-// Tiny content is never peripheral, as tiny plugins often serve a critical
-// purpose, and the user often cannot find and click to unthrottle it.
-const int kPeripheralContentTinySize = 5;
-
-void RecordDecisionMetric(PeripheralHeuristicDecision decision) {
-  UMA_HISTOGRAM_ENUMERATION(kPeripheralHeuristicHistogram, decision,
-                            HEURISTIC_DECISION_NUM_ITEMS);
-}
 
 }  // namespace
 
 PluginPowerSaverHelper::PeripheralPlugin::PeripheralPlugin(
-    const GURL& content_origin,
+    const url::Origin& content_origin,
     const base::Closure& unthrottle_callback)
-    : content_origin(content_origin), unthrottle_callback(unthrottle_callback) {
-}
+    : content_origin(content_origin),
+      unthrottle_callback(unthrottle_callback) {}
 
 PluginPowerSaverHelper::PeripheralPlugin::~PeripheralPlugin() {
 }
 
 PluginPowerSaverHelper::PluginPowerSaverHelper(RenderFrame* render_frame)
-    : RenderFrameObserver(render_frame)
-    , override_for_testing_(Normal) {
-  base::CommandLine& command_line = *base::CommandLine::ForCurrentProcess();
-  std::string override_for_testing = command_line.GetSwitchValueASCII(
-      switches::kOverridePluginPowerSaverForTesting);
-  if (override_for_testing == "never")
-    override_for_testing_ = Never;
-  else if (override_for_testing == "ignore-list")
-    override_for_testing_ = IgnoreList;
-  else if (override_for_testing == "always")
-    override_for_testing_ = Always;
-}
+    : RenderFrameObserver(render_frame) {}
 
 PluginPowerSaverHelper::~PluginPowerSaverHelper() {
 }
@@ -98,7 +62,7 @@ bool PluginPowerSaverHelper::OnMessageReceived(const IPC::Message& message) {
 }
 
 void PluginPowerSaverHelper::OnUpdatePluginContentOriginWhitelist(
-    const std::set<GURL>& origin_whitelist) {
+    const std::set<url::Origin>& origin_whitelist) {
   origin_whitelist_ = origin_whitelist;
 
   // Check throttled plugin instances to see if any can be unthrottled.
@@ -114,82 +78,43 @@ void PluginPowerSaverHelper::OnUpdatePluginContentOriginWhitelist(
 }
 
 void PluginPowerSaverHelper::RegisterPeripheralPlugin(
-    const GURL& content_origin,
+    const url::Origin& content_origin,
     const base::Closure& unthrottle_callback) {
-  DCHECK_EQ(content_origin.GetOrigin(), content_origin);
   peripheral_plugins_.push_back(
       PeripheralPlugin(content_origin, unthrottle_callback));
 }
 
 bool PluginPowerSaverHelper::ShouldThrottleContent(
-    const GURL& content_origin,
-    const std::string& plugin_module_name,
+    const url::Origin& main_frame_origin,
+    const url::Origin& content_origin,
     int width,
     int height,
     bool* cross_origin_main_content) const {
-  DCHECK_EQ(content_origin.GetOrigin(), content_origin);
   if (cross_origin_main_content)
     *cross_origin_main_content = false;
 
-  // This feature has only been tested throughly with Flash thus far.
-  // It is also enabled for the Power Saver test plugin for browser tests.
-  if (override_for_testing_ == Always) {
-    return true;
-  } else if (override_for_testing_ == Never) {
-    return false;
-  } else if (override_for_testing_ == Normal &&
-             plugin_module_name != content::kFlashPluginName) {
-    return false;
-  }
-
-  if (width <= 0 || height <= 0)
-    return false;
-
-  // TODO(alexmos): Update this to use the origin of the RemoteFrame when 426512
-  // is fixed. For now, case 3 in the class level comment doesn't work in
-  // --site-per-process mode.
-  blink::WebFrame* main_frame =
-      render_frame()->GetWebFrame()->view()->mainFrame();
-  if (main_frame->isWebRemoteFrame()) {
-    RecordDecisionMetric(HEURISTIC_DECISION_PERIPHERAL);
+  if (base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kOverridePluginPowerSaverForTesting) == "always") {
     return true;
   }
 
-  // All same-origin plugin content is essential.
-  GURL main_frame_origin = GURL(main_frame->document().url()).GetOrigin();
-  if (content_origin == main_frame_origin) {
-    RecordDecisionMetric(HEURISTIC_DECISION_ESSENTIAL_SAME_ORIGIN);
-    return false;
-  }
+  auto decision = PeripheralContentHeuristic::GetPeripheralStatus(
+      origin_whitelist_, main_frame_origin, content_origin, width, height);
 
-  // Whitelisted plugin origins are also essential.
-  if (origin_whitelist_.count(content_origin)) {
-    RecordDecisionMetric(HEURISTIC_DECISION_ESSENTIAL_CROSS_ORIGIN_WHITELISTED);
-    return false;
-  }
+  UMA_HISTOGRAM_ENUMERATION(
+      kPeripheralHeuristicHistogram, decision,
+      PeripheralContentHeuristic::HEURISTIC_DECISION_NUM_ITEMS);
 
-  // Never mark tiny content as peripheral.
-  if (width <= kPeripheralContentTinySize &&
-      height <= kPeripheralContentTinySize) {
-    RecordDecisionMetric(HEURISTIC_DECISION_ESSENTIAL_CROSS_ORIGIN_TINY);
-    return false;
-  }
+  if (decision == PeripheralContentHeuristic::
+                      HEURISTIC_DECISION_ESSENTIAL_CROSS_ORIGIN_BIG &&
+      cross_origin_main_content)
+    *cross_origin_main_content = true;
 
-  // Plugin content large in both dimensions are the "main attraction".
-  if (PluginInstanceThrottler::IsLargeContent(width, height)) {
-    RecordDecisionMetric(HEURISTIC_DECISION_ESSENTIAL_CROSS_ORIGIN_BIG);
-    if (cross_origin_main_content)
-      *cross_origin_main_content = true;
-    return false;
-  }
-
-  RecordDecisionMetric(HEURISTIC_DECISION_PERIPHERAL);
-  return true;
+  return decision == PeripheralContentHeuristic::HEURISTIC_DECISION_PERIPHERAL;
 }
 
 void PluginPowerSaverHelper::WhitelistContentOrigin(
-    const GURL& content_origin) {
-  DCHECK_EQ(content_origin.GetOrigin(), content_origin);
+    const url::Origin& content_origin) {
   if (origin_whitelist_.insert(content_origin).second) {
     Send(new FrameHostMsg_PluginContentOriginAllowed(
         render_frame()->GetRoutingID(), content_origin));

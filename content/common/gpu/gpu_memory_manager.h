@@ -62,7 +62,7 @@ class CONTENT_EXPORT GpuMemoryManager :
   GpuMemoryTrackingGroup* CreateTrackingGroup(
       base::ProcessId pid, gpu::gles2::MemoryTracker* memory_tracker);
 
-  uint64 GetClientMemoryUsage(const GpuMemoryManagerClient* client) const;
+  uint64 GetTrackerMemoryUsage(gpu::gles2::MemoryTracker* tracker) const;
   uint64 GetMaximumClientAllocation() const {
     return client_hard_limit_bytes_;
   }
@@ -112,28 +112,20 @@ class CONTENT_EXPORT GpuMemoryManager :
 
   void Manage();
   void SetClientsHibernatedState() const;
-  void AssignSurfacesAllocations();
-  void AssignNonSurfacesAllocations();
-
-  // Update the amount of GPU memory we think we have in the system, based
-  // on what the stubs' contexts report.
-  void UpdateAvailableGpuMemory();
 
   // Send memory usage stats to the browser process.
   void SendUmaStatsToBrowser();
 
   // Get the current number of bytes allocated.
   uint64 GetCurrentUsage() const {
-    return bytes_allocated_managed_current_ +
-        bytes_allocated_unmanaged_current_;
+    return bytes_allocated_current_;
   }
 
   // GpuMemoryTrackingGroup interface
   void TrackMemoryAllocatedChange(
       GpuMemoryTrackingGroup* tracking_group,
       uint64 old_size,
-      uint64 new_size,
-      gpu::gles2::MemoryTracker::Pool tracking_pool);
+      uint64 new_size);
   void OnDestroyTrackingGroup(GpuMemoryTrackingGroup* tracking_group);
   bool EnsureGPUMemoryAvailable(uint64 size_needed);
 
@@ -174,8 +166,7 @@ class CONTENT_EXPORT GpuMemoryManager :
   uint64 client_hard_limit_bytes_;
 
   // The current total memory usage, and historical maximum memory usage
-  uint64 bytes_allocated_managed_current_;
-  uint64 bytes_allocated_unmanaged_current_;
+  uint64 bytes_allocated_current_;
   uint64 bytes_allocated_historical_max_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuMemoryManager);

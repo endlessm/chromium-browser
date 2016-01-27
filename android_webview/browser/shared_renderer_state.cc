@@ -90,6 +90,7 @@ SharedRendererState::SharedRendererState(
     : ui_loop_(ui_loop),
       browser_view_renderer_(browser_view_renderer),
       renderer_manager_key_(GLViewRendererManager::GetInstance()->NullKey()),
+      hardware_renderer_has_frame_(false),
       inside_hardware_release_(false),
       weak_factory_on_ui_thread_(this) {
   DCHECK(ui_loop_->BelongsToCurrentThread());
@@ -170,6 +171,8 @@ void SharedRendererState::SetCompositorFrameOnUI(scoped_ptr<ChildFrame> frame) {
 
 scoped_ptr<ChildFrame> SharedRendererState::PassCompositorFrameOnRT() {
   base::AutoLock lock(lock_);
+  hardware_renderer_has_frame_ =
+      hardware_renderer_has_frame_ || child_frame_.get();
   return child_frame_.Pass();
 }
 
@@ -259,6 +262,18 @@ void SharedRendererState::DrawGL(AwDrawGLInfo* draw_info) {
       draw_info->mode == AwDrawGLInfo::kModeDraw
           ? ScopedAppGLStateRestore::MODE_DRAW
           : ScopedAppGLStateRestore::MODE_RESOURCE_MANAGEMENT);
+  // Set the correct FBO before kModeDraw. The GL commands run in kModeDraw
+  // require a correctly bound FBO. The FBO remains until the next kModeDraw.
+  // So kModeProcess between kModeDraws has correctly bound FBO, too.
+  if (draw_info->mode == AwDrawGLInfo::kModeDraw) {
+    if (!hardware_renderer_) {
+      hardware_renderer_.reset(new HardwareRenderer(this));
+      hardware_renderer_->CommitFrame();
+    }
+    hardware_renderer_->SetBackingFrameBufferObject(
+        state_restore.framebuffer_binding_ext());
+  }
+
   ScopedAllowGL allow_gl;
 
   if (draw_info->mode == AwDrawGLInfo::kModeProcessNoContext) {
@@ -266,6 +281,7 @@ void SharedRendererState::DrawGL(AwDrawGLInfo* draw_info) {
   }
 
   if (IsInsideHardwareRelease()) {
+    hardware_renderer_has_frame_ = false;
     hardware_renderer_.reset();
     // Flush the idle queue in tear down.
     DeferredGpuCommandService::GetInstance()->PerformAllIdleWork();
@@ -279,14 +295,7 @@ void SharedRendererState::DrawGL(AwDrawGLInfo* draw_info) {
     return;
   }
 
-  if (!hardware_renderer_) {
-    hardware_renderer_.reset(new HardwareRenderer(this));
-    hardware_renderer_->CommitFrame();
-  }
-
-  hardware_renderer_->DrawGL(state_restore.stencil_enabled(),
-                             state_restore.framebuffer_binding_ext(),
-                             draw_info);
+  hardware_renderer_->DrawGL(state_restore.stencil_enabled(), draw_info);
   DeferredGpuCommandService::GetInstance()->PerformIdleWork(false);
 }
 
@@ -337,6 +346,11 @@ void SharedRendererState::ReleaseCompositorResourcesIfNeededOnUI(
   }
 }
 
+bool SharedRendererState::HasFrameOnUI() const {
+  base::AutoLock lock(lock_);
+  return hardware_renderer_has_frame_ || child_frame_.get();
+}
+
 void SharedRendererState::InitializeHardwareDrawIfNeededOnUI() {
   DCHECK(ui_loop_->BelongsToCurrentThread());
   GLViewRendererManager* manager = GLViewRendererManager::GetInstance();
@@ -344,7 +358,6 @@ void SharedRendererState::InitializeHardwareDrawIfNeededOnUI() {
   base::AutoLock lock(lock_);
   if (renderer_manager_key_ == manager->NullKey()) {
     renderer_manager_key_ = manager->PushBack(this);
-    DeferredGpuCommandService::SetInstance();
   }
 }
 

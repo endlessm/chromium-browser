@@ -102,8 +102,8 @@ gfx::Rect BrowserFrame::GetBoundsForTabStrip(views::View* tabstrip) const {
       browser_frame_view_->GetBoundsForTabStrip(tabstrip) : gfx::Rect();
 }
 
-int BrowserFrame::GetTopInset() const {
-  return browser_frame_view_->GetTopInset();
+int BrowserFrame::GetTopInset(bool restored) const {
+  return browser_frame_view_->GetTopInset(restored);
 }
 
 int BrowserFrame::GetThemeBackgroundXInset() const {
@@ -241,10 +241,8 @@ AvatarMenuButton* BrowserFrame::GetAvatarMenuButton() {
   return browser_frame_view_->avatar_button();
 }
 
+#if defined(FRAME_AVATAR_BUTTON)
 NewAvatarButton* BrowserFrame::GetNewAvatarMenuButton() {
   return browser_frame_view_->new_avatar_button();
 }
-
-bool BrowserFrame::ShouldLeaveOffsetNearTopBorder() {
-  return !IsMaximized();
-}
+#endif

@@ -11,6 +11,7 @@
 #include "webrtc/video_decoder.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
+#include "webrtc/base/checks.h"
 #include "webrtc/modules/video_coding/codecs/interface/video_error_codes.h"
 
 namespace webrtc {
@@ -86,13 +87,13 @@ TEST_F(VideoDecoderSoftwareFallbackWrapperTest,
       << "Decoder used even though fallback should be active.";
 
   // Should be able to recover on a keyframe.
-  encoded_image._frameType = kKeyFrame;
+  encoded_image._frameType = kVideoFrameKey;
   fake_decoder_.decode_return_code_ = WEBRTC_VIDEO_CODEC_OK;
   fallback_wrapper_.Decode(encoded_image, false, nullptr, nullptr, -1);
   EXPECT_EQ(2, fake_decoder_.decode_count_)
       << "Wrapper did not try to decode a keyframe using registered decoder.";
 
-  encoded_image._frameType = kDeltaFrame;
+  encoded_image._frameType = kVideoFrameDelta;
   fallback_wrapper_.Decode(encoded_image, false, nullptr, nullptr, -1);
   EXPECT_EQ(3, fake_decoder_.decode_count_)
       << "Decoder not used on future delta frames.";
@@ -148,6 +149,11 @@ TEST_F(VideoDecoderSoftwareFallbackWrapperTest,
        ForwardsRegisterDecodeCompleteCallback) {
   class FakeDecodedImageCallback : public DecodedImageCallback {
     int32_t Decoded(VideoFrame& decodedImage) override { return 0; }
+    int32_t Decoded(
+        webrtc::VideoFrame& decodedImage, int64_t decode_time_ms) override {
+      RTC_NOTREACHED();
+      return -1;
+    }
   } callback, callback2;
 
   VideoCodec codec = {};

@@ -22,13 +22,8 @@ void TableRowPainter::paint(const PaintInfo& paintInfo, const LayoutPoint& paint
     for (LayoutTableCell* cell = m_layoutTableRow.firstCell(); cell; cell = cell->nextCell()) {
         // Paint the row background behind the cell.
         if (paintInfo.phase == PaintPhaseBlockBackground || paintInfo.phase == PaintPhaseChildBlockBackground) {
-            if (m_layoutTableRow.hasBackground()) {
-                TableCellPainter tableCellPainter(*cell);
-                if (!LayoutObjectDrawingRecorder::useCachedDrawingIfPossible(*paintInfo.context, *cell, DisplayItem::TableCellBackgroundFromSelfPaintingRow)) {
-                    LayoutObjectDrawingRecorder recorder(*paintInfo.context, *cell, DisplayItem::TableCellBackgroundFromSelfPaintingRow, tableCellPainter.paintBounds(paintOffset, TableCellPainter::AddOffsetFromParent));
-                    tableCellPainter.paintBackgroundsBehindCell(paintInfo, paintOffset, &m_layoutTableRow);
-                }
-            }
+            if (m_layoutTableRow.hasBackground())
+                TableCellPainter(*cell).paintBackgroundsBehindCell(paintInfo, paintOffset, &m_layoutTableRow, DisplayItem::TableCellBackgroundFromRow);
         }
 
         if (!cell->hasSelfPaintingLayer())
@@ -38,12 +33,10 @@ void TableRowPainter::paint(const PaintInfo& paintInfo, const LayoutPoint& paint
 
 void TableRowPainter::paintOutlineForRowIfNeeded(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
 {
-    LayoutPoint adjustedPaintOffset = paintOffset + m_layoutTableRow.location();
     PaintPhase paintPhase = paintInfo.phase;
     if ((paintPhase == PaintPhaseOutline || paintPhase == PaintPhaseSelfOutline) && m_layoutTableRow.style()->visibility() == VISIBLE) {
-        LayoutRect visualOverflowRect(m_layoutTableRow.visualOverflowRect());
-        visualOverflowRect.moveBy(adjustedPaintOffset);
-        ObjectPainter(m_layoutTableRow).paintOutline(paintInfo, LayoutRect(adjustedPaintOffset, m_layoutTableRow.size()), visualOverflowRect);
+        LayoutPoint adjustedPaintOffset = paintOffset + m_layoutTableRow.location();
+        ObjectPainter(m_layoutTableRow).paintOutline(paintInfo, adjustedPaintOffset);
     }
 }
 

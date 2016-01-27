@@ -69,7 +69,7 @@ public:
     const AtomicString& dir();
     void setDir(const AtomicString&);
 
-    void click();
+    void clickForBindings();
 
     void accessKeyAction(bool sendMouseEvents) override;
 
@@ -121,6 +121,7 @@ protected:
     void calculateAndAdjustDirectionality();
 
 private:
+    String debugNodeName() const final;
     String nodeName() const final;
 
     bool isHTMLElement() const = delete; // This will catch anyone doing an unnecessary check.
@@ -159,6 +160,7 @@ inline bool Node::hasTagName(const HTMLQualifiedName& name) const
 
 // Functor used to match HTMLElements with a specific HTML tag when using the ElementTraversal API.
 class HasHTMLTagName {
+    STACK_ALLOCATED();
 public:
     explicit HasHTMLTagName(const HTMLQualifiedName& tagName): m_tagName(tagName) { }
     bool operator() (const HTMLElement& element) const { return element.hasTagName(m_tagName); }

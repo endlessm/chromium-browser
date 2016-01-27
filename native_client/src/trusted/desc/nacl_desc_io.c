@@ -194,13 +194,13 @@ static uintptr_t NaClDescIoDescMap(struct NaClDesc         *vself,
     NaClLog(LOG_INFO,
             ("NaClDescIoDescMap: prot has other bits"
              " than NACL_ABI_PROT_{READ|WRITE|EXEC}\n"));
-    return -NACL_ABI_EINVAL;
+    return (uintptr_t) -NACL_ABI_EINVAL;
   }
 
   if (0 == (NACL_ABI_MAP_FIXED & flags)) {
     if (!NaClFindAddressSpace(&addr, len)) {
       NaClLog(1, "NaClDescIoDescMap: no address space?\n");
-      return -NACL_ABI_ENOMEM;
+      return (uintptr_t) -NACL_ABI_ENOMEM;
     }
     NaClLog(4,
             "NaClDescIoDescMap: NaClFindAddressSpace"
@@ -295,6 +295,32 @@ static int NaClDescIoDescFstat(struct NaClDesc         *vself,
   return NaClAbiStatHostDescStatXlateCtor(statbuf, &hstatbuf);
 }
 
+static int NaClDescIoDescFchmod(struct NaClDesc *vself,
+                                int             mode) {
+  struct NaClDescIoDesc *self = (struct NaClDescIoDesc *) vself;
+
+  return NaClHostDescFchmod(self->hd, mode);
+}
+
+static int NaClDescIoDescFsync(struct NaClDesc *vself) {
+  struct NaClDescIoDesc *self = (struct NaClDescIoDesc *) vself;
+
+  return NaClHostDescFsync(self->hd);
+}
+
+static int NaClDescIoDescFdatasync(struct NaClDesc *vself) {
+  struct NaClDescIoDesc *self = (struct NaClDescIoDesc *) vself;
+
+  return NaClHostDescFdatasync(self->hd);
+}
+
+static int NaClDescIoDescFtruncate(struct NaClDesc  *vself,
+                                   nacl_abi_off_t   length) {
+  struct NaClDescIoDesc *self = (struct NaClDescIoDesc *) vself;
+
+  return NaClHostDescFtruncate(self->hd, length);
+}
+
 static int32_t NaClDescIoIsatty(struct NaClDesc *vself) {
   struct NaClDescIoDesc *self = (struct NaClDescIoDesc *) vself;
 
@@ -357,6 +383,11 @@ static struct NaClDescVtbl const kNaClDescIoDescVtbl = {
   NaClDescIoDescPRead,
   NaClDescIoDescPWrite,
   NaClDescIoDescFstat,
+  NaClDescFchdirNotImplemented,
+  NaClDescIoDescFchmod,
+  NaClDescIoDescFsync,
+  NaClDescIoDescFdatasync,
+  NaClDescIoDescFtruncate,
   NaClDescGetdentsNotImplemented,
   NaClDescIoDescExternalizeSize,
   NaClDescIoDescExternalize,

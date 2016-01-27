@@ -51,6 +51,9 @@ class CONTENT_EXPORT HostSharedBitmapManagerClient {
 
  private:
   HostSharedBitmapManager* manager_;
+
+  // Lock must be held around access to owned_bitmaps_.
+  base::Lock lock_;
   base::hash_set<cc::SharedBitmapId> owned_bitmaps_;
 
   DISALLOW_COPY_AND_ASSIGN(HostSharedBitmapManagerClient);
@@ -73,7 +76,8 @@ class CONTENT_EXPORT HostSharedBitmapManager
       const cc::SharedBitmapId&) override;
 
   // base::trace_event::MemoryDumpProvider implementation.
-  bool OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd) override;
+  bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
+                    base::trace_event::ProcessMemoryDump* pmd) override;
 
   size_t AllocatedBitmapCount() const;
 
@@ -87,7 +91,7 @@ class CONTENT_EXPORT HostSharedBitmapManager
       size_t buffer_size,
       const cc::SharedBitmapId& id,
       base::SharedMemoryHandle* shared_memory_handle);
-  void ChildAllocatedSharedBitmap(size_t buffer_size,
+  bool ChildAllocatedSharedBitmap(size_t buffer_size,
                                   const base::SharedMemoryHandle& handle,
                                   base::ProcessHandle process_handle,
                                   const cc::SharedBitmapId& id);

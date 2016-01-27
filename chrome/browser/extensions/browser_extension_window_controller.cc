@@ -11,7 +11,7 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "components/sessions/session_id.h"
+#include "components/sessions/core/session_id.h"
 #include "extensions/common/extension.h"
 
 BrowserExtensionWindowController::BrowserExtensionWindowController(
@@ -32,6 +32,8 @@ int BrowserExtensionWindowController::GetWindowId() const {
 namespace keys = extensions::tabs_constants;
 
 std::string BrowserExtensionWindowController::GetWindowTypeText() const {
+  if (browser_->is_devtools())
+    return keys::kWindowTypeValueDevTools;
   if (browser_->is_type_popup())
     return keys::kWindowTypeValuePopup;
   if (browser_->is_app())
@@ -88,6 +90,7 @@ Browser* BrowserExtensionWindowController::GetBrowser() const {
 
 bool BrowserExtensionWindowController::IsVisibleToExtension(
     const extensions::Extension* extension) const {
+  DCHECK(extension);
   // Platform apps can only see their own windows.
   return !browser_->is_devtools() && !extension->is_platform_app();
 }

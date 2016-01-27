@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "base/callback.h"
+#include "base/gtest_prod_util.h"
 #include "base/observer_list_threadsafe.h"
 #include "base/scoped_observer.h"
 #include "base/synchronization/lock.h"
@@ -170,10 +171,6 @@ class ActivityLog : public BrowserContextKeyedAPI,
   // database_policy_ if the Watchdog app is installed or flag is set.
   ActivityLogDatabasePolicy* database_policy_;
   ActivityLogPolicy::PolicyType database_policy_type_;
-
-  // The UMA policy is used for recording statistics about extension behavior.
-  // This policy is always in use, except for Incognito profiles.
-  ActivityLogPolicy* uma_policy_;
 
   Profile* profile_;
   bool db_enabled_;  // Whether logging to disk is currently enabled.

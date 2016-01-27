@@ -23,7 +23,7 @@ class ResourceRequestBody;
 // to the IO thread by a NavigationRequest object.
 struct CONTENT_EXPORT NavigationRequestInfo {
   NavigationRequestInfo(const CommonNavigationParams& common_params,
-                        const BeginNavigationParams& params,
+                        const BeginNavigationParams& begin_params,
                         const GURL& first_party_for_cookies,
                         bool is_main_frame,
                         bool parent_is_main_frame,

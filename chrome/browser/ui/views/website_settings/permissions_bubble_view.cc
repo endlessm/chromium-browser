@@ -18,12 +18,15 @@
 #include "chrome/browser/ui/website_settings/permission_bubble_request.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
-#include "net/base/net_util.h"
+#include "components/url_formatter/elide_url.h"
 #include "ui/accessibility/ax_view_state.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/models/combobox_model.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/color_palette.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/text_constants.h"
+#include "ui/gfx/vector_icons_public.h"
 #include "ui/views/bubble/bubble_delegate.h"
 #include "ui/views/bubble/bubble_frame_view.h"
 #include "ui/views/controls/button/checkbox.h"
@@ -212,12 +215,8 @@ PermissionsBubbleDelegateView::PermissionsBubbleDelegateView(
   SetLayoutManager(new views::BoxLayout(
       views::BoxLayout::kVertical, kBubbleOuterMargin, 0, kItemMajorSpacing));
 
-  hostname_ = net::FormatUrl(requests[0]->GetRequestingHostname(),
-                             languages,
-                             net::kFormatUrlOmitUsernamePassword |
-                             net::kFormatUrlOmitTrailingSlashOnBareHostname,
-                             net::UnescapeRule::SPACES,
-                             nullptr, nullptr, nullptr);
+  hostname_ = url_formatter::FormatUrlForSecurityDisplay(
+      requests[0]->GetRequestingHostname(), languages);
 
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
   for (size_t index = 0; index < requests.size(); index++) {
@@ -241,8 +240,14 @@ PermissionsBubbleDelegateView::PermissionsBubbleDelegateView(
                              kPermissionIndentSpacing,
                              0, kBubbleOuterMargin));
     views::ImageView* icon = new views::ImageView();
-    icon->SetImage(bundle.GetImageSkiaNamed(requests.at(index)->GetIconID()));
-    icon->SetImageSize(gfx::Size(kIconSize, kIconSize));
+    gfx::VectorIconId vector_id = requests[index]->GetVectorIconId();
+    if (vector_id != gfx::VectorIconId::VECTOR_ICON_NONE) {
+      icon->SetImage(
+          gfx::CreateVectorIcon(vector_id, kIconSize, gfx::kChromeIconGrey));
+    } else {
+      icon->SetImage(bundle.GetImageSkiaNamed(requests.at(index)->GetIconId()));
+      icon->SetImageSize(gfx::Size(kIconSize, kIconSize));
+    }
     icon->SetTooltipText(base::string16());  // Redundant with the text fragment
     label_container->AddChildView(icon);
     views::Label* label =

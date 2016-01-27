@@ -27,13 +27,24 @@ source_set("crash") {
     "linux/synchronized_minidump_manager.h",
   ]
 
-  configs += [ "//chromecast:config" ]
-
   deps = [
     "//base",
     "//breakpad:client",
     "//chromecast/base",
     "//chromecast/base:cast_version",
+  ]
+}
+
+source_set("test_support") {
+  sources = [
+    "linux/crash_testing_utils.cc",
+    "linux/crash_testing_utils.h",
+  ]
+
+  deps = [
+    ":crash",
+    "//base",
+    "//chromecast/base",
   ]
 }
 
@@ -48,6 +59,7 @@ test("cast_crash_unittests") {
 
   deps = [
     ":crash",
+    ":test_support",
     "//base",
     "//base/test:run_all_unittests",
     "//base/test:test_support",

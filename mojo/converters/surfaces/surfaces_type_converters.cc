@@ -6,8 +6,8 @@
 
 #include "base/macros.h"
 #include "cc/output/compositor_frame.h"
+#include "cc/output/compositor_frame_metadata.h"
 #include "cc/output/delegated_frame_data.h"
-#include "cc/quads/checkerboard_draw_quad.h"
 #include "cc/quads/debug_border_draw_quad.h"
 #include "cc/quads/draw_quad.h"
 #include "cc/quads/render_pass.h"
@@ -20,16 +20,60 @@
 #include "cc/quads/yuv_video_draw_quad.h"
 #include "cc/surfaces/surface_id_allocator.h"
 #include "mojo/converters/geometry/geometry_type_converters.h"
+#include "mojo/converters/surfaces/custom_surface_converter.h"
 #include "mojo/converters/transform/transform_type_converters.h"
+
+using mus::mojom::Color;
+using mus::mojom::ColorPtr;
+using mus::mojom::CommandBufferNamespace;
+using mus::mojom::CompositorFrame;
+using mus::mojom::CompositorFramePtr;
+using mus::mojom::CompositorFrameMetadata;
+using mus::mojom::CompositorFrameMetadataPtr;
+using mus::mojom::DebugBorderQuadState;
+using mus::mojom::DebugBorderQuadStatePtr;
+using mus::mojom::Mailbox;
+using mus::mojom::MailboxPtr;
+using mus::mojom::MailboxHolder;
+using mus::mojom::MailboxHolderPtr;
+using mus::mojom::Pass;
+using mus::mojom::PassPtr;
+using mus::mojom::Quad;
+using mus::mojom::QuadPtr;
+using mus::mojom::RenderPassId;
+using mus::mojom::RenderPassIdPtr;
+using mus::mojom::RenderPassQuadState;
+using mus::mojom::RenderPassQuadStatePtr;
+using mus::mojom::ResourceFormat;
+using mus::mojom::ReturnedResource;
+using mus::mojom::ReturnedResourcePtr;
+using mus::mojom::SharedQuadState;
+using mus::mojom::SharedQuadStatePtr;
+using mus::mojom::SolidColorQuadState;
+using mus::mojom::SolidColorQuadStatePtr;
+using mus::mojom::SurfaceId;
+using mus::mojom::SurfaceIdPtr;
+using mus::mojom::SurfaceQuadState;
+using mus::mojom::SurfaceQuadStatePtr;
+using mus::mojom::SyncToken;
+using mus::mojom::SyncTokenPtr;
+using mus::mojom::TextureQuadState;
+using mus::mojom::TextureQuadStatePtr;
+using mus::mojom::TileQuadState;
+using mus::mojom::TileQuadStatePtr;
+using mus::mojom::TransferableResource;
+using mus::mojom::TransferableResourcePtr;
+using mus::mojom::YUVColorSpace;
+using mus::mojom::YUVVideoQuadState;
+using mus::mojom::YUVVideoQuadStatePtr;
 
 namespace mojo {
 
 #define ASSERT_ENUM_VALUES_EQUAL(value)                                      \
   COMPILE_ASSERT(cc::DrawQuad::value == static_cast<cc::DrawQuad::Material>( \
-                                            MATERIAL_##value),     \
+                                            mus::mojom::MATERIAL_##value),   \
                  value##_enum_value_matches)
 
-ASSERT_ENUM_VALUES_EQUAL(CHECKERBOARD);
 ASSERT_ENUM_VALUES_EQUAL(DEBUG_BORDER);
 ASSERT_ENUM_VALUES_EQUAL(IO_SURFACE_CONTENT);
 ASSERT_ENUM_VALUES_EQUAL(PICTURE_CONTENT);
@@ -41,17 +85,18 @@ ASSERT_ENUM_VALUES_EQUAL(TEXTURE_CONTENT);
 ASSERT_ENUM_VALUES_EQUAL(TILED_CONTENT);
 ASSERT_ENUM_VALUES_EQUAL(YUV_VIDEO_CONTENT);
 
-COMPILE_ASSERT(
-    cc::YUVVideoDrawQuad::REC_601 ==
-        static_cast<cc::YUVVideoDrawQuad::ColorSpace>(YUV_COLOR_SPACE_REC_601),
-    rec_601_enum_matches);
+COMPILE_ASSERT(cc::YUVVideoDrawQuad::REC_601 ==
+                   static_cast<cc::YUVVideoDrawQuad::ColorSpace>(
+                       mus::mojom::YUV_COLOR_SPACE_REC_601),
+               rec_601_enum_matches);
 // TODO(jamesr): Add REC_709 and JPEG to the YUVColorSpace enum upstream in
 // mojo.
 
 namespace {
 
-cc::SharedQuadState* ConvertSharedQuadState(const SharedQuadStatePtr& input,
-                                            cc::RenderPass* render_pass) {
+cc::SharedQuadState* ConvertSharedQuadState(
+    const mus::mojom::SharedQuadStatePtr& input,
+    cc::RenderPass* render_pass) {
   cc::SharedQuadState* state = render_pass->CreateAndAppendSharedQuadState();
   state->SetAll(input->quad_to_target_transform.To<gfx::Transform>(),
                 input->quad_layer_bounds.To<gfx::Size>(),
@@ -64,23 +109,12 @@ cc::SharedQuadState* ConvertSharedQuadState(const SharedQuadStatePtr& input,
 }
 
 bool ConvertDrawQuad(const QuadPtr& input,
+                     const CompositorFrameMetadataPtr& metadata,
                      cc::SharedQuadState* sqs,
-                     cc::RenderPass* render_pass) {
+                     cc::RenderPass* render_pass,
+                     CustomSurfaceConverter* custom_converter) {
   switch (input->material) {
-    case MATERIAL_CHECKERBOARD: {
-      cc::CheckerboardDrawQuad* checkerboard_quad =
-          render_pass->CreateAndAppendDrawQuad<cc::CheckerboardDrawQuad>();
-      checkerboard_quad->SetAll(
-          sqs,
-          input->rect.To<gfx::Rect>(),
-          input->opaque_rect.To<gfx::Rect>(),
-          input->visible_rect.To<gfx::Rect>(),
-          input->needs_blending,
-          input->checkerboard_quad_state->color.To<SkColor>(),
-          input->checkerboard_quad_state->scale);
-      break;
-    }
-    case MATERIAL_DEBUG_BORDER: {
+    case mus::mojom::MATERIAL_DEBUG_BORDER: {
       cc::DebugBorderDrawQuad* debug_border_quad =
           render_pass->CreateAndAppendDrawQuad<cc::DebugBorderDrawQuad>();
       debug_border_quad->SetAll(
@@ -93,7 +127,7 @@ bool ConvertDrawQuad(const QuadPtr& input,
           input->debug_border_quad_state->width);
       break;
     }
-    case MATERIAL_RENDER_PASS: {
+    case mus::mojom::MATERIAL_RENDER_PASS: {
       cc::RenderPassDrawQuad* render_pass_quad =
           render_pass->CreateAndAppendDrawQuad<cc::RenderPassDrawQuad>();
       RenderPassQuadState* render_pass_quad_state =
@@ -117,7 +151,7 @@ bool ConvertDrawQuad(const QuadPtr& input,
           cc::FilterOperations());  // TODO(jamesr): background_filters
       break;
     }
-    case MATERIAL_SOLID_COLOR: {
+    case mus::mojom::MATERIAL_SOLID_COLOR: {
       if (input->solid_color_quad_state.is_null())
         return false;
       cc::SolidColorDrawQuad* color_quad =
@@ -132,9 +166,14 @@ bool ConvertDrawQuad(const QuadPtr& input,
           input->solid_color_quad_state->force_anti_aliasing_off);
       break;
     }
-    case MATERIAL_SURFACE_CONTENT: {
+    case mus::mojom::MATERIAL_SURFACE_CONTENT: {
       if (input->surface_quad_state.is_null())
         return false;
+
+      if (custom_converter) {
+        return custom_converter->ConvertSurfaceDrawQuad(input, metadata, sqs,
+                                                        render_pass);
+      }
       cc::SurfaceDrawQuad* surface_quad =
           render_pass->CreateAndAppendDrawQuad<cc::SurfaceDrawQuad>();
       surface_quad->SetAll(
@@ -146,7 +185,7 @@ bool ConvertDrawQuad(const QuadPtr& input,
           input->surface_quad_state->surface.To<cc::SurfaceId>());
       break;
     }
-    case MATERIAL_TEXTURE_CONTENT: {
+    case mus::mojom::MATERIAL_TEXTURE_CONTENT: {
       TextureQuadStatePtr& texture_quad_state =
           input->texture_quad_state;
       if (texture_quad_state.is_null() ||
@@ -158,7 +197,7 @@ bool ConvertDrawQuad(const QuadPtr& input,
       texture_quad->SetAll(
           sqs, input->rect.To<gfx::Rect>(), input->opaque_rect.To<gfx::Rect>(),
           input->visible_rect.To<gfx::Rect>(), input->needs_blending,
-          texture_quad_state->resource_id, gfx::Size(), false,
+          texture_quad_state->resource_id, gfx::Size(),
           texture_quad_state->premultiplied_alpha,
           texture_quad_state->uv_top_left.To<gfx::PointF>(),
           texture_quad_state->uv_bottom_right.To<gfx::PointF>(),
@@ -167,7 +206,7 @@ bool ConvertDrawQuad(const QuadPtr& input,
           texture_quad_state->y_flipped, texture_quad_state->nearest_neighbor);
       break;
     }
-    case MATERIAL_TILED_CONTENT: {
+    case mus::mojom::MATERIAL_TILED_CONTENT: {
       TileQuadStatePtr& tile_state = input->tile_quad_state;
       if (tile_state.is_null())
         return false;
@@ -185,7 +224,7 @@ bool ConvertDrawQuad(const QuadPtr& input,
                         tile_state->nearest_neighbor);
       break;
     }
-    case MATERIAL_YUV_VIDEO_CONTENT: {
+    case mus::mojom::MATERIAL_YUV_VIDEO_CONTENT: {
       YUVVideoQuadStatePtr& yuv_state = input->yuv_video_quad_state;
       if (yuv_state.is_null())
         return false;
@@ -264,7 +303,7 @@ cc::RenderPassId TypeConverter<cc::RenderPassId, RenderPassIdPtr>::Convert(
 QuadPtr TypeConverter<QuadPtr, cc::DrawQuad>::Convert(
     const cc::DrawQuad& input) {
   QuadPtr quad = Quad::New();
-  quad->material = static_cast<Material>(input.material);
+  quad->material = static_cast<mus::mojom::Material>(input.material);
   quad->rect = Rect::From(input.rect);
   quad->opaque_rect = Rect::From(input.opaque_rect);
   quad->visible_rect = Rect::From(input.visible_rect);
@@ -274,16 +313,6 @@ QuadPtr TypeConverter<QuadPtr, cc::DrawQuad>::Convert(
   // state list.
   quad->shared_quad_state_index = UINT32_MAX;
   switch (input.material) {
-    case cc::DrawQuad::CHECKERBOARD: {
-      const cc::CheckerboardDrawQuad* checkerboard_quad =
-          cc::CheckerboardDrawQuad::MaterialCast(&input);
-      CheckerboardQuadStatePtr checkerboard_state =
-          CheckerboardQuadState::New();
-      checkerboard_state->color = Color::From(checkerboard_quad->color);
-      checkerboard_state->scale = checkerboard_quad->scale;
-      quad->checkerboard_quad_state = checkerboard_state.Pass();
-      break;
-    }
     case cc::DrawQuad::DEBUG_BORDER: {
       const cc::DebugBorderDrawQuad* debug_border_quad =
           cc::DebugBorderDrawQuad::MaterialCast(&input);
@@ -388,10 +417,10 @@ QuadPtr TypeConverter<QuadPtr, cc::DrawQuad>::Convert(
 }
 
 // static
-SharedQuadStatePtr
-TypeConverter<SharedQuadStatePtr, cc::SharedQuadState>::Convert(
+mus::mojom::SharedQuadStatePtr
+TypeConverter<mus::mojom::SharedQuadStatePtr, cc::SharedQuadState>::Convert(
     const cc::SharedQuadState& input) {
-  SharedQuadStatePtr state = SharedQuadState::New();
+  mus::mojom::SharedQuadStatePtr state = SharedQuadState::New();
   state->quad_to_target_transform =
       Transform::From(input.quad_to_target_transform);
   state->quad_layer_bounds = Size::From(input.quad_layer_bounds);
@@ -399,7 +428,7 @@ TypeConverter<SharedQuadStatePtr, cc::SharedQuadState>::Convert(
   state->clip_rect = Rect::From(input.clip_rect);
   state->is_clipped = input.is_clipped;
   state->opacity = input.opacity;
-  state->blend_mode = static_cast<SkXfermode>(input.blend_mode);
+  state->blend_mode = static_cast<mus::mojom::SkXfermode>(input.blend_mode);
   state->sorting_context_id = input.sorting_context_id;
   return state.Pass();
 }
@@ -415,7 +444,7 @@ PassPtr TypeConverter<PassPtr, cc::RenderPass>::Convert(
       Transform::From(input.transform_to_root_target);
   pass->has_transparent_background = input.has_transparent_background;
   Array<QuadPtr> quads(input.quad_list.size());
-  Array<SharedQuadStatePtr> shared_quad_state(
+  Array<mus::mojom::SharedQuadStatePtr> shared_quad_state(
       input.shared_quad_state_list.size());
   const cc::SharedQuadState* last_sqs = nullptr;
   cc::SharedQuadStateList::ConstIterator next_sqs_iter =
@@ -442,9 +471,10 @@ PassPtr TypeConverter<PassPtr, cc::RenderPass>::Convert(
 }
 
 // static
-scoped_ptr<cc::RenderPass>
-TypeConverter<scoped_ptr<cc::RenderPass>, PassPtr>::Convert(
-    const PassPtr& input) {
+scoped_ptr<cc::RenderPass> ConvertToRenderPass(
+    const PassPtr& input,
+    const CompositorFrameMetadataPtr& metadata,
+    CustomSurfaceConverter* custom_converter) {
   scoped_ptr<cc::RenderPass> pass = cc::RenderPass::Create(
       input->shared_quad_states.size(), input->quads.size());
   pass->SetAll(input->id.To<cc::RenderPassId>(),
@@ -462,10 +492,20 @@ TypeConverter<scoped_ptr<cc::RenderPass>, PassPtr>::Convert(
     while (quad->shared_quad_state_index > sqs_iter.index()) {
       ++sqs_iter;
     }
-    if (!ConvertDrawQuad(quad, *sqs_iter, pass.get()))
+    if (!ConvertDrawQuad(quad, metadata, *sqs_iter, pass.get(),
+                         custom_converter))
       return scoped_ptr<cc::RenderPass>();
   }
   return pass.Pass();
+}
+
+// static
+scoped_ptr<cc::RenderPass>
+TypeConverter<scoped_ptr<cc::RenderPass>, PassPtr>::Convert(
+    const PassPtr& input) {
+  mus::mojom::CompositorFrameMetadataPtr metadata;
+  return ConvertToRenderPass(input, metadata,
+                             nullptr /* CustomSurfaceConverter */);
 }
 
 // static
@@ -490,12 +530,38 @@ gpu::Mailbox TypeConverter<gpu::Mailbox, MailboxPtr>::Convert(
 }
 
 // static
+SyncTokenPtr TypeConverter<SyncTokenPtr, gpu::SyncToken>::Convert(
+    const gpu::SyncToken& input) {
+  DCHECK(!input.HasData() || input.verified_flush());
+  SyncTokenPtr sync_token(SyncToken::New());
+  sync_token->verified_flush = input.verified_flush();
+  sync_token->namespace_id =
+      static_cast<CommandBufferNamespace>(input.namespace_id());
+  sync_token->command_buffer_id = input.command_buffer_id();
+  sync_token->release_count = input.release_count();
+  return sync_token.Pass();
+}
+
+// static
+gpu::SyncToken TypeConverter<gpu::SyncToken, SyncTokenPtr>::Convert(
+    const SyncTokenPtr& input) {
+  const gpu::CommandBufferNamespace namespace_id =
+      static_cast<gpu::CommandBufferNamespace>(input->namespace_id);
+  gpu::SyncToken sync_token(namespace_id, input->command_buffer_id,
+                            input->release_count);
+  if (input->verified_flush)
+    sync_token.SetVerifyFlush();
+
+  return sync_token;
+}
+
+// static
 MailboxHolderPtr TypeConverter<MailboxHolderPtr, gpu::MailboxHolder>::Convert(
     const gpu::MailboxHolder& input) {
   MailboxHolderPtr holder(MailboxHolder::New());
   holder->mailbox = Mailbox::From<gpu::Mailbox>(input.mailbox);
+  holder->sync_token = SyncToken::From<gpu::SyncToken>(input.sync_token);
   holder->texture_target = input.texture_target;
-  holder->sync_point = input.sync_point;
   return holder.Pass();
 }
 
@@ -504,8 +570,8 @@ gpu::MailboxHolder TypeConverter<gpu::MailboxHolder, MailboxHolderPtr>::Convert(
     const MailboxHolderPtr& input) {
   gpu::MailboxHolder holder;
   holder.mailbox = input->mailbox.To<gpu::Mailbox>();
+  holder.sync_token = input->sync_token.To<gpu::SyncToken>();
   holder.texture_target = input->texture_target;
-  holder.sync_point = input->sync_point;
   return holder;
 }
 
@@ -519,7 +585,6 @@ TypeConverter<TransferableResourcePtr, cc::TransferableResource>::Convert(
   transferable->filter = input.filter;
   transferable->size = Size::From(input.size);
   transferable->mailbox_holder = MailboxHolder::From(input.mailbox_holder);
-  transferable->is_repeated = input.is_repeated;
   transferable->is_software = input.is_software;
   return transferable.Pass();
 }
@@ -534,7 +599,6 @@ TypeConverter<cc::TransferableResource, TransferableResourcePtr>::Convert(
   transferable.filter = input->filter;
   transferable.size = input->size.To<gfx::Size>();
   transferable.mailbox_holder = input->mailbox_holder.To<gpu::MailboxHolder>();
-  transferable.is_repeated = input->is_repeated;
   transferable.is_software = input->is_software;
   return transferable;
 }
@@ -568,7 +632,7 @@ TypeConverter<ReturnedResourcePtr, cc::ReturnedResource>::Convert(
     const cc::ReturnedResource& input) {
   ReturnedResourcePtr returned = ReturnedResource::New();
   returned->id = input.id;
-  returned->sync_point = input.sync_point;
+  returned->sync_token = SyncToken::From<gpu::SyncToken>(input.sync_token);
   returned->count = input.count;
   returned->lost = input.lost;
   return returned.Pass();
@@ -580,7 +644,7 @@ TypeConverter<cc::ReturnedResource, ReturnedResourcePtr>::Convert(
     const ReturnedResourcePtr& input) {
   cc::ReturnedResource returned;
   returned.id = input->id;
-  returned.sync_point = input->sync_point;
+  returned.sync_token = input->sync_token.To<gpu::SyncToken>();
   returned.count = input->count;
   returned.lost = input->lost;
   return returned;
@@ -598,13 +662,44 @@ TypeConverter<Array<ReturnedResourcePtr>, cc::ReturnedResourceArray>::Convert(
 }
 
 // static
-FramePtr TypeConverter<FramePtr, cc::CompositorFrame>::Convert(
+cc::ReturnedResourceArray
+TypeConverter<cc::ReturnedResourceArray, Array<ReturnedResourcePtr>>::Convert(
+    const Array<ReturnedResourcePtr>& input) {
+  cc::ReturnedResourceArray resources(input.size());
+  for (size_t i = 0; i < input.size(); ++i) {
+    resources[i] = input[i].To<cc::ReturnedResource>();
+  }
+  return resources;
+}
+
+// static
+CompositorFrameMetadataPtr
+TypeConverter<CompositorFrameMetadataPtr, cc::CompositorFrameMetadata>::Convert(
+    const cc::CompositorFrameMetadata& input) {
+  CompositorFrameMetadataPtr metadata = CompositorFrameMetadata::New();
+  metadata->device_scale_factor = input.device_scale_factor;
+  return metadata.Pass();
+}
+
+// static
+cc::CompositorFrameMetadata
+TypeConverter<cc::CompositorFrameMetadata, CompositorFrameMetadataPtr>::Convert(
+    const CompositorFrameMetadataPtr& input) {
+  cc::CompositorFrameMetadata metadata;
+  metadata.device_scale_factor = input->device_scale_factor;
+  return metadata;
+}
+
+// static
+CompositorFramePtr
+TypeConverter<CompositorFramePtr, cc::CompositorFrame>::Convert(
     const cc::CompositorFrame& input) {
-  FramePtr frame = Frame::New();
+  CompositorFramePtr frame = CompositorFrame::New();
   DCHECK(input.delegated_frame_data);
   cc::DelegatedFrameData* frame_data = input.delegated_frame_data.get();
   frame->resources =
       Array<TransferableResourcePtr>::From(frame_data->resource_list);
+  frame->metadata = CompositorFrameMetadata::From(input.metadata);
   const cc::RenderPassList& pass_list = frame_data->render_pass_list;
   frame->passes = Array<PassPtr>::New(pass_list.size());
   for (size_t i = 0; i < pass_list.size(); ++i) {
@@ -614,24 +709,33 @@ FramePtr TypeConverter<FramePtr, cc::CompositorFrame>::Convert(
 }
 
 // static
-scoped_ptr<cc::CompositorFrame>
-TypeConverter<scoped_ptr<cc::CompositorFrame>, FramePtr>::Convert(
-    const FramePtr& input) {
+scoped_ptr<cc::CompositorFrame> ConvertToCompositorFrame(
+    const CompositorFramePtr& input,
+    CustomSurfaceConverter* custom_converter) {
   scoped_ptr<cc::DelegatedFrameData> frame_data(new cc::DelegatedFrameData);
   frame_data->device_scale_factor = 1.f;
   frame_data->resource_list =
       input->resources.To<cc::TransferableResourceArray>();
   frame_data->render_pass_list.reserve(input->passes.size());
   for (size_t i = 0; i < input->passes.size(); ++i) {
-    scoped_ptr<cc::RenderPass> pass =
-        input->passes[i].To<scoped_ptr<cc::RenderPass> >();
+    scoped_ptr<cc::RenderPass> pass = ConvertToRenderPass(
+        input->passes[i], input->metadata, custom_converter);
     if (!pass)
       return scoped_ptr<cc::CompositorFrame>();
     frame_data->render_pass_list.push_back(pass.Pass());
   }
   scoped_ptr<cc::CompositorFrame> frame(new cc::CompositorFrame);
+  cc::CompositorFrameMetadata metadata =
+      input->metadata.To<cc::CompositorFrameMetadata>();
   frame->delegated_frame_data = frame_data.Pass();
   return frame.Pass();
+}
+
+// static
+scoped_ptr<cc::CompositorFrame>
+TypeConverter<scoped_ptr<cc::CompositorFrame>, CompositorFramePtr>::Convert(
+    const CompositorFramePtr& input) {
+  return ConvertToCompositorFrame(input, nullptr);
 }
 
 }  // namespace mojo

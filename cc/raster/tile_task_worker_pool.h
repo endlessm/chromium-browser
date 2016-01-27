@@ -14,7 +14,7 @@ class SequencedTaskRunner;
 }
 
 namespace cc {
-class RasterSource;
+class DisplayListRasterSource;
 class RenderingStatsInstrumentation;
 
 class CC_EXPORT TileTaskWorkerPool {
@@ -63,10 +63,11 @@ class CC_EXPORT TileTaskWorkerPool {
                                ResourceFormat format,
                                const gfx::Size& size,
                                size_t stride,
-                               const RasterSource* raster_source,
+                               const DisplayListRasterSource* raster_source,
                                const gfx::Rect& canvas_bitmap_rect,
                                const gfx::Rect& canvas_playback_rect,
-                               float scale);
+                               float scale,
+                               bool include_images);
 
   // Type-checking downcast routine.
   virtual TileTaskRunner* AsTileTaskRunner() = 0;

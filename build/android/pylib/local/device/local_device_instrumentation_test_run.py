@@ -6,11 +6,9 @@ import logging
 import re
 import time
 
+from devil.android import device_errors
 from pylib import flag_changer
 from pylib.base import base_test_result
-from pylib.base import test_run
-from pylib.constants import keyevent
-from pylib.device import device_errors
 from pylib.local.device import local_device_test_run
 
 
@@ -32,7 +30,7 @@ def DidPackageCrashOnDevice(package_name, device):
   # loop or we are failing to dismiss.
   try:
     for _ in xrange(10):
-      package = _DismissCrashDialog(device)
+      package = device.DismissCrashDialogIfNeeded()
       if not package:
         return False
       # Assume test package convention of ".test" suffix
@@ -45,22 +43,6 @@ def DidPackageCrashOnDevice(package_name, device):
 
 _CURRENT_FOCUS_CRASH_RE = re.compile(
     r'\s*mCurrentFocus.*Application (Error|Not Responding): (\S+)}')
-
-
-def _DismissCrashDialog(device):
-  # TODO(jbudorick): Try to grep the output on the device instead of using
-  # large_output if/when DeviceUtils exposes a public interface for piped
-  # shell command handling.
-  for l in device.RunShellCommand(
-      ['dumpsys', 'window', 'windows'], check_return=True, large_output=True):
-    m = re.match(_CURRENT_FOCUS_CRASH_RE, l)
-    if m:
-      device.SendKeyEvent(keyevent.KEYCODE_DPAD_RIGHT)
-      device.SendKeyEvent(keyevent.KEYCODE_DPAD_RIGHT)
-      device.SendKeyEvent(keyevent.KEYCODE_ENTER)
-      return m.group(2)
-
-  return None
 
 
 class LocalDeviceInstrumentationTestRun(
@@ -82,8 +64,12 @@ class LocalDeviceInstrumentationTestRun(
         return d
 
     def individual_device_set_up(dev, host_device_tuples):
-      dev.Install(self._test_instance.apk_under_test)
-      dev.Install(self._test_instance.test_apk)
+      dev.Install(self._test_instance.apk_under_test,
+                  permissions=self._test_instance.apk_under_test_permissions)
+      dev.Install(self._test_instance.test_apk,
+                  permissions=self._test_instance.test_permissions)
+      for apk in self._test_instance.additional_apks:
+        dev.Install(apk)
 
       external_storage = dev.GetExternalStoragePath()
       host_device_tuples = [
@@ -99,8 +85,7 @@ class LocalDeviceInstrumentationTestRun(
         elif not self._test_instance.package_info.cmdline_file:
           logging.error("Couldn't set flags: no cmdline_file")
         else:
-          self._flag_changers[str(dev)] = flag_changer.FlagChanger(
-              dev, self._test_instance.package_info.cmdline_file)
+          self._CreateFlagChangerIfNeeded(dev)
           logging.debug('Attempting to set flags: %r',
                         self._test_instance.flags)
           self._flag_changers[str(dev)].AddFlags(self._test_instance.flags)
@@ -116,6 +101,11 @@ class LocalDeviceInstrumentationTestRun(
 
     self._env.parallel_devices.pMap(individual_device_tear_down)
 
+  def _CreateFlagChangerIfNeeded(self, device):
+    if not str(device) in self._flag_changers:
+      self._flag_changers[str(device)] = flag_changer.FlagChanger(
+        device, self._test_instance.package_info.cmdline_file)
+
   #override
   def _CreateShards(self, tests):
     return tests
@@ -128,10 +118,20 @@ class LocalDeviceInstrumentationTestRun(
   def _GetTestName(self, test):
     return '%s#%s' % (test['class'], test['method'])
 
+  def _GetTestNameForDisplay(self, test):
+    display_name = self._GetTestName(test)
+    flags = test['flags']
+    if flags.add:
+      display_name = '%s with {%s}' % (display_name, ' '.join(flags.add))
+    if flags.remove:
+      display_name = '%s without {%s}' % (display_name, ' '.join(flags.remove))
+    return display_name
+
   #override
   def _RunTest(self, device, test):
     extras = self._test_instance.GetHttpServerEnvironmentVars()
 
+    flags = None
     if isinstance(test, list):
       if not self._test_instance.driver_apk:
         raise Exception('driver_apk does not exist. '
@@ -145,6 +145,7 @@ class LocalDeviceInstrumentationTestRun(
       test_names, timeouts = zip(*(name_and_timeout(t) for t in test))
 
       test_name = ','.join(test_names)
+      test_display_name = test_name
       target = '%s/%s' % (
           self._test_instance.driver_package,
           self._test_instance.driver_name)
@@ -154,22 +155,36 @@ class LocalDeviceInstrumentationTestRun(
       timeout = sum(timeouts)
     else:
       test_name = self._GetTestName(test)
+      test_display_name = test_name
       target = '%s/%s' % (
           self._test_instance.test_package, self._test_instance.test_runner)
       extras['class'] = test_name
-      timeout = self._GetTimeoutFromAnnotations(test['annotations'], test_name)
+      if 'flags' in test:
+        flags = test['flags']
+        test_display_name = self._GetTestNameForDisplay(test)
+      timeout = self._GetTimeoutFromAnnotations(
+        test['annotations'], test_display_name)
 
-    logging.info('preparing to run %s: %s' % (test_name, test))
+    logging.info('preparing to run %s: %s', test_display_name, test)
 
-    time_ms = lambda: int(time.time() * 1e3)
-    start_ms = time_ms()
-    output = device.StartInstrumentation(
-        target, raw=True, extras=extras, timeout=timeout, retries=0)
-    duration_ms = time_ms() - start_ms
+    if flags:
+      self._CreateFlagChangerIfNeeded(device)
+      self._flag_changers[str(device)].PushFlags(
+        add=flags.add, remove=flags.remove)
+
+    try:
+      time_ms = lambda: int(time.time() * 1e3)
+      start_ms = time_ms()
+      output = device.StartInstrumentation(
+          target, raw=True, extras=extras, timeout=timeout, retries=0)
+      duration_ms = time_ms() - start_ms
+    finally:
+      if flags:
+        self._flag_changers[str(device)].Restore()
 
     # TODO(jbudorick): Make instrumentation tests output a JSON so this
     # doesn't have to parse the output.
-    logging.debug('output from %s:', test_name)
+    logging.debug('output from %s:', test_display_name)
     for l in output:
       logging.debug('  %s', l)
 
@@ -177,10 +192,16 @@ class LocalDeviceInstrumentationTestRun(
         self._test_instance.ParseAmInstrumentRawOutput(output))
     results = self._test_instance.GenerateTestResults(
         result_code, result_bundle, statuses, start_ms, duration_ms)
+    if flags:
+      for r in results:
+        if r.GetName() == test_name:
+          r.SetName(test_display_name)
     if DidPackageCrashOnDevice(self._test_instance.test_package, device):
       for r in results:
         if r.GetType() == base_test_result.ResultType.UNKNOWN:
           r.SetType(base_test_result.ResultType.CRASH)
+    # TODO(jbudorick): ClearApplicationState on failure before switching
+    # instrumentation tests to platform mode.
     return results
 
   #override
@@ -192,8 +213,9 @@ class LocalDeviceInstrumentationTestRun(
     for k, v in TIMEOUT_ANNOTATIONS:
       if k in annotations:
         timeout = v
+        break
     else:
-      logging.warning('Using default 1 minute timeout for %s' % test_name)
+      logging.warning('Using default 1 minute timeout for %s', test_name)
       timeout = 60
 
     try:

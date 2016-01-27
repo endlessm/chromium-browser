@@ -13,6 +13,7 @@
 goog.provide('cvox.ChromeVoxInit');
 
 goog.require('cvox.ChromeVox');
+goog.require('cvox.ExtensionBridge');
 goog.require('cvox.HostFactory');
 goog.require('cvox.InitGlobals');
 
@@ -25,6 +26,34 @@ goog.require('cvox.InitGlobals');
  */
 cvox.ChromeVox.initTimeout_ = 100;
 
+
+/**
+ * @type {number}
+ * @private
+ */
+cvox.ChromeVox.initTimer_ = 0;
+
+
+/**
+ * Maximum retry timeout for initialization.  Note that exponential backoff
+ * used, so the actual time before giving up is about twice this number.
+ * @const {number}
+ * @private
+ */
+cvox.ChromeVox.MAX_INIT_TIMEOUT_ = 30000;
+
+
+/**
+ * Flag indicating if ChromeVox Classic is enabled based on the Next
+ * background page. Initializes to true for non-top level
+ * (i.e. iframes) windows. For top level windows, left undefined and
+ * set when background page replies.
+ * @type {boolean|undefined}
+ * @private
+ */
+cvox.ChromeVox.isClassicEnabled_ = window.top == window ? undefined : true;
+
+
 /**
  * Call the init function later, safely.
  * @param {string} reason A developer-readable string to log to the console
@@ -32,10 +61,17 @@ cvox.ChromeVox.initTimeout_ = 100;
  * @private
  */
 cvox.ChromeVox.recallInit_ = function(reason) {
+  if (cvox.ChromeVox.initTimeout_ > cvox.ChromeVox.MAX_INIT_TIMEOUT_) {
+    window.console.log(reason +
+        ' Taking too long - giving up.');
+    return;
+  }
   window.console.log(reason +
                      ' Will try again in ' +
                      cvox.ChromeVox.initTimeout_ + 'ms');
-  window.setTimeout(cvox.ChromeVox.initDocument, cvox.ChromeVox.initTimeout_);
+  cvox.ChromeVox.initTimer_ = window.setTimeout(
+      cvox.ChromeVox.initDocument,
+      cvox.ChromeVox.initTimeout_);
   cvox.ChromeVox.initTimeout_ *= 2;
 };
 
@@ -49,9 +85,27 @@ cvox.ChromeVox.initDocument = function() {
     return;
   }
 
+  cvox.ExtensionBridge.send({
+    target: 'next',
+    action: 'getIsClassicEnabled',
+    url: location.href
+  });
+
+  cvox.ChromeVox.initTimer_ = 0;
+  var reinitReason;
   if (!document.body) {
-    cvox.ChromeVox.recallInit_('ChromeVox not starting on unloaded page: ' +
+    reinitReason = 'ChromeVox not starting on unloaded page';
+  }
+  if (cvox.ChromeVox.isClassicEnabled_ === undefined) {
+    reinitReason = 'ChromeVox waiting for background page';
+  }
+  if (reinitReason) {
+    cvox.ChromeVox.recallInit_(reinitReason + ': ' +
         document.location.href + '.');
+    return;
+  }
+
+  if (!cvox.ChromeVox.isClassicEnabled_) {
     return;
   }
 
@@ -96,3 +150,16 @@ if (!COMPILED) {
   // called in loader.js.
   cvox.ChromeVox.initDocument();
 }
+
+cvox.ExtensionBridge.addMessageListener(function(msg, port) {
+  if (msg['target'] == 'next') {
+    cvox.ChromeVox.isClassicEnabled_ = msg['isClassicEnabled'];
+  }
+});
+
+cvox.ExtensionBridge.addDisconnectListener(function() {
+  if (cvox.ChromeVox.initTimer_ > 0) {
+    window.clearTimeout(cvox.ChromeVox.initTimer_);
+    cvox.ChromeVox.initTimer_ = 0;
+  }
+});

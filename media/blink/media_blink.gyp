@@ -3,6 +3,9 @@
 # found in the LICENSE file.
 
 {
+  'includes': [
+    '../media_variables.gypi'
+  ],
   'targets': [
     {
       # GN version: //media/blink
@@ -22,7 +25,7 @@
         '../../url/url.gyp:url_lib',
       ],
       'defines': [
-        'MEDIA_IMPLEMENTATION',
+        'MEDIA_BLINK_IMPLEMENTATION',
       ],
       # This sources list is duplicated in //media/blink/BUILD.gn
       'sources': [
@@ -43,8 +46,13 @@
         'cdm_session_adapter.h',
         'encrypted_media_player_support.cc',
         'encrypted_media_player_support.h',
+        'interval_map.h',
         'key_system_config_selector.cc',
         'key_system_config_selector.h',
+        'lru.h',
+        'media_blink_export.h',
+        'multibuffer.cc',
+        'multibuffer.h',
         'new_session_cdm_result_promise.cc',
         'new_session_cdm_result_promise.h',
         'texttrack_impl.cc',
@@ -76,7 +84,7 @@
         'websourcebuffer_impl.h',
       ],
       'conditions': [
-        ['OS=="android"', {
+        ['OS=="android" and media_use_ffmpeg==0', {
           'sources!': [
             'encrypted_media_player_support.cc',
             'encrypted_media_player_support.h',
@@ -97,6 +105,8 @@
         '../../base/base.gyp:test_support_base',
         '../../cc/cc.gyp:cc',
         '../../cc/blink/cc_blink.gyp:cc_blink',
+        '../../components/scheduler/scheduler.gyp:scheduler',
+        '../../components/scheduler/scheduler.gyp:scheduler_test_support',
         '../../gin/gin.gyp:gin',
         '../../net/net.gyp:net',
         '../../testing/gmock.gyp:gmock',
@@ -112,16 +122,47 @@
         'buffered_data_source_unittest.cc',
         'buffered_resource_loader_unittest.cc',
         'cache_util_unittest.cc',
+        'interval_map_unittest.cc',
         'key_system_config_selector_unittest.cc',
+        'lru_unittest.cc',
         'mock_webframeclient.h',
         'mock_weburlloader.cc',
         'mock_weburlloader.h',
         'run_all_unittests.cc',
+        'test_random.h',
         'test_response_generator.cc',
         'test_response_generator.h',
         'video_frame_compositor_unittest.cc',
         'webaudiosourceprovider_impl_unittest.cc',
       ],
     },
-  ]
+  ],
+  'conditions': [
+    ['test_isolation_mode != "noop"', {
+      'targets': [
+        {
+          'target_name': 'media_blink_unittests_run',
+          'type': 'none',
+          'dependencies': [
+            'media_blink_unittests',
+          ],
+          'includes': [
+            '../../build/isolate.gypi',
+                      ],
+          'sources': [
+            'media_blink_unittests.isolate',
+          ],
+          'conditions': [
+            ['use_x11==1',
+              {
+                'dependencies': [
+                  '../../tools/xdisplaycheck/xdisplaycheck.gyp:xdisplaycheck',
+                ],
+              }
+            ],
+          ],
+        },
+      ],
+    }],
+  ],
 }

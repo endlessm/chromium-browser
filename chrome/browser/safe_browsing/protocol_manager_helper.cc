@@ -12,35 +12,31 @@
 #include "base/stl_util.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
-#include "chrome/common/chrome_version_info.h"
-#include "chrome/common/env_vars.h"
+#include "components/version_info/version_info.h"
 #include "google_apis/google_api_keys.h"
 #include "net/base/escape.h"
 
-SafeBrowsingProtocolConfig::SafeBrowsingProtocolConfig()
-    : disable_auto_update(false)
-#if defined(OS_ANDROID)
-    , disable_connection_check(false)
-#endif
-{
-}
+namespace safe_browsing {
 
-SafeBrowsingProtocolConfig::~SafeBrowsingProtocolConfig() {
-}
+SafeBrowsingProtocolConfig::SafeBrowsingProtocolConfig()
+    : disable_auto_update(false) {}
+
+SafeBrowsingProtocolConfig::~SafeBrowsingProtocolConfig() {}
 
 // static
 std::string SafeBrowsingProtocolManagerHelper::Version() {
-  chrome::VersionInfo version_info;
-  if (version_info.Version().empty())
+  if (version_info::GetVersionNumber().empty())
     return "0.1";
   else
-    return version_info.Version();
+    return version_info::GetVersionNumber();
 }
 
 // static
 std::string SafeBrowsingProtocolManagerHelper::ComposeUrl(
-    const std::string& prefix, const std::string& method,
-    const std::string& client_name, const std::string& version,
+    const std::string& prefix,
+    const std::string& method,
+    const std::string& client_name,
+    const std::string& version,
     const std::string& additional_query) {
   DCHECK(!prefix.empty() && !method.empty() &&
          !client_name.empty() && !version.empty());
@@ -59,3 +55,23 @@ std::string SafeBrowsingProtocolManagerHelper::ComposeUrl(
   }
   return url;
 }
+
+// static
+std::string SafeBrowsingProtocolManagerHelper::ComposeUrl(
+    const std::string& prefix,
+    const std::string& method,
+    const std::string& client_name,
+    const std::string& version,
+    const std::string& additional_query,
+    bool is_extended_reporting) {
+  std::string url =
+      ComposeUrl(prefix, method, client_name, version, additional_query);
+  if (is_extended_reporting) {
+    url.append("&ext=1");
+  } else {
+    url.append("&ext=0");
+  }
+  return url;
+}
+
+}  // namespace safe_browsing

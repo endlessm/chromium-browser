@@ -169,11 +169,6 @@ void WebContentsDelegateAndroid::ActivateContents(WebContents* contents) {
   Java_WebContentsDelegateAndroid_activateContents(env, obj.obj());
 }
 
-void WebContentsDelegateAndroid::DeactivateContents(WebContents* contents) {
-  // On desktop the current window is deactivated here, bringing the next window
-  // to focus. Not implemented on Android.
-}
-
 void WebContentsDelegateAndroid::LoadingStateChanged(WebContents* source,
     bool to_different_document) {
   JNIEnv* env = AttachCurrentThread();
@@ -182,10 +177,14 @@ void WebContentsDelegateAndroid::LoadingStateChanged(WebContents* source,
     return;
   bool has_stopped = source == NULL || !source->IsLoading();
 
-  if (has_stopped)
+  if (has_stopped) {
     Java_WebContentsDelegateAndroid_onLoadStopped(env, obj.obj());
-  else
-    Java_WebContentsDelegateAndroid_onLoadStarted(env, obj.obj());
+  } else {
+    Java_WebContentsDelegateAndroid_onLoadStarted(
+        env,
+        obj.obj(),
+        to_different_document);
+  }
 }
 
 void WebContentsDelegateAndroid::LoadProgressChanged(WebContents* source,
@@ -218,8 +217,9 @@ void WebContentsDelegateAndroid::RendererResponsive(WebContents* source) {
 
 bool WebContentsDelegateAndroid::ShouldCreateWebContents(
     WebContents* web_contents,
-    int route_id,
-    int main_frame_route_id,
+    int32_t route_id,
+    int32_t main_frame_route_id,
+    int32_t main_frame_widget_route_id,
     WindowContainerType window_container_type,
     const std::string& frame_name,
     const GURL& target_url,
@@ -261,12 +261,9 @@ void WebContentsDelegateAndroid::WebContentsCreated(
     jnew_contents = new_contents->GetJavaWebContents();
 
   Java_WebContentsDelegateAndroid_webContentsCreated(
-      env,
-      obj.obj(),
-      jsource_contents.obj(),
-      opener_render_frame_id,
-      base::android::ConvertUTF8ToJavaString(env, frame_name).Release(),
-      base::android::ConvertUTF8ToJavaString(env, target_url.spec()).Release(),
+      env, obj.obj(), jsource_contents.obj(), opener_render_frame_id,
+      base::android::ConvertUTF8ToJavaString(env, frame_name).obj(),
+      base::android::ConvertUTF8ToJavaString(env, target_url.spec()).obj(),
       jnew_contents.obj());
 }
 

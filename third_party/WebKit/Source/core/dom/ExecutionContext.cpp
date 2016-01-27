@@ -107,7 +107,7 @@ void ExecutionContext::postSuspendableTask(PassOwnPtr<SuspendableTask> task)
 {
     m_suspendedTasks.append(task);
     if (!m_activeDOMObjectsAreSuspended)
-        postTask(FROM_HERE, createSameThreadTask(&ExecutionContext::runSuspendableTasks, this));
+        postTask(BLINK_FROM_HERE, createSameThreadTask(&ExecutionContext::runSuspendableTasks, this));
 }
 
 void ExecutionContext::notifyContextDestroyed()
@@ -133,7 +133,7 @@ void ExecutionContext::resumeScheduledTasks()
     if (m_isRunSuspendableTasksScheduled)
         return;
     m_isRunSuspendableTasksScheduled = true;
-    postTask(FROM_HERE, createSameThreadTask(&ExecutionContext::runSuspendableTasks, this));
+    postTask(BLINK_FROM_HERE, createSameThreadTask(&ExecutionContext::runSuspendableTasks, this));
 }
 
 void ExecutionContext::suspendActiveDOMObjectIfNeeded(ActiveDOMObject* object)
@@ -204,8 +204,9 @@ void ExecutionContext::runSuspendableTasks()
 int ExecutionContext::circularSequentialID()
 {
     ++m_circularSequentialID;
-    if (m_circularSequentialID <= 0)
+    if (m_circularSequentialID > ((1U << 31) - 1U))
         m_circularSequentialID = 1;
+
     return m_circularSequentialID;
 }
 

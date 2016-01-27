@@ -31,6 +31,7 @@
 #include "config.h"
 #include "web/WebFrameWidgetImpl.h"
 
+#include "core/editing/EditingUtilities.h"
 #include "core/editing/Editor.h"
 #include "core/editing/FrameSelection.h"
 #include "core/editing/InputMethodController.h"
@@ -40,19 +41,20 @@
 #include "core/frame/Settings.h"
 #include "core/input/EventHandler.h"
 #include "core/layout/LayoutView.h"
-#include "core/layout/compositing/DeprecatedPaintLayerCompositor.h"
+#include "core/layout/compositing/PaintLayerCompositor.h"
+#include "core/page/ContextMenuController.h"
 #include "core/page/FocusController.h"
 #include "core/page/Page.h"
 #include "platform/KeyboardCodes.h"
 #include "platform/NotImplemented.h"
-#include "public/web/WebBeginFrameArgs.h"
 #include "public/web/WebWidgetClient.h"
+#include "web/ContextMenuAllowedScope.h"
 #include "web/WebDevToolsAgentImpl.h"
 #include "web/WebInputEventConversion.h"
 #include "web/WebLocalFrameImpl.h"
 #include "web/WebPluginContainerImpl.h"
 #include "web/WebRemoteFrameImpl.h"
-#include "web/WebViewImpl.h"
+#include "web/WebViewFrameWidget.h"
 
 namespace blink {
 
@@ -64,16 +66,25 @@ WebFrameWidget* WebFrameWidget::create(WebWidgetClient* client, WebLocalFrame* l
     return WebFrameWidgetImpl::create(client, localRoot);
 }
 
+WebFrameWidget* WebFrameWidget::create(WebWidgetClient* client, WebView* webView, WebLocalFrame* mainFrame)
+{
+    return new WebViewFrameWidget(client, toWebViewImpl(*webView), toWebLocalFrameImpl(*mainFrame));
+}
+
 WebFrameWidgetImpl* WebFrameWidgetImpl::create(WebWidgetClient* client, WebLocalFrame* localRoot)
 {
     // Pass the WebFrameWidgetImpl's self-reference to the caller.
+#if ENABLE(OILPAN)
+    return new WebFrameWidgetImpl(client, localRoot); // SelfKeepAlive is set in constructor.
+#else
     return adoptRef(new WebFrameWidgetImpl(client, localRoot)).leakRef();
+#endif
 }
 
 // static
-HashSet<WebFrameWidgetImpl*>& WebFrameWidgetImpl::allInstances()
+WebFrameWidgetsSet& WebFrameWidgetImpl::allInstances()
 {
-    DEFINE_STATIC_LOCAL(HashSet<WebFrameWidgetImpl*>, allInstances, ());
+    DEFINE_STATIC_LOCAL(WebFrameWidgetsSet, allInstances, ());
     return allInstances;
 }
 
@@ -87,6 +98,9 @@ WebFrameWidgetImpl::WebFrameWidgetImpl(WebWidgetClient* client, WebLocalFrame* l
     , m_layerTreeViewClosed(false)
     , m_suppressNextKeypressEvent(false)
     , m_ignoreInputEvents(false)
+#if ENABLE(OILPAN)
+    , m_selfKeepAlive(this)
+#endif
 {
     ASSERT(m_localRoot->frame()->isLocalRoot());
     initializeLayerTreeView();
@@ -96,6 +110,12 @@ WebFrameWidgetImpl::WebFrameWidgetImpl(WebWidgetClient* client, WebLocalFrame* l
 
 WebFrameWidgetImpl::~WebFrameWidgetImpl()
 {
+}
+
+DEFINE_TRACE(WebFrameWidgetImpl)
+{
+    visitor->trace(m_localRoot);
+    visitor->trace(m_mouseCaptureNode);
 }
 
 // WebWidget ------------------------------------------------------------------
@@ -112,7 +132,15 @@ void WebFrameWidgetImpl::close()
     // deleted.
     m_client = nullptr;
 
+    m_layerTreeView = nullptr;
+    m_rootLayer = nullptr;
+    m_rootGraphicsLayer = nullptr;
+
+#if ENABLE(OILPAN)
+    m_selfKeepAlive.clear();
+#else
     deref(); // Balances ref() acquired in WebFrameWidget::create
+#endif
 }
 
 WebSize WebFrameWidgetImpl::size()
@@ -171,9 +199,9 @@ void WebFrameWidgetImpl::sendResizeEventAndRepaint()
     }
 }
 
-void WebFrameWidgetImpl::resizePinchViewport(const WebSize& newSize)
+void WebFrameWidgetImpl::resizeVisualViewport(const WebSize& newSize)
 {
-    // FIXME: Implement pinch viewport for out-of-process iframes.
+    // FIXME: Implement visual viewport for out-of-process iframes.
 }
 
 void WebFrameWidgetImpl::updateMainFrameLayoutSize()
@@ -202,17 +230,7 @@ void WebFrameWidgetImpl::willEndLiveResize()
         m_localRoot->frameView()->willEndLiveResize();
 }
 
-void WebFrameWidgetImpl::willEnterFullScreen()
-{
-    // FIXME: Implement full screen for out-of-process iframes.
-}
-
 void WebFrameWidgetImpl::didEnterFullScreen()
-{
-    // FIXME: Implement full screen for out-of-process iframes.
-}
-
-void WebFrameWidgetImpl::willExitFullScreen()
 {
     // FIXME: Implement full screen for out-of-process iframes.
 }
@@ -222,24 +240,20 @@ void WebFrameWidgetImpl::didExitFullScreen()
     // FIXME: Implement full screen for out-of-process iframes.
 }
 
-void WebFrameWidgetImpl::beginFrame(const WebBeginFrameArgs& frameTime)
+void WebFrameWidgetImpl::beginFrame(double lastFrameTimeMonotonic)
 {
-    TRACE_EVENT0("blink", "WebFrameWidgetImpl::beginFrame");
-
-    WebBeginFrameArgs validFrameTime(frameTime);
-    if (!validFrameTime.lastFrameTimeMonotonic)
-        validFrameTime.lastFrameTimeMonotonic = monotonicallyIncreasingTime();
-
-    PageWidgetDelegate::animate(*page(), validFrameTime.lastFrameTimeMonotonic, *m_localRoot->frame());
+    TRACE_EVENT1("blink", "WebFrameWidgetImpl::beginFrame", "frameTime", lastFrameTimeMonotonic);
+    ASSERT(lastFrameTimeMonotonic);
+    PageWidgetDelegate::animate(*page(), lastFrameTimeMonotonic);
 }
 
-void WebFrameWidgetImpl::layout()
+void WebFrameWidgetImpl::updateAllLifecyclePhases()
 {
-    TRACE_EVENT0("blink", "WebFrameWidgetImpl::layout");
+    TRACE_EVENT0("blink", "WebFrameWidgetImpl::updateAllLifecyclePhases");
     if (!m_localRoot)
         return;
 
-    PageWidgetDelegate::layout(*page(), *m_localRoot->frame());
+    PageWidgetDelegate::updateAllLifecyclePhases(*page(), *m_localRoot->frame());
     updateLayerTreeBackgroundColor();
 }
 
@@ -302,64 +316,10 @@ void WebFrameWidgetImpl::themeChanged()
 
 const WebInputEvent* WebFrameWidgetImpl::m_currentInputEvent = nullptr;
 
-// FIXME: autogenerate this kind of code, and use it throughout Blink rather than
-// the one-offs for subsets of these values.
-static String inputTypeToName(WebInputEvent::Type type)
-{
-    switch (type) {
-    case WebInputEvent::MouseDown:
-        return EventTypeNames::mousedown;
-    case WebInputEvent::MouseUp:
-        return EventTypeNames::mouseup;
-    case WebInputEvent::MouseMove:
-        return EventTypeNames::mousemove;
-    case WebInputEvent::MouseEnter:
-        return EventTypeNames::mouseenter;
-    case WebInputEvent::MouseLeave:
-        return EventTypeNames::mouseleave;
-    case WebInputEvent::ContextMenu:
-        return EventTypeNames::contextmenu;
-    case WebInputEvent::MouseWheel:
-        return EventTypeNames::mousewheel;
-    case WebInputEvent::KeyDown:
-        return EventTypeNames::keydown;
-    case WebInputEvent::KeyUp:
-        return EventTypeNames::keyup;
-    case WebInputEvent::GestureScrollBegin:
-        return EventTypeNames::gesturescrollstart;
-    case WebInputEvent::GestureScrollEnd:
-        return EventTypeNames::gesturescrollend;
-    case WebInputEvent::GestureScrollUpdate:
-        return EventTypeNames::gesturescrollupdate;
-    case WebInputEvent::GestureTapDown:
-        return EventTypeNames::gesturetapdown;
-    case WebInputEvent::GestureShowPress:
-        return EventTypeNames::gestureshowpress;
-    case WebInputEvent::GestureTap:
-        return EventTypeNames::gesturetap;
-    case WebInputEvent::GestureTapUnconfirmed:
-        return EventTypeNames::gesturetapunconfirmed;
-    case WebInputEvent::TouchStart:
-        return EventTypeNames::touchstart;
-    case WebInputEvent::TouchMove:
-        return EventTypeNames::touchmove;
-    case WebInputEvent::TouchEnd:
-        return EventTypeNames::touchend;
-    case WebInputEvent::TouchCancel:
-        return EventTypeNames::touchcancel;
-    default:
-        return String("unknown");
-    }
-}
-
 bool WebFrameWidgetImpl::handleInputEvent(const WebInputEvent& inputEvent)
 {
 
-    TRACE_EVENT1("input", "WebFrameWidgetImpl::handleInputEvent", "type", inputTypeToName(inputEvent.type).ascii());
-
-    WebDevToolsAgentImpl* devTools = m_localRoot ? m_localRoot->devToolsAgentImpl() : nullptr;
-    if (devTools && devTools->handleInputEvent(inputEvent))
-        return true;
+    TRACE_EVENT1("input", "WebFrameWidgetImpl::handleInputEvent", "type", inputTypeToName(inputEvent.type));
 
     // Report the event to be NOT processed by WebKit, so that the browser can handle it appropriately.
     if (m_ignoreInputEvents)
@@ -424,7 +384,7 @@ bool WebFrameWidgetImpl::hasTouchEventHandlersAt(const WebPoint& point)
 void WebFrameWidgetImpl::scheduleAnimation()
 {
     if (m_layerTreeView) {
-        m_layerTreeView->setNeedsAnimate();
+        m_layerTreeView->setNeedsBeginFrame();
         return;
     }
     if (m_client)
@@ -432,7 +392,7 @@ void WebFrameWidgetImpl::scheduleAnimation()
 }
 
 void WebFrameWidgetImpl::applyViewportDeltas(
-    const WebFloatSize& pinchViewportDelta,
+    const WebFloatSize& visualViewportDelta,
     const WebFloatSize& mainFrameDelta,
     const WebFloatSize& elasticOverscrollDelta,
     float pageScaleDelta,
@@ -452,23 +412,22 @@ void WebFrameWidgetImpl::setFocus(bool enable)
     page()->focusController().setFocused(enable);
     if (enable) {
         page()->focusController().setActive(true);
-        RefPtrWillBeRawPtr<Frame> focusedFrame = page()->focusController().focusedFrame();
-        if (focusedFrame && focusedFrame->isLocalFrame()) {
-            LocalFrame* localFrame = toLocalFrame(focusedFrame.get());
-            Element* element = localFrame->document()->focusedElement();
-            if (element && localFrame->selection().selection().isNone()) {
+        RefPtrWillBeRawPtr<LocalFrame> focusedFrame = page()->focusController().focusedFrame();
+        if (focusedFrame) {
+            Element* element = focusedFrame->document()->focusedElement();
+            if (element && focusedFrame->selection().selection().isNone()) {
                 // If the selection was cleared while the WebView was not
                 // focused, then the focus element shows with a focus ring but
                 // no caret and does respond to keyboard inputs.
                 if (element->isTextFormControl()) {
-                    element->updateFocusAppearance(true);
+                    element->updateFocusAppearance(SelectionBehaviorOnFocus::Restore);
                 } else if (element->isContentEditable()) {
                     // updateFocusAppearance() selects all the text of
                     // contentseditable DIVs. So we set the selection explicitly
                     // instead. Note that this has the side effect of moving the
                     // caret back to the beginning of the text.
                     Position position(element, 0);
-                    localFrame->selection().setSelection(VisibleSelection(position, SEL_DEFAULT_AFFINITY));
+                    focusedFrame->selection().setSelection(VisibleSelection(position, SEL_DEFAULT_AFFINITY));
                 }
             }
         }
@@ -511,9 +470,12 @@ bool WebFrameWidgetImpl::compositionRange(size_t* location, size_t* length)
 
 WebTextInputInfo WebFrameWidgetImpl::textInputInfo()
 {
-    WebTextInputInfo info;
-    // FIXME: To be implemented.
-    return info;
+    return view()->textInputInfo();
+}
+
+WebTextInputType WebFrameWidgetImpl::textInputType()
+{
+    return view()->textInputType();
 }
 
 WebColor WebFrameWidgetImpl::backgroundColor() const
@@ -540,23 +502,11 @@ bool WebFrameWidgetImpl::selectionBounds(WebRect& anchor, WebRect& focus) const
     if (selection.isCaret()) {
         anchor = focus = selection.absoluteCaretBounds();
     } else {
-        RefPtrWillBeRawPtr<Range> selectedRange = selection.toNormalizedRange();
-        if (!selectedRange)
+        const EphemeralRange selectedRange = selection.selection().toNormalizedEphemeralRange();
+        if (selectedRange.isNull())
             return false;
-
-        RefPtrWillBeRawPtr<Range> range(Range::create(selectedRange->startContainer()->document(),
-            selectedRange->startContainer(),
-            selectedRange->startOffset(),
-            selectedRange->startContainer(),
-            selectedRange->startOffset()));
-        anchor = localFrame->editor().firstRectForRange(range.get());
-
-        range = Range::create(selectedRange->endContainer()->document(),
-            selectedRange->endContainer(),
-            selectedRange->endOffset(),
-            selectedRange->endContainer(),
-            selectedRange->endOffset());
-        focus = localFrame->editor().firstRectForRange(range.get());
+        anchor = localFrame->editor().firstRectForRange(EphemeralRange(selectedRange.startPosition()));
+        focus = localFrame->editor().firstRectForRange(EphemeralRange(selectedRange.endPosition()));
     }
 
     // FIXME: This doesn't apply page scale. This should probably be contents to viewport. crbug.com/459293.
@@ -579,10 +529,10 @@ bool WebFrameWidgetImpl::selectionTextDirection(WebTextDirection& start, WebText
     if (!frame)
         return false;
     FrameSelection& selection = frame->selection();
-    if (!selection.toNormalizedRange())
+    if (selection.selection().toNormalizedEphemeralRange().isNull())
         return false;
-    start = toWebTextDirection(selection.start().primaryDirection());
-    end = toWebTextDirection(selection.end().primaryDirection());
+    start = toWebTextDirection(primaryDirectionOf(*selection.start().anchorNode()));
+    end = toWebTextDirection(primaryDirectionOf(*selection.end().anchorNode()));
     return true;
 }
 
@@ -695,14 +645,63 @@ void WebFrameWidgetImpl::handleMouseDown(LocalFrame& mainFrame, const WebMouseEv
     if (event.button == WebMouseEvent::ButtonLeft && m_mouseCaptureNode)
         m_mouseCaptureGestureToken = mainFrame.eventHandler().takeLastMouseDownGestureToken();
 
-    // FIXME: Add context menu support.
+    // Dispatch the contextmenu event regardless of if the click was swallowed.
+    if (!page()->settings().showContextMenuOnMouseUp()) {
+#if OS(MACOSX)
+        if (event.button == WebMouseEvent::ButtonRight || (event.button == WebMouseEvent::ButtonLeft && event.modifiers & WebMouseEvent::ControlKey))
+            mouseContextMenu(event);
+#else
+        if (event.button == WebMouseEvent::ButtonRight)
+            mouseContextMenu(event);
+#endif
+    }
+}
+
+void WebFrameWidgetImpl::mouseContextMenu(const WebMouseEvent& event)
+{
+    page()->contextMenuController().clearContextMenu();
+
+    PlatformMouseEventBuilder pme(m_localRoot->frameView(), event);
+
+    // Find the right target frame. See issue 1186900.
+    HitTestResult result = hitTestResultForRootFramePos(pme.position());
+    Frame* targetFrame;
+    if (result.innerNodeOrImageMapImage())
+        targetFrame = result.innerNodeOrImageMapImage()->document().frame();
+    else
+        targetFrame = page()->focusController().focusedOrMainFrame();
+
+    // This will need to be changed to a nullptr check when focus control
+    // is refactored, at which point focusedOrMainFrame will never return a
+    // RemoteFrame.
+    // See https://crbug.com/341918.
+    if (!targetFrame->isLocalFrame())
+        return;
+
+    LocalFrame* targetLocalFrame = toLocalFrame(targetFrame);
+
+#if OS(WIN)
+    targetLocalFrame->view()->setCursor(pointerCursor());
+#endif
+
+    {
+        ContextMenuAllowedScope scope;
+        targetLocalFrame->eventHandler().sendContextMenuEvent(pme, nullptr);
+    }
+    // Actually showing the context menu is handled by the ContextMenuClient
+    // implementation...
 }
 
 void WebFrameWidgetImpl::handleMouseUp(LocalFrame& mainFrame, const WebMouseEvent& event)
 {
     PageWidgetEventHandler::handleMouseUp(mainFrame, event);
 
-    // FIXME: Add context menu support (Windows).
+    if (page()->settings().showContextMenuOnMouseUp()) {
+        // Dispatch the contextmenu event regardless of if the click was swallowed.
+        // On Mac/Linux, we handle it on mouse down, not up.
+        if (event.button == WebMouseEvent::ButtonRight)
+            mouseContextMenu(event);
+    }
 }
 
 bool WebFrameWidgetImpl::handleMouseWheel(LocalFrame& mainFrame, const WebMouseWheelEvent& event)
@@ -712,8 +711,33 @@ bool WebFrameWidgetImpl::handleMouseWheel(LocalFrame& mainFrame, const WebMouseW
 
 bool WebFrameWidgetImpl::handleGestureEvent(const WebGestureEvent& event)
 {
-    // FIXME: Add gesture support.
-    return false;
+    bool eventSwallowed = false;
+    bool eventCancelled = false;
+    switch (event.type) {
+    case WebInputEvent::GestureScrollBegin:
+    case WebInputEvent::GestureScrollEnd:
+    case WebInputEvent::GestureScrollUpdate:
+    case WebInputEvent::GestureTap:
+    case WebInputEvent::GestureTapUnconfirmed:
+    case WebInputEvent::GestureTapDown:
+    case WebInputEvent::GestureShowPress:
+    case WebInputEvent::GestureTapCancel:
+    case WebInputEvent::GestureDoubleTap:
+    case WebInputEvent::GestureTwoFingerTap:
+    case WebInputEvent::GestureLongPress:
+    case WebInputEvent::GestureLongTap:
+        break;
+    case WebInputEvent::GestureFlingStart:
+    case WebInputEvent::GestureFlingCancel:
+        m_client->didHandleGestureEvent(event, eventCancelled);
+        return false;
+    default:
+        ASSERT_NOT_REACHED();
+    }
+    LocalFrame* frame = m_localRoot->frame();
+    eventSwallowed = frame->eventHandler().handleGestureEvent(PlatformGestureEventBuilder(frame->view(), event));
+    m_client->didHandleGestureEvent(event, eventCancelled);
+    return eventSwallowed;
 }
 
 bool WebFrameWidgetImpl::handleKeyEvent(const WebKeyboardEvent& event)
@@ -754,6 +778,22 @@ bool WebFrameWidgetImpl::handleKeyEvent(const WebKeyboardEvent& event)
         }
         return true;
     }
+
+#if !OS(MACOSX)
+    const WebInputEvent::Type contextMenuTriggeringEventType =
+#if OS(WIN)
+        WebInputEvent::KeyUp;
+#else
+        WebInputEvent::RawKeyDown;
+#endif
+
+    bool isUnmodifiedMenuKey = !(event.modifiers & WebInputEvent::InputModifiers) && event.windowsKeyCode == VKEY_APPS;
+    bool isShiftF10 = event.modifiers == WebInputEvent::ShiftKey && event.windowsKeyCode == VKEY_F10;
+    if ((isUnmodifiedMenuKey || isShiftF10) && event.type == contextMenuTriggeringEventType) {
+        view()->sendContextMenuEvent(event);
+        return true;
+    }
+#endif // !OS(MACOSX)
 
     return keyEventDefault(event);
 }
@@ -916,11 +956,11 @@ Frame* WebFrameWidgetImpl::focusedCoreFrame() const
 
 Element* WebFrameWidgetImpl::focusedElement() const
 {
-    Frame* frame = page()->focusController().focusedFrame();
-    if (!frame || !frame->isLocalFrame())
+    LocalFrame* frame = page()->focusController().focusedFrame();
+    if (!frame)
         return nullptr;
 
-    Document* document = toLocalFrame(frame)->document();
+    Document* document = frame->document();
     if (!document)
         return nullptr;
 
@@ -972,11 +1012,9 @@ void WebFrameWidgetImpl::setIsAcceleratedCompositingActive(bool active)
         updateLayerTreeViewport();
         m_isAcceleratedCompositingActive = true;
     }
-    if (m_localRoot->frameView())
-        m_localRoot->frameView()->setClipsRepaints(!m_isAcceleratedCompositingActive);
 }
 
-DeprecatedPaintLayerCompositor* WebFrameWidgetImpl::compositor() const
+PaintLayerCompositor* WebFrameWidgetImpl::compositor() const
 {
     LocalFrame* frame = toLocalFrame(toCoreFrame(m_localRoot));
     if (!frame || !frame->document() || !frame->document()->layoutView())
@@ -985,37 +1023,20 @@ DeprecatedPaintLayerCompositor* WebFrameWidgetImpl::compositor() const
     return frame->document()->layoutView()->compositor();
 }
 
-void WebFrameWidgetImpl::suppressInvalidations(bool enable)
-{
-    if (m_client)
-        m_client->suppressCompositorScheduling(enable);
-}
-
 void WebFrameWidgetImpl::setRootGraphicsLayer(GraphicsLayer* layer)
 {
-    suppressInvalidations(true);
-
     m_rootGraphicsLayer = layer;
     m_rootLayer = layer ? layer->platformLayer() : nullptr;
 
     setIsAcceleratedCompositingActive(layer);
 
-    if (m_layerTreeView) {
-        if (m_rootLayer) {
-            m_layerTreeView->setRootLayer(*m_rootLayer);
-            // We register viewport layers here since there may not be a layer
-            // tree view prior to this point.
-            GraphicsLayer* rootScrollLayer = compositor()->scrollLayer();
-            ASSERT(rootScrollLayer);
-            WebLayer* pageScaleLayer = rootScrollLayer->parent() ? rootScrollLayer->parent()->platformLayer() : nullptr;
-            m_layerTreeView->registerViewportLayers(nullptr, pageScaleLayer, rootScrollLayer->platformLayer(), nullptr);
-        } else {
-            m_layerTreeView->clearRootLayer();
-            m_layerTreeView->clearViewportLayers();
-        }
-    }
+    if (!m_layerTreeView)
+        return;
 
-    suppressInvalidations(false);
+    if (m_rootLayer)
+        m_layerTreeView->setRootLayer(*m_rootLayer);
+    else
+        m_layerTreeView->clearRootLayer();
 }
 
 void WebFrameWidgetImpl::attachCompositorAnimationTimeline(WebCompositorAnimationTimeline* compositorTimeline)
@@ -1044,6 +1065,14 @@ void WebFrameWidgetImpl::setVisibilityState(WebPageVisibilityState visibilitySta
         bool visible = visibilityState == WebPageVisibilityStateVisible;
         m_layerTreeView->setVisible(visible);
     }
+}
+
+HitTestResult WebFrameWidgetImpl::hitTestResultForRootFramePos(const IntPoint& posInRootFrame)
+{
+    IntPoint docPoint(m_localRoot->frame()->view()->rootFrameToContents(posInRootFrame));
+    HitTestResult result = m_localRoot->frame()->eventHandler().hitTestResultAtPoint(docPoint, HitTestRequest::ReadOnly | HitTestRequest::Active);
+    result.setToShadowHostIfInUserAgentShadowRoot();
+    return result;
 }
 
 } // namespace blink

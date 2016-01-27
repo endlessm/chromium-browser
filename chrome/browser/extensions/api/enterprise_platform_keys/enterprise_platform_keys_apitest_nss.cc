@@ -15,13 +15,14 @@
 #include "components/policy/core/browser/browser_policy_connector.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/core/common/policy_map.h"
-#include "content/public/browser/notification_service.h"
+#include "components/policy/core/common/policy_types.h"
+#include "components/signin/core/account_id/account_id.h"
 #include "content/public/common/content_switches.h"
 #include "content/public/test/test_utils.h"
 #include "crypto/nss_util_internal.h"
 #include "crypto/scoped_test_system_nss_key_slot.h"
 #include "extensions/browser/extension_registry.h"
-#include "extensions/browser/notification_types.h"
+#include "extensions/browser/test_extension_registry_observer.h"
 #include "net/base/net_errors.h"
 #include "net/cert/nss_cert_database.h"
 #include "net/test/url_request/url_request_mock_http_job.h"
@@ -180,7 +181,7 @@ class EnterprisePlatformKeysTest
     // The command line flag kLoginUser determines the user's email and thus
     // his affiliation to the domain that the device is enrolled to.
     if (GetParam().user_affiliation_ == USER_AFFILIATION_ENROLLED_DOMAIN)
-      user_email = chromeos::login::kStubUser;
+      user_email = chromeos::login::StubAccountId().GetUserEmail();
 
     command_line->AppendSwitchASCII(chromeos::switches::kLoginUser, user_email);
   }
@@ -190,7 +191,7 @@ class EnterprisePlatformKeysTest
 
     if (GetParam().device_status_ == DEVICE_STATUS_ENROLLED) {
       device_policy_test_helper_.device_policy()->policy_data().set_username(
-          chromeos::login::kStubUser);
+          chromeos::login::StubAccountId().GetUserEmail());
 
       device_policy_test_helper_.device_policy()->Build();
       device_policy_test_helper_.MarkAsEnterpriseOwned();
@@ -292,8 +293,8 @@ class EnterprisePlatformKeysTest
     // manifest that includes the crx file of the test extension.
     base::FilePath update_manifest_path =
         base::FilePath(kTestExtensionDir).Append(kUpdateManifestFileName);
-    GURL update_manifest_url(
-        net::URLRequestMockHTTPJob::GetMockUrl(update_manifest_path));
+    GURL update_manifest_url(net::URLRequestMockHTTPJob::GetMockUrl(
+        update_manifest_path.MaybeAsASCII()));
 
     scoped_ptr<base::ListValue> forcelist(new base::ListValue);
     forcelist->AppendString(base::StringPrintf(
@@ -303,15 +304,15 @@ class EnterprisePlatformKeysTest
     policy.Set(policy::key::kExtensionInstallForcelist,
                policy::POLICY_LEVEL_MANDATORY,
                policy::POLICY_SCOPE_MACHINE,
+               policy::POLICY_SOURCE_CLOUD,
                forcelist.release(),
                NULL);
 
     // Set the policy and wait until the extension is installed.
-    content::WindowedNotificationObserver observer(
-        extensions::NOTIFICATION_EXTENSION_WILL_BE_INSTALLED_DEPRECATED,
-        content::NotificationService::AllSources());
+    extensions::TestExtensionRegistryObserver observer(
+        extensions::ExtensionRegistry::Get(profile()));
     policy_provider_.UpdateChromePolicy(policy);
-    observer.Wait();
+    observer.WaitForExtensionWillBeInstalled();
   }
 
   policy::DevicePolicyCrosTestHelper device_policy_test_helper_;

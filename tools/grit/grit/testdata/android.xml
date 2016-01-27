@@ -11,7 +11,7 @@
   </string>
 
   <!-- A simple string. -->
-  <string name="simple" product="nosdcard">A simple string.</string>
+  <string name="simple">A simple string.</string>
 
   <!-- A string with a comment. -->
   <string name="comment">Contains a <!-- ignore this --> comment. </string>

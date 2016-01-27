@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-package main
+package runner
 
 import (
 	"crypto/aes"
@@ -102,7 +102,6 @@ var cipherSuites = []*cipherSuite{
 	{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA384, 32, 48, 16, ecdheECDSAKA, suiteECDHE | suiteECDSA | suiteTLS12 | suiteSHA384, cipherAES, macSHA384, nil},
 	{TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, 32, 20, 16, ecdheRSAKA, suiteECDHE, cipherAES, macSHA1, nil},
 	{TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA, 32, 20, 16, ecdheECDSAKA, suiteECDHE | suiteECDSA, cipherAES, macSHA1, nil},
-	{TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256, 32, 0, 0, dheRSAKA, suiteTLS12, nil, nil, aeadCHACHA20POLY1305},
 	{TLS_DHE_RSA_WITH_AES_128_GCM_SHA256, 16, 0, 4, dheRSAKA, suiteTLS12, nil, nil, aeadAESGCM},
 	{TLS_DHE_RSA_WITH_AES_256_GCM_SHA384, 32, 0, 4, dheRSAKA, suiteTLS12 | suiteSHA384, nil, nil, aeadAESGCM},
 	{TLS_DHE_RSA_WITH_AES_128_CBC_SHA256, 16, 32, 16, dheRSAKA, suiteTLS12, cipherAES, macSHA256, nil},
@@ -120,12 +119,18 @@ var cipherSuites = []*cipherSuite{
 	{TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA, 24, 20, 8, ecdheRSAKA, suiteECDHE, cipher3DES, macSHA1, nil},
 	{TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA, 24, 20, 8, dheRSAKA, 0, cipher3DES, macSHA1, nil},
 	{TLS_RSA_WITH_3DES_EDE_CBC_SHA, 24, 20, 8, rsaKA, 0, cipher3DES, macSHA1, nil},
-	{TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256, 16, 0, 4, ecdhePSKKA, suiteECDHE | suiteTLS12 | suitePSK, nil, nil, aeadAESGCM},
 	{TLS_PSK_WITH_RC4_128_SHA, 16, 20, 0, pskKA, suiteNoDTLS | suitePSK, cipherRC4, macSHA1, nil},
 	{TLS_PSK_WITH_AES_128_CBC_SHA, 16, 20, 16, pskKA, suitePSK, cipherAES, macSHA1, nil},
 	{TLS_PSK_WITH_AES_256_CBC_SHA, 32, 20, 16, pskKA, suitePSK, cipherAES, macSHA1, nil},
 	{TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA, 16, 20, 16, ecdhePSKKA, suiteECDHE | suitePSK, cipherAES, macSHA1, nil},
 	{TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA, 32, 20, 16, ecdhePSKKA, suiteECDHE | suitePSK, cipherAES, macSHA1, nil},
+	{TLS_RSA_WITH_NULL_SHA, 0, 20, 0, rsaKA, suiteNoDTLS, cipherNull, macSHA1, nil},
+}
+
+type nullCipher struct{}
+
+func cipherNull(key, iv []byte, isRead bool) interface{} {
+	return nullCipher{}
 }
 
 func cipherRC4(key, iv []byte, isRead bool) interface{} {
@@ -370,6 +375,7 @@ func mutualCipherSuite(have []uint16, want uint16) *cipherSuite {
 // A list of the possible cipher suite ids. Taken from
 // http://www.iana.org/assignments/tls-parameters/tls-parameters.xml
 const (
+	TLS_RSA_WITH_NULL_SHA                   uint16 = 0x0002
 	TLS_RSA_WITH_RC4_128_MD5                uint16 = 0x0004
 	TLS_RSA_WITH_RC4_128_SHA                uint16 = 0x0005
 	TLS_RSA_WITH_3DES_EDE_CBC_SHA           uint16 = 0x000a
@@ -406,13 +412,12 @@ const (
 	TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384   uint16 = 0xc030
 	TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA      uint16 = 0xc035
 	TLS_ECDHE_PSK_WITH_AES_256_CBC_SHA      uint16 = 0xc036
+	renegotiationSCSV                       uint16 = 0x00ff
 	fallbackSCSV                            uint16 = 0x5600
 )
 
 // Additional cipher suite IDs, not IANA-assigned.
 const (
-	TLS_ECDHE_PSK_WITH_AES_128_GCM_SHA256         uint16 = 0xcafe
 	TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256   uint16 = 0xcc13
 	TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256 uint16 = 0xcc14
-	TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256     uint16 = 0xcc15
 )

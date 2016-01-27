@@ -9,15 +9,41 @@ namespace protocol {
 
 const char kTestJid[] = "host1@gmail.com/chromoting123";
 
+FakeTransport::FakeTransport() {}
+FakeTransport::~FakeTransport() {}
+
+void FakeTransport::Start(EventHandler* event_handler,
+                                 Authenticator* authenticator) {
+  NOTREACHED();
+}
+
+bool FakeTransport::ProcessTransportInfo(
+    buzz::XmlElement* transport_info) {
+  NOTREACHED();
+  return true;
+}
+
+DatagramChannelFactory* FakeTransport::GetDatagramChannelFactory() {
+  NOTIMPLEMENTED();
+  return nullptr;
+}
+
+FakeStreamChannelFactory* FakeTransport::GetStreamChannelFactory() {
+  return &channel_factory_;
+}
+
+FakeStreamChannelFactory* FakeTransport::GetMultiplexedChannelFactory() {
+  return &channel_factory_;
+}
+
 FakeSession::FakeSession()
     : event_handler_(nullptr),
-      candidate_config_(CandidateSessionConfig::CreateDefault()),
       config_(SessionConfig::ForTest()),
       jid_(kTestJid),
       error_(OK),
-      closed_(false) {
-}
-FakeSession::~FakeSession() { }
+      closed_(false) {}
+
+FakeSession::~FakeSession() {}
 
 void FakeSession::SetEventHandler(EventHandler* event_handler) {
   event_handler_ = event_handler;
@@ -31,28 +57,21 @@ const std::string& FakeSession::jid() {
   return jid_;
 }
 
-const CandidateSessionConfig* FakeSession::candidate_config() {
-  return candidate_config_.get();
-}
-
 const SessionConfig& FakeSession::config() {
   return *config_;
 }
 
-void FakeSession::set_config(scoped_ptr<SessionConfig> config) {
-  config_ = config.Pass();
+FakeTransport* FakeSession::GetTransport() {
+  return &transport_;
 }
 
-StreamChannelFactory* FakeSession::GetTransportChannelFactory() {
-  return &channel_factory_;
+FakeStreamChannelFactory* FakeSession::GetQuicChannelFactory() {
+  return transport_.GetStreamChannelFactory();
 }
 
-StreamChannelFactory* FakeSession::GetMultiplexedChannelFactory() {
-  return &channel_factory_;
-}
-
-void FakeSession::Close() {
+void FakeSession::Close(ErrorCode error) {
   closed_ = true;
+  error_ = error;
 }
 
 }  // namespace protocol

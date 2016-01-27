@@ -22,11 +22,14 @@
 #include <string>
 #include <vector>
 
+#include "snapshot/handle_snapshot.h"
 #include "util/misc/uuid.h"
 
 namespace crashpad {
 
 class ExceptionSnapshot;
+class MemoryMapRegionSnapshot;
+class MemorySnapshot;
 class ModuleSnapshot;
 class SystemSnapshot;
 class ThreadSnapshot;
@@ -160,6 +163,29 @@ class ProcessSnapshot {
   //!     object that it was obtained from. If the snapshot is not a result of
   //!     an exception, returns `nullptr`.
   virtual const ExceptionSnapshot* Exception() const = 0;
+
+  //! \brief Returns MemoryMapRegionSnapshot objects reflecting the regions
+  //!     of the memory map in the snapshot process at the time of the snapshot.
+  //!
+  //! \return A vector of MemoryMapRegionSnapshot objects. The caller does not
+  //!     take ownership of these objects, they are scoped to the lifetime of
+  //!     the ProcessSnapshot object that they were obtained from.
+  virtual std::vector<const MemoryMapRegionSnapshot*> MemoryMap() const = 0;
+
+  //! \brief Returns HandleSnapshot objects reflecting the open handles in the
+  //!     snapshot process at the time of the snapshot.
+  //!
+  //! \return A vector of HandleSnapshot objects.
+  virtual std::vector<HandleSnapshot> Handles() const = 0;
+
+  //! \brief Returns a vector of additional memory blocks that should be
+  //!     included in a minidump.
+  //!
+  //! \return An vector of MemorySnapshot objects that will be included in the
+  //!     crash dump. The caller does not take ownership of these objects, they
+  //!     are scoped to the lifetime of the ProcessSnapshot object that they
+  //!     were obtained from.
+  virtual std::vector<const MemorySnapshot*> ExtraMemory() const = 0;
 };
 
 }  // namespace crashpad

@@ -63,16 +63,18 @@ struct Cookie {
          const std::string& domain,
          const std::string& path,
          double expiry,
+         bool http_only,
          bool secure,
          bool session)
       : name(name), value(value), domain(domain), path(path), expiry(expiry),
-        secure(secure), session(session) {}
+        http_only(http_only), secure(secure), session(session) {}
 
   std::string name;
   std::string value;
   std::string domain;
   std::string path;
   double expiry;
+  bool http_only;
   bool secure;
   bool session;
 };
@@ -87,6 +89,7 @@ base::DictionaryValue* CreateDictionaryFrom(const Cookie& cookie) {
     dict->SetString("path", cookie.path);
   if (!cookie.session)
     dict->SetDouble("expiry", cookie.expiry);
+  dict->SetBoolean("httpOnly", cookie.http_only);
   dict->SetBoolean("secure", cookie.secure);
   return dict;
 }
@@ -114,13 +117,15 @@ Status GetVisibleCookies(WebView* web_view,
     double expiry = 0;
     cookie_dict->GetDouble("expires", &expiry);
     expiry /= 1000;  // Convert from millisecond to second.
+    bool http_only = false;
+    cookie_dict->GetBoolean("httpOnly", &http_only);
     bool session = false;
     cookie_dict->GetBoolean("session", &session);
     bool secure = false;
     cookie_dict->GetBoolean("secure", &secure);
 
     cookies_tmp.push_back(
-        Cookie(name, value, domain, path, expiry, secure, session));
+        Cookie(name, value, domain, path, expiry, http_only, secure, session));
   }
   cookies->swap(cookies_tmp);
   return Status(kOk);
@@ -207,8 +212,14 @@ Status ExecuteWindowCommand(
   if (status.IsError())
     return status;
 
-  if (web_view->GetJavaScriptDialogManager()->IsDialogOpen())
-    return Status(kUnexpectedAlertOpen);
+  if (web_view->GetJavaScriptDialogManager()->IsDialogOpen()) {
+    std::string alert_text;
+    status =
+        web_view->GetJavaScriptDialogManager()->GetDialogMessage(&alert_text);
+    if (status.IsError())
+      return status;
+    return Status(kUnexpectedAlertOpen, "{Alert text : " + alert_text + "}");
+  }
 
   Status nav_status(kOk);
   for (int attempt = 0; attempt < 3; attempt++) {
@@ -223,8 +234,20 @@ Status ExecuteWindowCommand(
       return nav_status;
 
     status = command.Run(session, web_view, params, value);
-    if (status.code() != kNoSuchExecutionContext)
-      break;
+    if (status.code() == kNoSuchExecutionContext) {
+      continue;
+    } else if (status.IsError()) {
+      // If the command failed while a new page or frame started loading, retry
+      // the command after the pending navigation has completed.
+      bool is_pending = false;
+      nav_status = web_view->IsPendingNavigation(session->GetCurrentFrameId(),
+                                                 &is_pending);
+      if (nav_status.IsError())
+        return nav_status;
+      else if (is_pending)
+        continue;
+    }
+    break;
   }
 
   nav_status = web_view->WaitForPendingNavigations(
@@ -429,9 +452,16 @@ Status ExecuteGetCurrentUrl(
     const base::DictionaryValue& params,
     scoped_ptr<base::Value>* value) {
   std::string url;
-  Status status = GetUrl(web_view, session->GetCurrentFrameId(), &url);
+  Status status = GetUrl(web_view, std::string(), &url);
   if (status.IsError())
     return status;
+  if (!session->GetCurrentFrameId().empty()) {
+    // TODO(samuong): remove this after we release ChromeDriver 2.21.
+    LOG(WARNING) << "As of ChromeDriver 2.21, GetCurrentUrl now returns the "
+                    "URL of the top-level browsing, not the current frame. See "
+                    "https://code.google.com/p/chromedriver/issues/"
+                    "detail?id=1249 for details and workarounds.";
+  }
   value->reset(new base::StringValue(url));
   return Status(kOk);
 }
@@ -817,9 +847,10 @@ Status ExecuteScreenshot(
     if (status.IsError())
       return status;
     status = extension->CaptureScreenshot(&screenshot);
-    // If the screenshot was forbidden, fallback to DevTools.
-    if (status.code() == kForbidden)
+    if (status.IsError()) {
+      LOG(WARNING) << "screenshot failed with extension, fallback to DevTools";
       status = web_view->CaptureScreenshot(&screenshot);
+    }
   } else {
     status = web_view->CaptureScreenshot(&screenshot);
   }

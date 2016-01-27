@@ -67,7 +67,7 @@ class XmppClientInterface {
   virtual void RemoveXmppTask(XmppTask* task) = 0;
   sigslot::signal0<> SignalDisconnected;
 
-  DISALLOW_COPY_AND_ASSIGN(XmppClientInterface);
+  RTC_DISALLOW_COPY_AND_ASSIGN(XmppClientInterface);
 };
 
 // XmppTaskParentInterface is the interface require for any parent of
@@ -86,7 +86,7 @@ class XmppTaskParentInterface : public rtc::Task {
 
   virtual XmppClientInterface* GetClient() = 0;
 
-  DISALLOW_COPY_AND_ASSIGN(XmppTaskParentInterface);
+  RTC_DISALLOW_COPY_AND_ASSIGN(XmppTaskParentInterface);
 };
 
 class XmppTaskBase : public XmppTaskParentInterface {
@@ -104,7 +104,7 @@ class XmppTaskBase : public XmppTaskParentInterface {
  protected:
   XmppTaskParentInterface* parent_;
 
-  DISALLOW_COPY_AND_ASSIGN(XmppTaskBase);
+  RTC_DISALLOW_COPY_AND_ASSIGN(XmppTaskBase);
 };
 
 class XmppTask : public XmppTaskBase,
@@ -119,7 +119,7 @@ class XmppTask : public XmppTaskBase,
   std::string task_id() const { return id_; }
   void set_task_id(std::string id) { id_ = id; }
 
-#ifdef _DEBUG
+#if !defined(NDEBUG)
   void set_debug_force_timeout(const bool f) { debug_force_timeout_ = f; }
 #endif
 
@@ -162,7 +162,7 @@ private:
   rtc::scoped_ptr<XmlElement> next_stanza_;
   std::string id_;
 
-#ifdef _DEBUG
+#if !defined(NDEBUG)
   bool debug_force_timeout_;
 #endif
 };

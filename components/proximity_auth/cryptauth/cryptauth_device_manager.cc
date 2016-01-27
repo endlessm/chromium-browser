@@ -88,14 +88,18 @@ bool DictionaryToUnlockKey(const base::DictionaryValue& dictionary,
 CryptAuthDeviceManager::CryptAuthDeviceManager(
     scoped_ptr<base::Clock> clock,
     scoped_ptr<CryptAuthClientFactory> client_factory,
+    CryptAuthGCMManager* gcm_manager,
     PrefService* pref_service)
     : clock_(clock.Pass()),
       client_factory_(client_factory.Pass()),
+      gcm_manager_(gcm_manager),
       pref_service_(pref_service),
       weak_ptr_factory_(this) {
+  UpdateUnlockKeysFromPrefs();
 }
 
 CryptAuthDeviceManager::~CryptAuthDeviceManager() {
+  gcm_manager_->RemoveObserver(this);
 }
 
 // static
@@ -110,7 +114,7 @@ void CryptAuthDeviceManager::RegisterPrefs(PrefRegistrySimple* registry) {
 }
 
 void CryptAuthDeviceManager::Start() {
-  UpdateUnlockKeysFromPrefs();
+  gcm_manager_->AddObserver(this);
 
   base::Time last_successful_sync = GetLastSyncTime();
   base::TimeDelta elapsed_time_since_last_sync =
@@ -166,10 +170,13 @@ void CryptAuthDeviceManager::OnGetMyDevicesSuccess(
     const cryptauth::GetMyDevicesResponse& response) {
   // Update the unlock keys stored in the user's prefs.
   scoped_ptr<base::ListValue> unlock_keys_pref(new base::ListValue());
+  scoped_ptr<base::ListValue> devices_as_list(new base::ListValue());
   for (const auto& device : response.devices()) {
+    devices_as_list->Append(UnlockKeyToDictionary(device));
     if (device.unlock_key())
       unlock_keys_pref->Append(UnlockKeyToDictionary(device));
   }
+  PA_LOG(INFO) << "Devices Synced:\n" << *devices_as_list;
 
   bool unlock_keys_changed = !unlock_keys_pref->Equals(
       pref_service_->GetList(prefs::kCryptAuthDeviceSyncUnlockKeys));
@@ -216,6 +223,10 @@ scoped_ptr<SyncScheduler> CryptAuthDeviceManager::CreateSyncScheduler() {
       kDeviceSyncMaxJitterRatio, "CryptAuth DeviceSync"));
 }
 
+void CryptAuthDeviceManager::OnResyncMessage() {
+  ForceSyncNow(cryptauth::INVOCATION_REASON_SERVER_INITIATED);
+}
+
 void CryptAuthDeviceManager::UpdateUnlockKeysFromPrefs() {
   const base::ListValue* unlock_key_list =
       pref_service_->GetList(prefs::kCryptAuthDeviceSyncUnlockKeys);
@@ -250,6 +261,12 @@ void CryptAuthDeviceManager::OnSyncRequested(
   int reason_stored_in_prefs =
       pref_service_->GetInteger(prefs::kCryptAuthDeviceSyncReason);
 
+  // If the sync attempt is not forced, it is acceptable for CryptAuth to return
+  // a cached copy of the user's devices, rather taking a database hit for the
+  // freshest data.
+  bool is_sync_speculative =
+      reason_stored_in_prefs != cryptauth::INVOCATION_REASON_UNKNOWN;
+
   if (cryptauth::InvocationReason_IsValid(reason_stored_in_prefs) &&
       reason_stored_in_prefs != cryptauth::INVOCATION_REASON_UNKNOWN) {
     invocation_reason =
@@ -264,6 +281,7 @@ void CryptAuthDeviceManager::OnSyncRequested(
 
   cryptauth::GetMyDevicesRequest request;
   request.set_invocation_reason(invocation_reason);
+  request.set_allow_stale_read(is_sync_speculative);
   cryptauth_client_->GetMyDevices(
       request, base::Bind(&CryptAuthDeviceManager::OnGetMyDevicesSuccess,
                           weak_ptr_factory_.GetWeakPtr()),

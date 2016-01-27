@@ -34,7 +34,7 @@
 namespace blink {
 
 template<typename T, typename Observer>
-class LifecycleNotifier {
+class LifecycleNotifier : public virtual WillBeGarbageCollectedMixin {
 public:
     virtual ~LifecycleNotifier();
 
@@ -74,10 +74,6 @@ protected:
 protected:
     using ObserverSet = WillBeHeapHashSet<RawPtrWillBeWeakMember<Observer>>;
 
-    // FIXME: Oilpan: make LifecycleNotifier<> a GC mixin, somehow. ExecutionContext
-    // is the problematic case, as it would then be a class with two GC mixin
-    // bases, but cannot itself derive from a GC base class also.
-    GC_PLUGIN_IGNORE("467502")
     ObserverSet m_observers;
 
 #if ENABLE(ASSERT)
@@ -97,7 +93,6 @@ inline LifecycleNotifier<T, Observer>::~LifecycleNotifier()
 #if !ENABLE(OILPAN)
     TemporaryChange<IterationType> scope(m_iterating, IteratingOverAll);
     for (Observer* observer : m_observers) {
-        ASSERT(observer->lifecycleContext() == context());
         observer->clearLifecycleContext();
     }
 #endif
@@ -111,12 +106,14 @@ inline void LifecycleNotifier<T, Observer>::notifyContextDestroyed()
         return;
 
     TemporaryChange<IterationType> scope(m_iterating, IteratingOverAll);
-    Vector<Observer*> snapshotOfObservers;
+    Vector<RawPtrWillBeUntracedMember<Observer>> snapshotOfObservers;
     copyToVector(m_observers, snapshotOfObservers);
     for (Observer* observer : snapshotOfObservers) {
         // FIXME: Oilpan: At the moment, it's possible that the Observer is
-        // destructed during the iteration. Once we enable Oilpan by default
-        // for Observers, we can remove the hack by making m_observers
+        // destructed during the iteration.
+        // Once we enable Oilpan by default for Observers *and*
+        // Observer::contextDestroyed() does not call removeObserver(),
+        // we can remove the hack by making m_observers
         // a HeapHashSet<WeakMember<Observers>>. (i.e., we can just iterate
         // m_observers without taking a snapshot).
         if (m_observers.contains(observer)) {
@@ -124,6 +121,7 @@ inline void LifecycleNotifier<T, Observer>::notifyContextDestroyed()
             observer->contextDestroyed();
         }
     }
+
     m_didCallContextDestroyed = true;
 }
 

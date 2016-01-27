@@ -61,10 +61,6 @@ void ShellNetworkDelegate::OnBeforeRedirect(net::URLRequest* request,
 void ShellNetworkDelegate::OnResponseStarted(net::URLRequest* request) {
 }
 
-void ShellNetworkDelegate::OnRawBytesRead(const net::URLRequest& request,
-                                          int bytes_read) {
-}
-
 void ShellNetworkDelegate::OnCompleted(net::URLRequest* request, bool started) {
 }
 
@@ -111,7 +107,7 @@ bool ShellNetworkDelegate::OnCanAccessFile(const net::URLRequest& request,
   return true;
 }
 
-bool ShellNetworkDelegate::OnFirstPartyOnlyCookieExperimentEnabled() const {
+bool ShellNetworkDelegate::OnAreExperimentalCookieFeaturesEnabled() const {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kEnableExperimentalWebPlatformFeatures);
 }

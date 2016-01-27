@@ -7,14 +7,14 @@ package org.chromium.chrome.browser.sync;
 import android.accounts.Account;
 import android.app.Activity;
 import android.content.Context;
-import android.content.SharedPreferences;
-import android.preference.PreferenceManager;
-import android.util.Log;
 
-import org.chromium.base.ApplicationState;
+import org.chromium.base.ActivityState;
 import org.chromium.base.ApplicationStatus;
-import org.chromium.base.ApplicationStatus.ApplicationStateListener;
+import org.chromium.base.ApplicationStatus.ActivityStateListener;
+import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.VisibleForTesting;
+import org.chromium.chrome.browser.identity.UniqueIdentificationGenerator;
 import org.chromium.chrome.browser.identity.UniqueIdentificationGeneratorFactory;
 import org.chromium.chrome.browser.invalidation.InvalidationController;
 import org.chromium.chrome.browser.signin.AccountManagementFragment;
@@ -22,6 +22,8 @@ import org.chromium.chrome.browser.signin.SigninManager;
 import org.chromium.chrome.browser.signin.SigninManager.SignInFlowObserver;
 import org.chromium.chrome.browser.sync.ui.PassphraseActivity;
 import org.chromium.sync.AndroidSyncSettings;
+import org.chromium.sync.ModelType;
+import org.chromium.sync.PassphraseType;
 import org.chromium.sync.signin.AccountManagerHelper;
 import org.chromium.sync.signin.ChromeSigninController;
 
@@ -42,10 +44,9 @@ import org.chromium.sync.signin.ChromeSigninController;
  * are careful to not change the Android Chrome sync setting so we know whether to turn sync back
  * on when it is re-enabled.
  */
-public class SyncController implements ApplicationStateListener,
-        ProfileSyncService.SyncStateChangedListener,
-        AndroidSyncSettings.AndroidSyncSettingsObserver {
-    private static final String TAG = "SyncController";
+public class SyncController implements ProfileSyncService.SyncStateChangedListener,
+                                       AndroidSyncSettings.AndroidSyncSettingsObserver {
+    private static final String TAG = "cr.SyncController";
 
     /**
      * An identifier for the generator in UniqueIdentificationGeneratorFactory to be used to
@@ -54,10 +55,8 @@ public class SyncController implements ApplicationStateListener,
      */
     public static final String GENERATOR_ID = "SYNC";
 
-    /**
-     * Key for the delay_sync_setup preference.
-     */
-    private static final String DELAY_SYNC_SETUP_PREF = "delay_sync_setup";
+    @VisibleForTesting
+    public static final String SESSION_TAG_PREFIX = "session_sync";
 
     private static SyncController sInstance;
 
@@ -70,14 +69,10 @@ public class SyncController implements ApplicationStateListener,
         mContext = context;
         mChromeSigninController = ChromeSigninController.get(mContext);
         AndroidSyncSettings.registerObserver(context, this);
-        mProfileSyncService = ProfileSyncService.get(mContext);
+        mProfileSyncService = ProfileSyncService.get();
         mProfileSyncService.addSyncStateChangedListener(this);
 
-        mChromeSigninController.ensureGcmIsInitialized();
-
-        // Set the sessions ID using the generator that was registered for GENERATOR_ID.
-        mProfileSyncService.setSessionsId(
-                UniqueIdentificationGeneratorFactory.getInstance(GENERATOR_ID));
+        setSessionsId();
 
         // Create the SyncNotificationController.
         mSyncNotificationController = new SyncNotificationController(
@@ -86,7 +81,15 @@ public class SyncController implements ApplicationStateListener,
 
         updateSyncStateFromAndroid();
 
-        ApplicationStatus.registerApplicationStateListener(this);
+        // When the application gets paused, tell sync to flush the directory to disk.
+        ApplicationStatus.registerStateListenerForAllActivities(new ActivityStateListener() {
+            @Override
+            public void onActivityStateChange(Activity activity, int newState) {
+                if (newState == ActivityState.PAUSED) {
+                    mProfileSyncService.flushDirectory();
+                }
+            }
+        });
     }
 
     /**
@@ -112,6 +115,7 @@ public class SyncController implements ApplicationStateListener,
      * @param activity the current activity.
      * @param accountName the full account name.
      */
+    @VisibleForTesting
     public void signIn(Activity activity, String accountName) {
         final Account account = AccountManagerHelper.createAccountFromName(accountName);
 
@@ -213,34 +217,34 @@ public class SyncController implements ApplicationStateListener,
     }
 
     /**
+     * @return Whether sync is enabled to sync urls or open tabs with a non custom passphrase.
+     */
+    public boolean isSyncingUrlsWithKeystorePassphrase() {
+        return mProfileSyncService.isBackendInitialized()
+                && mProfileSyncService.getPreferredDataTypes().contains(ModelType.TYPED_URLS)
+                && mProfileSyncService.getPassphraseType().equals(
+                           PassphraseType.KEYSTORE_PASSPHRASE);
+    }
+
+    /**
      * Returns the SyncNotificationController.
      */
     public SyncNotificationController getSyncNotificationController() {
         return mSyncNotificationController;
     }
 
-    @Override
-    public void onApplicationStateChange(int newState) {
-        if (newState == ApplicationState.HAS_RUNNING_ACTIVITIES) {
-            onMainActivityStart();
-        }
-    }
-
     /**
-     * Set the value of the delay_sync_setup preference.
+     * Set the sessions ID using the generator that was registered for GENERATOR_ID.
      */
-    public void setDelaySync(boolean delay) {
-        PreferenceManager.getDefaultSharedPreferences(mContext).edit()
-                .putBoolean(DELAY_SYNC_SETUP_PREF, delay).apply();
-    }
-
-    public void onMainActivityStart() {
-        if (mProfileSyncService.isFirstSetupInProgress()) {
-            mProfileSyncService.setSyncSetupCompleted();
-            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(mContext);
-            if (prefs.getBoolean(DELAY_SYNC_SETUP_PREF, false)) {
-                mProfileSyncService.setSetupInProgress(false);
-            }
+    private void setSessionsId() {
+        UniqueIdentificationGenerator generator =
+                UniqueIdentificationGeneratorFactory.getInstance(GENERATOR_ID);
+        String uniqueTag = generator.getUniqueId(null);
+        if (uniqueTag.isEmpty()) {
+            Log.e(TAG, "Unable to get unique tag for sync. "
+                    + "This may lead to unexpected tab sync behavior.");
+            return;
         }
+        mProfileSyncService.setSessionsId(SESSION_TAG_PREFIX + uniqueTag);
     }
 }

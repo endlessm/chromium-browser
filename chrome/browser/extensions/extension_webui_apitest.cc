@@ -22,7 +22,7 @@
 
 namespace extensions {
 
-namespace OnMessage = core_api::test::OnMessage;
+namespace OnMessage = api::test::OnMessage;
 
 namespace {
 
@@ -113,6 +113,8 @@ class ExtensionWebUITest : public ExtensionApiTest {
         base::Bind(&content::FrameHasSourceUrl, frame_url));
   }
 };
+
+#if !defined(OS_WIN)  // flaky http://crbug.com/530722
 
 IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, SanityCheckAvailableAPIsInFrame) {
   ASSERT_TRUE(RunTestOnExtensionsFrame("sanity_check_available_apis.js"));
@@ -241,6 +243,8 @@ IN_PROC_BROWSER_TEST_F(ExtensionWebUITest, EmbedDisabledExtension) {
   listener.reset(new ExtensionTestMessageListener("createfailed", false));
   ASSERT_TRUE(listener->WaitUntilSatisfied());
 }
+
+#endif
 
 }  // namespace
 

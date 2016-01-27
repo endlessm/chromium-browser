@@ -56,7 +56,7 @@ int WebOptionElement::index() const
 
 WebString WebOptionElement::text() const
 {
-    return constUnwrap<HTMLOptionElement>()->text();
+    return constUnwrap<HTMLOptionElement>()->displayLabel();
 }
 
 WebString WebOptionElement::label() const
@@ -73,6 +73,8 @@ WebOptionElement::WebOptionElement(const PassRefPtrWillBeRawPtr<HTMLOptionElemen
     : WebElement(elem)
 {
 }
+
+DEFINE_WEB_NODE_TYPE_CASTS(WebOptionElement, isHTMLOptionElement(constUnwrap<Node>()));
 
 WebOptionElement& WebOptionElement::operator=(const PassRefPtrWillBeRawPtr<HTMLOptionElement>& elem)
 {

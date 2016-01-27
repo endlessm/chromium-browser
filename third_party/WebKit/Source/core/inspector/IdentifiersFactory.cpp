@@ -28,6 +28,7 @@
 
 #include "core/dom/WeakIdentifierMap.h"
 #include "core/frame/LocalFrame.h"
+#include "core/inspector/InspectedFrames.h"
 #include "core/loader/DocumentLoader.h"
 #include "wtf/Assertions.h"
 #include "wtf/text/StringBuilder.h"
@@ -77,11 +78,14 @@ String IdentifiersFactory::frameId(LocalFrame* frame)
 }
 
 // static
-LocalFrame* IdentifiersFactory::frameById(const String& frameId)
+LocalFrame* IdentifiersFactory::frameById(InspectedFrames* inspectedFrames, const String& frameId)
 {
     bool ok;
     int id = removeProcessIdPrefixFrom(frameId, &ok);
-    return ok ? WeakIdentifierMap<LocalFrame>::lookup(id) : nullptr;
+    if (!ok)
+        return nullptr;
+    LocalFrame* frame = WeakIdentifierMap<LocalFrame>::lookup(id);
+    return frame && inspectedFrames->contains(frame) ? frame : nullptr;
 }
 
 // static
@@ -91,11 +95,15 @@ String IdentifiersFactory::loaderId(DocumentLoader* loader)
 }
 
 // static
-DocumentLoader* IdentifiersFactory::loaderById(const String& loaderId)
+DocumentLoader* IdentifiersFactory::loaderById(InspectedFrames* inspectedFrames, const String& loaderId)
 {
     bool ok;
     int id = removeProcessIdPrefixFrom(loaderId, &ok);
-    return ok ? WeakIdentifierMap<DocumentLoader>::lookup(id) : nullptr;
+    if (!ok)
+        return nullptr;
+    DocumentLoader* loader = WeakIdentifierMap<DocumentLoader>::lookup(id);
+    LocalFrame* frame = loader->frame();
+    return frame && inspectedFrames->contains(frame) ? loader : nullptr;
 }
 
 // static

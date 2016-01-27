@@ -42,31 +42,13 @@ class ShellPermissionMessageProvider : public PermissionMessageProvider {
   ~ShellPermissionMessageProvider() override {}
 
   // PermissionMessageProvider implementation.
-  PermissionMessageIDs GetLegacyPermissionMessageIDs(
-      const PermissionSet* permissions,
-      Manifest::Type extension_type) const override {
-    return PermissionMessageIDs();
-  }
-
-  CoalescedPermissionMessages GetCoalescedPermissionMessages(
+  PermissionMessages GetPermissionMessages(
       const PermissionIDSet& permissions) const override {
-    return CoalescedPermissionMessages();
+    return PermissionMessages();
   }
 
-  std::vector<base::string16> GetLegacyWarningMessages(
-      const PermissionSet* permissions,
-      Manifest::Type extension_type) const override {
-    return std::vector<base::string16>();
-  }
-
-  std::vector<base::string16> GetLegacyWarningMessagesDetails(
-      const PermissionSet* permissions,
-      Manifest::Type extension_type) const override {
-    return std::vector<base::string16>();
-  }
-
-  bool IsPrivilegeIncrease(const PermissionSet* old_permissions,
-                           const PermissionSet* new_permissions,
+  bool IsPrivilegeIncrease(const PermissionSet& old_permissions,
+                           const PermissionSet& new_permissions,
                            Manifest::Type extension_type) const override {
     // Ensure we implement this before shipping.
     CHECK(false);
@@ -74,7 +56,7 @@ class ShellPermissionMessageProvider : public PermissionMessageProvider {
   }
 
   PermissionIDSet GetAllPermissionIDs(
-      const PermissionSet* permissions,
+      const PermissionSet& permissions,
       Manifest::Type extension_type) const override {
     return PermissionIDSet();
   }
@@ -160,13 +142,6 @@ ShellExtensionsClient::CreateFeatureProviderSource(
 void ShellExtensionsClient::FilterHostPermissions(
     const URLPatternSet& hosts,
     URLPatternSet* new_hosts,
-    std::set<PermissionMessage>* messages) const {
-  NOTIMPLEMENTED();
-}
-
-void ShellExtensionsClient::FilterHostPermissions(
-    const URLPatternSet& hosts,
-    URLPatternSet* new_hosts,
     PermissionIDSet* permissions) const {
   NOTIMPLEMENTED();
 }
@@ -197,18 +172,18 @@ bool ShellExtensionsClient::IsScriptableURL(const GURL& url,
 
 bool ShellExtensionsClient::IsAPISchemaGenerated(
     const std::string& name) const {
-  return core_api::GeneratedSchemas::IsGenerated(name) ||
-         shell::api::GeneratedSchemas::IsGenerated(name);
+  return api::GeneratedSchemas::IsGenerated(name) ||
+         shell::api::ShellGeneratedSchemas::IsGenerated(name);
 }
 
 base::StringPiece ShellExtensionsClient::GetAPISchema(
     const std::string& name) const {
   // Schema for app_shell-only APIs.
-  if (shell::api::GeneratedSchemas::IsGenerated(name))
-    return shell::api::GeneratedSchemas::Get(name);
+  if (shell::api::ShellGeneratedSchemas::IsGenerated(name))
+    return shell::api::ShellGeneratedSchemas::Get(name);
 
   // Core extensions APIs.
-  return core_api::GeneratedSchemas::Get(name);
+  return api::GeneratedSchemas::Get(name);
 }
 
 void ShellExtensionsClient::RegisterAPISchemaResources(

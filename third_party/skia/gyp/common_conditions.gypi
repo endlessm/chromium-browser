@@ -46,6 +46,7 @@
           'SK_BUILD_FOR_WIN32',
           '_CRT_SECURE_NO_WARNINGS',
           'GR_GL_FUNCTION_TYPE=__stdcall',
+          '_HAS_EXCEPTIONS=0',
         ],
         'msvs_disabled_warnings': [
             4275,  # An exported class was derived from a class that was not exported
@@ -122,13 +123,13 @@
         'conditions' : [
           # Gyp's ninja generator depends on these specially named
           # configurations to build 64-bit on Windows.
-          # See http://skbug.com/2348
+          # See https://bug.skia.org/2348
           #
           # We handle the 64- vs 32-bit variations elsewhere, so I think it's
           # OK for us to just make these inherit non-archwidth-specific
           # configurations without modification.
           #
-          # See http://skbug.com/2442 : These targets cause problems in the
+          # See https://bug.skia.org/2442 : These targets cause problems in the
           # MSVS build, so only include them if gyp is generating a ninja build.
           [ '"ninja" in "<!(echo %GYP_GENERATORS%)"', {
             'configurations': {
@@ -161,10 +162,10 @@
               },
             },
           }],
-          [ 'skia_arch_width == 64', {
+          [ 'skia_arch_type == "x86_64"', {
             'msvs_configuration_platform': 'x64',
           }],
-          [ 'skia_arch_width == 32', {
+          [ 'skia_arch_type == "x86"', {
             'msvs_configuration_platform': 'Win32',
           }],
           [ 'skia_warnings_as_errors', {
@@ -226,8 +227,8 @@
         'cflags_cc': [
           '-std=c++11',
           '-fno-rtti',
+          '-fno-threadsafe-statics',
           '-Wnon-virtual-dtor',
-          '-Wno-invalid-offsetof',  # GCC <4.6 is old-school strict about what is POD.
         ],
         'conditions': [
           [ 'skia_fast', { 'cflags': [ '<@(skia_fast_flags)' ] }],
@@ -294,33 +295,14 @@
               }],
             ],
           }],
-          [ 'skia_arch_type == "mips"', {
-            'cflags': [
-              '-EL',
-            ],
+          [ '"mips" in skia_arch_type', {
+            'cflags': [ '-EL' ],
             'conditions': [
               [ 'mips_arch_variant == "mips32r2"', {
-                'cflags': [
-                  '-march=mips32r2',
-                ],
+                'cflags': [ '-march=mips32r2' ],
                 'conditions': [
-                  [ 'mips_dsp == 1', {
-                    'cflags': [
-                      '-mdsp',
-                    ],
-                    'defines': [
-                      'SK_MIPS_HAS_DSP',
-                    ],
-                  }],
-                  [ 'mips_dsp == 2', {
-                    'cflags': [
-                      '-mdspr2',
-                    ],
-                    'defines': [
-                      'SK_MIPS_HAS_DSP',
-                      'SK_MIPS_HAS_DSPR2',
-                    ],
-                  }],
+                  [ 'mips_dsp == 1', { 'cflags': [ '-mdsp'   ] }],
+                  [ 'mips_dsp == 2', { 'cflags': [ '-mdspr2' ] }],
                 ],
               }],
             ],
@@ -330,9 +312,6 @@
     ],
 
     ['skia_android_framework', {
-      'includes' : [
-        'skia_for_android_framework_defines.gypi',
-      ],
       'cflags': [
         # Skia does not enforce this usage pattern so we disable it here to avoid
         # unecessary log spew when building
@@ -343,7 +322,7 @@
         '-U_FORTIFY_SOURCE',
         '-D_FORTIFY_SOURCE=1',
 
-        # We can't use the skia_shared_library gyp setting because we need to
+        # We can't use the skia_shared_lib gyp setting because we need to
         # isolate this define to Skia sources. CFLAGS are local to Android.mk
         # and ensures that this define is not exported to clients of the library
         '-DSKIA_IMPLEMENTATION=1',
@@ -387,17 +366,32 @@
         'SK_BUILD_FOR_ANDROID_FRAMEWORK',
         # Optimizations for chromium (m30)
         'GR_GL_CUSTOM_SETUP_HEADER "gl/GrGLConfig_chrome.h"',
-        'IGNORE_ROT_AA_RECT_OPT',
         'SK_DEFAULT_FONT_CACHE_LIMIT   (768 * 1024)',
         'SK_DEFAULT_GLOBAL_DISCARDABLE_MEMORY_POOL_SIZE (512 * 1024)',
         'SK_IGNORE_ETC1_SUPPORT',
-        # We can't use the skia_shared_library gyp setting because we need expose
+        # We can't use the skia_shared_lib gyp setting because we need expose
         # this define globally and the the implemention define as a cflag.
         'SKIA_DLL',
         'SK_PRINT_CODEC_MESSAGES',
-        # Defines from skia_for_android_framework_defines.gypi
+      ],
+    }],
+
+    ['skia_use_android_framework_defines', {
+      # Add these defines when building for the Android framework, or when
+      # specifically requested. These should be temporary staging defines. Any
+      # permanent defines should be moved into the skia_android_framework block
+      # above.
+      'includes' : [
+        'skia_for_android_framework_defines.gypi',
+      ],
+      'defines': [
         '<@(skia_for_android_framework_defines)',
       ],
+    }],
+
+    [ 'skia_use_sdl == 1',
+      {
+        'defines': [ 'SK_USE_SDL' ],
     }],
 
     [ 'skia_os in ["linux", "freebsd", "openbsd", "solaris", "chromeos"]',
@@ -410,7 +404,7 @@
           'Coverage': {
             'conditions': [
               [ 'skia_clang_build', {
-                'cflags': ['-fprofile-instr-generate', '-fcoverage-mapping', '-w'],
+                'cflags': ['-fprofile-instr-generate', '-fcoverage-mapping'],
                 'ldflags': ['-fprofile-instr-generate', '-fcoverage-mapping'],
               }, {
                 'cflags': ['--coverage'],
@@ -475,6 +469,10 @@
     [ 'skia_os == "mac"',
       {
         'defines': [ 'SK_BUILD_FOR_MAC' ],
+        'conditions': [
+            # ANGLE for mac hits -Wunneeded-internal-declaration if this isn't set.
+            [ 'skia_angle', { 'defines': [ 'YY_NO_INPUT' ], } ],
+        ],
         'configurations': {
           'Coverage': {
             'xcode_settings': {
@@ -495,21 +493,24 @@
           'conditions': [
             [ 'skia_fast', { 'WARNING_CFLAGS': [ '<@(skia_fast_flags)' ] } ],
             [ 'skia_warnings_as_errors', { 'GCC_TREAT_WARNINGS_AS_ERRORS': 'YES' }],
-            [ 'skia_arch_width == 32', { 'ARCHS': ['i386']   }],
-            [ 'skia_arch_width == 64', { 'ARCHS': ['x86_64'] }],
+            [ 'skia_arch_type == "x86"', { 'ARCHS': ['i386']   }],
+            [ 'skia_arch_type == "x86_64"', { 'ARCHS': ['x86_64'] }],
             [ 'skia_osx_deployment_target==""', {
-              'MACOSX_DEPLOYMENT_TARGET': '10.6', # -mmacos-version-min, passed in env to ld.
+              'MACOSX_DEPLOYMENT_TARGET': '10.7', # -mmacos-version-min, passed in env to ld.
             }, {
               'MACOSX_DEPLOYMENT_TARGET': '<(skia_osx_deployment_target)',
             }],
           ],
+          'CLANG_CXX_LIBRARY':                         'libc++',
           'CLANG_CXX_LANGUAGE_STANDARD':               'c++11',
+          'GCC_ENABLE_CPP_EXCEPTIONS':                 'NO',   # -fno-exceptions
+          'GCC_ENABLE_CPP_RTTI':                       'NO',   # -fno-rtti
+          'GCC_THREADSAFE_STATICS':                    'NO',   # -fno-threadsafe-statics
           'GCC_ENABLE_SUPPLEMENTAL_SSE3_INSTRUCTIONS': 'YES',  # -mssse3
           'GCC_SYMBOLS_PRIVATE_EXTERN':                'NO',   # -fvisibility=hidden
           'GCC_INLINES_ARE_PRIVATE_EXTERN':            'NO',   # -fvisibility-inlines-hidden
           'GCC_CW_ASM_SYNTAX':                         'NO',   # remove -fasm-blocks
           'GCC_ENABLE_PASCAL_STRINGS':                 'NO',   # remove -mpascal-strings
-          'GCC_WARN_ABOUT_INVALID_OFFSETOF_MACRO':     'NO',   # -Wno-invalid-offsetof
           'WARNING_CFLAGS': [
             '-Wall',
             '-Wextra',
@@ -553,11 +554,9 @@
         'xcode_settings': {
           'ARCHS': ['armv7'],
           'CODE_SIGNING_REQUIRED': 'NO',
-          'CODE_SIGN_IDENTITY[sdk=iphoneos*]': 'iPhone Developer: Google Development (3F4Y5873JF)',
           'IPHONEOS_DEPLOYMENT_TARGET': '<(ios_sdk_version)',
           'SDKROOT': 'iphoneos',
           'TARGETED_DEVICE_FAMILY': '1,2',
-          'GCC_WARN_ABOUT_INVALID_OFFSETOF_MACRO': 'NO',   # -Wno-invalid-offsetof
           'OTHER_CPLUSPLUSFLAGS': [
             '-std=c++0x',
             '-fvisibility=hidden',
@@ -611,7 +610,7 @@
             'defines': [
               'SKIA_DLL',
               'SKIA_IMPLEMENTATION=1',
-              # Needed until we fix skbug.com/2440.
+              # Needed until we fix https://bug.skia.org/2440 .
               'SK_SUPPORT_LEGACY_CLIPTOLAYERFLAG',
             ],
           }],
@@ -626,6 +625,18 @@
       'defines': [
         # add flags here (e.g. SK_SUPPORT_LEGACY_...) needed by moz2d
       ],
+    }],
+
+    [ 'skia_command_buffer and skia_os == "linux"', {
+      'ldflags': [
+          '-Wl,-rpath,\$$ORIGIN/lib',
+      ],
+    }],
+
+    [ 'skia_command_buffer and skia_os == "mac"', {
+      'xcode_settings': {
+          'LD_RUNPATH_SEARCH_PATHS': ['@executable_path/.'],
+      },
     }],
 
   ], # end 'conditions'

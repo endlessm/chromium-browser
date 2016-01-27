@@ -27,9 +27,9 @@
 #ifndef TextCodecICU_h
 #define TextCodecICU_h
 
-#include <unicode/utypes.h>
 #include "wtf/text/TextCodec.h"
 #include "wtf/text/TextEncoding.h"
+#include <unicode/utypes.h>
 
 typedef struct UConverter UConverter;
 
@@ -74,7 +74,7 @@ private:
 };
 
 struct ICUConverterWrapper {
-    WTF_MAKE_NONCOPYABLE(ICUConverterWrapper); WTF_MAKE_FAST_ALLOCATED(ICUConverterWrapper);
+    WTF_MAKE_NONCOPYABLE(ICUConverterWrapper); USING_FAST_MALLOC(ICUConverterWrapper);
 public:
     ICUConverterWrapper() : converter(0) { }
     ~ICUConverterWrapper();

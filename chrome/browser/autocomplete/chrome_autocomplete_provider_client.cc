@@ -17,12 +17,14 @@
 #include "chrome/browser/history/top_sites_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "components/bookmarks/common/bookmark_pref_names.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/omnibox/browser/autocomplete_classifier.h"
+#include "components/sync_driver/sync_service_utils.h"
 #include "content/public/browser/notification_service.h"
 
 #if defined(ENABLE_EXTENSIONS)
@@ -203,14 +205,9 @@ bool ChromeAutocompleteProviderClient::BookmarkBarIsVisible() const {
 }
 
 bool ChromeAutocompleteProviderClient::TabSyncEnabledAndUnencrypted() const {
-  // Check field trials and settings allow sending the URL on suggest requests.
-  ProfileSyncService* service =
-      ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile_);
-  sync_driver::SyncPrefs sync_prefs(profile_->GetPrefs());
-  return service && service->CanSyncStart() &&
-         sync_prefs.GetPreferredDataTypes(syncer::UserTypes())
-             .Has(syncer::PROXY_TABS) &&
-         !service->GetEncryptedDataTypes().Has(syncer::SESSIONS);
+  return sync_driver::IsTabSyncEnabledAndUnencrypted(
+      ProfileSyncServiceFactory::GetInstance()->GetForProfile(profile_),
+      profile_->GetPrefs());
 }
 
 void ChromeAutocompleteProviderClient::Classify(

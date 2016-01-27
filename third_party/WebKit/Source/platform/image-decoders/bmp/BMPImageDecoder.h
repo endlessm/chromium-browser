@@ -39,11 +39,11 @@ namespace blink {
 // This class decodes the BMP image format.
 class PLATFORM_EXPORT BMPImageDecoder : public ImageDecoder {
 public:
-    BMPImageDecoder(ImageSource::AlphaOption, ImageSource::GammaAndColorProfileOption, size_t maxDecodedBytes);
+    BMPImageDecoder(AlphaOption, GammaAndColorProfileOption, size_t maxDecodedBytes);
 
     // ImageDecoder:
     String filenameExtension() const override { return "bmp"; }
-    void setData(SharedBuffer*, bool allDataReceived) override;
+    void onSetData(SharedBuffer*) override;
     // CAUTION: setFailed() deletes |m_reader|.  Be careful to avoid
     // accessing deleted memory, especially when calling this from inside
     // BMPImageReader!
@@ -53,11 +53,6 @@ private:
     // ImageDecoder:
     void decodeSize() override { decode(true); }
     void decode(size_t) override { decode(false); }
-
-    inline uint32_t readUint32(int offset) const
-    {
-        return BMPImageReader::readUint32(m_data.get(), m_decodedOffset + offset);
-    }
 
     // Decodes the image.  If |onlySize| is true, stops decoding after
     // calculating the image size. If decoding fails but there is no more

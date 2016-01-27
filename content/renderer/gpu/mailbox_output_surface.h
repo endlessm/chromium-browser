@@ -32,12 +32,12 @@ class MailboxOutputSurface : public CompositorOutputSurface {
       const scoped_refptr<ContextProviderCommandBuffer>& context_provider,
       const scoped_refptr<ContextProviderCommandBuffer>&
           worker_context_provider,
-      scoped_ptr<cc::SoftwareOutputDevice> software_device,
       scoped_refptr<FrameSwapMessageQueue> swap_frame_message_queue,
       cc::ResourceFormat format);
   ~MailboxOutputSurface() override;
 
   // cc::OutputSurface implementation.
+  void DetachFromClient() override;
   void EnsureBackbuffer() override;
   void DiscardBackbuffer() override;
   void Reshape(const gfx::Size& size, float scale_factor) override;
@@ -52,17 +52,15 @@ class MailboxOutputSurface : public CompositorOutputSurface {
   size_t GetNumAcksPending();
 
   struct TransferableFrame {
-    TransferableFrame() : texture_id(0), sync_point(0) {}
-
+    TransferableFrame();
     TransferableFrame(uint32 texture_id,
                       const gpu::Mailbox& mailbox,
-                      const gfx::Size size)
-        : texture_id(texture_id), mailbox(mailbox), size(size), sync_point(0) {}
+                      const gfx::Size size);
 
     uint32 texture_id;
     gpu::Mailbox mailbox;
+    gpu::SyncToken sync_token;
     gfx::Size size;
-    uint32 sync_point;
   };
 
   TransferableFrame current_backing_;

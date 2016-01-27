@@ -51,11 +51,9 @@
 #include "public/web/WebViewClient.h"
 #include "web/tests/FrameTestHelpers.h"
 #include <gtest/gtest.h>
-#include <vector>
 
 namespace blink {
 
-using blink::FrameTestHelpers::UseMockScrollbarSettings;
 using blink::testing::runPendingTasks;
 
 class ViewportTest : public ::testing::Test {
@@ -112,7 +110,6 @@ static PageScaleConstraints runViewportTest(Page* page, int initialWidth, int in
 
 TEST_F(ViewportTest, viewport1)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-1.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -131,7 +128,6 @@ TEST_F(ViewportTest, viewport1)
 
 TEST_F(ViewportTest, viewport2)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-2.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -150,7 +146,6 @@ TEST_F(ViewportTest, viewport2)
 
 TEST_F(ViewportTest, viewport3)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-3.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -169,7 +164,6 @@ TEST_F(ViewportTest, viewport3)
 
 TEST_F(ViewportTest, viewport4)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-4.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -188,7 +182,6 @@ TEST_F(ViewportTest, viewport4)
 
 TEST_F(ViewportTest, viewport5)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-5.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -207,7 +200,6 @@ TEST_F(ViewportTest, viewport5)
 
 TEST_F(ViewportTest, viewport6)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-6.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -226,7 +218,7 @@ TEST_F(ViewportTest, viewport6)
 
 TEST_F(ViewportTest, viewport7)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
+
     registerMockedHttpURLLoad("viewport/viewport-7.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -245,7 +237,6 @@ TEST_F(ViewportTest, viewport7)
 
 TEST_F(ViewportTest, viewport8)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-8.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -264,7 +255,6 @@ TEST_F(ViewportTest, viewport8)
 
 TEST_F(ViewportTest, viewport9)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-9.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -283,7 +273,6 @@ TEST_F(ViewportTest, viewport9)
 
 TEST_F(ViewportTest, viewport10)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-10.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -302,7 +291,6 @@ TEST_F(ViewportTest, viewport10)
 
 TEST_F(ViewportTest, viewport11)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-11.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -321,7 +309,6 @@ TEST_F(ViewportTest, viewport11)
 
 TEST_F(ViewportTest, viewport12)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-12.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -340,7 +327,6 @@ TEST_F(ViewportTest, viewport12)
 
 TEST_F(ViewportTest, viewport13)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-13.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -359,7 +345,6 @@ TEST_F(ViewportTest, viewport13)
 
 TEST_F(ViewportTest, viewport14)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-14.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -378,7 +363,6 @@ TEST_F(ViewportTest, viewport14)
 
 TEST_F(ViewportTest, viewport15)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-15.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -397,7 +381,6 @@ TEST_F(ViewportTest, viewport15)
 
 TEST_F(ViewportTest, viewport16)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-16.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -416,7 +399,6 @@ TEST_F(ViewportTest, viewport16)
 
 TEST_F(ViewportTest, viewport17)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-17.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -435,7 +417,6 @@ TEST_F(ViewportTest, viewport17)
 
 TEST_F(ViewportTest, viewport18)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-18.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -454,7 +435,6 @@ TEST_F(ViewportTest, viewport18)
 
 TEST_F(ViewportTest, viewport19)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-19.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -473,7 +453,6 @@ TEST_F(ViewportTest, viewport19)
 
 TEST_F(ViewportTest, viewport20)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-20.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -492,7 +471,6 @@ TEST_F(ViewportTest, viewport20)
 
 TEST_F(ViewportTest, viewport21)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-21.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -511,7 +489,6 @@ TEST_F(ViewportTest, viewport21)
 
 TEST_F(ViewportTest, viewport22)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-22.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -530,7 +507,6 @@ TEST_F(ViewportTest, viewport22)
 
 TEST_F(ViewportTest, viewport23)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-23.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -549,7 +525,6 @@ TEST_F(ViewportTest, viewport23)
 
 TEST_F(ViewportTest, viewport24)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-24.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -568,7 +543,6 @@ TEST_F(ViewportTest, viewport24)
 
 TEST_F(ViewportTest, viewport25)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-25.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -587,7 +561,6 @@ TEST_F(ViewportTest, viewport25)
 
 TEST_F(ViewportTest, viewport26)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-26.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -606,7 +579,6 @@ TEST_F(ViewportTest, viewport26)
 
 TEST_F(ViewportTest, viewport27)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-27.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -625,7 +597,6 @@ TEST_F(ViewportTest, viewport27)
 
 TEST_F(ViewportTest, viewport28)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-28.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -644,7 +615,6 @@ TEST_F(ViewportTest, viewport28)
 
 TEST_F(ViewportTest, viewport29)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-29.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -663,7 +633,6 @@ TEST_F(ViewportTest, viewport29)
 
 TEST_F(ViewportTest, viewport30)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-30.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -682,7 +651,6 @@ TEST_F(ViewportTest, viewport30)
 
 TEST_F(ViewportTest, viewport31)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-31.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -701,7 +669,6 @@ TEST_F(ViewportTest, viewport31)
 
 TEST_F(ViewportTest, viewport32)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-32.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -720,7 +687,6 @@ TEST_F(ViewportTest, viewport32)
 
 TEST_F(ViewportTest, viewport33)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-33.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -739,7 +705,6 @@ TEST_F(ViewportTest, viewport33)
 
 TEST_F(ViewportTest, viewport34)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-34.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -758,7 +723,6 @@ TEST_F(ViewportTest, viewport34)
 
 TEST_F(ViewportTest, viewport35)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-35.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -777,7 +741,6 @@ TEST_F(ViewportTest, viewport35)
 
 TEST_F(ViewportTest, viewport36)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-36.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -796,7 +759,6 @@ TEST_F(ViewportTest, viewport36)
 
 TEST_F(ViewportTest, viewport37)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-37.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -815,7 +777,6 @@ TEST_F(ViewportTest, viewport37)
 
 TEST_F(ViewportTest, viewport38)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-38.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -834,7 +795,6 @@ TEST_F(ViewportTest, viewport38)
 
 TEST_F(ViewportTest, viewport39)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-39.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -853,7 +813,6 @@ TEST_F(ViewportTest, viewport39)
 
 TEST_F(ViewportTest, viewport40)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-40.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -872,7 +831,6 @@ TEST_F(ViewportTest, viewport40)
 
 TEST_F(ViewportTest, viewport41)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-41.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -891,7 +849,6 @@ TEST_F(ViewportTest, viewport41)
 
 TEST_F(ViewportTest, viewport42)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-42.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -910,7 +867,6 @@ TEST_F(ViewportTest, viewport42)
 
 TEST_F(ViewportTest, viewport43)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-43.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -929,7 +885,6 @@ TEST_F(ViewportTest, viewport43)
 
 TEST_F(ViewportTest, viewport44)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-44.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -948,7 +903,6 @@ TEST_F(ViewportTest, viewport44)
 
 TEST_F(ViewportTest, viewport45)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-45.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -967,7 +921,6 @@ TEST_F(ViewportTest, viewport45)
 
 TEST_F(ViewportTest, viewport46)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-46.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -986,7 +939,6 @@ TEST_F(ViewportTest, viewport46)
 
 TEST_F(ViewportTest, viewport47)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-47.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1005,7 +957,6 @@ TEST_F(ViewportTest, viewport47)
 
 TEST_F(ViewportTest, viewport48)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-48.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1024,7 +975,6 @@ TEST_F(ViewportTest, viewport48)
 
 TEST_F(ViewportTest, viewport49)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-49.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1043,7 +993,6 @@ TEST_F(ViewportTest, viewport49)
 
 TEST_F(ViewportTest, viewport50)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-50.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1062,7 +1011,6 @@ TEST_F(ViewportTest, viewport50)
 
 TEST_F(ViewportTest, viewport51)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-51.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1081,7 +1029,6 @@ TEST_F(ViewportTest, viewport51)
 
 TEST_F(ViewportTest, viewport52)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-52.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1100,7 +1047,6 @@ TEST_F(ViewportTest, viewport52)
 
 TEST_F(ViewportTest, viewport53)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-53.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1119,7 +1065,6 @@ TEST_F(ViewportTest, viewport53)
 
 TEST_F(ViewportTest, viewport54)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-54.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1138,7 +1083,6 @@ TEST_F(ViewportTest, viewport54)
 
 TEST_F(ViewportTest, viewport55)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-55.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1157,7 +1101,6 @@ TEST_F(ViewportTest, viewport55)
 
 TEST_F(ViewportTest, viewport56)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-56.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1176,7 +1119,6 @@ TEST_F(ViewportTest, viewport56)
 
 TEST_F(ViewportTest, viewport57)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-57.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1195,7 +1137,6 @@ TEST_F(ViewportTest, viewport57)
 
 TEST_F(ViewportTest, viewport58)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-58.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1214,7 +1155,6 @@ TEST_F(ViewportTest, viewport58)
 
 TEST_F(ViewportTest, viewport59)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-59.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1233,7 +1173,6 @@ TEST_F(ViewportTest, viewport59)
 
 TEST_F(ViewportTest, viewport60)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-60.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1252,7 +1191,6 @@ TEST_F(ViewportTest, viewport60)
 
 TEST_F(ViewportTest, viewport61)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-61.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1271,7 +1209,6 @@ TEST_F(ViewportTest, viewport61)
 
 TEST_F(ViewportTest, viewport62)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-62.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1290,7 +1227,6 @@ TEST_F(ViewportTest, viewport62)
 
 TEST_F(ViewportTest, viewport63)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-63.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1309,7 +1245,6 @@ TEST_F(ViewportTest, viewport63)
 
 TEST_F(ViewportTest, viewport64)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-64.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1328,7 +1263,6 @@ TEST_F(ViewportTest, viewport64)
 
 TEST_F(ViewportTest, viewport65)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-65.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1347,7 +1281,6 @@ TEST_F(ViewportTest, viewport65)
 
 TEST_F(ViewportTest, viewport66)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-66.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1366,7 +1299,6 @@ TEST_F(ViewportTest, viewport66)
 
 TEST_F(ViewportTest, viewport67)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-67.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1385,7 +1317,6 @@ TEST_F(ViewportTest, viewport67)
 
 TEST_F(ViewportTest, viewport68)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-68.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1404,7 +1335,6 @@ TEST_F(ViewportTest, viewport68)
 
 TEST_F(ViewportTest, viewport69)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-69.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1423,7 +1353,6 @@ TEST_F(ViewportTest, viewport69)
 
 TEST_F(ViewportTest, viewport70)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-70.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1442,7 +1371,6 @@ TEST_F(ViewportTest, viewport70)
 
 TEST_F(ViewportTest, viewport71)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-71.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1461,7 +1389,6 @@ TEST_F(ViewportTest, viewport71)
 
 TEST_F(ViewportTest, viewport72)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-72.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1480,7 +1407,6 @@ TEST_F(ViewportTest, viewport72)
 
 TEST_F(ViewportTest, viewport73)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-73.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1499,7 +1425,6 @@ TEST_F(ViewportTest, viewport73)
 
 TEST_F(ViewportTest, viewport74)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-74.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1518,7 +1443,6 @@ TEST_F(ViewportTest, viewport74)
 
 TEST_F(ViewportTest, viewport75)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-75.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1537,7 +1461,6 @@ TEST_F(ViewportTest, viewport75)
 
 TEST_F(ViewportTest, viewport76)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-76.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1556,7 +1479,6 @@ TEST_F(ViewportTest, viewport76)
 
 TEST_F(ViewportTest, viewport77)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-77.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1575,7 +1497,6 @@ TEST_F(ViewportTest, viewport77)
 
 TEST_F(ViewportTest, viewport78)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-78.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1594,7 +1515,6 @@ TEST_F(ViewportTest, viewport78)
 
 TEST_F(ViewportTest, viewport79)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-79.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1613,7 +1533,6 @@ TEST_F(ViewportTest, viewport79)
 
 TEST_F(ViewportTest, viewport80)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-80.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1632,7 +1551,6 @@ TEST_F(ViewportTest, viewport80)
 
 TEST_F(ViewportTest, viewport81)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-81.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1651,7 +1569,6 @@ TEST_F(ViewportTest, viewport81)
 
 TEST_F(ViewportTest, viewport82)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-82.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1670,7 +1587,6 @@ TEST_F(ViewportTest, viewport82)
 
 TEST_F(ViewportTest, viewport83)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-83.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1689,7 +1605,6 @@ TEST_F(ViewportTest, viewport83)
 
 TEST_F(ViewportTest, viewport84)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-84.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1708,7 +1623,6 @@ TEST_F(ViewportTest, viewport84)
 
 TEST_F(ViewportTest, viewport85)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-85.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1727,7 +1641,6 @@ TEST_F(ViewportTest, viewport85)
 
 TEST_F(ViewportTest, viewport86)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-86.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1746,7 +1659,6 @@ TEST_F(ViewportTest, viewport86)
 
 TEST_F(ViewportTest, viewport87)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-87.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1765,7 +1677,6 @@ TEST_F(ViewportTest, viewport87)
 
 TEST_F(ViewportTest, viewport88)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-88.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1784,7 +1695,6 @@ TEST_F(ViewportTest, viewport88)
 
 TEST_F(ViewportTest, viewport90)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-90.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1803,7 +1713,6 @@ TEST_F(ViewportTest, viewport90)
 
 TEST_F(ViewportTest, viewport100)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-100.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1822,7 +1731,6 @@ TEST_F(ViewportTest, viewport100)
 
 TEST_F(ViewportTest, viewport101)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-101.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1841,7 +1749,6 @@ TEST_F(ViewportTest, viewport101)
 
 TEST_F(ViewportTest, viewport102)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-102.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1860,7 +1767,6 @@ TEST_F(ViewportTest, viewport102)
 
 TEST_F(ViewportTest, viewport103)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-103.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1879,7 +1785,6 @@ TEST_F(ViewportTest, viewport103)
 
 TEST_F(ViewportTest, viewport104)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-104.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1898,7 +1803,6 @@ TEST_F(ViewportTest, viewport104)
 
 TEST_F(ViewportTest, viewport105)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-105.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1917,7 +1821,6 @@ TEST_F(ViewportTest, viewport105)
 
 TEST_F(ViewportTest, viewport106)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-106.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1936,7 +1839,6 @@ TEST_F(ViewportTest, viewport106)
 
 TEST_F(ViewportTest, viewport107)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-107.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1955,7 +1857,6 @@ TEST_F(ViewportTest, viewport107)
 
 TEST_F(ViewportTest, viewport108)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-108.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1974,7 +1875,6 @@ TEST_F(ViewportTest, viewport108)
 
 TEST_F(ViewportTest, viewport109)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-109.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -1993,7 +1893,6 @@ TEST_F(ViewportTest, viewport109)
 
 TEST_F(ViewportTest, viewport110)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-110.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2012,7 +1911,6 @@ TEST_F(ViewportTest, viewport110)
 
 TEST_F(ViewportTest, viewport111)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-111.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2031,7 +1929,6 @@ TEST_F(ViewportTest, viewport111)
 
 TEST_F(ViewportTest, viewport112)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-112.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2050,7 +1947,6 @@ TEST_F(ViewportTest, viewport112)
 
 TEST_F(ViewportTest, viewport113)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-113.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2069,7 +1965,6 @@ TEST_F(ViewportTest, viewport113)
 
 TEST_F(ViewportTest, viewport114)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-114.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2088,7 +1983,6 @@ TEST_F(ViewportTest, viewport114)
 
 TEST_F(ViewportTest, viewport115)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-115.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2107,7 +2001,6 @@ TEST_F(ViewportTest, viewport115)
 
 TEST_F(ViewportTest, viewport116)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-116.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2126,7 +2019,6 @@ TEST_F(ViewportTest, viewport116)
 
 TEST_F(ViewportTest, viewport117)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-117.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2145,7 +2037,6 @@ TEST_F(ViewportTest, viewport117)
 
 TEST_F(ViewportTest, viewport118)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-118.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2164,7 +2055,6 @@ TEST_F(ViewportTest, viewport118)
 
 TEST_F(ViewportTest, viewport119)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-119.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2183,7 +2073,6 @@ TEST_F(ViewportTest, viewport119)
 
 TEST_F(ViewportTest, viewport120)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-120.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2202,7 +2091,6 @@ TEST_F(ViewportTest, viewport120)
 
 TEST_F(ViewportTest, viewport121)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-121.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2221,7 +2109,6 @@ TEST_F(ViewportTest, viewport121)
 
 TEST_F(ViewportTest, viewport122)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-122.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2240,7 +2127,6 @@ TEST_F(ViewportTest, viewport122)
 
 TEST_F(ViewportTest, viewport123)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-123.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2259,7 +2145,6 @@ TEST_F(ViewportTest, viewport123)
 
 TEST_F(ViewportTest, viewport124)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-124.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2278,7 +2163,6 @@ TEST_F(ViewportTest, viewport124)
 
 TEST_F(ViewportTest, viewport125)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-125.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2297,7 +2181,6 @@ TEST_F(ViewportTest, viewport125)
 
 TEST_F(ViewportTest, viewport126)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-126.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2316,7 +2199,6 @@ TEST_F(ViewportTest, viewport126)
 
 TEST_F(ViewportTest, viewport127)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-127.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2335,7 +2217,6 @@ TEST_F(ViewportTest, viewport127)
 
 TEST_F(ViewportTest, viewport129)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-129.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2354,7 +2235,6 @@ TEST_F(ViewportTest, viewport129)
 
 TEST_F(ViewportTest, viewport130)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-130.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2373,7 +2253,6 @@ TEST_F(ViewportTest, viewport130)
 
 TEST_F(ViewportTest, viewport131)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-131.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2392,7 +2271,6 @@ TEST_F(ViewportTest, viewport131)
 
 TEST_F(ViewportTest, viewport132)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-132.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2411,7 +2289,6 @@ TEST_F(ViewportTest, viewport132)
 
 TEST_F(ViewportTest, viewport133)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-133.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2430,7 +2307,6 @@ TEST_F(ViewportTest, viewport133)
 
 TEST_F(ViewportTest, viewport134)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-134.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2449,7 +2325,6 @@ TEST_F(ViewportTest, viewport134)
 
 TEST_F(ViewportTest, viewport135)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-135.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2468,7 +2343,6 @@ TEST_F(ViewportTest, viewport135)
 
 TEST_F(ViewportTest, viewport136)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-136.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2487,7 +2361,6 @@ TEST_F(ViewportTest, viewport136)
 
 TEST_F(ViewportTest, viewport137)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-137.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2524,7 +2397,6 @@ TEST_F(ViewportTest, viewport138)
 
 TEST_F(ViewportTest, viewportLegacyHandheldFriendly)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-handheldfriendly.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2551,7 +2423,6 @@ static void setQuirkViewportSettings(WebSettings* settings)
 
 TEST_F(ViewportTest, viewportLegacyMergeQuirk1)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-merge-quirk-1.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2570,7 +2441,6 @@ TEST_F(ViewportTest, viewportLegacyMergeQuirk1)
 
 TEST_F(ViewportTest, viewportLegacyMergeQuirk2)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-merge-quirk-2.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2592,7 +2462,6 @@ TEST_F(ViewportTest, viewportLegacyMergeQuirk2)
 
 TEST_F(ViewportTest, viewportLegacyMobileOptimizedMetaWithoutContent)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-mobileoptimized.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2612,7 +2481,6 @@ TEST_F(ViewportTest, viewportLegacyMobileOptimizedMetaWithoutContent)
 
 TEST_F(ViewportTest, viewportLegacyMobileOptimizedMetaWith0)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-mobileoptimized-2.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2632,7 +2500,6 @@ TEST_F(ViewportTest, viewportLegacyMobileOptimizedMetaWith0)
 
 TEST_F(ViewportTest, viewportLegacyMobileOptimizedMetaWith400)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-mobileoptimized-2.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2652,7 +2519,6 @@ TEST_F(ViewportTest, viewportLegacyMobileOptimizedMetaWith400)
 
 TEST_F(ViewportTest, viewportLegacyOrdering2)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-ordering-2.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2672,7 +2538,6 @@ TEST_F(ViewportTest, viewportLegacyOrdering2)
 
 TEST_F(ViewportTest, viewportLegacyOrdering3)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-ordering-3.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2692,7 +2557,6 @@ TEST_F(ViewportTest, viewportLegacyOrdering3)
 
 TEST_F(ViewportTest, viewportLegacyOrdering4)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-ordering-4.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2712,7 +2576,6 @@ TEST_F(ViewportTest, viewportLegacyOrdering4)
 
 TEST_F(ViewportTest, viewportLegacyOrdering5)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-ordering-5.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2732,7 +2595,6 @@ TEST_F(ViewportTest, viewportLegacyOrdering5)
 
 TEST_F(ViewportTest, viewportLegacyOrdering6)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-ordering-6.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2752,7 +2614,6 @@ TEST_F(ViewportTest, viewportLegacyOrdering6)
 
 TEST_F(ViewportTest, viewportLegacyOrdering7)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-ordering-7.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2772,7 +2633,6 @@ TEST_F(ViewportTest, viewportLegacyOrdering7)
 
 TEST_F(ViewportTest, viewportLegacyOrdering8)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-ordering-8.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2792,7 +2652,6 @@ TEST_F(ViewportTest, viewportLegacyOrdering8)
 
 TEST_F(ViewportTest, viewportLegacyEmptyAtViewportDoesntOverrideViewportMeta)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-ordering-10.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2806,7 +2665,6 @@ TEST_F(ViewportTest, viewportLegacyEmptyAtViewportDoesntOverrideViewportMeta)
 
 TEST_F(ViewportTest, viewportLegacyDefaultValueChangedByXHTMLMP)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-xhtmlmp.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2825,7 +2683,6 @@ TEST_F(ViewportTest, viewportLegacyDefaultValueChangedByXHTMLMP)
 
 TEST_F(ViewportTest, viewportLegacyDefaultValueChangedByXHTMLMPAndOverriddenByMeta)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-xhtmlmp-misplaced-doctype.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2844,7 +2701,6 @@ TEST_F(ViewportTest, viewportLegacyDefaultValueChangedByXHTMLMPAndOverriddenByMe
 
 TEST_F(ViewportTest, viewportLegacyXHTMLMPOrdering)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-legacy-xhtmlmp-ordering.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2906,7 +2762,6 @@ TEST_F(ViewportTest, viewportLegacyXHTMLMPRemoveAndAdd)
 
 TEST_F(ViewportTest, viewportLimitsAdjustedForNoUserScale)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-limits-adjusted-for-no-user-scale.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2919,7 +2774,6 @@ TEST_F(ViewportTest, viewportLimitsAdjustedForNoUserScale)
 
 TEST_F(ViewportTest, viewportLimitsAdjustedForNoUserScaleControl)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
     registerMockedHttpURLLoad("viewport/viewport-limits-adjusted-for-no-user-scale-control.html");
 
     FrameTestHelpers::WebViewHelper webViewHelper;
@@ -2932,8 +2786,6 @@ TEST_F(ViewportTest, viewportLimitsAdjustedForNoUserScaleControl)
 
 TEST_F(ViewportTest, viewportTriggersGpuRasterization)
 {
-    UseMockScrollbarSettings mockScrollbarSettings;
-
     registerMockedHttpURLLoad("viewport/viewport-gpu-rasterization.html");
     FrameTestHelpers::WebViewHelper webViewHelper;
     webViewHelper.initializeAndLoad(m_baseURL + "viewport/viewport-gpu-rasterization.html", true, 0, 0, setViewportSettings);
@@ -2970,10 +2822,10 @@ class ConsoleMessageWebFrameClient : public FrameTestHelpers::TestWebFrameClient
 public:
     virtual void didAddMessageToConsole(const WebConsoleMessage& msg, const WebString& sourceName, unsigned sourceLine, const WebString& stackTrace)
     {
-        messages.push_back(msg);
+        messages.append(msg);
     }
 
-    std::vector<WebConsoleMessage> messages;
+    Vector<WebConsoleMessage> messages;
 };
 
 TEST_F(ViewportTest, viewportWarnings1)
@@ -2988,7 +2840,7 @@ TEST_F(ViewportTest, viewportWarnings1)
     Page* page = webViewHelper.webViewImpl()->page();
     PageScaleConstraints constraints = runViewportTest(page, 320, 352);
 
-    EXPECT_TRUE(webFrameClient.messages.empty());
+    EXPECT_TRUE(webFrameClient.messages.isEmpty());
 
     EXPECT_EQ(320, constraints.layoutSize.width());
     EXPECT_EQ(352, constraints.layoutSize.height());

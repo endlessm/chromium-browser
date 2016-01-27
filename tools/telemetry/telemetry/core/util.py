@@ -23,12 +23,12 @@ def GetBaseDir():
 
 def GetTelemetryDir():
   return os.path.normpath(os.path.join(
-      __file__, os.pardir, os.pardir, os.pardir))
+      __file__, '..', '..', '..'))
 
 
 def GetTelemetryThirdPartyDir():
   return os.path.normpath(os.path.join(
-      __file__, os.pardir, os.pardir, os.pardir, 'third_party'))
+      __file__, '..', '..', '..', 'third_party'))
 
 
 def GetUnittestDataDir():
@@ -37,13 +37,8 @@ def GetUnittestDataDir():
 
 
 def GetChromiumSrcDir():
-  return os.path.normpath(os.path.join(GetTelemetryDir(), os.pardir, os.pardir))
+  return os.path.normpath(os.path.join(GetTelemetryDir(), '..', '..'))
 
-
-def AddDirToPythonPath(*path_parts):
-  path = os.path.abspath(os.path.join(*path_parts))
-  if os.path.isdir(path) and path not in sys.path:
-    sys.path.insert(0, path)
 
 _counter = [0]
 def _GetUniqueModuleName():
@@ -95,6 +90,27 @@ def WaitFor(condition, timeout):
     time.sleep(poll_interval)
 
 
+class PortKeeper(object):
+  """Port keeper hold an available port on the system.
+
+  Before actually use the port, you must call Release().
+  """
+  def __init__(self):
+    self._temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    self._temp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    self._temp_socket.bind(('', 0))
+    self._port = self._temp_socket.getsockname()[1]
+
+  @property
+  def port(self):
+    return self._port
+
+  def Release(self):
+    assert self._temp_socket, 'Already released'
+    self._temp_socket.close()
+    self._temp_socket = None
+
+
 def GetUnreservedAvailableLocalPort():
   """Returns an available port on the system.
 
@@ -115,7 +131,7 @@ def GetBuildDirectories():
                 os.path.basename(os.environ.get('CHROMIUM_OUT_DIR', 'out')),
                 'xcodebuild']
 
-  build_types = ['Debug', 'Debug_x64', 'Release', 'Release_x64']
+  build_types = ['Debug', 'Debug_x64', 'Release', 'Release_x64', 'Default']
 
   for build_dir in build_dirs:
     for build_type in build_types:

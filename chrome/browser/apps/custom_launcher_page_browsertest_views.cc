@@ -113,8 +113,8 @@ class CustomLauncherPageBrowserTest
         enabled ? "launcherPageEnabled" : "launcherPageDisabled";
 
     ExtensionTestMessageListener listener(test_message, false);
-    custom_page_frame->ExecuteJavaScript(enabled ? kLauncherPageEnableScript
-                                                 : kLauncherPageDisableScript);
+    custom_page_frame->ExecuteJavaScriptForTests(
+        enabled ? kLauncherPageEnableScript : kLauncherPageDisableScript);
     listener.WaitUntilSatisfied();
   }
 
@@ -154,6 +154,12 @@ IN_PROC_BROWSER_TEST_F(CustomLauncherPageBrowserTest,
   LoadAndLaunchPlatformApp(kCustomLauncherPagePath, "Launched");
   // Use an event generator to ensure targeting is correct.
   app_list::AppListView* app_list_view = GetAppListView();
+
+  // On ChromeOS, displaying the app list can be delayed while icons finish
+  // loading. Explicitly show it to ensure the event generator gets meaningful
+  // coordinates. See http://crbug.com/525128.
+  app_list_view->GetWidget()->Show();
+
   app_list::ContentsView* contents_view =
       app_list_view->app_list_main_view()->contents_view();
   gfx::NativeWindow window = app_list_view->GetWidget()->GetNativeWindow();
@@ -339,7 +345,7 @@ IN_PROC_BROWSER_TEST_F(CustomLauncherPageBrowserTest, LauncherPageShowAndHide) {
   // if the app launcher is already showing.
   {
     ExtensionTestMessageListener listener("onPageProgressAt1", false);
-    custom_page_frame->ExecuteJavaScript(kLauncherPageShowScript);
+    custom_page_frame->ExecuteJavaScriptForTests(kLauncherPageShowScript);
 
     listener.WaitUntilSatisfied();
     EXPECT_TRUE(contents_view->IsStateActive(
@@ -353,7 +359,7 @@ IN_PROC_BROWSER_TEST_F(CustomLauncherPageBrowserTest, LauncherPageShowAndHide) {
     app_list_view->GetWidget()->Close();
 
     ExtensionTestMessageListener listener("onPageProgressAt1", false);
-    custom_page_frame->ExecuteJavaScript(kLauncherPageShowScript);
+    custom_page_frame->ExecuteJavaScriptForTests(kLauncherPageShowScript);
 
     listener.WaitUntilSatisfied();
 
@@ -367,7 +373,7 @@ IN_PROC_BROWSER_TEST_F(CustomLauncherPageBrowserTest, LauncherPageShowAndHide) {
   // Ensure launcherPage.hide() hides the launcher page when it's showing.
   {
     ExtensionTestMessageListener listener("onPageProgressAt0", false);
-    custom_page_frame->ExecuteJavaScript(kLauncherPageHideScript);
+    custom_page_frame->ExecuteJavaScriptForTests(kLauncherPageHideScript);
 
     listener.WaitUntilSatisfied();
 
@@ -380,7 +386,7 @@ IN_PROC_BROWSER_TEST_F(CustomLauncherPageBrowserTest, LauncherPageShowAndHide) {
     contents_view->SetActiveState(app_list::AppListModel::STATE_APPS, false);
 
     ExtensionTestMessageListener listener("launcherPageHidden", false);
-    custom_page_frame->ExecuteJavaScript(kLauncherPageHideScript);
+    custom_page_frame->ExecuteJavaScriptForTests(kLauncherPageHideScript);
     listener.WaitUntilSatisfied();
 
     EXPECT_TRUE(

@@ -35,7 +35,6 @@
 #include "chrome/installer/util/util_constants.h"
 #include "components/browser_watcher/endsession_watcher_window_win.h"
 #include "components/browser_watcher/exit_code_watcher_win.h"
-#include "components/browser_watcher/exit_funnel_win.h"
 #include "components/browser_watcher/window_hang_monitor_win.h"
 
 #ifdef KASKO
@@ -79,9 +78,6 @@ class BrowserMonitor {
   // Posted to main thread from Watch when browser exits.
   void BrowserExited();
 
-  // The funnel used to record events for this browser.
-  browser_watcher::ExitFunnel exit_funnel_;
-
   browser_watcher::ExitCodeWatcher exit_code_watcher_;
   browser_watcher::EndSessionWatcherWindow end_session_watcher_window_;
 
@@ -121,11 +117,6 @@ bool BrowserMonitor::StartWatching(
   if (!exit_code_watcher_.Initialize(process.Pass()))
     return false;
 
-  if (!exit_funnel_.Init(registry_path,
-                         exit_code_watcher_.process().Handle())) {
-    return false;
-  }
-
   if (!background_thread_.StartWithOptions(
         base::Thread::Options(base::MessageLoop::TYPE_IO, 0))) {
     return false;
@@ -144,22 +135,6 @@ bool BrowserMonitor::StartWatching(
 void BrowserMonitor::OnEndSessionMessage(UINT message, LPARAM lparam) {
   DCHECK_EQ(main_thread_, base::ThreadTaskRunnerHandle::Get());
 
-  if (message == WM_QUERYENDSESSION) {
-    exit_funnel_.RecordEvent(L"WatcherQueryEndSession");
-  } else if (message == WM_ENDSESSION) {
-    exit_funnel_.RecordEvent(L"WatcherEndSession");
-  }
-  if (lparam & ENDSESSION_CLOSEAPP)
-    exit_funnel_.RecordEvent(L"ES_CloseApp");
-  if (lparam & ENDSESSION_CRITICAL)
-    exit_funnel_.RecordEvent(L"ES_Critical");
-  if (lparam & ENDSESSION_LOGOFF)
-    exit_funnel_.RecordEvent(L"ES_Logoff");
-  const LPARAM kKnownBits =
-      ENDSESSION_CLOSEAPP | ENDSESSION_CRITICAL | ENDSESSION_LOGOFF;
-  if (lparam & ~kKnownBits)
-    exit_funnel_.RecordEvent(L"ES_Other");
-
   // If the browser hasn't exited yet, dally for a bit to try and stretch this
   // process' lifetime to give it some more time to capture the browser exit.
   browser_exited_.TimedWait(base::TimeDelta::FromSeconds(kDelayTimeSeconds));
@@ -177,7 +152,6 @@ void BrowserMonitor::Watch(base::win::ScopedHandle on_initialized_event) {
   on_initialized_event.Close();
 
   exit_code_watcher_.WaitForExit();
-  exit_funnel_.RecordEvent(L"BrowserExit");
 
   // Note that the browser has exited.
   browser_exited_.Signal();
@@ -213,29 +187,15 @@ void OnWindowEvent(
     base::Process process,
     const base::Callback<void(const base::Process&)>& on_hung_callback,
     browser_watcher::WindowHangMonitor::WindowEvent window_event) {
-  browser_watcher::ExitFunnel exit_funnel;
-  if (exit_funnel.Init(registry_path.c_str(), process.Handle())) {
-    switch (window_event) {
-      case browser_watcher::WindowHangMonitor::WINDOW_NOT_FOUND:
-        exit_funnel.RecordEvent(L"MessageWindowNotFound");
-        break;
-      case browser_watcher::WindowHangMonitor::WINDOW_HUNG:
-        exit_funnel.RecordEvent(L"MessageWindowHung");
-        if (!on_hung_callback.is_null())
-          on_hung_callback.Run(process);
-        break;
-      case browser_watcher::WindowHangMonitor::WINDOW_VANISHED:
-        exit_funnel.RecordEvent(L"MessageWindowVanished");
-        break;
-      default:
-        NOTREACHED();
-        break;
-    }
+  if (window_event == browser_watcher::WindowHangMonitor::WINDOW_HUNG &&
+      !on_hung_callback.is_null()) {
+    on_hung_callback.Run(process);
   }
 }
 
 #ifdef KASKO
-void DumpHungBrowserProcess(const base::string16& channel,
+void DumpHungBrowserProcess(DWORD main_thread_id,
+                            const base::string16& channel,
                             const base::Process& process) {
   // TODO(erikwright): Rather than recreating these crash keys here, it would be
   // ideal to read them directly from the browser process.
@@ -243,8 +203,7 @@ void DumpHungBrowserProcess(const base::string16& channel,
   // This is looking up the version of chrome_watcher.dll, which is equivalent
   // for our purposes to chrome.dll.
   scoped_ptr<FileVersionInfo> version_info(
-      FileVersionInfo::CreateFileVersionInfoForModule(
-          reinterpret_cast<HMODULE>(&__ImageBase)));
+      CREATE_FILE_VERSION_INFO_FOR_CURRENT_MODULE());
   using CrashKeyStrings = std::pair<base::string16, base::string16>;
   std::vector<CrashKeyStrings> crash_key_strings;
   if (version_info.get()) {
@@ -274,10 +233,17 @@ void DumpHungBrowserProcess(const base::string16& channel,
   }
   key_buffers.push_back(nullptr);
   value_buffers.push_back(nullptr);
+
+  // Synthesize an exception for the main thread.
+  CONTEXT thread_context = {};
+  EXCEPTION_RECORD exception_record = {};
+  exception_record.ExceptionCode = EXCEPTION_ARRAY_BOUNDS_EXCEEDED;
+  EXCEPTION_POINTERS exception_pointers = {&exception_record, &thread_context};
+
   // TODO(erikwright): Make the dump-type channel-dependent.
-  kasko::api::SendReportForProcess(process.Handle(),
-                                   kasko::api::LARGER_DUMP_TYPE,
-                                   key_buffers.data(), value_buffers.data());
+  kasko::api::SendReportForProcess(
+      process.Handle(), main_thread_id, &exception_pointers,
+      kasko::api::LARGER_DUMP_TYPE, key_buffers.data(), value_buffers.data());
 }
 
 void LoggedDeregisterEventSource(HANDLE event_source_handle) {
@@ -349,6 +315,7 @@ void OnCrashReportUpload(void* context,
 // mangling.
 extern "C" int WatcherMain(const base::char16* registry_path,
                            HANDLE process_handle,
+                           DWORD main_thread_id,
                            HANDLE on_initialized_event_handle,
                            const base::char16* browser_data_directory,
                            const base::char16* message_window_name,
@@ -385,7 +352,8 @@ extern "C" int WatcherMain(const base::char16* registry_path,
 #ifdef KASKO_HANG_REPORTS
   if (launched_kasko &&
       base::StringPiece16(channel_name) == installer::kChromeChannelCanary) {
-    on_hung_callback = base::Bind(&DumpHungBrowserProcess, channel_name);
+    on_hung_callback =
+        base::Bind(&DumpHungBrowserProcess, main_thread_id, channel_name);
   }
 #endif  // KASKO_HANG_REPORTS
 #endif  // KASKO

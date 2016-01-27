@@ -84,10 +84,8 @@ GestureConsumer* GestureRecognizerImpl::GetTouchLockedTarget(
 GestureConsumer* GestureRecognizerImpl::GetTargetForGestureEvent(
     const GestureEvent& event) {
   int touch_id = event.details().oldest_touch_id();
-  if (!touch_id_target_for_gestures_.count(touch_id)) {
-    NOTREACHED() << "Touch ID does not map to a valid GestureConsumer.";
+  if (!touch_id_target_for_gestures_.count(touch_id))
     return nullptr;
-  }
 
   return touch_id_target_for_gestures_.at(touch_id);
 }
@@ -157,6 +155,8 @@ bool GestureRecognizerImpl::GetLastTouchPointForTarget(
       return false;
     const MotionEvent& pointer_state =
         consumer_gesture_provider_[consumer]->pointer_state();
+    if (!pointer_state.GetPointerCount())
+      return false;
     *point = gfx::PointF(pointer_state.GetX(), pointer_state.GetY());
     return true;
 }
@@ -172,17 +172,14 @@ bool GestureRecognizerImpl::CancelActiveTouches(GestureConsumer* consumer) {
   // pointer_state is modified every time after DispatchCancelTouchEvent.
   scoped_ptr<MotionEvent> pointer_state_clone = pointer_state.Clone();
   for (size_t i = 0; i < pointer_state_clone->GetPointerCount(); ++i) {
-    gfx::PointF point(pointer_state_clone->GetX(i),
-                      pointer_state_clone->GetY(i));
-    TouchEvent touch_event(ui::ET_TOUCH_CANCELLED,
-                           point,
+    TouchEvent touch_event(ui::ET_TOUCH_CANCELLED, gfx::Point(),
                            ui::EF_IS_SYNTHESIZED,
                            pointer_state_clone->GetPointerId(i),
-                           ui::EventTimeForNow(),
-                           0.0f,
-                           0.0f,
-                           0.0f,
-                           0.0f);
+                           ui::EventTimeForNow(), 0.0f, 0.0f, 0.0f, 0.0f);
+    gfx::PointF point(pointer_state_clone->GetX(i),
+                      pointer_state_clone->GetY(i));
+    touch_event.set_location_f(point);
+    touch_event.set_root_location_f(point);
     GestureEventHelper* helper = FindDispatchHelperForConsumer(consumer);
     if (helper)
       helper->DispatchCancelTouchEvent(&touch_event);

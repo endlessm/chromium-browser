@@ -44,8 +44,9 @@ FileSystemDirURLRequestJob::FileSystemDirURLRequestJob(
 FileSystemDirURLRequestJob::~FileSystemDirURLRequestJob() {
 }
 
-bool FileSystemDirURLRequestJob::ReadRawData(net::IOBuffer* dest, int dest_size,
-                                             int *bytes_read) {
+bool FileSystemDirURLRequestJob::ReadRawData(net::IOBuffer* dest,
+                                             int dest_size,
+                                             int* bytes_read) {
   int count = std::min(dest_size, static_cast<int>(data_.size()));
   if (count > 0) {
     memcpy(dest->data(), data_.data(), count);
@@ -98,8 +99,8 @@ void FileSystemDirURLRequestJob::StartAsync() {
                        false);
       return;
     }
-    NotifyDone(URLRequestStatus(URLRequestStatus::FAILED,
-                                net::ERR_FILE_NOT_FOUND));
+    NotifyDone(
+        URLRequestStatus(URLRequestStatus::FAILED, net::ERR_FILE_NOT_FOUND));
     return;
   }
   file_system_context_->operation_runner()->ReadDirectory(
@@ -112,8 +113,8 @@ void FileSystemDirURLRequestJob::DidAttemptAutoMount(base::File::Error result) {
       file_system_context_->CrackURL(request_->url()).is_valid()) {
     StartAsync();
   } else {
-    NotifyDone(URLRequestStatus(URLRequestStatus::FAILED,
-                                net::ERR_FILE_NOT_FOUND));
+    NotifyDone(
+        URLRequestStatus(URLRequestStatus::FAILED, net::ERR_FILE_NOT_FOUND));
   }
 }
 

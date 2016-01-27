@@ -27,7 +27,7 @@ class ExtensionRegistry;
 //    BROWSER_ACTION -> The browser action icon in the toolbar.
 //    PAGE_ACTION    -> A preview of the page action icon in the location
 //                      bar which is shown while the Bubble is shown.
-//    GENERIC        -> The wrench menu. This case includes page actions that
+//    GENERIC        -> The app menu. This case includes page actions that
 //                      don't specify a default icon.
 //
 // ExtensionInstallBubble manages its own lifetime.
@@ -43,19 +43,21 @@ class ExtensionInstalledBubble : public content::NotificationObserver,
   };
 
   // Implements the UI for showing the bubble. Owns us.
-  class Delegate {
+  class ExtensionInstalledBubbleUi {
    public:
-    virtual ~Delegate() {}
+    virtual ~ExtensionInstalledBubbleUi() {}
 
-    // Attempts to show the bubble. Called from ShowInternal. Returns false
-    // if, because of animating (such as from adding a new browser action
-    // to the toolbar), the bubble could not be shown immediately.
-    virtual bool MaybeShowNow() = 0;
+    // Returns false if, because of animating (such as from adding a new browser
+    // action to the toolbar), the bubble could not be shown immediately.
+    // TODO(hcarmona): Detect animation in a platform-agnostic manner.
+    static bool ShouldShow(ExtensionInstalledBubble* bubble);
+
+    // Shows the bubble UI. Should be implemented per platform.
+    virtual void Show() = 0;
   };
 
-  ExtensionInstalledBubble(Delegate* delegate,
-                           const extensions::Extension* extension,
-                           Browser *browser,
+  ExtensionInstalledBubble(const extensions::Extension* extension,
+                           Browser* browser,
                            const SkBitmap& icon);
 
   ~ExtensionInstalledBubble() override;
@@ -72,6 +74,9 @@ class ExtensionInstalledBubble : public content::NotificationObserver,
 
   // Returns the string describing how to use the new extension.
   base::string16 GetHowToUseDescription() const;
+
+  // Sets the UI that corresponds to this bubble.
+  void SetBubbleUi(ExtensionInstalledBubbleUi* bubble_ui);
 
  private:
   // Delegates showing the view to our |view_|. Called internally via PostTask.
@@ -90,8 +95,8 @@ class ExtensionInstalledBubble : public content::NotificationObserver,
       const extensions::Extension* extension,
       extensions::UnloadedExtensionInfo::Reason reason) override;
 
-  // The view delegate that shows the bubble. Owns us.
-  Delegate* delegate_;
+  // The view that shows the bubble. Owns us.
+  ExtensionInstalledBubbleUi* bubble_ui_;
 
   // |extension_| is NULL when we are deleted.
   const extensions::Extension* extension_;

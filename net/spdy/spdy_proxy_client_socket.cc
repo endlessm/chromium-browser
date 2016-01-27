@@ -34,15 +34,11 @@ SpdyProxyClientSocket::SpdyProxyClientSocket(
     const HostPortPair& endpoint,
     const HostPortPair& proxy_server,
     const BoundNetLog& source_net_log,
-    HttpAuthCache* auth_cache,
-    HttpAuthHandlerFactory* auth_handler_factory)
+    HttpAuthController* auth_controller)
     : next_state_(STATE_DISCONNECTED),
       spdy_stream_(spdy_stream),
       endpoint_(endpoint),
-      auth_(new HttpAuthController(HttpAuth::AUTH_PROXY,
-                                   GURL("https://" + proxy_server.ToString()),
-                                   auth_cache,
-                                   auth_handler_factory)),
+      auth_(auth_controller),
       user_agent_(user_agent),
       user_buffer_len_(0),
       write_buffer_len_(0),
@@ -196,6 +192,11 @@ bool SpdyProxyClientSocket::GetSSLInfo(SSLInfo* ssl_info) {
 void SpdyProxyClientSocket::GetConnectionAttempts(
     ConnectionAttempts* out) const {
   out->clear();
+}
+
+int64_t SpdyProxyClientSocket::GetTotalReceivedBytes() const {
+  NOTIMPLEMENTED();
+  return 0;
 }
 
 int SpdyProxyClientSocket::Read(IOBuffer* buf, int buf_len,
@@ -392,7 +393,7 @@ int SpdyProxyClientSocket::DoReadReplyComplete(int result) {
     return result;
 
   // Require the "HTTP/1.x" status line for SSL CONNECT.
-  if (response_.headers->GetParsedHttpVersion() < HttpVersion(1, 0))
+  if (response_.headers->GetHttpVersion() < HttpVersion(1, 0))
     return ERR_TUNNEL_CONNECTION_FAILED;
 
   net_log_.AddEvent(
@@ -494,6 +495,12 @@ void SpdyProxyClientSocket::OnDataSent()  {
       FROM_HERE, base::Bind(&SpdyProxyClientSocket::RunCallback,
                             write_callback_weak_factory_.GetWeakPtr(),
                             ResetAndReturn(&write_callback_), rv));
+}
+
+void SpdyProxyClientSocket::OnTrailers(const SpdyHeaderBlock& trailers) {
+  // |spdy_stream_| is of type SPDY_BIDIRECTIONAL_STREAM, so trailers are
+  // combined with response headers and this method will not be calld.
+  NOTREACHED();
 }
 
 void SpdyProxyClientSocket::OnClose(int status)  {

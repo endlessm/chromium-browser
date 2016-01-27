@@ -4,11 +4,11 @@
 
 #include "base/message_loop/message_loop.h"
 #include "mojo/application/public/cpp/application_runner.h"
+#include "mojo/public/c/system/main.h"
 #include "mojo/services/network/network_service_delegate.h"
-#include "third_party/mojo/src/mojo/public/c/system/main.h"
 
 MojoResult MojoMain(MojoHandle shell_handle) {
-  mojo::ApplicationRunner runner(new NetworkServiceDelegate);
+  mojo::ApplicationRunner runner(new mojo::NetworkServiceDelegate);
   runner.set_message_loop_type(base::MessageLoop::TYPE_IO);
   return runner.Run(shell_handle);
 }

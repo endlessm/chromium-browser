@@ -35,15 +35,17 @@
  * @param {string} title
  * @param {!WebInspector.TimelineModeViewDelegate} delegate
  * @param {!WebInspector.TimelineModel} model
+ * @param {!Array<!WebInspector.TimelineModel.Filter>} filters
  */
-WebInspector.CountersGraph = function(title, delegate, model)
+WebInspector.CountersGraph = function(title, delegate, model, filters)
 {
-    WebInspector.SplitWidget.call(this, true, false);
+    WebInspector.SplitWidget.call(this, true, false, "memoryCountersSidebar");
 
     this.element.id = "memory-graphs-container";
 
     this._delegate = delegate;
     this._model = model;
+    this._filters = filters;
     this._calculator = new WebInspector.TimelineCalculator(this._model);
 
     this._graphsContainer = new WebInspector.VBox();
@@ -92,13 +94,14 @@ WebInspector.CountersGraph.prototype = {
      * @param {string} uiName
      * @param {string} uiValueTemplate
      * @param {string} color
+     * @param {function(number):string=} formatter
      * @return {!WebInspector.CountersGraph.Counter}
      */
-    createCounter: function(uiName, uiValueTemplate, color)
+    createCounter: function(uiName, uiValueTemplate, color, formatter)
     {
         var counter = new WebInspector.CountersGraph.Counter();
         this._counters.push(counter);
-        this._counterUI.push(new WebInspector.CountersGraph.CounterUI(this, uiName, uiValueTemplate, color, counter));
+        this._counterUI.push(new WebInspector.CountersGraph.CounterUI(this, uiName, uiValueTemplate, color, counter, formatter));
         return counter;
     },
 
@@ -204,7 +207,7 @@ WebInspector.CountersGraph.prototype = {
          */
         function findRecordToReveal(record)
         {
-            if (!this._model.isVisible(record))
+            if (!WebInspector.TimelineModel.isVisible(this._filters, record.traceEvent()))
                 return false;
             if (record.startTime() <= time && time <= record.endTime()) {
                 recordToReveal = record;
@@ -396,17 +399,22 @@ WebInspector.CountersGraph.Counter.prototype = {
  * @param {string} currentValueLabel
  * @param {string} graphColor
  * @param {!WebInspector.CountersGraph.Counter} counter
+ * @param {(function(number): string)|undefined} formatter
  */
-WebInspector.CountersGraph.CounterUI = function(memoryCountersPane, title, currentValueLabel, graphColor, counter)
+WebInspector.CountersGraph.CounterUI = function(memoryCountersPane, title, currentValueLabel, graphColor, counter, formatter)
 {
     this._memoryCountersPane = memoryCountersPane;
     this.counter = counter;
+    this._formatter = formatter || Number.withThousandsSeparator;
     var container = memoryCountersPane._infoWidget.element.createChild("div", "memory-counter-sidebar-info");
-    var swatchColor = graphColor;
-    this._swatch = new WebInspector.SwatchCheckbox(WebInspector.UIString(title), swatchColor);
-    this._swatch.addEventListener(WebInspector.SwatchCheckbox.Events.Changed, this._toggleCounterGraph.bind(this));
-    container.appendChild(this._swatch.element);
-    this._range = this._swatch.element.createChild("span");
+
+    this._filter = new WebInspector.CheckboxFilterUI(title, title);
+    var color = WebInspector.Color.parse(graphColor).setAlpha(0.5).asString(WebInspector.Color.Format.RGBA);
+    if (color)
+        this._filter.setColor(color, "rgba(0,0,0,0.3)");
+    this._filter.addEventListener(WebInspector.FilterUI.Events.FilterChanged, this._toggleCounterGraph.bind(this));
+    container.appendChild(this._filter.element());
+    this._range = this._filter.labelElement().createChild("span", "range");
 
     this._value = memoryCountersPane._currentValuesBar.createChild("span", "memory-counter-value");
     this._value.style.color = graphColor;
@@ -433,12 +441,17 @@ WebInspector.CountersGraph.CounterUI.prototype = {
      */
     setRange: function(minValue, maxValue)
     {
-        this._range.textContent = WebInspector.UIString("[%.0f:%.0f]", minValue, maxValue);
+        var min = this._formatter(minValue);
+        var max = this._formatter(maxValue);
+        this._range.textContent = WebInspector.UIString("[%s\u2009\u2013\u2009%s]", min, max);
     },
 
+    /**
+     * @param {!WebInspector.Event} event
+     */
     _toggleCounterGraph: function(event)
     {
-        this._value.classList.toggle("hidden", !this._swatch.checked);
+        this._value.classList.toggle("hidden", !this._filter.checked());
         this._memoryCountersPane.refresh();
     },
 
@@ -459,7 +472,8 @@ WebInspector.CountersGraph.CounterUI.prototype = {
         if (!this.visible() || !this.counter.values.length || !this.counter.x)
             return;
         var index = this._recordIndexAt(x);
-        this._value.textContent = WebInspector.UIString(this._currentValueLabel, this.counter.values[index]);
+        var value = Number.withThousandsSeparator(this.counter.values[index]);
+        this._value.textContent = WebInspector.UIString(this._currentValueLabel, value);
         var y = this.graphYValues[index] / window.devicePixelRatio;
         this._marker.style.left = x + "px";
         this._marker.style.top = y + "px";
@@ -541,50 +555,6 @@ WebInspector.CountersGraph.CounterUI.prototype = {
      */
     visible: function()
     {
-        return this._swatch.checked;
+        return this._filter.checked();
     }
-}
-
-
-/**
- * @constructor
- * @extends {WebInspector.Object}
- */
-WebInspector.SwatchCheckbox = function(title, color)
-{
-    this.element = createElement("div");
-    this._swatch = this.element.createChild("div", "swatch");
-    this.element.createChild("span", "title").textContent = title;
-    this._color = color;
-    this.checked = true;
-
-    this.element.addEventListener("click", this._toggleCheckbox.bind(this), true);
-}
-
-WebInspector.SwatchCheckbox.Events = {
-    Changed: "Changed"
-}
-
-WebInspector.SwatchCheckbox.prototype = {
-    get checked()
-    {
-        return this._checked;
-    },
-
-    set checked(v)
-    {
-        this._checked = v;
-        if (this._checked)
-            this._swatch.style.backgroundColor = this._color;
-        else
-            this._swatch.style.backgroundColor = "";
-    },
-
-    _toggleCheckbox: function(event)
-    {
-        this.checked = !this.checked;
-        this.dispatchEventToListeners(WebInspector.SwatchCheckbox.Events.Changed);
-    },
-
-    __proto__: WebInspector.Object.prototype
 }

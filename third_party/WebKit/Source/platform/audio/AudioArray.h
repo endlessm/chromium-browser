@@ -29,9 +29,9 @@
 #ifndef AudioArray_h
 #define AudioArray_h
 
-#include <string.h>
-#include "wtf/FastMalloc.h"
+#include "wtf/Partitions.h"
 #include "wtf/Vector.h"
+#include <string.h>
 
 namespace blink {
 
@@ -46,7 +46,7 @@ public:
 
     ~AudioArray()
     {
-        fastFree(m_allocation);
+        WTF::Partitions::fastFree(m_allocation);
     }
 
     // It's OK to call allocate() multiple times, but data will *not* be copied from an initial allocation
@@ -55,8 +55,7 @@ public:
     {
         // Although n is a size_t, its true limit is max unsigned because we use unsigned in zeroRange()
         // and copyToRange(). Also check for integer overflow.
-        if (n > std::numeric_limits<unsigned>::max() / sizeof(T))
-            CRASH();
+        RELEASE_ASSERT(n <= std::numeric_limits<unsigned>::max() / sizeof(T));
 
         unsigned initialSize = sizeof(T) * n;
 
@@ -67,7 +66,7 @@ public:
 #endif
 
         if (m_allocation)
-            fastFree(m_allocation);
+            WTF::Partitions::fastFree(m_allocation);
 
         bool isAllocationGood = false;
 
@@ -77,12 +76,11 @@ public:
             static size_t extraAllocationBytes = 0;
 
             // Again, check for integer overflow.
-            if (initialSize + extraAllocationBytes < initialSize)
-                CRASH();
+            RELEASE_ASSERT(initialSize + extraAllocationBytes >= initialSize);
 
-            T* allocation = static_cast<T*>(fastMalloc(initialSize + extraAllocationBytes));
-            if (!allocation)
-                CRASH();
+            T* allocation = static_cast<T*>(WTF::Partitions::fastMalloc(initialSize + extraAllocationBytes));
+            RELEASE_ASSERT(allocation);
+
             T* alignedData = alignedAddress(allocation, alignment);
 
             if (alignedData == allocation || extraAllocationBytes == alignment) {
@@ -93,7 +91,7 @@ public:
                 zero();
             } else {
                 extraAllocationBytes = alignment; // always allocate extra after the first alignment failure.
-                fastFree(allocation);
+                WTF::Partitions::fastFree(allocation);
             }
         }
     }

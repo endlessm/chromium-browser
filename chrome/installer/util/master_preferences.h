@@ -36,8 +36,6 @@ const char kDefaultMasterPrefs[] = "master_preferences";
 // {
 //   "distribution": {
 //      "alternate_shortcut_text": false,
-//      "auto_launch_chrome": false,
-//      "chrome_shortcut_icon_index": 0,
 //      "create_all_shortcuts": true,
 //      "import_bookmarks": false,
 //      "import_bookmarks_from_file": "c:\\path",
@@ -190,8 +188,9 @@ class MasterPreferences {
   // OTHER NOTE: Not thread safe.
   static const MasterPreferences& ForCurrentProcess();
 
- protected:
+ private:
   void InitializeFromCommandLine(const base::CommandLine& cmd_line);
+  void InitializeFromFilePath(const base::FilePath& prefs_path);
 
   // Initializes the instance from a given JSON string, returning true if the
   // string was successfully parsed.

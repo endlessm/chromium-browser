@@ -76,6 +76,7 @@ class TestHostClient : public MutatorHostClient {
   bool IsLayerInTree(int layer_id, LayerTreeType tree_type) const override;
 
   void SetMutatorsNeedCommit() override;
+  void SetMutatorsNeedRebuildPropertyTrees() override;
 
   void SetLayerFilterMutated(int layer_id,
                              LayerTreeType tree_type,
@@ -93,6 +94,11 @@ class TestHostClient : public MutatorHostClient {
       int layer_id,
       LayerTreeType tree_type,
       const gfx::ScrollOffset& scroll_offset) override;
+
+  void LayerTransformIsPotentiallyAnimatingChanged(int layer_id,
+                                                   LayerTreeType tree_type,
+                                                   bool is_animating) override {
+  }
 
   void ScrollOffsetAnimationFinished() override {}
   gfx::ScrollOffset GetScrollOffsetForAnimation(int layer_id) const override;
@@ -122,10 +128,6 @@ class TestHostClient : public MutatorHostClient {
                                       LayerTreeType tree_type,
                                       int transform_x,
                                       int transform_y) const;
-  void ExpectScrollOffsetPropertyMutated(
-      int layer_id,
-      LayerTreeType tree_type,
-      const gfx::ScrollOffset& scroll_offset) const;
 
   TestLayer* FindTestLayer(int layer_id, LayerTreeType tree_type) const;
 
@@ -160,6 +162,7 @@ class AnimationTimelinesTest : public testing::Test {
 
  protected:
   void SetUp() override;
+  void TearDown() override;
 
   void GetImplTimelineAndPlayerByID();
 

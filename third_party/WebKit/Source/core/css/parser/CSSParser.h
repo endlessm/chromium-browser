@@ -33,7 +33,7 @@ public:
     static void parseSelector(const CSSParserContext&, const String&, CSSSelectorList&);
     static bool parseDeclarationList(const CSSParserContext&, MutableStylePropertySet*, const String&);
     // Returns whether anything was changed.
-    static bool parseValue(MutableStylePropertySet*, CSSPropertyID unresolvedProperty, const String&, bool important, CSSParserMode, StyleSheetContents*);
+    static bool parseValue(MutableStylePropertySet*, CSSPropertyID unresolvedProperty, const String&, bool important, StyleSheetContents*);
 
     // This is for non-shorthands only
     static PassRefPtrWillBeRawPtr<CSSValue> parseSingleValue(CSSPropertyID, const String&, const CSSParserContext& = strictCSSParserContext());
@@ -49,8 +49,8 @@ public:
 
     // The color will only be changed when string contains a valid CSS color, so callers
     // can set it to a default color and ignore the boolean result.
-    static bool parseColor(RGBA32& color, const String&, bool strict = false);
-    static bool parseSystemColor(RGBA32& color, const String&);
+    static bool parseColor(Color&, const String&, bool strict = false);
+    static bool parseSystemColor(Color&, const String&);
 
     static void parseSheetForInspector(const CSSParserContext&, StyleSheetContents*, const String&, CSSParserObserver&);
     static void parseDeclarationListForInspector(const CSSParserContext&, const String&, CSSParserObserver&);

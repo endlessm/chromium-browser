@@ -19,6 +19,7 @@
 #include "extensions/browser/extension_registry.h"
 #include "extensions/browser/process_map.h"
 #include "extensions/common/switches.h"
+#include "net/base/escape.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_request.h"
@@ -101,7 +102,8 @@ scoped_ptr<net::test_server::HttpResponse> HandleExpectAndSetCookieRequest(
 class IsolatedAppTest : public ExtensionBrowserTest {
  public:
   // Returns whether the given tab's current URL has the given cookie.
-  bool WARN_UNUSED_RESULT HasCookie(WebContents* contents, std::string cookie) {
+  bool WARN_UNUSED_RESULT HasCookie(WebContents* contents,
+                                    const std::string& cookie) {
     int value_size;
     std::string actual_cookie;
     ui_test_utils::GetCookies(contents->GetURL(), contents, &value_size,

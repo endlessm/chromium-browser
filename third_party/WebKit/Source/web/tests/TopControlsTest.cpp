@@ -31,6 +31,7 @@
 #include "core/frame/TopControls.h"
 
 #include "core/frame/FrameHost.h"
+#include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
 #include "core/layout/LayoutView.h"
 #include "core/page/Page.h"
@@ -95,6 +96,7 @@ public:
     {
         WebGestureEvent event;
         event.type = type;
+        event.sourceDevice = WebGestureDeviceTouchscreen;
         event.x = 100;
         event.y = 100;
         if (type == WebInputEvent::GestureScrollUpdate) {
@@ -113,17 +115,11 @@ public:
 
     WebViewImpl* webViewImpl() const { return m_helper.webViewImpl(); }
     LocalFrame* frame() const { return m_helper.webViewImpl()->mainFrameImpl()->frame(); }
-    PinchViewport& pinchViewport() const { return m_helper.webViewImpl()->page()->frameHost().pinchViewport(); }
+    VisualViewport& visualViewport() const { return m_helper.webViewImpl()->page()->frameHost().visualViewport(); }
 
 private:
     std::string m_baseURL;
     FrameTestHelpers::WebViewHelper m_helper;
-
-    // To prevent platform differences in content layout, use mock
-    // scrollbars. This is especially needed for Mac, where the presence
-    // or absence of a mouse will change frame sizes because of different
-    // scrollbar themes.
-    FrameTestHelpers::UseMockScrollbarSettings m_useMockScrollbars;
 };
 
 #define EXPECT_POINT_EQ(expected, actual)               \
@@ -476,28 +472,28 @@ TEST_F(TopControlsTest, MAYBE(ScrollUpPastLimitDoesNotHide))
     // Initialize top controls to be shown
     webView->setTopControlsHeight(50.f, true);
     webView->topControls().setShownRatio(1);
-    // Use 2x scale so that both pinch viewport and frameview are scrollable
+    // Use 2x scale so that both visual viewport and frameview are scrollable
     webView->setPageScaleFactor(2.0);
 
-    // Fully scroll frameview but pinchviewport remains scrollable
+    // Fully scroll frameview but visualviewport remains scrollable
     webView->mainFrame()->setScrollOffset(WebSize(0, 10000));
-    pinchViewport().setLocation(FloatPoint(0, 0));
+    visualViewport().setLocation(FloatPoint(0, 0));
     verticalScroll(-10.f);
     EXPECT_FLOAT_EQ(40, webView->topControls().contentOffset());
 
     webView->topControls().setShownRatio(1);
-    // Fully scroll pinch veiwport but frameview remains scrollable
+    // Fully scroll visual veiwport but frameview remains scrollable
     webView->mainFrame()->setScrollOffset(WebSize(0, 0));
-    pinchViewport().setLocation(FloatPoint(0, 10000));
+    visualViewport().setLocation(FloatPoint(0, 10000));
     verticalScroll(-20.f);
     EXPECT_FLOAT_EQ(30, webView->topControls().contentOffset());
 
     webView->topControls().setShownRatio(1);
-    // Fully scroll both frameview and pinch viewort
+    // Fully scroll both frameview and visual viewport
     webView->mainFrame()->setScrollOffset(WebSize(0, 10000));
-    pinchViewport().setLocation(FloatPoint(0, 10000));
+    visualViewport().setLocation(FloatPoint(0, 10000));
     verticalScroll(-30.f);
-    // Top controls should not move because neither frameview nor pinch viewport
+    // Top controls should not move because neither frameview nor visual viewport
     // are scrollable
     EXPECT_FLOAT_EQ(50.f, webView->topControls().contentOffset());
 }

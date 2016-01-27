@@ -4,7 +4,6 @@
 
 package org.chromium.net;
 
-import android.content.Context;
 import android.os.Build;
 import android.os.ConditionVariable;
 import android.os.Handler;
@@ -12,21 +11,33 @@ import android.os.Looper;
 import android.os.Process;
 import android.util.Log;
 
-import org.chromium.base.CalledByNative;
-import org.chromium.base.JNINamespace;
-import org.chromium.base.NativeClassQualifiedName;
+import org.chromium.base.ObserverList;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.JNINamespace;
+import org.chromium.base.annotations.NativeClassQualifiedName;
 import org.chromium.base.annotations.UsedByReflection;
+import org.chromium.net.urlconnection.CronetHttpURLConnection;
+import org.chromium.net.urlconnection.CronetURLStreamHandlerFactory;
 
+import java.net.Proxy;
+import java.net.URL;
+import java.net.URLConnection;
+import java.net.URLStreamHandlerFactory;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.annotation.concurrent.GuardedBy;
+
 /**
- * UrlRequest context using Chromium HTTP stack implementation.
+ * CronetEngine using Chromium HTTP stack implementation.
  */
 @JNINamespace("cronet")
-@UsedByReflection("UrlRequestContext.java")
-public class CronetUrlRequestContext extends UrlRequestContext  {
+@UsedByReflection("CronetEngine.java")
+class CronetUrlRequestContext extends CronetEngine {
     private static final int LOG_NONE = 3;  // LOG(FATAL), no VLOG.
     private static final int LOG_DEBUG = -1;  // LOG(FATAL...INFO), VLOG(1)
     private static final int LOG_VERBOSE = -2;  // LOG(FATAL...INFO), VLOG(2)
@@ -42,12 +53,27 @@ public class CronetUrlRequestContext extends UrlRequestContext  {
     private long mUrlRequestContextAdapter = 0;
     private Thread mNetworkThread;
 
-    @UsedByReflection("UrlRequestContext.java")
-    public CronetUrlRequestContext(Context context,
-                                   UrlRequestContextConfig config) {
-        CronetLibraryLoader.ensureInitialized(context, config);
+    private Executor mNetworkQualityExecutor;
+    private boolean mNetworkQualityEstimatorEnabled;
+
+    /** Locks operations on network quality listeners, because listener
+     * addition and removal may occur on a different thread from notification.
+     */
+    private final Object mNetworkQualityLock = new Object();
+
+    @GuardedBy("mNetworkQualityLock")
+    private final ObserverList<NetworkQualityRttListener> mRttListenerList =
+            new ObserverList<NetworkQualityRttListener>();
+
+    @GuardedBy("mNetworkQualityLock")
+    private final ObserverList<NetworkQualityThroughputListener> mThroughputListenerList =
+            new ObserverList<NetworkQualityThroughputListener>();
+
+    @UsedByReflection("CronetEngine.java")
+    public CronetUrlRequestContext(CronetEngine.Builder builder) {
+        CronetLibraryLoader.ensureInitialized(builder.getContext(), builder);
         nativeSetMinLogLevel(getLoggingLevel());
-        mUrlRequestContextAdapter = nativeCreateRequestContextAdapter(config.toString());
+        mUrlRequestContextAdapter = nativeCreateRequestContextAdapter(builder.toJSONString());
         if (mUrlRequestContextAdapter == 0) {
             throw new NullPointerException("Context Adapter creation failed.");
         }
@@ -73,23 +99,28 @@ public class CronetUrlRequestContext extends UrlRequestContext  {
     }
 
     @Override
-    public UrlRequest createRequest(String url, UrlRequestListener listener,
-                                    Executor executor) {
+    public UrlRequest createRequest(String url, UrlRequest.Callback callback, Executor executor) {
         synchronized (mLock) {
             checkHaveAdapter();
             return new CronetUrlRequest(this, mUrlRequestContextAdapter, url,
-                    UrlRequest.REQUEST_PRIORITY_MEDIUM, listener, executor);
+                    UrlRequest.Builder.REQUEST_PRIORITY_MEDIUM, callback, executor);
         }
     }
 
     @Override
-    public UrlRequest createRequest(String url, UrlRequestListener listener,
-                                    Executor executor, int priority) {
+    public UrlRequest createRequest(
+            String url, UrlRequest.Callback callback, Executor executor, int priority) {
         synchronized (mLock) {
             checkHaveAdapter();
-            return new CronetUrlRequest(this, mUrlRequestContextAdapter, url,
-                    priority, listener, executor);
+            return new CronetUrlRequest(
+                    this, mUrlRequestContextAdapter, url, priority, callback, executor);
         }
+    }
+
+    @Override
+    BidirectionalStream createBidirectionalStream(String url, BidirectionalStream.Callback callback,
+            Executor executor, String httpMethod, List<Map.Entry<String, String>> requestHeaders) {
+        throw new UnsupportedOperationException();
     }
 
     @Override
@@ -148,6 +179,123 @@ public class CronetUrlRequestContext extends UrlRequestContext  {
         }
     }
 
+    // This method is intentionally non-static to ensure Cronet native library
+    // is loaded by class constructor.
+    @Override
+    public byte[] getGlobalMetricsDeltas() {
+        return nativeGetHistogramDeltas();
+    }
+
+    @Override
+    public void enableNetworkQualityEstimator(Executor executor) {
+        enableNetworkQualityEstimatorForTesting(false, false, executor);
+    }
+
+    @VisibleForTesting
+    @Override
+    void enableNetworkQualityEstimatorForTesting(
+            boolean useLocalHostRequests, boolean useSmallerResponses, Executor executor) {
+        if (mNetworkQualityEstimatorEnabled) {
+            throw new IllegalStateException("Network quality estimator already enabled");
+        }
+        mNetworkQualityEstimatorEnabled = true;
+        if (executor == null) {
+            throw new NullPointerException("Network quality estimator requires an executor");
+        }
+        mNetworkQualityExecutor = executor;
+        synchronized (mLock) {
+            checkHaveAdapter();
+            nativeEnableNetworkQualityEstimator(
+                    mUrlRequestContextAdapter, useLocalHostRequests, useSmallerResponses);
+        }
+    }
+
+    @Override
+    public void addRttListener(NetworkQualityRttListener listener) {
+        if (!mNetworkQualityEstimatorEnabled) {
+            throw new IllegalStateException("Network quality estimator must be enabled");
+        }
+        synchronized (mNetworkQualityLock) {
+            if (mRttListenerList.isEmpty()) {
+                synchronized (mLock) {
+                    checkHaveAdapter();
+                    nativeProvideRTTObservations(mUrlRequestContextAdapter, true);
+                }
+            }
+            mRttListenerList.addObserver(listener);
+        }
+    }
+
+    @Override
+    public void removeRttListener(NetworkQualityRttListener listener) {
+        if (!mNetworkQualityEstimatorEnabled) {
+            throw new IllegalStateException("Network quality estimator must be enabled");
+        }
+        synchronized (mNetworkQualityLock) {
+            mRttListenerList.removeObserver(listener);
+            if (mRttListenerList.isEmpty()) {
+                synchronized (mLock) {
+                    checkHaveAdapter();
+                    nativeProvideRTTObservations(mUrlRequestContextAdapter, false);
+                }
+            }
+        }
+    }
+
+    @Override
+    public void addThroughputListener(NetworkQualityThroughputListener listener) {
+        if (!mNetworkQualityEstimatorEnabled) {
+            throw new IllegalStateException("Network quality estimator must be enabled");
+        }
+        synchronized (mNetworkQualityLock) {
+            if (mThroughputListenerList.isEmpty()) {
+                synchronized (mLock) {
+                    checkHaveAdapter();
+                    nativeProvideThroughputObservations(mUrlRequestContextAdapter, true);
+                }
+            }
+            mThroughputListenerList.addObserver(listener);
+        }
+    }
+
+    @Override
+    public void removeThroughputListener(NetworkQualityThroughputListener listener) {
+        if (!mNetworkQualityEstimatorEnabled) {
+            throw new IllegalStateException("Network quality estimator must be enabled");
+        }
+        synchronized (mNetworkQualityLock) {
+            mThroughputListenerList.removeObserver(listener);
+            if (mThroughputListenerList.isEmpty()) {
+                synchronized (mLock) {
+                    checkHaveAdapter();
+                    nativeProvideThroughputObservations(mUrlRequestContextAdapter, false);
+                }
+            }
+        }
+    }
+
+    @Override
+    public URLConnection openConnection(URL url) {
+        return openConnection(url, Proxy.NO_PROXY);
+    }
+
+    @Override
+    public URLConnection openConnection(URL url, Proxy proxy) {
+        if (proxy.type() != Proxy.Type.DIRECT) {
+            throw new UnsupportedOperationException();
+        }
+        String protocol = url.getProtocol();
+        if ("http".equals(protocol) || "https".equals(protocol)) {
+            return new CronetHttpURLConnection(url, this);
+        }
+        throw new UnsupportedOperationException("Unexpected protocol:" + protocol);
+    }
+
+    @Override
+    public URLStreamHandlerFactory createURLStreamHandlerFactory() {
+        return new CronetURLStreamHandlerFactory(this);
+    }
+
     /**
      * Mark request as started to prevent shutdown when there are active
      * requests.
@@ -174,7 +322,7 @@ public class CronetUrlRequestContext extends UrlRequestContext  {
 
     private void checkHaveAdapter() throws IllegalStateException {
         if (!haveRequestContextAdapter()) {
-            throw new IllegalStateException("Context is shut down.");
+            throw new IllegalStateException("Engine is shut down.");
         }
     }
 
@@ -209,10 +357,54 @@ public class CronetUrlRequestContext extends UrlRequestContext  {
         Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
     }
 
-    // Native methods are implemented in cronet_url_request_context.cc.
+    @SuppressWarnings("unused")
+    @CalledByNative
+    private void onRttObservation(final int rttMs, final long whenMs, final int source) {
+        Runnable task = new Runnable() {
+            @Override
+            public void run() {
+                synchronized (mNetworkQualityLock) {
+                    for (NetworkQualityRttListener listener : mRttListenerList) {
+                        listener.onRttObservation(rttMs, whenMs, source);
+                    }
+                }
+            }
+        };
+        postObservationTaskToNetworkQualityExecutor(task);
+    }
+
+    @SuppressWarnings("unused")
+    @CalledByNative
+    private void onThroughputObservation(
+            final int throughputKbps, final long whenMs, final int source) {
+        Runnable task = new Runnable() {
+            @Override
+            public void run() {
+                synchronized (mNetworkQualityLock) {
+                    for (NetworkQualityThroughputListener listener : mThroughputListenerList) {
+                        listener.onThroughputObservation(throughputKbps, whenMs, source);
+                    }
+                }
+            }
+        };
+        postObservationTaskToNetworkQualityExecutor(task);
+    }
+
+    void postObservationTaskToNetworkQualityExecutor(Runnable task) {
+        try {
+            mNetworkQualityExecutor.execute(task);
+        } catch (RejectedExecutionException failException) {
+            Log.e(CronetUrlRequestContext.LOG_TAG, "Exception posting task to executor",
+                    failException);
+        }
+    }
+
+    // Native methods are implemented in cronet_url_request_context_adapter.cc.
     private static native long nativeCreateRequestContextAdapter(String config);
 
     private static native int nativeSetMinLogLevel(int loggingLevel);
+
+    private static native byte[] nativeGetHistogramDeltas();
 
     @NativeClassQualifiedName("CronetURLRequestContextAdapter")
     private native void nativeDestroy(long nativePtr);
@@ -226,4 +418,14 @@ public class CronetUrlRequestContext extends UrlRequestContext  {
 
     @NativeClassQualifiedName("CronetURLRequestContextAdapter")
     private native void nativeInitRequestContextOnMainThread(long nativePtr);
+
+    @NativeClassQualifiedName("CronetURLRequestContextAdapter")
+    private native void nativeEnableNetworkQualityEstimator(
+            long nativePtr, boolean useLocalHostRequests, boolean useSmallerResponses);
+
+    @NativeClassQualifiedName("CronetURLRequestContextAdapter")
+    private native void nativeProvideRTTObservations(long nativePtr, boolean should);
+
+    @NativeClassQualifiedName("CronetURLRequestContextAdapter")
+    private native void nativeProvideThroughputObservations(long nativePtr, boolean should);
 }

@@ -1,5 +1,3 @@
-
-
 /*
 `<iron-input>` adds two-way binding and custom validators using `Polymer.IronValidatorBehavior`
 to `<input>`.
@@ -28,7 +26,7 @@ It may be desirable to only allow users to enter certain characters. You can use
 is separate from validation, and `allowed-pattern` does not affect how the input is validated.
 
     <!-- only allow characters that match [0-9] -->
-    <input is="iron-input" prevent-invaild-input allowed-pattern="[0-9]">
+    <input is="iron-input" prevent-invalid-input allowed-pattern="[0-9]">
 
 @hero hero.svg
 @demo demo/index.html
@@ -107,9 +105,12 @@ is separate from validation, and `allowed-pattern` does not affect how the input
       this.bindValue = this.value;
     },
 
+    /**
+     * @suppress {checkTypes}
+     */
     _bindValueChanged: function() {
       if (this.value !== this.bindValue) {
-        this.value = !this.bindValue ? '' : this.bindValue;
+        this.value = !(this.bindValue || this.bindValue === 0) ? '' : this.bindValue;
       }
       // manually notify because we don't want to notify until after setting value
       this.fire('bind-value-changed', {value: this.bindValue});
@@ -141,11 +142,17 @@ is separate from validation, and `allowed-pattern` does not affect how the input
       //   always matches the charCode.
       // None of this makes any sense.
 
-      var nonPrintable =
+      // For these keys, ASCII code == browser keycode.
+      var anyNonPrintable =
         (event.keyCode == 8)   ||  // backspace
+        (event.keyCode == 9)   ||  // tab
+        (event.keyCode == 13)  ||  // enter
+        (event.keyCode == 27);     // escape
+
+      // For these keys, make sure it's a browser keycode and not an ASCII code.
+      var mozNonPrintable =
         (event.keyCode == 19)  ||  // pause
         (event.keyCode == 20)  ||  // caps lock
-        (event.keyCode == 27)  ||  // escape
         (event.keyCode == 45)  ||  // insert
         (event.keyCode == 46)  ||  // delete
         (event.keyCode == 144) ||  // num lock
@@ -153,7 +160,7 @@ is separate from validation, and `allowed-pattern` does not affect how the input
         (event.keyCode > 32 && event.keyCode < 41)   || // page up/down, end, home, arrows
         (event.keyCode > 111 && event.keyCode < 124); // fn keys
 
-      return !(event.charCode == 0 && nonPrintable);
+      return !anyNonPrintable && !(event.charCode == 0 && mozNonPrintable);
     },
 
     _onKeypress: function(event) {
@@ -220,4 +227,3 @@ is separate from validation, and `allowed-pattern` does not affect how the input
   The `iron-input-validate` event is fired whenever `validate()` is called.
   @event iron-input-validate
   */
-

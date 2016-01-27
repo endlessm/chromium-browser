@@ -14,7 +14,7 @@
 #include "extensions/common/cast/cast_cert_validator.h"
 
 namespace extensions {
-namespace core_api {
+namespace api {
 namespace cast_channel {
 namespace {
 
@@ -23,7 +23,7 @@ const char* const kParseErrorPrefix = "Failed to parse auth message: ";
 const unsigned char kAudioOnlyPolicy[] =
     {0x06, 0x0A, 0x2B, 0x06, 0x01, 0x04, 0x01, 0xD6, 0x79, 0x02, 0x05, 0x02};
 
-namespace cast_crypto = ::extensions::core_api::cast_crypto;
+namespace cast_crypto = ::extensions::api::cast_crypto;
 
 // Extracts an embedded DeviceAuthMessage payload from an auth challenge reply
 // message.
@@ -64,7 +64,6 @@ AuthResult TranslateVerificationResult(
     const cast_crypto::VerificationResult& result) {
   AuthResult translated;
   translated.error_message = result.error_message;
-  translated.nss_error_code = result.library_error_code;
   switch (result.error_type) {
     case cast_crypto::VerificationResult::ERROR_NONE:
       translated.error_type = AuthResult::ERROR_NONE;
@@ -90,8 +89,10 @@ AuthResult TranslateVerificationResult(
 }  // namespace
 
 AuthResult::AuthResult()
-    : error_type(ERROR_NONE), nss_error_code(0), channel_policies(POLICY_NONE) {
-}
+    : error_type(ERROR_NONE), channel_policies(POLICY_NONE) {}
+
+AuthResult::AuthResult(const std::string& error_message, ErrorType error_type)
+    : error_message(error_message), error_type(error_type) {}
 
 AuthResult::~AuthResult() {
 }
@@ -99,22 +100,7 @@ AuthResult::~AuthResult() {
 // static
 AuthResult AuthResult::CreateWithParseError(const std::string& error_message,
                                             ErrorType error_type) {
-  return AuthResult(kParseErrorPrefix + error_message, error_type, 0);
-}
-
-// static
-AuthResult AuthResult::CreateWithNSSError(const std::string& error_message,
-                                          ErrorType error_type,
-                                          int nss_error_code) {
-  return AuthResult(error_message, error_type, nss_error_code);
-}
-
-AuthResult::AuthResult(const std::string& error_message,
-                       ErrorType error_type,
-                       int nss_error_code)
-    : error_message(error_message),
-      error_type(error_type),
-      nss_error_code(nss_error_code) {
+  return AuthResult(kParseErrorPrefix + error_message, error_type);
 }
 
 AuthResult AuthenticateChallengeReply(const CastMessage& challenge_reply,
@@ -174,5 +160,5 @@ AuthResult VerifyCredentials(const AuthResponse& response,
 }
 
 }  // namespace cast_channel
-}  // namespace core_api
+}  // namespace api
 }  // namespace extensions

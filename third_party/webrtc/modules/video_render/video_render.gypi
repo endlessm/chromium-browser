@@ -25,8 +25,8 @@
         'external/video_render_external_impl.cc',
         'external/video_render_external_impl.h',
         'i_video_render.h',
-        'include/video_render.h',
-        'include/video_render_defines.h',
+        'video_render.h',
+        'video_render_defines.h',
         'video_render_impl.h',
       ],
     },
@@ -197,25 +197,6 @@
           ] # conditions
         }, # video_render_module_test
       ], # targets
-      'conditions': [
-        ['test_isolation_mode != "noop"', {
-          'targets': [
-            {
-              'target_name': 'video_render_tests_run',
-              'type': 'none',
-              'dependencies': [
-                'video_render_tests',
-              ],
-              'includes': [
-                '../../build/isolate.gypi',
-              ],
-              'sources': [
-                'video_render_tests.isolate',
-              ],
-            },
-          ],
-        }],
-      ],
     }], # include_tests==1
   ], # conditions
 }

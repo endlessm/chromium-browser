@@ -25,13 +25,13 @@
 #include "chrome/browser/signin/oauth2_token_service_delegate_android.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
-#include "chrome/common/pref_names.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/browser/signin_metrics.h"
 #include "components/signin/core/common/profile_management_switches.h"
+#include "components/signin/core/common/signin_pref_names.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "jni/SigninManager_jni.h"
 
@@ -104,7 +104,9 @@ void SigninManagerAndroid::CheckPolicyBeforeSignIn(JNIEnv* env,
   policy::UserPolicySigninService* service =
       policy::UserPolicySigninServiceFactory::GetForProfile(profile_);
   service->RegisterForPolicy(
-      base::android::ConvertJavaStringToUTF8(env, username),
+      username_, AccountTrackerServiceFactory::GetForProfile(profile_)
+                     ->FindAccountInfoByEmail(username_)
+                     .account_id,
       base::Bind(&SigninManagerAndroid::OnPolicyRegisterDone,
                  weak_factory_.GetWeakPtr()));
 #else
@@ -143,37 +145,8 @@ void SigninManagerAndroid::FetchPolicyBeforeSignIn(JNIEnv* env, jobject obj) {
 
 void SigninManagerAndroid::OnSignInCompleted(JNIEnv* env,
                                              jobject obj,
-                                             jstring username,
-                                             jobjectArray accountIds,
-                                             jobjectArray accountNames) {
+                                             jstring username) {
   DVLOG(1) << "SigninManagerAndroid::OnSignInCompleted";
-  // Seed the account tracker with id/email information if provided.
-  if (accountIds && accountNames) {
-    std::vector<std::string> gaia_ids;
-    std::vector<std::string> emails;
-    base::android::AppendJavaStringArrayToStringVector(env, accountIds,
-                                                       &gaia_ids);
-    base::android::AppendJavaStringArrayToStringVector(env, accountNames,
-                                                       &emails);
-    DCHECK_EQ(emails.size(), gaia_ids.size());
-    DVLOG(1) << "SigninManagerAndroid::OnSignInCompleted: seeding "
-             << emails.size() << " accounts";
-
-    AccountTrackerService* tracker =
-        AccountTrackerServiceFactory::GetForProfile(profile_);
-    for (size_t i = 0; i < emails.size(); ++i) {
-      DVLOG(1) << "SigninManagerAndroid::OnSignInCompleted: seeding"
-               << " gaia_id=" << gaia_ids[i]
-               << " email=" << emails[i];
-      if (!gaia_ids[i].empty() && !emails[i].empty())
-        tracker->SeedAccountInfo(gaia_ids[i], emails[i]);
-    }
-  } else {
-    DVLOG(1) << "SigninManagerAndroid::OnSignInCompleted: missing ids/email"
-             << " ids=" << (void*) accountIds
-             << " emails=" << (void*) accountNames;
-  }
-
   SigninManagerFactory::GetForProfile(profile_)->OnExternalSigninCompleted(
       base::android::ConvertJavaStringToUTF8(env, username));
 }
@@ -290,15 +263,16 @@ void SigninManagerAndroid::OnSigninAllowedPrefChanged() {
       SigninManagerFactory::GetForProfile(profile_)->IsSigninAllowed());
 }
 
-static jlong Init(JNIEnv* env, jobject obj) {
+static jlong Init(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   SigninManagerAndroid* signin_manager_android =
       new SigninManagerAndroid(env, obj);
   return reinterpret_cast<intptr_t>(signin_manager_android);
 }
 
-static jboolean ShouldLoadPolicyForUser(JNIEnv* env,
-                                        jobject obj,
-                                        jstring j_username) {
+static jboolean ShouldLoadPolicyForUser(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& j_username) {
 #if defined(ENABLE_CONFIGURATION_POLICY)
   std::string username =
       base::android::ConvertJavaStringToUTF8(env, j_username);

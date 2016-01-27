@@ -14,7 +14,7 @@
 #include <stdio.h>
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module.h"
 #include "webrtc/modules/audio_coding/neteq/tools/audio_sink.h"
 #include "webrtc/modules/audio_coding/neteq/tools/packet.h"
 #include "webrtc/modules/audio_coding/neteq/tools/packet_source.h"
@@ -47,7 +47,6 @@ bool ModifyAndUseThisCodec(CodecInst* codec_param) {
 // iLBC = 102
 // iSAC wideband = 103
 // iSAC super-wideband = 104
-// iSAC fullband = 124
 // AVT/DTMF = 106
 // RED = 117
 // PCM16b 8 kHz = 93
@@ -78,8 +77,6 @@ bool RemapPltypeAndUseThisCodec(const char* plname,
     *pltype = 103;
   } else if (STR_CASE_CMP(plname, "ISAC") == 0 && plfreq == 32000) {
     *pltype = 104;
-  } else if (STR_CASE_CMP(plname, "ISAC") == 0 && plfreq == 48000) {
-    *pltype = 124;
   } else if (STR_CASE_CMP(plname, "telephone-event") == 0) {
     *pltype = 106;
   } else if (STR_CASE_CMP(plname, "red") == 0) {
@@ -143,6 +140,15 @@ void AcmReceiveTestOldApi::RegisterNetEqTestCodecs() {
   }
 }
 
+int AcmReceiveTestOldApi::RegisterExternalReceiveCodec(
+    int rtp_payload_type,
+    AudioDecoder* external_decoder,
+    int sample_rate_hz,
+    int num_channels) {
+  return acm_->RegisterExternalReceiveCodec(rtp_payload_type, external_decoder,
+                                            sample_rate_hz, num_channels);
+}
+
 void AcmReceiveTestOldApi::Run() {
   for (rtc::scoped_ptr<Packet> packet(packet_source_->NextPacket()); packet;
        packet.reset(packet_source_->NextPacket())) {
@@ -151,7 +157,8 @@ void AcmReceiveTestOldApi::Run() {
       AudioFrame output_frame;
       EXPECT_EQ(0, acm_->PlayoutData10Ms(output_freq_hz_, &output_frame));
       EXPECT_EQ(output_freq_hz_, output_frame.sample_rate_hz_);
-      const int samples_per_block = output_freq_hz_ * 10 / 1000;
+      const size_t samples_per_block =
+          static_cast<size_t>(output_freq_hz_ * 10 / 1000);
       EXPECT_EQ(samples_per_block, output_frame.samples_per_channel_);
       if (exptected_output_channels_ != kArbitraryChannels) {
         if (output_frame.speech_type_ == webrtc::AudioFrame::kPLC) {

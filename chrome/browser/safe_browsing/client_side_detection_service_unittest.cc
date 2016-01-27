@@ -38,7 +38,7 @@ namespace {
 
 class MockModelLoader : public ModelLoader {
  public:
-  explicit MockModelLoader(const std::string model_name)
+  explicit MockModelLoader(const std::string& model_name)
       : ModelLoader(base::Closure(), model_name) {}
   ~MockModelLoader() override {}
 
@@ -236,7 +236,7 @@ class ClientSideDetectionServiceTest : public testing::Test {
   void SendRequestDone(GURL phishing_url, bool is_phishing) {
     ASSERT_EQ(phishing_url, phishing_url_);
     is_phishing_ = is_phishing;
-    msg_loop_.Quit();
+    msg_loop_.QuitWhenIdle();
   }
 
   void SendMalwareRequestDone(GURL original_url, GURL malware_url,
@@ -244,7 +244,7 @@ class ClientSideDetectionServiceTest : public testing::Test {
     ASSERT_EQ(phishing_url_, original_url);
     confirmed_malware_url_ = malware_url;
     is_malware_ = is_malware;
-    msg_loop_.Quit();
+    msg_loop_.QuitWhenIdle();
   }
 
   scoped_ptr<content::TestBrowserThread> browser_thread_;

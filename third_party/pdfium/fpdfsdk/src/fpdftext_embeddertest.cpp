@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "../../public/fpdf_text.h"
-#include "../../public/fpdfview.h"
-#include "../../testing/embedder_test.h"
+#include "public/fpdf_text.h"
+#include "public/fpdfview.h"
+#include "testing/embedder_test.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 namespace {
@@ -25,11 +25,10 @@ static bool check_unsigned_shorts(const char* expected,
 
 }  // namespace
 
-class FPDFTextEmbeddertest : public EmbedderTest {
-};
+class FPDFTextEmbeddertest : public EmbedderTest {};
 
 TEST_F(FPDFTextEmbeddertest, Text) {
-  EXPECT_TRUE(OpenDocument("testing/resources/hello_world.pdf"));
+  EXPECT_TRUE(OpenDocument("hello_world.pdf"));
   FPDF_PAGE page = LoadPage(0);
   EXPECT_NE(nullptr, page);
 
@@ -41,13 +40,17 @@ TEST_F(FPDFTextEmbeddertest, Text) {
   memset(fixed_buffer, 0xbd, sizeof(fixed_buffer));
 
   // Check includes the terminating NUL that is provided.
-  EXPECT_EQ(sizeof(expected), FPDFText_GetText(textpage, 0, 128, fixed_buffer));
+  int num_chars = FPDFText_GetText(textpage, 0, 128, fixed_buffer);
+  ASSERT_GE(num_chars, 0);
+  EXPECT_EQ(sizeof(expected), static_cast<size_t>(num_chars));
   EXPECT_TRUE(check_unsigned_shorts(expected, fixed_buffer, sizeof(expected)));
 
   // Count does not include the terminating NUL in the string literal.
   EXPECT_EQ(sizeof(expected) - 1, FPDFText_CountChars(textpage));
   for (size_t i = 0; i < sizeof(expected) - 1; ++i) {
-    EXPECT_EQ(expected[i], FPDFText_GetUnicode(textpage, i)) << " at " << i;
+    EXPECT_EQ(static_cast<unsigned int>(expected[i]),
+              FPDFText_GetUnicode(textpage, i))
+        << " at " << i;
   }
 
   EXPECT_EQ(12.0, FPDFText_GetFontSize(textpage, 0));
@@ -63,18 +66,14 @@ TEST_F(FPDFTextEmbeddertest, Text) {
   EXPECT_NEAR(49.844, bottom, 0.001);
   EXPECT_NEAR(55.520, top, 0.001);
 
-  EXPECT_EQ(4, FPDFText_GetCharIndexAtPos(
-      textpage, 42.0, 50.0, 1.0, 1.0));
-  EXPECT_EQ(-1, FPDFText_GetCharIndexAtPos(
-      textpage, 0.0, 0.0, 1.0, 1.0));
-  EXPECT_EQ(-1, FPDFText_GetCharIndexAtPos(
-      textpage, 199.0, 199.0, 1.0, 1.0));
+  EXPECT_EQ(4, FPDFText_GetCharIndexAtPos(textpage, 42.0, 50.0, 1.0, 1.0));
+  EXPECT_EQ(-1, FPDFText_GetCharIndexAtPos(textpage, 0.0, 0.0, 1.0, 1.0));
+  EXPECT_EQ(-1, FPDFText_GetCharIndexAtPos(textpage, 199.0, 199.0, 1.0, 1.0));
 
   // Test out of range indicies.
-  EXPECT_EQ(-1, FPDFText_GetCharIndexAtPos(
-      textpage, 42.0, 10000000.0, 1.0, 1.0));
-  EXPECT_EQ(-1, FPDFText_GetCharIndexAtPos(
-      textpage, -1.0, 50.0, 1.0, 1.0));
+  EXPECT_EQ(-1,
+            FPDFText_GetCharIndexAtPos(textpage, 42.0, 10000000.0, 1.0, 1.0));
+  EXPECT_EQ(-1, FPDFText_GetCharIndexAtPos(textpage, -1.0, 50.0, 1.0, 1.0));
 
   // Count does not include the terminating NUL in the string literal.
   EXPECT_EQ(2, FPDFText_CountRects(textpage, 0, sizeof(expected) - 1));
@@ -110,25 +109,24 @@ TEST_F(FPDFTextEmbeddertest, Text) {
   EXPECT_EQ(0.0, bottom);
   EXPECT_EQ(0.0, top);
 
-  EXPECT_EQ(9, FPDFText_GetBoundedText(
-      textpage, 41.0, 56.0, 82.0, 48.0, 0, 0));
+  EXPECT_EQ(9, FPDFText_GetBoundedText(textpage, 41.0, 56.0, 82.0, 48.0, 0, 0));
 
   // Extract starting at character 4 as above.
   memset(fixed_buffer, 0xbd, sizeof(fixed_buffer));
-  EXPECT_EQ(1, FPDFText_GetBoundedText(
-      textpage, 41.0, 56.0, 82.0, 48.0, fixed_buffer, 1));
+  EXPECT_EQ(1, FPDFText_GetBoundedText(textpage, 41.0, 56.0, 82.0, 48.0,
+                                       fixed_buffer, 1));
   EXPECT_TRUE(check_unsigned_shorts(expected + 4, fixed_buffer, 1));
   EXPECT_EQ(0xbdbd, fixed_buffer[1]);
 
   memset(fixed_buffer, 0xbd, sizeof(fixed_buffer));
-  EXPECT_EQ(9, FPDFText_GetBoundedText(
-      textpage, 41.0, 56.0, 82.0, 48.0, fixed_buffer, 9));
+  EXPECT_EQ(9, FPDFText_GetBoundedText(textpage, 41.0, 56.0, 82.0, 48.0,
+                                       fixed_buffer, 9));
   EXPECT_TRUE(check_unsigned_shorts(expected + 4, fixed_buffer, 9));
   EXPECT_EQ(0xbdbd, fixed_buffer[9]);
 
   memset(fixed_buffer, 0xbd, sizeof(fixed_buffer));
-  EXPECT_EQ(10, FPDFText_GetBoundedText(
-      textpage, 41.0, 56.0, 82.0, 48.0, fixed_buffer, 128));
+  EXPECT_EQ(10, FPDFText_GetBoundedText(textpage, 41.0, 56.0, 82.0, 48.0,
+                                        fixed_buffer, 128));
   EXPECT_TRUE(check_unsigned_shorts(expected + 4, fixed_buffer, 9));
   EXPECT_EQ(0u, fixed_buffer[9]);
   EXPECT_EQ(0xbdbd, fixed_buffer[10]);
@@ -138,7 +136,7 @@ TEST_F(FPDFTextEmbeddertest, Text) {
 }
 
 TEST_F(FPDFTextEmbeddertest, TextSearch) {
-  EXPECT_TRUE(OpenDocument("testing/resources/hello_world.pdf"));
+  EXPECT_TRUE(OpenDocument("hello_world.pdf"));
   FPDF_PAGE page = LoadPage(0);
   EXPECT_NE(nullptr, page);
 
@@ -146,10 +144,10 @@ TEST_F(FPDFTextEmbeddertest, TextSearch) {
   EXPECT_NE(nullptr, textpage);
 
   // Avoid issues with system wchar_t width vs. FPDF_WideString.
-  const unsigned short nope[] = { 'n', 'o', 'p', 'e', '\0' };
-  const unsigned short world[] = { 'w', 'o', 'r', 'l', 'd', '\0' };
-  const unsigned short world_caps[] = { 'W', 'O', 'R', 'L', 'D', '\0' };
-  const unsigned short world_substr[] = { 'o', 'r', 'l', 'd', '\0' };
+  const unsigned short nope[] = {'n', 'o', 'p', 'e', '\0'};
+  const unsigned short world[] = {'w', 'o', 'r', 'l', 'd', '\0'};
+  const unsigned short world_caps[] = {'W', 'O', 'R', 'L', 'D', '\0'};
+  const unsigned short world_substr[] = {'o', 'r', 'l', 'd', '\0'};
 
   // No occurences of "nope" in test page.
   FPDF_SCHHANDLE search = FPDFText_FindStart(textpage, nope, 0, 0);
@@ -203,8 +201,8 @@ TEST_F(FPDFTextEmbeddertest, TextSearch) {
   FPDFText_FindClose(search);
 
   // Exact search unaffected by case sensitiity and whole word flags.
-  search = FPDFText_FindStart(
-      textpage, world, FPDF_MATCHCASE | FPDF_MATCHWHOLEWORD, 0);
+  search = FPDFText_FindStart(textpage, world,
+                              FPDF_MATCHCASE | FPDF_MATCHWHOLEWORD, 0);
   EXPECT_NE(nullptr, search);
   EXPECT_TRUE(FPDFText_FindNext(search));
   EXPECT_EQ(7, FPDFText_GetSchResultIndex(search));
@@ -245,7 +243,7 @@ TEST_F(FPDFTextEmbeddertest, TextSearch) {
 
 // Test that the page has characters despite a bad stream length.
 TEST_F(FPDFTextEmbeddertest, StreamLengthPastEndOfFile) {
-  EXPECT_TRUE(OpenDocument("testing/resources/bug_57.pdf"));
+  EXPECT_TRUE(OpenDocument("bug_57.pdf"));
   FPDF_PAGE page = LoadPage(0);
   EXPECT_NE(nullptr, page);
 
@@ -258,7 +256,7 @@ TEST_F(FPDFTextEmbeddertest, StreamLengthPastEndOfFile) {
 }
 
 TEST_F(FPDFTextEmbeddertest, WebLinks) {
-  EXPECT_TRUE(OpenDocument("testing/resources/weblinks.pdf"));
+  EXPECT_TRUE(OpenDocument("weblinks.pdf"));
   FPDF_PAGE page = LoadPage(0);
   EXPECT_NE(nullptr, page);
 
@@ -293,27 +291,28 @@ TEST_F(FPDFTextEmbeddertest, WebLinks) {
 
   // Check buffer that doesn't have space for a terminating NUL.
   memset(fixed_buffer, 0xbd, sizeof(fixed_buffer));
-  EXPECT_EQ(sizeof(expected_url) - 1, FPDFLink_GetURL(
-      pagelink, 0, fixed_buffer, sizeof(expected_url) - 1));
-  EXPECT_TRUE(check_unsigned_shorts(
-      expected_url, fixed_buffer, sizeof(expected_url) - 1));
+  EXPECT_EQ(
+      sizeof(expected_url) - 1,
+      FPDFLink_GetURL(pagelink, 0, fixed_buffer, sizeof(expected_url) - 1));
+  EXPECT_TRUE(check_unsigned_shorts(expected_url, fixed_buffer,
+                                    sizeof(expected_url) - 1));
   EXPECT_EQ(0xbdbd, fixed_buffer[sizeof(expected_url) - 1]);
 
   // Retreive link with exactly-sized buffer.
   memset(fixed_buffer, 0xbd, sizeof(fixed_buffer));
-  EXPECT_EQ(sizeof(expected_url), FPDFLink_GetURL(
-      pagelink, 0, fixed_buffer, sizeof(expected_url)));
-  EXPECT_TRUE(check_unsigned_shorts(
-      expected_url, fixed_buffer, sizeof(expected_url)));
+  EXPECT_EQ(sizeof(expected_url),
+            FPDFLink_GetURL(pagelink, 0, fixed_buffer, sizeof(expected_url)));
+  EXPECT_TRUE(
+      check_unsigned_shorts(expected_url, fixed_buffer, sizeof(expected_url)));
   EXPECT_EQ(0u, fixed_buffer[sizeof(expected_url) - 1]);
   EXPECT_EQ(0xbdbd, fixed_buffer[sizeof(expected_url)]);
 
   // Retreive link with ample-sized-buffer.
   memset(fixed_buffer, 0xbd, sizeof(fixed_buffer));
-  EXPECT_EQ(sizeof(expected_url), FPDFLink_GetURL(
-      pagelink, 0, fixed_buffer, 128));
-  EXPECT_TRUE(check_unsigned_shorts(
-      expected_url, fixed_buffer, sizeof(expected_url)));
+  EXPECT_EQ(sizeof(expected_url),
+            FPDFLink_GetURL(pagelink, 0, fixed_buffer, 128));
+  EXPECT_TRUE(
+      check_unsigned_shorts(expected_url, fixed_buffer, sizeof(expected_url)));
   EXPECT_EQ(0u, fixed_buffer[sizeof(expected_url) - 1]);
   EXPECT_EQ(0xbdbd, fixed_buffer[sizeof(expected_url)]);
 

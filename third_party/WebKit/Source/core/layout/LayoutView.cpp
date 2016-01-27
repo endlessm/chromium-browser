@@ -24,27 +24,30 @@
 #include "core/dom/Document.h"
 #include "core/dom/Element.h"
 #include "core/editing/FrameSelection.h"
+#include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/Settings.h"
 #include "core/html/HTMLFrameOwnerElement.h"
 #include "core/html/HTMLIFrameElement.h"
+#include "core/html/HTMLVideoElement.h"
 #include "core/inspector/InspectorTraceEvents.h"
 #include "core/layout/HitTestResult.h"
 #include "core/layout/LayoutFlowThread.h"
 #include "core/layout/LayoutGeometryMap.h"
+#include "core/layout/LayoutMedia.h"
 #include "core/layout/LayoutPart.h"
 #include "core/layout/LayoutQuote.h"
 #include "core/layout/LayoutScrollbarPart.h"
-#include "core/layout/compositing/DeprecatedPaintLayerCompositor.h"
+#include "core/layout/compositing/PaintLayerCompositor.h"
 #include "core/page/Page.h"
-#include "core/paint/DeprecatedPaintLayer.h"
+#include "core/paint/PaintLayer.h"
 #include "core/paint/ViewPainter.h"
 #include "core/svg/SVGDocumentExtensions.h"
 #include "platform/TraceEvent.h"
 #include "platform/TracedValue.h"
 #include "platform/geometry/FloatQuad.h"
 #include "platform/geometry/TransformState.h"
-#include "platform/graphics/paint/DisplayItemList.h"
+#include "platform/graphics/paint/PaintController.h"
 #include <inttypes.h>
 
 namespace blink {
@@ -64,7 +67,6 @@ LayoutView::LayoutView(Document* document)
     , m_hitTestCount(0)
     , m_hitTestCacheHits(0)
     , m_hitTestCache(HitTestCache::create())
-    , m_pendingSelection(PendingSelection::create())
 {
     // init LayoutObject attributes
     setInline(false);
@@ -84,9 +86,10 @@ LayoutView::~LayoutView()
 bool LayoutView::hitTest(HitTestResult& result)
 {
     // We have to recursively update layout/style here because otherwise, when the hit test recurses
-    // into a child document, it could trigger a layout on the parent document, which can destroy DeprecatedPaintLayer
+    // into a child document, it could trigger a layout on the parent document, which can destroy PaintLayer
     // that are higher up in the call stack, leading to crashes.
     // Note that Document::updateLayout calls its parent's updateLayout.
+    DocumentLifecycle::PreventThrottlingScope preventThrottling(document().lifecycle());
     frameView()->updateLifecycleToCompositingCleanPlusScrolling();
     return hitTestNoLifecycleUpdate(result);
 }
@@ -102,37 +105,44 @@ bool LayoutView::hitTestNoLifecycleUpdate(HitTestResult& result)
 
     uint64_t domTreeVersion = document().domTreeVersion();
     HitTestResult cacheResult = result;
-    bool cacheHit = m_hitTestCache->lookupCachedResult(cacheResult, domTreeVersion);
-    bool hitLayer = layer()->hitTest(result);
-
-    // FrameView scrollbars are not the same as Layer scrollbars tested by Layer::hitTestOverflowControls,
-    // so we need to test FrameView scrollbars separately here. Note that it's important we do this after
-    // the hit test above, because that may overwrite the entire HitTestResult when it finds a hit.
-    IntPoint framePoint = frameView()->contentsToFrame(result.hitTestLocation().roundedPoint());
-    if (Scrollbar* frameScrollbar = frameView()->scrollbarAtFramePoint(framePoint))
-        result.setScrollbar(frameScrollbar);
-
-    if (cacheHit) {
+    bool hitLayer = false;
+    if (m_hitTestCache->lookupCachedResult(cacheResult, domTreeVersion)) {
         m_hitTestCacheHits++;
-        m_hitTestCache->verifyCachedResult(result, cacheResult);
-    }
+        hitLayer = true;
+        result = cacheResult;
+    } else {
+        hitLayer = layer()->hitTest(result);
 
-    if (hitLayer)
-        m_hitTestCache->addCachedResult(result, domTreeVersion);
+        // FrameView scrollbars are not the same as Layer scrollbars tested by Layer::hitTestOverflowControls,
+        // so we need to test FrameView scrollbars separately here. Note that it's important we do this after
+        // the hit test above, because that may overwrite the entire HitTestResult when it finds a hit.
+        IntPoint framePoint = frameView()->contentsToFrame(result.hitTestLocation().roundedPoint());
+        if (Scrollbar* frameScrollbar = frameView()->scrollbarAtFramePoint(framePoint))
+            result.setScrollbar(frameScrollbar);
+
+        if (hitLayer)
+            m_hitTestCache->addCachedResult(result, domTreeVersion);
+    }
 
     TRACE_EVENT_END1("blink,devtools.timeline", "HitTest", "endData", InspectorHitTestEvent::endData(result.hitTestRequest(), result.hitTestLocation(), result));
     return hitLayer;
 }
 
+void LayoutView::clearHitTestCache()
+{
+    m_hitTestCache->clear();
+    if (LayoutPart* frameLayoutObject = frame()->ownerLayoutObject())
+        frameLayoutObject->view()->clearHitTestCache();
+}
+
 void LayoutView::computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit, LogicalExtentComputedValues& computedValues) const
 {
-    computedValues.m_extent = (!shouldUsePrintingLayout() && m_frameView) ? LayoutUnit(viewLogicalHeightForBoxSizing()) : logicalHeight;
+    computedValues.m_extent = viewLogicalHeightForBoxSizing();
 }
 
 void LayoutView::updateLogicalWidth()
 {
-    if (!shouldUsePrintingLayout() && m_frameView)
-        setLogicalWidth(viewLogicalWidthForBoxSizing());
+    setLogicalWidth(viewLogicalWidthForBoxSizing());
 }
 
 bool LayoutView::isChildAllowed(LayoutObject* child, const ComputedStyle&) const
@@ -193,6 +203,11 @@ bool LayoutView::shouldDoFullPaintInvalidationForNextLayout() const
     return false;
 }
 
+bool LayoutView::doingFullPaintInvalidation() const
+{
+    return m_frameView->needsFullPaintInvalidation();
+}
+
 void LayoutView::layout()
 {
     if (!document().paginated())
@@ -236,7 +251,7 @@ void LayoutView::layout()
 
     layoutContent();
 
-    if (RuntimeEnabledFeatures::slimmingPaintEnabled() && layoutOverflowRect() != oldLayoutOverflowRect) {
+    if (layoutOverflowRect() != oldLayoutOverflowRect) {
         // The document element paints the viewport background, so we need to invalidate it when
         // layout overflow changes.
         // FIXME: Improve viewport background styling/invalidation/painting. crbug.com/475115
@@ -356,12 +371,12 @@ void LayoutView::computeSelfHitTestRects(Vector<LayoutRect>& rects, const Layout
     rects.append(LayoutRect(LayoutPoint::zero(), LayoutSize(frameView()->contentsSize())));
 }
 
-void LayoutView::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+void LayoutView::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset) const
 {
     ViewPainter(*this).paint(paintInfo, paintOffset);
 }
 
-void LayoutView::paintBoxDecorationBackground(const PaintInfo& paintInfo, const LayoutPoint&)
+void LayoutView::paintBoxDecorationBackground(const PaintInfo& paintInfo, const LayoutPoint&) const
 {
     ViewPainter(*this).paintBoxDecorationBackground(paintInfo);
 }
@@ -375,10 +390,9 @@ void LayoutView::invalidateTreeIfNeeded(PaintInvalidationState& paintInvalidatio
     LayoutRect dirtyRect = viewRect();
     if (doingFullPaintInvalidation() && !dirtyRect.isEmpty()) {
         const LayoutBoxModelObject& paintInvalidationContainer = paintInvalidationState.paintInvalidationContainer();
-        DeprecatedPaintLayer::mapRectToPaintInvalidationBacking(this, &paintInvalidationContainer, dirtyRect, &paintInvalidationState);
+        PaintLayer::mapRectToPaintInvalidationBacking(this, &paintInvalidationContainer, dirtyRect, &paintInvalidationState);
         invalidatePaintUsingContainer(paintInvalidationContainer, dirtyRect, PaintInvalidationFull);
-        if (RuntimeEnabledFeatures::slimmingPaintEnabled())
-            invalidateDisplayItemClients(paintInvalidationContainer);
+        invalidateDisplayItemClients(paintInvalidationContainer, PaintInvalidationFull, &dirtyRect);
     }
     LayoutBlock::invalidateTreeIfNeeded(paintInvalidationState);
 }
@@ -394,22 +408,6 @@ static void setShouldDoFullPaintInvalidationForViewAndAllDescendantsInternal(Lay
 void LayoutView::setShouldDoFullPaintInvalidationForViewAndAllDescendants()
 {
     setShouldDoFullPaintInvalidationForViewAndAllDescendantsInternal(this);
-}
-
-void LayoutView::invalidatePaintForRectangle(const LayoutRect& paintInvalidationRect, PaintInvalidationReason invalidationReason) const
-{
-    ASSERT(!paintInvalidationRect.isEmpty());
-
-    if (document().printing() || !m_frameView)
-        return;
-
-    ASSERT(layer()->compositingState() == PaintsIntoOwnBacking || !frame()->ownerLayoutObject());
-
-    if (layer()->compositingState() == PaintsIntoOwnBacking) {
-        setBackingNeedsPaintInvalidationInRect(paintInvalidationRect, invalidationReason);
-    } else {
-        m_frameView->contentRectangleForPaintInvalidation(pixelSnappedIntRect(paintInvalidationRect));
-    }
 }
 
 void LayoutView::invalidatePaintForViewAndCompositedLayers()
@@ -756,70 +754,14 @@ void LayoutView::clearSelection()
     setSelection(0, -1, 0, -1, PaintInvalidationNewMinusOld);
 }
 
-void LayoutView::setSelection(const FrameSelection& selection)
+bool LayoutView::hasPendingSelection() const
 {
-    // No need to create a pending clearSelection() to be executed in PendingSelection::commit()
-    // if there's no selection, since it's no-op. This is a frequent code path worth to optimize.
-    if (selection.isNone() && !m_selectionStart && !m_selectionEnd && !hasPendingSelection())
-        return;
-    m_pendingSelection->setSelection(selection);
-}
-
-template <typename Strategy>
-void LayoutView::commitPendingSelectionAlgorithm()
-{
-    using PositionType = typename Strategy::PositionType;
-
-    if (!hasPendingSelection())
-        return;
-    ASSERT(!needsLayout());
-
-    // Skip if pending VisibilePositions became invalid before we reach here.
-    if (!m_pendingSelection->isInDocument(document())) {
-        m_pendingSelection->clear();
-        return;
-    }
-
-    // Construct a new VisibleSolution, since m_selection is not necessarily valid, and the following steps
-    // assume a valid selection. See <https://bugs.webkit.org/show_bug.cgi?id=69563> and <rdar://problem/10232866>.
-    VisibleSelection selection = m_pendingSelection->calcVisibleSelection();
-    m_pendingSelection->clear();
-
-    if (!selection.isRange()) {
-        clearSelection();
-        return;
-    }
-
-    // Use the rightmost candidate for the start of the selection, and the leftmost candidate for the end of the selection.
-    // Example: foo <a>bar</a>.  Imagine that a line wrap occurs after 'foo', and that 'bar' is selected.   If we pass [foo, 3]
-    // as the start of the selection, the selection painting code will think that content on the line containing 'foo' is selected
-    // and will fill the gap before 'bar'.
-    PositionType startPos = Strategy::selectionStart(selection);
-    PositionType candidate = startPos.downstream();
-    if (candidate.isCandidate())
-        startPos = candidate;
-    PositionType endPos = Strategy::selectionEnd(selection);
-    candidate = endPos.upstream();
-    if (candidate.isCandidate())
-        endPos = candidate;
-
-    // We can get into a state where the selection endpoints map to the same VisiblePosition when a selection is deleted
-    // because we don't yet notify the FrameSelection of text removal.
-    if (startPos.isNull() || endPos.isNull() || Strategy::selectionVisibleStart(selection) == Strategy::selectionVisibleEnd(selection))
-        return;
-    LayoutObject* startLayoutObject = startPos.anchorNode()->layoutObject();
-    LayoutObject* endLayoutObject = endPos.anchorNode()->layoutObject();
-    if (!startLayoutObject || !endLayoutObject)
-        return;
-    ASSERT(startLayoutObject->view() == this && endLayoutObject->view() == this);
-    setSelection(startLayoutObject, startPos.deprecatedEditingOffset(), endLayoutObject, endPos.deprecatedEditingOffset());
+    return m_frameView->frame().selection().isAppearanceDirty();
 }
 
 void LayoutView::commitPendingSelection()
 {
-    if (RuntimeEnabledFeatures::selectionForComposedTreeEnabled())
-        return commitPendingSelectionAlgorithm<VisibleSelection::InComposedTree>();
-    commitPendingSelectionAlgorithm<VisibleSelection::InDOMTree>();
+    m_frameView->frame().selection().commitAppearanceIfNeeded(*this);
 }
 
 LayoutObject* LayoutView::selectionStart()
@@ -857,6 +799,19 @@ LayoutRect LayoutView::viewRect() const
     return LayoutRect();
 }
 
+LayoutRect LayoutView::overflowClipRect(const LayoutPoint& location, OverlayScrollbarSizeRelevancy relevancy) const
+{
+    LayoutRect rect = viewRect();
+    if (rect.isEmpty())
+        return LayoutBox::overflowClipRect(location, relevancy);
+
+    rect.setLocation(location);
+    if (hasOverflowClip())
+        excludeScrollbars(rect, relevancy);
+
+    return rect;
+}
+
 IntRect LayoutView::unscaledDocumentRect() const
 {
     LayoutRect overflowRect(layoutOverflowRect());
@@ -884,7 +839,10 @@ IntRect LayoutView::documentRect() const
 
 IntSize LayoutView::layoutSize(IncludeScrollbarsInRect scrollbarInclusion) const
 {
-    if (!m_frameView || shouldUsePrintingLayout())
+    if (shouldUsePrintingLayout())
+        return IntSize(size().width(), pageLogicalHeight());
+
+    if (!m_frameView)
         return IntSize();
 
     IntSize result = m_frameView->layoutSize(IncludeScrollbars);
@@ -943,10 +901,10 @@ bool LayoutView::usesCompositing() const
     return m_compositor && m_compositor->staleInCompositingMode();
 }
 
-DeprecatedPaintLayerCompositor* LayoutView::compositor()
+PaintLayerCompositor* LayoutView::compositor()
 {
     if (!m_compositor)
-        m_compositor = adoptPtr(new DeprecatedPaintLayerCompositor(*this));
+        m_compositor = adoptPtr(new PaintLayerCompositor(*this));
 
     return m_compositor.get();
 }
@@ -989,6 +947,26 @@ void LayoutView::willBeDestroyed()
 {
     LayoutBlockFlow::willBeDestroyed();
     m_compositor.clear();
+}
+
+void LayoutView::registerMediaForPositionChangeNotification(LayoutMedia& media)
+{
+    if (!m_mediaForPositionNotification.contains(&media))
+        m_mediaForPositionNotification.append(&media);
+}
+
+void LayoutView::unregisterMediaForPositionChangeNotification(LayoutMedia& media)
+{
+    size_t at = m_mediaForPositionNotification.find(&media);
+    if (at != kNotFound)
+        m_mediaForPositionNotification.remove(at);
+}
+
+void LayoutView::sendMediaPositionChangeNotifications(const IntRect& visibleRect)
+{
+    for (auto& media : m_mediaForPositionNotification) {
+        media->notifyPositionMayHaveChanged(visibleRect);
+    }
 }
 
 } // namespace blink

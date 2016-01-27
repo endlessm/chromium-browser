@@ -29,9 +29,11 @@ component("chromeos") {
     "//components/policy/proto",
     "//components/onc",
     "//components/proxy_config",
+    "//components/signin/core/account_id",
     "//crypto",
     "//crypto:platform",
     "//google_apis",
+    "//ipc",
     "//third_party/icu",
     "//third_party/libxml",
     "//third_party/protobuf:protobuf_lite",
@@ -43,15 +45,20 @@ component("chromeos") {
   defines = [ "CHROMEOS_IMPLEMENTATION" ]
 }
 
+# TYhis must be a static library instead of a source set because some of the
+# files pull in things with dependencies that aren't linked in all cases.
+#
+# TODO this should probably be changed such that it links in all cases and
+# can be converted to a source set.
 static_library("test_support") {
   testonly = true
   configs += [ "//build/config/linux:dbus" ]
-  deps = [
-    "//testing/gmock",
+  public_deps = [
     ":chromeos",
     ":cryptohome_proto",
     ":power_manager_proto",
     ":test_support_without_gmock",
+    "//testing/gmock",
   ]
   sources = [
     "attestation/mock_attestation_flow.cc",
@@ -111,8 +118,6 @@ static_library("test_support_without_gmock") {
   sources = [
     "dbus/fake_cros_disks_client.cc",
     "dbus/fake_cros_disks_client.h",
-    "dbus/fake_power_manager_client.cc",
-    "dbus/fake_power_manager_client.h",
     "dbus/fake_session_manager_client.cc",
     "dbus/fake_session_manager_client.h",
     "dbus/fake_shill_manager_client.cc",

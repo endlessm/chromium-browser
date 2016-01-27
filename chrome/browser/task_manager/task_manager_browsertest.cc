@@ -13,7 +13,6 @@
 #include "chrome/browser/extensions/extension_browsertest.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/infobars/infobar_service.h"
-#include "chrome/browser/notifications/desktop_notification_service.h"
 #include "chrome/browser/notifications/notification.h"
 #include "chrome/browser/notifications/notification_test_util.h"
 #include "chrome/browser/notifications/notification_ui_manager.h"
@@ -23,7 +22,6 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_dialogs.h"
-#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/panels/panel.h"
 #include "chrome/browser/ui/panels/panel_manager.h"
@@ -38,7 +36,6 @@
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/render_frame_host.h"
-#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/content_browser_test_utils.h"
 #include "extensions/browser/extension_system.h"
@@ -120,6 +117,10 @@ class TaskManagerBrowserTest : public ExtensionBrowserTest {
   void SetUpCommandLine(base::CommandLine* command_line) override {
     ExtensionBrowserTest::SetUpCommandLine(command_line);
 
+    // These tests are for the old implementation of the task manager. We must
+    // explicitly disable the new one.
+    task_manager::browsertest_util::EnableOldTaskManager();
+
     // Do not launch device discovery process.
     command_line->AppendSwitch(switches::kDisableDeviceDiscoveryNotifications);
   }
@@ -159,12 +160,11 @@ class TaskManagerOOPIFBrowserTest : public TaskManagerBrowserTest,
   void SetUpCommandLine(base::CommandLine* command_line) override {
     TaskManagerBrowserTest::SetUpCommandLine(command_line);
     if (GetParam())
-      command_line->AppendSwitch(switches::kSitePerProcess);
+      content::IsolateAllSitesForTesting(command_line);
   }
 
   bool ShouldExpectSubframes() {
-    return base::CommandLine::ForCurrentProcess()->HasSwitch(
-        switches::kSitePerProcess);
+    return content::AreAllSitesIsolatedForTesting();
   }
 
  private:
@@ -257,7 +257,8 @@ IN_PROC_BROWSER_TEST_F(TaskManagerBrowserTest,
   tab1->GetMainFrame()->ExecuteJavaScriptWithUserGestureForTests(
       base::ASCIIToUTF16("window.open('title3.html', '_blank');"));
   // ... then immediately hang the renderer so that title3.html can't load.
-  tab1->GetMainFrame()->ExecuteJavaScript(base::ASCIIToUTF16("while(1);"));
+  tab1->GetMainFrame()->ExecuteJavaScriptForTests(
+      base::ASCIIToUTF16("while(1);"));
 
   // Blocks until a new WebContents appears.
   WebContents* tab2 = web_contents_added_observer.GetWebContents();
@@ -1165,8 +1166,14 @@ IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest,
 
 // Tests what happens when a tab does a same-site navigation away from a page
 // with cross-site iframes.
+// Flaky on Windows. http://crbug.com/528282.
+#if defined(OS_WIN)
+#define MAYBE_LeavePageWithCrossSiteIframes DISABLED_LeavePageWithCrossSiteIframes
+#else
+#define MAYBE_LeavePageWithCrossSiteIframes LeavePageWithCrossSiteIframes
+#endif
 IN_PROC_BROWSER_TEST_P(TaskManagerOOPIFBrowserTest,
-                       LeavePageWithCrossSiteIframes) {
+                       MAYBE_LeavePageWithCrossSiteIframes) {
   ShowTaskManager();
 
   host_resolver()->AddRule("*", "127.0.0.1");

@@ -35,7 +35,7 @@ namespace blink {
 class Event;
 class TextTrackContainer;
 
-class MediaControls final : public HTMLDivElement {
+class CORE_EXPORT MediaControls final : public HTMLDivElement {
 public:
     static PassRefPtrWillBeRawPtr<MediaControls> create(HTMLMediaElement&);
 
@@ -67,6 +67,11 @@ public:
     void stoppedCasting();
     void refreshCastButtonVisibility();
     void showOverlayCastButton();
+    // Update cast button visibility, but don't try to update our panel
+    // button visibility for space.
+    void refreshCastButtonVisibilityWithoutUpdate();
+
+    void setAllowHiddenVolumeControls(bool);
 
     void mediaElementFocused();
 
@@ -74,9 +79,19 @@ public:
     // used for overlap checking during text track layout. May be null.
     LayoutObject* layoutObjectForTextTrackLayout();
 
+    // Notify us that our controls enclosure has changed width.
+    void notifyPanelWidthChanged(const LayoutUnit& newWidth);
+
+    // Notify us that the media element's network state has changed.
+    void networkStateChanged();
+
     DECLARE_VIRTUAL_TRACE();
 
 private:
+    void invalidate(Element*);
+
+    class BatchedControlUpdate;
+
     explicit MediaControls(HTMLMediaElement&);
 
     void initializeControls();
@@ -99,9 +114,11 @@ private:
     void stopHideMediaControlsTimer();
     void resetHideMediaControlsTimer();
 
-    // Attempts to show the overlay cast button. If it is covered by another
-    // element in the page, it will be hidden.
-    void tryShowOverlayCastButton();
+    void panelWidthChangedTimerFired(Timer<MediaControls>*);
+
+    // Hide elements that don't fit, and show those things that we want which
+    // do fit.  This requires that m_panelWidth is current.
+    void computeWhichControlsFit();
 
     // Node
     bool isMediaControls() const override { return true; }
@@ -131,6 +148,11 @@ private:
     unsigned m_hideTimerBehaviorFlags;
     bool m_isMouseOverControls : 1;
     bool m_isPausedForScrubbing : 1;
+
+    Timer<MediaControls> m_panelWidthChangedTimer;
+    int m_panelWidth;
+
+    bool m_allowHiddenVolumeControls : 1;
 };
 
 DEFINE_ELEMENT_TYPE_CASTS(MediaControls, isMediaControls());

@@ -18,8 +18,6 @@
           '../build/build_config.h',
           'allocator/allocator_extension.cc',
           'allocator/allocator_extension.h',
-          'allocator/type_profiler_control.cc',
-          'allocator/type_profiler_control.h',
           'android/animation_frame_time_histogram.cc',
           'android/animation_frame_time_histogram.h',
           'android/apk_assets.cc',
@@ -98,6 +96,8 @@
           'barrier_closure.h',
           'base64.cc',
           'base64.h',
+          'base64url.cc',
+          'base64url.h',
           'base_export.h',
           'base_paths.cc',
           'base_paths.h',
@@ -177,6 +177,8 @@
           'deferred_sequenced_task_runner.h',
           'environment.cc',
           'environment.h',
+          'feature_list.cc',
+          'feature_list.h',
           'file_descriptor_posix.h',
           'file_version_info.h',
           'file_version_info_mac.h',
@@ -317,8 +319,6 @@
           'mac/scoped_mach_vm.h',
           'mac/scoped_nsautorelease_pool.h',
           'mac/scoped_nsautorelease_pool.mm',
-          'mac/scoped_nsexception_enabler.h',
-          'mac/scoped_nsexception_enabler.mm',
           'mac/scoped_nsobject.h',
           'mac/scoped_objc_class_swizzler.h',
           'mac/scoped_objc_class_swizzler.mm',
@@ -363,6 +363,7 @@
           'memory/shared_memory_android.cc',
           'memory/shared_memory_handle.h',
           'memory/shared_memory_handle_mac.cc',
+          'memory/shared_memory_handle_win.cc',
           'memory/shared_memory_mac.cc',
           'memory/shared_memory_nacl.cc',
           'memory/shared_memory_posix.cc',
@@ -476,7 +477,10 @@
           'process/memory_linux.cc',
           'process/memory_mac.mm',
           'process/memory_win.cc',
+          'process/port_provider_mac.cc',
+          'process/port_provider_mac.h',
           'process/process.h',
+          'process/process_handle.cc',
           'process/process_handle_freebsd.cc',
           'process/process_handle_linux.cc',
           'process/process_handle_mac.cc',
@@ -495,13 +499,13 @@
           'process/process_iterator_openbsd.cc',
           'process/process_iterator_win.cc',
           'process/process_linux.cc',
-          'process/process_mac.cc',
           'process/process_metrics.cc',
           'process/process_metrics.h',
           'process/process_metrics_freebsd.cc',
           'process/process_metrics_ios.cc',
           'process/process_metrics_linux.cc',
           'process/process_metrics_mac.cc',
+          'process/process_metrics_nacl.cc',
           'process/process_metrics_openbsd.cc',
           'process/process_metrics_posix.cc',
           'process/process_metrics_win.cc',
@@ -511,14 +515,14 @@
           'profiler/alternate_timer.h',
           'profiler/native_stack_sampler.cc',
           'profiler/native_stack_sampler.h',
+          'profiler/native_stack_sampler_posix.cc',
+          'profiler/native_stack_sampler_win.cc',
           'profiler/scoped_profile.cc',
           'profiler/scoped_profile.h',
           'profiler/scoped_tracker.cc',
           'profiler/scoped_tracker.h',
           'profiler/stack_sampling_profiler.cc',
           'profiler/stack_sampling_profiler.h',
-          'profiler/stack_sampling_profiler_posix.cc',
-          'profiler/stack_sampling_profiler_win.cc',
           'profiler/tracked_time.cc',
           'profiler/tracked_time.h',
           'rand_util.cc',
@@ -642,6 +646,8 @@
           'threading/platform_thread_win.cc',
           'threading/post_task_and_reply_impl.cc',
           'threading/post_task_and_reply_impl.h',
+          'threading/sequenced_task_runner_handle.cc',
+          'threading/sequenced_task_runner_handle.h',
           'threading/sequenced_worker_pool.cc',
           'threading/sequenced_worker_pool.h',
           'threading/simple_thread.cc',
@@ -726,6 +732,8 @@
           'win/metro.h',
           'win/object_watcher.cc',
           'win/object_watcher.h',
+          'win/process_startup_helper.cc',
+          'win/process_startup_helper.h',
           'win/registry.cc',
           'win/registry.h',
           'win/resource_util.cc',
@@ -764,13 +772,16 @@
         'include_dirs': [
           '..',
         ],
-        'msvs_disabled_warnings': [
-          4018,
-        ],
         'target_conditions': [
           ['OS == "mac" or OS == "ios"', {
             'sources!': [
               'memory/shared_memory_posix.cc',
+            ],
+          }],
+          ['OS == "ios"', {
+            'sources!': [
+               'memory/discardable_shared_memory.cc',
+               'memory/discardable_shared_memory.h',
             ],
           }],
           ['(<(desktop_linux) == 0 and <(chromeos) == 0) or >(nacl_untrusted_build)==1', {
@@ -792,8 +803,6 @@
           ],
           ['>(nacl_untrusted_build)==1', {
             'sources!': [
-               'allocator/type_profiler_control.cc',
-               'allocator/type_profiler_control.h',
                'base_paths.cc',
                'cpu.cc',
                'debug/stack_trace.cc',
@@ -856,9 +865,6 @@
             ],
           }],
           ['OS == "android" and _toolset == "host" and host_os == "linux"', {
-            'defines': [
-              'OS_ANDROID_HOST=Linux',
-            ],
             'sources/': [
               # Pull in specific files for host builds.
               ['include', '^threading/platform_thread_linux\\.cc$'],
@@ -888,6 +894,7 @@
               ['include', '^mac/scoped_nsautorelease_pool\\.'],
               ['include', '^mac/scoped_nsobject\\.'],
               ['include', '^mac/scoped_objc_class_swizzler\\.'],
+              ['include', '^memory/shared_memory_posix\\.'],
               ['include', '^message_loop/message_pump_mac\\.'],
               ['include', '^strings/sys_string_conversions_mac\\.'],
               ['include', '^threading/platform_thread_mac\\.'],
@@ -900,10 +907,9 @@
               ['include', '^process/memory_stubs\.cc$'],
               ['include', '^process/process_handle_posix\.cc$'],
               ['include', '^process/process_metrics\\.cc$'],
+              # Exclude unsupported features on iOS.
+              ['exclude', '^files/file_path_watcher.*'],
               ['exclude', '^threading/platform_thread_internal_posix\\.(h|cc)'],
-              ['exclude', 'files/file_path_watcher_fsevents.cc'],
-              ['exclude', 'files/file_path_watcher_fsevents.h'],
-              ['include', 'files/file_path_watcher_mac.cc'],
             ],
             'sources': [
               'process/memory_stubs.cc',
@@ -937,6 +943,10 @@
           ['OS == "win" and >(nacl_untrusted_build)==0', {
             'include_dirs': [
               '<(DEPTH)/third_party/wtl/include',
+            ],
+            'sources': [
+              'profiler/win32_stack_frame_unwinder.cc',
+              'profiler/win32_stack_frame_unwinder.h',
             ],
             'sources!': [
               'files/file_path_watcher_fsevents.cc',
@@ -1023,6 +1033,8 @@
           'i18n/icu_string_conversions.h',
           'i18n/icu_util.cc',
           'i18n/icu_util.h',
+          'i18n/message_formatter.cc',
+          'i18n/message_formatter.h',
           'i18n/number_formatting.cc',
           'i18n/number_formatting.h',
           'i18n/rtl.cc',

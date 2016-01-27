@@ -148,24 +148,29 @@ static void check_CMM_type_signature(struct mem_source *src)
 	//uint32_t CMM_type_signature = read_u32(src, 4);
 }
 
-static void check_profile_version(struct mem_source *src)
+static void read_profile_version(qcms_profile *profile, struct mem_source *src)
 {
-	/*
 	uint8_t major_revision = read_u8(src, 8 + 0);
 	uint8_t minor_revision = read_u8(src, 8 + 1);
-	*/
-	uint8_t reserved1      = read_u8(src, 8 + 2);
-	uint8_t reserved2      = read_u8(src, 8 + 3);
-	/* Checking the version doesn't buy us anything
-	if (major_revision != 0x4) {
-		if (major_revision > 0x2)
-			invalid_source(src, "Unsupported major revision");
-		if (minor_revision > 0x40)
-			invalid_source(src, "Unsupported minor revision");
-	}
-	*/
-	if (reserved1 != 0 || reserved2 != 0)
+	uint8_t reserved_byte1 = read_u8(src, 8 + 2);
+	uint8_t reserved_byte2 = read_u8(src, 8 + 3);
+
+	profile->icc_version = major_revision << 8 | minor_revision;
+
+	if (reserved_byte1 || reserved_byte2) {
 		invalid_source(src, "Invalid reserved bytes");
+		return;
+	}
+
+	if (major_revision == 2)
+		return; // ICC V2.X color profile
+	if (major_revision == 4 && qcms_supports_iccv4)
+		return; // ICC V4.X color profile
+
+	/* Checking the version doesn't buy us anything: permit any
+	   version without failure for now */
+	// invalid_source(src, "Unsupported ICC revision");
+	return;
 }
 
 #define INPUT_DEVICE_PROFILE   0x73636e72 // 'scnr'
@@ -356,57 +361,99 @@ static struct tag *find_tag(struct tag_index index, uint32_t tag_id)
 #define MMOD_TYPE 0x6D6D6F64 // 'mmod'
 #define VCGT_TYPE 0x76636774 // 'vcgt'
 
+enum {
+	VCGT_TYPE_TABLE,
+	VCGT_TYPE_FORMULA,
+	VCGT_TYPE_LAST = VCGT_TYPE_FORMULA
+};
+
 static qcms_bool read_tag_vcgtType(qcms_profile *profile, struct mem_source *src, struct tag_index index)
 {
 	size_t tag_offset = find_tag(index, TAG_vcgt)->offset;
 	uint32_t tag_type = read_u32(src, tag_offset);
 	uint32_t vcgt_type = read_u32(src, tag_offset + 8);
-	uint16_t channels = read_u16(src, tag_offset + 12);
-	uint16_t elements = read_u16(src, tag_offset + 14);
-	uint16_t byte_depth = read_u16(src, tag_offset + 16);
-	size_t table_offset = tag_offset + 18;
-	uint32_t i;
-	uint16_t *dest;
 
 	if (!src->valid || tag_type != VCGT_TYPE)
 		goto invalid_vcgt_tag;
 
-	// Only support 3 channels.
-	if (channels != 3)
-		return true;
-	// Only support single or double byte values.
-	if (byte_depth != 1 && byte_depth != 2)
-		return true;
-	// Only support table data, not equation.
-	if (vcgt_type != 0)
-		return true;
-	// Limit the table to a sensible size; 10-bit gamma is a reasonable
-	// maximum for hardware correction.
-	if (elements > 1024)
+	// Only support table and equation types.
+	if (vcgt_type > VCGT_TYPE_LAST)
 		return true;
 
-	// Empty table is invalid.
-	if (!elements)
-		goto invalid_vcgt_tag;
-
-	profile->vcgt.length = elements;
-	profile->vcgt.data = malloc(3 * elements * sizeof(uint16_t));
-	if (!profile->vcgt.data)
-		return false;
-
-	dest = profile->vcgt.data;
-
-	for (i = 0; i < 3 * elements; ++i) {
-		if (byte_depth == 1) {
-			*dest++ = read_u8(src, table_offset) * 256;
-		} else {
-			*dest++ = read_u16(src, table_offset);
-		}
-
-		table_offset += byte_depth;
+	if (vcgt_type == VCGT_TYPE_TABLE) {
+		uint16_t channels = read_u16(src, tag_offset + 12);
+		uint16_t elements = read_u16(src, tag_offset + 14);
+		uint16_t byte_depth = read_u16(src, tag_offset + 16);
+		size_t table_offset = tag_offset + 18;
+		uint32_t i;
+		uint16_t *dest;
 
 		if (!src->valid)
 			goto invalid_vcgt_tag;
+
+		// Only support 3 channels.
+		if (channels != 3)
+			return true;
+		// Only support single or double byte values.
+		if (byte_depth != 1 && byte_depth != 2)
+			return true;
+		// Limit the table to a sensible size; 10-bit gamma is a reasonable
+		// maximum for hardware correction.
+		if (elements > 1024)
+			return true;
+
+		// Empty table is invalid.
+		if (!elements)
+			goto invalid_vcgt_tag;
+
+		profile->vcgt.length = elements;
+		profile->vcgt.data = malloc(3 * elements * sizeof(uint16_t));
+		if (!profile->vcgt.data)
+			return false;
+
+		dest = profile->vcgt.data;
+
+		for (i = 0; i < 3 * elements; ++i) {
+			if (byte_depth == 1) {
+				*dest++ = read_u8(src, table_offset) * 256;
+			} else {
+				*dest++ = read_u16(src, table_offset);
+			}
+
+			table_offset += byte_depth;
+
+			if (!src->valid)
+				goto invalid_vcgt_tag;
+		}
+	} else {
+		size_t formula_offset = tag_offset + 12;
+		int i, j;
+		uint16_t *dest;
+
+		// For formula always provide an 8-bit lut.
+		profile->vcgt.length = 256;
+		profile->vcgt.data = malloc(3 * profile->vcgt.length * sizeof(uint16_t));
+		if (!profile->vcgt.data)
+			return false;
+
+		dest = profile->vcgt.data;
+		for (i = 0; i < 3; ++i) {
+			float gamma = s15Fixed16Number_to_float(
+					read_s15Fixed16Number(src, formula_offset + 12 * i));
+			float min = s15Fixed16Number_to_float(
+					read_s15Fixed16Number(src, formula_offset + 4 + 12 * i));
+			float max = s15Fixed16Number_to_float(
+					read_s15Fixed16Number(src, formula_offset + 8 + 12 * i));
+			float range = max - min;
+
+			if (!src->valid)
+				goto invalid_vcgt_tag;
+
+			for (j = 0; j < profile->vcgt.length; ++j) {
+				*dest++ = 65535.f *
+					(min + range * pow((float)j / (profile->vcgt.length - 1), gamma));
+			}
+		}
 	}
 
 	return true;
@@ -809,10 +856,12 @@ static struct lutmABType *read_tag_lutmABType(struct mem_source *src, struct tag
 	memset(lut, 0, sizeof(struct lutmABType));
 	lut->clut_table   = &lut->clut_table_data[0];
 
-	for (i = 0; i < num_in_channels; i++) {
-		lut->num_grid_points[i] = read_u8(src, clut_offset + i);
-		if (lut->num_grid_points[i] == 0) {
-			invalid_source(src, "bad grid_points");
+	if (clut_offset) {
+		for (i = 0; i < num_in_channels; i++) {
+			lut->num_grid_points[i] = read_u8(src, clut_offset + i);
+			if (lut->num_grid_points[i] == 0) {
+				invalid_source(src, "bad grid_points");
+			}
 		}
 	}
 
@@ -914,6 +963,11 @@ static struct lutType *read_tag_lutType(struct mem_source *src, struct tag_index
 	clut_size = pow(grid_points, in_chan);
 	if (clut_size > MAX_CLUT_SIZE) {
 		invalid_source(src, "CLUT too large");
+		return NULL;
+	}
+
+	if (clut_size <= 0) {
+		invalid_source(src, "CLUT must not be empty.");
 		return NULL;
 	}
 
@@ -1114,6 +1168,7 @@ qcms_profile* qcms_profile_create_rgb_with_gamma(
 	profile->class = DISPLAY_DEVICE_PROFILE;
 	profile->rendering_intent = QCMS_INTENT_PERCEPTUAL;
 	profile->color_space = RGB_SIGNATURE;
+	profile->pcs = XYZ_SIGNATURE;
 	return profile;
 }
 
@@ -1143,6 +1198,7 @@ qcms_profile* qcms_profile_create_rgb_with_table(
 	profile->class = DISPLAY_DEVICE_PROFILE;
 	profile->rendering_intent = QCMS_INTENT_PERCEPTUAL;
 	profile->color_space = RGB_SIGNATURE;
+	profile->pcs = XYZ_SIGNATURE;
 	return profile;
 }
 
@@ -1259,7 +1315,7 @@ qcms_profile* qcms_profile_from_memory(const void *mem, size_t size)
 		return NO_MEM_PROFILE;
 
 	check_CMM_type_signature(src);
-	check_profile_version(src);
+	read_profile_version(profile, src);
 	read_class_signature(profile, src);
 	read_rendering_intent(profile, src);
 	read_color_space(profile, src);
@@ -1375,6 +1431,11 @@ qcms_intent qcms_profile_get_rendering_intent(qcms_profile *profile)
 qcms_color_space qcms_profile_get_color_space(qcms_profile *profile)
 {
 	return profile->color_space;
+}
+
+unsigned qcms_profile_get_version(qcms_profile *profile)
+{
+	return profile->icc_version & 0xffff;
 }
 
 size_t qcms_profile_get_vcgt_channel_length(qcms_profile *profile)

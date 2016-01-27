@@ -204,8 +204,8 @@ base::Value* PDFiumPage::GetTextBoxAsValue(double page_height,
         DCHECK(targets[i].url[targets[i].url.size() - 1] != '\0');
 
       // PDFium may change the case of generated links.
-      std::string lowerCaseURL = base::StringToLowerASCII(targets[i].url);
-      std::string lowerCaseText = base::StringToLowerASCII(text_utf8);
+      std::string lowerCaseURL = base::ToLowerASCII(targets[i].url);
+      std::string lowerCaseText = base::ToLowerASCII(text_utf8);
       size_t pos = lowerCaseText.find(lowerCaseURL, start);
       size_t length = targets[i].url.size();
       if (pos == std::string::npos) {
@@ -240,14 +240,15 @@ base::Value* PDFiumPage::GetTextBoxAsValue(double page_height,
   return node;
 }
 
-base::Value* PDFiumPage::CreateTextNode(std::string text) {
+base::Value* PDFiumPage::CreateTextNode(const std::string& text) {
   base::DictionaryValue* node = new base::DictionaryValue();
   node->SetString(kTextNodeType, kTextNodeTypeText);
   node->SetString(kTextNodeText, text);
   return node;
 }
 
-base::Value* PDFiumPage::CreateURLNode(std::string text, std::string url) {
+base::Value* PDFiumPage::CreateURLNode(const std::string& text,
+                                       const std::string& url) {
   base::DictionaryValue* node = new base::DictionaryValue();
   node->SetString(kTextNodeType, kTextNodeTypeURL);
   node->SetString(kTextNodeText, text);
@@ -263,7 +264,8 @@ PDFiumPage::Area PDFiumPage::GetCharIndex(const pp::Point& point,
   if (!available_)
     return NONSELECTABLE_AREA;
   pp::Point point2 = point - rect_.point();
-  double new_x, new_y;
+  double new_x;
+  double new_y;
   FPDF_DeviceToPage(GetPage(), 0, 0, rect_.width(), rect_.height(),
         rotation, point2.x(), point2.y(), &new_x, &new_y);
 
@@ -271,15 +273,22 @@ PDFiumPage::Area PDFiumPage::GetCharIndex(const pp::Point& point,
       GetTextPage(), new_x, new_y, kTolerance, kTolerance);
   *char_index = rv;
 
+  FPDF_LINK link = FPDFLink_GetLinkAtPoint(GetPage(), new_x, new_y);
   int control =
       FPDPage_HasFormFieldAtPoint(engine_->form(), GetPage(), new_x, new_y);
-  if (control > FPDF_FORMFIELD_UNKNOWN) {
-    *form_type = control;
-    return PDFiumPage::NONSELECTABLE_AREA;
-  }
 
-  FPDF_LINK link = FPDFLink_GetLinkAtPoint(GetPage(), new_x, new_y);
-  if (link) {
+  // If there is a control and link at the same point, figure out their z-order
+  // to determine which is on top.
+  if (link && control > FPDF_FORMFIELD_UNKNOWN) {
+    int control_z_order = FPDFPage_FormFieldZOrderAtPoint(
+        engine_->form(), GetPage(), new_x, new_y);
+    int link_z_order = FPDFLink_GetLinkZOrderAtPoint(GetPage(), new_x, new_y);
+    DCHECK_NE(control_z_order, link_z_order);
+    if (control_z_order > link_z_order) {
+      *form_type = control;
+      return PDFiumPage::NONSELECTABLE_AREA;
+    }
+
     // We don't handle all possible link types of the PDF. For example,
     // launch actions, cross-document links, etc.
     // In that case, GetLinkTarget() will return NONSELECTABLE_AREA
@@ -287,6 +296,16 @@ PDFiumPage::Area PDFiumPage::GetCharIndex(const pp::Point& point,
     PDFiumPage::Area area = GetLinkTarget(link, target);
     if (area != PDFiumPage::NONSELECTABLE_AREA)
       return area;
+  } else if (link) {
+    // We don't handle all possible link types of the PDF. For example,
+    // launch actions, cross-document links, etc.
+    // See identical block above.
+    PDFiumPage::Area area = GetLinkTarget(link, target);
+    if (area != PDFiumPage::NONSELECTABLE_AREA)
+      return area;
+  } else if (control > FPDF_FORMFIELD_UNKNOWN) {
+    *form_type = control;
+    return PDFiumPage::NONSELECTABLE_AREA;
   }
 
   if (rv < 0)

@@ -6,15 +6,16 @@
 #define CONTENT_BROWSER_FRAME_HOST_FRAME_TREE_NODE_H_
 
 #include <string>
+#include <vector>
 
 #include "base/basictypes.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/frame_host/render_frame_host_manager.h"
 #include "content/common/content_export.h"
 #include "content/common/frame_replication_state.h"
+#include "third_party/WebKit/public/web/WebFrameOwnerProperties.h"
 #include "url/gurl.h"
 #include "url/origin.h"
 
@@ -36,6 +37,9 @@ class CONTENT_EXPORT FrameTreeNode {
     // Invoked when a FrameTreeNode is being destroyed.
     virtual void OnFrameTreeNodeDestroyed(FrameTreeNode* node) {}
 
+    // Invoked when a FrameTreeNode becomes focused.
+    virtual void OnFrameTreeNodeFocused(FrameTreeNode* node) {}
+
     virtual ~Observer() {}
   };
 
@@ -53,7 +57,8 @@ class CONTENT_EXPORT FrameTreeNode {
                 RenderFrameHostManager::Delegate* manager_delegate,
                 blink::WebTreeScopeType scope,
                 const std::string& name,
-                blink::WebSandboxFlags sandbox_flags);
+                blink::WebSandboxFlags sandbox_flags,
+                const blink::WebFrameOwnerProperties& frame_owner_properties);
 
   ~FrameTreeNode();
 
@@ -104,15 +109,26 @@ class CONTENT_EXPORT FrameTreeNode {
   void SetOpener(FrameTreeNode* opener);
 
   FrameTreeNode* child_at(size_t index) const {
-    return children_[index];
+    return children_[index].get();
   }
 
+  // Returns the URL of the last committed page in this frame.
   const GURL& current_url() const {
     return current_url_;
   }
 
-  void set_current_url(const GURL& url) {
-    current_url_ = url;
+  // Sets the last committed URL for this frame and updates
+  // has_committed_real_load accordingly.
+  void SetCurrentURL(const GURL& url);
+
+  // Returns true iff SetCurrentURL has been called with a non-blank URL.
+  bool has_committed_real_load() const {
+    return has_committed_real_load_;
+  }
+
+  // Returns the origin of the last committed page in this frame.
+  const url::Origin& current_origin() const {
+    return replication_state_.origin;
   }
 
   // Set the current origin and notify proxies about the update.
@@ -133,8 +149,18 @@ class CONTENT_EXPORT FrameTreeNode {
   // return true if the sandbox flags were changed.
   bool CommitPendingSandboxFlags();
 
+  const blink::WebFrameOwnerProperties& frame_owner_properties() {
+    return frame_owner_properties_;
+  }
+
+  void set_frame_owner_properties(
+      const blink::WebFrameOwnerProperties& frame_owner_properties) {
+    frame_owner_properties_ = frame_owner_properties;
+  }
+
   bool HasSameOrigin(const FrameTreeNode& node) const {
-    return replication_state_.origin.IsSameAs(node.replication_state_.origin);
+    return replication_state_.origin.IsSameOriginWith(
+        node.replication_state_.origin);
   }
 
   const FrameReplicationState& current_replication_state() const {
@@ -197,6 +223,13 @@ class CONTENT_EXPORT FrameTreeNode {
   // FrameTree::ForEach to stop all loads in the entire FrameTree.
   bool StopLoading();
 
+  // Returns the time this frame was last focused.
+  base::TimeTicks last_focus_time() const { return last_focus_time_; }
+
+  // Called when this node becomes focused.  Updates the node's last focused
+  // time and notifies observers.
+  void DidFocus();
+
  private:
   class OpenerDestroyedObserver;
 
@@ -239,13 +272,16 @@ class CONTENT_EXPORT FrameTreeNode {
   scoped_ptr<OpenerDestroyedObserver> opener_observer_;
 
   // The immediate children of this specific frame.
-  ScopedVector<FrameTreeNode> children_;
+  std::vector<scoped_ptr<FrameTreeNode>> children_;
 
-  // Track the current frame's last committed URL, so we can estimate the
-  // process impact of out-of-process iframes.
-  // TODO(creis): Remove this when we can store subframe URLs in the
-  // NavigationController.
+  // Track the current frame's last committed URL.
+  // TODO(creis): Consider storing a reference to the last committed
+  // FrameNavigationEntry here once those are created in all modes.
   GURL current_url_;
+
+  // Whether this frame has committed any real load, replacing its initial
+  // about:blank page.
+  bool has_committed_real_load_;
 
   // Track information that needs to be replicated to processes that have
   // proxies for this frame.
@@ -261,6 +297,14 @@ class CONTENT_EXPORT FrameTreeNode {
   // flags when a navigation for this frame commits.
   blink::WebSandboxFlags effective_sandbox_flags_;
 
+  // Tracks the scrolling and margin properties for this frame.  These
+  // properties affect the child renderer but are stored on its parent's
+  // frame element.  When this frame's parent dynamically updates these
+  // properties, we update them here too.
+  //
+  // Note that dynamic updates only take effect on the next frame navigation.
+  blink::WebFrameOwnerProperties frame_owner_properties_;
+
   // Used to track this node's loading progress (from 0 to 1).
   double loading_progress_;
 
@@ -271,6 +315,8 @@ class CONTENT_EXPORT FrameTreeNode {
 
   // List of objects observing this FrameTreeNode.
   base::ObserverList<Observer> observers_;
+
+  base::TimeTicks last_focus_time_;
 
   DISALLOW_COPY_AND_ASSIGN(FrameTreeNode);
 };

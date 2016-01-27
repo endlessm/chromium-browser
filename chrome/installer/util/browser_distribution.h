@@ -82,7 +82,8 @@ class BrowserDistribution {
   virtual base::string16 GetDisplayName();
 
   // Returns the localized name of the shortcut identified by |shortcut_type|
-  // for this distribution.
+  // for this distribution or empty string if |shortcut_type| is unsupported
+  // by this BrowserDistribution.
   virtual base::string16 GetShortcutName(ShortcutType shortcut_type);
 
   // Returns the index of the icon for the product identified by
@@ -126,13 +127,9 @@ class BrowserDistribution {
 
   virtual std::string GetSafeBrowsingName();
 
-  virtual std::string GetNetworkStatsServer() const;
-
 #if defined(OS_WIN)
   virtual base::string16 GetDistributionData(HKEY root_key);
 #endif
-
-  virtual base::string16 GetUninstallLinkName();
 
   virtual base::string16 GetUninstallRegPath();
 
@@ -144,10 +141,9 @@ class BrowserDistribution {
 
   virtual bool GetChromeChannel(base::string16* channel);
 
-  // Returns true if this distribution includes a DelegateExecute verb handler,
-  // and provides the CommandExecuteImpl class UUID if |handler_class_uuid| is
-  // non-NULL.
-  virtual bool GetCommandExecuteImplClsid(base::string16* handler_class_uuid);
+  // Returns the CommandExecuteImpl class UUID (or empty string if this
+  // distribution doesn't include a DelegateExecute verb handler).
+  virtual base::string16 GetCommandExecuteImplClsid();
 
   virtual void UpdateInstallStatus(bool system_install,
       installer::ArchiveType archive_type,

@@ -9,7 +9,6 @@
 
 #include "base/callback_forward.h"
 #include "base/memory/ref_counted.h"
-#include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "base/scoped_observer.h"
 #include "content/public/browser/notification_observer.h"
@@ -132,6 +131,12 @@ class BluetoothEventRouter : public device::BluetoothAdapter::Observer,
   static const bool kServiceIsNULLWhileTesting = true;
 
  private:
+  void StartDiscoverySessionImpl(device::BluetoothAdapter* adapter,
+                                 const std::string& extension_id,
+                                 const base::Closure& callback,
+                                 const base::Closure& error_callback);
+  void AddPairingDelegateImpl(const std::string& extension_id);
+
   void OnAdapterInitialized(const base::Closure& callback,
                             scoped_refptr<device::BluetoothAdapter> adapter);
   void MaybeReleaseAdapter();

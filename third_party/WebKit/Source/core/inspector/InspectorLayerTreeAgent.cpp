@@ -36,16 +36,17 @@
 #include "core/dom/DOMNodeIds.h"
 #include "core/dom/Document.h"
 #include "core/frame/FrameHost.h"
+#include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/Settings.h"
 #include "core/inspector/IdentifiersFactory.h"
-#include "core/inspector/InspectorPageAgent.h"
+#include "core/inspector/InspectedFrames.h"
 #include "core/inspector/InspectorState.h"
 #include "core/inspector/InstrumentingAgents.h"
 #include "core/layout/LayoutPart.h"
 #include "core/layout/LayoutView.h"
-#include "core/layout/compositing/CompositedDeprecatedPaintLayerMapping.h"
-#include "core/layout/compositing/DeprecatedPaintLayerCompositor.h"
+#include "core/layout/compositing/CompositedLayerMapping.h"
+#include "core/layout/compositing/PaintLayerCompositor.h"
 #include "core/loader/DocumentLoader.h"
 #include "platform/geometry/IntRect.h"
 #include "platform/graphics/CompositingReasons.h"
@@ -146,9 +147,9 @@ static PassRefPtr<TypeBuilder::LayerTree::Layer> buildObjectForLayer(GraphicsLay
     return layerObject;
 }
 
-InspectorLayerTreeAgent::InspectorLayerTreeAgent(InspectorPageAgent* pageAgent)
+InspectorLayerTreeAgent::InspectorLayerTreeAgent(InspectedFrames* inspectedFrames)
     : InspectorBaseAgent<InspectorLayerTreeAgent, InspectorFrontend::LayerTree>("LayerTree")
-    , m_pageAgent(pageAgent)
+    , m_inspectedFrames(inspectedFrames)
 {
 }
 
@@ -158,7 +159,6 @@ InspectorLayerTreeAgent::~InspectorLayerTreeAgent()
 
 DEFINE_TRACE(InspectorLayerTreeAgent)
 {
-    visitor->trace(m_pageAgent);
     InspectorBaseAgent::trace(visitor);
 }
 
@@ -172,11 +172,9 @@ void InspectorLayerTreeAgent::restore()
 void InspectorLayerTreeAgent::enable(ErrorString*)
 {
     m_instrumentingAgents->setInspectorLayerTreeAgent(this);
-    if (LocalFrame* frame = m_pageAgent->inspectedFrame()) {
-        Document* document = frame->document();
-        if (document && document->lifecycle().state() >= DocumentLifecycle::CompositingClean)
-            layerTreeDidChange();
-    }
+    Document* document = m_inspectedFrames->root()->document();
+    if (document && document->lifecycle().state() >= DocumentLifecycle::CompositingClean)
+        layerTreeDidChange();
 }
 
 void InspectorLayerTreeAgent::disable(ErrorString*)
@@ -207,7 +205,7 @@ void InspectorLayerTreeAgent::didPaint(LayoutObject*, const GraphicsLayer* graph
 
 PassRefPtr<TypeBuilder::Array<TypeBuilder::LayerTree::Layer> > InspectorLayerTreeAgent::buildLayerTree()
 {
-    DeprecatedPaintLayerCompositor* compositor = deprecatedPaintLayerCompositor();
+    PaintLayerCompositor* compositor = paintLayerCompositor();
     if (!compositor || !compositor->inCompositingMode())
         return nullptr;
 
@@ -218,21 +216,21 @@ PassRefPtr<TypeBuilder::Array<TypeBuilder::LayerTree::Layer> > InspectorLayerTre
     return layers.release();
 }
 
-void InspectorLayerTreeAgent::buildLayerIdToNodeIdMap(DeprecatedPaintLayer* root, LayerIdToNodeIdMap& layerIdToNodeIdMap)
+void InspectorLayerTreeAgent::buildLayerIdToNodeIdMap(PaintLayer* root, LayerIdToNodeIdMap& layerIdToNodeIdMap)
 {
-    if (root->hasCompositedDeprecatedPaintLayerMapping()) {
+    if (root->hasCompositedLayerMapping()) {
         if (Node* node = root->layoutObject()->generatingNode()) {
-            GraphicsLayer* graphicsLayer = root->compositedDeprecatedPaintLayerMapping()->childForSuperlayers();
+            GraphicsLayer* graphicsLayer = root->compositedLayerMapping()->childForSuperlayers();
             layerIdToNodeIdMap.set(graphicsLayer->platformLayer()->id(), idForNode(node));
         }
     }
-    for (DeprecatedPaintLayer* child = root->firstChild(); child; child = child->nextSibling())
+    for (PaintLayer* child = root->firstChild(); child; child = child->nextSibling())
         buildLayerIdToNodeIdMap(child, layerIdToNodeIdMap);
     if (!root->layoutObject()->isLayoutIFrame())
         return;
     FrameView* childFrameView = toFrameView(toLayoutPart(root->layoutObject())->widget());
     if (LayoutView* childLayoutView = childFrameView->layoutView()) {
-        if (DeprecatedPaintLayerCompositor* childCompositor = childLayoutView->compositor())
+        if (PaintLayerCompositor* childCompositor = childLayoutView->compositor())
             buildLayerIdToNodeIdMap(childCompositor->rootLayer(), layerIdToNodeIdMap);
     }
 }
@@ -254,16 +252,16 @@ int InspectorLayerTreeAgent::idForNode(Node* node)
     return DOMNodeIds::idForNode(node);
 }
 
-DeprecatedPaintLayerCompositor* InspectorLayerTreeAgent::deprecatedPaintLayerCompositor()
+PaintLayerCompositor* InspectorLayerTreeAgent::paintLayerCompositor()
 {
-    LayoutView* layoutView = m_pageAgent->inspectedFrame()->contentLayoutObject();
-    DeprecatedPaintLayerCompositor* compositor = layoutView ? layoutView->compositor() : nullptr;
+    LayoutView* layoutView = m_inspectedFrames->root()->contentLayoutObject();
+    PaintLayerCompositor* compositor = layoutView ? layoutView->compositor() : nullptr;
     return compositor;
 }
 
 GraphicsLayer* InspectorLayerTreeAgent::rootGraphicsLayer()
 {
-    return m_pageAgent->frameHost()->pinchViewport().rootGraphicsLayer();
+    return m_inspectedFrames->root()->host()->visualViewport().rootGraphicsLayer();
 }
 
 static GraphicsLayer* findLayerById(GraphicsLayer* root, int layerId)
@@ -289,7 +287,7 @@ GraphicsLayer* InspectorLayerTreeAgent::layerById(ErrorString* errorString, cons
         *errorString = "Invalid layer id";
         return nullptr;
     }
-    DeprecatedPaintLayerCompositor* compositor = deprecatedPaintLayerCompositor();
+    PaintLayerCompositor* compositor = paintLayerCompositor();
     if (!compositor) {
         *errorString = "Not in compositing mode";
         return nullptr;
@@ -328,7 +326,8 @@ void InspectorLayerTreeAgent::makeSnapshot(ErrorString* errorString, const Strin
     IntSize size = expandedIntSize(layer->size());
 
     SkPictureBuilder pictureBuilder(FloatRect(0, 0, size.width(), size.height()));
-    layer->paint(pictureBuilder.context(), IntRect(IntPoint(0, 0), size));
+    IntRect interestRect(IntPoint(0, 0), size);
+    layer->paint(pictureBuilder.context(), &interestRect);
 
     RefPtr<PictureSnapshot> snapshot = adoptRef(new PictureSnapshot(pictureBuilder.endRecording()));
 

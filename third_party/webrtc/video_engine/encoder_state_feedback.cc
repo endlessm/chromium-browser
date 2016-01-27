@@ -13,8 +13,8 @@
 #include <assert.h>
 
 #include "webrtc/base/checks.h"
-#include "webrtc/modules/rtp_rtcp/interface/rtp_rtcp_defines.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 #include "webrtc/video_engine/vie_encoder.h"
 
 namespace webrtc {
@@ -54,32 +54,14 @@ EncoderStateFeedback::~EncoderStateFeedback() {
   assert(encoders_.empty());
 }
 
-void EncoderStateFeedback::UpdateSsrcs(const std::vector<uint32_t>& ssrcs,
-                                       ViEEncoder* encoder) {
+void EncoderStateFeedback::AddEncoder(const std::vector<uint32_t>& ssrcs,
+                                      ViEEncoder* encoder) {
+  RTC_DCHECK(!ssrcs.empty());
   CriticalSectionScoped lock(crit_.get());
-  SsrcEncoderMap::iterator it = encoders_.begin();
-  while (it != encoders_.end()) {
-    if (it->second == encoder) {
-      encoders_.erase(it++);
-    } else {
-      ++it;
-    }
-  }
   for (uint32_t ssrc : ssrcs) {
-    DCHECK(encoders_.find(ssrc) == encoders_.end());
+    RTC_DCHECK(encoders_.find(ssrc) == encoders_.end());
     encoders_[ssrc] = encoder;
   }
-}
-
-bool EncoderStateFeedback::AddEncoder(uint32_t ssrc, ViEEncoder* encoder)  {
-  CriticalSectionScoped lock(crit_.get());
-  if (encoders_.find(ssrc) != encoders_.end()) {
-    // Two encoders must not have the same ssrc.
-    return false;
-  }
-
-  encoders_[ssrc] = encoder;
-  return true;
 }
 
 void EncoderStateFeedback::RemoveEncoder(const ViEEncoder* encoder)  {

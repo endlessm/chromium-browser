@@ -27,8 +27,9 @@
 #define NetworkStateNotifier_h
 
 #include "core/CoreExport.h"
+#include "core/dom/ExecutionContext.h"
 #include "public/platform/WebConnectionType.h"
-#include "wtf/FastAllocBase.h"
+#include "wtf/Allocator.h"
 #include "wtf/HashMap.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/ThreadingPrimitives.h"
@@ -36,24 +37,24 @@
 
 namespace blink {
 
-class ExecutionContext;
-
 class CORE_EXPORT NetworkStateNotifier {
-    WTF_MAKE_NONCOPYABLE(NetworkStateNotifier); WTF_MAKE_FAST_ALLOCATED(NetworkStateNotifier);
+    WTF_MAKE_NONCOPYABLE(NetworkStateNotifier); USING_FAST_MALLOC(NetworkStateNotifier);
 public:
     class NetworkStateObserver {
     public:
         // Will be called on the thread of the context passed in addObserver.
-        virtual void connectionTypeChange(WebConnectionType) = 0;
+        virtual void connectionChange(WebConnectionType, double maxBandwidthMbps) = 0;
     };
 
     NetworkStateNotifier()
         : m_isOnLine(true)
-        , m_type(ConnectionTypeOther)
+        , m_type(WebConnectionTypeOther)
+        , m_maxBandwidthMbps(std::numeric_limits<double>::infinity())
         , m_testUpdatesOnly(false)
     {
     }
 
+    // Can be called on any thread.
     bool onLine() const
     {
         MutexLocker locker(m_mutex);
@@ -62,13 +63,21 @@ public:
 
     void setOnLine(bool);
 
+    // Can be called on any thread.
     WebConnectionType connectionType() const
     {
         MutexLocker locker(m_mutex);
         return m_type;
     }
 
-    void setWebConnectionType(WebConnectionType);
+    // Can be called on any thread.
+    double maxBandwidth() const
+    {
+        MutexLocker locker(m_mutex);
+        return m_maxBandwidthMbps;
+    }
+
+    void setWebConnection(WebConnectionType, double maxBandwidthMbps);
 
     // Must be called on the context's thread. An added observer must be removed
     // before its ExecutionContext is deleted. It's possible for an observer to
@@ -81,9 +90,13 @@ public:
 
     // When true, setWebConnectionType calls are ignored and only setWebConnectionTypeForTest
     // can update the connection type. This is used for layout tests (see crbug.com/377736).
+    //
+    // Since this class is a singleton, tests must call this with false when completed to
+    // avoid indeterminate state across the test harness. When switching in or out of test
+    // mode, all state will be reset to default values.
     void setTestUpdatesOnly(bool);
     // Tests should call this as it will change the type regardless of the value of m_testUpdatesOnly.
-    void setWebConnectionTypeForTest(WebConnectionType);
+    void setWebConnectionForTest(WebConnectionType, double maxBandwidthMbps);
 
 private:
     struct ObserverList {
@@ -96,11 +109,15 @@ private:
         Vector<size_t> zeroedObservers; // Indices in observers that are 0.
     };
 
-    void setWebConnectionTypeImpl(WebConnectionType);
+    void setWebConnectionImpl(WebConnectionType, double maxBandwidthMbps);
+    void setMaxBandwidthImpl(double maxBandwidthMbps);
 
-    using ObserverListMap = HashMap<ExecutionContext*, OwnPtr<ObserverList>>;
+    // The ObserverListMap is cross-thread accessed, adding/removing Observers running
+    // within an ExecutionContext. Kept off-heap to ease cross-thread allocation and use;
+    // the observers are (already) responsible for explicitly unregistering while finalizing.
+    using ObserverListMap = HashMap<RawPtrWillBeUntracedMember<ExecutionContext>, OwnPtr<ObserverList>>;
 
-    void notifyObserversOnContext(WebConnectionType, ExecutionContext*);
+    void notifyObserversOfConnectionChangeOnContext(WebConnectionType, double maxBandwidthMbps, ExecutionContext*);
 
     ObserverList* lockAndFindObserverList(ExecutionContext*);
 
@@ -112,6 +129,7 @@ private:
     mutable Mutex m_mutex;
     bool m_isOnLine;
     WebConnectionType m_type;
+    double m_maxBandwidthMbps;
     ObserverListMap m_observers;
     bool m_testUpdatesOnly;
 };

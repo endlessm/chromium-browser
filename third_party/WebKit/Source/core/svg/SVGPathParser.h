@@ -24,7 +24,8 @@
 #ifndef SVGPathParser_h
 #define SVGPathParser_h
 
-#include "core/svg/SVGPathSeg.h"
+#include "core/CoreExport.h"
+#include "core/svg/SVGPathData.h"
 #include "platform/heap/Handle.h"
 
 namespace blink {
@@ -37,7 +38,7 @@ enum PathParsingMode {
 class SVGPathConsumer;
 class SVGPathSource;
 
-class SVGPathParser final {
+class CORE_EXPORT SVGPathParser final {
     WTF_MAKE_NONCOPYABLE(SVGPathParser);
     STACK_ALLOCATED();
 public:

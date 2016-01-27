@@ -15,7 +15,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "components/google/core/browser/google_switches.h"
 #include "components/google/core/browser/google_url_tracker.h"
-#include "components/url_fixer/url_fixer.h"
+#include "components/url_formatter/url_fixer.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "net/base/url_util.h"
 #include "url/gurl.h"
@@ -57,7 +57,8 @@ bool IsValidHostName(const std::string& host,
   if (base::LowerCaseEqualsASCII(host_minus_tld, domain_in_lower_case.c_str()))
     return true;
   if (subdomain_permission == google_util::ALLOW_SUBDOMAIN)
-    return base::EndsWith(host_minus_tld, "." + domain_in_lower_case, false);
+    return base::EndsWith(host_minus_tld, "." + domain_in_lower_case,
+                          base::CompareCase::INSENSITIVE_ASCII);
   return base::LowerCaseEqualsASCII(host_minus_tld,
                                     ("www." + domain_in_lower_case).c_str());
 }
@@ -152,7 +153,7 @@ GURL CommandLineGoogleBaseURL() {
           switches::kGoogleBaseURL));
   if (current_switch_value != switch_value) {
     switch_value = current_switch_value;
-    base_url = url_fixer::FixupURL(switch_value, std::string());
+    base_url = url_formatter::FixupURL(switch_value, std::string());
     if (!base_url.is_valid() || base_url.has_query() || base_url.has_ref())
       base_url = GURL();
   }
@@ -162,8 +163,8 @@ GURL CommandLineGoogleBaseURL() {
 bool StartsWithCommandLineGoogleBaseURL(const GURL& url) {
   GURL base_url(CommandLineGoogleBaseURL());
   return base_url.is_valid() &&
-         base::StartsWithASCII(url.possibly_invalid_spec(), base_url.spec(),
-                               true);
+         base::StartsWith(url.possibly_invalid_spec(), base_url.spec(),
+                          base::CompareCase::SENSITIVE);
 }
 
 bool IsGoogleHostname(const std::string& host,
@@ -189,7 +190,8 @@ bool IsGoogleHomePageUrl(const GURL& url) {
 
   // Make sure the path is a known home page path.
   std::string path(url.path());
-  return IsPathHomePageBase(path) || base::StartsWithASCII(path, "/ig", false);
+  return IsPathHomePageBase(path) ||
+         base::StartsWith(path, "/ig", base::CompareCase::INSENSITIVE_ASCII);
 }
 
 bool IsGoogleSearchUrl(const GURL& url) {

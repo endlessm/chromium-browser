@@ -34,9 +34,12 @@
 #include "talk/app/webrtc/androidvideocapturer.h"
 #include "talk/app/webrtc/java/jni/jni_helpers.h"
 #include "webrtc/base/asyncinvoker.h"
+#include "webrtc/base/criticalsection.h"
 #include "webrtc/base/thread_checker.h"
 
 namespace webrtc_jni {
+
+class NativeHandleImpl;
 
 // AndroidVideoCapturerJni implements AndroidVideoCapturerDelegate.
 // The purpose of the delegate is to hide the JNI specifics from the C++ only
@@ -45,64 +48,61 @@ class AndroidVideoCapturerJni : public webrtc::AndroidVideoCapturerDelegate {
  public:
   static int SetAndroidObjects(JNIEnv* jni, jobject appliction_context);
 
-  // Creates a new instance of AndroidVideoCapturerJni. Returns a nullptr if
-  // it can't be created. This happens if |device_name| is invalid.
-  static rtc::scoped_refptr<AndroidVideoCapturerJni> Create(
-      JNIEnv* jni,
-      jobject j_video_capture, // Instance of VideoCapturerAndroid
-      jstring device_name); // Name of the camera to use.
+  AndroidVideoCapturerJni(JNIEnv* jni, jobject j_video_capturer);
 
   void Start(int width, int height, int framerate,
              webrtc::AndroidVideoCapturer* capturer) override;
   void Stop() override;
 
-  void ReturnBuffer(int64 time_stamp) override;
-
   std::string GetSupportedFormats() override;
 
   // Called from VideoCapturerAndroid::NativeObserver on a Java thread.
   void OnCapturerStarted(bool success);
-  void OnIncomingFrame(void* video_frame,
-                       int length,
-                       int rotation,
-                       int64 time_stamp);
+  void OnMemoryBufferFrame(void* video_frame, int length, int width,
+                           int height, int rotation, int64_t timestamp_ns);
+  void OnTextureFrame(int width, int height, int64_t timestamp_ns,
+                      const NativeHandleImpl& handle);
   void OnOutputFormatRequest(int width, int height, int fps);
-protected:
-  AndroidVideoCapturerJni(JNIEnv* jni, jobject j_video_capturer);
+
+ protected:
   ~AndroidVideoCapturerJni();
 
-private:
-  bool Init(jstring device_name);
-
-  void OnCapturerStarted_w(bool success);
-  void OnCapturerStopped_w();
-  void OnIncomingFrame_w(void* video_frame,
-                         int length,
-                         int rotation,
-                         int64 time_stamp);
-  void OnOutputFormatRequest_w(int width, int height, int fps);
-  void ReturnBuffer_w(int64 time_stamp);
-
+ private:
+  void ReturnBuffer(int64_t time_stamp);
   JNIEnv* jni();
+
+  // To avoid deducing Args from the 3rd parameter of AsyncCapturerInvoke.
+  template <typename T>
+  struct Identity {
+    typedef T type;
+  };
+
+  // Helper function to make safe asynchronous calls to |capturer_|. The calls
+  // are not guaranteed to be delivered.
+  template <typename... Args>
+  void AsyncCapturerInvoke(
+      const char* method_name,
+      void (webrtc::AndroidVideoCapturer::*method)(Args...),
+      typename Identity<Args>::type... args);
 
   const ScopedGlobalRef<jobject> j_capturer_global_;
   const ScopedGlobalRef<jclass> j_video_capturer_class_;
   const ScopedGlobalRef<jclass> j_observer_class_;
-  volatile bool valid_global_refs_;
-  jobject j_frame_observer_;
 
   rtc::ThreadChecker thread_checker_;
 
-  rtc::Thread* thread_;  // The thread where Start is called on.
   // |capturer| is a guaranteed to be a valid pointer between a call to
   // AndroidVideoCapturerDelegate::Start
   // until AndroidVideoCapturerDelegate::Stop.
-  webrtc::AndroidVideoCapturer* capturer_;
-  rtc::AsyncInvoker invoker_;
+  rtc::CriticalSection capturer_lock_;
+  webrtc::AndroidVideoCapturer* capturer_ GUARDED_BY(capturer_lock_);
+  // |invoker_| is used to communicate with |capturer_| on the thread Start() is
+  // called on.
+  rtc::scoped_ptr<rtc::GuardedAsyncInvoker> invoker_ GUARDED_BY(capturer_lock_);
 
   static jobject application_context_;
 
-  DISALLOW_COPY_AND_ASSIGN(AndroidVideoCapturerJni);
+  RTC_DISALLOW_COPY_AND_ASSIGN(AndroidVideoCapturerJni);
 };
 
 }  // namespace webrtc_jni

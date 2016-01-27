@@ -9,12 +9,11 @@ import android.os.Handler;
 
 import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.Tab;
 import org.chromium.chrome.browser.compositor.layouts.OverviewModeBehavior;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
 import org.chromium.chrome.browser.ntp.NativePageFactory;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabIdManager;
-import org.chromium.chrome.browser.tabmodel.OffTheRecordTabModel.OffTheRecordTabModelDelegate;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabSelectionType;
 import org.chromium.chrome.browser.tabmodel.TabPersistentStore.TabPersistentStoreObserver;
@@ -56,47 +55,6 @@ public class TabModelSelectorImpl extends TabModelSelectorBase implements TabMod
     private ChromeTabCreator mRegularTabCreator;
     private ChromeTabCreator mIncognitoTabCreator;
 
-    private static class TabModelImplCreator implements OffTheRecordTabModelDelegate {
-        private final ChromeActivity mActivity;
-        private final TabModelSelectorUma mUma;
-        private final TabModelOrderController mOrderController;
-        private final TabContentManager mTabContentManager;
-        private final TabPersistentStore mTabSaver;
-        private final TabModelDelegate mModelDelegate;
-
-        /**
-         * Constructor for an Incognito TabModelImpl.
-         *
-         * @param activity           The activity owning this TabModel.
-         * @param uma                Handles UMA tracking for the model.
-         * @param orderController    Determines the order for inserting new Tabs.
-         * @param tabContentManager  Manages the display content of the tab.
-         * @param tabSaver           Handler for saving tabs.
-         * @param modelDelegate      Delegate to handle external dependencies and interactions.
-         */
-        public TabModelImplCreator(ChromeActivity activity, TabModelSelectorUma uma,
-                TabModelOrderController orderController, TabContentManager tabContentManager,
-                TabPersistentStore tabSaver, TabModelDelegate modelDelegate) {
-            mActivity = activity;
-            mUma = uma;
-            mOrderController = orderController;
-            mTabContentManager = tabContentManager;
-            mTabSaver = tabSaver;
-            mModelDelegate = modelDelegate;
-        }
-
-        @Override
-        public TabModel createTabModel() {
-            return new TabModelImpl(true, mActivity, mUma, mOrderController,
-                    mTabContentManager, mTabSaver, mModelDelegate);
-        }
-
-        @Override
-        public boolean doOffTheRecordTabsExist() {
-            return TabWindowManager.getInstance().getIncognitoTabCount() > 0;
-        }
-    }
-
     /**
      * Builds a {@link TabModelSelectorImpl} instance.
      * @param activity      The {@link ChromeActivity} this model selector lives in.
@@ -123,6 +81,10 @@ public class TabModelSelectorImpl extends TabModelSelectorBase implements TabMod
             @Override
             public void onInitialized(int tabCountAtStartup) {
                 RecordHistogram.recordCountHistogram("Tabs.CountAtStartup", tabCountAtStartup);
+            }
+
+            @Override
+            public void onMetadataSavedAsynchronously() {
             }
         };
         mTabSaver = new TabPersistentStore(this, selectorIndex, mActivity, mActivity,
@@ -181,10 +143,11 @@ public class TabModelSelectorImpl extends TabModelSelectorBase implements TabMod
         assert !mActiveState : "onNativeLibraryReady called twice!";
         mTabContentManager = tabContentProvider;
 
-        TabModel normalModel = new TabModelImpl(false, mActivity, mUma, mOrderController,
-                mTabContentManager, mTabSaver, this);
-        TabModel incognitoModel = new OffTheRecordTabModel(new TabModelImplCreator(
-                mActivity, mUma, mOrderController, mTabContentManager, mTabSaver, this));
+        TabModel normalModel = new TabModelImpl(false, mRegularTabCreator, mIncognitoTabCreator,
+                mUma, mOrderController, mTabContentManager, mTabSaver, this);
+        TabModel incognitoModel = new OffTheRecordTabModel(new OffTheRecordTabModelImplCreator(
+                mRegularTabCreator, mIncognitoTabCreator, mUma, mOrderController,
+                mTabContentManager, mTabSaver, this));
         initialize(isIncognitoSelected(), normalModel, incognitoModel);
         mRegularTabCreator.setTabModel(normalModel, mTabContentManager);
         mIncognitoTabCreator.setTabModel(incognitoModel, mTabContentManager);
@@ -213,7 +176,7 @@ public class TabModelSelectorImpl extends TabModelSelectorBase implements TabMod
             }
 
             @Override
-            public void onLoadStopped(Tab tab) {
+            public void onLoadStopped(Tab tab, boolean toDifferentDocument) {
                 handleOnPageLoadStopped(tab);
             }
 
@@ -320,24 +283,18 @@ public class TabModelSelectorImpl extends TabModelSelectorBase implements TabMod
      * If there is an asynchronous session restore in-progress, try to synchronously restore
      * the state of a tab with the given url as a frozen tab. This method has no effect if
      * there isn't a tab being restored with this url, or the tab has already been restored.
-     *
-     * @return true if there exists a tab with the url.
      */
-    public boolean tryToRestoreTabStateForUrl(String url) {
-        if (!isSessionRestoreInProgress()) return false;
-        return mTabSaver.restoreTabStateForUrl(url);
+    public void tryToRestoreTabStateForUrl(String url) {
+        if (isSessionRestoreInProgress()) mTabSaver.restoreTabStateForUrl(url);
     }
 
     /**
      * If there is an asynchronous session restore in-progress, try to synchronously restore
      * the state of a tab with the given id as a frozen tab. This method has no effect if
      * there isn't a tab being restored with this id, or the tab has already been restored.
-     *
-     * @return true if there exists a tab with the id.
      */
-    public boolean tryToRestoreTabStateForId(int id) {
-        if (!isSessionRestoreInProgress()) return false;
-        return mTabSaver.restoreTabStateForId(id);
+    public void tryToRestoreTabStateForId(int id) {
+        if (isSessionRestoreInProgress()) mTabSaver.restoreTabStateForId(id);
     }
 
     public void clearState() {
@@ -375,7 +332,7 @@ public class TabModelSelectorImpl extends TabModelSelectorBase implements TabMod
                 && tab.getLaunchType() == TabLaunchType.FROM_EXTERNAL_APP;
 
         if (mVisibleTab != tab && tab != null && !tab.isNativePage()) {
-            TabModelBase.startTabSwitchLatencyTiming(type);
+            TabModelImpl.startTabSwitchLatencyTiming(type);
         }
         if (mVisibleTab != null && mVisibleTab != tab && !mVisibleTab.needsReload()) {
             if (mVisibleTab.isInitialized()) {

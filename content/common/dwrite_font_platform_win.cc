@@ -4,7 +4,10 @@
 
 #include "content/public/common/dwrite_font_platform_win.h"
 
+#include <windows.h>
+
 #include <dwrite.h>
+#include <limits>
 #include <map>
 #include <string>
 #include <utility>
@@ -20,16 +23,18 @@
 #include "base/files/file_util.h"
 #include "base/files/memory_mapped_file.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "base/memory/shared_memory.h"
+#include "base/metrics/field_trial.h"
 #include "base/metrics/histogram.h"
 #include "base/path_service.h"
 #include "base/process/process_handle.h"
 #include "base/stl_util.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/synchronization/lock.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_comptr.h"
 #include "content/public/common/content_switches.h"
@@ -928,23 +933,45 @@ bool FontCollectionLoader::IsFileCached(UINT32 font_key) {
 }
 
 bool FontCollectionLoader::LoadCacheFile() {
+  TRACE_EVENT0("startup", "FontCollectionLoader::LoadCacheFile");
+
   std::string font_cache_handle_string =
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
           switches::kFontCacheSharedHandle);
   if (font_cache_handle_string.empty())
     return false;
 
-  base::SharedMemoryHandle font_cache_handle = NULL;
-  base::StringToUint(font_cache_handle_string,
-                     reinterpret_cast<unsigned int*>(&font_cache_handle));
-  DCHECK(font_cache_handle);
+  unsigned int handle_uint;
+  base::StringToUint(font_cache_handle_string, &handle_uint);
+  DCHECK(handle_uint);
+  if (handle_uint > static_cast<unsigned int>(std::numeric_limits<long>::max()))
+    return false;
+  base::SharedMemoryHandle font_cache_handle(LongToHandle(handle_uint),
+                                             base::GetCurrentProcId());
 
   base::SharedMemory* shared_mem = new base::SharedMemory(
       font_cache_handle, true);
-  // Map while file
+  // Map the cache file into memory.
   shared_mem->Map(0);
 
   cache_.reset(shared_mem);
+
+  if (base::StartsWith(base::FieldTrialList::FindFullName("LightSpeed"),
+                       "PrefetchDWriteFontCache",
+                       base::CompareCase::SENSITIVE)) {
+    // Prefetch the cache, to avoid unordered IO when it is used.
+    // PrefetchVirtualMemory() is loaded dynamically because it is only
+    // available from Win8.
+    decltype(PrefetchVirtualMemory)* prefetch_virtual_memory =
+        reinterpret_cast<decltype(PrefetchVirtualMemory)*>(::GetProcAddress(
+            ::GetModuleHandle(L"kernel32.dll"), "PrefetchVirtualMemory"));
+    if (prefetch_virtual_memory != NULL) {
+      WIN32_MEMORY_RANGE_ENTRY memory_range;
+      memory_range.VirtualAddress = shared_mem->memory();
+      memory_range.NumberOfBytes = shared_mem->mapped_size();
+      prefetch_virtual_memory(::GetCurrentProcess(), 1, &memory_range, 0);
+    }
+  }
 
   if (!ValidateAndLoadCacheMap()) {
     cache_.reset();
@@ -1074,6 +1101,8 @@ mswr::ComPtr<IDWriteFontCollection> g_font_collection;
 IDWriteFontCollection* GetCustomFontCollection(IDWriteFactory* factory) {
   if (g_font_collection.Get() != NULL)
     return g_font_collection.Get();
+
+  TRACE_EVENT0("startup", "content::GetCustomFontCollection");
 
   base::TimeTicks start_tick = base::TimeTicks::Now();
 

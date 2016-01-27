@@ -29,13 +29,13 @@ CachingPermutedEntropyProvider::~CachingPermutedEntropyProvider() {
 // static
 void CachingPermutedEntropyProvider::RegisterPrefs(
     PrefRegistrySimple* registry) {
-  registry->RegisterStringPref(prefs::kVariationsPermutedEntropyCache,
-                               std::string());
+  registry->RegisterStringPref(
+      variations::prefs::kVariationsPermutedEntropyCache, std::string());
 }
 
 // static
 void CachingPermutedEntropyProvider::ClearCache(PrefService* local_state) {
-  local_state->ClearPref(prefs::kVariationsPermutedEntropyCache);
+  local_state->ClearPref(variations::prefs::kVariationsPermutedEntropyCache);
 }
 
 uint16 CachingPermutedEntropyProvider::GetPermutedValue(
@@ -51,12 +51,12 @@ uint16 CachingPermutedEntropyProvider::GetPermutedValue(
 }
 
 void CachingPermutedEntropyProvider::ReadFromLocalState() const {
-  const std::string base64_cache_data =
-      local_state_->GetString(prefs::kVariationsPermutedEntropyCache);
+  const std::string base64_cache_data = local_state_->GetString(
+      variations::prefs::kVariationsPermutedEntropyCache);
   std::string cache_data;
   if (!base::Base64Decode(base64_cache_data, &cache_data) ||
       !cache_.ParseFromString(cache_data)) {
-    local_state_->ClearPref(prefs::kVariationsPermutedEntropyCache);
+    local_state_->ClearPref(variations::prefs::kVariationsPermutedEntropyCache);
     NOTREACHED();
   }
 }
@@ -67,7 +67,7 @@ void CachingPermutedEntropyProvider::UpdateLocalState() const {
 
   std::string base64_encoded;
   base::Base64Encode(serialized, &base64_encoded);
-  local_state_->SetString(prefs::kVariationsPermutedEntropyCache,
+  local_state_->SetString(variations::prefs::kVariationsPermutedEntropyCache,
                           base64_encoded);
 }
 

@@ -76,7 +76,7 @@ class QuitDelegate : public net::URLFetcherDelegate {
 
   // net::URLFetcherDelegate implementation.
   void OnURLFetchComplete(const net::URLFetcher* source) override {
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
   }
 
   void OnURLFetchDownloadProgress(const net::URLFetcher* source,
@@ -144,7 +144,7 @@ BuildURLRequestContext(net::NetLog* net_log) {
   //
   // TODO(akalin): Remove this once http://crbug.com/146421 is fixed.
   builder.set_proxy_config_service(
-      new net::ProxyConfigServiceFixed(net::ProxyConfig()));
+      make_scoped_ptr(new net::ProxyConfigServiceFixed(net::ProxyConfig())));
 #endif
   scoped_ptr<net::URLRequestContext> context(builder.Build());
   context->set_net_log(net_log);

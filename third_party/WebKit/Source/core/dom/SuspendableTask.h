@@ -5,9 +5,12 @@
 #ifndef SuspendableTask_h
 #define SuspendableTask_h
 
+#include "wtf/Allocator.h"
+
 namespace blink {
 
 class SuspendableTask {
+    USING_FAST_MALLOC(SuspendableTask);
 public:
     SuspendableTask() { }
     virtual void run() = 0;

@@ -11,7 +11,9 @@
 #include "core/html/canvas/CanvasImageSource.h"
 #include "platform/geometry/IntRect.h"
 #include "platform/graphics/Image.h"
+#include "platform/graphics/ImageBuffer.h"
 #include "platform/heap/Handle.h"
+#include "third_party/skia/include/core/SkImage.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefCounted.h"
 
@@ -32,22 +34,18 @@ public:
     static PassRefPtrWillBeRawPtr<ImageBitmap> create(ImageBitmap*, const IntRect&);
     static PassRefPtrWillBeRawPtr<ImageBitmap> create(Image*, const IntRect&);
 
-    PassRefPtr<Image> bitmapImage() const;
-    PassRefPtrWillBeRawPtr<HTMLImageElement> imageElement() const { return m_imageElement; }
+    SkImage* skImage() const { return (m_image) ? m_image.get() : nullptr; }
+    int width() const { return (m_image) ? m_image->width(): 0; }
+    int height() const { return (m_image) ? m_image->height(): 0; }
+    IntSize size() const { return (m_image) ? IntSize(m_image->width(), m_image->height()) : IntSize(); }
 
-    IntRect bitmapRect() const { return m_bitmapRect; }
-
-    int width() const { return m_cropRect.width(); }
-    int height() const { return m_cropRect.height(); }
-    IntSize size() const { return m_cropRect.size(); }
-
-    virtual ~ImageBitmap();
+    ~ImageBitmap() override;
 
     // CanvasImageSource implementation
-    virtual PassRefPtr<Image> getSourceImageForCanvas(SourceImageMode, SourceImageStatus*) const override;
-    virtual bool wouldTaintOrigin(SecurityOrigin*) const override { return false; }
-    virtual void adjustDrawRects(FloatRect* srcRect, FloatRect* dstRect) const override;
-    virtual FloatSize elementSize() const override;
+    PassRefPtr<Image> getSourceImageForCanvas(SourceImageStatus*, AccelerationHint) const override;
+    bool wouldTaintOrigin(SecurityOrigin*) const override { return false; }
+    void adjustDrawRects(FloatRect* srcRect, FloatRect* dstRect) const override;
+    FloatSize elementSize() const override;
 
     DECLARE_VIRTUAL_TRACE();
 
@@ -59,23 +57,13 @@ private:
     ImageBitmap(ImageBitmap*, const IntRect&);
     ImageBitmap(Image*, const IntRect&);
 
+    PassRefPtr<SkImage> cropImage(PassRefPtr<SkImage>, const IntRect&);
+
     // ImageLoaderClient
-    virtual void notifyImageSourceChanged() override;
-    virtual bool requestsHighLiveResourceCachePriority() override { return true; }
+    void notifyImageSourceChanged() override;
+    bool requestsHighLiveResourceCachePriority() override { return true; }
 
-    // ImageBitmaps constructed from HTMLImageElements hold a reference to the HTMLImageElement until
-    // the image source changes.
-    RefPtrWillBeMember<HTMLImageElement> m_imageElement;
-    RefPtr<Image> m_bitmap;
-
-    IntRect m_bitmapRect; // The rect where the underlying Image should be placed in reference to the ImageBitmap.
-    IntRect m_cropRect;
-
-    // The offset by which the desired Image is stored internally.
-    // ImageBitmaps constructed from HTMLImageElements reference the entire ImageResource and may have a non-zero bitmap offset.
-    // ImageBitmaps not constructed from HTMLImageElements always pre-crop and store the image at (0, 0).
-    IntPoint m_bitmapOffset;
-
+    RefPtr<SkImage> m_image;
 };
 
 } // namespace blink

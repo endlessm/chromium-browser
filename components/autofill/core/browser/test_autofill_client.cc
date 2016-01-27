@@ -48,11 +48,20 @@ void TestAutofillClient::ShowUnmaskPrompt(
     base::WeakPtr<CardUnmaskDelegate> delegate) {
 }
 
-void TestAutofillClient::OnUnmaskVerificationResult(GetRealPanResult result) {
+void TestAutofillClient::OnUnmaskVerificationResult(PaymentsRpcResult result) {}
+
+void TestAutofillClient::ConfirmSaveCreditCardLocally(
+    const base::Closure& callback) {}
+
+void TestAutofillClient::ConfirmSaveCreditCardToCloud(
+    const base::Closure& callback,
+    scoped_ptr<base::DictionaryValue> legal_message) {
+  callback.Run();
 }
 
-void TestAutofillClient::ConfirmSaveCreditCard(
-    const base::Closure& save_card_callback) {
+void TestAutofillClient::LoadRiskData(
+    const base::Callback<void(const std::string&)>& callback) {
+  callback.Run("some risk data");
 }
 
 bool TestAutofillClient::HasCreditCardScanFeature() {
@@ -90,7 +99,7 @@ bool TestAutofillClient::IsAutocompleteEnabled() {
 
 void TestAutofillClient::PropagateAutofillPredictions(
     content::RenderFrameHost* rfh,
-    const std::vector<autofill::FormStructure*>& forms) {
+    const std::vector<FormStructure*>& forms) {
 }
 
 void TestAutofillClient::DidFillOrPreviewField(
@@ -99,10 +108,6 @@ void TestAutofillClient::DidFillOrPreviewField(
 }
 
 void TestAutofillClient::OnFirstUserGestureObserved() {
-}
-
-void TestAutofillClient::LinkClicked(const GURL& url,
-                                     WindowOpenDisposition disposition) {
 }
 
 bool TestAutofillClient::IsContextSecure(const GURL& form_origin) {

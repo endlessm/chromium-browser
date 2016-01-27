@@ -6,7 +6,6 @@ package org.chromium.android_webview.test;
 
 import android.content.Context;
 import android.content.ContextWrapper;
-import android.os.Build;
 import android.test.suitebuilder.annotation.LargeTest;
 import android.test.suitebuilder.annotation.SmallTest;
 
@@ -15,7 +14,6 @@ import static org.chromium.base.test.util.ScalableTimeout.scaleTimeout;
 import org.chromium.android_webview.AwContents;
 import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 
@@ -25,8 +23,8 @@ import java.util.concurrent.Callable;
  * AwContents garbage collection tests. Most apps relies on WebView being
  * garbage collected to release memory. These tests ensure that nothing
  * accidentally prevents AwContents from garbage collected, leading to leaks.
+ * See crbug.com/544098 for why @DisableHardwareAccelerationForTest is needed.
  */
-@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class AwContentsGarbageCollectionTest extends AwTestBase {
     // The system retains a strong ref to the last focused view (in InputMethodManager)
     // so allow for 1 'leaked' instance.
@@ -84,6 +82,7 @@ public class AwContentsGarbageCollectionTest extends AwTestBase {
         }
     }
 
+    @DisableHardwareAccelerationForTest
     @SmallTest
     @Feature({"AndroidWebView"})
     public void testCreateAndGcOneTime() throws Throwable {
@@ -101,6 +100,7 @@ public class AwContentsGarbageCollectionTest extends AwTestBase {
         gcAndCheckAllAwContentsDestroyed();
     }
 
+    @DisableHardwareAccelerationForTest
     @SmallTest
     @Feature({"AndroidWebView"})
     public void testReferenceFromClient() throws Throwable {
@@ -118,6 +118,7 @@ public class AwContentsGarbageCollectionTest extends AwTestBase {
         gcAndCheckAllAwContentsDestroyed();
     }
 
+    @DisableHardwareAccelerationForTest
     @SmallTest
     @Feature({"AndroidWebView"})
     public void testReferenceFromContext() throws Throwable {
@@ -189,7 +190,8 @@ public class AwContentsGarbageCollectionTest extends AwTestBase {
                     return runTestOnUiThreadAndGetResult(new Callable<Boolean>() {
                         @Override
                         public Boolean call() {
-                            return AwContents.getNativeInstanceCount() <= MAX_IDLE_INSTANCES;
+                            int count = AwContents.getNativeInstanceCount();
+                            return count <= MAX_IDLE_INSTANCES;
                         }
                     });
                 } catch (Exception e) {

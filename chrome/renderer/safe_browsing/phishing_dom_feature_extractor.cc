@@ -102,11 +102,8 @@ struct PhishingDOMFeatureExtractor::FrameData {
 };
 
 PhishingDOMFeatureExtractor::PhishingDOMFeatureExtractor(
-    content::RenderView* render_view,
     FeatureExtractorClock* clock)
-    : render_view_(render_view),
-      clock_(clock),
-      weak_factory_(this) {
+    : clock_(clock), weak_factory_(this) {
   Clear();
 }
 
@@ -117,6 +114,7 @@ PhishingDOMFeatureExtractor::~PhishingDOMFeatureExtractor() {
 }
 
 void PhishingDOMFeatureExtractor::ExtractFeatures(
+    blink::WebDocument document,
     FeatureMap* features,
     const DoneCallback& done_callback) {
   // The RenderView should have called CancelPendingExtraction() before
@@ -130,10 +128,7 @@ void PhishingDOMFeatureExtractor::ExtractFeatures(
   done_callback_ = done_callback;
 
   page_feature_state_.reset(new PageFeatureState(clock_->Now()));
-  blink::WebView* web_view = render_view_->GetWebView();
-  if (web_view && web_view->mainFrame()) {
-    cur_document_ = web_view->mainFrame()->document();
-  }
+  cur_document_ = document;
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
@@ -327,8 +322,7 @@ void PhishingDOMFeatureExtractor::HandleInput(
   // Note that we use the attribute value rather than
   // WebFormControlElement::formControlType() for consistency with the
   // way the phishing classification model is created.
-  std::string type = element.getAttribute("type").utf8();
-  base::StringToLowerASCII(&type);
+  std::string type = base::ToLowerASCII(element.getAttribute("type").utf8());
   if (type == "password") {
     ++page_feature_state_->num_pswd_inputs;
   } else if (type == "radio") {

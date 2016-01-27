@@ -4,6 +4,7 @@
 
 package org.chromium.chrome.browser.externalnav;
 
+import android.Manifest.permission;
 import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Context;
@@ -26,15 +27,16 @@ import org.chromium.base.ApplicationStatus;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.IntentHandler;
-import org.chromium.chrome.browser.Tab;
-import org.chromium.chrome.browser.UrlUtilities;
+import org.chromium.chrome.browser.document.ChromeLauncherActivity;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationHandler.OverrideUrlLoadingResult;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.chrome.browser.util.IntentUtils;
+import org.chromium.chrome.browser.util.UrlUtilities;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.common.Referrer;
 import org.chromium.ui.base.PageTransition;
-import org.chromium.ui.base.WindowAndroid;
+import org.chromium.ui.base.WindowAndroid.PermissionCallback;
 
 import java.util.List;
 
@@ -115,6 +117,42 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
         return false;
     }
 
+    /**
+     * Retrieve information about the Activity that will handle the given Intent.
+     * @param intent Intent to resolve.
+     * @return       ResolveInfo of the Activity that will handle the Intent, or null if it failed.
+     */
+    public static ResolveInfo resolveActivity(Intent intent) {
+        try {
+            Context context = ApplicationStatus.getApplicationContext();
+            PackageManager pm = context.getPackageManager();
+            return pm.resolveActivity(intent, 0);
+        } catch (RuntimeException e) {
+            logTransactionTooLargeOrRethrow(e, intent);
+        }
+        return null;
+    }
+
+    /**
+     * Determines whether Chrome will be handling the given Intent.
+     * @param context           Context that will be firing the Intent.
+     * @param intent            Intent that will be fired.
+     * @param matchDefaultOnly  See {@link PackageManager#MATCH_DEFAULT_ONLY}.
+     * @return                  True if Chrome will definitely handle the intent, false otherwise.
+     */
+    public static boolean willChromeHandleIntent(
+            Context context, Intent intent, boolean matchDefaultOnly) {
+        try {
+            ResolveInfo info = context.getPackageManager().resolveActivity(
+                    intent, matchDefaultOnly ? PackageManager.MATCH_DEFAULT_ONLY : 0);
+            return info != null
+                    && info.activityInfo.packageName.equals(context.getPackageName());
+        } catch (RuntimeException e) {
+            logTransactionTooLargeOrRethrow(e, intent);
+            return false;
+        }
+    }
+
     @Override
     public List<ComponentName> queryIntentActivities(Intent intent) {
         return IntentUtils.getIntentHandlers(mActivity, intent);
@@ -132,14 +170,7 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
 
     @Override
     public boolean willChromeHandleIntent(Intent intent) {
-        try {
-            ResolveInfo info = mActivity.getPackageManager().resolveActivity(intent, 0);
-            return info != null
-                    && info.activityInfo.packageName.equals(mActivity.getPackageName());
-        } catch (RuntimeException e) {
-            logTransactionTooLargeOrRethrow(e, intent);
-            return false;
-        }
+        return willChromeHandleIntent(mActivity, intent, false);
     }
 
     @Override
@@ -233,16 +264,18 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
         // If the tab is null, then do not attempt to prompt for access.
         if (tab == null) return false;
 
-        return !tab.getWindowAndroid().hasFileAccess();
+        return !tab.getWindowAndroid().hasPermission(permission.WRITE_EXTERNAL_STORAGE)
+                && tab.getWindowAndroid().canRequestPermission(permission.WRITE_EXTERNAL_STORAGE);
     }
 
     @Override
     public void startFileIntent(final Intent intent, final String referrerUrl, final Tab tab,
             final boolean needsToCloseTab) {
-        tab.getWindowAndroid().requestFileAccess(new WindowAndroid.FileAccessCallback() {
+        PermissionCallback permissionCallback = new PermissionCallback() {
             @Override
-            public void onFileAccessResult(boolean granted) {
-                if (granted) {
+            public void onRequestPermissionsResult(String[] permissions, int[] grantResults) {
+                if (grantResults.length > 0
+                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     loadIntent(intent, referrerUrl, null, tab, needsToCloseTab, tab.isIncognito());
                 } else {
                     // TODO(tedchoc): Show an indication to the user that the navigation failed
@@ -253,7 +286,9 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
                     }
                 }
             }
-        });
+        };
+        tab.getWindowAndroid().requestPermissions(
+                new String[] {permission.WRITE_EXTERNAL_STORAGE}, permissionCallback);
     }
 
     private void loadIntent(Intent intent, String referrerUrl, String fallbackUrl, Tab tab,
@@ -277,7 +312,7 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
             intent.putExtra(Browser.EXTRA_APPLICATION_ID, getPackageName());
             if (launchIncogntio) intent.putExtra(IntentHandler.EXTRA_OPEN_NEW_INCOGNITO_TAB, true);
             intent.addCategory(Intent.CATEGORY_BROWSABLE);
-            intent.setPackage(getPackageName());
+            intent.setClassName(getPackageName(), ChromeLauncherActivity.class.getName());
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             IntentHandler.addTrustedIntentExtras(intent, mActivity);
             startActivity(intent);
@@ -331,7 +366,7 @@ public class ExternalNavigationDelegateImpl implements ExternalNavigationDelegat
 
     private static void logTransactionTooLargeOrRethrow(RuntimeException e, Intent intent) {
         // See http://crbug.com/369574.
-        if (e.getCause() != null && e.getCause() instanceof TransactionTooLargeException) {
+        if (e.getCause() instanceof TransactionTooLargeException) {
             Log.e(TAG, "Could not resolve Activity for intent " + intent.toString(), e);
         } else {
             throw e;

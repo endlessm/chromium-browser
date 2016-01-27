@@ -32,7 +32,6 @@
 
 namespace webrtc {
 class AudioDeviceModule;
-class VideoCaptureModule;
 }
 namespace cricket {
 class WebRtcVideoDecoderFactory;
@@ -43,12 +42,19 @@ namespace cricket {
 
 class WebRtcMediaEngineFactory {
  public:
-  static MediaEngineInterface* Create();
   static MediaEngineInterface* Create(
       webrtc::AudioDeviceModule* adm,
       WebRtcVideoEncoderFactory* encoder_factory,
       WebRtcVideoDecoderFactory* decoder_factory);
 };
+
+extern const char* kBweExtensionPriorities[];
+extern const size_t kBweExtensionPrioritiesLength;
+
+std::vector<RtpHeaderExtension> FilterRedundantRtpExtensions(
+    const std::vector<RtpHeaderExtension>& extensions,
+    const char* extension_prios[],
+    size_t extension_prios_length);
 
 }  // namespace cricket
 

@@ -42,9 +42,10 @@
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/shell_integration.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/chrome_version_info.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "grit/chrome_unscaled_resources.h"
 #include "ui/base/resource/resource_bundle.h"
@@ -496,12 +497,6 @@ base::FilePath GetChromeExePath() {
 }  // namespace
 
 // static
-ShellIntegration::DefaultWebClientSetPermission
-ShellIntegration::CanSetAsDefaultBrowser() {
-  return SET_DEFAULT_UNATTENDED;
-}
-
-// static
 bool ShellIntegration::SetAsDefaultBrowser() {
   return SetDefaultWebClient(std::string());
 }
@@ -513,9 +508,9 @@ bool ShellIntegration::SetAsDefaultProtocolClient(
 }
 
 // static
-ShellIntegration::DefaultWebClientState
-ShellIntegration::GetDefaultBrowser() {
-  return GetIsDefaultWebClient(std::string());
+ShellIntegration::DefaultWebClientSetPermission
+ShellIntegration::CanSetAsDefaultBrowser() {
+  return SET_DEFAULT_UNATTENDED;
 }
 
 // static
@@ -526,8 +521,8 @@ base::string16 ShellIntegration::GetApplicationNameForProtocol(
 
 // static
 ShellIntegration::DefaultWebClientState
-ShellIntegration::IsDefaultProtocolClient(const std::string& protocol) {
-  return GetIsDefaultWebClient(protocol);
+ShellIntegration::GetDefaultBrowser() {
+  return GetIsDefaultWebClient(std::string());
 }
 
 // static
@@ -541,6 +536,12 @@ bool ShellIntegration::IsFirefoxDefaultBrowser() {
   // We don't care about the return value here.
   base::GetAppOutput(base::CommandLine(argv), &browser);
   return browser.find("irefox") != std::string::npos;
+}
+
+// static
+ShellIntegration::DefaultWebClientState
+ShellIntegration::IsDefaultProtocolClient(const std::string& protocol) {
+  return GetIsDefaultWebClient(protocol);
 }
 
 namespace shell_integration_linux {
@@ -574,24 +575,21 @@ std::vector<base::FilePath> GetDataSearchLocations(base::Environment* env) {
 }
 
 std::string GetProgramClassName() {
-  DCHECK(base::CommandLine::InitializedForCurrentProcess());
-  // Get the res_name component from argv[0].
-  const base::CommandLine* command_line =
-      base::CommandLine::ForCurrentProcess();
-  std::string class_name = command_line->GetProgram().BaseName().value();
-  if (!class_name.empty())
-    class_name[0] = base::ToUpperASCII(class_name[0]);
-  return class_name;
+  scoped_ptr<base::Environment> env(base::Environment::Create());
+  std::string desktop_file(GetDesktopName(env.get()));
+  std::size_t last = desktop_file.find(".desktop");
+  if (last != std::string::npos)
+    return desktop_file.substr(0, last);
+  return desktop_file;
 }
 
 std::string GetDesktopName(base::Environment* env) {
 #if defined(GOOGLE_CHROME_BUILD)
-  chrome::VersionInfo::Channel product_channel(
-      chrome::VersionInfo::GetChannel());
+  version_info::Channel product_channel(chrome::GetChannel());
   switch (product_channel) {
-    case chrome::VersionInfo::CHANNEL_DEV:
+    case version_info::Channel::DEV:
       return "google-chrome-unstable.desktop";
-    case chrome::VersionInfo::CHANNEL_BETA:
+    case version_info::Channel::BETA:
       return "google-chrome-beta.desktop";
     default:
       return "google-chrome.desktop";
@@ -694,7 +692,7 @@ base::FilePath GetWebShortcutFilename(const GURL& url) {
   for (size_t i = 1; i < 100; ++i) {
     if (base::PathExists(base::FilePath(alternative_filepath))) {
       alternative_filepath = base::FilePath(
-          filepath.value() + "_" + base::IntToString(i) + ".desktop");
+          filepath.value() + "_" + base::SizeTToString(i) + ".desktop");
     } else {
       return base::FilePath(alternative_filepath).BaseName();
     }

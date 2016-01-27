@@ -125,6 +125,8 @@ const char* Target::GetStringForOutputType(OutputType type) {
       return "Group";
     case EXECUTABLE:
       return "Executable";
+    case LOADABLE_MODULE:
+      return "Loadable module";
     case SHARED_LIBRARY:
       return "Shared library";
     case STATIC_LIBRARY:
@@ -168,7 +170,7 @@ bool Target::OnResolved(Err* err) {
   }
 
   PullDependentTargets();
-  PullForwardedDependentConfigs();
+  PullPublicConfigs();
   PullRecursiveHardDeps();
   if (!ResolvePrecompiledHeaders(err))
     return false;
@@ -193,7 +195,9 @@ bool Target::IsLinkable() const {
 }
 
 bool Target::IsFinal() const {
-  return output_type_ == EXECUTABLE || output_type_ == SHARED_LIBRARY ||
+  return output_type_ == EXECUTABLE ||
+         output_type_ == SHARED_LIBRARY ||
+         output_type_ == LOADABLE_MODULE ||
          (output_type_ == STATIC_LIBRARY && complete_static_lib_);
 }
 
@@ -219,7 +223,8 @@ std::string Target::GetComputedOutputName(bool include_prefix) const {
     const Tool* tool = toolchain_->GetToolForTargetFinalOutput(this);
     if (tool) {
       // Only add the prefix if the name doesn't already have it.
-      if (!base::StartsWithASCII(name, tool->output_prefix(), true))
+      if (!base::StartsWith(name, tool->output_prefix(),
+                            base::CompareCase::SENSITIVE))
         result = tool->output_prefix();
     }
   }
@@ -276,7 +281,7 @@ void Target::PullDependentTarget(const Target* dep, bool is_public) {
     //
     // However, if the dependency is private:
     //   EXE -> INTERMEDIATE_SHLIB --[private]--> FINAL_SHLIB
-    // the dependency will not be propogated because INTERMEDIATE_SHLIB is
+    // the dependency will not be propagated because INTERMEDIATE_SHLIB is
     // not granting permission to call functiosn from FINAL_SHLIB. If EXE
     // wants to use functions (and link to) FINAL_SHLIB, it will need to do
     // so explicitly.
@@ -304,30 +309,13 @@ void Target::PullDependentTargets() {
     PullDependentTarget(dep.ptr, false);
 }
 
-void Target::PullForwardedDependentConfigs() {
+void Target::PullPublicConfigs() {
   // Pull public configs from each of our dependency's public deps.
   for (const auto& dep : public_deps_)
-    PullForwardedDependentConfigsFrom(dep.ptr);
-
-  // Forward public configs if explicitly requested.
-  for (const auto& dep : forward_dependent_configs_) {
-    const Target* from_target = dep.ptr;
-
-    // The forward_dependent_configs_ must be in the deps (public or private)
-    // already, so we don't need to bother copying to our configs, only
-    // forwarding.
-    DCHECK(std::find_if(private_deps_.begin(), private_deps_.end(),
-                        LabelPtrPtrEquals<Target>(from_target)) !=
-               private_deps_.end() ||
-           std::find_if(public_deps_.begin(), public_deps_.end(),
-                        LabelPtrPtrEquals<Target>(from_target)) !=
-               public_deps_.end());
-
-    PullForwardedDependentConfigsFrom(from_target);
-  }
+    PullPublicConfigsFrom(dep.ptr);
 }
 
-void Target::PullForwardedDependentConfigsFrom(const Target* from) {
+void Target::PullPublicConfigsFrom(const Target* from) {
   public_configs_.Append(from->public_configs().begin(),
                          from->public_configs().end());
 }
@@ -366,8 +354,9 @@ void Target::FillOutputFiles() {
       break;
     }
     case EXECUTABLE:
-      // Executables don't get linked to, but the first output is used for
-      // dependency management.
+    case LOADABLE_MODULE:
+      // Executables and loadable modules don't get linked to, but the first
+      // output is used for dependency management.
       CHECK_GE(tool->outputs().list().size(), 1u);
       check_tool_outputs = true;
       dependency_output_file_ =
@@ -452,7 +441,7 @@ bool Target::ResolvePrecompiledHeaders(Err* err) {
       continue;  // Skip the one on the target itself.
 
     const Config* config = iter.GetCurrentConfig();
-    const ConfigValues& cur = config->config_values();
+    const ConfigValues& cur = config->resolved_values();
     if (!cur.has_precompiled_headers())
       continue;  // This one has no precompiled header info, skip.
 

@@ -28,6 +28,7 @@
  * Google Author(s): Behdad Esfahbod
  */
 
+#include "hb-open-type-private.hh"
 #include "hb-ot-layout-private.hh"
 
 #include "hb-ot-layout-gdef-table.hh"
@@ -798,7 +799,7 @@ hb_ot_layout_position_finish (hb_font_t *font, hb_buffer_t *buffer)
 }
 
 /**
- * Since: 0.9.8
+ * Since: 0.9.10
  **/
 hb_bool_t
 hb_ot_layout_get_size_params (hb_face_t    *face,
@@ -889,7 +890,7 @@ apply_forward (OT::hb_apply_context_t *c,
 {
   bool ret = false;
   hb_buffer_t *buffer = c->buffer;
-  while (buffer->idx < buffer->len)
+  while (buffer->idx < buffer->len && !buffer->in_error)
   {
     if (accel.may_have (buffer->cur().codepoint) &&
 	(buffer->cur().mask & c->lookup_mask) &&
@@ -925,13 +926,10 @@ apply_backward (OT::hb_apply_context_t *c,
   return ret;
 }
 
-struct hb_apply_forward_context_t
+struct hb_apply_forward_context_t :
+       OT::hb_dispatch_context_t<hb_apply_forward_context_t, bool, HB_DEBUG_APPLY>
 {
   inline const char *get_name (void) { return "APPLY_FWD"; }
-  static const unsigned int max_debug_depth = HB_DEBUG_APPLY;
-  typedef bool return_t;
-  template <typename T, typename F>
-  inline bool may_dispatch (const T *obj, const F *format) { return true; }
   template <typename T>
   inline return_t dispatch (const T &obj) { return apply_forward (c, obj, accel); }
   static return_t default_return_value (void) { return false; }
@@ -959,7 +957,7 @@ apply_string (OT::hb_apply_context_t *c,
   if (unlikely (!buffer->len || !c->lookup_mask))
     return;
 
-  c->set_lookup (lookup);
+  c->set_lookup_props (lookup.get_props ());
 
   if (likely (!lookup.is_reverse ()))
   {
@@ -1010,7 +1008,20 @@ inline void hb_ot_map_t::apply (const Proxy &proxy,
     const stage_map_t *stage = &stages[table_index][stage_index];
     for (; i < stage->last_lookup; i++)
     {
+#if 0
+      char buf[4096];
+      hb_buffer_serialize_glyphs (buffer, 0, buffer->len,
+				  buf, sizeof (buf), NULL,
+				  font,
+				  HB_BUFFER_SERIALIZE_FORMAT_TEXT,
+				  Proxy::table_index == 0 ?
+				  HB_BUFFER_SERIALIZE_FLAG_NO_POSITIONS :
+				  HB_BUFFER_SERIALIZE_FLAG_DEFAULT);
+      printf ("buf: [%s]\n", buf);
+#endif
+
       unsigned int lookup_index = lookups[table_index][i].index;
+      c.set_lookup_index (lookup_index);
       c.set_lookup_mask (lookups[table_index][i].mask);
       c.set_auto_zwj (lookups[table_index][i].auto_zwj);
       apply_string<Proxy> (&c,

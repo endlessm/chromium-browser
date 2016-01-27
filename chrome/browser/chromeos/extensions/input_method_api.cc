@@ -16,9 +16,9 @@
 #include "chrome/browser/extensions/api/input_ime/input_ime_api.h"
 #include "chrome/browser/spellchecker/spellcheck_factory.h"
 #include "chrome/browser/spellchecker/spellcheck_service.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chromeos/chromeos_switches.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "extensions/browser/extension_function_registry.h"
 #include "extensions/browser/extension_system.h"
 #include "ui/base/ime/chromeos/extension_ime_util.h"
@@ -44,10 +44,6 @@ ExtensionFunction::ResponseAction GetInputMethodConfigFunction::Run() {
       "isPhysicalKeyboardAutocorrectEnabled",
       !base::CommandLine::ForCurrentProcess()->HasSwitch(
           chromeos::switches::kDisablePhysicalKeyboardAutocorrect));
-  // TODO(rsadam): Delete these two flags once callers have been updated.
-  output->SetBoolean("isVoiceInputEnabled", keyboard::IsVoiceInputEnabled());
-  output->SetBoolean("isNewMDInputViewEnabled",
-                     keyboard::IsMaterialDesignEnabled());
   return RespondNow(OneArgument(output));
 #endif
 }
@@ -170,7 +166,7 @@ ExtensionFunction::ResponseAction GetEncryptSyncEnabledFunction::Run() {
   if (!profile_sync_service)
     return RespondNow(Error("Sync service is not ready for current profile."));
   scoped_ptr<base::Value> ret(new base::FundamentalValue(
-      profile_sync_service->EncryptEverythingEnabled()));
+      profile_sync_service->IsEncryptEverythingEnabled()));
   return RespondNow(OneArgument(ret.Pass()));
 #endif
 }

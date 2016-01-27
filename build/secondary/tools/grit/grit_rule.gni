@@ -83,6 +83,11 @@ import("//build/config/crypto.gni")
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
 
+declare_args() {
+  # Enables used resource whitelist generation.
+  enable_resource_whitelist_generation = false
+}
+
 grit_defines = []
 
 # Mac and iOS want Title Case strings.
@@ -168,13 +173,6 @@ if (enable_image_loader_extension) {
   ]
 }
 
-if (enable_remoting) {
-  grit_defines += [
-    "-D",
-    "remoting",
-  ]
-}
-
 if (is_android) {
   grit_defines += [
     "-t",
@@ -195,10 +193,6 @@ if (is_ios) {
   grit_defines += [
     "-t",
     "ios",
-
-    # iOS uses a whitelist to filter resources.
-    "-w",
-    rebase_path("//build/ios/grit_whitelist.txt", root_build_dir),
   ]
 }
 
@@ -257,8 +251,6 @@ if (enable_google_now) {
   ]
 }
 
-# Note: use_concatenated_impulse_responses is omitted. It is never used and
-# should probably be removed from GYP build.
 if (enable_webrtc) {
   grit_defines += [
     "-D",
@@ -283,12 +275,6 @@ if (enable_notifications) {
     "enable_notifications",
   ]
 }
-if (enable_wifi_bootstrapping) {
-  grit_defines += [
-    "-D",
-    "enable_wifi_bootstrapping",
-  ]
-}
 if (enable_service_discovery) {
   grit_defines += [
     "-D",
@@ -299,6 +285,12 @@ if (mac_views_browser) {
   grit_defines += [
     "-D",
     "mac_views_browser",
+  ]
+}
+if (enable_topchrome_md) {
+  grit_defines += [
+    "-D",
+    "enable_topchrome_md",
   ]
 }
 
@@ -348,10 +340,17 @@ template("grit") {
   rebased_output_dir = rebase_path(output_dir, root_build_dir)
   source_path = rebase_path(invoker.source, root_build_dir)
 
+  grit_flags = []
+  if (enable_resource_whitelist_generation) {
+    grit_flags += [ "-h" ]
+    if (is_win) {
+      grit_flags += [ "#define {textual_id} __pragma(message(\"whitelisted_resource_{numeric_id}\")) {numeric_id}" ]
+    } else {
+      grit_flags += [ "#define {textual_id} _Pragma(\"whitelisted_resource_{numeric_id}\") {numeric_id}" ]
+    }
+  }
   if (defined(invoker.grit_flags)) {
-    grit_flags = invoker.grit_flags
-  } else {
-    grit_flags = []  # These are optional so default to empty list.
+    grit_flags += invoker.grit_flags
   }
 
   assert_files_flags = []
@@ -383,6 +382,13 @@ template("grit") {
     if (!defined(invoker.use_qualified_include) ||
         !invoker.use_qualified_include) {
       include_dirs = [ output_dir ]
+    }
+
+    if ((is_linux || is_android) && enable_resource_whitelist_generation) {
+      cflags = [
+        "-Wunknown-pragmas",
+        "-Wno-error=unknown-pragmas",
+      ]
     }
     visibility = target_visibility
   }

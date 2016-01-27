@@ -124,17 +124,6 @@ bool operator<(const LangToOffset& left, const std::wstring& right) {
   return left.language < right;
 }
 
-// A less-than overload to do slightly more efficient searches in the
-// sorted arrays.
-bool operator<(const std::wstring& left, const LangToOffset& right) {
-  return left < right.language;
-}
-
-// A not-so-efficient less-than overload for the same uses as above.
-bool operator<(const LangToOffset& left, const LangToOffset& right) {
-  return std::wstring(left.language) < right.language;
-}
-
 // A compare function for searching in a sorted array by offset.
 bool IsOffsetLessThan(const LangToOffset& left, const LangToOffset& right) {
   return left.offset < right.offset;
@@ -254,13 +243,9 @@ bool LanguageSelector::SelectIf(const std::vector<std::wstring>& candidates,
                                 SelectPred_Fn select_predicate,
                                 std::wstring* matched_name,
                                 int* matched_offset) {
-  std::wstring candidate;
-  for (std::vector<std::wstring>::const_iterator scan = candidates.begin(),
-          end = candidates.end(); scan != end; ++scan) {
-    candidate.assign(*scan);
-    base::StringToLowerASCII(&candidate);
-    if (select_predicate(candidate, matched_offset)) {
-      matched_name->assign(*scan);
+  for (const std::wstring& scan : candidates) {
+    if (select_predicate(base::ToLowerASCII(scan), matched_offset)) {
+      matched_name->assign(scan);
       return true;
     }
   }

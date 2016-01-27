@@ -16,7 +16,6 @@
 #include "base/strings/stringize_macros.h"
 #include "base/threading/thread.h"
 #include "base/values.h"
-#include "media/base/media.h"
 #include "net/base/net_util.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "remoting/base/service_urls.h"
@@ -49,9 +48,6 @@ It2MeNativeMessagingHost::It2MeNativeMessagingHost(
       factory_(factory.Pass()),
       weak_factory_(this) {
   weak_ptr_ = weak_factory_.GetWeakPtr();
-
-  // Ensures that media library and specific CPU features are initialized.
-  media::InitializeMediaLibrary();
 
   const ServiceUrls* service_urls = ServiceUrls::GetInstance();
   const bool xmpp_server_valid =
@@ -115,10 +111,16 @@ void It2MeNativeMessagingHost::OnMessage(const std::string& message) {
 void It2MeNativeMessagingHost::Start(Client* client) {
   DCHECK(task_runner()->BelongsToCurrentThread());
   client_ = client;
+#if !defined(OS_CHROMEOS)
+  log_message_handler_.reset(
+      new LogMessageHandler(
+          base::Bind(&It2MeNativeMessagingHost::SendMessageToClient,
+                     base::Unretained(this))));
+#endif  // !defined(OS_CHROMEOS)
 }
 
 void It2MeNativeMessagingHost::SendMessageToClient(
-    scoped_ptr<base::DictionaryValue> message) const {
+    scoped_ptr<base::Value> message) const {
   DCHECK(task_runner()->BelongsToCurrentThread());
   std::string message_json;
   base::JSONWriter::Write(*message, &message_json);
@@ -168,8 +170,8 @@ void It2MeNativeMessagingHost::ProcessConnect(
   // the authServiceWithToken field. But auth service part is always expected to
   // be set to oauth2.
   const char kOAuth2ServicePrefix[] = "oauth2:";
-  if (!base::StartsWithASCII(auth_service_with_token, kOAuth2ServicePrefix,
-                             true)) {
+  if (!base::StartsWith(auth_service_with_token, kOAuth2ServicePrefix,
+                        base::CompareCase::SENSITIVE)) {
     SendErrorAndExit(response.Pass(), "Invalid 'authServiceWithToken': " +
                                           auth_service_with_token);
     return;

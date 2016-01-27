@@ -94,6 +94,8 @@ enum EventFlags {
   EF_MOD3_DOWN            = 1 << 11,
   EF_BACK_MOUSE_BUTTON    = 1 << 12,
   EF_FORWARD_MOUSE_BUTTON = 1 << 13,
+  EF_NUM_LOCK_DOWN        = 1 << 14,
+  EF_SCROLL_LOCK_DOWN     = 1 << 15,
 };
 
 // Flags specific to key events
@@ -144,6 +146,14 @@ enum EventPhase {
 // Device ID for Touch and Key Events.
 enum EventDeviceId {
   ED_UNKNOWN_DEVICE = -1
+};
+
+// Pointing device type.
+enum class EventPointerType : int {
+  POINTER_TYPE_UNKNOWN = 0,
+  POINTER_TYPE_MOUSE,
+  POINTER_TYPE_PEN,
+  POINTER_TYPE_TOUCH,
 };
 
 }  // namespace ui

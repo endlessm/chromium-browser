@@ -95,7 +95,7 @@ goog.scope(function() {
          * @param {sglrShaderProgram.ShaderProgram=} shader
          * @return {!WebGLProgram}
          */
-        var createProgram = function(shader) {
+        this.createProgram = function(shader) {
             var program = new gluShaderProgram.ShaderProgram(
                     context,
                     gluShaderProgram.makeVtxFragSources(
@@ -110,7 +110,7 @@ goog.scope(function() {
             }
             return program.getProgram();
         };
-        wrap['createProgram'] = createProgram;
+        wrap['createProgram'] = this.createProgram;
 
         /**
          * Draws quads from vertex arrays
@@ -127,7 +127,7 @@ goog.scope(function() {
          * @return {number}
          */
         var getWidth = function() {
-            return context.getParameter(gl.VIEWPORT)[2];
+            return context.drawingBufferWidth;
         };
         wrap['getWidth'] = getWidth;
 
@@ -135,7 +135,7 @@ goog.scope(function() {
          * @return {number}
          */
         var getHeight = function() {
-            return context.getParameter(gl.VIEWPORT)[3];
+            return context.drawingBufferHeight;
         };
         wrap['getHeight'] = getHeight;
 
@@ -164,6 +164,14 @@ goog.scope(function() {
 
         return wrap;
     };
+
+    /**
+     * createProgram - This had to be added here as dummy to remove a warning when the only context used is GLContext (no reference context)
+     * @override
+     * @param {sglrShaderProgram.ShaderProgram=} shader
+     * @return {!WebGLProgram}
+     */
+    sglrGLContext.GLContext.prototype.createProgram = function(shader) {return this.createProgram();};
 
     /**
     * @param ctx GL-like context

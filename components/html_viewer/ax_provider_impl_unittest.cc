@@ -35,7 +35,9 @@ namespace {
 class TestWebFrameClient : public WebFrameClient {
  public:
   ~TestWebFrameClient() override {}
-  void didStopLoading() override { base::MessageLoop::current()->Quit(); }
+  void didStopLoading() override {
+    base::MessageLoop::current()->QuitWhenIdle();
+  }
 };
 
 class TestWebViewClient : public WebViewClient {
@@ -54,7 +56,8 @@ class AxProviderImplTest : public testing::Test {
     gin::V8Initializer::LoadV8Natives();
 #endif
     blink::initialize(
-        new html_viewer::BlinkPlatformImpl(nullptr, renderer_scheduler_.get()));
+        new html_viewer::BlinkPlatformImpl(nullptr, nullptr,
+                                           renderer_scheduler_.get()));
   }
 
   ~AxProviderImplTest() override {
@@ -98,14 +101,7 @@ AxNodePtr CreateNode(int id,
 
 }  // namespace
 
-
-// TODO(msw): This test crashes on Android; see http://crbug.com/486171
-#if defined(OS_ANDROID)
-#define MAYBE_Basic DISABLED_Basic
-#else
-#define MAYBE_Basic Basic
-#endif
-TEST_F(AxProviderImplTest, MAYBE_Basic) {
+TEST_F(AxProviderImplTest, Basic) {
   TestWebViewClient web_view_client;
   TestWebFrameClient web_frame_client;
   WebView* view = WebView::create(&web_view_client);

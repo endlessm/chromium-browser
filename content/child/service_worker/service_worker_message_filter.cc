@@ -50,7 +50,8 @@ bool ServiceWorkerMessageFilter::ShouldHandleMessage(
 void ServiceWorkerMessageFilter::OnFilteredMessageReceived(
     const IPC::Message& msg) {
   ServiceWorkerDispatcher::GetOrCreateThreadSpecificInstance(
-      thread_safe_sender())->OnMessageReceived(msg);
+      thread_safe_sender(), main_thread_task_runner())
+      ->OnMessageReceived(msg);
 }
 
 bool ServiceWorkerMessageFilter::GetWorkerThreadIdForMessage(
@@ -89,7 +90,6 @@ void ServiceWorkerMessageFilter::OnStaleRegistered(
 
 void ServiceWorkerMessageFilter::OnStaleSetVersionAttributes(
     int thread_id,
-    int provider_id,
     int registration_handle_id,
     int changed_mask,
     const ServiceWorkerVersionAttributes& attrs) {

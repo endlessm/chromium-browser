@@ -89,7 +89,7 @@ public:
     ~TextFinder();
 
     class FindMatch {
-        ALLOW_ONLY_INLINE_ALLOCATION();
+        DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
     public:
         FindMatch(PassRefPtrWillBeRawPtr<Range>, int ordinal);
 
@@ -131,6 +131,14 @@ private:
     // The squared distance to the closest match is returned in the distanceSquared parameter.
     int nearestFindMatch(const FloatPoint&, float& distanceSquared);
 
+    // TODO(yosin) Templataization of |scopeStringMatchesAlgorithm| will be
+    // gone once |RuntimeEnabledFeatures::selectionForComposedTreeEnabled| is
+    // removed.
+    template <typename Strategy>
+    void scopeStringMatchesAlgorithm(
+        int identifier, const WebString& searchText, const WebFindOptions&,
+        bool reset);
+
     // Select a find-in-page match marker in the current frame using a cache
     // match index returned by nearestFindMatch. Returns the ordinal of the new
     // selected match or -1 in case of error. Also provides the bounding box of
@@ -150,6 +158,9 @@ private:
 
     // Sets the markers within a range as active or inactive.
     void setMarkerActive(Range*, bool active);
+
+    // Removes all markers.
+    void unmarkAllTextMatches();
 
     // Returns the ordinal of the first match in the frame specified. This
     // function enumerates the frames, starting with the main frame and up to (but

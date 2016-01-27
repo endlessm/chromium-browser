@@ -131,10 +131,10 @@ void LauncherContextMenu::Init() {
       }
     } else if (item_.type == ash::TYPE_BROWSER_SHORTCUT) {
       AddItem(MENU_NEW_WINDOW,
-              l10n_util::GetStringUTF16(IDS_LAUNCHER_NEW_WINDOW));
+              l10n_util::GetStringUTF16(IDS_APP_LIST_NEW_WINDOW));
       if (!controller_->IsLoggedInAsGuest()) {
         AddItem(MENU_NEW_INCOGNITO_WINDOW,
-                l10n_util::GetStringUTF16(IDS_LAUNCHER_NEW_INCOGNITO_WINDOW));
+                l10n_util::GetStringUTF16(IDS_APP_LIST_NEW_INCOGNITO_WINDOW));
       }
     } else if (item_.type == ash::TYPE_DIALOG) {
       AddItem(MENU_CLOSE,
@@ -144,7 +144,6 @@ void LauncherContextMenu::Init() {
         AddItem(
             MENU_PIN,
             l10n_util::GetStringUTF16(IDS_LAUNCHER_CONTEXT_MENU_PIN));
-        AddItem(MENU_INSTALL, l10n_util::GetStringUTF16(IDS_APP_INSTALL_TITLE));
       }
       if (controller_->IsOpen(item_.id)) {
         AddItem(MENU_CLOSE,
@@ -200,15 +199,15 @@ bool LauncherContextMenu::IsItemForCommandIdDynamic(int command_id) const {
 base::string16 LauncherContextMenu::GetLabelForCommandId(int command_id) const {
   if (command_id == MENU_OPEN_NEW) {
     if (item_.type == ash::TYPE_PLATFORM_APP) {
-      return l10n_util::GetStringUTF16(IDS_LAUNCHER_CONTEXT_MENU_NEW_WINDOW);
+      return l10n_util::GetStringUTF16(IDS_APP_LIST_CONTEXT_MENU_NEW_WINDOW);
     }
     switch (controller_->GetLaunchType(item_.id)) {
       case extensions::LAUNCH_TYPE_PINNED:
       case extensions::LAUNCH_TYPE_REGULAR:
-        return l10n_util::GetStringUTF16(IDS_LAUNCHER_CONTEXT_MENU_NEW_TAB);
+        return l10n_util::GetStringUTF16(IDS_APP_LIST_CONTEXT_MENU_NEW_TAB);
       case extensions::LAUNCH_TYPE_FULLSCREEN:
       case extensions::LAUNCH_TYPE_WINDOW:
-        return l10n_util::GetStringUTF16(IDS_LAUNCHER_CONTEXT_MENU_NEW_WINDOW);
+        return l10n_util::GetStringUTF16(IDS_APP_LIST_CONTEXT_MENU_NEW_WINDOW);
       default:
         NOTREACHED();
         return base::string16();
@@ -264,20 +263,6 @@ bool LauncherContextMenu::IsCommandIdEnabled(int command_id) const {
   }
 }
 
-bool LauncherContextMenu::IsCommandIdVisible(int command_id) const {
-  if (item_.type != ash::TYPE_PLATFORM_APP)
-    return true;
-
-  switch (command_id) {
-    case MENU_PIN:
-      return !controller_->CanInstall(item_.id);
-    case MENU_INSTALL:
-      return controller_->CanInstall(item_.id);
-    default:
-      return true;
-  }
-}
-
 bool LauncherContextMenu::GetAcceleratorForCommandId(
       int command_id,
       ui::Accelerator* accelerator) {
@@ -302,9 +287,6 @@ void LauncherContextMenu::ExecuteCommand(int command_id, int event_flags) {
       break;
     case MENU_PIN:
       controller_->TogglePinned(item_.id);
-      break;
-    case MENU_INSTALL:
-      controller_->Install(item_.id);
       break;
     case LAUNCH_TYPE_PINNED_TAB:
       controller_->SetLaunchType(item_.id, extensions::LAUNCH_TYPE_PINNED);

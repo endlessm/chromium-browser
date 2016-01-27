@@ -320,7 +320,7 @@ public:
         m_startTime = WTF::currentTime();
         // Set the framerate of the animation. NSAnimation uses a default
         // framerate of 60 Hz, so use that here.
-        m_timer.startRepeating(1.0 / 60.0, FROM_HERE);
+        m_timer.startRepeating(1.0 / 60.0, BLINK_FROM_HERE);
     }
 
     void stop()
@@ -430,12 +430,16 @@ private:
         break;
     case TrackAlpha:
         [_scrollbarPainter.get() setTrackAlpha:currentValue];
+        _scrollbar->setTrackNeedsRepaint(true);
         break;
     case UIStateTransition:
         [_scrollbarPainter.get() setUiStateTransitionProgress:currentValue];
+        _scrollbar->setThumbNeedsRepaint(true);
+        _scrollbar->setTrackNeedsRepaint(true);
         break;
     case ExpansionTransition:
         [_scrollbarPainter.get() setExpansionTransitionProgress:currentValue];
+        _scrollbar->setThumbNeedsRepaint(true);
         break;
     }
 
@@ -460,8 +464,10 @@ private:
     RetainPtr<WebScrollbarPartAnimation> _trackAlphaAnimation;
     RetainPtr<WebScrollbarPartAnimation> _uiStateTransitionAnimation;
     RetainPtr<WebScrollbarPartAnimation> _expansionTransitionAnimation;
+    BOOL _hasExpandedSinceInvisible;
 }
 - (id)initWithScrollbar:(blink::Scrollbar*)scrollbar;
+- (void)updateVisibilityImmediately:(bool)show;
 - (void)cancelAnimations;
 @end
 
@@ -475,6 +481,12 @@ private:
 
     _scrollbar = scrollbar;
     return self;
+}
+
+- (void)updateVisibilityImmediately:(bool)show
+{
+    [self cancelAnimations];
+    [scrollbarPainterForScrollbar(_scrollbar) setKnobAlpha:(show ? 1.0 : 0.0)];
 }
 
 - (void)cancelAnimations
@@ -635,6 +647,21 @@ private:
 
 - (void)scrollerImp:(id)scrollerImp overlayScrollerStateChangedTo:(NSUInteger)newOverlayScrollerState
 {
+    // The names of these states are based on their observed behavior, and are not based on documentation.
+    enum {
+        NSScrollerStateInvisible = 0,
+        NSScrollerStateKnob = 1,
+        NSScrollerStateExpanded = 2
+    };
+    // We do not receive notifications about the thumb un-expanding when the scrollbar fades away. Ensure
+    // that we re-paint the thumb the next time that we transition away from being invisible, so that
+    // the thumb doesn't stick in an expanded state.
+    if (newOverlayScrollerState == NSScrollerStateExpanded) {
+        _hasExpandedSinceInvisible = YES;
+    } else if (newOverlayScrollerState != NSScrollerStateInvisible && _hasExpandedSinceInvisible) {
+        _scrollbar->setThumbNeedsRepaint(true);
+        _hasExpandedSinceInvisible = NO;
+    }
 }
 
 - (void)invalidate
@@ -652,13 +679,13 @@ private:
 
 namespace blink {
 
-PassOwnPtr<ScrollAnimator> ScrollAnimator::create(ScrollableArea* scrollableArea)
+PassOwnPtr<ScrollAnimatorBase> ScrollAnimatorBase::create(ScrollableArea* scrollableArea)
 {
     return adoptPtr(new ScrollAnimatorMac(scrollableArea));
 }
 
 ScrollAnimatorMac::ScrollAnimatorMac(ScrollableArea* scrollableArea)
-    : ScrollAnimator(scrollableArea)
+    : ScrollAnimatorBase(scrollableArea)
     , m_initialScrollbarPaintTimer(this, &ScrollAnimatorMac::initialScrollbarPaintTimerFired)
     , m_sendContentAreaScrolledTimer(this, &ScrollAnimatorMac::sendContentAreaScrolledTimerFired)
     , m_haveScrolledSincePageLoad(false)
@@ -688,32 +715,18 @@ ScrollAnimatorMac::~ScrollAnimatorMac()
     }
 }
 
-static bool scrollAnimationEnabledForSystem()
-{
-    static bool initialized = false;
-    static bool enabled = true;
-    if (!initialized) {
-        // Check setting for OS X 10.8+.
-        id value = [[NSUserDefaults standardUserDefaults] objectForKey:@"NSScrollAnimationEnabled"];
-        // Check setting for OS X < 10.8.
-        if (!value)
-            value = [[NSUserDefaults standardUserDefaults] objectForKey:@"AppleScrollAnimationEnabled"];
-        if (value)
-            enabled = [value boolValue];
-        initialized = true;
-    }
-    return enabled;
-}
-
 ScrollResultOneDimensional ScrollAnimatorMac::userScroll(ScrollbarOrientation orientation, ScrollGranularity granularity, float step, float delta)
 {
+    bool scrollAnimationEnabledForSystem = static_cast<ScrollbarThemeMacCommon*>(
+                                               ScrollbarTheme::theme())
+                                               ->scrollAnimationEnabledForSystem();
     m_haveScrolledSincePageLoad = true;
 
-    if (!scrollAnimationEnabledForSystem() || !m_scrollableArea->scrollAnimatorEnabled())
-        return ScrollAnimator::userScroll(orientation, granularity, step, delta);
+    if (!scrollAnimationEnabledForSystem || !m_scrollableArea->scrollAnimatorEnabled())
+        return ScrollAnimatorBase::userScroll(orientation, granularity, step, delta);
 
     if (granularity == ScrollByPixel || granularity == ScrollByPrecisePixel)
-        return ScrollAnimator::userScroll(orientation, granularity, step, delta);
+        return ScrollAnimatorBase::userScroll(orientation, granularity, step, delta);
 
     float currentPos = orientation == HorizontalScrollbar ? m_currentPosX : m_currentPosY;
     float newPos = std::max<float>(std::min<float>(currentPos + (step * delta), m_scrollableArea->maximumScrollPosition(orientation)), m_scrollableArea->minimumScrollPosition(orientation));
@@ -1013,6 +1026,21 @@ void ScrollAnimatorMac::notifyContentAreaScrolled(const FloatSize& delta)
         sendContentAreaScrolledSoon(delta);
 }
 
+bool ScrollAnimatorMac::setScrollbarsVisibleForTesting(bool show)
+{
+    if (ScrollbarThemeMacCommon::isOverlayAPIAvailable()) {
+        if (show)
+            [m_scrollbarPainterController.get() flashScrollers];
+        else
+            [m_scrollbarPainterController.get() hideOverlayScrollers];
+
+        [m_verticalScrollbarPainterDelegate.get() updateVisibilityImmediately:show];
+        [m_verticalScrollbarPainterDelegate.get() updateVisibilityImmediately:show];
+        return true;
+    }
+    return false;
+}
+
 void ScrollAnimatorMac::cancelAnimations()
 {
     m_haveScrolledSincePageLoad = false;
@@ -1069,6 +1097,8 @@ void ScrollAnimatorMac::updateScrollerStyle()
     NSScrollerStyle newStyle = [m_scrollbarPainterController.get() scrollerStyle];
 
     if (Scrollbar* verticalScrollbar = scrollableArea()->verticalScrollbar()) {
+        verticalScrollbar->setTrackNeedsRepaint(true);
+        verticalScrollbar->setThumbNeedsRepaint(true);
         verticalScrollbar->invalidate();
 
         ScrollbarPainter oldVerticalPainter = [m_scrollbarPainterController.get() verticalScrollerImp];
@@ -1087,6 +1117,8 @@ void ScrollAnimatorMac::updateScrollerStyle()
     }
 
     if (Scrollbar* horizontalScrollbar = scrollableArea()->horizontalScrollbar()) {
+        horizontalScrollbar->setTrackNeedsRepaint(true);
+        horizontalScrollbar->setThumbNeedsRepaint(true);
         horizontalScrollbar->invalidate();
 
         ScrollbarPainter oldHorizontalPainter = [m_scrollbarPainterController.get() horizontalScrollerImp];
@@ -1114,7 +1146,7 @@ void ScrollAnimatorMac::updateScrollerStyle()
 
 void ScrollAnimatorMac::startScrollbarPaintTimer()
 {
-    m_initialScrollbarPaintTimer.startOneShot(0.1, FROM_HERE);
+    m_initialScrollbarPaintTimer.startOneShot(0.1, BLINK_FROM_HERE);
 }
 
 bool ScrollAnimatorMac::scrollbarPaintTimerIsActive() const
@@ -1142,7 +1174,7 @@ void ScrollAnimatorMac::sendContentAreaScrolledSoon(const FloatSize& delta)
     m_contentAreaScrolledTimerScrollDelta = delta;
 
     if (!m_sendContentAreaScrolledTimer.isActive())
-        m_sendContentAreaScrolledTimer.startOneShot(0, FROM_HERE);
+        m_sendContentAreaScrolledTimer.startOneShot(0, BLINK_FROM_HERE);
 }
 
 void ScrollAnimatorMac::sendContentAreaScrolledTimerFired(Timer<ScrollAnimatorMac>*)

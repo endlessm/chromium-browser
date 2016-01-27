@@ -11,7 +11,10 @@
 #include "chrome/browser/upgrade_detector.h"
 #include "chromeos/dbus/update_engine_client.h"
 
-template <typename T> struct DefaultSingletonTraits;
+namespace base {
+template <typename T>
+struct DefaultSingletonTraits;
+}  // namespace base
 
 class UpgradeDetectorChromeos : public UpgradeDetector,
                                 public chromeos::UpdateEngineClient::Observer {
@@ -29,7 +32,7 @@ class UpgradeDetectorChromeos : public UpgradeDetector,
   void Shutdown();
 
  private:
-  friend struct DefaultSingletonTraits<UpgradeDetectorChromeos>;
+  friend struct base::DefaultSingletonTraits<UpgradeDetectorChromeos>;
   class ChannelsRequester;
 
   UpgradeDetectorChromeos();
@@ -48,7 +51,7 @@ class UpgradeDetectorChromeos : public UpgradeDetector,
 
   // After we detect an upgrade we start a recurring timer to see if enough time
   // has passed and we should start notifying the user.
-  base::RepeatingTimer<UpgradeDetectorChromeos> upgrade_notification_timer_;
+  base::RepeatingTimer upgrade_notification_timer_;
   bool initialized_;
   base::Time upgrade_detected_time_;
 

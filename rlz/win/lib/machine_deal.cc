@@ -103,11 +103,12 @@ bool GetResponseValue(const std::string& response_line,
 
   value->clear();
 
-  if (!base::StartsWithASCII(response_line, response_key, true))
+  if (!base::StartsWith(response_line, response_key,
+                        base::CompareCase::SENSITIVE))
     return false;
 
-  std::vector<std::string> tokens;
-  base::SplitString(response_line, ':', &tokens);
+  std::vector<std::string> tokens = base::SplitString(
+      response_line, ":", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   if (tokens.size() != 2)
     return false;
 

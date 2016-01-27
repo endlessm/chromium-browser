@@ -46,23 +46,26 @@ class HTMLTokenizer;
 class SegmentedString;
 
 struct CORE_EXPORT CachedDocumentParameters {
-    static PassOwnPtr<CachedDocumentParameters> create(Document* document, PassRefPtr<MediaValues> mediaValues = nullptr)
+    USING_FAST_MALLOC(CachedDocumentParameters);
+public:
+    static PassOwnPtr<CachedDocumentParameters> create(Document* document, PassRefPtrWillBeRawPtr<MediaValues> mediaValues = nullptr)
     {
         return adoptPtr(new CachedDocumentParameters(document, mediaValues));
     }
 
     bool doHtmlPreloadScanning;
-    RefPtr<MediaValues> mediaValues;
+    RefPtrWillBeCrossThreadPersistent<MediaValues> mediaValues;
     Length defaultViewportMinWidth;
     bool viewportMetaZeroValuesQuirk;
     bool viewportMetaEnabled;
+    ReferrerPolicy referrerPolicy;
 
 private:
-    CachedDocumentParameters(Document*, PassRefPtr<MediaValues>);
+    CachedDocumentParameters(Document*, PassRefPtrWillBeRawPtr<MediaValues>);
 };
 
 class TokenPreloadScanner {
-    WTF_MAKE_NONCOPYABLE(TokenPreloadScanner); WTF_MAKE_FAST_ALLOCATED(TokenPreloadScanner);
+    WTF_MAKE_NONCOPYABLE(TokenPreloadScanner); USING_FAST_MALLOC(TokenPreloadScanner);
 public:
     TokenPreloadScanner(const KURL& documentURL, PassOwnPtr<CachedDocumentParameters>);
     ~TokenPreloadScanner();
@@ -86,7 +89,7 @@ public:
 private:
     class StartTagScanner;
 
-    template<typename Token>
+    template <typename Token>
     inline void scanCommon(const Token&, const SegmentedString&, PreloadRequestStream& requests);
 
     template<typename Token>
@@ -138,7 +141,7 @@ private:
 };
 
 class CORE_EXPORT HTMLPreloadScanner {
-    WTF_MAKE_NONCOPYABLE(HTMLPreloadScanner); WTF_MAKE_FAST_ALLOCATED(HTMLPreloadScanner);
+    WTF_MAKE_NONCOPYABLE(HTMLPreloadScanner); USING_FAST_MALLOC(HTMLPreloadScanner);
 public:
     static PassOwnPtr<HTMLPreloadScanner> create(const HTMLParserOptions& options, const KURL& documentURL, PassOwnPtr<CachedDocumentParameters> documentParameters)
     {

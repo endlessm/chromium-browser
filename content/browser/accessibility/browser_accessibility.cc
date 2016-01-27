@@ -16,11 +16,7 @@
 
 namespace content {
 
-#if !defined(OS_MACOSX) && \
-    !defined(OS_WIN) && \
-    !defined(OS_ANDROID)
-// We have subclassess of BrowserAccessibility on Mac and Win. For any other
-// platform, instantiate the base class.
+#if !defined(PLATFORM_HAS_NATIVE_ACCESSIBILITY_IMPL)
 // static
 BrowserAccessibility* BrowserAccessibility::Create() {
   return new BrowserAccessibility();
@@ -45,14 +41,25 @@ bool BrowserAccessibility::PlatformIsLeaf() const {
   if (InternalChildCount() == 0)
     return true;
 
-  // All of these roles may have children that we use as internal
-  // implementation details, but we want to expose them as leaves
-  // to platform accessibility APIs.
+  // These types of objects may have children that we use as internal
+  // implementation details, but we want to expose them as leaves to platform
+  // accessibility APIs because screen readers might be confused if they find
+  // any children.
+  if (IsSimpleTextControl() || IsTextOnlyObject())
+    return true;
+
+  // Roles whose children are only presentational according to the ARIA and
+  // HTML5 Specs.
+  // (Note that whilst ARIA buttons can have only presentational children, HTML5
+  // buttons are allowed to have content.)
   switch (GetRole()) {
-    case ui::AX_ROLE_LINE_BREAK:
+    case ui::AX_ROLE_IMAGE:
+    case ui::AX_ROLE_MATH:
+    case ui::AX_ROLE_METER:
+    case ui::AX_ROLE_SCROLL_BAR:
     case ui::AX_ROLE_SLIDER:
-    case ui::AX_ROLE_STATIC_TEXT:
-    case ui::AX_ROLE_TEXT_FIELD:
+    case ui::AX_ROLE_SPLITTER:
+    case ui::AX_ROLE_PROGRESS_INDICATOR:
       return true;
     default:
       return false;
@@ -60,6 +67,16 @@ bool BrowserAccessibility::PlatformIsLeaf() const {
 }
 
 uint32 BrowserAccessibility::PlatformChildCount() const {
+  if (HasIntAttribute(ui::AX_ATTR_CHILD_TREE_ID)) {
+    BrowserAccessibilityManager* child_manager =
+        BrowserAccessibilityManager::FromID(
+            GetIntAttribute(ui::AX_ATTR_CHILD_TREE_ID));
+    if (child_manager)
+      return 1;
+
+    return 0;
+  }
+
   return PlatformIsLeaf() ? 0 : InternalChildCount();
 }
 
@@ -68,7 +85,7 @@ bool BrowserAccessibility::IsNative() const {
 }
 
 bool BrowserAccessibility::IsDescendantOf(
-    BrowserAccessibility* ancestor) {
+    const BrowserAccessibility* ancestor) const {
   if (this == ancestor) {
     return true;
   } else if (GetParent()) {
@@ -78,16 +95,24 @@ bool BrowserAccessibility::IsDescendantOf(
   return false;
 }
 
+bool BrowserAccessibility::IsTextOnlyObject() const {
+  return GetRole() == ui::AX_ROLE_STATIC_TEXT ||
+      GetRole() == ui::AX_ROLE_LINE_BREAK;
+}
+
 BrowserAccessibility* BrowserAccessibility::PlatformGetChild(
     uint32 child_index) const {
-  DCHECK(child_index < InternalChildCount());
-  BrowserAccessibility* result = InternalGetChild(child_index);
+  DCHECK(child_index < PlatformChildCount());
+  BrowserAccessibility* result = nullptr;
 
-  if (result->HasBoolAttribute(ui::AX_ATTR_IS_AX_TREE_HOST)) {
+  if (HasIntAttribute(ui::AX_ATTR_CHILD_TREE_ID)) {
     BrowserAccessibilityManager* child_manager =
-        manager_->delegate()->AccessibilityGetChildFrame(result->GetId());
+        BrowserAccessibilityManager::FromID(
+            GetIntAttribute(ui::AX_ATTR_CHILD_TREE_ID));
     if (child_manager)
       result = child_manager->GetRoot();
+  } else {
+    result = InternalGetChild(child_index);
   }
 
   return result;
@@ -104,14 +129,14 @@ bool BrowserAccessibility::PlatformIsChildOfLeaf() const {
   return false;
 }
 
-BrowserAccessibility* BrowserAccessibility::GetPreviousSibling() {
+BrowserAccessibility* BrowserAccessibility::GetPreviousSibling() const {
   if (GetParent() && GetIndexInParent() > 0)
     return GetParent()->InternalGetChild(GetIndexInParent() - 1);
 
-  return NULL;
+  return nullptr;
 }
 
-BrowserAccessibility* BrowserAccessibility::GetNextSibling() {
+BrowserAccessibility* BrowserAccessibility::GetNextSibling() const {
   if (GetParent() &&
       GetIndexInParent() >= 0 &&
       GetIndexInParent() < static_cast<int>(
@@ -119,7 +144,31 @@ BrowserAccessibility* BrowserAccessibility::GetNextSibling() {
     return GetParent()->InternalGetChild(GetIndexInParent() + 1);
   }
 
-  return NULL;
+  return nullptr;
+}
+
+BrowserAccessibility* BrowserAccessibility::PlatformDeepestFirstChild() const {
+  if (!PlatformChildCount())
+    return nullptr;
+
+  auto deepest_child = PlatformGetChild(0);
+  while (deepest_child->PlatformChildCount())
+    deepest_child = deepest_child->PlatformGetChild(0);
+
+  return deepest_child;
+}
+
+BrowserAccessibility* BrowserAccessibility::PlatformDeepestLastChild() const {
+  if (!PlatformChildCount())
+    return nullptr;
+
+  auto deepest_child = PlatformGetChild(PlatformChildCount() - 1);
+  while (deepest_child->PlatformChildCount()) {
+    deepest_child = deepest_child->PlatformGetChild(
+        deepest_child->PlatformChildCount() - 1);
+  }
+
+  return deepest_child;
 }
 
 uint32 BrowserAccessibility::InternalChildCount() const {
@@ -130,9 +179,12 @@ uint32 BrowserAccessibility::InternalChildCount() const {
 
 BrowserAccessibility* BrowserAccessibility::InternalGetChild(
     uint32 child_index) const {
-  if (!node_ || !manager_)
-    return NULL;
-  return manager_->GetFromAXNode(node_->ChildAtIndex(child_index));
+  if (!node_ || !manager_ || child_index >= InternalChildCount())
+    return nullptr;
+
+  const auto child_node = node_->ChildAtIndex(child_index);
+  DCHECK(child_node);
+  return manager_->GetFromAXNode(child_node);
 }
 
 BrowserAccessibility* BrowserAccessibility::GetParent() const {
@@ -142,15 +194,7 @@ BrowserAccessibility* BrowserAccessibility::GetParent() const {
   if (parent)
     return manager_->GetFromAXNode(parent);
 
-  if (!manager_->delegate())
-    return NULL;
-
-  BrowserAccessibility* host_node =
-      manager_->delegate()->AccessibilityGetParentFrame();
-  if (!host_node)
-    return NULL;
-
-  return host_node->GetParent();
+  return manager_->GetParentNodeFromParentTree();
 }
 
 int32 BrowserAccessibility::GetIndexInParent() const {
@@ -606,19 +650,27 @@ bool BrowserAccessibility::IsCellOrTableHeaderRole() const {
           GetRole() == ui::AX_ROLE_ROW_HEADER);
 }
 
-bool BrowserAccessibility::IsEditableText() const {
-  // These roles don't have readonly set, but they're not editable text.
-  if (GetRole() == ui::AX_ROLE_SCROLL_AREA ||
-      GetRole() == ui::AX_ROLE_COLUMN ||
-      GetRole() == ui::AX_ROLE_TABLE_HEADER_CONTAINER) {
-    return false;
+bool BrowserAccessibility::HasCaret() const {
+  if (IsEditableText() && !HasState(ui::AX_STATE_RICHLY_EDITABLE) &&
+      HasIntAttribute(ui::AX_ATTR_TEXT_SEL_START) &&
+      HasIntAttribute(ui::AX_ATTR_TEXT_SEL_END)) {
+    return true;
   }
 
-  // Note: WebAXStateReadonly being false means it's either a text control,
-  // or contenteditable. We also check for editable text roles to cover
-  // another element that has role=textbox set on it.
-  return (!HasState(ui::AX_STATE_READ_ONLY) ||
-          GetRole() == ui::AX_ROLE_TEXT_FIELD);
+  // The caret is always at the focus of the selection.
+  int32 focus_id = manager()->GetTreeData().sel_focus_object_id;
+  BrowserAccessibility* focus_object = manager()->GetFromID(focus_id);
+  if (!focus_object)
+    return false;
+
+  if (!focus_object->IsDescendantOf(this))
+    return false;
+
+  return true;
+}
+
+bool BrowserAccessibility::IsEditableText() const {
+  return HasState(ui::AX_STATE_EDITABLE);
 }
 
 bool BrowserAccessibility::IsWebAreaForPresentationalIframe() const {
@@ -670,6 +722,25 @@ bool BrowserAccessibility::IsControl() const {
   }
 }
 
+bool BrowserAccessibility::IsSimpleTextControl() const {
+  // Time fields, color wells and spinner buttons might also use text fields as
+  // constituent parts, but they are not considered text fields as a whole.
+  switch (GetRole()) {
+    case ui::AX_ROLE_COMBO_BOX:
+    case ui::AX_ROLE_SEARCH_BOX:
+    case ui::AX_ROLE_TEXT_FIELD:
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Indicates if this object is at the root of a rich edit text control.
+bool BrowserAccessibility::IsRichTextControl() const {
+  return HasState(ui::AX_STATE_RICHLY_EDITABLE) &&
+         (!GetParent() || !GetParent()->HasState(ui::AX_STATE_RICHLY_EDITABLE));
+}
+
 int BrowserAccessibility::GetStaticTextLenRecursive() const {
   if (GetRole() == ui::AX_ROLE_STATIC_TEXT ||
       GetRole() == ui::AX_ROLE_LINE_BREAK) {
@@ -680,20 +751,6 @@ int BrowserAccessibility::GetStaticTextLenRecursive() const {
   for (size_t i = 0; i < InternalChildCount(); ++i)
     len += InternalGetChild(i)->GetStaticTextLenRecursive();
   return len;
-}
-
-BrowserAccessibility* BrowserAccessibility::GetParentForBoundsCalculation()
-    const {
-  if (!node_ || !manager_)
-    return NULL;
-  ui::AXNode* parent = node_->parent();
-  if (parent)
-    return manager_->GetFromAXNode(parent);
-
-  if (!manager_->delegate())
-    return NULL;
-
-  return manager_->delegate()->AccessibilityGetParentFrame();
 }
 
 void BrowserAccessibility::FixEmptyBounds(gfx::Rect* bounds) const
@@ -727,7 +784,7 @@ gfx::Rect BrowserAccessibility::ElementBoundsToLocalBounds(gfx::Rect bounds)
   // Walk up the parent chain. Every time we encounter a Web Area, offset
   // based on the scroll bars and then offset based on the origin of that
   // nested web area.
-  BrowserAccessibility* parent = GetParentForBoundsCalculation();
+  BrowserAccessibility* parent = GetParent();
   bool need_to_offset_web_area =
       (GetRole() == ui::AX_ROLE_WEB_AREA ||
        GetRole() == ui::AX_ROLE_ROOT_WEB_AREA);
@@ -756,7 +813,7 @@ gfx::Rect BrowserAccessibility::ElementBoundsToLocalBounds(gfx::Rect bounds)
       }
       need_to_offset_web_area = true;
     }
-    parent = parent->GetParentForBoundsCalculation();
+    parent = parent->GetParent();
   }
 
   return bounds;

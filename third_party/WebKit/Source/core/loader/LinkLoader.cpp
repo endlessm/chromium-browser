@@ -38,10 +38,13 @@
 #include "core/fetch/LinkFetchResource.h"
 #include "core/fetch/ResourceFetcher.h"
 #include "core/frame/Settings.h"
+#include "core/frame/UseCounter.h"
 #include "core/html/CrossOriginAttribute.h"
 #include "core/html/LinkRelAttribute.h"
 #include "core/inspector/ConsoleMessage.h"
+#include "core/loader/DocumentLoader.h"
 #include "core/loader/LinkHeader.h"
+#include "core/loader/NetworkHintsInterface.h"
 #include "core/loader/PrerenderHandle.h"
 #include "platform/Prerender.h"
 #include "platform/RuntimeEnabledFeatures.h"
@@ -50,13 +53,17 @@
 
 namespace blink {
 
-static unsigned prerenderRelTypesFromRelAttribute(const LinkRelAttribute& relAttribute)
+static unsigned prerenderRelTypesFromRelAttribute(const LinkRelAttribute& relAttribute, Document& document)
 {
     unsigned result = 0;
-    if (relAttribute.isLinkPrerender())
+    if (relAttribute.isLinkPrerender()) {
         result |= PrerenderRelTypePrerender;
-    if (relAttribute.isLinkNext())
+        UseCounter::count(document, UseCounter::LinkRelPrerender);
+    }
+    if (relAttribute.isLinkNext()) {
         result |= PrerenderRelTypeNext;
+        UseCounter::count(document, UseCounter::LinkRelNext);
+    }
 
     return result;
 }
@@ -89,9 +96,9 @@ void LinkLoader::notifyFinished(Resource* resource)
     ASSERT(this->resource() == resource);
 
     if (resource->errorOccurred())
-        m_linkLoadingErrorTimer.startOneShot(0, FROM_HERE);
+        m_linkLoadingErrorTimer.startOneShot(0, BLINK_FROM_HERE);
     else
-        m_linkLoadTimer.startOneShot(0, FROM_HERE);
+        m_linkLoadTimer.startOneShot(0, BLINK_FROM_HERE);
 
     clearResource();
 }
@@ -116,37 +123,49 @@ void LinkLoader::didSendDOMContentLoadedForPrerender()
     m_client->didSendDOMContentLoadedForLinkPrerender();
 }
 
-static void dnsPrefetchIfNeeded(const LinkRelAttribute& relAttribute, const KURL& href, Document& document)
+enum LinkCaller {
+    LinkCalledFromHeader,
+    LinkCalledFromMarkup,
+};
+
+
+static void dnsPrefetchIfNeeded(const LinkRelAttribute& relAttribute, const KURL& href, Document& document, const NetworkHintsInterface& networkHintsInterface, LinkCaller caller)
 {
     if (relAttribute.isDNSPrefetch()) {
+        UseCounter::count(document, UseCounter::LinkRelDnsPrefetch);
+        if (caller == LinkCalledFromHeader)
+            UseCounter::count(document, UseCounter::LinkHeaderDnsPrefetch);
         Settings* settings = document.settings();
         // FIXME: The href attribute of the link element can be in "//hostname" form, and we shouldn't attempt
         // to complete that as URL <https://bugs.webkit.org/show_bug.cgi?id=48857>.
         if (settings && settings->dnsPrefetchingEnabled() && href.isValid() && !href.isEmpty()) {
             if (settings->logDnsPrefetchAndPreconnect())
                 document.addConsoleMessage(ConsoleMessage::create(OtherMessageSource, DebugMessageLevel, String("DNS prefetch triggered for " + href.host())));
-            prefetchDNS(href.host());
+            networkHintsInterface.dnsPrefetchHost(href.host());
         }
     }
 }
 
-static void preconnectIfNeeded(const LinkRelAttribute& relAttribute, const KURL& href, Document& document, const CrossOriginAttributeValue crossOrigin)
+static void preconnectIfNeeded(const LinkRelAttribute& relAttribute, const KURL& href, Document& document, const CrossOriginAttributeValue crossOrigin, const NetworkHintsInterface& networkHintsInterface, LinkCaller caller)
 {
     if (relAttribute.isPreconnect() && href.isValid() && href.protocolIsInHTTPFamily()) {
+        UseCounter::count(document, UseCounter::LinkRelPreconnect);
+        if (caller == LinkCalledFromHeader)
+            UseCounter::count(document, UseCounter::LinkHeaderPreconnect);
         ASSERT(RuntimeEnabledFeatures::linkPreconnectEnabled());
         Settings* settings = document.settings();
         if (settings && settings->logDnsPrefetchAndPreconnect()) {
-            document.addConsoleMessage(ConsoleMessage::create(OtherMessageSource, DebugMessageLevel, String("Preconnect triggered for " + href.host())));
+            document.addConsoleMessage(ConsoleMessage::create(OtherMessageSource, DebugMessageLevel, String("Preconnect triggered for ") + href.string()));
             if (crossOrigin != CrossOriginAttributeNotSet) {
                 document.addConsoleMessage(ConsoleMessage::create(OtherMessageSource, DebugMessageLevel,
                     String("Preconnect CORS setting is ") + String((crossOrigin == CrossOriginAttributeAnonymous) ? "anonymous" : "use-credentials")));
             }
         }
-        preconnect(href, crossOrigin);
+        networkHintsInterface.preconnectHost(href, crossOrigin);
     }
 }
 
-static bool getPriorityTypeFromAsAttribute(const String& as, Resource::Type& type)
+static bool getTypeFromAsAttribute(const String& as, Resource::Type& type)
 {
     if (as.isEmpty())
         return false;
@@ -163,30 +182,36 @@ static bool getPriorityTypeFromAsAttribute(const String& as, Resource::Type& typ
     return true;
 }
 
-void LinkLoader::preloadIfNeeded(const LinkRelAttribute& relAttribute, const KURL& href, Document& document, const String& as)
+static void preloadIfNeeded(const LinkRelAttribute& relAttribute, const KURL& href, Document& document, const String& as)
 {
+    if (!document.loader())
+        return;
+
     if (relAttribute.isLinkPreload()) {
+        UseCounter::count(document, UseCounter::LinkRelPreload);
         ASSERT(RuntimeEnabledFeatures::linkPreloadEnabled());
         if (!href.isValid() || href.isEmpty()) {
             document.addConsoleMessage(ConsoleMessage::create(OtherMessageSource, WarningMessageLevel, String("<link rel=preload> has an invalid `href` value")));
             return;
         }
         // TODO(yoav): Figure out a way that 'as' would be used to set request headers.
-        Resource::Type priorityType;
-        if (!getPriorityTypeFromAsAttribute(as, priorityType)) {
+        Resource::Type type;
+        if (!getTypeFromAsAttribute(as, type)) {
             document.addConsoleMessage(ConsoleMessage::create(OtherMessageSource, WarningMessageLevel, String("<link rel=preload> must have a valid `as` value")));
             return;
         }
         FetchRequest linkRequest(ResourceRequest(document.completeURL(href)), FetchInitiatorTypeNames::link);
-        linkRequest.setPriority(document.fetcher()->loadPriority(priorityType, linkRequest));
+        linkRequest.setPriority(document.fetcher()->loadPriority(type, linkRequest));
         Settings* settings = document.settings();
         if (settings && settings->logPreload())
             document.addConsoleMessage(ConsoleMessage::create(OtherMessageSource, DebugMessageLevel, String("Preload triggered for " + href.host() + href.path())));
-        setResource(LinkFetchResource::fetch(Resource::LinkPreload, linkRequest, document.fetcher()));
+        linkRequest.setForPreload(true);
+        linkRequest.setAvoidBlockingOnLoad(true);
+        document.loader()->startPreload(type, linkRequest);
     }
 }
 
-bool LinkLoader::loadLinkFromHeader(const String& headerValue, Document* document)
+bool LinkLoader::loadLinkFromHeader(const String& headerValue, Document* document, const NetworkHintsInterface& networkHintsInterface)
 {
     if (!document)
         return false;
@@ -197,25 +222,25 @@ bool LinkLoader::loadLinkFromHeader(const String& headerValue, Document* documen
         LinkRelAttribute relAttribute(header.rel());
         KURL url = document->completeURL(header.url());
         if (RuntimeEnabledFeatures::linkHeaderEnabled())
-            dnsPrefetchIfNeeded(relAttribute, url, *document);
+            dnsPrefetchIfNeeded(relAttribute, url, *document, networkHintsInterface, LinkCalledFromHeader);
 
         if (RuntimeEnabledFeatures::linkPreconnectEnabled())
-            preconnectIfNeeded(relAttribute, url, *document, header.crossOrigin());
+            preconnectIfNeeded(relAttribute, url, *document, header.crossOrigin(), networkHintsInterface, LinkCalledFromHeader);
 
         // FIXME: Add more supported headers as needed.
     }
     return true;
 }
 
-bool LinkLoader::loadLink(const LinkRelAttribute& relAttribute, const AtomicString& crossOriginMode, const String& type, const String& as, const KURL& href, Document& document)
+bool LinkLoader::loadLink(const LinkRelAttribute& relAttribute, const AtomicString& crossOriginMode, const String& type, const String& as, const KURL& href, Document& document, const NetworkHintsInterface& networkHintsInterface)
 {
     // TODO(yoav): Do all links need to load only after they're in document???
 
     // TODO(yoav): Convert all uses of the CrossOriginAttribute to CrossOriginAttributeValue. crbug.com/486689
     // FIXME(crbug.com/463266): We're ignoring type here. Maybe we shouldn't.
-    dnsPrefetchIfNeeded(relAttribute, href, document);
+    dnsPrefetchIfNeeded(relAttribute, href, document, networkHintsInterface, LinkCalledFromMarkup);
 
-    preconnectIfNeeded(relAttribute, href, document, crossOriginAttributeValue(crossOriginMode));
+    preconnectIfNeeded(relAttribute, href, document, crossOriginAttributeValue(crossOriginMode), networkHintsInterface, LinkCalledFromMarkup);
 
     if (m_client->shouldLoadLink())
         preloadIfNeeded(relAttribute, href, document, as);
@@ -224,14 +249,21 @@ bool LinkLoader::loadLink(const LinkRelAttribute& relAttribute, const AtomicStri
     if ((relAttribute.isLinkPrefetch() || relAttribute.isLinkSubresource()) && href.isValid() && document.frame()) {
         if (!m_client->shouldLoadLink())
             return false;
-        Resource::Type type = relAttribute.isLinkSubresource() ?  Resource::LinkSubresource : Resource::LinkPrefetch;
+        Resource::Type type = Resource::LinkPrefetch;
+        if (relAttribute.isLinkSubresource()) {
+            type = Resource::LinkSubresource;
+            UseCounter::count(document, UseCounter::LinkRelSubresource);
+        } else {
+            UseCounter::count(document, UseCounter::LinkRelPrefetch);
+        }
+
         FetchRequest linkRequest(ResourceRequest(document.completeURL(href)), FetchInitiatorTypeNames::link);
         if (!crossOriginMode.isNull())
             linkRequest.setCrossOriginAccessControl(document.securityOrigin(), crossOriginMode);
         setResource(LinkFetchResource::fetch(type, linkRequest, document.fetcher()));
     }
 
-    if (const unsigned prerenderRelTypes = prerenderRelTypesFromRelAttribute(relAttribute)) {
+    if (const unsigned prerenderRelTypes = prerenderRelTypesFromRelAttribute(relAttribute, document)) {
         if (!m_prerender) {
             m_prerender = PrerenderHandle::create(document, this, href, prerenderRelTypes);
         } else if (m_prerender->url() != href) {

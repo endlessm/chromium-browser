@@ -5,23 +5,23 @@ import logging
 import os
 import shutil
 import sys
+import tempfile
 import zipfile
 
 from catapult_base import cloud_storage
 from telemetry.core import exceptions
-from telemetry.core.platform.profiler import profiler_finder
 from telemetry.core import util
 from telemetry import decorators
 from telemetry.internal.browser import browser_finder
 from telemetry.internal.browser import browser_finder_exceptions
 from telemetry.internal.browser import browser_info as browser_info_module
+from telemetry.internal.platform.profiler import profiler_finder
 from telemetry.internal.util import exception_formatter
 from telemetry.internal.util import file_handle
-from telemetry.page import action_runner as action_runner_module
 from telemetry.page import page_test
 from telemetry import story
+from telemetry.util import image_util
 from telemetry.util import wpr_modes
-from telemetry.value import skip
 from telemetry.web_perf import timeline_based_measurement
 
 
@@ -47,6 +47,11 @@ class SharedPageState(story.SharedState):
   def __init__(self, test, finder_options, story_set):
     super(SharedPageState, self).__init__(test, finder_options, story_set)
     if isinstance(test, timeline_based_measurement.TimelineBasedMeasurement):
+      assert not finder_options.profiler, ('This is a Timeline Based '
+          'Measurement benchmark. You cannot run it with the --profiler flag. '
+          'If you need trace data, tracing is always enabled in Timeline Based '
+          'Measurement benchmarks and you can get the trace data by using '
+          '--output-format=json.')
       # This is to avoid the cyclic-import caused by timeline_based_page_test.
       from telemetry.web_perf import timeline_based_page_test
       self._test = timeline_based_page_test.TimelineBasedPageTest(test)
@@ -75,21 +80,26 @@ class SharedPageState(story.SharedState):
     self._did_login_for_current_page = False
     self._current_page = None
     self._current_tab = None
+    self._migrated_profile = None
 
-    self._pregenerated_profile_archive = None
+    self._pregenerated_profile_archive_dir = None
     self._test.SetOptions(self._finder_options)
 
   @property
   def browser(self):
     return self._browser
 
-  def _GetPossibleBrowser(self, test, finder_options):
-    """Return a possible_browser with the given options. """
+  def _FindBrowser(self, finder_options):
     possible_browser = browser_finder.FindBrowser(finder_options)
     if not possible_browser:
       raise browser_finder_exceptions.BrowserFinderException(
           'No browser found.\n\nAvailable browsers:\n%s\n' %
           '\n'.join(browser_finder.GetAllAvailableBrowserTypes(finder_options)))
+    return possible_browser
+
+  def _GetPossibleBrowser(self, test, finder_options):
+    """Return a possible_browser with the given options for |test|. """
+    possible_browser = self._FindBrowser(finder_options)
     finder_options.browser_options.browser_type = (
         possible_browser.browser_type)
 
@@ -106,6 +116,30 @@ class SharedPageState(story.SharedState):
       sys.exit(0)
     return possible_browser
 
+  def _TryCaptureScreenShot(self, page, tab, results):
+    try:
+      # TODO(nednguyen): once all platforms support taking screenshot,
+      # remove the tab checking logic and consider moving this to story_runner.
+      # (crbug.com/369490)
+      if tab.browser.platform.CanTakeScreenshot():
+        tf = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+        tf.close()
+        tab.browser.platform.TakeScreenshot(tf.name)
+        results.AddProfilingFile(page, file_handle.FromTempFile(tf))
+      elif tab.IsAlive() and tab.screenshot_supported:
+        tf = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+        tf.close()
+        image = tab.Screenshot()
+        image_util.WritePngFile(image, tf.name)
+        results.AddProfilingFile(page, file_handle.FromTempFile(tf))
+      else:
+        logging.warning(
+            'Either tab has crashed or browser does not support taking tab '
+            'screenshot. Skip taking screenshot on failure.')
+    except Exception as e:
+      logging.warning('Exception when trying to capture screenshot: %s',
+                      repr(e))
+
   def DidRunStory(self, results):
     if self._finder_options.profiler:
       self._StopProfiling(results)
@@ -113,8 +147,10 @@ class SharedPageState(story.SharedState):
     # the page will get cleaned up to avoid future tests failing in weird ways.
     try:
       if self._current_tab and self._current_tab.IsAlive():
-        self._test.CleanUpAfterPage(self._current_page, self._current_tab)
         self._current_tab.CloseConnections()
+    except Exception:
+      if self._current_tab:
+        self._current_tab.Close()
     finally:
       if self._current_page.credentials and self._did_login_for_current_page:
         self.browser.credentials.LoginNoLongerNeeded(
@@ -155,6 +191,8 @@ class SharedPageState(story.SharedState):
     self._possible_browser.SetCredentialsPath(page.credentials_path)
 
     self._test.WillStartBrowser(self.platform)
+    if page.startup_url:
+      self._finder_options.browser_options.startup_url = page.startup_url
     self._browser = self._possible_browser.Create(self._finder_options)
     self._test.DidStartBrowser(self.browser)
 
@@ -192,6 +230,9 @@ class SharedPageState(story.SharedState):
   def WillRunStory(self, page):
     if self._ShouldDownloadPregeneratedProfileArchive():
       self._DownloadPregeneratedProfileArchive()
+
+      if self._ShouldMigrateProfile():
+        self._MigratePregeneratedProfile()
 
     page_set = page.page_set
     self._current_page = page
@@ -232,34 +273,25 @@ class SharedPageState(story.SharedState):
     if self._finder_options.profiler:
       self._StartProfiling(self._current_page)
 
-  def GetTestExpectationAndSkipValue(self, expectations):
-    skip_value = None
-    if not self.CanRunOnBrowser(browser_info_module.BrowserInfo(self.browser)):
-      skip_value = skip.SkipValue(
-          self._current_page,
-          'Skipped because browser is not supported '
-          '(page.CanRunOnBrowser() returns False).')
-      return 'skip', skip_value
-    expectation = expectations.GetExpectationForPage(
-        self, self._current_page)
-    if expectation == 'skip':
-      skip_value = skip.SkipValue(
-          self._current_page, 'Skipped by test expectations')
-    return expectation, skip_value
+  def CanRunStory(self, page):
+    return self.CanRunOnBrowser(browser_info_module.BrowserInfo(self.browser),
+                                page)
 
-  def CanRunOnBrowser(self, browser_info):  # pylint: disable=unused-argument
-    """Override this to returns whether the browser brought up by this state
-    instance is suitable for test runs.
+  def CanRunOnBrowser(self, browser_info,
+                      page):  # pylint: disable=unused-argument
+    """Override this to return whether the browser brought up by this state
+    instance is suitable for running the given page.
 
     Args:
       browser_info: an instance of telemetry.core.browser_info.BrowserInfo
+      page: an instance of telemetry.page.Page
     """
     return True
 
   def _PreparePage(self):
     self._current_tab = self._test.TabForPage(self._current_page, self.browser)
     if self._current_page.is_file:
-      self.browser.SetHTTPServerDirectories(
+      self.platform.SetHTTPServerDirectories(
           self._current_page.page_set.serving_dirs |
           set([self._current_page.serving_dir]))
 
@@ -273,34 +305,47 @@ class SharedPageState(story.SharedState):
     if self._test.clear_cache_before_each_run:
       self._current_tab.ClearCache(force=True)
 
-  def _ImplicitPageNavigation(self):
-    """Executes the implicit navigation that occurs for every page iteration.
+  @property
+  def current_page(self):
+    return self._current_page
 
-    This function will be called once per page before any actions are executed.
-    """
-    self._test.WillNavigateToPage(self._current_page, self._current_tab)
-    self._test.RunNavigateSteps(self._current_page, self._current_tab)
-    self._test.DidNavigateToPage(self._current_page, self._current_tab)
+  @property
+  def current_tab(self):
+    return self._current_tab
+
+  @property
+  def page_test(self):
+    return self._test
 
   def RunStory(self, results):
     try:
       self._PreparePage()
-      self._ImplicitPageNavigation()
-      action_runner = action_runner_module.ActionRunner(
-          self._current_tab, skip_waits=self._current_page.skip_waits)
-      self._current_page.RunPageInteractions(action_runner)
+      self._current_page.Run(self)
       self._test.ValidateAndMeasurePage(
           self._current_page, self._current_tab, results)
     except exceptions.Error:
+      if self._finder_options.browser_options.take_screenshot_for_failed_page:
+        self._TryCaptureScreenShot(self._current_page, self._current_tab,
+                                   results)
       if self._test.is_multi_tab_test:
         # Avoid trying to recover from an unknown multi-tab state.
         exception_formatter.PrintFormattedException(
             msg='Telemetry Error during multi tab test:')
         raise page_test.MultiTabTestAppCrashError
       raise
+    except Exception:
+      if self._finder_options.browser_options.take_screenshot_for_failed_page:
+        self._TryCaptureScreenShot(self._current_page, self._current_tab,
+                                   results)
+      raise
 
   def TearDownState(self):
+    if self._migrated_profile:
+      shutil.rmtree(self._migrated_profile)
+      self._migrated_profile = None
+
     self._StopBrowser()
+    self.platform.StopAllLocalServers()
 
   def _StopBrowser(self):
     if self._browser:
@@ -330,10 +375,54 @@ class SharedPageState(story.SharedState):
           results.AddProfilingFile(self._current_page,
                                    file_handle.FromFilePath(f))
 
-  def GetPregeneratedProfileArchive(self):
-    return self._pregenerated_profile_archive
+  def _ShouldMigrateProfile(self):
+    return not self._migrated_profile
 
-  def SetPregeneratedProfileArchive(self, archive):
+  def _MigrateProfile(self, finder_options, found_browser,
+                      initial_profile, final_profile):
+    """Migrates a profile to be compatible with a newer version of Chrome.
+
+    Launching Chrome with the old profile will perform the migration.
+    """
+    # Save the current input and output profiles.
+    saved_input_profile = finder_options.browser_options.profile_dir
+    saved_output_profile = finder_options.output_profile_path
+
+    # Set the input and output profiles.
+    finder_options.browser_options.profile_dir = initial_profile
+    finder_options.output_profile_path = final_profile
+
+    # Launch the browser, then close it.
+    browser = found_browser.Create(finder_options)
+    browser.Close()
+
+    # Load the saved input and output profiles.
+    finder_options.browser_options.profile_dir = saved_input_profile
+    finder_options.output_profile_path = saved_output_profile
+
+  def _MigratePregeneratedProfile(self):
+    """Migrates the pregenerated profile by launching Chrome with it.
+
+    On success, updates self._migrated_profile and
+    self._finder_options.browser_options.profile_dir with the directory of the
+    migrated profile.
+    """
+    self._migrated_profile = tempfile.mkdtemp()
+    logging.info("Starting migration of pregenerated profile to %s",
+        self._migrated_profile)
+    pregenerated_profile = self._finder_options.browser_options.profile_dir
+
+    possible_browser = self._FindBrowser(self._finder_options)
+    self._MigrateProfile(self._finder_options, possible_browser,
+                         pregenerated_profile, self._migrated_profile)
+    self._finder_options.browser_options.profile_dir = self._migrated_profile
+    logging.info("Finished migration of pregenerated profile to %s",
+        self._migrated_profile)
+
+  def GetPregeneratedProfileArchiveDir(self):
+    return self._pregenerated_profile_archive_dir
+
+  def SetPregeneratedProfileArchiveDir(self, archive_path):
     """
     Benchmarks can set a pre-generated profile archive to indicate that when
     Chrome is launched, it should have a --user-data-dir set to the
@@ -342,12 +431,12 @@ class SharedPageState(story.SharedState):
     If the benchmark is invoked with the option --profile-dir=<dir>, that
     option overrides this value.
     """
-    self._pregenerated_profile_archive = archive
+    self._pregenerated_profile_archive_dir = archive_path
 
   def _ShouldDownloadPregeneratedProfileArchive(self):
     """Whether to download a pre-generated profile archive."""
     # There is no pre-generated profile archive.
-    if not self.GetPregeneratedProfileArchive():
+    if not self.GetPregeneratedProfileArchiveDir():
       return False
 
     # If profile dir is specified on command line, use that instead.
@@ -370,12 +459,7 @@ class SharedPageState(story.SharedState):
     the directory of the extracted profile.
     """
     # Download profile directory from cloud storage.
-    test_data_dir = os.path.join(util.GetChromiumSrcDir(), 'tools', 'perf',
-        'generated_profiles',
-        self._possible_browser.target_os)
-    archive_name = self.GetPregeneratedProfileArchive()
-    generated_profile_archive_path = os.path.normpath(
-        os.path.join(test_data_dir, archive_name))
+    generated_profile_archive_path = self.GetPregeneratedProfileArchiveDir()
 
     try:
       cloud_storage.GetIfChanged(generated_profile_archive_path,

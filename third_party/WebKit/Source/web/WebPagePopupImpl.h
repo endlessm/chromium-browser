@@ -55,7 +55,7 @@ class WebPagePopupImpl final
     , public PagePopup
     , public RefCounted<WebPagePopupImpl> {
     WTF_MAKE_NONCOPYABLE(WebPagePopupImpl);
-    WTF_MAKE_FAST_ALLOCATED(WebPagePopupImpl);
+    USING_FAST_MALLOC(WebPagePopupImpl);
 
 public:
     ~WebPagePopupImpl() override;
@@ -74,8 +74,8 @@ public:
 private:
     // WebWidget functions
     WebSize size() override;
-    void beginFrame(const WebBeginFrameArgs&) override;
-    void layout() override;
+    void beginFrame(double lastFrameTimeMonotonic) override;
+    void updateAllLifecyclePhases() override;
     void willCloseLayerTreeView() override;
     void paint(WebCanvas*, const WebRect&) override;
     void resize(const WebSize&) override;
@@ -93,6 +93,7 @@ private:
     bool handleMouseWheel(LocalFrame& mainFrame, const WebMouseWheelEvent&) override;
 
     bool isMouseEventInWindow(const WebMouseEvent&);
+    bool isGestureEventInWindow(const WebGestureEvent&);
 
     // PagePopup function
     AXObject* rootAXObject() override;
@@ -108,7 +109,7 @@ private:
     WebRect m_windowRectInScreen;
     WebViewImpl* m_webView;
     OwnPtrWillBePersistent<Page> m_page;
-    OwnPtr<PagePopupChromeClient> m_chromeClient;
+    OwnPtrWillBePersistent<PagePopupChromeClient> m_chromeClient;
     PagePopupClient* m_popupClient;
     bool m_closing;
 

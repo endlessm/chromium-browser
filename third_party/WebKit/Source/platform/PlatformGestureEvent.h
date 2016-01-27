@@ -35,27 +35,35 @@
 
 namespace blink {
 
+enum PlatformGestureSource {
+    PlatformGestureSourceUninitialized,
+    PlatformGestureSourceTouchpad,
+    PlatformGestureSourceTouchscreen
+};
+
 class PlatformGestureEvent : public PlatformEvent {
 public:
     PlatformGestureEvent()
         : PlatformEvent(PlatformEvent::GestureScrollBegin)
+        , m_source(PlatformGestureSourceUninitialized)
     {
         memset(&m_data, 0, sizeof(m_data));
     }
 
     PlatformGestureEvent(Type type, const IntPoint& position,
         const IntPoint& globalPosition, const IntSize& area, double timestamp,
-        bool shiftKey, bool ctrlKey, bool altKey, bool metaKey)
-        : PlatformEvent(type, shiftKey, ctrlKey, altKey, metaKey, timestamp)
+        PlatformEvent::Modifiers modifiers, PlatformGestureSource source)
+        : PlatformEvent(type, modifiers, timestamp)
         , m_position(position)
         , m_globalPosition(globalPosition)
         , m_area(area)
+        , m_source(source)
     {
         memset(&m_data, 0, sizeof(m_data));
     }
 
     void setScrollGestureData(float deltaX, float deltaY, float velocityX, float velocityY,
-        bool inertial, bool preventPropagation)
+        bool inertial, bool preventPropagation, int resendingPluginId)
     {
         ASSERT(type() == PlatformEvent::GestureScrollBegin
             || type() == PlatformEvent::GestureScrollUpdate
@@ -76,6 +84,7 @@ public:
         m_data.m_scroll.m_velocityX = velocityX;
         m_data.m_scroll.m_velocityY = velocityY;
         m_data.m_scroll.m_inertial = inertial;
+        m_data.m_scroll.m_resendingPluginId = resendingPluginId;
         m_data.m_scroll.m_preventPropagation = preventPropagation;
     }
 
@@ -83,6 +92,8 @@ public:
     const IntPoint& globalPosition() const { return m_globalPosition; } // Screen coordinates.
 
     const IntSize& area() const { return m_area; }
+
+    PlatformGestureSource source() const { return m_source; }
 
     float deltaX() const
     {
@@ -104,13 +115,13 @@ public:
 
     float velocityX() const
     {
-        ASSERT(m_type == PlatformEvent::GestureScrollUpdate);
+        ASSERT(m_type == PlatformEvent::GestureScrollUpdate || m_type == PlatformEvent::GestureFlingStart);
         return m_data.m_scroll.m_velocityX;
     }
 
     float velocityY() const
     {
-        ASSERT(m_type == PlatformEvent::GestureScrollUpdate);
+        ASSERT(m_type == PlatformEvent::GestureScrollUpdate || m_type == PlatformEvent::GestureFlingStart);
         return m_data.m_scroll.m_velocityY;
     }
 
@@ -120,10 +131,25 @@ public:
         return m_data.m_scroll.m_inertial;
     }
 
+    int resendingPluginId() const
+    {
+        if (m_type == PlatformEvent::GestureScrollUpdate
+            || m_type == PlatformEvent::GestureScrollBegin
+            || m_type == PlatformEvent::GestureScrollEnd)
+            return m_data.m_scroll.m_resendingPluginId;
+
+        // This function is called by *all* gesture event types in
+        // GestureEvent::Create(), so we return -1 for all other types.
+        return -1;
+    }
+
     bool preventPropagation() const
     {
+        // TODO(tdresser) Once we've decided if we're getting rid of scroll
+        // chaining, we should remove all scroll chaining related logic. See
+        // crbug.com/526462 for details.
         ASSERT(m_type == PlatformEvent::GestureScrollUpdate);
-        return m_data.m_scroll.m_preventPropagation;
+        return true;
     }
 
     float scale() const
@@ -172,6 +198,7 @@ protected:
     IntPoint m_position;
     IntPoint m_globalPosition;
     IntSize m_area;
+    PlatformGestureSource m_source;
 
     union {
         struct {
@@ -185,6 +212,7 @@ protected:
             float m_velocityY;
             int m_preventPropagation;
             bool m_inertial;
+            int m_resendingPluginId;
         } m_scroll;
 
         struct {

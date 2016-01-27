@@ -59,11 +59,6 @@ WebInspector.Resource = function(target, request, url, documentURL, frameId, loa
         this._request.addEventListener(WebInspector.NetworkRequest.Events.FinishedLoading, this._requestFinished, this);
 }
 
-WebInspector.Resource.Events = {
-    MessageAdded: "message-added",
-    MessagesCleared: "messages-cleared",
-}
-
 /**
  * @param {?string} content
  * @param {string} mimeType
@@ -179,62 +174,6 @@ WebInspector.Resource.prototype = {
     },
 
     /**
-     * @return {!Array.<!WebInspector.ConsoleMessage>}
-     */
-    get messages()
-    {
-        return this._messages || [];
-    },
-
-    /**
-     * @param {!WebInspector.ConsoleMessage} msg
-     */
-    addMessage: function(msg)
-    {
-        if (!msg.isErrorOrWarning() || !msg.messageText)
-            return;
-
-        if (!this._messages)
-            this._messages = [];
-        this._messages.push(msg);
-        this.dispatchEventToListeners(WebInspector.Resource.Events.MessageAdded, msg);
-    },
-
-    /**
-     * @return {number}
-     */
-    get errors()
-    {
-        return this._errors || 0;
-    },
-
-    set errors(x)
-    {
-        this._errors = x;
-    },
-
-    /**
-     * @return {number}
-     */
-    get warnings()
-    {
-        return this._warnings || 0;
-    },
-
-    set warnings(x)
-    {
-        this._warnings = x;
-    },
-
-    clearErrorsAndWarnings: function()
-    {
-        this._messages = [];
-        this._warnings = 0;
-        this._errors = 0;
-        this.dispatchEventToListeners(WebInspector.Resource.Events.MessagesCleared);
-    },
-
-    /**
      * @return {?string}
      */
     get content()
@@ -265,6 +204,8 @@ WebInspector.Resource.prototype = {
      */
     contentType: function()
     {
+        if (this.resourceType() === WebInspector.resourceTypes.Document && this.mimeType.indexOf("javascript") !== -1)
+            return WebInspector.resourceTypes.Script;
         return this.resourceType();
     },
 
@@ -289,7 +230,7 @@ WebInspector.Resource.prototype = {
      */
     canonicalMimeType: function()
     {
-        return this.resourceType().canonicalMimeType() || this.mimeType;
+        return this.contentType().canonicalMimeType() || this.mimeType;
     },
 
     /**
@@ -308,11 +249,6 @@ WebInspector.Resource.prototype = {
         function callbackWrapper(error, searchMatches)
         {
             callback(searchMatches || []);
-        }
-
-        if (this.resourceType() === WebInspector.resourceTypes.Document) {
-            callback([]);
-            return;
         }
 
         if (this.frameId)

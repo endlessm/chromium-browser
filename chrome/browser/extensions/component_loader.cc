@@ -23,16 +23,18 @@
 #include "chrome/browser/search/hotword_service.h"
 #include "chrome/browser/search/hotword_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/crx_file/id_util.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/browser/signin_manager_base.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/plugin_service.h"
+#include "content/public/common/content_switches.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_l10n_util.h"
@@ -162,7 +164,7 @@ void ComponentLoader::LoadAll() {
 base::DictionaryValue* ComponentLoader::ParseManifest(
     const std::string& manifest_contents) const {
   JSONStringValueDeserializer deserializer(manifest_contents);
-  scoped_ptr<base::Value> manifest(deserializer.Deserialize(NULL, NULL));
+  scoped_ptr<base::Value> manifest = deserializer.Deserialize(NULL, NULL);
 
   if (!manifest.get() || !manifest->IsType(base::Value::TYPE_DICTIONARY)) {
     LOG(ERROR) << "Failed to parse extension manifest.";
@@ -395,7 +397,7 @@ void ComponentLoader::AddGoogleNowExtension() {
 
   // Enable the feature on trybots and trunk builds.
   bool enabled_via_trunk_build =
-      chrome::VersionInfo::GetChannel() == chrome::VersionInfo::CHANNEL_UNKNOWN;
+      chrome::GetChannel() == version_info::Channel::UNKNOWN;
 
   bool is_authenticated =
       SigninManagerFactory::GetForProfile(profile_)->IsAuthenticated();
@@ -663,9 +665,6 @@ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
 
     Add(IDR_FIRST_RUN_DIALOG_MANIFEST,
         base::FilePath(FILE_PATH_LITERAL("chromeos/first_run/app")));
-
-    Add(IDR_NETWORK_CONFIGURATION_MANIFEST,
-        base::FilePath(FILE_PATH_LITERAL("chromeos/network_configuration")));
 
     Add(IDR_CONNECTIVITY_DIAGNOSTICS_MANIFEST,
         base::FilePath(extension_misc::kConnectivityDiagnosticsPath));

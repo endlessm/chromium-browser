@@ -29,7 +29,7 @@ scoped_ptr<SSLServerSocket> CreateSSLServerSocket(
     scoped_ptr<StreamSocket> socket,
     X509Certificate* certificate,
     crypto::RSAPrivateKey* key,
-    const SSLConfig& ssl_config) {
+    const SSLServerConfig& ssl_config) {
   crypto::EnsureOpenSSLInit();
   return scoped_ptr<SSLServerSocket>(
       new SSLServerSocketOpenSSL(socket.Pass(), certificate, key, ssl_config));
@@ -39,7 +39,7 @@ SSLServerSocketOpenSSL::SSLServerSocketOpenSSL(
     scoped_ptr<StreamSocket> transport_socket,
     scoped_refptr<X509Certificate> certificate,
     crypto::RSAPrivateKey* key,
-    const SSLConfig& ssl_config)
+    const SSLServerConfig& ssl_config)
     : transport_send_busy_(false),
       transport_recv_busy_(false),
       transport_recv_eof_(false),
@@ -251,6 +251,10 @@ bool SSLServerSocketOpenSSL::GetSSLInfo(SSLInfo* ssl_info) {
 void SSLServerSocketOpenSSL::GetConnectionAttempts(
     ConnectionAttempts* out) const {
   out->clear();
+}
+
+int64_t SSLServerSocketOpenSSL::GetTotalReceivedBytes() const {
+  return transport_socket_->GetTotalReceivedBytes();
 }
 
 void SSLServerSocketOpenSSL::OnSendComplete(int result) {
@@ -614,6 +618,10 @@ int SSLServerSocketOpenSSL::Init() {
   crypto::OpenSSLErrStackTracer err_tracer(FROM_HERE);
 
   ScopedSSL_CTX ssl_ctx(SSL_CTX_new(SSLv23_server_method()));
+
+  if (ssl_config_.require_client_cert)
+    SSL_CTX_set_verify(ssl_ctx.get(), SSL_VERIFY_PEER, NULL);
+
   ssl_ = SSL_new(ssl_ctx.get());
   if (!ssl_)
     return ERR_UNEXPECTED;
@@ -681,38 +689,21 @@ int SSLServerSocketOpenSSL::Init() {
   SSL_set_mode(ssl_, mode.set_mask);
   SSL_clear_mode(ssl_, mode.clear_mask);
 
-  // Removing ciphers by ID from OpenSSL is a bit involved as we must use the
-  // textual name with SSL_set_cipher_list because there is no public API to
-  // directly remove a cipher by ID.
-  STACK_OF(SSL_CIPHER)* ciphers = SSL_get_ciphers(ssl_);
-  DCHECK(ciphers);
-  // See SSLConfig::disabled_cipher_suites for description of the suites
+  // See SSLServerConfig::disabled_cipher_suites for description of the suites
   // disabled by default. Note that !SHA256 and !SHA384 only remove HMAC-SHA256
   // and HMAC-SHA384 cipher suites, not GCM cipher suites with SHA256 or SHA384
   // as the handshake hash.
   std::string command("DEFAULT:!SHA256:!SHA384:!AESGCM+AES256:!aPSK");
-  // Walk through all the installed ciphers, seeing if any need to be
-  // appended to the cipher removal |command|.
-  for (size_t i = 0; i < sk_SSL_CIPHER_num(ciphers); ++i) {
-    const SSL_CIPHER* cipher = sk_SSL_CIPHER_value(ciphers, i);
-    const uint16_t id = static_cast<uint16_t>(SSL_CIPHER_get_id(cipher));
 
-    bool disable = false;
-    if (ssl_config_.require_ecdhe) {
-      base::StringPiece kx_name(SSL_CIPHER_get_kx_name(cipher));
-      disable = kx_name != "ECDHE_RSA" && kx_name != "ECDHE_ECDSA";
-    }
-    if (!disable) {
-      disable = std::find(ssl_config_.disabled_cipher_suites.begin(),
-                          ssl_config_.disabled_cipher_suites.end(),
-                          id) != ssl_config_.disabled_cipher_suites.end();
-    }
-    if (disable) {
-      const char* name = SSL_CIPHER_get_name(cipher);
-      DVLOG(3) << "Found cipher to remove: '" << name << "', ID: " << id
-               << " strength: " << SSL_CIPHER_get_bits(cipher, NULL);
+  if (ssl_config_.require_ecdhe)
+    command.append(":!kRSA:!kDHE");
+
+  // Remove any disabled ciphers.
+  for (uint16_t id : ssl_config_.disabled_cipher_suites) {
+    const SSL_CIPHER* cipher = SSL_get_cipher_by_value(id);
+    if (cipher) {
       command.append(":!");
-      command.append(name);
+      command.append(SSL_CIPHER_get_name(cipher));
     }
   }
 

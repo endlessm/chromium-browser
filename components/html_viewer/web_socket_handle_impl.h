@@ -7,12 +7,12 @@
 
 #include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
-#include "mojo/common/handle_watcher.h"
+#include "mojo/message_pump/handle_watcher.h"
 #include "mojo/services/network/public/interfaces/web_socket.mojom.h"
 #include "third_party/WebKit/public/platform/WebSocketHandle.h"
 
 namespace mojo {
-class NetworkService;
+class WebSocketFactory;
 class WebSocketWriteQueue;
 }
 
@@ -23,7 +23,7 @@ class WebSocketClientImpl;
 // Implements WebSocketHandle by talking to the mojo WebSocket interface.
 class WebSocketHandleImpl : public blink::WebSocketHandle {
  public:
-  explicit WebSocketHandleImpl(mojo::NetworkService* network_service);
+  explicit WebSocketHandleImpl(mojo::WebSocketFactory* factory);
 
  private:
   friend class WebSocketClientImpl;
@@ -33,7 +33,7 @@ class WebSocketHandleImpl : public blink::WebSocketHandle {
   // blink::WebSocketHandle methods:
   virtual void connect(const blink::WebURL& url,
                        const blink::WebVector<blink::WebString>& protocols,
-                       const blink::WebSerializedOrigin& origin,
+                       const blink::WebSecurityOrigin& origin,
                        blink::WebSocketHandleClient*);
   virtual void send(bool fin, MessageType, const char* data, size_t size);
   virtual void flowControl(int64_t quota);

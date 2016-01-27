@@ -47,7 +47,7 @@ struct WebCursorInfo;
 // Handles window-level notifications from core on behalf of a WebView.
 class ChromeClientImpl final : public ChromeClient {
 public:
-    explicit ChromeClientImpl(WebViewImpl*);
+    static PassOwnPtrWillBeRawPtr<ChromeClientImpl> create(WebViewImpl*);
     ~ChromeClientImpl() override;
 
     void* webView() const override;
@@ -62,8 +62,9 @@ public:
     void takeFocus(WebFocusType) override;
     void focusedNodeChanged(Node* fromNode, Node* toNode) override;
     void focusedFrameChanged(LocalFrame*) override;
+    bool hadFormInteraction() const override;
     Page* createWindow(
-        LocalFrame*, const FrameLoadRequest&, const WindowFeatures&, NavigationPolicy, ShouldSendReferrer) override;
+        LocalFrame*, const FrameLoadRequest&, const WindowFeatures&, NavigationPolicy, ShouldSetOpener) override;
     void show(NavigationPolicy) override;
     void didOverscroll(const FloatSize&, const FloatSize&, const FloatPoint&, const FloatSize&) override;
     void setToolbarsVisible(bool) override;
@@ -81,7 +82,7 @@ public:
         const String& message, unsigned lineNumber,
         const String& sourceID, const String& stackTrace) override;
     bool canOpenBeforeUnloadConfirmPanel() override;
-    bool openBeforeUnloadConfirmPanelDelegate(LocalFrame*, const String&) override;
+    bool openBeforeUnloadConfirmPanelDelegate(LocalFrame*, const String&, bool isReload) override;
     void closeWindowSoon() override;
     bool openJavaScriptAlertDelegate(LocalFrame*, const String&) override;
     bool openJavaScriptConfirmDelegate(LocalFrame*, const String&) override;
@@ -106,10 +107,10 @@ public:
     void printDelegate(LocalFrame*) override;
     void annotatedRegionsChanged() override;
     PassOwnPtrWillBeRawPtr<ColorChooser> openColorChooser(LocalFrame*, ColorChooserClient*, const Color&) override;
-    PassRefPtr<DateTimeChooser> openDateTimeChooser(DateTimeChooserClient*, const DateTimeChooserParameters&) override;
+    PassRefPtrWillBeRawPtr<DateTimeChooser> openDateTimeChooser(DateTimeChooserClient*, const DateTimeChooserParameters&) override;
     void openFileChooser(LocalFrame*, PassRefPtr<FileChooser>) override;
     void enumerateChosenDirectory(FileChooser*) override;
-    void setCursor(const Cursor&) override;
+    void setCursor(const Cursor&, LocalFrame* localRoot) override;
     Cursor lastSetCursorForTesting() const override;
     void needTouchEvents(bool needTouchEvents) override;
     void setTouchAction(TouchAction) override;
@@ -135,9 +136,10 @@ public:
     // ChromeClientImpl:
     void setCursorForPlugin(const WebCursorInfo&);
     void setNewWindowNavigationPolicy(WebNavigationPolicy);
+    void setCursorOverridden(bool);
 
     bool hasOpenedPopup() const override;
-    PassRefPtrWillBeRawPtr<PopupMenu> openPopupMenu(LocalFrame&, PopupMenuClient*) override;
+    PassRefPtrWillBeRawPtr<PopupMenu> openPopupMenu(LocalFrame&, HTMLSelectElement&) override;
     PagePopup* openPagePopup(PagePopupClient*);
     void closePagePopup(PagePopup*);
     DOMWindow* pagePopupWindowForTesting() const override;
@@ -154,7 +156,6 @@ public:
     void didEndEditingOnTextField(HTMLInputElement&) override;
     void openTextDataListChooser(HTMLInputElement&) override;
     void textFieldDataListChanged(HTMLInputElement&) override;
-    void xhrSucceeded(LocalFrame*) override;
     void ajaxSucceeded(LocalFrame*) override;
 
     void didCancelCompositionOnSelectionChange() override;
@@ -170,18 +171,26 @@ public:
 
     FloatSize elasticOverscroll() const override;
 
+    void didObserveNonGetFetchFromScript() const override;
+
+    PassOwnPtr<WebFrameScheduler> createFrameScheduler() override;
+
 private:
+    explicit ChromeClientImpl(WebViewImpl*);
+
     bool isChromeClientImpl() const override { return true; }
     void registerPopupOpeningObserver(PopupOpeningObserver*) override;
     void unregisterPopupOpeningObserver(PopupOpeningObserver*) override;
 
     void notifyPopupOpeningObservers() const;
-    void setCursor(const WebCursorInfo&);
+    void setCursor(const WebCursorInfo&, LocalFrame* localRoot);
 
     WebViewImpl* m_webView; // Weak pointer.
     WindowFeatures m_windowFeatures;
     Vector<PopupOpeningObserver*> m_popupOpeningObservers;
     Cursor m_lastSetMouseCursorForTesting;
+    bool m_cursorOverridden;
+    bool m_didRequestNonEmptyToolTip;
 };
 
 DEFINE_TYPE_CASTS(ChromeClientImpl, ChromeClient, client, client->isChromeClientImpl(), client.isChromeClientImpl());

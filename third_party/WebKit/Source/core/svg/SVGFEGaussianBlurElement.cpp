@@ -23,9 +23,9 @@
 #include "core/svg/SVGFEGaussianBlurElement.h"
 
 #include "core/SVGNames.h"
-#include "platform/graphics/filters/FilterEffect.h"
 #include "core/svg/SVGParserUtilities.h"
 #include "core/svg/graphics/filters/SVGFilterBuilder.h"
+#include "platform/graphics/filters/FilterEffect.h"
 
 namespace blink {
 
@@ -68,14 +68,16 @@ void SVGFEGaussianBlurElement::svgAttributeChanged(const QualifiedName& attrName
 PassRefPtrWillBeRawPtr<FilterEffect> SVGFEGaussianBlurElement::build(SVGFilterBuilder* filterBuilder, Filter* filter)
 {
     FilterEffect* input1 = filterBuilder->getEffectById(AtomicString(m_in1->currentValue()->value()));
+    ASSERT(input1);
 
-    if (!input1)
-        return nullptr;
-
-    if (stdDeviationX()->currentValue()->value() < 0 || stdDeviationY()->currentValue()->value() < 0)
-        return nullptr;
-
-    RefPtrWillBeRawPtr<FilterEffect> effect = FEGaussianBlur::create(filter, stdDeviationX()->currentValue()->value(), stdDeviationY()->currentValue()->value());
+    // "A negative value or a value of zero disables the effect of the given
+    // filter primitive (i.e., the result is the filter input image)."
+    // (https://drafts.fxtf.org/filters/#element-attrdef-fegaussianblur-stddeviation)
+    //
+    // => Clamp to non-negative.
+    float stdDevX = std::max(0.0f, stdDeviationX()->currentValue()->value());
+    float stdDevY = std::max(0.0f, stdDeviationY()->currentValue()->value());
+    RefPtrWillBeRawPtr<FilterEffect> effect = FEGaussianBlur::create(filter, stdDevX, stdDevY);
     effect->inputEffects().append(input1);
     return effect.release();
 }

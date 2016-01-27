@@ -154,9 +154,9 @@ class TabStripTest : public views::ViewsTestBase {
   // |tab| in |tab|'s coordinate space (including padding if |padding|
   // is true).
   gfx::Rect GetTabCloseHitTestMask(Tab* tab, bool padding) {
-    gfx::RectF bounds_f = tab->close_button_->GetContentsBounds();
+    gfx::RectF bounds_f = gfx::RectF(tab->close_button_->GetContentsBounds());
     if (padding)
-      bounds_f = tab->close_button_->GetLocalBounds();
+      bounds_f = gfx::RectF(tab->close_button_->GetLocalBounds());
     views::View::ConvertRectToTarget(tab->close_button_, tab, &bounds_f);
     return gfx::ToEnclosingRect(bounds_f);
   }
@@ -311,7 +311,7 @@ TEST_F(TabStripTest, ImmersiveMode) {
   EXPECT_FALSE(tab_strip_->IsImmersiveStyle());
 
   // Tab strip defaults to normal tab height.
-  int normal_height = Tab::GetMinimumUnselectedSize().height();
+  int normal_height = Tab::GetMinimumInactiveSize().height();
   EXPECT_EQ(normal_height, tab_strip_->GetPreferredSize().height());
 
   // Tab strip can toggle immersive mode.
@@ -392,10 +392,10 @@ TEST_F(TabStripTest, TabHitTestMaskWhenStacked) {
   // Verify that the tab close button is not occluded.
   EXPECT_TRUE(tab_bounds.Contains(contents_bounds));
 
-  // Bounds of the tab close button (without padding) in the tab's
-  // coordinate space.
+  // Bounds of the tab close button (with padding) in the tab's coordinate
+  // space.
   gfx::Rect local_bounds = GetTabCloseHitTestMask(active_tab, true);
-  EXPECT_EQ(gfx::Rect(81, 0, 39, 29).ToString(), local_bounds.ToString());
+  EXPECT_EQ(gfx::Rect(82, 0, 38, 29).ToString(), local_bounds.ToString());
 
   // Hit tests within the tab.
   EXPECT_TRUE(active_tab->HitTestRect(gfx::Rect(30, 15, 1, 1)));

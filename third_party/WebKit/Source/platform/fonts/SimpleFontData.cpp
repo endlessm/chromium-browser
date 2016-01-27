@@ -40,6 +40,7 @@
 #include "platform/fonts/VDMXParser.h"
 #include "platform/geometry/FloatRect.h"
 #include "wtf/MathExtras.h"
+#include "wtf/Partitions.h"
 #include "wtf/text/CharacterNames.h"
 #include "wtf/text/Unicode.h"
 #include <unicode/normlzr.h>
@@ -115,12 +116,12 @@ void SimpleFontData::platformInit()
     {
         size_t vdmxSize = face->getTableSize(vdmxTag);
         if (vdmxSize && vdmxSize < maxVDMXTableSize) {
-            uint8_t* vdmxTable = (uint8_t*) fastMalloc(vdmxSize);
+            uint8_t* vdmxTable = (uint8_t*) WTF::Partitions::fastMalloc(vdmxSize);
             if (vdmxTable
                 && face->getTableData(vdmxTag, 0, vdmxSize, vdmxTable) == vdmxSize
                 && parseVDMX(&vdmxAscent, &vdmxDescent, vdmxTable, vdmxSize, pixelSize))
                 isVDMXValid = true;
-            fastFree(vdmxTable);
+            WTF::Partitions::fastFree(vdmxTable);
         }
     }
 #endif
@@ -365,6 +366,14 @@ PassRefPtr<SimpleFontData> SimpleFontData::emphasisMarkFontData(const FontDescri
     return m_derivedFontData->emphasisMark;
 }
 
+bool SimpleFontData::isTextOrientationFallbackOf(const SimpleFontData* fontData) const
+{
+    if (!isTextOrientationFallback() || !fontData->m_derivedFontData)
+        return false;
+    return fontData->m_derivedFontData->uprightOrientation == this
+        || fontData->m_derivedFontData->verticalRightOrientation == this;
+}
+
 PassOwnPtr<SimpleFontData::DerivedFontData> SimpleFontData::DerivedFontData::create(bool forCustomFont)
 {
     return adoptPtr(new DerivedFontData(forCustomFont));
@@ -442,33 +451,6 @@ float SimpleFontData::platformWidthForGlyph(Glyph glyph) const
     if (!paint.isSubpixelText())
         width = SkScalarRoundToInt(width);
     return SkScalarToFloat(width);
-}
-
-bool SimpleFontData::canRenderCombiningCharacterSequence(const UChar* characters, size_t length) const
-{
-    if (!m_combiningCharacterSequenceSupport)
-        m_combiningCharacterSequenceSupport = adoptPtr(new HashMap<String, bool>);
-
-    WTF::HashMap<String, bool>::AddResult addResult = m_combiningCharacterSequenceSupport->add(String(characters, length), false);
-    if (!addResult.isNewEntry)
-        return addResult.storedValue->value;
-
-    UErrorCode error = U_ZERO_ERROR;
-    Vector<UChar, 4> normalizedCharacters(length);
-    size_t normalizedLength = unorm_normalize(characters, length, UNORM_NFC, UNORM_UNICODE_3_2, &normalizedCharacters[0], length, &error);
-    // Can't render if we have an error or no composition occurred.
-    if (U_FAILURE(error) || normalizedLength == length)
-        return false;
-
-    for (size_t offset = 0; offset < normalizedLength;) {
-        UChar32 character;
-        U16_NEXT(normalizedCharacters, offset, normalizedLength, character);
-        if (!glyphForCharacter(character))
-            return false;
-    }
-
-    addResult.storedValue->value = true;
-    return true;
 }
 
 bool SimpleFontData::fillGlyphPage(GlyphPage* pageToFill, unsigned offset, unsigned length, UChar* buffer, unsigned bufferLength) const

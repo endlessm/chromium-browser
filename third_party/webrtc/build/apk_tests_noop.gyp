@@ -58,15 +58,15 @@
       'type': 'none',
     },
     {
+      'target_name': 'webrtc_nonparallel_tests_apk',
+      'type': 'none',
+    },
+    {
       'target_name': 'webrtc_perf_tests_apk',
       'type': 'none',
     },
     {
       'target_name': 'audio_codec_speed_tests_apk',
-      'type': 'none',
-    },
-    {
-      'target_name': 'video_capture_tests_apk',
       'type': 'none',
     },
   ],

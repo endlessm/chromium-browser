@@ -12,7 +12,7 @@
 #define WEBRTC_MODULES_AUDIO_CODING_MAIN_TEST_UTILITY_H_
 
 #include "testing/gtest/include/gtest/gtest.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module.h"
 
 namespace webrtc {
 
@@ -114,19 +114,6 @@ int16_t ChooseCodec(CodecInst& codecInst);
 void PrintCodecs();
 
 bool FixedPayloadTypeCodec(const char* payloadName);
-
-class DTMFDetector : public AudioCodingFeedback {
- public:
-  DTMFDetector();
-  ~DTMFDetector();
-  // used for inband DTMF detection
-  int32_t IncomingDtmf(const uint8_t digitDtmf, const bool toneEnded);
-  void PrintDetectedDigits();
-
- private:
-  uint32_t _toneCntr[1000];
-
-};
 
 class VADCallback : public ACMVADCallback {
  public:

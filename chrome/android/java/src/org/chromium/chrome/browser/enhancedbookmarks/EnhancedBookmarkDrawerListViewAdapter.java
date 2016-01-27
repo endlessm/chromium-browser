@@ -12,6 +12,7 @@ import android.widget.TextView;
 
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.enhancedbookmarks.EnhancedBookmarkManager.UIState;
+import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
 import org.chromium.components.bookmarks.BookmarkId;
 
 import java.util.ArrayList;
@@ -27,6 +28,7 @@ class EnhancedBookmarkDrawerListViewAdapter extends BaseAdapter {
     static final int TYPE_ALL_ITEMS = -1;
     static final int TYPE_DIVIDER = -2;
     static final int TYPE_FOLDERS_TITLE = -3;
+    static final int TYPE_FILTER = -4;
 
     static final int VIEW_TYPE_ITEM = 0;
     static final int VIEW_TYPE_DIVIDER = 1;
@@ -50,16 +52,26 @@ class EnhancedBookmarkDrawerListViewAdapter extends BaseAdapter {
     static class Item {
         final int mType;
         final BookmarkId mFolderId;
+        final EnhancedBookmarkFilter mFilter;
 
         Item(int itemType) {
             mType = itemType;
             mFolderId = null;
+            mFilter = null;
         }
 
         Item(BookmarkId folderId) {
             assert folderId != null;
             mType = TYPE_FOLDER;
             mFolderId = folderId;
+            mFilter = null;
+        }
+
+        Item(EnhancedBookmarkFilter filter) {
+            assert filter != null;
+            mType = TYPE_FILTER;
+            mFolderId = null;
+            mFilter = filter;
         }
 
         @Override
@@ -69,6 +81,7 @@ class EnhancedBookmarkDrawerListViewAdapter extends BaseAdapter {
             int result = 1;
             result = prime * result + ((mFolderId == null) ? 0 : mFolderId.hashCode());
             result = prime * result + mType;
+            result = prime * result + ((mFilter == null) ? 0 : mFilter.ordinal());
             return result;
         }
 
@@ -84,6 +97,9 @@ class EnhancedBookmarkDrawerListViewAdapter extends BaseAdapter {
                 return false;
             }
             if (mType != other.mType) {
+                return false;
+            }
+            if (mFilter != other.mFilter) {
                 return false;
             }
             return true;
@@ -102,6 +118,9 @@ class EnhancedBookmarkDrawerListViewAdapter extends BaseAdapter {
         }
         if (mDelegate.getModel().isFolderVisible(mOthersNodeId)) {
             mTopSection.add(new Item(mOthersNodeId));
+        }
+        if (OfflinePageBridge.isEnabled()) {
+            mTopSection.add(new Item(EnhancedBookmarkFilter.OFFLINE_PAGES));
         }
 
         if (mManagedAndPartnerFolderIds != null) {
@@ -205,6 +224,9 @@ class EnhancedBookmarkDrawerListViewAdapter extends BaseAdapter {
                 topFolderId = parentId;
             }
             return positionOfBookmarkId(topFolderId);
+        } else if (state == UIState.STATE_FILTER) {
+            EnhancedBookmarkFilter filter = (EnhancedBookmarkFilter) modeDetail;
+            return positionOfItem(new Item(filter));
         }
 
         return -1;
@@ -306,7 +328,9 @@ class EnhancedBookmarkDrawerListViewAdapter extends BaseAdapter {
         switch (item.mType) {
             case TYPE_ALL_ITEMS:
                 title = listItemView.getContext().getResources()
-                        .getString(R.string.enhanced_bookmark_drawer_all_items);
+                        .getString(OfflinePageBridge.isEnabled()
+                                ? R.string.offline_pages_all_items
+                                : R.string.enhanced_bookmark_drawer_all_items);
                 iconDrawableId = R.drawable.btn_star;
                 break;
             case TYPE_FOLDER:
@@ -321,6 +345,12 @@ class EnhancedBookmarkDrawerListViewAdapter extends BaseAdapter {
                 } else {
                     iconDrawableId = 0;
                 }
+                break;
+            case TYPE_FILTER:
+                assert item.mFilter == EnhancedBookmarkFilter.OFFLINE_PAGES;
+                title = listItemView.getContext().getResources().getString(
+                        R.string.enhanced_bookmark_drawer_filter_offline_pages);
+                iconDrawableId = R.drawable.eb_filter_offline_pages;
                 break;
             default:
                 title = "";

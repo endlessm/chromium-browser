@@ -6,7 +6,7 @@
 #define COMPONENTS_HTML_VIEWER_BLINK_INPUT_EVENTS_TYPE_CONVERTERS_H_
 
 #include "base/memory/scoped_ptr.h"
-#include "ui/mojo/events/input_events.mojom.h"
+#include "components/mus/public/interfaces/input_events.mojom.h"
 
 namespace blink {
 class WebInputEvent;
@@ -15,8 +15,9 @@ class WebInputEvent;
 namespace mojo {
 
 template <>
-struct TypeConverter<scoped_ptr<blink::WebInputEvent>, EventPtr> {
-  static scoped_ptr<blink::WebInputEvent> Convert(const EventPtr& input);
+struct TypeConverter<scoped_ptr<blink::WebInputEvent>, mus::mojom::EventPtr> {
+  static scoped_ptr<blink::WebInputEvent> Convert(
+      const mus::mojom::EventPtr& input);
 };
 
 }  // namespace mojo

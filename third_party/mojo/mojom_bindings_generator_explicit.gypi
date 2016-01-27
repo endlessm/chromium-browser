@@ -10,7 +10,7 @@
     'mojom_base_output_dir':
         '<!(python <(DEPTH)/build/inverse_depth.py <(DEPTH))',
     'mojom_generated_outputs': [
-      '<!@(python <(DEPTH)/third_party/mojo/src/mojo/public/tools/bindings/mojom_list_outputs.py --basedir <(mojom_base_output_dir) <@(mojom_files))',
+      '<!@(python <(DEPTH)/mojo/public/tools/bindings/mojom_list_outputs.py --basedir <(mojom_base_output_dir) <@(mojom_files))',
     ],
     'mojom_include_path%': '<(DEPTH)',
     'require_interface_bindings%': 1,
@@ -44,7 +44,6 @@
         'mojom_import_args%': [
          '-I<(DEPTH)',
          '-I<(DEPTH)/mojo/services',
-         '-I<(DEPTH)/third_party/mojo/src',
          '-I<(mojom_include_path)',
         ],
       },
@@ -64,7 +63,6 @@
         '<@(mojom_import_args)',
         '-o', '<(SHARED_INTERMEDIATE_DIR)',
         '--java_output_directory=<(java_out_dir)',
-        '--dart_mojo_root=//third_party/mojo/src',
       ],
       'message': 'Generating Mojo bindings from <@(mojom_files)',
     }
@@ -72,6 +70,7 @@
   'conditions': [
     ['require_interface_bindings==1', {
       'dependencies': [
+        '<(DEPTH)/base/base.gyp:base',
         '<(DEPTH)/third_party/mojo/mojo_public.gyp:mojo_interface_bindings_generation',
       ],
     }],
@@ -90,9 +89,7 @@
     # Include paths needed to compile the generated sources into a library.
     'include_dirs': [
       '<(DEPTH)',
-      '<(DEPTH)/third_party/mojo/src',
       '<(SHARED_INTERMEDIATE_DIR)',
-      '<(SHARED_INTERMEDIATE_DIR)/third_party/mojo/src',
     ],
     # Make sure the generated header files are available for any static library
     # that depends on a static library that depends on this generator.
@@ -102,9 +99,7 @@
       # transitive dependancies when using the library.
       'include_dirs': [
         '<(DEPTH)',
-        '<(DEPTH)/third_party/mojo/src',
         '<(SHARED_INTERMEDIATE_DIR)',
-        '<(SHARED_INTERMEDIATE_DIR)/third_party/mojo/src',
       ],
       'variables': {
         'generated_src_dirs': [

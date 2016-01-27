@@ -8,9 +8,9 @@
 
 #include "base/big_endian.h"
 #include "base/sys_byteorder.h"
-#include "net/base/dns_util.h"
 #include "net/base/io_buffer.h"
 #include "net/dns/dns_protocol.h"
+#include "net/dns/dns_util.h"
 
 namespace net {
 
@@ -43,8 +43,8 @@ DnsQuery::DnsQuery(uint16 id, const base::StringPiece& qname, uint16 qtype)
 DnsQuery::~DnsQuery() {
 }
 
-DnsQuery* DnsQuery::CloneWithNewId(uint16 id) const {
-  return new DnsQuery(*this, id);
+scoped_ptr<DnsQuery> DnsQuery::CloneWithNewId(uint16 id) const {
+  return make_scoped_ptr(new DnsQuery(*this, id));
 }
 
 uint16 DnsQuery::id() const {

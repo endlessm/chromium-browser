@@ -62,7 +62,6 @@ class WebContentsDelegateAndroid : public content::WebContentsDelegate {
                               content::InvalidateTypes changed_flags) override;
   void VisibleSSLStateChanged(const content::WebContents* source) override;
   void ActivateContents(content::WebContents* contents) override;
-  void DeactivateContents(content::WebContents* contents) override;
   void LoadingStateChanged(content::WebContents* source,
                            bool to_different_document) override;
   void LoadProgressChanged(content::WebContents* source,
@@ -76,8 +75,9 @@ class WebContentsDelegateAndroid : public content::WebContentsDelegate {
                           content::WebContents* new_contents) override;
   bool ShouldCreateWebContents(
       content::WebContents* web_contents,
-      int route_id,
-      int main_frame_route_id,
+      int32_t route_id,
+      int32_t main_frame_route_id,
+      int32_t main_frame_widget_route_id,
       WindowContainerType window_container_type,
       const std::string& frame_name,
       const GURL& target_url,

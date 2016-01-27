@@ -194,7 +194,7 @@ class BufferedResourceLoaderTest : public testing::Test {
     blink::WebURLRequest newRequest(redirectUrl);
     blink::WebURLResponse redirectResponse(gurl_);
 
-    loader_->willSendRequest(url_loader_, newRequest, redirectResponse);
+    loader_->willFollowRedirect(url_loader_, newRequest, redirectResponse);
 
     base::MessageLoop::current()->RunUntilIdle();
   }
@@ -260,6 +260,7 @@ class BufferedResourceLoaderTest : public testing::Test {
     EXPECT_EQ(backward_capacity, loader_->buffer_.backward_capacity());
     EXPECT_EQ(forward_bytes, loader_->buffer_.forward_bytes());
     EXPECT_EQ(forward_capacity, loader_->buffer_.forward_capacity());
+    EXPECT_EQ(backward_bytes + forward_bytes, loader_->GetMemoryUsage());
   }
 
   void ConfirmLoaderBufferBackwardCapacity(int expected_backward_capacity) {

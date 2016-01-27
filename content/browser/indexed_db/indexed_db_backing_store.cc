@@ -325,6 +325,8 @@ WARN_UNUSED_RESULT static bool IsSchemaKnown(LevelDBDatabase* db, bool* known) {
     *known = true;
     return true;
   }
+  if (db_schema_version < 0)
+    return false;  // Only corruption should cause this.
   if (db_schema_version > kLatestKnownSchemaVersion) {
     *known = false;
     return true;
@@ -340,7 +342,8 @@ WARN_UNUSED_RESULT static bool IsSchemaKnown(LevelDBDatabase* db, bool* known) {
     *known = true;
     return true;
   }
-
+  if (db_data_version < 0)
+    return false;  // Only corruption should cause this.
   if (db_data_version > latest_known_data_version) {
     *known = false;
     return true;
@@ -565,6 +568,7 @@ template <typename TransactionType>
 static leveldb::Status GetBlobJournal(const StringPiece& key,
                                       TransactionType* transaction,
                                       BlobJournalType* journal) {
+  IDB_TRACE("IndexedDBBackingStore::GetBlobJournal");
   std::string data;
   bool found = false;
   leveldb::Status s = transaction->Get(key, &data, &found);
@@ -666,6 +670,7 @@ static leveldb::Status MergeDatabaseIntoBlobJournal(
     LevelDBDirectTransaction* transaction,
     const std::string& key,
     int64 database_id) {
+  IDB_TRACE("IndexedDBBackingStore::MergeDatabaseIntoBlobJournal");
   BlobJournalType journal;
   leveldb::Status s = GetBlobJournal(key, transaction, &journal);
   if (!s.ok())
@@ -1085,8 +1090,10 @@ scoped_refptr<IndexedDBBackingStore> IndexedDBBackingStore::Open(
     }
 
     LOG(ERROR) << "IndexedDB backing store cleanup succeeded, reopening";
-    leveldb_factory->OpenLevelDB(file_path, comparator.get(), &db, NULL);
-    if (!db) {
+    *status =
+        leveldb_factory->OpenLevelDB(file_path, comparator.get(), &db, NULL);
+    if (!status->ok()) {
+      DCHECK(!db);
       LOG(ERROR) << "IndexedDB backing store reopen after recovery failed";
       HistogramOpenStatus(INDEXED_DB_BACKING_STORE_OPEN_CLEANUP_REOPEN_FAILED,
                           origin_url);
@@ -1106,11 +1113,14 @@ scoped_refptr<IndexedDBBackingStore> IndexedDBBackingStore::Open(
              task_runner,
              status);
 
-  if (clean_journal && backing_store.get() &&
-      !backing_store->CleanUpBlobJournal(LiveBlobJournalKey::Encode()).ok()) {
-    HistogramOpenStatus(
-        INDEXED_DB_BACKING_STORE_OPEN_FAILED_CLEANUP_JOURNAL_ERROR, origin_url);
-    return scoped_refptr<IndexedDBBackingStore>();
+  if (clean_journal && backing_store.get()) {
+    *status = backing_store->CleanUpBlobJournal(LiveBlobJournalKey::Encode());
+    if (!status->ok()) {
+      HistogramOpenStatus(
+          INDEXED_DB_BACKING_STORE_OPEN_FAILED_CLEANUP_JOURNAL_ERROR,
+          origin_url);
+      return scoped_refptr<IndexedDBBackingStore>();
+    }
   }
   return backing_store;
 }
@@ -1474,11 +1484,14 @@ leveldb::Status IndexedDBBackingStore::DeleteDatabase(
       metadata.id, DatabaseMetaDataKey::ORIGIN_NAME);
   const std::string stop_key = DatabaseMetaDataKey::Encode(
       metadata.id + 1, DatabaseMetaDataKey::ORIGIN_NAME);
-  scoped_ptr<LevelDBIterator> it = db_->CreateIterator();
-  for (s = it->Seek(start_key);
-       s.ok() && it->IsValid() && CompareKeys(it->Key(), stop_key) < 0;
-       s = it->Next())
-    transaction->Remove(it->Key());
+  {
+    IDB_TRACE("IndexedDBBackingStore::DeleteDatabase.DeleteEntries");
+    scoped_ptr<LevelDBIterator> it = db_->CreateIterator();
+    for (s = it->Seek(start_key);
+         s.ok() && it->IsValid() && CompareKeys(it->Key(), stop_key) < 0;
+         s = it->Next())
+      transaction->Remove(it->Key());
+  }
   if (!s.ok()) {
     INTERNAL_WRITE_ERROR_UNTESTED(DELETE_DATABASE);
     return s;
@@ -2242,7 +2255,8 @@ class IndexedDBBackingStore::Transaction::ChainedBlobWriterImpl
       : waiting_for_callback_(false),
         database_id_(database_id),
         backing_store_(backing_store),
-        callback_(callback) {
+        callback_(callback),
+        aborted_(false) {
     blobs_.swap(*blobs);
     iter_ = blobs_.begin();
     backing_store->task_runner()->PostTask(
@@ -2260,8 +2274,8 @@ class IndexedDBBackingStore::Transaction::ChainedBlobWriterImpl
     if (delegate_.get())  // Only present for Blob, not File.
       content::BrowserThread::DeleteSoon(
           content::BrowserThread::IO, FROM_HERE, delegate_.release());
-    if (aborted_self_ref_.get()) {
-      aborted_self_ref_ = NULL;
+    if (aborted_) {
+      self_ref_ = NULL;
       return;
     }
     if (iter_->size() != -1 && iter_->size() != bytes_written)
@@ -2275,38 +2289,40 @@ class IndexedDBBackingStore::Transaction::ChainedBlobWriterImpl
   }
 
   void Abort() override {
+    aborted_ = true;
     if (!waiting_for_callback_)
       return;
-    aborted_self_ref_ = this;
+    self_ref_ = this;
   }
 
  private:
-  ~ChainedBlobWriterImpl() override { DCHECK(!waiting_for_callback_); }
+  ~ChainedBlobWriterImpl() override {}
 
   void WriteNextFile() {
     DCHECK(!waiting_for_callback_);
-    DCHECK(!aborted_self_ref_.get());
+    DCHECK(!aborted_);
     if (iter_ == blobs_.end()) {
+      DCHECK(!self_ref_.get());
       callback_->Run(true);
       return;
     } else {
-      waiting_for_callback_ = true;
       if (!backing_store_->WriteBlobFile(database_id_, *iter_, this)) {
-        waiting_for_callback_ = false;
         callback_->Run(false);
         return;
       }
+      waiting_for_callback_ = true;
     }
   }
 
   bool waiting_for_callback_;
-  scoped_refptr<ChainedBlobWriterImpl> aborted_self_ref_;
+  scoped_refptr<ChainedBlobWriterImpl> self_ref_;
   WriteDescriptorVec blobs_;
   WriteDescriptorVec::const_iterator iter_;
   int64 database_id_;
   IndexedDBBackingStore* backing_store_;
   scoped_refptr<IndexedDBBackingStore::BlobWriteCallback> callback_;
   scoped_ptr<FileWriterDelegate> delegate_;
+  bool aborted_;
 
   DISALLOW_COPY_AND_ASSIGN(ChainedBlobWriterImpl);
 };
@@ -2692,6 +2708,7 @@ bool IndexedDBBackingStore::RemoveBlobDirectory(int64 database_id) const {
 
 leveldb::Status IndexedDBBackingStore::CleanUpBlobJournalEntries(
     const BlobJournalType& journal) const {
+  IDB_TRACE("IndexedDBBackingStore::CleanUpBlobJournalEntries");
   if (journal.empty())
     return leveldb::Status::OK();
   for (const auto& entry : journal) {
@@ -2712,6 +2729,7 @@ leveldb::Status IndexedDBBackingStore::CleanUpBlobJournalEntries(
 
 leveldb::Status IndexedDBBackingStore::CleanUpBlobJournal(
     const std::string& level_db_key) const {
+  IDB_TRACE("IndexedDBBackingStore::CleanUpBlobJournal");
   DCHECK(!committing_transaction_count_);
   leveldb::Status s;
   scoped_refptr<LevelDBTransaction> journal_transaction =
@@ -4223,6 +4241,7 @@ leveldb::Status IndexedDBBackingStore::Transaction::CommitPhaseTwo() {
   BlobJournalType primary_journal, live_journal, saved_primary_journal,
       dead_blobs;
   if (!blob_change_map_.empty()) {
+    IDB_TRACE("IndexedDBBackingStore::Transaction.BlobJournal");
     // Read the persisted states of the primary/live blob journals,
     // so that they can be updated correctly by the transaction.
     scoped_refptr<LevelDBTransaction> journal_transaction =
@@ -4317,6 +4336,8 @@ class IndexedDBBackingStore::Transaction::BlobWriteCallbackWrapper
                            scoped_refptr<BlobWriteCallback> callback)
       : transaction_(transaction), callback_(callback) {}
   void Run(bool succeeded) override {
+    IDB_ASYNC_TRACE_END("IndexedDBBackingStore::Transaction::WriteNewBlobs",
+                        transaction_);
     callback_->Run(succeeded);
     if (succeeded)  // Else it's already been deleted during rollback.
       transaction_->chained_blob_writer_ = NULL;
@@ -4336,6 +4357,8 @@ void IndexedDBBackingStore::Transaction::WriteNewBlobs(
     BlobEntryKeyValuePairVec* new_blob_entries,
     WriteDescriptorVec* new_files_to_write,
     scoped_refptr<BlobWriteCallback> callback) {
+  IDB_ASYNC_TRACE_BEGIN("IndexedDBBackingStore::Transaction::WriteNewBlobs",
+                        this);
   DCHECK_GT(new_files_to_write->size(), 0UL);
   DCHECK_GT(database_id_, 0);
   for (auto& blob_entry_iter : *new_blob_entries) {

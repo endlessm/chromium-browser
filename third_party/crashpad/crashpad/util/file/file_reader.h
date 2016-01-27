@@ -15,6 +15,7 @@
 #ifndef CRASHPAD_UTIL_FILE_FILE_READER_H_
 #define CRASHPAD_UTIL_FILE_FILE_READER_H_
 
+#include <stdio.h>
 #include <sys/types.h>
 
 #include "base/basictypes.h"
@@ -28,13 +29,15 @@ namespace crashpad {
 //!     semantics matching the underlying platform (POSIX or Windows).
 class FileReaderInterface : public virtual FileSeekerInterface {
  public:
+  virtual ~FileReaderInterface() {}
+
   //! \brief Wraps ReadFile(), or provides an implementation with identical
   //!     semantics.
   //!
   //! \return The number of bytes actually read if the operation succeeded,
   //!     which may be `0` or any positive value less than or equal to \a size.
   //!     `-1` if the operation failed, with an error message logged.
-  virtual ssize_t Read(void* data, size_t size) = 0;
+  virtual FileOperationResult Read(void* data, size_t size) = 0;
 
   //! \brief Wraps Read(), ensuring that the read succeeded and exactly \a size
   //!     bytes were read.
@@ -44,9 +47,6 @@ class FileReaderInterface : public virtual FileSeekerInterface {
   //! \return `true` if the operation succeeded, `false` if it failed, with an
   //!     error message logged. Short reads are treated as failures.
   bool ReadExactly(void* data, size_t size);
-
- protected:
-  ~FileReaderInterface() {}
 };
 
 //! \brief A file reader backed by a FileHandle.
@@ -66,10 +66,10 @@ class FileReaderInterface : public virtual FileSeekerInterface {
 class WeakFileHandleFileReader : public FileReaderInterface {
  public:
   explicit WeakFileHandleFileReader(FileHandle file_handle);
-  ~WeakFileHandleFileReader();
+  ~WeakFileHandleFileReader() override;
 
   // FileReaderInterface:
-  ssize_t Read(void* data, size_t size) override;
+  FileOperationResult Read(void* data, size_t size) override;
 
   // FileSeekerInterface:
 
@@ -99,7 +99,7 @@ class WeakFileHandleFileReader : public FileReaderInterface {
 class FileReader : public FileReaderInterface {
  public:
   FileReader();
-  ~FileReader();
+  ~FileReader() override;
 
   // FileReaderInterface:
 
@@ -125,7 +125,7 @@ class FileReader : public FileReaderInterface {
   //!
   //! \note It is only valid to call this method between a successful Open() and
   //!     a Close().
-  ssize_t Read(void* data, size_t size) override;
+  FileOperationResult Read(void* data, size_t size) override;
 
   // FileSeekerInterface:
 
@@ -140,6 +140,40 @@ class FileReader : public FileReaderInterface {
   WeakFileHandleFileReader weak_file_handle_file_reader_;
 
   DISALLOW_COPY_AND_ASSIGN(FileReader);
+};
+
+//! \brief A file reader backed by a standard input/output `FILE*`.
+//!
+//! This class accepts an already-open `FILE*`. It is not responsible for
+//! opening or closing this `FILE*`. Users of this class must ensure that the
+//! `FILE*` is closed appropriately elsewhere. Objects of this class may be used
+//! to read from `FILE*` objects not associated with filesystem-based files,
+//! although special attention should be paid to the Seek() method, which may
+//! not function on `FILE*` objects that do not refer to disk-based files.
+//!
+//! This class is expected to be used when other code is responsible for
+//! opening `FILE*` objects and already provides `FILE*` objects. A good use
+//! would be a WeakStdioFileReader for `stdin`.
+class WeakStdioFileReader : public FileReaderInterface {
+ public:
+  explicit WeakStdioFileReader(FILE* file);
+  ~WeakStdioFileReader() override;
+
+  // FileReaderInterface:
+  FileOperationResult Read(void* data, size_t size) override;
+
+  // FileSeekerInterface:
+
+  //! \copydoc FileReaderInterface::Seek()
+  //!
+  //! \note This method is only guaranteed to function on `FILE*` objects
+  //!     referring to disk-based files.
+  FileOffset Seek(FileOffset offset, int whence) override;
+
+ private:
+  FILE* file_;  // weak
+
+  DISALLOW_COPY_AND_ASSIGN(WeakStdioFileReader);
 };
 
 }  // namespace crashpad

@@ -37,7 +37,7 @@ class MutableStylePropertySet;
 
 class CORE_EXPORT CSSStyleDeclaration : public NoBaseWillBeGarbageCollectedFinalized<CSSStyleDeclaration>, public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
-    WTF_MAKE_NONCOPYABLE(CSSStyleDeclaration); WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(CSSStyleDeclaration);
+    WTF_MAKE_NONCOPYABLE(CSSStyleDeclaration); USING_FAST_MALLOC_WILL_BE_REMOVED(CSSStyleDeclaration);
 public:
     virtual ~CSSStyleDeclaration() { }
 
@@ -47,6 +47,14 @@ public:
 #endif
 
     virtual CSSRule* parentRule() const = 0;
+    String cssFloat()
+    {
+        return getPropertyValueInternal(CSSPropertyFloat);
+    }
+    void setCSSFloat(const String& value, ExceptionState& exceptionState)
+    {
+        setPropertyInternal(CSSPropertyFloat, value, false, exceptionState);
+    }
     virtual String cssText() const = 0;
     virtual void setCSSText(const String&, ExceptionState&) = 0;
     virtual unsigned length() const = 0;

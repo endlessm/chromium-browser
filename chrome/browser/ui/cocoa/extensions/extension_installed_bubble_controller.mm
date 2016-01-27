@@ -13,6 +13,7 @@
 #include "chrome/browser/extensions/extension_action_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/chrome_style.h"
@@ -50,15 +51,15 @@ using extensions::BundleInstaller;
 using extensions::Extension;
 
 class ExtensionInstalledBubbleBridge
-    : public ExtensionInstalledBubble::Delegate {
+    : public ExtensionInstalledBubble::ExtensionInstalledBubbleUi {
  public:
   explicit ExtensionInstalledBubbleBridge(
       ExtensionInstalledBubbleController* controller);
   ~ExtensionInstalledBubbleBridge() override;
 
  private:
-  // ExtensionInstalledBubble::Delegate:
-  bool MaybeShowNow() override;
+  // ExtensionInstalledBubble::ExtensionInstalledBubbleUi:
+  void Show() override;
 
   // The (owning) installed bubble controller.
   ExtensionInstalledBubbleController* controller_;
@@ -74,9 +75,14 @@ ExtensionInstalledBubbleBridge::ExtensionInstalledBubbleBridge(
 ExtensionInstalledBubbleBridge::~ExtensionInstalledBubbleBridge() {
 }
 
-bool ExtensionInstalledBubbleBridge::MaybeShowNow() {
-  [controller_ showWindow:controller_];
+// static
+bool ExtensionInstalledBubble::ExtensionInstalledBubbleUi::ShouldShow(
+    ExtensionInstalledBubble* bubble) {
   return true;
+}
+
+void ExtensionInstalledBubbleBridge::Show() {
+  [controller_ showWindow:controller_];
 }
 
 @implementation ExtensionInstalledBubbleController
@@ -86,24 +92,18 @@ bool ExtensionInstalledBubbleBridge::MaybeShowNow() {
 @synthesize pageActionPreviewShowing = pageActionPreviewShowing_;
 
 - (id)initWithParentWindow:(NSWindow*)parentWindow
-                 extension:(const Extension*)extension
-                    bundle:(const BundleInstaller*)bundle
-                   browser:(Browser*)browser
-                      icon:(SkBitmap)icon {
-  NSString* nibName = bundle ? @"ExtensionInstalledBubbleBundle" :
-                               @"ExtensionInstalledBubble";
-  if ((self = [super initWithWindowNibPath:nibName
+           extensionBubble:(ExtensionInstalledBubble*)extensionBubble {
+  if ((self = [super initWithWindowNibPath:@"ExtensionInstalledBubble"
                               parentWindow:parentWindow
                                 anchoredAt:NSZeroPoint])) {
-    bundle_ = bundle;
-    DCHECK(browser);
-    browser_ = browser;
-    icon_.reset([gfx::SkBitmapToNSImage(icon) retain]);
+    DCHECK(extensionBubble);
+    const extensions::Extension* extension = extensionBubble->extension();
+    browser_ = extensionBubble->browser();
+    DCHECK(browser_);
+    icon_.reset([gfx::SkBitmapToNSImage(extensionBubble->icon()) retain]);
     pageActionPreviewShowing_ = NO;
 
-    if (bundle_) {
-      type_ = extension_installed_bubble::kBundle;
-    } else if (extension->is_app()) {
+    if (extension->is_app()) {
       type_ = extension_installed_bubble::kApp;
     } else if (!extensions::OmniboxInfo::GetKeyword(extension).empty()) {
       type_ = extension_installed_bubble::kOmniboxKeyword;
@@ -116,18 +116,28 @@ bool ExtensionInstalledBubbleBridge::MaybeShowNow() {
       type_ = extension_installed_bubble::kGeneric;
     }
 
-    if (type_ == extension_installed_bubble::kBundle) {
-      [self showWindow:self];
-    } else {
-      // Start showing window only after extension has fully loaded.
-      installedBubbleBridge_.reset(new ExtensionInstalledBubbleBridge(self));
-      installedBubble_.reset(new ExtensionInstalledBubble(
-          installedBubbleBridge_.get(),
-          extension,
-          browser,
-          icon));
-      installedBubble_->IgnoreBrowserClosing();
-    }
+    // Start showing window only after extension has fully loaded.
+    installedBubbleBridge_.reset(new ExtensionInstalledBubbleBridge(self));
+    installedBubble_.reset(extensionBubble);
+    installedBubble_->SetBubbleUi(installedBubbleBridge_.get());
+    installedBubble_->IgnoreBrowserClosing();
+  }
+  return self;
+}
+
+- (id)initWithParentWindow:(NSWindow*)parentWindow
+                    bundle:(const BundleInstaller*)bundle
+                   browser:(Browser*)browser {
+  if ((self = [super initWithWindowNibPath:@"ExtensionInstalledBubbleBundle"
+                              parentWindow:parentWindow
+                                anchoredAt:NSZeroPoint])) {
+    bundle_ = bundle;
+    DCHECK(browser);
+    browser_ = browser;
+    icon_.reset([gfx::SkBitmapToNSImage(SkBitmap()) retain]);
+    pageActionPreviewShowing_ = NO;
+    type_ = extension_installed_bubble::kBundle;
+    [self showWindow:self];
   }
   return self;
 }
@@ -157,7 +167,7 @@ bool ExtensionInstalledBubbleBridge::MaybeShowNow() {
 - (BOOL)showSyncPromo {
   if (type_ == extension_installed_bubble::kBundle)
     return false;
-  return extensions::sync_helper::IsSyncableExtension([self extension]) &&
+  return extensions::sync_helper::IsSyncable([self extension]) &&
       SyncPromoUI::ShouldShowSyncPromo(browser_->profile());
 }
 
@@ -234,10 +244,12 @@ bool ExtensionInstalledBubbleBridge::MaybeShowNow() {
         NSMaxY(bounds) - extension_installed_bubble::kAppsBubbleArrowOffset);
     arrowPoint = [button convertPoint:anchor toView:nil];
   } else if (type_ == extension_installed_bubble::kBrowserAction ||
-             extensions::FeatureSwitch::extension_action_redesign()->
-                 IsEnabled()) {
+             (extensions::FeatureSwitch::extension_action_redesign()->
+                  IsEnabled() &&
+              type_ != extension_installed_bubble::kBundle)) {
     // If the toolbar redesign is enabled, all bubbles for extensions point to
-    // their toolbar action.
+    // their toolbar action. The exception is for bundles, for which there is no
+    // single associated extension.
     BrowserActionsController* controller =
         [[window->cocoa_controller() toolbarController]
             browserActionsController];
@@ -370,7 +382,7 @@ bool ExtensionInstalledBubbleBridge::MaybeShowNow() {
     HyperlinkTextView* view = promo_.get();
     [view setMessage:message withFont:font messageColor:[NSColor blackColor]];
     [view addLinkRange:NSMakeRange(0, [link length])
-              withName:@""
+               withURL:@"about:blank"  // using a link here is bad ui
              linkColor:gfx::SkColorToCalibratedNSColor(
                            chrome_style::GetLinkColor())];
 

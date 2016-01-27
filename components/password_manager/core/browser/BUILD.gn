@@ -8,7 +8,7 @@ if (is_android) {
   import("//build/config/android/config.gni")
 }
 
-static_library("browser") {
+source_set("browser") {
   sources = [
     "affiliated_match_helper.cc",
     "affiliated_match_helper.h",
@@ -34,6 +34,7 @@ static_library("browser") {
     "credential_manager_pending_request_task.h",
     "credential_manager_pending_require_user_mediation_task.cc",
     "credential_manager_pending_require_user_mediation_task.h",
+    "credentials_filter.h",
     "export/csv_writer.cc",
     "export/csv_writer.h",
     "facet_manager.cc",
@@ -50,6 +51,7 @@ static_library("browser") {
     "login_database_mac.cc",
     "login_database_posix.cc",
     "login_database_win.cc",
+    "login_model.cc",
     "login_model.h",
     "password_autofill_manager.cc",
     "password_autofill_manager.h",
@@ -63,11 +65,15 @@ static_library("browser") {
     "password_manager.h",
     "password_manager_client.cc",
     "password_manager_client.h",
+    "password_manager_constants.cc",
+    "password_manager_constants.h",
     "password_manager_driver.h",
     "password_manager_internals_service.cc",
     "password_manager_internals_service.h",
     "password_manager_metrics_util.cc",
     "password_manager_metrics_util.h",
+    "password_manager_settings_migration_experiment.cc",
+    "password_manager_settings_migration_experiment.h",
     "password_manager_util.cc",
     "password_manager_util.h",
     "password_store.cc",
@@ -77,10 +83,16 @@ static_library("browser") {
     "password_store_consumer.h",
     "password_store_default.cc",
     "password_store_default.h",
+    "password_store_factory_util.cc",
+    "password_store_factory_util.h",
+    "password_store_service.cc",
+    "password_store_service.h",
     "password_store_sync.cc",
     "password_store_sync.h",
     "password_syncable_service.cc",
     "password_syncable_service.h",
+    "password_ui_utils.cc",
+    "password_ui_utils.h",
     "psl_matching_helper.cc",
     "psl_matching_helper.h",
     "statistics_table.cc",
@@ -93,17 +105,21 @@ static_library("browser") {
     "webdata/password_web_data_service_win.h",
   ]
 
+  public_deps = [
+    "//base",
+    "//sync",
+  ]
   deps = [
     ":proto",
-    "//base",
     "//components/autofill/core/common",
     "//components/keyed_service/core",
     "//components/os_crypt",
     "//components/password_manager/core/common",
     "//components/strings",
+    "//components/sync_driver",
+    "//components/url_formatter",
     "//net",
     "//sql",
-    "//sync",
     "//third_party/protobuf:protobuf_lite",
     "//third_party/re2",
     "//url",
@@ -148,10 +164,51 @@ source_set("test_support") {
 
   public_deps = [
     ":browser",
+    "//testing/gmock",
   ]
   deps = [
     "//base",
     "//components/autofill/core/common",
+    "//testing/gtest",
+  ]
+}
+
+source_set("unit_tests") {
+  testonly = true
+  sources = [
+    "affiliated_match_helper_unittest.cc",
+    "affiliation_backend_unittest.cc",
+    "affiliation_database_unittest.cc",
+    "affiliation_fetch_throttler_unittest.cc",
+    "affiliation_fetcher_unittest.cc",
+    "affiliation_service_unittest.cc",
+    "affiliation_utils_unittest.cc",
+    "browser_save_password_progress_logger_unittest.cc",
+    "export/csv_writer_unittest.cc",
+    "facet_manager_unittest.cc",
+    "import/csv_reader_unittest.cc",
+    "log_router_unittest.cc",
+    "login_database_unittest.cc",
+    "login_model_unittest.cc",
+    "mock_affiliated_match_helper.cc",
+    "mock_affiliated_match_helper.h",
+    "password_autofill_manager_unittest.cc",
+    "password_bubble_experiment_unittest.cc",
+    "password_form_manager_unittest.cc",
+    "password_generation_manager_unittest.cc",
+    "password_manager_metrics_util_unittest.cc",
+    "password_manager_settings_migration_experiment_unittest.cc",
+    "password_manager_unittest.cc",
+    "password_manager_util_unittest.cc",
+    "password_store_default_unittest.cc",
+    "password_store_unittest.cc",
+    "password_syncable_service_unittest.cc",
+    "password_ui_utils_unittest.cc",
+    "psl_matching_helper_unittest.cc",
+    "statistics_table_unittest.cc",
+  ]
+  deps = [
+    ":test_support",
     "//testing/gmock",
     "//testing/gtest",
   ]

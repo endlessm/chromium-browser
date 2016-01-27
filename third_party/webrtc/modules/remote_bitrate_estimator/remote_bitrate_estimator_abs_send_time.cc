@@ -16,9 +16,10 @@
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/thread_annotations.h"
 #include "webrtc/modules/remote_bitrate_estimator/include/remote_bitrate_estimator.h"
-#include "webrtc/system_wrappers/interface/clock.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
-#include "webrtc/system_wrappers/interface/logging.h"
+#include "webrtc/modules/pacing/include/paced_sender.h"
+#include "webrtc/system_wrappers/include/clock.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/logging.h"
 #include "webrtc/typedefs.h"
 
 namespace webrtc {
@@ -63,6 +64,15 @@ std::vector<K> Keys(const std::map<K, V>& map) {
   return keys;
 }
 
+uint32_t ConvertMsTo24Bits(int64_t time_ms) {
+  uint32_t time_24_bits =
+      static_cast<uint32_t>(
+          ((static_cast<uint64_t>(time_ms) << kAbsSendTimeFraction) + 500) /
+          1000) &
+      0x00FFFFFF;
+  return time_24_bits;
+}
+
 bool RemoteBitrateEstimatorAbsSendTime::IsWithinClusterBounds(
     int send_delta_ms,
     const Cluster& cluster_aggregate) {
@@ -88,8 +98,7 @@ bool RemoteBitrateEstimatorAbsSendTime::IsWithinClusterBounds(
 
   RemoteBitrateEstimatorAbsSendTime::RemoteBitrateEstimatorAbsSendTime(
       RemoteBitrateObserver* observer,
-      Clock* clock,
-      uint32_t min_bitrate_bps)
+      Clock* clock)
       : crit_sect_(CriticalSectionWrapper::CreateCriticalSection()),
         observer_(observer),
         clock_(clock),
@@ -98,7 +107,6 @@ bool RemoteBitrateEstimatorAbsSendTime::IsWithinClusterBounds(
         estimator_(OverUseDetectorOptions()),
         detector_(OverUseDetectorOptions()),
         incoming_bitrate_(kBitrateWindowMs, 8000),
-        remote_rate_(min_bitrate_bps),
         last_process_time_(-1),
         process_interval_ms_(kProcessIntervalMs),
         total_propagation_delta_ms_(0),
@@ -220,12 +228,8 @@ bool RemoteBitrateEstimatorAbsSendTime::IsBitrateImproving(
 void RemoteBitrateEstimatorAbsSendTime::IncomingPacketFeedbackVector(
     const std::vector<PacketInfo>& packet_feedback_vector) {
   for (const auto& packet_info : packet_feedback_vector) {
-    // TODO(holmer): We should get rid of this conversion if possible as we may
-    // lose precision.
-    uint32_t send_time_32bits = (packet_info.send_time_ms) / kTimestampToMs;
-    uint32_t send_time_24bits =
-        send_time_32bits >> kAbsSendTimeInterArrivalUpshift;
-    IncomingPacketInfo(packet_info.arrival_time_ms, send_time_24bits,
+    IncomingPacketInfo(packet_info.arrival_time_ms,
+                       ConvertMsTo24Bits(packet_info.send_time_ms),
                        packet_info.payload_size, 0, packet_info.was_paced);
   }
 }
@@ -268,7 +272,10 @@ void RemoteBitrateEstimatorAbsSendTime::IncomingPacketInfo(
   uint32_t ts_delta = 0;
   int64_t t_delta = 0;
   int size_delta = 0;
-  // For now only try to detect probes while we don't have a valid estimate.
+  // For now only try to detect probes while we don't have a valid estimate, and
+  // make sure the packet was paced. We currently assume that only packets
+  // larger than 200 bytes are paced by the sender.
+  was_paced = was_paced && payload_size > PacedSender::kMinProbePacketSize;
   if (was_paced &&
       (!remote_rate_.ValidEstimate() ||
        now_ms - first_packet_time_ms_ < kInitialProbingIntervalMs)) {
@@ -368,9 +375,10 @@ void RemoteBitrateEstimatorAbsSendTime::UpdateEstimate(int64_t now_ms) {
   }
 }
 
-void RemoteBitrateEstimatorAbsSendTime::OnRttUpdate(int64_t rtt) {
+void RemoteBitrateEstimatorAbsSendTime::OnRttUpdate(int64_t avg_rtt_ms,
+                                                    int64_t max_rtt_ms) {
   CriticalSectionScoped cs(crit_sect_.get());
-  remote_rate_.SetRtt(rtt);
+  remote_rate_.SetRtt(avg_rtt_ms);
 }
 
 void RemoteBitrateEstimatorAbsSendTime::RemoveStream(unsigned int ssrc) {
@@ -431,5 +439,10 @@ void RemoteBitrateEstimatorAbsSendTime::UpdateStats(int propagation_delta_ms,
 
   total_propagation_delta_ms_ =
       std::max(total_propagation_delta_ms_ + propagation_delta_ms, 0);
+}
+
+void RemoteBitrateEstimatorAbsSendTime::SetMinBitrate(int min_bitrate_bps) {
+  CriticalSectionScoped cs(crit_sect_.get());
+  remote_rate_.SetMinBitrate(min_bitrate_bps);
 }
 }  // namespace webrtc

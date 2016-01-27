@@ -15,7 +15,7 @@
 #include <gflags/gflags.h>
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/scoped_ptr.h"
-#include "webrtc/modules/audio_coding/neteq/interface/neteq.h"
+#include "webrtc/modules/audio_coding/neteq/include/neteq.h"
 #include "webrtc/modules/audio_coding/neteq/tools/audio_sink.h"
 #include "webrtc/modules/audio_coding/neteq/tools/input_audio_file.h"
 #include "webrtc/modules/audio_coding/neteq/tools/rtp_generator.h"
@@ -66,7 +66,7 @@ class NetEqQualityTest : public ::testing::Test {
   NetEqQualityTest(int block_duration_ms,
                    int in_sampling_khz,
                    int out_sampling_khz,
-                   enum NetEqDecoder decoder_type);
+                   NetEqDecoder decoder_type);
   virtual ~NetEqQualityTest();
 
   void SetUp() override;
@@ -76,8 +76,8 @@ class NetEqQualityTest : public ::testing::Test {
   // |block_size_samples| (samples per channel),
   // 2. save the bit stream to |payload| of |max_bytes| bytes in size,
   // 3. returns the length of the payload (in bytes),
-  virtual int EncodeBlock(int16_t* in_data, int block_size_samples,
-                          uint8_t* payload, int max_bytes) = 0;
+  virtual int EncodeBlock(int16_t* in_data, size_t block_size_samples,
+                          uint8_t* payload, size_t max_bytes) = 0;
 
   // PacketLost(...) determines weather a packet sent at an indicated time gets
   // lost or not.
@@ -98,7 +98,7 @@ class NetEqQualityTest : public ::testing::Test {
   // Write to log file. Usage Log() << ...
   std::ofstream& Log();
 
-  enum NetEqDecoder decoder_type_;
+  NetEqDecoder decoder_type_;
   const int channels_;
 
  private:
@@ -111,13 +111,13 @@ class NetEqQualityTest : public ::testing::Test {
   const int out_sampling_khz_;
 
   // Number of samples per channel in a frame.
-  const int in_size_samples_;
+  const size_t in_size_samples_;
 
   // Expected output number of samples per channel in a frame.
-  const int out_size_samples_;
+  const size_t out_size_samples_;
 
   size_t payload_size_bytes_;
-  int max_payload_bytes_;
+  size_t max_payload_bytes_;
 
   rtc::scoped_ptr<InputAudioFile> in_file_;
   rtc::scoped_ptr<AudioSink> output_;

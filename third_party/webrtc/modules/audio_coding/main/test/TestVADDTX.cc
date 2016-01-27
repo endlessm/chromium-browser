@@ -44,7 +44,7 @@ int32_t ActivityMonitor::InFrameType(FrameType frame_type) {
 
 void ActivityMonitor::PrintStatistics() {
   printf("\n");
-  printf("kFrameEmpty       %u\n", counter_[kFrameEmpty]);
+  printf("kEmptyFrame       %u\n", counter_[kEmptyFrame]);
   printf("kAudioFrameSpeech %u\n", counter_[kAudioFrameSpeech]);
   printf("kAudioFrameCN     %u\n", counter_[kAudioFrameCN]);
   printf("kVideoFrameKey    %u\n", counter_[kVideoFrameKey]);
@@ -137,7 +137,6 @@ void TestVadDtx::Run(std::string in_filename, int frequency, int channels,
 TestWebRtcVadDtx::TestWebRtcVadDtx()
     : vad_enabled_(false),
       dtx_enabled_(false),
-      use_webrtc_dtx_(false),
       output_file_num_(0) {
 }
 
@@ -191,7 +190,7 @@ void TestWebRtcVadDtx::RunTestCases() {
 
 // Set the expectation and run the test.
 void TestWebRtcVadDtx::Test(bool new_outfile) {
-  int expects[] = {-1, 1, use_webrtc_dtx_, 0, 0};
+  int expects[] = {-1, 1, dtx_enabled_, 0, 0};
   if (new_outfile) {
     output_file_num_++;
   }
@@ -210,26 +209,19 @@ void TestWebRtcVadDtx::SetVAD(bool enable_dtx, bool enable_vad,
   EXPECT_EQ(0, acm_send_->SetVAD(enable_dtx, enable_vad, vad_mode));
   EXPECT_EQ(0, acm_send_->VAD(&dtx_enabled_, &vad_enabled_, &mode));
 
-  CodecInst codec_param;
-  acm_send_->SendCodec(&codec_param);
-  if (STR_CASE_CMP(codec_param.plname, "opus") == 0) {
+  auto codec_param = acm_send_->SendCodec();
+  ASSERT_TRUE(codec_param);
+  if (STR_CASE_CMP(codec_param->plname, "opus") == 0) {
     // If send codec is Opus, WebRTC VAD/DTX cannot be used.
     enable_dtx = enable_vad = false;
   }
 
   EXPECT_EQ(dtx_enabled_ , enable_dtx); // DTX should be set as expected.
 
-  bool replaced = false;
-  acm_send_->IsInternalDTXReplacedWithWebRtc(&replaced);
-
-  use_webrtc_dtx_ = dtx_enabled_ && replaced;
-
-  if (use_webrtc_dtx_) {
+  if (dtx_enabled_) {
     EXPECT_TRUE(vad_enabled_); // WebRTC DTX cannot run without WebRTC VAD.
-  }
-
-  if (!dtx_enabled_ || !use_webrtc_dtx_) {
-    // Using no DTX or codec Internal DTX should not affect setting of VAD.
+  } else {
+    // Using no DTX should not affect setting of VAD.
     EXPECT_EQ(enable_vad, vad_enabled_);
   }
 }
@@ -256,7 +248,7 @@ void TestOpusDtx::Perform() {
       32000, 1, out_filename, false, expects);
 
   EXPECT_EQ(0, acm_send_->EnableOpusDtx());
-  expects[kFrameEmpty] = 1;
+  expects[kEmptyFrame] = 1;
   Run(webrtc::test::ResourcePath("audio_coding/testfile32kHz", "pcm"),
       32000, 1, out_filename, true, expects);
 
@@ -264,13 +256,13 @@ void TestOpusDtx::Perform() {
   out_filename = webrtc::test::OutputPath() + "testOpusDtx_outFile_stereo.pcm";
   RegisterCodec(kOpusStereo);
   EXPECT_EQ(0, acm_send_->DisableOpusDtx());
-  expects[kFrameEmpty] = 0;
+  expects[kEmptyFrame] = 0;
   Run(webrtc::test::ResourcePath("audio_coding/teststereo32kHz", "pcm"),
       32000, 2, out_filename, false, expects);
 
   EXPECT_EQ(0, acm_send_->EnableOpusDtx());
 
-  expects[kFrameEmpty] = 1;
+  expects[kEmptyFrame] = 1;
   Run(webrtc::test::ResourcePath("audio_coding/teststereo32kHz", "pcm"),
       32000, 2, out_filename, true, expects);
 #endif

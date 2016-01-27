@@ -28,6 +28,7 @@
 #include "core/layout/LayoutMedia.h"
 
 #include "core/html/HTMLMediaElement.h"
+#include "core/html/shadow/MediaControls.h"
 #include "core/layout/LayoutView.h"
 
 namespace blink {
@@ -87,6 +88,10 @@ void LayoutMedia::layout()
     }
 
     clearNeedsLayout();
+
+    // Notify our MediaControls that a layout has happened.
+    if (mediaElement() && mediaElement()->mediaControls() && newSize.width() != oldSize.width())
+        mediaElement()->mediaControls()->notifyPanelWidthChanged(newSize.width());
 }
 
 bool LayoutMedia::isChildAllowed(LayoutObject* child, const ComputedStyle&) const
@@ -110,8 +115,40 @@ bool LayoutMedia::isChildAllowed(LayoutObject* child, const ComputedStyle&) cons
     return false;
 }
 
-void LayoutMedia::paintReplaced(const PaintInfo&, const LayoutPoint&)
+void LayoutMedia::paintReplaced(const PaintInfo&, const LayoutPoint&) const
 {
+}
+
+void LayoutMedia::willBeDestroyed()
+{
+    if (view())
+        view()->unregisterMediaForPositionChangeNotification(*this);
+    LayoutImage::willBeDestroyed();
+}
+
+void LayoutMedia::insertedIntoTree()
+{
+    LayoutImage::insertedIntoTree();
+
+    // Note that if we don't want them and aren't registered, then this
+    // will do nothing.
+    if (HTMLMediaElement* element = mediaElement())
+        element->updatePositionNotificationRegistration();
+}
+
+void LayoutMedia::notifyPositionMayHaveChanged(const IntRect& visibleRect)
+{
+    // Tell our element about it.
+    if (HTMLMediaElement* element = mediaElement())
+        element->notifyPositionMayHaveChanged(visibleRect);
+}
+
+void LayoutMedia::setRequestPositionUpdates(bool want)
+{
+    if (want)
+        view()->registerMediaForPositionChangeNotification(*this);
+    else
+        view()->unregisterMediaForPositionChangeNotification(*this);
 }
 
 } // namespace blink

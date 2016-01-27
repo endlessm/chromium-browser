@@ -220,6 +220,10 @@ void LocalTranslator::TranslateWiFi() {
                                                  &security)) {
     TranslateWithTableAndSet(security, kWiFiSecurityTable,
                              shill::kSecurityClassProperty);
+    if (security == ::onc::wifi::kWEP_8021X) {
+      shill_dictionary_->SetStringWithoutPathExpansion(
+          shill::kEapKeyMgmtProperty, shill::kKeyManagementIEEE8021X);
+    }
   }
 
   // We currently only support managed and no adhoc networks.

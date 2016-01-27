@@ -44,6 +44,7 @@ template <typename NodeType> class StaticNodeTypeList;
 typedef StaticNodeTypeList<Element> StaticElementList;
 
 class SelectorDataList {
+    DISALLOW_NEW();
 public:
     void initialize(const CSSSelectorList&);
     bool matches(Element&) const;
@@ -80,13 +81,13 @@ private:
     const CSSSelector* selectorForIdLookup(const CSSSelector&) const;
 
     Vector<const CSSSelector*> m_selectors;
-    bool m_crossesTreeBoundary : 1;
+    bool m_usesDeepCombinatorOrShadowPseudo : 1;
     bool m_needsUpdatedDistribution : 1;
 };
 
 class SelectorQuery {
     WTF_MAKE_NONCOPYABLE(SelectorQuery);
-    WTF_MAKE_FAST_ALLOCATED(SelectorQuery);
+    USING_FAST_MALLOC(SelectorQuery);
 public:
     static PassOwnPtr<SelectorQuery> adopt(CSSSelectorList&);
 
@@ -102,7 +103,7 @@ private:
 };
 
 class SelectorQueryCache {
-    WTF_MAKE_FAST_ALLOCATED(SelectorQueryCache);
+    USING_FAST_MALLOC(SelectorQueryCache);
 public:
     SelectorQuery* add(const AtomicString&, const Document&, ExceptionState&);
     void invalidate();

@@ -45,8 +45,6 @@ WebInspector.ConsoleViewMessage = function(consoleMessage, linkifier, nestingLev
 
     /** @type {!Array.<!WebInspector.DataGrid>} */
     this._dataGrids = [];
-    /** @type {!Map.<!WebInspector.DataGrid, ?Element>} */
-    this._dataGridParents = new Map();
 
     /** @type {!Object.<string, function(!WebInspector.RemoteObject, !Element, boolean=)>} */
     this._customFormatters = {
@@ -88,20 +86,17 @@ WebInspector.ConsoleViewMessage.prototype = {
      */
     wasShown: function()
     {
-        for (var i = 0; this._dataGrids && i < this._dataGrids.length; ++i) {
-            var dataGrid = this._dataGrids[i];
-            var parentElement = this._dataGridParents.get(dataGrid) || null;
-            dataGrid.show(parentElement);
-            dataGrid.updateWidths();
-        }
+        for (var i = 0; this._dataGrids && i < this._dataGrids.length; ++i)
+            this._dataGrids[i].updateWidths();
+        this._isVisible = true;
     },
 
-    /**
-     * @override
-     */
-    cacheFastHeight: function()
+    onResize: function()
     {
-        this._cachedHeight = this.contentElement().offsetHeight;
+        if (!this._isVisible)
+            return;
+        for (var i = 0; this._dataGrids && i < this._dataGrids.length; ++i)
+            this._dataGrids[i].onResize();
     },
 
     /**
@@ -109,11 +104,8 @@ WebInspector.ConsoleViewMessage.prototype = {
      */
     willHide: function()
     {
-        for (var i = 0; this._dataGrids && i < this._dataGrids.length; ++i) {
-            var dataGrid = this._dataGrids[i];
-            this._dataGridParents.set(dataGrid, dataGrid.element.parentElement);
-            dataGrid.detach();
-        }
+        this._isVisible = false;
+        this._cachedHeight = this.contentElement().offsetHeight;
     },
 
     /**
@@ -238,7 +230,7 @@ WebInspector.ConsoleViewMessage.prototype = {
             this._formattedMessage.insertBefore(this._anchorElement, this._formattedMessage.firstChild);
         }
 
-        var dumpStackTrace = !!consoleMessage.stackTrace && consoleMessage.stackTrace.length && (consoleMessage.source === WebInspector.ConsoleMessage.MessageSource.Network || consoleMessage.level === WebInspector.ConsoleMessage.MessageLevel.Error || consoleMessage.level === WebInspector.ConsoleMessage.MessageLevel.RevokedError || consoleMessage.type === WebInspector.ConsoleMessage.MessageType.Trace);
+        var dumpStackTrace = (!!consoleMessage.stackTrace || !!consoleMessage.asyncStackTrace) && (consoleMessage.source === WebInspector.ConsoleMessage.MessageSource.Network || consoleMessage.level === WebInspector.ConsoleMessage.MessageLevel.Error || consoleMessage.level === WebInspector.ConsoleMessage.MessageLevel.RevokedError || consoleMessage.type === WebInspector.ConsoleMessage.MessageType.Trace);
         if (dumpStackTrace) {
             var treeOutline = new TreeOutline();
             treeOutline.element.classList.add("outline-disclosure", "outline-disclosure-no-padding");
@@ -434,7 +426,7 @@ WebInspector.ConsoleViewMessage.prototype = {
             }
         }
         var note = titleElement.createChild("span", "object-info-state-note");
-        note.title = WebInspector.UIString("Object state below is captured upon first expansion");
+        note.title = WebInspector.UIString("Object value at left was snapshotted when logged, value below was evaluated just now.");
         var section = new WebInspector.ObjectPropertiesSection(obj, titleElement);
         section.enableContextMenu();
         elem.appendChild(section.element);
@@ -448,8 +440,23 @@ WebInspector.ConsoleViewMessage.prototype = {
      */
     _formatParameterAsFunction: function(func, element, includePreview)
     {
-        WebInspector.ObjectPropertiesSection.formatObjectAsFunction(func, element, true, includePreview);
-        element.addEventListener("contextmenu", this._contextMenuEventFired.bind(this, func), false);
+        WebInspector.RemoteFunction.objectAsFunction(func).targetFunction().then(formatTargetFunction.bind(this));
+
+        /**
+         * @param {!WebInspector.RemoteObject} targetFunction
+         * @this {WebInspector.ConsoleViewMessage}
+         */
+        function formatTargetFunction(targetFunction)
+        {
+            var functionElement = createElement("span")
+            WebInspector.ObjectPropertiesSection.formatObjectAsFunction(targetFunction, functionElement, true, includePreview);
+            element.appendChild(functionElement);
+            if (targetFunction !== func) {
+                var note = element.createChild("span", "object-info-state-note");
+                note.title = WebInspector.UIString("Function was resolved from bound function.");
+            }
+            element.addEventListener("contextmenu", this._contextMenuEventFired.bind(this, targetFunction), false);
+        }
     },
 
     /**
@@ -582,8 +589,8 @@ WebInspector.ConsoleViewMessage.prototype = {
         columnNames.unshift(WebInspector.UIString("(index)"));
         var dataGrid = WebInspector.SortableDataGrid.create(columnNames, flatValues);
         dataGrid.renderInline();
+        dataGridContainer.appendChild(dataGrid.element);
         this._dataGrids.push(dataGrid);
-        this._dataGridParents.set(dataGrid, dataGridContainer);
         return element;
     },
 
@@ -1210,9 +1217,17 @@ WebInspector.ConsoleViewMessage.prototype = {
      */
     _tryFormatAsError: function(string)
     {
+        /**
+         * @param {string} prefix
+         */
+        function startsWith(prefix)
+        {
+            return string.startsWith(prefix);
+        }
+
         var errorPrefixes = ["EvalError", "ReferenceError", "SyntaxError", "TypeError", "RangeError", "Error", "URIError"];
         var target = this._target();
-        if (!target || !errorPrefixes.some(String.prototype.startsWith.bind(new String(string))))
+        if (!target || !errorPrefixes.some(startsWith))
             return null;
         var debuggerModel = WebInspector.DebuggerModel.fromTarget(target);
         if (!debuggerModel)

@@ -2,18 +2,17 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "mojo/edk/test/scoped_ipc_support.h"
+#include "third_party/mojo/src/mojo/edk/test/scoped_ipc_support.h"
 
 #include "base/message_loop/message_loop.h"
-#include "mojo/edk/embedder/embedder.h"
+#include "third_party/mojo/src/mojo/edk/embedder/embedder.h"
 
 namespace mojo {
 namespace test {
 
 namespace internal {
 
-ScopedIPCSupportHelper::ScopedIPCSupportHelper()
-    : event_(true, false) {  // Manual reset.
+ScopedIPCSupportHelper::ScopedIPCSupportHelper() {
 }
 
 ScopedIPCSupportHelper::~ScopedIPCSupportHelper() {
@@ -22,7 +21,7 @@ ScopedIPCSupportHelper::~ScopedIPCSupportHelper() {
     embedder::ShutdownIPCSupportOnIOThread();
   } else {
     embedder::ShutdownIPCSupport();
-    event_.Wait();
+    run_loop_.Run();
   }
 }
 
@@ -33,13 +32,12 @@ void ScopedIPCSupportHelper::Init(
     embedder::ScopedPlatformHandle platform_handle) {
   io_thread_task_runner_ = io_thread_task_runner;
   // Note: Run delegate methods on the I/O thread.
-  embedder::InitIPCSupport(process_type, io_thread_task_runner_,
-                           process_delegate, io_thread_task_runner_,
-                           platform_handle.Pass());
+  embedder::InitIPCSupport(process_type, process_delegate,
+                           io_thread_task_runner_, platform_handle.Pass());
 }
 
 void ScopedIPCSupportHelper::OnShutdownCompleteImpl() {
-  event_.Signal();
+  run_loop_.Quit();
 }
 
 }  // namespace internal

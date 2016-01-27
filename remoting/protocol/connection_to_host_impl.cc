@@ -32,8 +32,7 @@ ConnectionToHostImpl::ConnectionToHostImpl()
       audio_stub_(nullptr),
       signal_strategy_(nullptr),
       state_(INITIALIZING),
-      error_(OK) {
-}
+      error_(OK) {}
 
 ConnectionToHostImpl::~ConnectionToHostImpl() {
   CloseChannels();
@@ -48,6 +47,23 @@ ConnectionToHostImpl::~ConnectionToHostImpl() {
     signal_strategy_->RemoveListener(this);
 }
 
+#define RETURN_STRING_LITERAL(x) \
+case x: \
+return #x;
+
+const char* ConnectionToHost::StateToString(State state) {
+  switch (state) {
+    RETURN_STRING_LITERAL(INITIALIZING);
+    RETURN_STRING_LITERAL(CONNECTING);
+    RETURN_STRING_LITERAL(AUTHENTICATED);
+    RETURN_STRING_LITERAL(CONNECTED);
+    RETURN_STRING_LITERAL(CLOSED);
+    RETURN_STRING_LITERAL(FAILED);
+  }
+  NOTREACHED();
+  return nullptr;
+}
+
 void ConnectionToHostImpl::Connect(
     SignalStrategy* signal_strategy,
     scoped_ptr<TransportFactory> transport_factory,
@@ -60,13 +76,10 @@ void ConnectionToHostImpl::Connect(
 
   // Initialize default |candidate_config_| if set_candidate_config() wasn't
   // called.
-  if (!candidate_config_) {
+  if (!candidate_config_)
     candidate_config_ = CandidateSessionConfig::CreateDefault();
-    if (!audio_stub_) {
-      candidate_config_->DisableAudioChannel();
-    }
-    candidate_config_->EnableVideoCodec(ChannelConfig::CODEC_VP9);
-  }
+  if (!audio_stub_)
+    candidate_config_->DisableAudioChannel();
 
   signal_strategy_ = signal_strategy;
   event_callback_ = event_callback;
@@ -80,6 +93,7 @@ void ConnectionToHostImpl::Connect(
   signal_strategy_->Connect();
 
   session_manager_.reset(new JingleSessionManager(transport_factory.Pass()));
+  session_manager_->set_protocol_config(candidate_config_->Clone());
   session_manager_->Init(signal_strategy_, this);
 
   SetState(CONNECTING, OK);
@@ -152,8 +166,7 @@ void ConnectionToHostImpl::OnSessionManagerReady() {
   DCHECK(CalledOnValidThread());
 
   // After SessionManager is initialized we can try to connect to the host.
-  session_ = session_manager_->Connect(host_jid_, authenticator_.Pass(),
-                                       candidate_config_.Pass());
+  session_ = session_manager_->Connect(host_jid_, authenticator_.Pass());
   session_->SetEventHandler(this);
 }
 

@@ -111,15 +111,17 @@ extern PLATFORM_EXPORT GCInfo const** s_gcInfoTable;
 // reachable. There is a GCInfo struct for each class that directly
 // inherits from GarbageCollected or GarbageCollectedFinalized.
 struct GCInfo {
+    using GetClassNameCallback = const String (*)();
+
     bool hasFinalizer() const { return m_nonTrivialFinalizer; }
     bool hasVTable() const { return m_hasVTable; }
     TraceCallback m_trace;
     FinalizationCallback m_finalize;
     bool m_nonTrivialFinalizer;
     bool m_hasVTable;
-#if ENABLE(GC_PROFILING)
-    // |m_className| is held as a reference to prevent dtor being called at exit.
-    const String& m_className;
+#if ENABLE(DETAILED_MEMORY_INFRA)
+    const String className() const { return m_className(); }
+    GetClassNameCallback m_className;
 #endif
 };
 
@@ -133,6 +135,8 @@ public:
 
     static void init();
     static void shutdown();
+
+    static size_t gcInfoIndex() { return s_gcInfoIndex; }
 
     // The (max + 1) GCInfo index supported.
     // We assume that 14 bits is enough to represent all possible types: during
@@ -149,19 +153,10 @@ private:
     static size_t s_gcInfoTableSize;
 };
 
-// This macro should be used when returning a unique 14 bit integer
+// GCInfotAtBaseType should be used when returning a unique 14 bit integer
 // for a given gcInfo.
-#define RETURN_GCINFO_INDEX()                                  \
-    static size_t gcInfoIndex = 0;                             \
-    ASSERT(s_gcInfoTable);                                     \
-    if (!acquireLoad(&gcInfoIndex))                            \
-        GCInfoTable::ensureGCInfoIndex(&gcInfo, &gcInfoIndex); \
-    ASSERT(gcInfoIndex >= 1);                                  \
-    ASSERT(gcInfoIndex < GCInfoTable::maxIndex);               \
-    return gcInfoIndex;
-
 template<typename T>
-struct GCInfoAtBase {
+struct GCInfoAtBaseType {
     static size_t index()
     {
         static_assert(sizeof(T), "T must be fully defined");
@@ -170,31 +165,38 @@ struct GCInfoAtBase {
             FinalizerTrait<T>::finalize,
             FinalizerTrait<T>::nonTrivialFinalizer,
             WTF::IsPolymorphic<T>::value,
-#if ENABLE(GC_PROFILING)
-            TypenameStringTrait<T>::get()
+#if ENABLE(DETAILED_MEMORY_INFRA)
+            TypenameStringTrait<T>::get
 #endif
         };
-        RETURN_GCINFO_INDEX();
+
+        static size_t gcInfoIndex = 0;
+        ASSERT(s_gcInfoTable);
+        if (!acquireLoad(&gcInfoIndex))
+            GCInfoTable::ensureGCInfoIndex(&gcInfo, &gcInfoIndex);
+        ASSERT(gcInfoIndex >= 1);
+        ASSERT(gcInfoIndex < GCInfoTable::maxIndex);
+        return gcInfoIndex;
     }
 };
 
-template<typename T, bool = WTF::IsSubclassOfTemplate<typename WTF::RemoveConst<T>::Type, GarbageCollected>::value> struct GetGarbageCollectedBase;
+template<typename T, bool = WTF::IsSubclassOfTemplate<typename WTF::RemoveConst<T>::Type, GarbageCollected>::value> struct GetGarbageCollectedType;
 
 template<typename T>
-struct GetGarbageCollectedBase<T, true> {
-    typedef typename T::GarbageCollectedBase type;
+struct GetGarbageCollectedType<T, true> {
+    using type = typename T::GarbageCollectedType;
 };
 
 template<typename T>
-struct GetGarbageCollectedBase<T, false> {
-    typedef T type;
+struct GetGarbageCollectedType<T, false> {
+    using type = T;
 };
 
 template<typename T>
 struct GCInfoTrait {
     static size_t index()
     {
-        return GCInfoAtBase<typename GetGarbageCollectedBase<T>::type>::index();
+        return GCInfoAtBaseType<typename GetGarbageCollectedType<T>::type>::index();
     }
 };
 

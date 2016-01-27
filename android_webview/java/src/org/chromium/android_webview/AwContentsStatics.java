@@ -4,9 +4,9 @@
 
 package org.chromium.android_webview;
 
-import org.chromium.base.CalledByNative;
-import org.chromium.base.JNINamespace;
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.JNINamespace;
 
 /**
  * Implementations of various static methods, and also a home for static
@@ -18,6 +18,8 @@ public class AwContentsStatics {
     private static ClientCertLookupTable sClientCertLookupTable;
 
     private static String sUnreachableWebDataUrl;
+
+    private static boolean sRecordFullDocument = false;
 
     /**
      * Return the client certificate lookup table.
@@ -73,7 +75,11 @@ public class AwContentsStatics {
     }
 
     public static void setRecordFullDocument(boolean recordFullDocument) {
-        nativeSetRecordFullDocument(recordFullDocument);
+        sRecordFullDocument = recordFullDocument;
+    }
+
+    /* package */ static boolean getRecordFullDocument() {
+        return sRecordFullDocument;
     }
 
     public static void setLegacyCacheRemovalDelayForTest(long timeoutMs) {
@@ -91,7 +97,6 @@ public class AwContentsStatics {
     private static native void nativeSetDataReductionProxyKey(String key);
     private static native void nativeSetDataReductionProxyEnabled(boolean enabled);
     private static native String nativeGetUnreachableWebDataUrl();
-    private static native void nativeSetRecordFullDocument(boolean recordFullDocument);
     private static native void nativeSetLegacyCacheRemovalDelayForTest(long timeoutMs);
     private static native String nativeGetProductVersion();
 }

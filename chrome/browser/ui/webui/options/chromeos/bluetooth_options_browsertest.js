@@ -19,10 +19,7 @@ BluetoothWebUITest.prototype = {
    */
   preLoad: function() {
     this.makeAndRegisterMockHandler([
-      'bluetoothEnableChange',
       'updateBluetoothDevice',
-      'findBluetoothDevices',
-      'stopBluetoothDeviceDiscovery',
     ]);
   },
 
@@ -45,11 +42,7 @@ BluetoothWebUITest.prototype = {
   /**
    * Selects a bluetooth device from the list with the matching address.
    * @param {!Element} listElement A list of Bluetooth devices.
-   * @param {{address: string,
-   *          connectable: boolean,
-   *          connected: boolean,
-   *          name: string,
-   *          paired: boolean}} device Description of the device.
+   * @param {!BluetoothDevice} device Description of the device.
    */
   selectDevice: function(listElement, device) {
     listElement.selectedItem = device;
@@ -68,18 +61,26 @@ BluetoothWebUITest.prototype = {
 
 };
 
-TEST_F('BluetoothWebUITest', 'testEnableBluetooth', function() {
+function BluetoothWebUITestAsync() {}
+
+BluetoothWebUITestAsync.prototype = {
+  __proto__: BluetoothWebUITest.prototype,
+
+  /** @override */
+  isAsync: true
+};
+
+TEST_F('BluetoothWebUITestAsync', 'testEnableBluetooth', function() {
   assertEquals(this.browsePreload, document.location.href);
   expectFalse($('enable-bluetooth').checked);
   expectTrue($('bluetooth-paired-devices-list').parentNode.hidden);
 
-  this.mockHandler.expects(once()).bluetoothEnableChange([true]).will(
-      callFunction(function() {
-        options.BrowserOptions.setBluetoothState(true);
-      }));
+  chrome.bluetooth.onAdapterStateChanged.addListener(function(state) {
+    expectTrue(state.powered);
+    expectFalse($('bluetooth-paired-devices-list').parentNode.hidden);
+    this.testDone();
+  });
   $('enable-bluetooth').click();
-
-  expectFalse($('bluetooth-paired-devices-list').parentNode.hidden);
 });
 
 TEST_F('BluetoothWebUITest', 'testAddDevices', function() {
@@ -116,7 +117,7 @@ TEST_F('BluetoothWebUITest', 'testAddDevices', function() {
   // updated.
   var index = pairedDeviceList.find(fakePairedDevice.address);
   expectEquals(undefined, index);
-  options.BrowserOptions.addBluetoothDevice(fakePairedDevice);
+  options.BrowserOptions.bluetoothPairingEvent({device: fakePairedDevice});
   index = pairedDeviceList.find(fakePairedDevice.address);
   expectEquals(0, index);
 
@@ -131,7 +132,7 @@ TEST_F('BluetoothWebUITest', 'testAddDevices', function() {
   expectFalse(!!this.getElementForDevice(unpairedDeviceList,
                                          fakePairedDevice.name));
 
-  options.BrowserOptions.addBluetoothDevice(fakeUnpairedDevice);
+  options.BrowserOptions.bluetoothPairingEvent({device: fakeUnpairedDevice});
   index = unpairedDeviceList.find(fakeUnpairedDevice.address);
   expectEquals(0, index);
   expectFalse(!!this.getElementForDevice(pairedDeviceList,
@@ -140,14 +141,13 @@ TEST_F('BluetoothWebUITest', 'testAddDevices', function() {
                                         fakeUnpairedDevice.name));
 
   // Test adding a second device to a list.
-  options.BrowserOptions.addBluetoothDevice(fakeUnpairedDevice2);
+  options.BrowserOptions.bluetoothPairingEvent({device: fakeUnpairedDevice2});
   index = unpairedDeviceList.find(fakeUnpairedDevice2.address);
   expectEquals(1, index);
   expectTrue(!!this.getElementForDevice(unpairedDeviceList,
                                         fakeUnpairedDevice2.name));
 
   // Test clicking on the 'Add a device' button.
-  this.mockHandler.expects(once()).findBluetoothDevices();
   $('bluetooth-add-device').click();
   expectFalse($('bluetooth-options').hidden);
   expectTrue($('bluetooth-add-device-apply-button').disabled);
@@ -157,7 +157,6 @@ TEST_F('BluetoothWebUITest', 'testAddDevices', function() {
   Mock4JS.clearMocksToVerify();
 
   // Test selecting an element and clicking on the connect button.
-  this.mockHandler.expects(once()).stopBluetoothDeviceDiscovery();
   this.mockHandler.expects(once()).updateBluetoothDevice(
       [fakeUnpairedDevice2.address, 'connect']);
   this.selectDevice(unpairedDeviceList, fakeUnpairedDevice2);
@@ -172,23 +171,25 @@ TEST_F('BluetoothWebUITest', 'testDevicePairing', function() {
   var pairedDeviceList = $('bluetooth-paired-devices-list');
   var unpairedDeviceList = $('bluetooth-unpaired-devices-list');
 
-  var fakeDevice = {
-    address: '00:24:BE:00:00:00',
-    connectable: true,
-    connected: false,
-    name: 'Sony BT-00',
-    paired: false
+  var fakeEvent = {
+    device: {
+      address: '00:24:BE:00:00:00',
+      connectable: true,
+      connected: false,
+      name: 'Sony BT-00',
+      paired: false
+    }
   };
 
-  options.BrowserOptions.addBluetoothDevice(fakeDevice);
-  var index = unpairedDeviceList.find(fakeDevice.address);
+  options.BrowserOptions.bluetoothPairingEvent(fakeEvent);
+  var index = unpairedDeviceList.find(fakeEvent.device.address);
   expectEquals(0, index);
   expectTrue(!!this.getElementForDevice(unpairedDeviceList,
-                                        fakeDevice.name));
+                                        fakeEvent.device.name));
 
   // Simulate process of pairing a device.
-  fakeDevice.pairing = 'bluetoothEnterPinCode';
-  options.BrowserOptions.addBluetoothDevice(fakeDevice);
+  fakeEvent.pairing = 'bluetoothEnterPinCode';
+  options.BrowserOptions.bluetoothPairingEvent(fakeEvent);
 
   // Verify that the pairing dialog is displayed with the proper options.
   expectFalse($('bluetooth-pairing').hidden);
@@ -206,11 +207,11 @@ TEST_F('BluetoothWebUITest', 'testDevicePairing', function() {
   var pincode = '123456';
 
   this.mockHandler.expects(once()).updateBluetoothDevice(
-      [fakeDevice.address, 'connect', pincode]).will(
+      [fakeEvent.device.address, 'connect', pincode]).will(
       callFunction(function() {
-        delete fakeDevice.pairing;
-        fakeDevice.paired = true;
-        options.BrowserOptions.addBluetoothDevice(fakeDevice);
+        fakeEvent.pairing = '';
+        fakeEvent.device.paired = true;
+        options.BrowserOptions.bluetoothPairingEvent(fakeEvent);
       }));
 
   this.fakeInput($('bluetooth-pincode'), pincode);
@@ -219,9 +220,9 @@ TEST_F('BluetoothWebUITest', 'testDevicePairing', function() {
   // Verify that the device is removed from the unparied list and added to the
   // paired device list.
   expectTrue(!!this.getElementForDevice(pairedDeviceList,
-                                        fakeDevice.name));
+                                        fakeEvent.device.name));
   expectFalse(!!this.getElementForDevice(unpairedDeviceList,
-                                         fakeDevice.name));
+                                         fakeEvent.device.name));
 });
 
 TEST_F('BluetoothWebUITest', 'testConnectionState', function() {
@@ -230,33 +231,35 @@ TEST_F('BluetoothWebUITest', 'testConnectionState', function() {
   var pairedDeviceList = $('bluetooth-paired-devices-list');
   var connectButton = $('bluetooth-reconnect-device');
 
-  var fakeDevice = {
-    address: '00:24:BE:00:00:00',
-    connectable: true,
-    connected: false,
-    name: 'Sony BT-00',
-    paired: true
+  var fakeEvent = {
+    device: {
+      address: '00:24:BE:00:00:00',
+      connectable: true,
+      connected: false,
+      name: 'Sony BT-00',
+      paired: true
+    }
   };
 
-  options.BrowserOptions.addBluetoothDevice(fakeDevice);
+  options.BrowserOptions.bluetoothPairingEvent(fakeEvent);
   var element = this.getElementForDevice(pairedDeviceList,
-                                         fakeDevice.name);
+                                         fakeEvent.device.name);
   assertTrue(!!element);
   expectFalse(!!element.getAttribute('connected'));
   expectTrue(connectButton.disabled);
 
   // Simulate connecting to a previously paired device.
-  this.selectDevice(pairedDeviceList, fakeDevice);
+  this.selectDevice(pairedDeviceList, fakeEvent.device);
   expectFalse(connectButton.disabled);
   this.mockHandler.expects(once()).updateBluetoothDevice(
-      [fakeDevice.address, 'connect']).will(
+      [fakeEvent.device.address, 'connect']).will(
       callFunction(function() {
-        fakeDevice.connected = true;
-        options.BrowserOptions.addBluetoothDevice(fakeDevice);
+        fakeEvent.device.connected = true;
+        options.BrowserOptions.bluetoothPairingEvent(fakeEvent);
       }));
   connectButton.click();
   element = this.getElementForDevice(pairedDeviceList,
-                                     fakeDevice.name);
+                                     fakeEvent.device.name);
   assertTrue(!!element);
   expectTrue(!!element.getAttribute('connected'));
   var button = element.querySelector('.row-delete-button');
@@ -267,14 +270,14 @@ TEST_F('BluetoothWebUITest', 'testConnectionState', function() {
 
   // Test disconnecting.
   this.mockHandler.expects(once()).updateBluetoothDevice(
-      [fakeDevice.address, 'disconnect']).will(
+      [fakeEvent.device.address, 'disconnect']).will(
       callFunction(function() {
-        fakeDevice.connected = false;
-        options.BrowserOptions.addBluetoothDevice(fakeDevice);
+        fakeEvent.device.connected = false;
+        options.BrowserOptions.bluetoothPairingEvent(fakeEvent);
       }));
   button.click();
   element = this.getElementForDevice(pairedDeviceList,
-                                     fakeDevice.name);
+                                     fakeEvent.device.name);
   assertTrue(!!element);
   expectFalse(!!element.getAttribute('connected'));
   button = element.querySelector('.row-delete-button');
@@ -285,13 +288,13 @@ TEST_F('BluetoothWebUITest', 'testConnectionState', function() {
 
   // Test forgetting  a disconnected device.
   this.mockHandler.expects(once()).updateBluetoothDevice(
-      [fakeDevice.address, 'forget']).will(
+      [fakeEvent.device.address, 'forget']).will(
       callFunction(function() {
-        options.BrowserOptions.removeBluetoothDevice(fakeDevice.address);
+        options.BrowserOptions.removeBluetoothDevice(fakeEvent.device.address);
       }));
   button.click();
   expectFalse(!!this.getElementForDevice(pairedDeviceList,
-                                         fakeDevice.name));
+                                         fakeEvent.device.name));
 });
 
 
@@ -327,16 +330,18 @@ TEST_F('BluetoothWebUITest', 'testMaliciousInput', function() {
       '\\"'
   ];
 
-  var fakeDevice = {
-    address: '11:22:33:44:55:66',
-    connectable: true,
-    connected: false,
-    name: 'fake',
-    paired: false,
+  var fakeEvent = {
+    device: {
+      address: '11:22:33:44:55:66',
+      connectable: true,
+      connected: false,
+      name: 'fake',
+      paired: false,
+    },
     pairing: 'bluetoothStartConnecting'
   };
 
-  options.BrowserOptions.addBluetoothDevice(fakeDevice);
+  options.BrowserOptions.bluetoothPairingEvent(fakeEvent);
 
   var nodeCount = function(node) {
     if (node.getAttribute)
@@ -357,11 +362,11 @@ TEST_F('BluetoothWebUITest', 'testMaliciousInput', function() {
   // structure of the document.  Tests the unpaired device list and bluetooth
   // pairing dialog.
   for (var i = 0; i < maliciousStrings.length; i++) {
-    fakeDevice.name = maliciousStrings[i];
-    options.BrowserOptions.addBluetoothDevice(fakeDevice);
+    fakeEvent.device.name = maliciousStrings[i];
+    options.BrowserOptions.bluetoothPairingEvent(fakeEvent);
     assertEquals(unpairedDeviceListSize, nodeCount(unpairedDeviceList));
     var element = this.getElementForDevice(unpairedDeviceList,
-                                           fakeDevice.name);
+                                           fakeEvent.device.name);
     assertTrue(!!element);
     var label = element.querySelector('.bluetooth-device-label');
     assertTrue(!!label);

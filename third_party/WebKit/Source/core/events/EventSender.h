@@ -33,7 +33,7 @@
 namespace blink {
 
 template<typename T> class EventSender {
-    WTF_MAKE_NONCOPYABLE(EventSender); WTF_MAKE_FAST_ALLOCATED(EventSender);
+    WTF_MAKE_NONCOPYABLE(EventSender); USING_FAST_MALLOC(EventSender);
 public:
     explicit EventSender(const AtomicString& eventType);
 
@@ -68,7 +68,7 @@ template<typename T> void EventSender<T>::dispatchEventSoon(T* sender)
 {
     m_dispatchSoonList.append(sender);
     if (!m_timer.isActive())
-        m_timer.startOneShot(0, FROM_HERE);
+        m_timer.startOneShot(0, BLINK_FROM_HERE);
 }
 
 template<typename T> void EventSender<T>::cancelEvent(T* sender)

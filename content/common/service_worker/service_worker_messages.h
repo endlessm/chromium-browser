@@ -18,8 +18,8 @@
 #include "ipc/ipc_param_traits.h"
 #include "third_party/WebKit/public/platform/WebCircularGeofencingRegion.h"
 #include "third_party/WebKit/public/platform/WebGeofencingEventType.h"
-#include "third_party/WebKit/public/platform/WebServiceWorkerError.h"
-#include "third_party/WebKit/public/platform/WebServiceWorkerEventResult.h"
+#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerError.h"
+#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerEventResult.h"
 #include "url/gurl.h"
 
 #undef IPC_MESSAGE_EXPORT
@@ -59,6 +59,7 @@ IPC_STRUCT_TRAITS_BEGIN(content::ServiceWorkerFetchRequest)
   IPC_STRUCT_TRAITS_MEMBER(blob_size)
   IPC_STRUCT_TRAITS_MEMBER(referrer)
   IPC_STRUCT_TRAITS_MEMBER(credentials_mode)
+  IPC_STRUCT_TRAITS_MEMBER(redirect_mode)
   IPC_STRUCT_TRAITS_MEMBER(is_reload)
 IPC_STRUCT_TRAITS_END()
 
@@ -138,7 +139,9 @@ IPC_MESSAGE_CONTROL5(ServiceWorkerHostMsg_RegisterServiceWorker,
                      GURL /* scope */,
                      GURL /* script_url */)
 
-IPC_MESSAGE_CONTROL2(ServiceWorkerHostMsg_UpdateServiceWorker,
+IPC_MESSAGE_CONTROL4(ServiceWorkerHostMsg_UpdateServiceWorker,
+                     int /* thread_id */,
+                     int /* request_id */,
                      int /* provider_id */,
                      int64 /* registration_id */)
 
@@ -228,9 +231,6 @@ IPC_MESSAGE_ROUTED3(ServiceWorkerHostMsg_FetchEventFinished,
                     int /* request_id */,
                     content::ServiceWorkerFetchEventResult,
                     content::ServiceWorkerResponse)
-IPC_MESSAGE_ROUTED2(ServiceWorkerHostMsg_SyncEventFinished,
-                    int /* request_id */,
-                    blink::WebServiceWorkerEventResult)
 IPC_MESSAGE_ROUTED1(ServiceWorkerHostMsg_NotificationClickEventFinished,
                     int /* request_id */)
 IPC_MESSAGE_ROUTED2(ServiceWorkerHostMsg_PushEventFinished,
@@ -238,9 +238,6 @@ IPC_MESSAGE_ROUTED2(ServiceWorkerHostMsg_PushEventFinished,
                     blink::WebServiceWorkerEventResult)
 IPC_MESSAGE_ROUTED1(ServiceWorkerHostMsg_GeofencingEventFinished,
                     int /* request_id */)
-IPC_MESSAGE_ROUTED2(ServiceWorkerHostMsg_CrossOriginConnectEventFinished,
-                    int /* request_id */,
-                    bool /* accept_connection */)
 
 // Responds to a Ping from the browser.
 // Routed to the target ServiceWorkerVersion.
@@ -278,6 +275,12 @@ IPC_MESSAGE_ROUTED2(ServiceWorkerHostMsg_FocusClient,
                     int /* request_id */,
                     std::string /* uuid */)
 
+// Ask the browser to navigate a client (renderer->browser).
+IPC_MESSAGE_ROUTED3(ServiceWorkerHostMsg_NavigateClient,
+                    int /* request_id */,
+                    std::string /* uuid */,
+                    GURL /* url */)
+
 // Asks the browser to force this worker to become activated.
 IPC_MESSAGE_ROUTED1(ServiceWorkerHostMsg_SkipWaiting,
                     int /* request_id */)
@@ -287,10 +290,10 @@ IPC_MESSAGE_ROUTED1(ServiceWorkerHostMsg_SkipWaiting,
 IPC_MESSAGE_ROUTED1(ServiceWorkerHostMsg_ClaimClients,
                     int /* request_id */)
 
-// Asks the browser to stash a message port, giving it a name.
-IPC_MESSAGE_ROUTED2(ServiceWorkerHostMsg_StashMessagePort,
-                    int /* message_port_id */,
-                    base::string16 /* name */)
+// Informs the browser of new foreign fetch subscopes this worker wants to
+// handle. Should only be sent while an install event is being handled.
+IPC_MESSAGE_ROUTED1(ServiceWorkerHostMsg_RegisterForeignFetchScopes,
+                    std::vector<GURL> /* sub_scopes */)
 
 //---------------------------------------------------------------------------
 // Messages sent from the browser to the child process.
@@ -325,6 +328,11 @@ IPC_MESSAGE_CONTROL4(ServiceWorkerMsg_ServiceWorkerRegistered,
                      int /* request_id */,
                      content::ServiceWorkerRegistrationObjectInfo,
                      content::ServiceWorkerVersionAttributes)
+
+// Response to ServiceWorkerHostMsg_UpdateServiceWorker.
+IPC_MESSAGE_CONTROL2(ServiceWorkerMsg_ServiceWorkerUpdated,
+                     int /* thread_id */,
+                     int /* request_id */)
 
 // Response to ServiceWorkerHostMsg_UnregisterServiceWorker.
 IPC_MESSAGE_CONTROL3(ServiceWorkerMsg_ServiceWorkerUnregistered,
@@ -361,6 +369,14 @@ IPC_MESSAGE_CONTROL4(ServiceWorkerMsg_ServiceWorkerRegistrationError,
                      blink::WebServiceWorkerError::ErrorType /* code */,
                      base::string16 /* message */)
 
+// Sent when any kind of update error occurs during a
+// UpdateServiceWorker handler above.
+IPC_MESSAGE_CONTROL4(ServiceWorkerMsg_ServiceWorkerUpdateError,
+                     int /* thread_id */,
+                     int /* request_id */,
+                     blink::WebServiceWorkerError::ErrorType /* code */,
+                     base::string16 /* message */)
+
 // Sent when any kind of registration error occurs during a
 // UnregisterServiceWorker handler above.
 IPC_MESSAGE_CONTROL4(ServiceWorkerMsg_ServiceWorkerUnregistrationError,
@@ -391,10 +407,9 @@ IPC_MESSAGE_CONTROL3(ServiceWorkerMsg_ServiceWorkerStateChanged,
                      int /* handle_id */,
                      blink::WebServiceWorkerState)
 
-// Tells the child process to set service workers for the given provider.
-IPC_MESSAGE_CONTROL5(ServiceWorkerMsg_SetVersionAttributes,
+// Tells the child process to set service workers for the given registration.
+IPC_MESSAGE_CONTROL4(ServiceWorkerMsg_SetVersionAttributes,
                      int /* thread_id */,
-                     int /* provider_id */,
                      int /* registration_handle_id */,
                      int /* changed_mask */,
                      content::ServiceWorkerVersionAttributes)
@@ -425,12 +440,11 @@ IPC_MESSAGE_CONTROL1(ServiceWorkerMsg_ActivateEvent,
 IPC_MESSAGE_CONTROL2(ServiceWorkerMsg_FetchEvent,
                      int /* request_id */,
                      content::ServiceWorkerFetchRequest)
-IPC_MESSAGE_CONTROL1(ServiceWorkerMsg_SyncEvent,
-                     int /* request_id */)
-IPC_MESSAGE_CONTROL3(ServiceWorkerMsg_NotificationClickEvent,
+IPC_MESSAGE_CONTROL4(ServiceWorkerMsg_NotificationClickEvent,
                      int /* request_id */,
                      int64_t /* persistent_notification_id */,
-                     content::PlatformNotificationData /* notification_data */)
+                     content::PlatformNotificationData /* notification_data */,
+                     int /* action_index */)
 IPC_MESSAGE_CONTROL2(ServiceWorkerMsg_PushEvent,
                      int /* request_id */,
                      std::string /* data */)
@@ -439,9 +453,6 @@ IPC_MESSAGE_CONTROL4(ServiceWorkerMsg_GeofencingEvent,
                      blink::WebGeofencingEventType /* event_type */,
                      std::string /* region_id */,
                      blink::WebCircularGeofencingRegion /* region */)
-IPC_MESSAGE_CONTROL2(ServiceWorkerMsg_CrossOriginConnectEvent,
-                     int /* request_id */,
-                     content::NavigatorConnectClient /* client */)
 IPC_MESSAGE_CONTROL3(
     ServiceWorkerMsg_MessageToWorker,
     base::string16 /* message */,
@@ -485,9 +496,12 @@ IPC_MESSAGE_CONTROL2(ServiceWorkerMsg_FocusClientResponse,
                      int /* request_id */,
                      content::ServiceWorkerClientInfo /* client */)
 
-// Sent via EmbeddedWorker to transfer a stashed message port to the worker.
-IPC_MESSAGE_CONTROL3(
-    ServiceWorkerMsg_SendStashedMessagePorts,
-    std::vector<content::TransferredMessagePort> /* stashed_message_ports */,
-    std::vector<int> /* new_routing_ids */,
-    std::vector<base::string16> /* port_names */)
+// Sent via EmbeddedWorker as a response of NavigateClient.
+IPC_MESSAGE_CONTROL2(ServiceWorkerMsg_NavigateClientResponse,
+                     int /* request_id */,
+                     content::ServiceWorkerClientInfo /* client */)
+
+// Sent via EmbeddedWorker as an error response of NavigateClient.
+IPC_MESSAGE_CONTROL2(ServiceWorkerMsg_NavigateClientError,
+                     int /* request_id */,
+                     GURL /* url */)

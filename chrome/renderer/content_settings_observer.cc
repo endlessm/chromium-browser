@@ -22,12 +22,12 @@
 #include "url/url_constants.h"
 
 #if defined(ENABLE_EXTENSIONS)
-#include "chrome/common/extensions/chrome_extension_messages.h"
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/permissions/api_permission.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/renderer/dispatcher.h"
+#include "extensions/renderer/renderer_extension_registry.h"
 #endif
 
 using blink::WebContentSettingCallbacks;
@@ -215,8 +215,9 @@ void ContentSettingsObserver::DidBlockContentType(
     ContentSettingsType settings_type,
     const base::string16& details) {
   // Send multiple ContentBlocked messages if details are provided.
-  if (!content_blocked_[settings_type] || !details.empty()) {
-    content_blocked_[settings_type] = true;
+  bool& blocked = content_blocked_[settings_type];
+  if (!blocked || !details.empty()) {
+    blocked = true;
     Send(new ChromeViewHostMsg_ContentBlocked(routing_id(), settings_type,
                                               details));
   }
@@ -424,10 +425,10 @@ bool ContentSettingsObserver::allowStorage(bool local) {
 bool ContentSettingsObserver::allowReadFromClipboard(bool default_value) {
   bool allowed = default_value;
 #if defined(ENABLE_EXTENSIONS)
-  extensions::ScriptContext* calling_context =
-      extension_dispatcher_->script_context_set().GetCalling();
-  if (calling_context) {
-    allowed |= calling_context->HasAPIPermission(
+  extensions::ScriptContext* current_context =
+      extension_dispatcher_->script_context_set().GetCurrent();
+  if (current_context) {
+    allowed |= current_context->HasAPIPermission(
         extensions::APIPermission::kClipboardRead);
   }
 #endif
@@ -439,14 +440,14 @@ bool ContentSettingsObserver::allowWriteToClipboard(bool default_value) {
 #if defined(ENABLE_EXTENSIONS)
   // All blessed extension pages could historically write to the clipboard, so
   // preserve that for compatibility.
-  extensions::ScriptContext* calling_context =
-      extension_dispatcher_->script_context_set().GetCalling();
-  if (calling_context) {
-    if (calling_context->effective_context_type() ==
+  extensions::ScriptContext* current_context =
+      extension_dispatcher_->script_context_set().GetCurrent();
+  if (current_context) {
+    if (current_context->effective_context_type() ==
         extensions::Feature::BLESSED_EXTENSION_CONTEXT) {
       allowed = true;
     } else {
-      allowed |= calling_context->HasAPIPermission(
+      allowed |= current_context->HasAPIPermission(
           extensions::APIPermission::kClipboardWrite);
     }
   }
@@ -650,8 +651,7 @@ void ContentSettingsObserver::OnRequestFileSystemAccessAsyncResponse(
 }
 
 void ContentSettingsObserver::ClearBlockedContentSettings() {
-  for (size_t i = 0; i < arraysize(content_blocked_); ++i)
-    content_blocked_[i] = false;
+  content_blocked_.clear();
   cached_storage_permissions_.clear();
   cached_script_permissions_.clear();
 }
@@ -670,14 +670,15 @@ bool ContentSettingsObserver::IsPlatformApp() {
 #if defined(ENABLE_EXTENSIONS)
 const extensions::Extension* ContentSettingsObserver::GetExtension(
     const WebSecurityOrigin& origin) const {
-  if (!base::EqualsASCII(origin.protocol(), extensions::kExtensionScheme))
+  if (!base::EqualsASCII(base::StringPiece16(origin.protocol()),
+                         extensions::kExtensionScheme))
     return NULL;
 
   const std::string extension_id = origin.host().utf8().data();
   if (!extension_dispatcher_->IsExtensionActive(extension_id))
     return NULL;
 
-  return extension_dispatcher_->extensions()->GetByID(extension_id);
+  return extensions::RendererExtensionRegistry::Get()->GetByID(extension_id);
 }
 #endif
 
@@ -704,14 +705,15 @@ bool ContentSettingsObserver::IsWhitelistedForContentSettings(
   if (origin.isUnique())
     return false;  // Uninitialized document?
 
-  if (base::EqualsASCII(origin.protocol(), content::kChromeUIScheme))
+  base::string16 protocol = origin.protocol();
+  if (base::EqualsASCII(protocol, content::kChromeUIScheme))
     return true;  // Browser UI elements should still work.
 
-  if (base::EqualsASCII(origin.protocol(), content::kChromeDevToolsScheme))
+  if (base::EqualsASCII(protocol, content::kChromeDevToolsScheme))
     return true;  // DevTools UI elements should still work.
 
 #if defined(ENABLE_EXTENSIONS)
-  if (base::EqualsASCII(origin.protocol(), extensions::kExtensionScheme))
+  if (base::EqualsASCII(protocol, extensions::kExtensionScheme))
     return true;
 #endif
 
@@ -722,7 +724,7 @@ bool ContentSettingsObserver::IsWhitelistedForContentSettings(
 
   // If the scheme is file:, an empty file name indicates a directory listing,
   // which requires JavaScript to function properly.
-  if (base::EqualsASCII(origin.protocol(), url::kFileScheme)) {
+  if (base::EqualsASCII(protocol, url::kFileScheme)) {
     return document_url.SchemeIs(url::kFileScheme) &&
            document_url.ExtractFileName().empty();
   }

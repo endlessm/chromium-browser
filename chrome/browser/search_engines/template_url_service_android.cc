@@ -122,9 +122,7 @@ TemplateUrlServiceAndroid::GetPrepopulatedTemplateUrlAt(JNIEnv* env,
       env,
       index,
       base::android::ConvertUTF16ToJavaString(
-          env, template_url->short_name()).obj(),
-      base::android::ConvertUTF16ToJavaString(
-          env, template_url->keyword()).obj());
+          env, template_url->short_name()).obj());
 }
 
 bool TemplateUrlServiceAndroid::IsPrepopulatedTemplate(TemplateURL* url) {
@@ -252,12 +250,12 @@ TemplateUrlServiceAndroid::GetSearchEngineUrlFromTemplateUrl(
     jint index) {
   TemplateURL* template_url = template_url_service_->GetTemplateURLs()[index];
   std::string url(template_url->url_ref().ReplaceSearchTerms(
-      TemplateURLRef::SearchTermsArgs(
-          base::ASCIIToUTF16("query")), SearchTermsData(), nullptr));
+      TemplateURLRef::SearchTermsArgs(base::ASCIIToUTF16("query")),
+      template_url_service_->search_terms_data()));
   return base::android::ConvertUTF8ToJavaString(env, url);
 }
 
-static jlong Init(JNIEnv* env, jobject obj) {
+static jlong Init(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   TemplateUrlServiceAndroid* template_url_service_android =
       new TemplateUrlServiceAndroid(env, obj);
   return reinterpret_cast<intptr_t>(template_url_service_android);

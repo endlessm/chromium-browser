@@ -18,14 +18,14 @@
 
 #include "webrtc/base/constructormagic.h"
 #include "webrtc/base/thread_annotations.h"
-#include "webrtc/modules/interface/module_common_types.h"
+#include "webrtc/modules/include/module_common_types.h"
 #include "webrtc/modules/video_coding/main/interface/video_coding.h"
 #include "webrtc/modules/video_coding/main/interface/video_coding_defines.h"
 #include "webrtc/modules/video_coding/main/source/decoding_state.h"
 #include "webrtc/modules/video_coding/main/source/inter_frame_delay.h"
 #include "webrtc/modules/video_coding/main/source/jitter_buffer_common.h"
 #include "webrtc/modules/video_coding/main/source/jitter_estimator.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 #include "webrtc/typedefs.h"
 
 namespace webrtc {
@@ -72,6 +72,37 @@ class FrameList
   void CleanUpOldOrEmptyFrames(VCMDecodingState* decoding_state,
                                UnorderedFrameList* free_frames);
   void Reset(UnorderedFrameList* free_frames);
+};
+
+class Vp9SsMap {
+ public:
+  typedef std::map<uint32_t, GofInfoVP9, TimestampLessThan> SsMap;
+  bool Insert(const VCMPacket& packet);
+  void Reset();
+
+  // Removes SS data that are older than |timestamp|.
+  // The |timestamp| should be an old timestamp, i.e. packets with older
+  // timestamps should no longer be inserted.
+  void RemoveOld(uint32_t timestamp);
+
+  bool UpdatePacket(VCMPacket* packet);
+  void UpdateFrames(FrameList* frames);
+
+  // Public for testing.
+  // Returns an iterator to the corresponding SS data for the input |timestamp|.
+  bool Find(uint32_t timestamp, SsMap::iterator* it);
+
+ private:
+  // These two functions are called by RemoveOld.
+  // Checks if it is time to do a clean up (done each kSsCleanupIntervalSec).
+  bool TimeForCleanup(uint32_t timestamp) const;
+
+  // Advances the oldest SS data to handle timestamp wrap in cases where SS data
+  // are received very seldom (e.g. only once in beginning, second when
+  // IsNewerTimestamp is not true).
+  void AdvanceFront(uint32_t timestamp);
+
+  SsMap ss_map_;
 };
 
 class VCMJitterBuffer {
@@ -356,7 +387,7 @@ class VCMJitterBuffer {
   // average_packets_per_frame converges fast if we have fewer than this many
   // frames.
   int frame_counter_;
-  DISALLOW_COPY_AND_ASSIGN(VCMJitterBuffer);
+  RTC_DISALLOW_COPY_AND_ASSIGN(VCMJitterBuffer);
 };
 }  // namespace webrtc
 

@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2015 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/base/iteration_helpers.html">
+<link rel="import" href="/tracing/ui/analysis/memory_dump_overview_pane.html">
+<link rel="import"
+    href="/tracing/ui/analysis/memory_dump_sub_view_test_utils.html">
+<link rel="import" href="/tracing/ui/analysis/memory_dump_sub_view_util.html">
+<link rel="import" href="/tracing/ui/brushing_state_controller.html">
+
+<script>
+'use strict';
+
+tr.b.unittest.testSuite(function() {
+  var AggregationMode = tr.ui.analysis.MemoryColumn.AggregationMode;
+  var checkSizeAttributes = tr.ui.analysis.checkSizeAttributes;
+  var convertToProcessMemoryDumps = tr.ui.analysis.convertToProcessMemoryDumps;
+  var extractVmRegions = tr.ui.analysis.extractVmRegions;
+  var extractMemoryAllocatorDumps = tr.ui.analysis.extractMemoryAllocatorDumps;
+  var isElementDisplayed = tr.ui.analysis.isElementDisplayed;
+
+  function getTitleText(title) {
+    if (!(title instanceof HTMLElement))
+      return title;
+    if (title.tagName === 'TR-UI-B-COLOR-LEGEND')
+      return title.label;
+    return title.textContent;
+  }
+
+  function checkColumns(columns, expectedAggregationMode) {
+    var EXPECTED_COLUMN_NAMES = [
+      'Process',
+      'Total resident',
+      'Peak total resident',
+      'PSS',
+      'Private dirty',
+      'Swapped',
+      'blink',
+      'malloc',
+      'oilpan',
+      'v8',
+      'tracing'
+    ];
+
+    // First column doesn't change value over time (no aggregation).
+    var VARIABLE_CELLS_START_INDEX = 1;
+
+    // Check column names.
+    assert.lengthOf(columns, EXPECTED_COLUMN_NAMES.length);
+    for (var i = 0; i < EXPECTED_COLUMN_NAMES.length; i++)
+      assert.equal(getTitleText(columns[i].title), EXPECTED_COLUMN_NAMES[i]);
+
+    // Check aggregation modes.
+    for (var i = 0; i < EXPECTED_COLUMN_NAMES.length; i++) {
+      assert.strictEqual(columns[i].aggregationMode,
+          i < VARIABLE_CELLS_START_INDEX ? undefined : expectedAggregationMode);
+    }
+  }
+
+  function checkRow(columns, row, expectedTitle, expectedSizes,
+      expectedDefinedValues) {
+    // Check title.
+    var formattedTitle = getTitleText(columns[0].formatTitle(row));
+    assert.equal(formattedTitle, expectedTitle);
+
+    // Check all sizes. The first assert below is a test sanity check.
+    assert.lengthOf(expectedSizes, columns.length - 1 /* all except title */);
+    for (var i = 0; i < expectedSizes.length; i++)
+      checkSizeAttributes(row, columns[i + 1], expectedSizes[i]);
+
+    // There should be no row nesting on the overview pane.
+    assert.isUndefined(row.subRows);
+
+    if (expectedDefinedValues)
+      assert.deepEqual(tr.b.asArray(row.defined), expectedDefinedValues);
+    else
+      assert.isUndefined(row.defined);
+  }
+
+  function checkRows(columns, actualRows, expectedRows) {
+    if (expectedRows === undefined) {
+      assert.isUndefined(actualRows);
+      return;
+    }
+    assert.lengthOf(actualRows, expectedRows.length);
+    for (var i = 0; i < expectedRows.length; i++) {
+      var actualRow = actualRows[i];
+      var expectedRow = expectedRows[i];
+      checkRow(columns, actualRow, expectedRow.title, expectedRow.sizes,
+          expectedRow.defined);
+    }
+  }
+
+  function createAndCheckMemoryDumpOverviewPane(
+      test, processMemoryDumps, expectedRows, expectedFooterRows,
+      aggregationMode) {
+    var viewEl =
+        tr.ui.analysis.createTestPane('tr-ui-a-memory-dump-overview-pane');
+    viewEl.processMemoryDumps = processMemoryDumps;
+    viewEl.aggregationMode = aggregationMode;
+    viewEl.rebuild();
+    test.addHTMLOutput(viewEl);
+
+    // Check that the table is shown.
+    assert.isTrue(isElementDisplayed(viewEl.$.table));
+    assert.isFalse(isElementDisplayed(viewEl.$.info_text));
+
+    assert.isUndefined(viewEl.createChildPane());
+
+    var table = viewEl.$.table;
+    var columns = table.tableColumns;
+    checkColumns(columns, aggregationMode);
+    var rows = table.tableRows;
+
+    checkRows(columns, table.tableRows, expectedRows);
+    checkRows(columns, table.footerRows, expectedFooterRows);
+  }
+
+  test('instantiate_empty', function() {
+    tr.ui.analysis.createAndCheckEmptyPanes(this,
+        'tr-ui-a-memory-dump-overview-pane', 'processMemoryDumps',
+        function(viewEl) {
+          // Check that the info text is shown.
+          assert.isTrue(isElementDisplayed(viewEl.$.info_text));
+          assert.isFalse(isElementDisplayed(viewEl.$.table));
+        });
+  });
+
+  test('instantiate_singleGlobalMemoryDump', function() {
+    var processMemoryDumps = convertToProcessMemoryDumps(
+        [tr.ui.analysis.createSingleTestGlobalMemoryDump()]);
+    createAndCheckMemoryDumpOverviewPane(this,
+        processMemoryDumps,
+        [  // Table rows.
+          {
+            title: 'Process 1',
+            sizes: [[29884416], undefined, [9437184], [5767168], [0], undefined,
+                [7340032], undefined, undefined, [2097152]],
+            defined: [true]
+          },
+          {
+            title: 'Process 2',
+            sizes: [[17825792], [39845888], [18350080], [0], [32], [7340032],
+                [1048576], [1], [5242880], [1572864]],
+            defined: [true]
+          },
+          {
+            title: 'Process 4',
+            sizes: [undefined, [17825792], undefined, undefined, undefined,
+                undefined, undefined, undefined, undefined, undefined],
+            defined: [true]
+          }
+        ],
+        [  // Footer rows.
+          {
+            title: 'Total',
+            sizes: [[47710208], [57671680], [27787264], [5767168], [32],
+                [7340032], [8388608], [1], [5242880], [3670016]],
+            defined: undefined
+          }
+        ],
+        undefined /* no aggregation */);
+  });
+
+  test('instantiate_multipleGlobalMemoryDumps', function() {
+    var processMemoryDumps = convertToProcessMemoryDumps(
+        tr.ui.analysis.createMultipleTestGlobalMemoryDumps());
+    createAndCheckMemoryDumpOverviewPane(this,
+        processMemoryDumps,
+        [  // Table rows.
+          {
+            title: 'Process 1',
+            sizes: [[31457280, 29884416, undefined], undefined,
+                [10485760, 9437184, undefined], [8388608, 5767168, undefined],
+                [0, 0, undefined], undefined, [undefined, 7340032, undefined],
+                undefined, undefined, [undefined, 2097152, undefined]],
+            defined: [true, true, undefined]
+          },
+          {
+            title: 'Process 2',
+            sizes: [[19398656, 17825792, 15728640],
+                [40370176, 39845888, 40894464], [18350080, 18350080, 18350080],
+                [0, 0, -2621440], [32, 32, 64], [undefined, 7340032, 6291456],
+                [2097152, 1048576, 786432], [undefined, 1, undefined],
+                [5242880, 5242880, 5767168], [1048576, 1572864, 2097152]],
+            defined: [true, true, true]
+          },
+          {
+            title: 'Process 3',
+            sizes: [undefined, undefined, undefined, undefined, undefined,
+                undefined, undefined, [2147483648, undefined, 1073741824],
+                [1073741824, undefined, 2147483648], undefined],
+            defined: [true, undefined, true]
+          },
+          {
+            title: 'Process 4',
+            sizes: [undefined, [undefined, 17825792, 17825792], undefined,
+                undefined, undefined, undefined, undefined, undefined,
+                undefined, undefined],
+            defined: [undefined, true, true]
+          }
+        ],
+        [  // Footer rows.
+          {
+            title: 'Total',
+            sizes: [[50855936, 47710208, 15728640],
+                [40370176, 57671680, 58720256], [28835840, 27787264, 18350080],
+                [8388608, 5767168, -2621440], [32, 32, 64],
+                [undefined, 7340032, 6291456], [2097152, 8388608, 786432],
+                [2147483648, 1, 1073741824], [1078984704, 5242880, 2153250816],
+                [1048576, 3670016, 2097152]],
+            defined: undefined
+          }
+        ],
+        AggregationMode.DIFF);
+  });
+
+  test('instantiate_singleProcessMemoryDump', function() {
+    var processMemoryDumps = convertToProcessMemoryDumps(
+        [tr.ui.analysis.createSingleTestProcessMemoryDump()]);
+    createAndCheckMemoryDumpOverviewPane(this,
+        processMemoryDumps,
+        [  // Table rows.
+          {
+            title: 'Process 2',
+            sizes: [[17825792], [39845888], [18350080], [0], [32], [7340032],
+                [1048576], [1], [5242880], [1572864]],
+            defined: [true]
+          }
+        ],
+        [] /* footer rows */,
+        undefined /* no aggregation */);
+  });
+
+  test('instantiate_multipleProcessMemoryDumps', function() {
+    var processMemoryDumps = convertToProcessMemoryDumps(
+        tr.ui.analysis.createMultipleTestProcessMemoryDumps());
+    createAndCheckMemoryDumpOverviewPane(this,
+        processMemoryDumps,
+        [  // Table rows.
+          {
+            title: 'Process 2',
+            sizes: [[19398656, 17825792, 15728640],
+                [40370176, 39845888, 40894464], [18350080, 18350080, 18350080],
+                [0, 0, -2621440], [32, 32, 64], [undefined, 7340032, 6291456],
+                [2097152, 1048576, 786432], [undefined, 1, undefined],
+                [5242880, 5242880, 5767168], [1048576, 1572864, 2097152]],
+            defined: [true, true, true]
+          }
+        ],
+        [] /* footer rows */,
+        AggregationMode.MAX);
+  });
+
+  test('selection', function() {
+    var processMemoryDumps = convertToProcessMemoryDumps(
+        tr.ui.analysis.createMultipleTestGlobalMemoryDumps());
+
+    var viewEl =
+        tr.ui.analysis.createTestPane('tr-ui-a-memory-dump-overview-pane');
+    viewEl.processMemoryDumps = processMemoryDumps;
+    viewEl.aggregationMode = AggregationMode.DIFF;
+    viewEl.rebuild();
+    this.addHTMLOutput(viewEl);
+
+    var table = viewEl.$.table;
+
+    // Simulate clicking on the 'malloc' cell of the second process.
+    table.selectedTableRow = table.tableRows[1];
+    table.selectedColumnIndex = 7;
+    assert.lengthOf(viewEl.requestedChildPanes, 2);
+    var lastChildPane = viewEl.requestedChildPanes[1];
+    assert.equal(
+        lastChildPane.tagName, 'TR-UI-A-MEMORY-DUMP-ALLOCATOR-DETAILS-PANE');
+    assert.strictEqual(lastChildPane.aggregationMode, AggregationMode.DIFF);
+    assert.deepEqual(lastChildPane.memoryAllocatorDumps,
+        extractMemoryAllocatorDumps(processMemoryDumps, 2, 'malloc'));
+
+    // Simulate clicking on the 'Oilpan' cell of the second process.
+    table.selectedColumnIndex = 8;
+    assert.lengthOf(viewEl.requestedChildPanes, 3);
+    var lastChildPane = viewEl.requestedChildPanes[2];
+    assert.isUndefined(viewEl.lastChildPane);
+  });
+
+  test('memory', function() {
+    var processMemoryDumps = convertToProcessMemoryDumps(
+        tr.ui.analysis.createMultipleTestGlobalMemoryDumps());
+    var containerEl = document.createElement('div');
+    containerEl.brushingStateController =
+        new tr.c.BrushingStateController(undefined);
+
+    function simulateView(pids, aggregationMode, expectedSelectedCellAttrs,
+        expectedSelectedRowTitle, expectedSelectedColumnIndex, callback) {
+      var viewEl =
+          tr.ui.analysis.createTestPane('tr-ui-a-memory-dump-overview-pane');
+      containerEl.textContent = '';
+      containerEl.appendChild(viewEl);
+
+      var displayedProcessMemoryDumps = processMemoryDumps.map(
+          function(memoryDumps) {
+            return tr.b.filterItems(memoryDumps, function(pid, pmd) {
+              return pids.indexOf(pmd.process.pid) !== -1;
+            });
+          });
+      viewEl.processMemoryDumps = displayedProcessMemoryDumps;
+      viewEl.aggregationMode = aggregationMode;
+      viewEl.rebuild();
+
+      if (expectedSelectedCellAttrs === undefined) {
+        assert.isUndefined(viewEl.selectedMemoryCell);
+        assert.isUndefined(viewEl.childPaneBuilder);
+      } else {
+        checkSizeAttributes(viewEl.selectedMemoryCell.attrs,
+            undefined /* row = attrs */, expectedSelectedCellAttrs);
+      }
+
+      var table = viewEl.$.table;
+      assert.strictEqual(
+          table.selectedColumnIndex, expectedSelectedColumnIndex);
+      if (expectedSelectedRowTitle === undefined)
+        assert.isUndefined(table.selectedTableRow);
+      else
+        assert.equal(table.selectedTableRow.title, expectedSelectedRowTitle);
+
+      callback(viewEl, viewEl.$.table);
+    }
+
+    simulateView(
+        [1, 2, 3, 4],  // All processes.
+        AggregationMode.DIFF,
+        undefined, undefined, undefined,  // No cell should be selected.
+        function(view, table) {
+          assert.isUndefined(view.createChildPane());
+
+          // Select the 'PSS' column of the second process.
+          table.selectedTableRow = table.tableRows[1];
+          table.selectedColumnIndex = 3;
+        });
+
+    simulateView(
+        [2, 3],
+        AggregationMode.MAX,
+        [18350080, 18350080, 18350080], 'Process 2', 3, /* PSS */
+        function(view, table) {
+          var childPane = view.createChildPane();
+          assert.equal(
+              childPane.tagName, 'TR-UI-A-MEMORY-DUMP-VM-REGIONS-DETAILS-PANE');
+          assert.deepEqual(tr.b.asArray(childPane.vmRegions),
+              extractVmRegions(processMemoryDumps, 2));
+          assert.strictEqual(childPane.aggregationMode, AggregationMode.MAX);
+        });
+
+    simulateView(
+        [3],
+        undefined, /* No aggregation */
+        undefined, undefined, undefined,  // No cell selected.
+        function(view, table) {
+          assert.isUndefined(view.createChildPane());
+        });
+
+    simulateView(
+        [1, 2, 3, 4],
+        AggregationMode.DIFF,
+        [18350080, 18350080, 18350080], 'Process 2', 3, /* PSS */
+        function(view, table) {
+          var childPane = view.createChildPane();
+          assert.equal(
+              childPane.tagName, 'TR-UI-A-MEMORY-DUMP-VM-REGIONS-DETAILS-PANE');
+          assert.deepEqual(tr.b.asArray(childPane.vmRegions),
+              extractVmRegions(processMemoryDumps, 2));
+          assert.strictEqual(childPane.aggregationMode, AggregationMode.DIFF);
+
+          // Select the 'v8' column of the first process (empty cell).
+          table.selectedTableRow = table.tableRows[0];
+          table.selectedColumnIndex = 9;
+        });
+
+    simulateView(
+        [1],
+        undefined, /* No aggregation */
+        undefined, undefined, undefined,  // No cell should selected.
+        function(view, table) {
+          assert.isUndefined(view.createChildPane());
+
+          // Select 'Total resident' column of the first process.
+          table.selectedTableRow = table.tableRows[0];
+          table.selectedColumnIndex = 1;
+        });
+
+    simulateView(
+        [1, 2, 3, 4],
+        AggregationMode.MAX,
+        [31457280, 29884416, undefined], 'Process 1', 1, /* Total resident */
+        function(view, table) {
+          var childPane = view.createChildPane();
+          assert.equal(
+              childPane.tagName, 'TR-UI-A-MEMORY-DUMP-VM-REGIONS-DETAILS-PANE');
+          assert.deepEqual(tr.b.asArray(childPane.vmRegions),
+              extractVmRegions(processMemoryDumps, 1));
+          assert.strictEqual(childPane.aggregationMode, AggregationMode.MAX);
+        });
+  });
+});
+</script>

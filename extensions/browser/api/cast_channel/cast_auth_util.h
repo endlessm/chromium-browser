@@ -8,7 +8,7 @@
 #include <string>
 
 namespace extensions {
-namespace core_api {
+namespace api {
 namespace cast_channel {
 
 class AuthResponse;
@@ -37,25 +37,19 @@ struct AuthResult {
 
   // Constructs a AuthResult that corresponds to success.
   AuthResult();
+
+  AuthResult(const std::string& error_message, ErrorType error_type);
+
   ~AuthResult();
 
   static AuthResult CreateWithParseError(const std::string& error_message,
                                          ErrorType error_type);
-  static AuthResult CreateWithNSSError(const std::string& error_message,
-                                       ErrorType error_type,
-                                       int nss_error_code);
 
   bool success() const { return error_type == ERROR_NONE; }
 
   std::string error_message;
   ErrorType error_type;
-  int nss_error_code;
   unsigned int channel_policies;
-
- private:
-  AuthResult(const std::string& error_message,
-             ErrorType error_type,
-             int nss_error_code);
 };
 
 // Authenticates the given |challenge_reply|:
@@ -71,7 +65,7 @@ AuthResult VerifyCredentials(const AuthResponse& response,
                              const std::string& peer_cert);
 
 }  // namespace cast_channel
-}  // namespace core_api
+}  // namespace api
 }  // namespace extensions
 
 #endif  // EXTENSIONS_BROWSER_API_CAST_CHANNEL_CAST_AUTH_UTIL_H_

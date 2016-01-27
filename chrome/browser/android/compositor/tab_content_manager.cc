@@ -18,6 +18,7 @@
 #include "content/public/browser/android/content_view_core.h"
 #include "content/public/browser/readback_types.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
 #include "jni/TabContentManager_jni.h"
 #include "ui/android/resources/ui_resource_provider.h"
@@ -71,7 +72,10 @@ class TabContentManager::TabReadbackRequest {
     }
 
     DCHECK(view->GetWebContents());
-    view->GetWebContents()->GetRenderViewHost()->LockBackingStore();
+    view->GetWebContents()
+        ->GetRenderViewHost()
+        ->GetWidget()
+        ->LockBackingStore();
 
     SkColorType color_type = kN32_SkColorType;
 
@@ -91,10 +95,12 @@ class TabContentManager::TabReadbackRequest {
 
     if (view) {
       DCHECK(view->GetWebContents());
-      view->GetWebContents()->GetRenderViewHost()->UnlockBackingStore();
+      view->GetWebContents()
+          ->GetRenderViewHost()
+          ->GetWidget()
+          ->UnlockBackingStore();
     }
 
-    // TODO(jdduke): Tailor response to different failure values appropriately.
     if (response != content::READBACK_SUCCESS || drop_after_readback_) {
       end_callback_.Run(0.f, SkBitmap());
       return;
@@ -148,14 +154,6 @@ TabContentManager::~TabContentManager() {
 void TabContentManager::Destroy(JNIEnv* env, jobject obj) {
   thumbnail_cache_->RemoveThumbnailCacheObserver(this);
   delete this;
-}
-
-void TabContentManager::SetUIResourceProvider(JNIEnv* env,
-                                              jobject obj,
-                                              jlong ui_resource_provider_ptr) {
-  ui::UIResourceProvider* ui_resource_provider =
-      reinterpret_cast<ui::UIResourceProvider*>(ui_resource_provider_ptr);
-  SetUIResourceProvider(ui_resource_provider);
 }
 
 void TabContentManager::SetUIResourceProvider(
@@ -258,6 +256,7 @@ void TabContentManager::CacheTab(JNIEnv* env,
     if (!view ||
         !view->GetWebContents()
              ->GetRenderViewHost()
+             ->GetWidget()
              ->CanCopyFromBackingStore() ||
         pending_tab_readbacks_.find(tab_id) != pending_tab_readbacks_.end() ||
         pending_tab_readbacks_.size() >= kMaxReadbacks) {
@@ -342,6 +341,10 @@ void TabContentManager::GetDecompressedThumbnail(JNIEnv* env,
                                                 decompress_done_callback);
 }
 
+void TabContentManager::OnUIResourcesWereEvicted() {
+  thumbnail_cache_->OnUIResourcesWereEvicted();
+}
+
 void TabContentManager::OnFinishedThumbnailRead(int tab_id) {
   JNIEnv* env = base::android::AttachCurrentThread();
   Java_TabContentManager_notifyListenersOfThumbnailChange(
@@ -370,7 +373,7 @@ bool RegisterTabContentManager(JNIEnv* env) {
 // ----------------------------------------------------------------------------
 
 jlong Init(JNIEnv* env,
-           jobject obj,
+           const JavaParamRef<jobject>& obj,
            jint default_cache_size,
            jint approximation_cache_size,
            jint compression_queue_max_size,

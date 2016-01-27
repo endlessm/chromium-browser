@@ -8,18 +8,12 @@
  */
 WebInspector.DeviceModeButtonProvider = function()
 {
-    var button = new WebInspector.ToolbarButton(WebInspector.UIString("Toggle device mode"), "emulation-toolbar-item");
-    button.addEventListener("click", toggleEmulationEnabled);
+    var button = WebInspector.ToolbarButton.createActionButton("emulation.toggle-device-mode");
     WebInspector.overridesSupport.addEventListener(WebInspector.OverridesSupport.Events.EmulationStateChanged, emulationEnabledChanged);
     WebInspector.overridesSupport.addEventListener(WebInspector.OverridesSupport.Events.OverridesWarningUpdated, updateWarning);
 
     emulationEnabledChanged();
     updateWarning();
-
-    function toggleEmulationEnabled()
-    {
-        WebInspector.overridesSupport.setEmulationEnabled(!button.toggled());
-    }
 
     function emulationEnabledChanged()
     {
@@ -60,9 +54,11 @@ WebInspector.ToggleDeviceModeActionDelegate.prototype = {
      * @override
      * @param {!WebInspector.Context} context
      * @param {string} actionId
+     * @return {boolean}
      */
     handleAction: function(context, actionId)
     {
         WebInspector.overridesSupport.setEmulationEnabled(!WebInspector.overridesSupport.emulationEnabled());
+        return true;
     }
 }

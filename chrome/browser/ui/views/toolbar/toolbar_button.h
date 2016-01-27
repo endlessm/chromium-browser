@@ -5,6 +5,9 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_TOOLBAR_TOOLBAR_BUTTON_H_
 #define CHROME_BROWSER_UI_VIEWS_TOOLBAR_TOOLBAR_BUTTON_H_
 
+#include "base/memory/scoped_ptr.h"
+#include "ui/gfx/geometry/point.h"
+#include "ui/views/animation/ink_drop_host.h"
 #include "ui/views/context_menu_controller.h"
 #include "ui/views/controls/button/button.h"
 #include "ui/views/controls/button/label_button.h"
@@ -14,13 +17,15 @@ class MenuModel;
 }
 
 namespace views {
+class InkDropAnimationController;
 class MenuRunner;
 }
 
 // This class provides basic drawing and mouse-over behavior for buttons
 // appearing in the toolbar.
 class ToolbarButton : public views::LabelButton,
-                      public views::ContextMenuController {
+                      public views::ContextMenuController,
+                      public views::InkDropHost {
  public:
   // Takes ownership of the |model|, which can be null if no menu
   // is to be shown.
@@ -37,6 +42,7 @@ class ToolbarButton : public views::LabelButton,
 
   // views::LabelButton:
   gfx::Size GetPreferredSize() const override;
+  void Layout() override;
   bool OnMousePressed(const ui::MouseEvent& event) override;
   bool OnMouseDragged(const ui::MouseEvent& event) override;
   void OnMouseReleased(const ui::MouseEvent& event) override;
@@ -52,18 +58,27 @@ class ToolbarButton : public views::LabelButton,
                               const gfx::Point& point,
                               ui::MenuSourceType source_type) override;
 
+  // views::InkDropHost:
+  void AddInkDropLayer(ui::Layer* ink_drop_layer) override;
+  void RemoveInkDropLayer(ui::Layer* ink_drop_layer) override;
+
  protected:
-  // Overridden from CustomButton. Returns true if the button should become
-  // pressed when a user holds the mouse down over the button. For this
-  // implementation, both left and right mouse buttons can trigger a change
-  // to the PUSHED state.
+  // views::LabelButton:
   bool ShouldEnterPushedState(const ui::Event& event) override;
+  void NotifyClick(const ui::Event& event) override;
 
   // Returns if menu should be shown. Override this to change default behavior.
   virtual bool ShouldShowMenu();
 
   // Function to show the dropdown menu.
   virtual void ShowDropDownMenu(ui::MenuSourceType source_type);
+
+  // Returns the Point where the ink drop should be centered.
+  virtual gfx::Point CalculateInkDropCenter() const;
+
+  views::InkDropAnimationController* ink_drop_animation_controller() {
+    return ink_drop_animation_controller_.get();
+  }
 
  private:
   // views::LabelButton:
@@ -80,6 +95,9 @@ class ToolbarButton : public views::LabelButton,
 
   // Menu runner to display drop down menu.
   scoped_ptr<views::MenuRunner> menu_runner_;
+
+  // Animation controller for the ink drop ripple effect.
+  scoped_ptr<views::InkDropAnimationController> ink_drop_animation_controller_;
 
   // A factory for tasks that show the dropdown context menu for the button.
   base::WeakPtrFactory<ToolbarButton> show_menu_factory_;

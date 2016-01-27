@@ -29,7 +29,7 @@ class TraceMemoryController;
 }  // namespace base
 
 namespace IPC {
-class AttachmentBroker;
+class AttachmentBrokerUnprivileged;
 class MessageFilter;
 class ScopedIPCSupport;
 class SyncChannel;
@@ -87,7 +87,6 @@ class CONTENT_EXPORT ChildThreadImpl
   void PreCacheFont(const LOGFONT& log_font) override;
   void ReleaseCachedFonts() override;
 #endif
-  IPC::AttachmentBroker* GetAttachmentBroker() override;
 
   IPC::SyncChannel* channel() { return channel_.get(); }
 
@@ -191,6 +190,7 @@ class CONTENT_EXPORT ChildThreadImpl
   void OnProcessFinalRelease();
 
   virtual bool OnControlMessageReceived(const IPC::Message& msg);
+  virtual void OnProcessBackgrounded(bool backgrounded);
 
   void set_on_channel_error_called(bool on_channel_error_called) {
     on_channel_error_called_ = on_channel_error_called;
@@ -211,6 +211,9 @@ class CONTENT_EXPORT ChildThreadImpl
     explicit ChildThreadMessageRouter(IPC::Sender* sender);
     bool Send(IPC::Message* msg) override;
 
+    // MessageRouter overrides.
+    bool RouteMessage(const IPC::Message& msg) override;
+
    private:
     IPC::Sender* const sender_;
   };
@@ -226,7 +229,6 @@ class CONTENT_EXPORT ChildThreadImpl
   void OnSetProfilerStatus(tracked_objects::ThreadData::Status status);
   void OnGetChildProfilerData(int sequence_number, int current_profiling_phase);
   void OnProfilingPhaseCompleted(int profiling_phase);
-  void OnProcessBackgrounded(bool background);
 #ifdef IPC_MESSAGE_LOG_ENABLED
   void OnSetIPCLoggingEnabled(bool enable);
 #endif
@@ -239,8 +241,8 @@ class CONTENT_EXPORT ChildThreadImpl
   scoped_ptr<MojoApplication> mojo_application_;
 
   std::string channel_name_;
+  scoped_ptr<IPC::AttachmentBrokerUnprivileged> attachment_broker_;
   scoped_ptr<IPC::SyncChannel> channel_;
-  scoped_ptr<IPC::AttachmentBroker> attachment_broker_;
 
   // Allows threads other than the main thread to send sync messages.
   scoped_refptr<IPC::SyncMessageFilter> sync_message_filter_;
@@ -292,7 +294,6 @@ class CONTENT_EXPORT ChildThreadImpl
   scoped_ptr<base::PowerMonitor> power_monitor_;
 
   scoped_refptr<ChildMessageFilter> geofencing_message_filter_;
-  scoped_refptr<ChildMessageFilter> bluetooth_message_filter_;
 
   scoped_refptr<base::SequencedTaskRunner> browser_process_io_runner_;
 

@@ -9,9 +9,6 @@
 # Chromium specific modifications. To launch the script you need 'bower',
 # 'crisper', and 'vulcanize' installed on your system.
 
-# IMPORTANT NOTE: The new vulcanize must be installed from
-# https://github.com/Polymer/vulcanize/releases since it isn't on npm yet.
-
 set -e
 
 cd "$(dirname "$0")"
@@ -27,6 +24,10 @@ cp ../../web-animations-js/sources/COPYING ../../web-animations-js/LICENSE
 # Remove unused gzipped binary which causes git-cl problems.
 rm ../../web-animations-js/sources/web-animations.min.js.gz
 
+# Remove source mapping directives since we don't compile the maps.
+sed -i 's/^\s*\/\/#\s*sourceMappingURL.*//' \
+  ../../web-animations-js/sources/*.min.js
+
 # These components are needed only for demos and docs.
 rm -rf components/{hydrolysis,marked,marked-element,prism,prism-element,\
 iron-component-page,iron-doc-viewer,webcomponentsjs}
@@ -39,6 +40,10 @@ rm -rf components/polymer/explainer
 rm -rf components/promise-polyfill
 rm -rf components/iron-ajax
 rm -rf components/iron-form
+
+# Remove iron-image as it's only a developer dependency of iron-dropdown.
+# https://github.com/PolymerElements/iron-dropdown/pull/17
+rm -rf components/iron-image
 
 # Make checkperms.py happy.
 find components/*/hero.svg -type f -exec chmod -x {} \;
@@ -54,3 +59,8 @@ NBSP=$(python -c 'print u"\u00A0".encode("utf-8")')
 sed -i 's/['"$NBSP"']/\\u00A0/g' components/polymer/polymer-mini.html
 
 ./extract_inline_scripts.sh components components-chromium
+
+# Remove import of external resource in font-roboto (fonts.googleapis.com)
+# and apply additional chrome specific patches. NOTE: Where possible create
+# a Polymer issue and/or pull request to minimize these patches.
+patch -p1 < chromium.patch

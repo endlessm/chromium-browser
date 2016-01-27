@@ -85,6 +85,7 @@
 #include "extensions/common/message_bundle.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/user_script.h"
+#include "net/base/escape.h"
 #include "skia/ext/image_operations.h"
 #include "skia/ext/platform_canvas.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -111,9 +112,32 @@ namespace windows = api::windows;
 namespace keys = tabs_constants;
 namespace tabs = api::tabs;
 
-using core_api::extension_types::InjectDetails;
+using api::extension_types::InjectDetails;
 
 namespace {
+
+template <typename T>
+class ApiParameterExtractor {
+ public:
+  explicit ApiParameterExtractor(T* params) : params_(params) {}
+  ~ApiParameterExtractor() {}
+
+  bool populate_tabs() {
+    if (params_->get_info.get() && params_->get_info->populate.get())
+      return *params_->get_info->populate;
+    return false;
+  }
+
+  WindowController::TypeFilter type_filters() {
+    if (params_->get_info.get() && params_->get_info->window_types.get())
+      return WindowController::GetFilterFromWindowTypes(
+          *params_->get_info->window_types.get());
+    return WindowController::kNoWindowFilter;
+  }
+
+ private:
+  T* params_;
+};
 
 bool GetBrowserFromWindowID(ChromeUIThreadExtensionFunction* function,
                             int window_id,
@@ -264,18 +288,14 @@ bool WindowsGetFunction::RunSync() {
   scoped_ptr<windows::Get::Params> params(windows::Get::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  bool populate_tabs = false;
-  if (params->get_info.get() && params->get_info->populate.get())
-    populate_tabs = *params->get_info->populate;
-
+  ApiParameterExtractor<windows::Get::Params> extractor(params.get());
   WindowController* controller;
-  if (!windows_util::GetWindowFromWindowID(this,
-                                           params->window_id,
-                                           &controller)) {
+  if (!windows_util::GetWindowFromWindowID(
+          this, params->window_id, extractor.type_filters(), &controller)) {
     return false;
   }
 
-  if (populate_tabs)
+  if (extractor.populate_tabs())
     SetResult(controller->CreateWindowValueWithTabs(extension()));
   else
     SetResult(controller->CreateWindowValue());
@@ -287,17 +307,14 @@ bool WindowsGetCurrentFunction::RunSync() {
       windows::GetCurrent::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  bool populate_tabs = false;
-  if (params->get_info.get() && params->get_info->populate.get())
-    populate_tabs = *params->get_info->populate;
-
+  ApiParameterExtractor<windows::GetCurrent::Params> extractor(params.get());
   WindowController* controller;
-  if (!windows_util::GetWindowFromWindowID(this,
-                                           extension_misc::kCurrentWindowId,
-                                           &controller)) {
+  if (!windows_util::GetWindowFromWindowID(
+          this, extension_misc::kCurrentWindowId, extractor.type_filters(),
+          &controller)) {
     return false;
   }
-  if (populate_tabs)
+  if (extractor.populate_tabs())
     SetResult(controller->CreateWindowValueWithTabs(extension()));
   else
     SetResult(controller->CreateWindowValue());
@@ -309,22 +326,24 @@ bool WindowsGetLastFocusedFunction::RunSync() {
       windows::GetLastFocused::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  bool populate_tabs = false;
-  if (params->get_info.get() && params->get_info->populate.get())
-    populate_tabs = *params->get_info->populate;
-
-  // Note: currently this returns the last active browser. If we decide to
-  // include other window types (e.g. panels), we will need to add logic to
-  // WindowControllerList that mirrors the active behavior of BrowserList.
-  Browser* browser = chrome::FindAnyBrowser(
-      GetProfile(), include_incognito(), chrome::GetActiveDesktop());
-  if (!browser || !browser->window()) {
+  ApiParameterExtractor<windows::GetLastFocused::Params> extractor(
+      params.get());
+  // The WindowControllerList should contain a list of application,
+  // browser and devtools windows.
+  WindowController* controller = nullptr;
+  for (auto iter : WindowControllerList::GetInstance()->windows()) {
+    if (windows_util::CanOperateOnWindow(this, iter,
+                                         extractor.type_filters())) {
+      controller = iter;
+      if (controller->window()->IsActive())
+        break;  // Use focused window.
+    }
+  }
+  if (!controller) {
     error_ = keys::kNoLastFocusedWindowError;
     return false;
   }
-  WindowController* controller =
-      browser->extension_window_controller();
-  if (populate_tabs)
+  if (extractor.populate_tabs())
     SetResult(controller->CreateWindowValueWithTabs(extension()));
   else
     SetResult(controller->CreateWindowValue());
@@ -336,19 +355,17 @@ bool WindowsGetAllFunction::RunSync() {
       windows::GetAll::Params::Create(*args_));
   EXTENSION_FUNCTION_VALIDATE(params.get());
 
-  bool populate_tabs = false;
-  if (params->get_info.get() && params->get_info->populate.get())
-    populate_tabs = *params->get_info->populate;
-
+  ApiParameterExtractor<windows::GetAll::Params> extractor(params.get());
   base::ListValue* window_list = new base::ListValue();
   const WindowControllerList::ControllerList& windows =
       WindowControllerList::GetInstance()->windows();
   for (WindowControllerList::ControllerList::const_iterator iter =
            windows.begin();
        iter != windows.end(); ++iter) {
-    if (!windows_util::CanOperateOnWindow(this, *iter))
+    if (!windows_util::CanOperateOnWindow(this, *iter,
+                                          extractor.type_filters()))
       continue;
-    if (populate_tabs)
+    if (extractor.populate_tabs())
       window_list->Append((*iter)->CreateWindowValueWithTabs(extension()));
     else
       window_list->Append((*iter)->CreateWindowValue());
@@ -433,7 +450,7 @@ bool WindowsCreateFunction::RunSync() {
         return false;
       }
       // Don't let the extension crash the browser or renderers.
-      if (ExtensionTabUtil::IsCrashURL(url)) {
+      if (ExtensionTabUtil::IsKillURL(url)) {
         error_ = keys::kNoCrashBrowserError;
         return false;
       }
@@ -577,8 +594,12 @@ bool WindowsCreateFunction::RunSync() {
           extension());
       AshPanelContents* ash_panel_contents = new AshPanelContents(app_window);
       app_window->Init(urls[0], ash_panel_contents, create_params);
-      SetResult(ash_panel_contents->GetWindowController()
-                    ->CreateWindowValueWithTabs(extension()));
+      WindowController* window_controller =
+          WindowControllerList::GetInstance()->FindWindowById(
+              app_window->session_id().id());
+      if (!window_controller)
+        return false;
+      SetResult(window_controller->CreateWindowValueWithTabs(extension()));
       return true;
     }
 #endif
@@ -688,9 +709,11 @@ bool WindowsUpdateFunction::RunSync() {
   EXTENSION_FUNCTION_VALIDATE(params);
 
   WindowController* controller;
-  if (!windows_util::GetWindowFromWindowID(this, params->window_id,
-                                            &controller))
+  if (!windows_util::GetWindowFromWindowID(
+          this, params->window_id, WindowController::GetAllWindowFilter(),
+          &controller)) {
     return false;
+  }
 
   ui::WindowShowState show_state =
       ConvertToWindowShowState(params->update_info.state);
@@ -791,8 +814,10 @@ bool WindowsRemoveFunction::RunSync() {
 
   WindowController* controller;
   if (!windows_util::GetWindowFromWindowID(this, params->window_id,
-                                           &controller))
+                                           WindowController::kNoWindowFilter,
+                                           &controller)) {
     return false;
+  }
 
   WindowController::Reason reason;
   if (!controller->CanClose(&reason)) {
@@ -955,12 +980,12 @@ bool TabsQueryFunction::RunSync() {
       }
 
       if (!MatchesBool(params->query_info.audible.get(),
-                       chrome::IsPlayingAudio(web_contents))) {
+                       web_contents->WasRecentlyAudible())) {
         continue;
       }
 
       if (!MatchesBool(params->query_info.muted.get(),
-                       chrome::IsTabAudioMuted(web_contents))) {
+                       web_contents->IsAudioMuted())) {
         continue;
       }
 
@@ -1241,23 +1266,22 @@ bool TabsUpdateFunction::RunAsync() {
   }
 
   if (params->update_properties.muted.get()) {
-    if (chrome::IsTabAudioMutingFeatureEnabled()) {
-      if (!chrome::CanToggleAudioMute(contents)) {
-        WriteToConsole(
-            content::CONSOLE_MESSAGE_LEVEL_WARNING,
-            base::StringPrintf(
-                "Cannot update mute state for tab %d, tab has audio or video "
-                "currently being captured",
-                tab_id));
-      } else {
-        chrome::SetTabAudioMuted(contents, *params->update_properties.muted,
-                                 extension()->id());
-      }
-    } else {
-      WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_WARNING,
-                     base::StringPrintf(
-                         "Failed to update mute state, --%s must be enabled",
-                         switches::kEnableTabAudioMuting));
+    TabMutedResult tab_muted_result = chrome::SetTabAudioMuted(
+        contents, *params->update_properties.muted,
+        TAB_MUTED_REASON_EXTENSION, extension()->id());
+
+    switch (tab_muted_result) {
+      case TAB_MUTED_RESULT_SUCCESS:
+        break;
+      case TAB_MUTED_RESULT_FAIL_NOT_ENABLED:
+        error_ = ErrorUtils::FormatErrorMessage(
+            keys::kCannotUpdateMuteDisabled, base::IntToString(tab_id),
+            switches::kEnableTabAudioMuting);
+        return false;
+      case TAB_MUTED_RESULT_FAIL_TABCAPTURE:
+        error_ = ErrorUtils::FormatErrorMessage(keys::kCannotUpdateMuteCaptured,
+                                                base::IntToString(tab_id));
+        return false;
     }
   }
 
@@ -1297,7 +1321,7 @@ bool TabsUpdateFunction::UpdateURL(const std::string &url_string,
   }
 
   // Don't let the extension crash the browser or renderers.
-  if (ExtensionTabUtil::IsCrashURL(url)) {
+  if (ExtensionTabUtil::IsKillURL(url)) {
     error_ = keys::kNoCrashBrowserError;
     return false;
   }
@@ -1315,20 +1339,19 @@ bool TabsUpdateFunction::UpdateURL(const std::string &url_string,
       return false;
     }
 
-    TabHelper::FromWebContents(web_contents_)->script_executor()->ExecuteScript(
-        HostID(HostID::EXTENSIONS, extension_id()),
-        ScriptExecutor::JAVASCRIPT,
-        url.GetContent(),
-        ScriptExecutor::TOP_FRAME,
-        ScriptExecutor::DONT_MATCH_ABOUT_BLANK,
-        UserScript::DOCUMENT_IDLE,
-        ScriptExecutor::MAIN_WORLD,
-        ScriptExecutor::DEFAULT_PROCESS,
-        GURL(),
-        GURL(),
-        user_gesture_,
-        ScriptExecutor::NO_RESULT,
-        base::Bind(&TabsUpdateFunction::OnExecuteCodeFinished, this));
+    TabHelper::FromWebContents(web_contents_)
+        ->script_executor()
+        ->ExecuteScript(
+            HostID(HostID::EXTENSIONS, extension_id()),
+            ScriptExecutor::JAVASCRIPT,
+            net::UnescapeURLComponent(url.GetContent(),
+                                      net::UnescapeRule::URL_SPECIAL_CHARS |
+                                          net::UnescapeRule::SPACES),
+            ScriptExecutor::TOP_FRAME, ScriptExecutor::DONT_MATCH_ABOUT_BLANK,
+            UserScript::DOCUMENT_IDLE, ScriptExecutor::MAIN_WORLD,
+            ScriptExecutor::DEFAULT_PROCESS, GURL(), GURL(), user_gesture_,
+            ScriptExecutor::NO_RESULT,
+            base::Bind(&TabsUpdateFunction::OnExecuteCodeFinished, this));
 
     *is_async = true;
     return true;

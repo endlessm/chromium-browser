@@ -9,19 +9,19 @@
 
 #include "PWL_Wnd.h"
 
-class PWL_CLASS CPWL_Button : public CPWL_Wnd
-{
-public:
-	CPWL_Button();
-	virtual ~CPWL_Button();
+class CPWL_Button : public CPWL_Wnd {
+ public:
+  CPWL_Button();
+  ~CPWL_Button() override;
 
-	virtual CFX_ByteString		GetClassName() const;
-	virtual void				OnCreate(PWL_CREATEPARAM & cp);
-	virtual FX_BOOL				OnLButtonDown(const CPDF_Point & point, FX_DWORD nFlag);
-	virtual FX_BOOL				OnLButtonUp(const CPDF_Point & point, FX_DWORD nFlag);
+  // CPWL_Wnd
+  CFX_ByteString GetClassName() const override;
+  void OnCreate(PWL_CREATEPARAM& cp) override;
+  FX_BOOL OnLButtonDown(const CPDF_Point& point, FX_DWORD nFlag) override;
+  FX_BOOL OnLButtonUp(const CPDF_Point& point, FX_DWORD nFlag) override;
 
-protected:
-	FX_BOOL						m_bMouseDown;
+ protected:
+  FX_BOOL m_bMouseDown;
 };
 
 #endif  // FPDFSDK_INCLUDE_PDFWINDOW_PWL_BUTTON_H_

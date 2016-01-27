@@ -80,9 +80,6 @@ PassRefPtrWillBeRawPtr<FilterEffect> SVGFEDropShadowElement::build(SVGFilterBuil
     if (!layoutObject)
         return nullptr;
 
-    if (stdDeviationX()->currentValue()->value() < 0 || stdDeviationY()->currentValue()->value() < 0)
-        return nullptr;
-
     ASSERT(layoutObject->style());
     const SVGComputedStyle& svgStyle = layoutObject->style()->svgStyle();
 
@@ -90,10 +87,12 @@ PassRefPtrWillBeRawPtr<FilterEffect> SVGFEDropShadowElement::build(SVGFilterBuil
     float opacity = svgStyle.floodOpacity();
 
     FilterEffect* input1 = filterBuilder->getEffectById(AtomicString(m_in1->currentValue()->value()));
-    if (!input1)
-        return nullptr;
+    ASSERT(input1);
 
-    RefPtrWillBeRawPtr<FilterEffect> effect = FEDropShadow::create(filter, stdDeviationX()->currentValue()->value(), stdDeviationY()->currentValue()->value(), m_dx->currentValue()->value(), m_dy->currentValue()->value(), color, opacity);
+    // Clamp std.dev. to non-negative. (See SVGFEGaussianBlurElement::build)
+    float stdDevX = std::max(0.0f, stdDeviationX()->currentValue()->value());
+    float stdDevY = std::max(0.0f, stdDeviationY()->currentValue()->value());
+    RefPtrWillBeRawPtr<FilterEffect> effect = FEDropShadow::create(filter, stdDevX, stdDevY, m_dx->currentValue()->value(), m_dy->currentValue()->value(), color, opacity);
     effect->inputEffects().append(input1);
     return effect.release();
 }

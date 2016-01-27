@@ -23,8 +23,7 @@ bool UsernamesCollectionKey::operator<(
 }
 
 PasswordFormFillData::PasswordFormFillData()
-    : user_submitted(false),
-      wait_for_username(false),
+    : wait_for_username(false),
       is_possible_change_password_form(false) {
 }
 
@@ -53,36 +52,40 @@ void InitPasswordFormFillData(
   result->name = form_on_page.form_data.name;
   result->origin = form_on_page.origin;
   result->action = form_on_page.action;
-  result->user_submitted = form_on_page.form_data.user_submitted;
   result->username_field = username_field;
   result->password_field = password_field;
   result->wait_for_username = wait_for_username_before_autofill;
   result->is_possible_change_password_form =
       form_on_page.IsPossibleChangePasswordForm();
 
-  result->preferred_realm = preferred_match->original_signon_realm;
+  if (preferred_match->is_public_suffix_match ||
+      preferred_match->is_affiliation_based_match)
+    result->preferred_realm = preferred_match->signon_realm;
 
   // Copy additional username/value pairs.
-  PasswordFormMap::const_iterator iter;
-  for (iter = matches.begin(); iter != matches.end(); iter++) {
-    if (iter->second != preferred_match) {
+  for (const auto& it : matches) {
+    if (it.second != preferred_match) {
       PasswordAndRealm value;
-      value.password = iter->second->password_value;
-      value.realm = iter->second->original_signon_realm;
-      result->additional_logins[iter->first] = value;
+      value.password = it.second->password_value;
+      if (it.second->is_public_suffix_match ||
+          it.second->is_affiliation_based_match)
+        value.realm = it.second->signon_realm;
+      result->additional_logins[it.first] = value;
     }
     if (enable_other_possible_usernames &&
-        !iter->second->other_possible_usernames.empty()) {
+        !it.second->other_possible_usernames.empty()) {
       // Note that there may be overlap between other_possible_usernames and
       // other saved usernames or with other other_possible_usernames. For now
       // we will ignore this overlap as it should be a rare occurence. We may
       // want to revisit this in the future.
       UsernamesCollectionKey key;
-      key.username = iter->first;
-      key.password = iter->second->password_value;
-      key.realm = iter->second->original_signon_realm;
+      key.username = it.first;
+      key.password = it.second->password_value;
+      if (it.second->is_public_suffix_match ||
+          it.second->is_affiliation_based_match)
+        key.realm = it.second->signon_realm;
       result->other_possible_usernames[key] =
-          iter->second->other_possible_usernames;
+          it.second->other_possible_usernames;
     }
   }
 }

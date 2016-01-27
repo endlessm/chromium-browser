@@ -3263,6 +3263,27 @@ TEST_F(HistoryBackendTest, TopHosts_IgnoreUnusualURLs) {
   EXPECT_THAT(backend_->TopHosts(5), ElementsAre(std::make_pair("cnn.com", 3)));
 }
 
+TEST_F(HistoryBackendTest, HostRankIfAvailable) {
+  std::vector<GURL> urls;
+  urls.push_back(GURL("http://cnn.com/us"));
+  urls.push_back(GURL("http://cnn.com/intl"));
+  urls.push_back(GURL("http://dogtopia.com/"));
+  for (const auto& url : urls) {
+    backend_->AddPageVisit(url, base::Time::Now(), 0, ui::PAGE_TRANSITION_LINK,
+                           history::SOURCE_BROWSED);
+  }
+
+  EXPECT_EQ(kMaxTopHosts,
+            backend_->HostRankIfAvailable(GURL("http://cnn.com/")));
+
+  backend_->TopHosts(3);
+
+  EXPECT_EQ(0, backend_->HostRankIfAvailable(GURL("http://cnn.com/")));
+  EXPECT_EQ(1, backend_->HostRankIfAvailable(GURL("http://dogtopia.com/")));
+  EXPECT_EQ(kMaxTopHosts,
+            backend_->HostRankIfAvailable(GURL("http://catsylvania.com/")));
+}
+
 TEST_F(HistoryBackendTest, RecordTopHostsMetrics) {
   base::HistogramTester histogram;
 
@@ -3429,6 +3450,8 @@ TEST_F(HistoryBackendTest, ExpireHistoryForTimes) {
 
   std::set<base::Time> times;
   times.insert(args[5].time);
+  // Invalid time (outside range), should have no effect.
+  times.insert(base::Time::FromInternalValue(10));
   backend_->ExpireHistoryForTimes(times,
                                   base::Time::FromInternalValue(2),
                                   base::Time::FromInternalValue(8));
@@ -3471,7 +3494,7 @@ TEST_F(HistoryBackendTest, ExpireHistory) {
   // Insert 4 entries into the database.
   HistoryAddPageArgs args[4];
   for (size_t i = 0; i < arraysize(args); ++i) {
-    args[i].url = GURL("http://example" + base::IntToString(i) + ".com");
+    args[i].url = GURL("http://example" + base::SizeTToString(i) + ".com");
     args[i].time = reference_time + base::TimeDelta::FromDays(i);
     backend_->AddPage(args[i]);
   }

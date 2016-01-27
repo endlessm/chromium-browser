@@ -38,29 +38,29 @@ public:
     float scalingFactor() const { return m_scalingFactor; }
     const Font& scaledFont() const { return m_scaledFont; }
     void updateScaledFont();
-    static void computeNewScaledFontForStyle(LayoutObject*, const ComputedStyle*, float& scalingFactor, Font& scaledFont);
+    static void computeNewScaledFontForStyle(LayoutObject*, float& scalingFactor, Font& scaledFont);
 
     // Preserves floating point precision for the use in DRT. It knows how to round and does a better job than enclosingIntRect.
     FloatRect floatLinesBoundingBox() const;
 
-    virtual PassRefPtr<StringImpl> originalText() const override;
+    PassRefPtr<StringImpl> originalText() const override;
 
-    virtual const char* name() const override { return "LayoutSVGInlineText"; }
+    const char* name() const override { return "LayoutSVGInlineText"; }
 
 private:
-    virtual void setTextInternal(PassRefPtr<StringImpl>) override;
-    virtual void styleDidChange(StyleDifference, const ComputedStyle*) override;
+    void setTextInternal(PassRefPtr<StringImpl>) override;
+    void styleDidChange(StyleDifference, const ComputedStyle*) override;
 
-    virtual FloatRect objectBoundingBox() const override { return floatLinesBoundingBox(); }
+    FloatRect objectBoundingBox() const override { return floatLinesBoundingBox(); }
 
-    virtual bool isOfType(LayoutObjectType type) const override { return type == LayoutObjectSVG || type == LayoutObjectSVGInlineText || LayoutText::isOfType(type); }
+    bool isOfType(LayoutObjectType type) const override { return type == LayoutObjectSVG || type == LayoutObjectSVGInlineText || LayoutText::isOfType(type); }
 
-    virtual PositionWithAffinity positionForPoint(const LayoutPoint&) override;
-    virtual LayoutRect localCaretRect(InlineBox*, int caretOffset, LayoutUnit* extraWidthToEndOfLine = nullptr) override;
-    virtual IntRect linesBoundingBox() const override;
-    virtual InlineTextBox* createTextBox(int start, unsigned short length) override;
+    PositionWithAffinity positionForPoint(const LayoutPoint&) override;
+    LayoutRect localCaretRect(InlineBox*, int caretOffset, LayoutUnit* extraWidthToEndOfLine = nullptr) override;
+    IntRect linesBoundingBox() const override;
+    InlineTextBox* createTextBox(int start, unsigned short length) override;
 
-    virtual LayoutRect clippedOverflowRectForPaintInvalidation(const LayoutBoxModelObject* paintInvalidationContainer, const PaintInvalidationState*) const override final;
+    LayoutRect clippedOverflowRectForPaintInvalidation(const LayoutBoxModelObject* paintInvalidationContainer, const PaintInvalidationState*) const final;
 
     float m_scalingFactor;
     Font m_scaledFont;
@@ -68,58 +68,6 @@ private:
 };
 
 DEFINE_LAYOUT_OBJECT_TYPE_CASTS(LayoutSVGInlineText, isSVGInlineText());
-
-class SVGInlineTextMetricsIterator {
-public:
-    SVGInlineTextMetricsIterator() { reset(nullptr); }
-
-    void advanceToTextStart(const LayoutSVGInlineText* textLayoutObject, unsigned startCharacterOffset)
-    {
-        ASSERT(textLayoutObject);
-        if (m_textLayoutObject != textLayoutObject) {
-            reset(textLayoutObject);
-            ASSERT(!metricsList().isEmpty());
-        }
-
-        if (m_characterOffset == startCharacterOffset)
-            return;
-
-        // TODO(fs): We could walk backwards through the metrics list in these cases.
-        if (m_characterOffset > startCharacterOffset)
-            reset(textLayoutObject);
-
-        while (m_characterOffset < startCharacterOffset)
-            next();
-    }
-
-    void next()
-    {
-        m_characterOffset += metrics().length();
-        ++m_metricsListOffset;
-    }
-
-    const SVGTextMetrics& metrics() const
-    {
-        ASSERT(m_textLayoutObject && m_metricsListOffset < metricsList().size());
-        return metricsList()[m_metricsListOffset];
-    }
-    const Vector<SVGTextMetrics>& metricsList() const { return m_textLayoutObject->layoutAttributes()->textMetricsValues(); }
-    unsigned metricsListOffset() const { return m_metricsListOffset; }
-    unsigned characterOffset() const { return m_characterOffset; }
-    bool isAtEnd() const { return m_metricsListOffset == metricsList().size(); }
-
-private:
-    void reset(const LayoutSVGInlineText* textLayoutObject)
-    {
-        m_textLayoutObject = textLayoutObject;
-        m_characterOffset = 0;
-        m_metricsListOffset = 0;
-    }
-
-    const LayoutSVGInlineText* m_textLayoutObject;
-    unsigned m_metricsListOffset;
-    unsigned m_characterOffset;
-};
 
 }
 

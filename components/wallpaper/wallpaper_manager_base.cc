@@ -27,6 +27,7 @@
 #include "chromeos/cryptohome/async_method_caller.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/login/user_names.h"
+#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_image/user_image.h"
 #include "components/user_manager/user_manager.h"
@@ -500,8 +501,8 @@ WallpaperManagerBase::~WallpaperManagerBase() {
 void WallpaperManagerBase::SetPolicyControlledWallpaper(
     const std::string& user_id,
     const user_manager::UserImage& user_image) {
-  const user_manager::User* user =
-      user_manager::UserManager::Get()->FindUser(user_id);
+  const user_manager::User* user = user_manager::UserManager::Get()->FindUser(
+      AccountId::FromUserEmail(user_id));
   if (!user) {
     NOTREACHED() << "Unknown user.";
     return;
@@ -610,13 +611,16 @@ void WallpaperManagerBase::GetCustomWallpaperInternal(
   if (!base::PathExists(valid_path)) {
     // Falls back to custom wallpaper that uses email as part of its file path.
     // Note that email is used instead of user_id_hash here.
+    LOG(ERROR) << "Failed to load custom wallpaper from its original fallback "
+                  "file path: " << valid_path.value();
     valid_path = GetCustomWallpaperPath(kOriginalWallpaperSubDir, user_id,
                                         info.location);
   }
 
   if (!base::PathExists(valid_path)) {
     LOG(ERROR) << "Failed to load previously selected custom wallpaper. "
-               << "Fallback to default wallpaper";
+               << "Fallback to default wallpaper. Expected wallpaper path: "
+               << wallpaper_path.value();
     BrowserThread::PostTask(
         BrowserThread::UI, FROM_HERE,
         base::Bind(&WallpaperManagerBase::DoSetDefaultWallpaper, weak_ptr,
@@ -658,7 +662,7 @@ void WallpaperManagerBase::UpdateWallpaper(bool clear_cache) {
   // be set. It could result a black screen on external monitors.
   // See http://crbug.com/265689 for detail.
   if (last_selected_user_.empty()) {
-    SetDefaultWallpaperNow(chromeos::login::kSignInUser);
+    SetDefaultWallpaperNow(chromeos::login::SignInAccountId().GetUserEmail());
     return;
   }
   SetUserWallpaperNow(last_selected_user_);
@@ -885,7 +889,7 @@ void WallpaperManagerBase::MoveCustomWallpapersSuccess(
     info.location = base::FilePath(user_id_hash).Append(info.location).value();
     bool is_persistent =
         !user_manager::UserManager::Get()->IsUserNonCryptohomeDataEphemeral(
-            user_id);
+            AccountId::FromUserEmail(user_id));
     SetUserWallpaperInfo(user_id, info, is_persistent);
   }
 }

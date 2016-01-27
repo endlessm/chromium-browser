@@ -24,7 +24,7 @@ namespace libyuv {
 static int TestFilter(int src_width, int src_height,
                       int dst_width, int dst_height,
                       FilterMode f, int benchmark_iterations,
-                      int disable_cpu_flags) {
+                      int disable_cpu_flags, int benchmark_cpu_info) {
   int i, j;
   const int b = 0;  // 128 to test for padding/stride.
   int src_width_uv = (Abs(src_width) + 1) >> 1;
@@ -43,7 +43,6 @@ static int TestFilter(int src_width, int src_height,
     printf("Skipped.  Alloc failed " FILELINESTR(__FILE__, __LINE__) "\n");
     return 0;
   }
-  srandom(time(NULL));
   MemRandomize(src_y, src_y_plane_size);
   MemRandomize(src_u, src_uv_plane_size);
   MemRandomize(src_v, src_uv_plane_size);
@@ -81,7 +80,7 @@ static int TestFilter(int src_width, int src_height,
             dst_width, dst_height, f);
   c_time = (get_time() - c_time);
 
-  MaskCpuFlags(-1);  // Enable all CPU optimization.
+  MaskCpuFlags(benchmark_cpu_info);  // Enable all CPU optimization.
   double opt_time = get_time();
   for (i = 0; i < benchmark_iterations; ++i) {
     I420Scale(src_y + (src_stride_y * b) + b, src_stride_y,
@@ -171,7 +170,6 @@ static int TestFilter_16(int src_width, int src_height,
   uint16* p_src_u_16 = reinterpret_cast<uint16*>(src_u_16);
   uint16* p_src_v_16 = reinterpret_cast<uint16*>(src_v_16);
 
-  srandom(time(NULL));
   MemRandomize(src_y, src_y_plane_size);
   MemRandomize(src_u, src_uv_plane_size);
   MemRandomize(src_v, src_uv_plane_size);
@@ -276,20 +274,20 @@ static int TestFilter_16(int src_width, int src_height,
 // The following adjustments in dimensions ensure the scale factor will be
 // exactly achieved.
 // 2 is chroma subsample
-#define DX(x, nom, denom) ((int)(Abs(x) / nom / 2) * nom * 2)
-#define SX(x, nom, denom) ((int)(x / nom / 2) * denom * 2)
+#define DX(x, nom, denom) static_cast<int>((Abs(x) / nom / 2) * nom * 2)
+#define SX(x, nom, denom) static_cast<int>((x / nom / 2) * denom * 2)
 
 #define TEST_FACTOR1(name, filter, nom, denom, max_diff)                       \
-    TEST_F(libyuvTest, ScaleDownBy##name##_##filter) {                         \
+    TEST_F(LibYUVScaleTest, ScaleDownBy##name##_##filter) {                    \
       int diff = TestFilter(SX(benchmark_width_, nom, denom),                  \
                             SX(benchmark_height_, nom, denom),                 \
                             DX(benchmark_width_, nom, denom),                  \
                             DX(benchmark_height_, nom, denom),                 \
                             kFilter##filter, benchmark_iterations_,            \
-                            disable_cpu_flags_);                               \
+                            disable_cpu_flags_, benchmark_cpu_info_);          \
       EXPECT_LE(diff, max_diff);                                               \
     }                                                                          \
-    TEST_F(libyuvTest, DISABLED_ScaleDownBy##name##_##filter##_16) {           \
+    TEST_F(LibYUVScaleTest, DISABLED_ScaleDownBy##name##_##filter##_16) {      \
       int diff = TestFilter_16(SX(benchmark_width_, nom, denom),               \
                                SX(benchmark_height_, nom, denom),              \
                                DX(benchmark_width_, nom, denom),               \
@@ -318,28 +316,28 @@ TEST_FACTOR(3, 1, 3)
 #undef DX
 
 #define TEST_SCALETO1(name, width, height, filter, max_diff)                   \
-    TEST_F(libyuvTest, name##To##width##x##height##_##filter) {                \
+    TEST_F(LibYUVScaleTest, name##To##width##x##height##_##filter) {           \
       int diff = TestFilter(benchmark_width_, benchmark_height_,               \
                             width, height,                                     \
                             kFilter##filter, benchmark_iterations_,            \
-                            disable_cpu_flags_);                               \
+                            disable_cpu_flags_, benchmark_cpu_info_);          \
       EXPECT_LE(diff, max_diff);                                               \
     }                                                                          \
-    TEST_F(libyuvTest, name##From##width##x##height##_##filter) {              \
+    TEST_F(LibYUVScaleTest, name##From##width##x##height##_##filter) {         \
       int diff = TestFilter(width, height,                                     \
                             Abs(benchmark_width_), Abs(benchmark_height_),     \
                             kFilter##filter, benchmark_iterations_,            \
-                            disable_cpu_flags_);                               \
+                            disable_cpu_flags_, benchmark_cpu_info_);          \
       EXPECT_LE(diff, max_diff);                                               \
     }                                                                          \
-    TEST_F(libyuvTest,                                                         \
+    TEST_F(LibYUVScaleTest,                                                    \
         DISABLED_##name##To##width##x##height##_##filter##_16) {               \
       int diff = TestFilter_16(benchmark_width_, benchmark_height_,            \
                                width, height,                                  \
                                kFilter##filter, benchmark_iterations_);        \
       EXPECT_LE(diff, max_diff);                                               \
     }                                                                          \
-    TEST_F(libyuvTest,                                                         \
+    TEST_F(LibYUVScaleTest,                                                    \
         DISABLED_##name##From##width##x##height##_##filter##_16) {             \
       int diff = TestFilter_16(width, height,                                  \
                                Abs(benchmark_width_), Abs(benchmark_height_),  \

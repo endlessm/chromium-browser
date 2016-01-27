@@ -11,14 +11,17 @@
 #include "base/location.h"
 #include "base/memory/shared_memory.h"
 #include "base/single_thread_task_runner.h"
+#include "base/thread_task_runner_handle.h"
+#include "chromecast/base/task_runner_impl.h"
 #include "chromecast/common/media/shared_memory_chunk.h"
-#include "chromecast/media/cma/backend/media_pipeline_device.h"
-#include "chromecast/media/cma/backend/media_pipeline_device_params.h"
+#include "chromecast/media/base/media_caps.h"
 #include "chromecast/media/cma/ipc/media_message_fifo.h"
 #include "chromecast/media/cma/ipc_streamer/coded_frame_provider_host.h"
 #include "chromecast/media/cma/pipeline/audio_pipeline_impl.h"
 #include "chromecast/media/cma/pipeline/media_pipeline_impl.h"
 #include "chromecast/media/cma/pipeline/video_pipeline_impl.h"
+#include "chromecast/public/media/media_pipeline_backend.h"
+#include "chromecast/public/media/media_pipeline_device_params.h"
 
 namespace chromecast {
 namespace media {
@@ -50,18 +53,21 @@ MediaPipelineHost::~MediaPipelineHost() {
   media_track_map_.clear();
 }
 
-void MediaPipelineHost::Initialize(
-    LoadType load_type,
-    const MediaPipelineClient& client,
-    const media::CreatePipelineDeviceCB& create_pipeline_device_cb) {
+void MediaPipelineHost::Initialize(LoadType load_type,
+                                   const MediaPipelineClient& client,
+                                   const CreateBackendCB& create_backend_cb) {
   DCHECK(thread_checker_.CalledOnValidThread());
   media_pipeline_.reset(new MediaPipelineImpl());
-  MediaPipelineDeviceParams default_parameters;
-  if (load_type == kLoadTypeMediaStream)
-    default_parameters.sync_type = MediaPipelineDeviceParams::kModeIgnorePts;
-  media_pipeline_->Initialize(
-      load_type, create_pipeline_device_cb.Run(default_parameters).Pass());
+  task_runner_.reset(new TaskRunnerImpl());
+  MediaPipelineDeviceParams::MediaSyncType sync_type =
+      (load_type == kLoadTypeMediaStream)
+          ? MediaPipelineDeviceParams::kModeIgnorePts
+          : MediaPipelineDeviceParams::kModeSyncPts;
+  MediaPipelineDeviceParams default_parameters(sync_type, task_runner_.get());
+
   media_pipeline_->SetClient(client);
+  media_pipeline_->Initialize(load_type,
+                              create_backend_cb.Run(default_parameters).Pass());
 }
 
 void MediaPipelineHost::SetAvPipe(
@@ -92,13 +98,10 @@ void MediaPipelineHost::SetAvPipe(
   }
   media_track_host->pipe_write_cb = frame_provider_host->GetFifoWriteEventCb();
 
-  scoped_ptr<CodedFrameProvider> frame_provider(frame_provider_host.release());
   if (track_id == kAudioTrackId) {
-    media_pipeline_->GetAudioPipelineImpl()->SetCodedFrameProvider(
-        frame_provider.Pass());
+    audio_frame_provider_ = frame_provider_host.Pass();
   } else {
-    media_pipeline_->GetVideoPipelineImpl()->SetCodedFrameProvider(
-        frame_provider.Pass());
+    video_frame_provider_ = frame_provider_host.Pass();
   }
   av_pipe_set_cb.Run();
 }
@@ -110,21 +113,19 @@ void MediaPipelineHost::AudioInitialize(
     const ::media::PipelineStatusCB& status_cb) {
   DCHECK(thread_checker_.CalledOnValidThread());
   CHECK(track_id == kAudioTrackId);
-  media_pipeline_->GetAudioPipeline()->SetClient(client);
   media_pipeline_->InitializeAudio(
-      config, scoped_ptr<CodedFrameProvider>(), status_cb);
+      config, client, audio_frame_provider_.Pass(), status_cb);
 }
 
 void MediaPipelineHost::VideoInitialize(
     TrackId track_id,
     const VideoPipelineClient& client,
-    const std::vector<::media::VideoDecoderConfig>& configs,
+    const std::vector< ::media::VideoDecoderConfig>& configs,
     const ::media::PipelineStatusCB& status_cb) {
   DCHECK(thread_checker_.CalledOnValidThread());
   CHECK(track_id == kVideoTrackId);
-  media_pipeline_->GetVideoPipeline()->SetClient(client);
   media_pipeline_->InitializeVideo(
-      configs, scoped_ptr<CodedFrameProvider>(), status_cb);
+      configs, client, video_frame_provider_.Pass(), status_cb);
 }
 
 void MediaPipelineHost::StartPlayingFrom(base::TimeDelta time) {
@@ -150,7 +151,7 @@ void MediaPipelineHost::SetPlaybackRate(double playback_rate) {
 void MediaPipelineHost::SetVolume(TrackId track_id, float volume) {
   DCHECK(thread_checker_.CalledOnValidThread());
   CHECK(track_id == kAudioTrackId);
-  media_pipeline_->GetAudioPipeline()->SetVolume(volume);
+  media_pipeline_->SetVolume(volume);
 }
 
 void MediaPipelineHost::SetCdm(BrowserCdmCast* cdm) {

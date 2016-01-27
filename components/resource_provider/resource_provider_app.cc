@@ -11,7 +11,9 @@
 
 namespace resource_provider {
 
-ResourceProviderApp::ResourceProviderApp() {
+ResourceProviderApp::ResourceProviderApp(
+    const std::string& resource_provider_app_url)
+    : resource_provider_app_url_(resource_provider_app_url) {
 }
 
 ResourceProviderApp::~ResourceProviderApp() {
@@ -23,7 +25,7 @@ void ResourceProviderApp::Initialize(mojo::ApplicationImpl* app) {
 bool ResourceProviderApp::ConfigureIncomingConnection(
     mojo::ApplicationConnection* connection) {
   const base::FilePath app_path(
-      GetPathForApplicationUrl(GURL(connection->GetRemoteApplicationURL())));
+      GetPathForApplicationUrl(connection->GetRemoteApplicationURL()));
   if (app_path.empty())
     return false;  // The specified app has no resources.
 
@@ -35,11 +37,13 @@ void ResourceProviderApp::Create(
     mojo::ApplicationConnection* connection,
     mojo::InterfaceRequest<ResourceProvider> request) {
   const base::FilePath app_path(
-      GetPathForApplicationUrl(GURL(connection->GetRemoteApplicationURL())));
+      GetPathForApplicationUrl(connection->GetRemoteApplicationURL()));
   // We validated path at ConfigureIncomingConnection() time, so it should still
   // be valid.
   CHECK(!app_path.empty());
-  bindings_.AddBinding(new ResourceProviderImpl(app_path), request.Pass());
+  bindings_.AddBinding(
+      new ResourceProviderImpl(app_path, resource_provider_app_url_),
+      request.Pass());
 }
 
 }  // namespace resource_provider

@@ -878,7 +878,8 @@ bool OnDeterminingFilenameWillDispatchCallback(
     ExtensionDownloadsEventRouterData* data,
     content::BrowserContext* context,
     const Extension* extension,
-    base::ListValue* event_args) {
+    Event* event,
+    const base::DictionaryValue* listener_filter) {
   *any_determiners = true;
   base::Time installed =
       ExtensionPrefs::Get(context)->GetInstallTime(extension->id());
@@ -957,6 +958,7 @@ bool DownloadsDownloadFunction::RunAsync() {
       new content::DownloadUrlParameters(
           download_url, render_frame_host()->GetProcess()->GetID(),
           render_view_host_do_not_use()->GetRoutingID(),
+          render_frame_host()->GetRoutingID(),
           current_profile->GetResourceContext()));
 
   base::FilePath creator_suggested_filename;
@@ -1592,11 +1594,10 @@ void ExtensionDownloadsEventRouter::OnDeterminingFilename(
   base::DictionaryValue* json = DownloadItemToJSON(
       item, profile_).release();
   json->SetString(kFilenameKey, suggested_path.LossyDisplayName());
-  DispatchEvent(downloads::OnDeterminingFilename::kEventName,
-                false,
+  DispatchEvent(events::DOWNLOADS_ON_DETERMINING_FILENAME,
+                downloads::OnDeterminingFilename::kEventName, false,
                 base::Bind(&OnDeterminingFilenameWillDispatchCallback,
-                           &any_determiners,
-                           data),
+                           &any_determiners, data),
                 json);
   if (!any_determiners) {
     data->ClearPendingDeterminers();
@@ -1757,10 +1758,8 @@ void ExtensionDownloadsEventRouter::OnDownloadCreated(
   }
   scoped_ptr<base::DictionaryValue> json_item(
       DownloadItemToJSON(download_item, profile_));
-  DispatchEvent(downloads::OnCreated::kEventName,
-                true,
-                Event::WillDispatchCallback(),
-                json_item->DeepCopy());
+  DispatchEvent(events::DOWNLOADS_ON_CREATED, downloads::OnCreated::kEventName,
+                true, Event::WillDispatchCallback(), json_item->DeepCopy());
   if (!ExtensionDownloadsEventRouterData::Get(download_item) &&
       (router->HasEventListener(downloads::OnChanged::kEventName) ||
        router->HasEventListener(
@@ -1829,10 +1828,9 @@ void ExtensionDownloadsEventRouter::OnDownloadUpdated(
   // changed. Replace the stored json with the new json.
   data->OnItemUpdated();
   if (changed) {
-    DispatchEvent(downloads::OnChanged::kEventName,
-                  true,
-                  Event::WillDispatchCallback(),
-                  delta.release());
+    DispatchEvent(events::DOWNLOADS_ON_CHANGED,
+                  downloads::OnChanged::kEventName, true,
+                  Event::WillDispatchCallback(), delta.release());
     data->OnChangedFired();
   }
   data->set_json(new_json.Pass());
@@ -1844,13 +1842,13 @@ void ExtensionDownloadsEventRouter::OnDownloadRemoved(
   if (download_item->IsTemporary())
     return;
   DispatchEvent(
-      downloads::OnErased::kEventName,
-      true,
+      events::DOWNLOADS_ON_ERASED, downloads::OnErased::kEventName, true,
       Event::WillDispatchCallback(),
       new base::FundamentalValue(static_cast<int>(download_item->GetId())));
 }
 
 void ExtensionDownloadsEventRouter::DispatchEvent(
+    events::HistogramValue histogram_value,
     const std::string& event_name,
     bool include_incognito,
     const Event::WillDispatchCallback& will_dispatch_callback,
@@ -1862,7 +1860,7 @@ void ExtensionDownloadsEventRouter::DispatchEvent(
   args->Append(arg);
   std::string json_args;
   base::JSONWriter::Write(*args, &json_args);
-  scoped_ptr<Event> event(new Event(events::UNKNOWN, event_name, args.Pass()));
+  scoped_ptr<Event> event(new Event(histogram_value, event_name, args.Pass()));
   // The downloads system wants to share on-record events with off-record
   // extension renderers even in incognito_split_mode because that's how
   // chrome://downloads works. The "restrict_to_profile" mechanism does not

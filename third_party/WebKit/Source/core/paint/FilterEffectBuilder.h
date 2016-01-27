@@ -36,12 +36,12 @@
 
 namespace blink {
 
+class Filter;
 class FilterOperations;
-class ReferenceFilter;
 class Element;
 
 class CORE_EXPORT FilterEffectBuilder final : public RefCountedWillBeGarbageCollectedFinalized<FilterEffectBuilder> {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(FilterEffectBuilder);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(FilterEffectBuilder);
 public:
     static PassRefPtrWillBeRawPtr<FilterEffectBuilder> create()
     {
@@ -62,7 +62,7 @@ private:
     FilterEffectBuilder();
 
     RefPtrWillBeMember<FilterEffect> m_lastEffect;
-    WillBeHeapVector<RefPtrWillBeMember<ReferenceFilter>> m_referenceFilters;
+    WillBeHeapVector<RefPtrWillBeMember<Filter>> m_referenceFilters;
 };
 
 } // namespace blink

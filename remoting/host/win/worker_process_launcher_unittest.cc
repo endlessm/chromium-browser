@@ -303,8 +303,10 @@ void WorkerProcessLauncherTest::SendToProcess(IPC::Message* message) {
 }
 
 void WorkerProcessLauncherTest::SendFakeMessageToLauncher() {
-  if (channel_client_)
-    channel_client_->Send(new ChromotingDesktopNetworkMsg_DisconnectSession());
+  if (channel_client_) {
+    channel_client_->Send(
+        new ChromotingDesktopNetworkMsg_DisconnectSession(protocol::OK));
+  }
 }
 
 void WorkerProcessLauncherTest::CrashWorker() {
@@ -328,7 +330,7 @@ void WorkerProcessLauncherTest::StopWorker() {
 }
 
 void WorkerProcessLauncherTest::QuitMainMessageLoop() {
-  message_loop_.PostTask(FROM_HERE, base::MessageLoop::QuitClosure());
+  message_loop_.PostTask(FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
 }
 
 void WorkerProcessLauncherTest::DoLaunchProcess() {

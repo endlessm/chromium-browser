@@ -86,7 +86,8 @@ BrowserAccessibilityManagerAndroid::~BrowserAccessibilityManagerAndroid() {
 }
 
 // static
-ui::AXTreeUpdate BrowserAccessibilityManagerAndroid::GetEmptyDocument() {
+ui::AXTreeUpdate
+    BrowserAccessibilityManagerAndroid::GetEmptyDocument() {
   ui::AXNodeData empty_document;
   empty_document.id = 0;
   empty_document.role = ui::AX_ROLE_ROOT_WEB_AREA;
@@ -192,7 +193,10 @@ void BrowserAccessibilityManagerAndroid::NotifyAccessibilityEvent(
 }
 
 jint BrowserAccessibilityManagerAndroid::GetRootId(JNIEnv* env, jobject obj) {
-  return static_cast<jint>(GetRoot()->GetId());
+  if (GetRoot())
+    return static_cast<jint>(GetRoot()->GetId());
+  else
+    return -1;
 }
 
 jboolean BrowserAccessibilityManagerAndroid::IsNodeValid(

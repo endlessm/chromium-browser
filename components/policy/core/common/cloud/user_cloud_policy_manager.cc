@@ -26,7 +26,7 @@ UserCloudPolicyManager::UserCloudPolicyManager(
     const scoped_refptr<base::SequencedTaskRunner>& task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& file_task_runner,
     const scoped_refptr<base::SequencedTaskRunner>& io_task_runner)
-    : CloudPolicyManager(GetChromeUserPolicyType(),
+    : CloudPolicyManager(dm_protocol::kChromeUserPolicyType,
                          std::string(),
                          store.get(),
                          task_runner,
@@ -73,7 +73,6 @@ UserCloudPolicyManager::CreateCloudPolicyClient(
           std::string(),
           std::string(),
           kPolicyVerificationKeyHash,
-          USER_AFFILIATION_NONE,
           device_management_service,
           request_context)).Pass();
 }

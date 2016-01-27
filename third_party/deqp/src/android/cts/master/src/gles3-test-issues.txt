@@ -1,0 +1,80 @@
+# Bug 18323265
+dEQP-GLES3.functional.shaders.builtin_functions.precision.acos.mediump_vertex.scalar
+dEQP-GLES3.functional.shaders.builtin_functions.precision.acos.mediump_vertex.vec2
+dEQP-GLES3.functional.shaders.builtin_functions.precision.acos.mediump_vertex.vec3
+dEQP-GLES3.functional.shaders.builtin_functions.precision.acos.mediump_vertex.vec4
+dEQP-GLES3.functional.shaders.builtin_functions.precision.dot.highp_vertex.scalar
+dEQP-GLES3.functional.shaders.builtin_functions.precision.dot.highp_vertex.vec2
+dEQP-GLES3.functional.shaders.builtin_functions.precision.dot.highp_vertex.vec4
+dEQP-GLES3.functional.shaders.builtin_functions.precision.dot.highp_fragment.scalar
+dEQP-GLES3.functional.shaders.builtin_functions.precision.dot.highp_fragment.vec2
+dEQP-GLES3.functional.shaders.builtin_functions.precision.dot.highp_fragment.vec4
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atanh.mediump_fragment.scalar
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atanh.mediump_fragment.vec2
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atanh.mediump_fragment.vec3
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atanh.mediump_fragment.vec4
+dEQP-GLES3.functional.shaders.builtin_functions.precision.smoothstep.highp_vertex.scalar
+dEQP-GLES3.functional.shaders.builtin_functions.precision.smoothstep.highp_vertex.vec3
+dEQP-GLES3.functional.shaders.builtin_functions.precision.smoothstep.highp_vertex.vec4
+dEQP-GLES3.functional.shaders.builtin_functions.precision.smoothstep.highp_fragment.scalar
+dEQP-GLES3.functional.shaders.builtin_functions.precision.smoothstep.highp_fragment.vec3
+dEQP-GLES3.functional.shaders.builtin_functions.precision.smoothstep.highp_fragment.vec4
+dEQP-GLES3.functional.shaders.builtin_functions.precision.inverse.highp_vertex.mat2
+dEQP-GLES3.functional.shaders.builtin_functions.precision.inverse.highp_fragment.mat2
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.lowp_vertex.scalar
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.lowp_vertex.vec2
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.lowp_vertex.vec3
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.lowp_vertex.vec4
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.lowp_fragment.scalar
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.lowp_fragment.vec2
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.lowp_fragment.vec3
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.lowp_fragment.vec4
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.mediump_vertex.scalar
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.mediump_vertex.vec2
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.mediump_vertex.vec3
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.mediump_vertex.vec4
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.mediump_fragment.scalar
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.mediump_fragment.vec2
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.mediump_fragment.vec3
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan.mediump_fragment.vec4
+
+# Bug 18323060
+dEQP-GLES3.functional.shaders.random.all_features.fragment.16
+
+# Bug 21851700
+dEQP-GLES3.functional.shaders.random.all_features.fragment.56
+
+# Bug 18093986
+dEQP-GLES3.functional.shaders.texture_functions.texturelodoffset.usampler3d_vertex
+
+# Bug 20089522
+dEQP-GLES3.functional.fragment_ops.interaction.basic_shader.4
+
+# Bug 20092191
+dEQP-GLES3.functional.fragment_ops.interaction.basic_shader.20
+
+# Bug 20340817
+dEQP-GLES3.functional.fbo.api.attachment_query_default_fbo
+
+# Bug 20340818
+dEQP-GLES3.functional.negative_api.texture.teximage3d
+
+# Bug 20699985
+dEQP-GLES3.functional.shaders.texture_functions.textureoffset.isampler3d_vertex
+
+# Bug 20700212
+dEQP-GLES3.functional.shaders.texture_functions.textureprojlodoffset.usampler3d_vertex
+
+# Bug 21620051
+dEQP-GLES3.functional.shaders.texture_functions.texture.sampler2darrayshadow_vertex
+
+# Bug 21725534
+dEQP-GLES3.functional.shaders.preprocessor.pragmas.pragma_unrecognized_debug_*
+dEQP-GLES3.functional.shaders.preprocessor.pragmas.pragma_unrecognized_token_*
+
+# Bug 21791303
+dEQP-GLES3.functional.uniform_api.random.23
+
+# Bug 22006723
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan2.mediump_*
+dEQP-GLES3.functional.shaders.builtin_functions.precision.atan2.highp_*

@@ -8,6 +8,7 @@
 #include "base/memory/scoped_vector.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
+#include "remoting/base/buffered_socket_writer.h"
 #include "remoting/base/constants.h"
 #include "remoting/proto/video.pb.h"
 #include "remoting/protocol/fake_session.h"
@@ -72,11 +73,14 @@ ClientVideoDispatcherTest::ClientVideoDispatcherTest()
   base::RunLoop().RunUntilIdle();
   DCHECK(initialized_);
   host_socket_.PairWith(
-      session_.fake_channel_factory().GetFakeChannel(kVideoChannelName));
+      session_.GetTransport()->GetStreamChannelFactory()->GetFakeChannel(
+          kVideoChannelName));
   reader_.StartReading(&host_socket_,
                        base::Bind(&ClientVideoDispatcherTest::OnReadError,
                                   base::Unretained(this)));
-  writer_.Init(&host_socket_, BufferedSocketWriter::WriteFailedCallback());
+  writer_.Init(
+      base::Bind(&P2PStreamSocket::Write, base::Unretained(&host_socket_)),
+      BufferedSocketWriter::WriteFailedCallback());
 }
 
 void ClientVideoDispatcherTest::ProcessVideoPacket(

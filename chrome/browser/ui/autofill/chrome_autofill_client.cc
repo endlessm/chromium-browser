@@ -13,13 +13,13 @@
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/signin/profile_identity_provider.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/ui/autofill/autofill_dialog_controller.h"
 #include "chrome/browser/ui/autofill/autofill_popup_controller_impl.h"
 #include "chrome/browser/ui/autofill/create_card_unmask_prompt_view.h"
 #include "chrome/browser/ui/autofill/credit_card_scanner_controller.h"
+#include "chrome/browser/ui/autofill/save_card_bubble_controller_impl.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_window.h"
@@ -33,6 +33,7 @@
 #include "components/autofill/core/browser/ui/card_unmask_prompt_view.h"
 #include "components/autofill/core/common/autofill_pref_names.h"
 #include "components/password_manager/content/browser/content_password_manager_driver.h"
+#include "components/signin/core/browser/profile_identity_provider.h"
 #include "components/user_prefs/user_prefs.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_frame_host.h"
@@ -53,7 +54,6 @@ namespace autofill {
 ChromeAutofillClient::ChromeAutofillClient(content::WebContents* web_contents)
     : content::WebContentsObserver(web_contents),
       unmask_controller_(
-          base::Bind(&LoadRiskData, 0, web_contents),
           user_prefs::UserPrefs::Get(web_contents->GetBrowserContext()),
           Profile::FromBrowserContext(web_contents->GetBrowserContext())
               ->IsOffTheRecord()),
@@ -72,10 +72,6 @@ ChromeAutofillClient::ChromeAutofillClient(content::WebContents* web_contents)
   if (zoom_controller)
     zoom_controller->AddObserver(this);
 #endif
-
-#if defined(OS_MACOSX) && !defined(OS_IOS)
-  RegisterForKeystoneNotifications();
-#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
 }
 
 ChromeAutofillClient::~ChromeAutofillClient() {
@@ -84,9 +80,6 @@ ChromeAutofillClient::~ChromeAutofillClient() {
   // this point (in particular, the WebContentsImpl destructor has already
   // finished running and we are now in the base class destructor).
   DCHECK(!popup_controller_);
-#if defined(OS_MACOSX) && !defined(OS_IOS)
-  UnregisterFromKeystoneNotifications();
-#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
 }
 
 void ChromeAutofillClient::TabActivated() {
@@ -118,14 +111,15 @@ IdentityProvider* ChromeAutofillClient::GetIdentityProvider() {
     Profile* profile =
         Profile::FromBrowserContext(web_contents()->GetBrowserContext())
             ->GetOriginalProfile();
-    LoginUIService* login_service = nullptr;
+    base::Closure login_callback;
 #if !defined(OS_ANDROID)
-    login_service = LoginUIServiceFactory::GetForProfile(profile);
+    login_callback =
+        LoginUIServiceFactory::GetShowLoginPopupCallbackForProfile(profile);
 #endif
     identity_provider_.reset(new ProfileIdentityProvider(
         SigninManagerFactory::GetForProfile(profile),
         ProfileOAuth2TokenServiceFactory::GetForProfile(profile),
-        login_service));
+        login_callback));
   }
 
   return identity_provider_.get();
@@ -153,15 +147,37 @@ void ChromeAutofillClient::ShowUnmaskPrompt(
       card, delegate);
 }
 
-void ChromeAutofillClient::OnUnmaskVerificationResult(GetRealPanResult result) {
+void ChromeAutofillClient::OnUnmaskVerificationResult(
+    PaymentsRpcResult result) {
   unmask_controller_.OnVerificationResult(result);
 }
 
-void ChromeAutofillClient::ConfirmSaveCreditCard(
-    const base::Closure& save_card_callback) {
+void ChromeAutofillClient::ConfirmSaveCreditCardLocally(
+    const base::Closure& callback) {
+// TODO(bondd): Implement save card bubble for OS_MACOSX.
+#if defined(TOOLKIT_VIEWS) && !defined(OS_MACOSX)
+  // Do lazy initialization of SaveCardBubbleControllerImpl.
+  autofill::SaveCardBubbleControllerImpl::CreateForWebContents(web_contents());
+  autofill::SaveCardBubbleControllerImpl* controller =
+      autofill::SaveCardBubbleControllerImpl::FromWebContents(web_contents());
+  controller->SetCallback(callback);
+  controller->ShowBubble(false);
+#else
   AutofillCCInfoBarDelegate::Create(
-      InfoBarService::FromWebContents(web_contents()), this,
-      save_card_callback);
+      InfoBarService::FromWebContents(web_contents()), this, callback);
+#endif
+}
+
+void ChromeAutofillClient::ConfirmSaveCreditCardToCloud(
+    const base::Closure& callback,
+    scoped_ptr<base::DictionaryValue> legal_message) {
+  // TODO(bondd): Implement upload UI.
+  ConfirmSaveCreditCardLocally(callback);
+}
+
+void ChromeAutofillClient::LoadRiskData(
+    const base::Callback<void(const std::string&)>& callback) {
+  ::autofill::LoadRiskData(0, web_contents(), callback);
 }
 
 bool ChromeAutofillClient::HasCreditCardScanFeature() {
@@ -300,12 +316,6 @@ void ChromeAutofillClient::DidFillOrPreviewField(
 void ChromeAutofillClient::OnFirstUserGestureObserved() {
   web_contents()->SendToAllFrames(
       new AutofillMsg_FirstUserGestureObservedInTab(routing_id()));
-}
-
-void ChromeAutofillClient::LinkClicked(const GURL& url,
-                                       WindowOpenDisposition disposition) {
-  web_contents()->OpenURL(content::OpenURLParams(
-      url, content::Referrer(), disposition, ui::PAGE_TRANSITION_LINK, false));
 }
 
 bool ChromeAutofillClient::IsContextSecure(const GURL& form_origin) {

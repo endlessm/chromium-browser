@@ -15,6 +15,7 @@
 
 #include "net/socket/ssl_server_socket.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 
 #include <queue>
@@ -23,6 +24,7 @@
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
@@ -45,23 +47,12 @@
 #include "net/socket/ssl_client_socket.h"
 #include "net/socket/stream_socket.h"
 #include "net/ssl/ssl_cipher_suite_names.h"
-#include "net/ssl/ssl_config_service.h"
 #include "net/ssl/ssl_connection_status_flags.h"
 #include "net/ssl/ssl_info.h"
+#include "net/ssl/ssl_server_config.h"
 #include "net/test/cert_test_util.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/platform_test.h"
-
-#if !defined(USE_OPENSSL)
-#include <pk11pub.h>
-
-#if !defined(CKM_AES_GCM)
-#define CKM_AES_GCM 0x00001087
-#endif
-#if !defined(CKM_NSS_TLS_MASTER_KEY_DERIVE_DH_SHA256)
-#define CKM_NSS_TLS_MASTER_KEY_DERIVE_DH_SHA256 (CKM_NSS + 24)
-#endif
-#endif
 
 namespace net {
 
@@ -87,7 +78,7 @@ class FakeDataChannel {
       read_buf_len_ = buf_len;
       return ERR_IO_PENDING;
     }
-    return PropogateData(buf, buf_len);
+    return PropagateData(buf, buf_len);
   }
 
   int Write(IOBuffer* buf, int buf_len, const CompletionCallback& callback) {
@@ -125,7 +116,7 @@ class FakeDataChannel {
     if (read_callback_.is_null() || data_.empty())
       return;
 
-    int copied = PropogateData(read_buf_, read_buf_len_);
+    int copied = PropagateData(read_buf_, read_buf_len_);
     CompletionCallback callback = read_callback_;
     read_callback_.Reset();
     read_buf_ = NULL;
@@ -142,7 +133,7 @@ class FakeDataChannel {
     callback.Run(ERR_CONNECTION_RESET);
   }
 
-  int PropogateData(scoped_refptr<IOBuffer> read_buf, int read_buf_len) {
+  int PropagateData(scoped_refptr<IOBuffer> read_buf, int read_buf_len) {
     scoped_refptr<DrainableIOBuffer> buf = data_.front();
     int copied = std::min(buf->BytesRemaining(), read_buf_len);
     memcpy(read_buf->data(), buf->data(), copied);
@@ -249,6 +240,11 @@ class FakeSocket : public StreamSocket {
   void ClearConnectionAttempts() override {}
 
   void AddConnectionAttempts(const ConnectionAttempts& attempts) override {}
+
+  int64_t GetTotalReceivedBytes() const override {
+    NOTIMPLEMENTED();
+    return 0;
+  }
 
  private:
   BoundNetLog net_log_;
@@ -360,7 +356,7 @@ class SSLServerSocketTest : public PlatformTest {
   FakeDataChannel channel_1_;
   FakeDataChannel channel_2_;
   SSLConfig client_ssl_config_;
-  SSLConfig server_ssl_config_;
+  SSLServerConfig server_ssl_config_;
   scoped_ptr<SSLClientSocket> client_socket_;
   scoped_ptr<SSLServerSocket> server_socket_;
   ClientSocketFactory* socket_factory_;
@@ -412,14 +408,7 @@ TEST_F(SSLServerSocketTest, Handshake) {
   bool is_aead;
   SSLCipherSuiteToStrings(&key_exchange, &cipher, &mac, &is_aead, cipher_suite);
   EXPECT_STREQ("ECDHE_RSA", key_exchange);
-#if defined(USE_OPENSSL)
-  bool supports_aead = true;
-#else
-  bool supports_aead =
-      PK11_TokenExists(CKM_AES_GCM) &&
-      PK11_TokenExists(CKM_NSS_TLS_MASTER_KEY_DERIVE_DH_SHA256);
-#endif
-  EXPECT_TRUE(!supports_aead || is_aead);
+  EXPECT_TRUE(is_aead);
 }
 
 TEST_F(SSLServerSocketTest, DataTransfer) {
@@ -550,7 +539,7 @@ TEST_F(SSLServerSocketTest, ClientWriteAfterServerClose) {
   EXPECT_GT(client_ret, 0);
 
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::MessageLoop::QuitClosure(),
+      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
       base::TimeDelta::FromMilliseconds(10));
   base::MessageLoop::current()->Run();
 }

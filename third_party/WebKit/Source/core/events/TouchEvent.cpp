@@ -42,18 +42,23 @@ TouchEvent::TouchEvent()
 }
 
 TouchEvent::TouchEvent(TouchList* touches, TouchList* targetTouches,
-        TouchList* changedTouches, const AtomicString& type,
-        PassRefPtrWillBeRawPtr<AbstractView> view,
-        bool ctrlKey, bool altKey, bool shiftKey, bool metaKey, bool cancelable, bool causesScrollingIfUncanceled,
-        double uiCreateTime)
-    // Pass a sourceDevice which fires touchevents when creating this touchevent, which is always created from input devices from EventHandler.
-    : UIEventWithKeyState(type, true, cancelable, view, 0, ctrlKey, altKey, shiftKey, metaKey, InputDevice::firesTouchEventsInputDevice())
-    , m_touches(touches)
-    , m_targetTouches(targetTouches)
-    , m_changedTouches(changedTouches)
-    , m_causesScrollingIfUncanceled(causesScrollingIfUncanceled)
+    TouchList* changedTouches, const AtomicString& type,
+    PassRefPtrWillBeRawPtr<AbstractView> view,
+    PlatformEvent::Modifiers modifiers, bool cancelable, bool causesScrollingIfUncanceled,
+    double timestamp)
+    // Pass a sourceCapabilities including the ability to fire touchevents when creating this touchevent, which is always created from input device capabilities from EventHandler.
+    : UIEventWithKeyState(type, true, cancelable, view, 0, modifiers, InputDeviceCapabilities::firesTouchEventsSourceCapabilities()),
+    m_touches(touches), m_targetTouches(targetTouches), m_changedTouches(changedTouches), m_causesScrollingIfUncanceled(causesScrollingIfUncanceled)
 {
-    setUICreateTime(uiCreateTime);
+    setPlatformTimeStamp(timestamp);
+}
+
+TouchEvent::TouchEvent(const AtomicString& type, const TouchEventInit& initializer)
+    : UIEventWithKeyState(type, initializer)
+    , m_touches(TouchList::create(initializer.touches()))
+    , m_targetTouches(TouchList::create(initializer.targetTouches()))
+    , m_changedTouches(TouchList::create(initializer.changedTouches()))
+{
 }
 
 TouchEvent::~TouchEvent()
@@ -61,10 +66,10 @@ TouchEvent::~TouchEvent()
 }
 
 void TouchEvent::initTouchEvent(ScriptState* scriptState, TouchList* touches, TouchList* targetTouches,
-        TouchList* changedTouches, const AtomicString& type,
-        PassRefPtrWillBeRawPtr<AbstractView> view,
-        int, int, int, int,
-        bool ctrlKey, bool altKey, bool shiftKey, bool metaKey)
+    TouchList* changedTouches, const AtomicString& type,
+    PassRefPtrWillBeRawPtr<AbstractView> view,
+    int, int, int, int,
+    bool ctrlKey, bool altKey, bool shiftKey, bool metaKey)
 {
     if (dispatched())
         return;
@@ -81,10 +86,7 @@ void TouchEvent::initTouchEvent(ScriptState* scriptState, TouchList* touches, To
     m_touches = touches;
     m_targetTouches = targetTouches;
     m_changedTouches = changedTouches;
-    m_ctrlKey = ctrlKey;
-    m_altKey = altKey;
-    m_shiftKey = shiftKey;
-    m_metaKey = metaKey;
+    initModifiers(ctrlKey, altKey, shiftKey, metaKey);
 }
 
 const AtomicString& TouchEvent::interfaceName() const
@@ -109,6 +111,12 @@ void TouchEvent::preventDefault()
             "Ignored attempt to cancel a " + type() + " event with cancelable=false, for example because scrolling is in progress and cannot be interrupted."));
     }
 }
+
+PassRefPtrWillBeRawPtr<EventDispatchMediator> TouchEvent::createMediator()
+{
+    return TouchEventDispatchMediator::create(this);
+}
+
 DEFINE_TRACE(TouchEvent)
 {
     visitor->trace(m_touches);

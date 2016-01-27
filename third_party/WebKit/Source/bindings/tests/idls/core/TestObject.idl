@@ -42,7 +42,6 @@ interface TestObject {
     const unsigned short CONST_VALUE_4 = 4;
     const unsigned short CONST_VALUE_8 = 8;
     const short CONST_VALUE_9 = -1;
-    const DOMString CONST_VALUE_10 = "my constant string";
     const unsigned short CONST_VALUE_11 = 0xffffffff;
     const unsigned short CONST_VALUE_12 = 0x01;
     const unsigned short CONST_VALUE_13 = 0X20;
@@ -63,7 +62,11 @@ interface TestObject {
     // Extended attributes
     [DeprecateAs=Constant] const short DEPRECATED_CONSTANT = 1;
     [MeasureAs=Constant] const short MEASURED_CONSTANT = 1;
-    [RuntimeEnabled=FeatureName] const short FEATURE_ENABLED_CONST = 1;
+    [RuntimeEnabled=FeatureName1] const short FEATURE1_ENABLED_CONST1 = 1;
+    [RuntimeEnabled=FeatureName1] const short FEATURE1_ENABLED_CONST2 = 2;
+    [RuntimeEnabled=FeatureName2] const short FEATURE2_ENABLED_CONST1 = 3;
+    [RuntimeEnabled=FeatureName2] const short FEATURE2_ENABLED_CONST2 = 4;
+    [RuntimeEnabled=FeatureName3] const short FEATURE3_ENABLED_CONST1 = 5;
     [Reflect=CONST_IMPL] const short CONST_JAVASCRIPT = 1;
 
     stringifier attribute DOMString stringifierAttribute;
@@ -188,7 +191,6 @@ interface TestObject {
     [CustomElementCallbacks] readonly attribute long customElementsCallbacksReadonlyLongAttribute;
     [DeprecateAs=LongAttribute] attribute long deprecatedLongAttribute;
     [EnforceRange] attribute long enforceRangeLongAttribute;
-    [ExposeJSAccessors] attribute long exposeJSAccessorsLongAttribute;
     [ImplementedAs=implementedAsName] attribute long implementedAsLongAttribute;
     [Custom, ImplementedAs=implementedAsNameWithCustom] attribute long customImplementedAsLongAttribute;
     [Custom=Getter, ImplementedAs=implementedAsNameWithCustomGetter] attribute long customGetterImplementedAsLongAttribute;
@@ -238,7 +240,6 @@ interface TestObject {
     [Reflect, ReflectOnly=("empty","missing","invalid","a-normal"), ReflectEmpty="empty", ReflectMissing="missing", ReflectInvalid="invalid"] readonly attribute DOMString limitedWithEmptyMissingInvalidAttribute;
 
     [Replaceable] readonly attribute long replaceableReadonlyLongAttribute;
-    [Replaceable, ExposeJSAccessors] readonly attribute long replaceableReadonlyLongAccessor;
     [PutForwards=href] readonly attribute TestNode locationPutForwards;
     [RuntimeEnabled=FeatureName] attribute long runtimeEnabledLongAttribute;
     [Conditional=CONDITION, RuntimeEnabled=FeatureName] attribute long conditionalRuntimeEnabledLongAttribute;
@@ -341,6 +342,8 @@ interface TestObject {
     void voidMethodArrayBufferArg(ArrayBuffer arrayBufferArg);
     void voidMethodArrayBufferOrNullArg(ArrayBuffer? arrayBufferArg);
     void voidMethodArrayBufferViewArg(ArrayBufferView arrayBufferViewArg);
+    void voidMethodFlexibleArrayBufferViewArg([FlexibleArrayBufferView] ArrayBufferView arrayBufferViewArg);
+    void voidMethodFlexibleArrayBufferViewTypedArg([FlexibleArrayBufferView] Float32Array typedArrayBufferViewArg);
     void voidMethodFloat32ArrayArg(Float32Array float32ArrayArg);
     void voidMethodInt32ArrayArg(Int32Array int32ArrayArg);
     void voidMethodUint8ArrayArg(Uint8Array uint8ArrayArg);

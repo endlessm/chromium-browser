@@ -12,7 +12,6 @@
 #include "extensions/common/manifest_constants.h"
 #include "extensions/common/permissions/api_permission_set.h"
 #include "extensions/common/permissions/manifest_permission.h"
-#include "extensions/common/permissions/permission_message.h"
 #include "extensions/common/permissions/permission_message_util.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/url_pattern.h"
@@ -50,10 +49,6 @@ class AutomationManifestPermission : public ManifestPermission {
 
   PermissionIDSet GetPermissions() const override;
 
-  bool HasMessages() const override;
-
-  PermissionMessages GetMessages() const override;
-
   bool FromValue(const base::Value* value) override;
 
   scoped_ptr<base::Value> ToValue() const override;
@@ -74,10 +69,6 @@ std::string AutomationManifestPermission::name() const {
 
 std::string AutomationManifestPermission::id() const {
   return keys::kAutomation;
-}
-
-bool AutomationManifestPermission::HasMessages() const {
-  return GetMessages().size() > 0;
 }
 
 PermissionIDSet AutomationManifestPermission::GetPermissions() const {
@@ -108,45 +99,6 @@ PermissionIDSet AutomationManifestPermission::GetPermissions() const {
   return permissions;
 }
 
-PermissionMessages AutomationManifestPermission::GetMessages() const {
-  // When modifying this function, be careful to modify the functionality in
-  // GetPermissions() above as well.
-  PermissionMessages messages;
-  if (automation_info_->desktop) {
-    messages.push_back(PermissionMessage(
-        PermissionMessage::kFullAccess,
-        l10n_util::GetStringUTF16(IDS_EXTENSION_PROMPT_WARNING_FULL_ACCESS)));
-  } else if (automation_info_->matches.MatchesAllURLs()) {
-    if (automation_info_->interact) {
-      messages.push_back(PermissionMessage(
-          PermissionMessage::kHostsAll,
-          l10n_util::GetStringUTF16(IDS_EXTENSION_PROMPT_WARNING_ALL_HOSTS)));
-    } else {
-      messages.push_back(PermissionMessage(
-          PermissionMessage::kHostsAllReadOnly,
-          l10n_util::GetStringUTF16(
-              IDS_EXTENSION_PROMPT_WARNING_ALL_HOSTS_READ_ONLY)));
-    }
-  } else {
-    URLPatternSet regular_hosts;
-    std::set<PermissionMessage> message_set;
-    ExtensionsClient::Get()->FilterHostPermissions(
-        automation_info_->matches, &regular_hosts, &message_set);
-    messages.insert(messages.end(), message_set.begin(), message_set.end());
-
-    std::set<std::string> hosts =
-        permission_message_util::GetDistinctHosts(regular_hosts, true, true);
-    if (!hosts.empty()) {
-      messages.push_back(permission_message_util::CreateFromHostList(
-          hosts,
-          automation_info_->interact ? permission_message_util::kReadWrite
-                                     : permission_message_util::kReadOnly));
-    }
-  }
-
-  return messages;
-}
-
 bool AutomationManifestPermission::FromValue(const base::Value* value) {
   base::string16 error;
   automation_info_.reset(AutomationInfo::FromValue(*value,
@@ -167,9 +119,8 @@ ManifestPermission* AutomationManifestPermission::Diff(
   bool desktop = automation_info_->desktop && !other->automation_info_->desktop;
   bool interact =
       automation_info_->interact && !other->automation_info_->interact;
-  URLPatternSet matches;
-  URLPatternSet::CreateDifference(
-      automation_info_->matches, other->automation_info_->matches, &matches);
+  URLPatternSet matches = URLPatternSet::CreateDifference(
+      automation_info_->matches, other->automation_info_->matches);
   return new AutomationManifestPermission(
       make_scoped_ptr(new const AutomationInfo(desktop, matches, interact)));
 }
@@ -182,9 +133,8 @@ ManifestPermission* AutomationManifestPermission::Union(
   bool desktop = automation_info_->desktop || other->automation_info_->desktop;
   bool interact =
       automation_info_->interact || other->automation_info_->interact;
-  URLPatternSet matches;
-  URLPatternSet::CreateUnion(
-      automation_info_->matches, other->automation_info_->matches, &matches);
+  URLPatternSet matches = URLPatternSet::CreateUnion(
+      automation_info_->matches, other->automation_info_->matches);
   return new AutomationManifestPermission(
       make_scoped_ptr(new const AutomationInfo(desktop, matches, interact)));
 }
@@ -197,9 +147,8 @@ ManifestPermission* AutomationManifestPermission::Intersect(
   bool desktop = automation_info_->desktop && other->automation_info_->desktop;
   bool interact =
       automation_info_->interact && other->automation_info_->interact;
-  URLPatternSet matches;
-  URLPatternSet::CreateIntersection(
-      automation_info_->matches, other->automation_info_->matches, &matches);
+  URLPatternSet matches = URLPatternSet::CreateIntersection(
+      automation_info_->matches, other->automation_info_->matches);
   return new AutomationManifestPermission(
       make_scoped_ptr(new const AutomationInfo(desktop, matches, interact)));
 }

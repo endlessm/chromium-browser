@@ -34,6 +34,7 @@
 #include "core/fetch/FetchInitiatorInfo.h"
 #include "platform/CrossThreadCopier.h"
 #include "platform/weborigin/SecurityOrigin.h"
+#include "wtf/Allocator.h"
 
 namespace blink {
 
@@ -79,6 +80,8 @@ enum CORSEnabled {
 };
 
 struct ResourceLoaderOptions {
+    USING_FAST_MALLOC(ResourceLoaderOptions);
+public:
     ResourceLoaderOptions()
         : dataBufferingPolicy(BufferData)
         , allowCredentials(DoNotAllowStoredCredentials)
@@ -137,6 +140,7 @@ struct ResourceLoaderOptions {
 
 // Encode AtomicString (in FetchInitiatorInfo) as String to cross threads.
 struct CrossThreadResourceLoaderOptionsData {
+    DISALLOW_NEW();
     explicit CrossThreadResourceLoaderOptionsData(const ResourceLoaderOptions& options)
         : dataBufferingPolicy(options.dataBufferingPolicy)
         , allowCredentials(options.allowCredentials)

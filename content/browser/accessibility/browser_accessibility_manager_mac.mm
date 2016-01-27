@@ -31,7 +31,8 @@ BrowserAccessibilityManagerMac::BrowserAccessibilityManagerMac(
 }
 
 // static
-ui::AXTreeUpdate BrowserAccessibilityManagerMac::GetEmptyDocument() {
+ui::AXTreeUpdate
+    BrowserAccessibilityManagerMac::GetEmptyDocument() {
   ui::AXNodeData empty_document;
   empty_document.id = 0;
   empty_document.role = ui::AX_ROLE_ROOT_WEB_AREA;
@@ -95,6 +96,9 @@ void BrowserAccessibilityManagerMac::NotifyAccessibilityEvent(
       return;
     case ui::AX_EVENT_CHILDREN_CHANGED:
       // TODO(dtseng): no clear equivalent on Mac.
+      return;
+    case ui::AX_EVENT_DOCUMENT_SELECTION_CHANGED:
+      // Not used on Mac.
       return;
     case ui::AX_EVENT_FOCUS:
       event_id = NSAccessibilityFocusedUIElementChangedNotification;
@@ -171,7 +175,10 @@ void BrowserAccessibilityManagerMac::OnAtomicUpdateFinished(
   for (size_t i = 0; i < changes.size(); ++i) {
     if (changes[i].type != NODE_CREATED && changes[i].type != SUBTREE_CREATED)
       continue;
-    BrowserAccessibility* obj = GetFromAXNode(changes[i].node);
+
+    const ui::AXNode* changed_node = changes[i].node;
+    DCHECK(changed_node);
+    BrowserAccessibility* obj = GetFromAXNode(changed_node);
     if (obj && obj->HasStringAttribute(ui::AX_ATTR_LIVE_STATUS)) {
       created_live_region = true;
       break;
@@ -188,8 +195,10 @@ void BrowserAccessibilityManagerMac::OnAtomicUpdateFinished(
   // internal state and find newly-added live regions this time.
   BrowserAccessibilityMac* root =
       static_cast<BrowserAccessibilityMac*>(GetRoot());
-  root->RecreateNativeObject();
-  NotifyAccessibilityEvent(ui::AX_EVENT_CHILDREN_CHANGED, root);
+  if (root) {
+    root->RecreateNativeObject();
+    NotifyAccessibilityEvent(ui::AX_EVENT_CHILDREN_CHANGED, root);
+  }
 }
 
 }  // namespace content

@@ -3,14 +3,17 @@
 # found in the LICENSE file.
 
 executable("irt_core") {
-  cflags_c = [ "-std=c99" ]
+  cflags_c = [ "-std=gnu99" ]
 
   sources = [
     "irt_core_resource.c",
     "irt_entry_core.c",
+    "irt_pnacl_translator_common.c",
+    "irt_pnacl_translator_compile.c",
+    "irt_pnacl_translator_link.c",
   ]
   deps = [
-    "//native_client/build/config/nacl:nacl_base",
+    "//build/config/nacl:nacl_base",
     ":irt_core_lib",
   ]
 }
@@ -40,8 +43,6 @@ static_library("irt_core_lib") {
     "irt_malloc.c",
     "irt_memory.c",
     "irt_mutex.c",
-    "irt_pnacl_translator_compile.c",
-    "irt_pnacl_translator_link.c",
     "irt_private_pthread.c",
     "irt_private_tls.c",
     "irt_query_list.c",
@@ -52,7 +53,7 @@ static_library("irt_core_lib") {
   ]
 
   deps = [
-    "//native_client/build/config/nacl:nacl_base",
+    "//build/config/nacl:nacl_base",
     "//native_client/src/shared/gio:gio",
     "//native_client/src/shared/platform:platform",
     "//native_client/src/shared/srpc:srpc",

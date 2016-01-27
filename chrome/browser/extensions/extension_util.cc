@@ -6,10 +6,12 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/metrics/field_trial.h"
 #include "base/values.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_sync_service.h"
 #include "chrome/browser/extensions/permissions_updater.h"
+#include "chrome/browser/extensions/scripting_permissions_modifier.h"
 #include "chrome/browser/extensions/shared_module_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/extensions/extension_icon_source.h"
@@ -36,6 +38,9 @@ namespace extensions {
 namespace util {
 
 namespace {
+
+const char kSupervisedUserExtensionPermissionIncreaseFieldTrialName[] =
+    "SupervisedUserExtensionPermissionIncrease";
 
 // The entry into the ExtensionPrefs for allowing an extension to script on
 // all urls without explicit permission.
@@ -94,11 +99,11 @@ void SetAllowedScriptingOnAllUrlsHelper(
         ExtensionRegistry::Get(context)->enabled_extensions().GetByID(
             extension_id);
     if (extension) {
-      PermissionsUpdater updater(context);
+      ScriptingPermissionsModifier modifier(context, extension);
       if (allowed)
-        updater.GrantWithheldImpliedAllHosts(extension);
+        modifier.GrantWithheldImpliedAllHosts();
       else
-        updater.WithholdImpliedAllHosts(extension);
+        modifier.WithholdImpliedAllHosts();
 
       // If this was an update to permissions, we also need to sync the change.
       ExtensionSyncService* sync_service = ExtensionSyncService::Get(context);
@@ -115,7 +120,7 @@ bool IsIncognitoEnabled(const std::string& extension_id,
   const Extension* extension = ExtensionRegistry::Get(context)->
       GetExtensionById(extension_id, ExtensionRegistry::ENABLED);
   if (extension) {
-    if (!extension->can_be_incognito_enabled())
+    if (!util::CanBeIncognitoEnabled(extension))
       return false;
     // If this is an existing component extension we always allow it to
     // work in incognito mode.
@@ -135,14 +140,16 @@ void SetIsIncognitoEnabled(const std::string& extension_id,
       registry->GetExtensionById(extension_id, ExtensionRegistry::EVERYTHING);
 
   if (extension) {
-    if (!extension->can_be_incognito_enabled())
+    if (!util::CanBeIncognitoEnabled(extension))
       return;
 
+    // TODO(treib,kalman): Should this be Manifest::IsComponentLocation(..)?
+    // (which also checks for EXTERNAL_COMPONENT).
     if (extension->location() == Manifest::COMPONENT) {
       // This shouldn't be called for component extensions unless it is called
       // by sync, for syncable component extensions.
       // See http://crbug.com/112290 and associated CLs for the sordid history.
-      DCHECK(sync_helper::IsSyncable(extension));
+      DCHECK(sync_helper::IsSyncableComponentExtension(extension));
 
       // If we are here, make sure the we aren't trying to change the value.
       DCHECK_EQ(enabled, IsIncognitoEnabled(extension_id, context));
@@ -231,11 +238,11 @@ void SetAllowedScriptingOnAllUrls(const std::string& extension_id,
                                   content::BrowserContext* context,
                                   bool allowed) {
   if (allowed != AllowedScriptingOnAllUrls(extension_id, context)) {
-    SetAllowedScriptingOnAllUrlsHelper(context, extension_id, allowed, true);
     ExtensionPrefs::Get(context)->UpdateExtensionPref(
         extension_id,
         kHasSetScriptOnAllUrlsPrefName,
         new base::FundamentalValue(true));
+    SetAllowedScriptingOnAllUrlsHelper(context, extension_id, allowed, true);
   }
 }
 
@@ -265,16 +272,11 @@ bool IsAppLaunchableWithoutEnabling(const std::string& extension_id,
       extension_id, ExtensionRegistry::ENABLED) != NULL;
 }
 
-bool ShouldSyncExtension(const Extension* extension,
-                         content::BrowserContext* context) {
-  return sync_helper::IsSyncableExtension(extension) &&
+bool ShouldSync(const Extension* extension,
+                content::BrowserContext* context) {
+  return sync_helper::IsSyncable(extension) &&
+         !util::IsEphemeralApp(extension->id(), context) &&
          !ExtensionPrefs::Get(context)->DoNotSync(extension->id());
-}
-
-bool ShouldSyncApp(const Extension* app, content::BrowserContext* context) {
-  return sync_helper::IsSyncableApp(app) &&
-         !util::IsEphemeralApp(app->id(), context) &&
-         !ExtensionPrefs::Get(context)->DoNotSync(app->id());
 }
 
 bool IsExtensionIdle(const std::string& extension_id,
@@ -345,34 +347,6 @@ scoped_ptr<base::DictionaryValue> GetExtensionInfo(const Extension* extension) {
   return dict.Pass();
 }
 
-bool HasIsolatedStorage(const ExtensionInfo& info) {
-  if (!info.extension_manifest.get())
-    return false;
-
-  std::string error;
-  scoped_refptr<const Extension> extension(Extension::Create(
-      info.extension_path,
-      info.extension_location,
-      *info.extension_manifest,
-      Extension::NO_FLAGS,
-      info.extension_id,
-      &error));
-  if (!extension.get())
-    return false;
-
-  return AppIsolationInfo::HasIsolatedStorage(extension.get());
-}
-
-bool SiteHasIsolatedStorage(const GURL& extension_site_url,
-                            content::BrowserContext* context) {
-  const Extension* extension = ExtensionRegistry::Get(context)->
-      enabled_extensions().GetExtensionOrAppByURL(extension_site_url);
-  if (!extension)
-    return false;
-
-  return AppIsolationInfo::HasIsolatedStorage(extension);
-}
-
 const gfx::ImageSkia& GetDefaultAppIcon() {
   return *ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
       IDR_APP_DEFAULT_ICON);
@@ -384,17 +358,27 @@ const gfx::ImageSkia& GetDefaultExtensionIcon() {
 }
 
 bool IsNewBookmarkAppsEnabled() {
-#if defined(OS_MACOSX)
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableNewBookmarkApps);
-#else
   return !base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kDisableNewBookmarkApps);
+}
+
+bool CanHostedAppsOpenInWindows() {
+#if defined(OS_MACOSX)
+  return base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableHostedAppsInWindows);
+#else
+  return true;
 #endif
 }
 
 bool IsExtensionSupervised(const Extension* extension, Profile* profile) {
   return extension->was_installed_by_custodian() && profile->IsSupervised();
+}
+
+bool NeedCustodianApprovalForPermissionIncrease() {
+  const std::string group_name = base::FieldTrialList::FindFullName(
+      kSupervisedUserExtensionPermissionIncreaseFieldTrialName);
+  return group_name == "NeedCustodianApproval";
 }
 
 }  // namespace util

@@ -28,6 +28,7 @@
 #include "chrome/browser/browsing_data/browsing_data_remover_test_util.h"
 #include "chrome/browser/chrome_content_browser_client.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/api/web_navigation/web_navigation_api.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/external_protocol/external_protocol_handler.h"
@@ -56,12 +57,8 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
-#include "chrome/browser/ui/omnibox/omnibox_edit_model.h"
-#include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
-#include "chrome/browser/ui/omnibox/omnibox_view.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
 #include "chrome/common/chrome_paths.h"
@@ -74,6 +71,9 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/favicon/content/content_favicon_driver.h"
 #include "components/favicon/core/favicon_driver_observer.h"
+#include "components/omnibox/browser/omnibox_edit_model.h"
+#include "components/omnibox/browser/omnibox_popup_model.h"
+#include "components/omnibox/browser/omnibox_view.h"
 #include "components/variations/entropy_provider.h"
 #include "components/variations/variations_associated_data.h"
 #include "content/public/browser/browser_message_filter.h"
@@ -87,6 +87,7 @@
 #include "content/public/browser/site_instance.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/ppapi_test_utils.h"
@@ -125,6 +126,9 @@ using content::TestNavigationObserver;
 using content::WebContents;
 using content::WebContentsObserver;
 using net::NetworkChangeNotifier;
+using safe_browsing::LocalSafeBrowsingDatabaseManager;
+using safe_browsing::SafeBrowsingService;
+using safe_browsing::SBThreatType;
 using task_manager::browsertest_util::WaitForTaskManagerRows;
 
 // Prerender tests work as follows:
@@ -517,9 +521,8 @@ class TestPrerenderContents : public PrerenderContents {
     // Used to make sure the RenderViewHost is hidden and, if used,
     // subsequently shown.
     notification_registrar().Add(
-        this,
-        content::NOTIFICATION_RENDER_WIDGET_VISIBILITY_CHANGED,
-        content::Source<RenderWidgetHost>(new_render_view_host));
+        this, content::NOTIFICATION_RENDER_WIDGET_VISIBILITY_CHANGED,
+        content::Source<RenderWidgetHost>(new_render_view_host->GetWidget()));
 
     new_render_view_host_ = new_render_view_host;
 
@@ -531,7 +534,7 @@ class TestPrerenderContents : public PrerenderContents {
                const content::NotificationDetails& details) override {
     if (type ==
         content::NOTIFICATION_RENDER_WIDGET_VISIBILITY_CHANGED) {
-      EXPECT_EQ(new_render_view_host_,
+      EXPECT_EQ(new_render_view_host_->GetWidget(),
                 content::Source<RenderWidgetHost>(source).ptr());
       bool is_visible = *content::Details<bool>(details).ptr();
 
@@ -707,6 +710,9 @@ class TestPrerenderContentsFactory : public PrerenderContents::Factory {
 
 // TODO(nparker): Switch this to use TestSafeBrowsingDatabaseManager and run
 // with SAFE_BROWSING_DB_LOCAL || SAFE_BROWSING_DB_REMOTE.
+// Note: don't forget to override GetProtocolManagerDelegate and return NULL,
+// because FakeSafeBrowsingDatabaseManager does not implement
+// LocalSafeBrowsingDatabaseManager.
 #if defined(FULL_SAFE_BROWSING)
 // A SafeBrowsingDatabaseManager implementation that returns a fixed result for
 // a given URL.
@@ -715,7 +721,7 @@ class FakeSafeBrowsingDatabaseManager
  public:
   explicit FakeSafeBrowsingDatabaseManager(SafeBrowsingService* service)
       : LocalSafeBrowsingDatabaseManager(service),
-        threat_type_(SB_THREAT_TYPE_SAFE) {}
+        threat_type_(safe_browsing::SB_THREAT_TYPE_SAFE) {}
 
   // Called on the IO thread to check if the given url is safe or not.  If we
   // can synchronously determine that the url is safe, CheckUrl returns true.
@@ -727,7 +733,7 @@ class FakeSafeBrowsingDatabaseManager
   // client, and false will be returned).
   // Overrides SafeBrowsingDatabaseManager::CheckBrowseUrl.
   bool CheckBrowseUrl(const GURL& gurl, Client* client) override {
-    if (gurl != url_ || threat_type_ == SB_THREAT_TYPE_SAFE)
+    if (gurl != url_ || threat_type_ == safe_browsing::SB_THREAT_TYPE_SAFE)
       return true;
 
     BrowserThread::PostTask(
@@ -747,15 +753,15 @@ class FakeSafeBrowsingDatabaseManager
 
   void OnCheckBrowseURLDone(const GURL& gurl, Client* client) {
     std::vector<SBThreatType> expected_threats;
-    expected_threats.push_back(SB_THREAT_TYPE_URL_MALWARE);
-    expected_threats.push_back(SB_THREAT_TYPE_URL_PHISHING);
+    expected_threats.push_back(safe_browsing::SB_THREAT_TYPE_URL_MALWARE);
+    expected_threats.push_back(safe_browsing::SB_THREAT_TYPE_URL_PHISHING);
     // TODO(nparker): Replace SafeBrowsingCheck w/ a call to
     // client->OnCheckBrowseUrlResult()
     LocalSafeBrowsingDatabaseManager::SafeBrowsingCheck sb_check(
         std::vector<GURL>(1, gurl),
-        std::vector<SBFullHash>(),
+        std::vector<safe_browsing::SBFullHash>(),
         client,
-        safe_browsing_util::MALWARE,
+        safe_browsing::MALWARE,
         expected_threats);
     sb_check.url_results[0] = threat_type_;
     sb_check.OnSafeBrowsingResult();
@@ -779,7 +785,7 @@ class FakeSafeBrowsingService : public SafeBrowsingService {
  protected:
   ~FakeSafeBrowsingService() override {}
 
-  SafeBrowsingDatabaseManager* CreateDatabaseManager() override {
+  safe_browsing::SafeBrowsingDatabaseManager* CreateDatabaseManager() override {
     fake_database_manager_ = new FakeSafeBrowsingDatabaseManager(this);
     return fake_database_manager_;
   }
@@ -791,7 +797,8 @@ class FakeSafeBrowsingService : public SafeBrowsingService {
 };
 
 // Factory that creates FakeSafeBrowsingService instances.
-class TestSafeBrowsingServiceFactory : public SafeBrowsingServiceFactory {
+class TestSafeBrowsingServiceFactory
+    : public safe_browsing::SafeBrowsingServiceFactory {
  public:
   TestSafeBrowsingServiceFactory() :
       most_recent_service_(NULL) { }
@@ -945,6 +952,7 @@ class RequestCounter : public base::SupportsWeakPtr<RequestCounter> {
 
     EXPECT_EQ(expected_count, count_);
   }
+
  private:
   int count_;
   int expected_count_;
@@ -1006,18 +1014,18 @@ void CreateMockInterceptorOnIO(const GURL& url, const base::FilePath& file) {
 }
 
 // A ContentBrowserClient that cancels all prerenderers on OpenURL.
-class TestContentBrowserClient : public chrome::ChromeContentBrowserClient {
+class TestContentBrowserClient : public ChromeContentBrowserClient {
  public:
   TestContentBrowserClient() {}
   ~TestContentBrowserClient() override {}
 
-  // chrome::ChromeContentBrowserClient implementation.
+  // ChromeContentBrowserClient:
   bool ShouldAllowOpenURL(content::SiteInstance* site_instance,
                           const GURL& url) override {
     PrerenderManagerFactory::GetForProfile(
         Profile::FromBrowserContext(site_instance->GetBrowserContext()))
         ->CancelAllPrerenders();
-    return chrome::ChromeContentBrowserClient::ShouldAllowOpenURL(site_instance,
+    return ChromeContentBrowserClient::ShouldAllowOpenURL(site_instance,
                                                                   url);
   }
 
@@ -1026,13 +1034,12 @@ class TestContentBrowserClient : public chrome::ChromeContentBrowserClient {
 };
 
 // A ContentBrowserClient that forces cross-process navigations.
-class SwapProcessesContentBrowserClient
-    : public chrome::ChromeContentBrowserClient {
+class SwapProcessesContentBrowserClient : public ChromeContentBrowserClient {
  public:
   SwapProcessesContentBrowserClient() {}
   ~SwapProcessesContentBrowserClient() override {}
 
-  // chrome::ChromeContentBrowserClient implementation.
+  // ChromeContentBrowserClient:
   bool ShouldSwapProcessesForRedirect(
       content::ResourceContext* resource_context,
       const GURL& current_url,
@@ -1263,14 +1270,15 @@ class PrerenderBrowserTest : virtual public InProcessBrowserTest {
   }
 
   void RemoveLinkElement(int i) const {
-    GetActiveWebContents()->GetMainFrame()->ExecuteJavaScript(
+    GetActiveWebContents()->GetMainFrame()->ExecuteJavaScriptForTests(
         base::ASCIIToUTF16(base::StringPrintf("RemoveLinkElement(%d)", i)));
   }
 
   void ClickToNextPageAfterPrerender() {
     TestNavigationObserver nav_observer(GetActiveWebContents());
     RenderFrameHost* render_frame_host = GetActiveWebContents()->GetMainFrame();
-    render_frame_host->ExecuteJavaScript(base::ASCIIToUTF16("ClickOpenLink()"));
+    render_frame_host->ExecuteJavaScriptForTests(
+        base::ASCIIToUTF16("ClickOpenLink()"));
     nav_observer.Wait();
   }
 
@@ -1528,7 +1536,8 @@ class PrerenderBrowserTest : virtual public InProcessBrowserTest {
     std::string javascript = base::StringPrintf(
         "AddPrerender('%s', %d)", url.spec().c_str(), index);
     RenderFrameHost* render_frame_host = GetActiveWebContents()->GetMainFrame();
-    render_frame_host->ExecuteJavaScript(base::ASCIIToUTF16(javascript));
+    render_frame_host->ExecuteJavaScriptForTests(
+        base::ASCIIToUTF16(javascript));
   }
 
   // Returns a string for pattern-matching TaskManager tab entries.
@@ -1678,7 +1687,8 @@ class PrerenderBrowserTest : virtual public InProcessBrowserTest {
     } else {
       NavigationOrSwapObserver observer(current_browser()->tab_strip_model(),
                                         web_contents);
-      render_frame_host->ExecuteJavaScript(base::ASCIIToUTF16(javascript));
+      render_frame_host->ExecuteJavaScriptForTests(
+          base::ASCIIToUTF16(javascript));
       observer.Wait();
     }
   }
@@ -1994,7 +2004,8 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderDelayLoadPlugin) {
 // a page is being preloaded, but are loaded when the page is displayed.
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderContentSettingDetect) {
   HostContentSettingsMap* content_settings_map =
-      current_browser()->profile()->GetHostContentSettingsMap();
+      HostContentSettingsMapFactory::GetForProfile(
+          current_browser()->profile());
   content_settings_map->SetDefaultContentSetting(
       CONTENT_SETTINGS_TYPE_PLUGINS, CONTENT_SETTING_DETECT_IMPORTANT_CONTENT);
 
@@ -2013,7 +2024,8 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderContentSettingDetect) {
 // For Content Setting BLOCK, checks that plugins are never loaded.
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderContentSettingBlock) {
   HostContentSettingsMap* content_settings_map =
-      current_browser()->profile()->GetHostContentSettingsMap();
+      HostContentSettingsMapFactory::GetForProfile(
+          current_browser()->profile());
   content_settings_map->SetDefaultContentSetting(CONTENT_SETTINGS_TYPE_PLUGINS,
                                                  CONTENT_SETTING_BLOCK);
 
@@ -2486,6 +2498,10 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderAbortPendingOnCancel) {
 }
 
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, OpenTaskManagerBeforePrerender) {
+  // This test is for the old implementation of the task manager. We must
+  // explicitly disable the new one.
+  task_manager::browsertest_util::EnableOldTaskManager();
+
   const base::string16 any_prerender = MatchTaskManagerPrerender("*");
   const base::string16 any_tab = MatchTaskManagerTab("*");
   const base::string16 original = MatchTaskManagerTab("Preloader");
@@ -2521,6 +2537,10 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, OpenTaskManagerBeforePrerender) {
 }
 
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, OpenTaskManagerAfterPrerender) {
+  // This test is for the old implementation of the task manager. We must
+  // explicitly disable the new one.
+  task_manager::browsertest_util::EnableOldTaskManager();
+
   const base::string16 any_prerender = MatchTaskManagerPrerender("*");
   const base::string16 any_tab = MatchTaskManagerTab("*");
   const base::string16 original = MatchTaskManagerTab("Preloader");
@@ -2555,6 +2575,10 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, OpenTaskManagerAfterPrerender) {
 }
 
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, OpenTaskManagerAfterSwapIn) {
+  // This test is for the old implementation of the task manager. We must
+  // explicitly disable the new one.
+  task_manager::browsertest_util::EnableOldTaskManager();
+
   const base::string16 any_prerender = MatchTaskManagerPrerender("*");
   const base::string16 any_tab = MatchTaskManagerTab("*");
   const base::string16 final = MatchTaskManagerTab("Prerender Page");
@@ -3028,7 +3052,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderSSLClientCertIframe) {
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderSafeBrowsingTopLevel) {
   GURL url = test_server()->GetURL("files/prerender/prerender_page.html");
   GetFakeSafeBrowsingDatabaseManager()->SetThreatTypeForUrl(
-      url, SB_THREAT_TYPE_URL_MALWARE);
+      url, safe_browsing::SB_THREAT_TYPE_URL_MALWARE);
   PrerenderTestURL("files/prerender/prerender_page.html",
                    FINAL_STATUS_SAFE_BROWSING, 0);
 }
@@ -3038,7 +3062,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
                        PrerenderSafeBrowsingServerRedirect) {
   GURL url = test_server()->GetURL("files/prerender/prerender_page.html");
   GetFakeSafeBrowsingDatabaseManager()->SetThreatTypeForUrl(
-      url, SB_THREAT_TYPE_URL_MALWARE);
+      url, safe_browsing::SB_THREAT_TYPE_URL_MALWARE);
   PrerenderTestURL(CreateServerRedirect("files/prerender/prerender_page.html"),
                    FINAL_STATUS_SAFE_BROWSING,
                    0);
@@ -3049,7 +3073,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
                        PrerenderSafeBrowsingClientRedirect) {
   GURL url = test_server()->GetURL("files/prerender/prerender_page.html");
   GetFakeSafeBrowsingDatabaseManager()->SetThreatTypeForUrl(
-      url, SB_THREAT_TYPE_URL_MALWARE);
+      url, safe_browsing::SB_THREAT_TYPE_URL_MALWARE);
   PrerenderTestURL(CreateClientRedirect("files/prerender/prerender_page.html"),
                    FINAL_STATUS_SAFE_BROWSING,
                    1);
@@ -3059,7 +3083,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest,
 IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderSafeBrowsingSubresource) {
   GURL image_url = test_server()->GetURL("files/prerender/image.jpeg");
   GetFakeSafeBrowsingDatabaseManager()->SetThreatTypeForUrl(
-      image_url, SB_THREAT_TYPE_URL_MALWARE);
+      image_url, safe_browsing::SB_THREAT_TYPE_URL_MALWARE);
   std::vector<net::SpawnedTestServer::StringPair> replacement_text;
   replacement_text.push_back(
       std::make_pair("REPLACE_WITH_IMAGE_URL", image_url.spec()));
@@ -3078,7 +3102,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderBrowserTest, PrerenderSafeBrowsingIframe) {
   GURL iframe_url = test_server()->GetURL(
       "files/prerender/prerender_embedded_content.html");
   GetFakeSafeBrowsingDatabaseManager()->SetThreatTypeForUrl(
-      iframe_url, SB_THREAT_TYPE_URL_MALWARE);
+      iframe_url, safe_browsing::SB_THREAT_TYPE_URL_MALWARE);
   std::vector<net::SpawnedTestServer::StringPair> replacement_text;
   replacement_text.push_back(
       std::make_pair("REPLACE_WITH_URL", iframe_url.spec()));
@@ -3441,6 +3465,11 @@ class PrerenderBrowserTestWithExtensions : public PrerenderBrowserTest,
   void TearDownInProcessBrowserTestFixture() override {
     PrerenderBrowserTest::TearDownInProcessBrowserTestFixture();
     ExtensionApiTest::TearDownInProcessBrowserTestFixture();
+  }
+
+  void TearDownOnMainThread() override {
+    PrerenderBrowserTest::TearDownOnMainThread();
+    ExtensionApiTest::TearDownOnMainThread();
   }
 
   void SetUpOnMainThread() override {
@@ -3929,8 +3958,7 @@ class PrerenderIncognitoBrowserTest : public PrerenderBrowserTest {
  public:
   void SetUpOnMainThread() override {
     Profile* normal_profile = current_browser()->profile();
-    set_browser(ui_test_utils::OpenURLOffTheRecord(
-        normal_profile, GURL("about:blank")));
+    set_browser(OpenURLOffTheRecord(normal_profile, GURL("about:blank")));
     PrerenderBrowserTest::SetUpOnMainThread();
   }
 };
@@ -4044,7 +4072,7 @@ IN_PROC_BROWSER_TEST_F(PrerenderOmniboxBrowserTest,
 }
 
 // Can't run tests with NaCl plugins if built with DISABLE_NACL.
-#if !defined(DISABLE_NACL)
+#if !defined(DISABLE_NACL) && !defined(DISABLE_NACL_BROWSERTESTS)
 class PrerenderBrowserTestWithNaCl : public PrerenderBrowserTest {
  public:
   PrerenderBrowserTestWithNaCl() {}

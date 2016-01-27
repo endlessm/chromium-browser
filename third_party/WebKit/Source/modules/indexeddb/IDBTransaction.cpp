@@ -29,6 +29,8 @@
 #include "bindings/core/v8/ExceptionState.h"
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "bindings/core/v8/V8PerIsolateData.h"
+#include "core/dom/DOMException.h"
+#include "core/dom/ExceptionCode.h"
 #include "core/dom/ExecutionContext.h"
 #include "core/events/EventQueue.h"
 #include "core/inspector/ScriptCallStack.h"
@@ -90,9 +92,6 @@ IDBTransaction::IDBTransaction(ScriptState* scriptState, int64_t id, const HashS
     , m_objectStoreNames(objectStoreNames)
     , m_openDBRequest(openDBRequest)
     , m_mode(mode)
-    , m_state(Active)
-    , m_hasPendingActivity(true)
-    , m_contextStopped(false)
     , m_previousMetadata(previousMetadata)
 {
     if (mode == WebIDBTransactionModeVersionChange) {
@@ -124,7 +123,7 @@ DEFINE_TRACE(IDBTransaction)
     ActiveDOMObject::trace(visitor);
 }
 
-void IDBTransaction::setError(DOMError* error)
+void IDBTransaction::setError(DOMException* error)
 {
     ASSERT(m_state != Finished);
     ASSERT(error);
@@ -212,11 +211,9 @@ void IDBTransaction::abort(ExceptionState& exceptionState)
     if (m_contextStopped)
         return;
 
-    while (!m_requestList.isEmpty()) {
-        IDBRequest* request = *m_requestList.begin();
-        m_requestList.remove(request);
+    for (IDBRequest* request : m_requestList)
         request->abort();
-    }
+    m_requestList.clear();
 
     if (backendDB())
         backendDB()->abort(m_id);
@@ -236,7 +233,7 @@ void IDBTransaction::unregisterRequest(IDBRequest* request)
     m_requestList.remove(request);
 }
 
-void IDBTransaction::onAbort(DOMError* error)
+void IDBTransaction::onAbort(DOMException* error)
 {
     IDB_TRACE("IDBTransaction::onAbort");
     if (m_contextStopped) {
@@ -251,17 +248,16 @@ void IDBTransaction::onAbort(DOMError* error)
 
         // Abort was not triggered by front-end, so outstanding requests must
         // be aborted now.
-        while (!m_requestList.isEmpty()) {
-            IDBRequest* request = *m_requestList.begin();
-            m_requestList.remove(request);
+        for (IDBRequest* request : m_requestList)
             request->abort();
-        }
+        m_requestList.clear();
+
         m_state = Finishing;
     }
 
     if (isVersionChange()) {
-        for (IDBObjectStoreMetadataMap::iterator it = m_objectStoreCleanupMap.begin(); it != m_objectStoreCleanupMap.end(); ++it)
-            it->key->setMetadata(it->value);
+        for (auto& it : m_objectStoreCleanupMap)
+            it.key->setMetadata(it.value);
         m_database->setMetadata(m_previousMetadata);
         m_database->close();
     }
@@ -350,7 +346,7 @@ ExecutionContext* IDBTransaction::executionContext() const
     return ActiveDOMObject::executionContext();
 }
 
-bool IDBTransaction::dispatchEvent(PassRefPtrWillBeRawPtr<Event> event)
+bool IDBTransaction::dispatchEventInternal(PassRefPtrWillBeRawPtr<Event> event)
 {
     IDB_TRACE("IDBTransaction::dispatchEvent");
     if (m_contextStopped || !executionContext()) {
@@ -364,11 +360,11 @@ bool IDBTransaction::dispatchEvent(PassRefPtrWillBeRawPtr<Event> event)
     m_state = Finished;
 
     // Break reference cycles.
-    for (IDBObjectStoreMap::iterator it = m_objectStoreMap.begin(); it != m_objectStoreMap.end(); ++it)
-        it->value->transactionFinished();
+    for (auto& it : m_objectStoreMap)
+        it.value->transactionFinished();
     m_objectStoreMap.clear();
-    for (IDBObjectStoreSet::iterator it = m_deletedObjectStores.begin(); it != m_deletedObjectStores.end(); ++it)
-        (*it)->transactionFinished();
+    for (auto& it : m_deletedObjectStores)
+        it->transactionFinished();
     m_deletedObjectStores.clear();
 
     WillBeHeapVector<RefPtrWillBeMember<EventTarget>> targets;

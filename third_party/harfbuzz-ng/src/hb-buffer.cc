@@ -91,6 +91,11 @@ hb_buffer_t::enlarge (unsigned int size)
 {
   if (unlikely (in_error))
     return false;
+  if (unlikely (size > max_len))
+  {
+    in_error = true;
+    return false;
+  }
 
   unsigned int new_allocated = allocated;
   hb_glyph_position_t *new_pos = NULL;
@@ -198,6 +203,7 @@ hb_buffer_t::clear (void)
 
   hb_segment_properties_t default_props = HB_SEGMENT_PROPERTIES_DEFAULT;
   props = default_props;
+  scratch_flags = HB_BUFFER_SCRATCH_FLAG_DEFAULT;
 
   content_type = HB_BUFFER_CONTENT_TYPE_INVALID;
   in_error = false;
@@ -704,7 +710,7 @@ void hb_buffer_t::deallocate_var_all (void)
  *
  * Return value: (transfer full)
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_buffer_t *
 hb_buffer_create (void)
@@ -713,6 +719,8 @@ hb_buffer_create (void)
 
   if (!(buffer = hb_object_create<hb_buffer_t> ()))
     return hb_buffer_get_empty ();
+
+  buffer->max_len = HB_BUFFER_MAX_LEN_DEFAULT;
 
   buffer->reset ();
 
@@ -726,7 +734,7 @@ hb_buffer_create (void)
  *
  * Return value: (transfer full):
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_buffer_t *
 hb_buffer_get_empty (void)
@@ -738,6 +746,8 @@ hb_buffer_get_empty (void)
     HB_BUFFER_FLAG_DEFAULT,
     HB_BUFFER_CLUSTER_LEVEL_DEFAULT,
     HB_BUFFER_REPLACEMENT_CODEPOINT_DEFAULT,
+    HB_BUFFER_SCRATCH_FLAG_DEFAULT,
+    HB_BUFFER_MAX_LEN_DEFAULT,
 
     HB_BUFFER_CONTENT_TYPE_INVALID,
     HB_SEGMENT_PROPERTIES_DEFAULT,
@@ -759,7 +769,7 @@ hb_buffer_get_empty (void)
  *
  * Return value: (transfer full):
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_buffer_t *
 hb_buffer_reference (hb_buffer_t *buffer)
@@ -773,7 +783,7 @@ hb_buffer_reference (hb_buffer_t *buffer)
  *
  * 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 void
 hb_buffer_destroy (hb_buffer_t *buffer)
@@ -800,7 +810,7 @@ hb_buffer_destroy (hb_buffer_t *buffer)
  *
  * Return value: 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_bool_t
 hb_buffer_set_user_data (hb_buffer_t        *buffer,
@@ -821,7 +831,7 @@ hb_buffer_set_user_data (hb_buffer_t        *buffer,
  *
  * Return value: 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 void *
 hb_buffer_get_user_data (hb_buffer_t        *buffer,
@@ -871,7 +881,7 @@ hb_buffer_get_content_type (hb_buffer_t *buffer)
  *
  * 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 void
 hb_buffer_set_unicode_funcs (hb_buffer_t        *buffer,
@@ -897,7 +907,7 @@ hb_buffer_set_unicode_funcs (hb_buffer_t        *buffer,
  *
  * Return value: 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_unicode_funcs_t *
 hb_buffer_get_unicode_funcs (hb_buffer_t        *buffer)
@@ -912,7 +922,7 @@ hb_buffer_get_unicode_funcs (hb_buffer_t        *buffer)
  *
  * 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 void
 hb_buffer_set_direction (hb_buffer_t    *buffer,
@@ -933,7 +943,7 @@ hb_buffer_set_direction (hb_buffer_t    *buffer,
  *
  * Return value: 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_direction_t
 hb_buffer_get_direction (hb_buffer_t    *buffer)
@@ -948,7 +958,7 @@ hb_buffer_get_direction (hb_buffer_t    *buffer)
  *
  * 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 void
 hb_buffer_set_script (hb_buffer_t *buffer,
@@ -968,7 +978,7 @@ hb_buffer_set_script (hb_buffer_t *buffer,
  *
  * Return value: 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_script_t
 hb_buffer_get_script (hb_buffer_t *buffer)
@@ -983,7 +993,7 @@ hb_buffer_get_script (hb_buffer_t *buffer)
  *
  * 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 void
 hb_buffer_set_language (hb_buffer_t   *buffer,
@@ -1003,7 +1013,7 @@ hb_buffer_set_language (hb_buffer_t   *buffer,
  *
  * Return value: (transfer none):
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_language_t
 hb_buffer_get_language (hb_buffer_t *buffer)
@@ -1160,7 +1170,7 @@ hb_buffer_get_replacement_codepoint (hb_buffer_t    *buffer)
  *
  * 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 void
 hb_buffer_reset (hb_buffer_t *buffer)
@@ -1191,7 +1201,7 @@ hb_buffer_clear_contents (hb_buffer_t *buffer)
  *
  * Return value: 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_bool_t
 hb_buffer_pre_allocate (hb_buffer_t *buffer, unsigned int size)
@@ -1207,7 +1217,7 @@ hb_buffer_pre_allocate (hb_buffer_t *buffer, unsigned int size)
  *
  * Return value: 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_bool_t
 hb_buffer_allocation_successful (hb_buffer_t  *buffer)
@@ -1223,7 +1233,7 @@ hb_buffer_allocation_successful (hb_buffer_t  *buffer)
  *
  * 
  *
- * Since: 1.0
+ * Since: 0.9.7
  **/
 void
 hb_buffer_add (hb_buffer_t    *buffer,
@@ -1243,7 +1253,7 @@ hb_buffer_add (hb_buffer_t    *buffer,
  *
  * Return value: 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_bool_t
 hb_buffer_set_length (hb_buffer_t  *buffer,
@@ -1282,7 +1292,7 @@ hb_buffer_set_length (hb_buffer_t  *buffer,
  *
  * Return value: buffer length.
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 unsigned int
 hb_buffer_get_length (hb_buffer_t *buffer)
@@ -1300,7 +1310,7 @@ hb_buffer_get_length (hb_buffer_t *buffer)
  *
  * Return value: (transfer none) (array length=length): buffer glyph information array.
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_glyph_info_t *
 hb_buffer_get_glyph_infos (hb_buffer_t  *buffer,
@@ -1322,7 +1332,7 @@ hb_buffer_get_glyph_infos (hb_buffer_t  *buffer,
  *
  * Return value: (transfer none) (array length=length): buffer glyph position array.
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 hb_glyph_position_t *
 hb_buffer_get_glyph_positions (hb_buffer_t  *buffer,
@@ -1343,7 +1353,7 @@ hb_buffer_get_glyph_positions (hb_buffer_t  *buffer,
  *
  * Reverses buffer contents.
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 void
 hb_buffer_reverse (hb_buffer_t *buffer)
@@ -1357,9 +1367,9 @@ hb_buffer_reverse (hb_buffer_t *buffer)
  * @start: start index.
  * @end: end index.
  *
- * Reverses buffer contents between  start to end.
+ * Reverses buffer contents between start to end.
  *
- * Since: 1.0
+ * Since: 0.9.41
  **/
 void
 hb_buffer_reverse_range (hb_buffer_t *buffer,
@@ -1376,7 +1386,7 @@ hb_buffer_reverse_range (hb_buffer_t *buffer,
  * reversed, then each cluster (consecutive items having the
  * same cluster number) are reversed again.
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 void
 hb_buffer_reverse_clusters (hb_buffer_t *buffer)
@@ -1493,7 +1503,7 @@ hb_buffer_add_utf (hb_buffer_t  *buffer,
  *
  * 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 void
 hb_buffer_add_utf8 (hb_buffer_t  *buffer,
@@ -1515,7 +1525,7 @@ hb_buffer_add_utf8 (hb_buffer_t  *buffer,
  *
  * 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 void
 hb_buffer_add_utf16 (hb_buffer_t    *buffer,
@@ -1537,7 +1547,7 @@ hb_buffer_add_utf16 (hb_buffer_t    *buffer,
  *
  * 
  *
- * Since: 1.0
+ * Since: 0.9.2
  **/
 void
 hb_buffer_add_utf32 (hb_buffer_t    *buffer,
@@ -1636,7 +1646,7 @@ normalize_glyphs_cluster (hb_buffer_t *buffer,
     pos[end - 1].x_advance = total_x_advance;
     pos[end - 1].y_advance = total_y_advance;
 
-    hb_bubble_sort (buffer->info + start, end - start - 1, compare_info_codepoint, buffer->pos + start);
+    hb_stable_sort (buffer->info + start, end - start - 1, compare_info_codepoint, buffer->pos + start);
   } else {
     /* Transfer all cluster advance to the first glyph. */
     pos[start].x_advance += total_x_advance;
@@ -1645,7 +1655,7 @@ normalize_glyphs_cluster (hb_buffer_t *buffer,
       pos[i].x_offset -= total_x_advance;
       pos[i].y_offset -= total_y_advance;
     }
-    hb_bubble_sort (buffer->info + start + 1, end - start - 1, compare_info_codepoint, buffer->pos + start + 1);
+    hb_stable_sort (buffer->info + start + 1, end - start - 1, compare_info_codepoint, buffer->pos + start + 1);
   }
 }
 
@@ -1677,4 +1687,25 @@ hb_buffer_normalize_glyphs (hb_buffer_t *buffer)
       start = end;
     }
   normalize_glyphs_cluster (buffer, start, end, backward);
+}
+
+void
+hb_buffer_t::sort (unsigned int start, unsigned int end, int(*compar)(const hb_glyph_info_t *, const hb_glyph_info_t *))
+{
+  assert (!have_positions);
+  for (unsigned int i = start + 1; i < end; i++)
+  {
+    unsigned int j = i;
+    while (j > start && compar (&info[j - 1], &info[i]) > 0)
+      j--;
+    if (i == j)
+      continue;
+    /* Move item i to occupy place for item j, shift what's in between. */
+    merge_clusters (j, i + 1);
+    {
+      hb_glyph_info_t t = info[i];
+      memmove (&info[j + 1], &info[j], (i - j) * sizeof (hb_glyph_info_t));
+      info[j] = t;
+    }
+  }
 }

@@ -108,7 +108,7 @@ bool GetRequestHeader(const HttpRequestHeaderMap& map,
                       std::string* value) {
   for (HttpRequestHeaderMap::const_iterator it = map.begin();
        it != map.end(); ++it) {
-    if (!base::strcasecmp(it->first.c_str(), header)) {
+    if (base::EqualsCaseInsensitiveASCII(it->first, header)) {
       *value = it->second;
       return true;
     }
@@ -131,9 +131,8 @@ void SafeBase64Encode(const std::string& input_value, std::string* output) {
 class SdchResponseHandler {
  public:
   // Do initial preparation so that SDCH requests can be handled.
-  explicit SdchResponseHandler(std::string domain)
-      : cache_sdch_response_(false),
-        weak_ptr_factory_(this) {
+  explicit SdchResponseHandler(const std::string& domain)
+      : cache_sdch_response_(false), weak_ptr_factory_(this) {
     // Dictionary
     sdch_dictionary_contents_ = "Domain: ";
     sdch_dictionary_contents_ += domain;
@@ -170,7 +169,7 @@ class SdchResponseHandler {
       return false;
     base::StringTokenizer tokenizer(value, " ,");
     while (tokenizer.GetNext()) {
-      if (base::strcasecmp(tokenizer.token().c_str(), "sdch"))
+      if (base::EqualsCaseInsensitiveASCII(tokenizer.token(), "sdch"))
         return true;
     }
     return false;
@@ -600,7 +599,7 @@ class SdchBrowserTest : public InProcessBrowserTest,
     test_server_.RegisterRequestHandler(
         base::Bind(&SdchResponseHandler::HandleRequest,
                    base::Unretained(&response_handler_)));
-    CHECK(test_server_.InitializeAndWaitUntilReady());
+    CHECK(test_server_.Start());
     url_request_context_getter_ = browser()->profile()->GetRequestContext();
 
     content::BrowserThread::PostTask(
@@ -641,11 +640,11 @@ class SdchBrowserTest : public InProcessBrowserTest,
   void OnURLFetchComplete(const net::URLFetcher* source) override {
     url_fetch_complete_ = true;
     if (waiting_)
-      base::MessageLoopForUI::current()->Quit();
+      base::MessageLoopForUI::current()->QuitWhenIdle();
   }
 
   SdchResponseHandler response_handler_;
-  net::test_server::EmbeddedTestServer test_server_;
+  net::EmbeddedTestServer test_server_;
   scoped_refptr<net::URLRequestContextGetter> url_request_context_getter_;
   scoped_ptr<net::URLFetcher> fetcher_;
   bool url_fetch_complete_;

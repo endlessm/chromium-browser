@@ -61,6 +61,8 @@ PassOwnPtr<ResourceRequest> ResourceRequest::adopt(PassOwnPtr<CrossThreadResourc
     request->setFrameType(data->m_frameType);
     request->setFetchRequestMode(data->m_fetchRequestMode);
     request->setFetchCredentialsMode(data->m_fetchCredentialsMode);
+    request->setFetchRedirectMode(data->m_fetchRedirectMode);
+    request->setLoFiState(data->m_loFiState);
     request->m_referrerPolicy = data->m_referrerPolicy;
     request->m_didSetHTTPReferrer = data->m_didSetHTTPReferrer;
     request->m_checkForBrowserSideNavigation = data->m_checkForBrowserSideNavigation;
@@ -100,6 +102,8 @@ PassOwnPtr<CrossThreadResourceRequestData> ResourceRequest::copyData() const
     data->m_frameType = m_frameType;
     data->m_fetchRequestMode = m_fetchRequestMode;
     data->m_fetchCredentialsMode = m_fetchCredentialsMode;
+    data->m_fetchRedirectMode = m_fetchRedirectMode;
+    data->m_loFiState = m_loFiState;
     data->m_referrerPolicy = m_referrerPolicy;
     data->m_didSetHTTPReferrer = m_didSetHTTPReferrer;
     data->m_checkForBrowserSideNavigation = m_checkForBrowserSideNavigation;
@@ -267,12 +271,12 @@ void ResourceRequest::clearHTTPUserAgent()
     m_httpHeaderFields.remove("User-Agent");
 }
 
-FormData* ResourceRequest::httpBody() const
+EncodedFormData* ResourceRequest::httpBody() const
 {
     return m_httpBody.get();
 }
 
-void ResourceRequest::setHTTPBody(PassRefPtr<FormData> httpBody)
+void ResourceRequest::setHTTPBody(PassRefPtr<EncodedFormData> httpBody)
 {
     m_httpBody = httpBody;
 }
@@ -343,8 +347,8 @@ bool equalIgnoringHeaderFields(const ResourceRequest& a, const ResourceRequest& 
     if (a.referrerPolicy() != b.referrerPolicy())
         return false;
 
-    FormData* formDataA = a.httpBody();
-    FormData* formDataB = b.httpBody();
+    EncodedFormData* formDataA = a.httpBody();
+    EncodedFormData* formDataB = b.httpBody();
 
     if (!formDataA)
         return !formDataB;
@@ -444,13 +448,16 @@ void ResourceRequest::initialize(const KURL& url)
     // with CORS modes in updateRequestForAccessControl if we're called in a
     // context which requires it.
     m_fetchCredentialsMode = WebURLRequest::FetchCredentialsModeSameOrigin;
+    m_fetchRedirectMode = WebURLRequest::FetchRedirectModeFollow;
     m_referrerPolicy = ReferrerPolicyDefault;
+    m_loFiState = WebURLRequest::LoFiUnspecified;
     m_didSetHTTPReferrer = false;
     m_checkForBrowserSideNavigation = true;
     m_uiStartTime = 0;
     m_originatesFromReservedIPRange = false;
     m_inputPerfMetricReportPolicy = InputToLoadPerfMetricReportPolicy::NoReport;
     m_followedRedirect = false;
+    m_requestorOrigin = SecurityOrigin::createUnique();
 }
 
 } // namespace blink

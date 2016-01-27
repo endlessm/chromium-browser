@@ -47,7 +47,7 @@
 #include "core/dom/Document.h"
 #include "core/dom/Element.h"
 #include "core/dom/Text.h"
-#include "core/editing/MarkupAccumulator.h"
+#include "core/editing/serializers/MarkupAccumulator.h"
 #include "core/fetch/FontResource.h"
 #include "core/fetch/ImageResource.h"
 #include "core/frame/LocalFrame.h"
@@ -103,15 +103,15 @@ class SerializerMarkupAccumulator : public MarkupAccumulator {
     STACK_ALLOCATED();
 public:
     SerializerMarkupAccumulator(PageSerializer*, const Document&, WillBeHeapVector<RawPtrWillBeMember<Node>>&);
-    virtual ~SerializerMarkupAccumulator();
+    ~SerializerMarkupAccumulator() override;
 
 protected:
-    virtual void appendText(StringBuilder& out, Text&) override;
-    virtual bool shouldIgnoreAttribute(const Attribute&) override;
-    virtual void appendElement(StringBuilder& out, Element&, Namespaces*) override;
-    virtual void appendCustomAttributes(StringBuilder& out, const Element&, Namespaces*) override;
-    virtual void appendStartTag(Node&, Namespaces* = nullptr) override;
-    virtual void appendEndTag(const Element&) override;
+    void appendText(StringBuilder& out, Text&) override;
+    bool shouldIgnoreAttribute(const Attribute&) override;
+    void appendElement(StringBuilder& out, Element&, Namespaces*) override;
+    void appendCustomAttributes(StringBuilder& out, const Element&, Namespaces*) override;
+    void appendStartTag(Node&, Namespaces* = nullptr) override;
+    void appendEndTag(const Element&) override;
 
     const Document& document();
 
@@ -164,7 +164,7 @@ void SerializerMarkupAccumulator::appendElement(StringBuilder& result, Element& 
         result.appendLiteral("<meta http-equiv=\"Content-Type\" content=\"");
         MarkupFormatter::appendAttributeValue(result, m_document->suggestedMIMEType(), m_document->isHTMLDocument());
         result.appendLiteral("; charset=");
-        MarkupFormatter::appendAttributeValue(result, m_document->charset(), m_document->isHTMLDocument());
+        MarkupFormatter::appendAttributeValue(result, m_document->characterSet(), m_document->isHTMLDocument());
         if (m_document->isXHTMLDocument())
             result.appendLiteral("\" />");
         else
@@ -253,9 +253,7 @@ void LinkChangeSerializerMarkupAccumulator::appendElement(StringBuilder& result,
         // Add MOTW (Mark of the Web) declaration before html tag.
         // See http://msdn2.microsoft.com/en-us/library/ms537628(VS.85).aspx.
         result.append('\n');
-        MarkupFormatter::appendComment(result, String::format(" saved from url=(%04d)%s ",
-            static_cast<int>(document().url().string().utf8().length()),
-            document().url().string().utf8().data()));
+        MarkupFormatter::appendComment(result, PageSerializer::markOfTheWebDeclaration(document().url()));
         result.append('\n');
     }
 
@@ -346,7 +344,7 @@ void PageSerializer::serializeFrame(LocalFrame* frame)
         text = serializeNodes<EditingStrategy>(accumulator, document, IncludeNode);
     }
 
-    CString frameHTML = document.encoding().normalizeAndEncode(text, WTF::EntitiesForUnencodables);
+    CString frameHTML = document.encoding().encode(text, WTF::EntitiesForUnencodables);
     m_resources->append(SerializedResource(url, document.suggestedMIMEType(), SharedBuffer::create(frameHTML.data(), frameHTML.length())));
     m_resourceURLs.add(url);
 
@@ -389,6 +387,8 @@ void PageSerializer::serializeFrame(LocalFrame* frame)
     }
 
     for (Frame* childFrame = frame->tree().firstChild(); childFrame; childFrame = childFrame->tree().nextSibling()) {
+        // TODO(lukasza): This causes incomplete MHTML for OOPIFs.
+        // (crbug.com/538766)
         if (childFrame->isLocalFrame())
             serializeFrame(toLocalFrame(childFrame));
     }
@@ -397,6 +397,10 @@ void PageSerializer::serializeFrame(LocalFrame* frame)
 void PageSerializer::serializeCSSStyleSheet(CSSStyleSheet& styleSheet, const KURL& url)
 {
     StringBuilder cssText;
+    cssText.appendLiteral("@charset \"");
+    cssText.append(styleSheet.contents()->charset().lower());
+    cssText.appendLiteral("\";\n\n");
+
     for (unsigned i = 0; i < styleSheet.length(); ++i) {
         CSSRule* rule = styleSheet.item(i);
         String itemText = rule->cssText();
@@ -411,11 +415,10 @@ void PageSerializer::serializeCSSStyleSheet(CSSStyleSheet& styleSheet, const KUR
     }
 
     if (url.isValid() && !m_resourceURLs.contains(url)) {
-        // FIXME: We should check whether a charset has been specified and if none was found add one.
         WTF::TextEncoding textEncoding(styleSheet.contents()->charset());
         ASSERT(textEncoding.isValid());
         String textString = cssText.toString();
-        CString text = textEncoding.normalizeAndEncode(textString, WTF::EntitiesForUnencodables);
+        CString text = textEncoding.encode(textString, WTF::EntitiesForUnencodables);
         m_resources->append(SerializedResource(url, String("text/css"), SharedBuffer::create(text.data(), text.length())));
         m_resourceURLs.add(url);
     }
@@ -530,8 +533,9 @@ void PageSerializer::retrieveResourcesForCSSValue(CSSValue* cssValue, Document& 
 {
     if (cssValue->isImageValue()) {
         CSSImageValue* imageValue = toCSSImageValue(cssValue);
-        StyleImage* styleImage = imageValue->cachedOrPendingImage();
-        // Non cached-images are just place-holders and do not contain data.
+        if (imageValue->isCachePending())
+            return;
+        StyleImage* styleImage = imageValue->cachedImage();
         if (!styleImage || !styleImage->isImageResource())
             return;
 
@@ -575,6 +579,28 @@ KURL PageSerializer::urlForBlankFrame(LocalFrame* frame)
 PageSerializer::Delegate* PageSerializer::delegate()
 {
     return m_delegate.get();
+}
+
+// Returns MOTW (Mark of the Web) declaration before html tag which is in
+// HTML comment, e.g. "<!-- saved from url=(%04d)%s -->"
+// See http://msdn2.microsoft.com/en-us/library/ms537628(VS.85).aspx.
+String PageSerializer::markOfTheWebDeclaration(const KURL& url)
+{
+    StringBuilder builder;
+    bool emitsMinus = false;
+    CString orignalUrl = url.string().ascii();
+    for (const char* string = orignalUrl.data(); *string; ++string) {
+        const char ch = *string;
+        if (ch == '-' && emitsMinus) {
+            builder.append("%2D");
+            emitsMinus = false;
+            continue;
+        }
+        emitsMinus = ch == '-';
+        builder.append(ch);
+    }
+    CString escapedUrl = builder.toString().ascii();
+    return String::format("saved from url=(%04d)%s", static_cast<int>(escapedUrl.length()), escapedUrl.data());
 }
 
 } // namespace blink

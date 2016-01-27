@@ -29,6 +29,7 @@
 
 #include "talk/app/webrtc/webrtcsdp.h"
 #include "talk/session/media/mediasession.h"
+#include "webrtc/base/arraysize.h"
 #include "webrtc/base/stringencode.h"
 
 using rtc::scoped_ptr;
@@ -44,7 +45,7 @@ static const char* kSupportedTypes[] = {
 
 static bool IsTypeSupported(const std::string& type) {
   bool type_supported = false;
-  for (size_t i = 0; i < ARRAY_SIZE(kSupportedTypes); ++i) {
+  for (size_t i = 0; i < arraysize(kSupportedTypes); ++i) {
     if (kSupportedTypes[i] == type) {
       type_supported = true;
       break;
@@ -74,11 +75,6 @@ const int JsepSessionDescription::kMaxVideoCodecWidth = 1920;
 const int JsepSessionDescription::kMaxVideoCodecHeight = 1080;
 #endif
 const int JsepSessionDescription::kDefaultVideoCodecPreference = 1;
-
-SessionDescriptionInterface* CreateSessionDescription(const std::string& type,
-                                                      const std::string& sdp) {
-  return CreateSessionDescription(type, sdp, NULL);
-}
 
 SessionDescriptionInterface* CreateSessionDescription(const std::string& type,
                                                       const std::string& sdp,
@@ -130,7 +126,7 @@ bool JsepSessionDescription::AddCandidate(
   }
   if (mediasection_index >= number_of_mediasections())
     return false;
-  const std::string content_name =
+  const std::string& content_name =
       description_->contents()[mediasection_index].name;
   const cricket::TransportInfo* transport_info =
       description_->GetTransportInfoByName(content_name);

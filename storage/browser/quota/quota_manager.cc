@@ -19,6 +19,7 @@
 #include "base/sys_info.h"
 #include "base/task_runner_util.h"
 #include "base/time/time.h"
+#include "base/trace_event/trace_event.h"
 #include "net/base/net_util.h"
 #include "storage/browser/quota/client_usage_tracker.h"
 #include "storage/browser/quota/quota_manager_proxy.h"
@@ -72,6 +73,13 @@ int64 QuotaManager::kMinimumPreserveForSystem = 1024 * kMBytes;
 
 const int QuotaManager::kEvictionIntervalInMilliSeconds =
     30 * kMinutesInMilliSeconds;
+
+const char QuotaManager::kTimeBetweenRepeatedOriginEvictionsHistogram[] =
+    "Quota.TimeBetweenRepeatedOriginEvictions";
+const char QuotaManager::kEvictedOriginAccessedCountHistogram[] =
+    "Quota.EvictedOriginAccessCount";
+const char QuotaManager::kEvictedOriginTimeSinceAccessHistogram[] =
+    "Quota.EvictedOriginTimeSinceAccess";
 
 // Heuristics: assuming average cloud server allows a few Gigs storage
 // on the server side and the storage needs to be shared for user data
@@ -141,20 +149,51 @@ bool InitializeOnDBThread(int64* temporary_quota_override,
 }
 
 bool GetLRUOriginOnDBThread(StorageType type,
-                            std::set<GURL>* exceptions,
+                            const std::set<GURL>& exceptions,
                             SpecialStoragePolicy* policy,
                             GURL* url,
                             QuotaDatabase* database) {
   DCHECK(database);
-  database->GetLRUOrigin(type, *exceptions, policy, url);
+  database->GetLRUOrigin(type, exceptions, policy, url);
   return true;
 }
 
 bool DeleteOriginInfoOnDBThread(const GURL& origin,
                                 StorageType type,
+                                bool is_eviction,
                                 QuotaDatabase* database) {
   DCHECK(database);
-  return database->DeleteOriginInfo(origin, type);
+
+  base::Time now = base::Time::Now();
+
+  if (is_eviction) {
+    QuotaDatabase::OriginInfoTableEntry entry;
+    database->GetOriginInfo(origin, type, &entry);
+    UMA_HISTOGRAM_COUNTS(QuotaManager::kEvictedOriginAccessedCountHistogram,
+                         entry.used_count);
+    UMA_HISTOGRAM_LONG_TIMES(
+        QuotaManager::kEvictedOriginTimeSinceAccessHistogram,
+        now - entry.last_access_time);
+  }
+
+  if (!database->DeleteOriginInfo(origin, type))
+    return false;
+
+  // If the deletion is not due to an eviction, delete the entry in the eviction
+  // table as well due to privacy concerns.
+  if (!is_eviction)
+    return database->DeleteOriginLastEvictionTime(origin, type);
+
+  base::Time last_eviction_time;
+  database->GetOriginLastEvictionTime(origin, type, &last_eviction_time);
+
+  if (last_eviction_time != base::Time()) {
+    UMA_HISTOGRAM_LONG_TIMES(
+        QuotaManager::kTimeBetweenRepeatedOriginEvictionsHistogram,
+        now - last_eviction_time);
+  }
+
+  return database->SetOriginLastEvictionTime(origin, type, now);
 }
 
 bool InitializeTemporaryOriginsInfoOnDBThread(const std::set<GURL>* origins,
@@ -188,6 +227,9 @@ bool UpdateModifiedTimeOnDBThread(const GURL& origin,
 }
 
 int64 CallSystemGetAmountOfFreeDiskSpace(const base::FilePath& profile_path) {
+  // crbug.com/349708
+  TRACE_EVENT0("io", "CallSystemGetAmountOfFreeDiskSpace");
+
   // Ensure the profile path exists.
   if (!base::CreateDirectory(profile_path)) {
     LOG(WARNING) << "Create directory failed for path" << profile_path.value();
@@ -410,6 +452,10 @@ class UsageAndQuotaCallbackDispatcher
   }
 
   void DidGetAvailableSpace(QuotaStatusCode status, int64 space) {
+    // crbug.com/349708
+    TRACE_EVENT0(
+        "io", "UsageAndQuotaCallbackDispatcher::DidGetAvailableSpace");
+
     DCHECK_GE(space, 0);
     if (status_ == kQuotaStatusUnknown || status_ == kQuotaStatusOk)
       status_ = status;
@@ -430,6 +476,9 @@ class UsageAndQuotaCallbackDispatcher
   }
 
   void Completed() override {
+    // crbug.com/349708
+    TRACE_EVENT0("io", "UsageAndQuotaCallbackDispatcher::Completed");
+
     DCHECK(!has_usage_ || usage_and_quota_.usage >= 0);
     DCHECK(!has_global_limited_usage_ ||
            usage_and_quota_.global_limited_usage >= 0);
@@ -472,6 +521,9 @@ class QuotaManager::GetUsageInfoTask : public QuotaTask {
 
  protected:
   void Run() override {
+    // crbug.com/349708
+    TRACE_EVENT0("io", "QuotaManager::GetUsageInfoTask::Run");
+
     remaining_trackers_ = 3;
     // This will populate cached hosts and usage info.
     manager()->GetUsageTracker(kStorageTypeTemporary)->GetGlobalUsage(
@@ -489,6 +541,9 @@ class QuotaManager::GetUsageInfoTask : public QuotaTask {
   }
 
   void Completed() override {
+    // crbug.com/349708
+    TRACE_EVENT0("io", "QuotaManager::GetUsageInfoTask::Completed");
+
     callback_.Run(entries_);
     DeleteSoon();
   }
@@ -534,6 +589,7 @@ class QuotaManager::OriginDataDeleter : public QuotaTask {
                     const GURL& origin,
                     StorageType type,
                     int quota_client_mask,
+                    bool is_eviction,
                     const StatusCallback& callback)
       : QuotaTask(manager),
         origin_(origin),
@@ -542,6 +598,7 @@ class QuotaManager::OriginDataDeleter : public QuotaTask {
         error_count_(0),
         remaining_clients_(-1),
         skipped_clients_(0),
+        is_eviction_(is_eviction),
         callback_(callback),
         weak_factory_(this) {}
 
@@ -566,11 +623,17 @@ class QuotaManager::OriginDataDeleter : public QuotaTask {
 
   void Completed() override {
     if (error_count_ == 0) {
+      // crbug.com/349708
+      TRACE_EVENT0("io", "QuotaManager::OriginDataDeleter::Completed Ok");
+
       // Only remove the entire origin if we didn't skip any client types.
       if (skipped_clients_ == 0)
-        manager()->DeleteOriginFromDatabase(origin_, type_);
+        manager()->DeleteOriginFromDatabase(origin_, type_, is_eviction_);
       callback_.Run(kQuotaStatusOk);
     } else {
+      // crbug.com/349708
+      TRACE_EVENT0("io", "QuotaManager::OriginDataDeleter::Completed Error");
+
       callback_.Run(kQuotaErrorInvalidModification);
     }
     DeleteSoon();
@@ -602,6 +665,7 @@ class QuotaManager::OriginDataDeleter : public QuotaTask {
   int error_count_;
   int remaining_clients_;
   int skipped_clients_;
+  bool is_eviction_;
   StatusCallback callback_;
 
   base::WeakPtrFactory<OriginDataDeleter> weak_factory_;
@@ -640,8 +704,14 @@ class QuotaManager::HostDataDeleter : public QuotaTask {
 
   void Completed() override {
     if (error_count_ == 0) {
+      // crbug.com/349708
+      TRACE_EVENT0("io", "QuotaManager::HostDataDeleter::Completed Ok");
+
       callback_.Run(kQuotaStatusOk);
     } else {
+      // crbug.com/349708
+      TRACE_EVENT0("io", "QuotaManager::HostDataDeleter::Completed Error");
+
       callback_.Run(kQuotaErrorInvalidModification);
     }
     DeleteSoon();
@@ -671,11 +741,10 @@ class QuotaManager::HostDataDeleter : public QuotaTask {
     for (std::set<GURL>::const_iterator p = origins_.begin();
          p != origins_.end();
          ++p) {
-      OriginDataDeleter* deleter =
-          new OriginDataDeleter(
-              manager(), *p, type_, quota_client_mask_,
-              base::Bind(&HostDataDeleter::DidDeleteOriginData,
-                         weak_factory_.GetWeakPtr()));
+      OriginDataDeleter* deleter = new OriginDataDeleter(
+          manager(), *p, type_, quota_client_mask_, false,
+          base::Bind(&HostDataDeleter::DidDeleteOriginData,
+                     weak_factory_.GetWeakPtr()));
       deleter->Start();
     }
   }
@@ -807,14 +876,14 @@ QuotaManager::QuotaManager(
       eviction_disabled_(false),
       io_thread_(io_thread),
       db_thread_(db_thread),
+      is_getting_eviction_origin_(false),
       temporary_quota_initialized_(false),
       temporary_quota_override_(-1),
       desired_available_space_(-1),
       special_storage_policy_(special_storage_policy),
       get_disk_space_fn_(&CallSystemGetAmountOfFreeDiskSpace),
       storage_monitor_(new StorageMonitor(this)),
-      weak_factory_(this) {
-}
+      weak_factory_(this) {}
 
 void QuotaManager::GetUsageInfo(const GetUsageInfoCallback& callback) {
   LazyInitialize();
@@ -925,20 +994,16 @@ void QuotaManager::SetUsageCacheEnabled(QuotaClient::ID client_id,
   GetUsageTracker(type)->SetUsageCacheEnabled(client_id, origin, enabled);
 }
 
-void QuotaManager::DeleteOriginData(
-    const GURL& origin, StorageType type, int quota_client_mask,
-    const StatusCallback& callback) {
-  LazyInitialize();
+void QuotaManager::SetTemporaryStorageEvictionPolicy(
+    scoped_ptr<QuotaEvictionPolicy> policy) {
+  temporary_storage_eviction_policy_ = policy.Pass();
+}
 
-  if (origin.is_empty() || clients_.empty()) {
-    callback.Run(kQuotaStatusOk);
-    return;
-  }
-
-  DCHECK(origin == origin.GetOrigin());
-  OriginDataDeleter* deleter =
-      new OriginDataDeleter(this, origin, type, quota_client_mask, callback);
-  deleter->Start();
+void QuotaManager::DeleteOriginData(const GURL& origin,
+                                    StorageType type,
+                                    int quota_client_mask,
+                                    const StatusCallback& callback) {
+  DeleteOriginDataInternal(origin, type, quota_client_mask, false, callback);
 }
 
 void QuotaManager::DeleteHostData(const std::string& host,
@@ -960,6 +1025,8 @@ void QuotaManager::DeleteHostData(const std::string& host,
 void QuotaManager::GetAvailableSpace(const AvailableSpaceCallback& callback) {
   if (!available_space_callbacks_.Add(callback))
     return;
+  // crbug.com/349708
+  TRACE_EVENT0("io", "QuotaManager::GetAvailableSpace");
 
   PostTaskAndReplyWithResult(db_thread_.get(),
                              FROM_HERE,
@@ -1287,7 +1354,7 @@ void QuotaManager::NotifyStorageAccessedInternal(
     const GURL& origin, StorageType type,
     base::Time accessed_time) {
   LazyInitialize();
-  if (type == kStorageTypeTemporary && !lru_origin_callback_.is_null()) {
+  if (type == kStorageTypeTemporary && is_getting_eviction_origin_) {
     // Record the accessed origins while GetLRUOrigin task is runing
     // to filter out them from eviction.
     access_notified_origins_.insert(origin);
@@ -1354,17 +1421,17 @@ void QuotaManager::StartEviction() {
   temporary_storage_evictor_->Start();
 }
 
-void QuotaManager::DeleteOriginFromDatabase(
-    const GURL& origin, StorageType type) {
+void QuotaManager::DeleteOriginFromDatabase(const GURL& origin,
+                                            StorageType type,
+                                            bool is_eviction) {
   LazyInitialize();
   if (db_disabled_)
     return;
 
   PostTaskAndReplyWithResultForDBThread(
       FROM_HERE,
-      base::Bind(&DeleteOriginInfoOnDBThread, origin, type),
-      base::Bind(&QuotaManager::DidDatabaseWork,
-                 weak_factory_.GetWeakPtr()));
+      base::Bind(&DeleteOriginInfoOnDBThread, origin, type, is_eviction),
+      base::Bind(&QuotaManager::DidDatabaseWork, weak_factory_.GetWeakPtr()));
 }
 
 void QuotaManager::DidOriginDataEvicted(QuotaStatusCode status) {
@@ -1379,6 +1446,24 @@ void QuotaManager::DidOriginDataEvicted(QuotaStatusCode status) {
 
   eviction_context_.evict_origin_data_callback.Run(status);
   eviction_context_.evict_origin_data_callback.Reset();
+}
+
+void QuotaManager::DeleteOriginDataInternal(const GURL& origin,
+                                            StorageType type,
+                                            int quota_client_mask,
+                                            bool is_eviction,
+                                            const StatusCallback& callback) {
+  LazyInitialize();
+
+  if (origin.is_empty() || clients_.empty()) {
+    callback.Run(kQuotaStatusOk);
+    return;
+  }
+
+  DCHECK(origin == origin.GetOrigin());
+  OriginDataDeleter* deleter = new OriginDataDeleter(
+      this, origin, type, quota_client_mask, is_eviction, callback);
+  deleter->Start();
 }
 
 void QuotaManager::ReportHistogram() {
@@ -1440,9 +1525,99 @@ void QuotaManager::DidGetPersistentGlobalUsageForHistogram(
                        unlimited_origins);
 }
 
-void QuotaManager::GetLRUOrigin(
-    StorageType type,
-    const GetLRUOriginCallback& callback) {
+std::set<GURL> QuotaManager::GetEvictionOriginExceptions() {
+  std::set<GURL> exceptions;
+  for (const auto& p : origins_in_use_) {
+    if (p.second > 0)
+      exceptions.insert(p.first);
+  }
+
+  for (const auto& p : origins_in_error_) {
+    if (p.second > QuotaManager::kThresholdOfErrorsToBeBlacklisted)
+      exceptions.insert(p.first);
+  }
+
+  return exceptions;
+}
+
+void QuotaManager::DidGetEvictionOrigin(const GetOriginCallback& callback,
+                                        const GURL& origin) {
+  // Make sure the returned origin is (still) not in the origin_in_use_ set
+  // and has not been accessed since we posted the task.
+  if (ContainsKey(origins_in_use_, origin) ||
+      ContainsKey(access_notified_origins_, origin)) {
+    callback.Run(GURL());
+  } else {
+    callback.Run(origin);
+  }
+  access_notified_origins_.clear();
+
+  is_getting_eviction_origin_ = false;
+}
+
+void QuotaManager::GetEvictionOrigin(StorageType type,
+                                     int64 global_quota,
+                                     const GetOriginCallback& callback) {
+  LazyInitialize();
+  // This must not be called while there's an in-flight task.
+  DCHECK(!is_getting_eviction_origin_);
+  is_getting_eviction_origin_ = true;
+
+  GetOriginCallback did_get_origin_callback =
+      base::Bind(&QuotaManager::DidGetEvictionOrigin,
+                 weak_factory_.GetWeakPtr(), callback);
+
+  if (type == kStorageTypeTemporary && temporary_storage_eviction_policy_) {
+    std::map<GURL, int64> usage_map;
+    // The cached origins are populated by the prior call to
+    // GetUsageAndQuotaForEviction().
+    GetUsageTracker(kStorageTypeTemporary)->GetCachedOriginsUsage(&usage_map);
+
+    temporary_storage_eviction_policy_->GetEvictionOrigin(
+        special_storage_policy_, GetEvictionOriginExceptions(), usage_map,
+        global_quota, did_get_origin_callback);
+
+    return;
+  }
+
+  // TODO(calamity): convert LRU origin retrieval into a QuotaEvictionPolicy.
+  GetLRUOrigin(type, did_get_origin_callback);
+}
+
+void QuotaManager::EvictOriginData(const GURL& origin,
+                                   StorageType type,
+                                   const EvictOriginDataCallback& callback) {
+  DCHECK(io_thread_->BelongsToCurrentThread());
+  DCHECK_EQ(type, kStorageTypeTemporary);
+
+  eviction_context_.evicted_origin = origin;
+  eviction_context_.evicted_type = type;
+  eviction_context_.evict_origin_data_callback = callback;
+
+  DeleteOriginDataInternal(origin, type, QuotaClient::kAllClientsMask, true,
+                           base::Bind(&QuotaManager::DidOriginDataEvicted,
+                                      weak_factory_.GetWeakPtr()));
+}
+
+void QuotaManager::GetUsageAndQuotaForEviction(
+    const UsageAndQuotaCallback& callback) {
+  // crbug.com/349708
+  TRACE_EVENT0("io", "QuotaManager::GetUsageAndQuotaForEviction");
+
+  DCHECK(io_thread_->BelongsToCurrentThread());
+  LazyInitialize();
+
+  UsageAndQuotaCallbackDispatcher* dispatcher =
+      new UsageAndQuotaCallbackDispatcher(this);
+  GetUsageTracker(kStorageTypeTemporary)
+      ->GetGlobalLimitedUsage(dispatcher->GetGlobalLimitedUsageCallback());
+  GetTemporaryGlobalQuota(dispatcher->GetQuotaCallback());
+  GetAvailableSpace(dispatcher->GetAvailableSpaceCallback());
+  dispatcher->WaitForResults(callback);
+}
+
+void QuotaManager::GetLRUOrigin(StorageType type,
+                                const GetOriginCallback& callback) {
   LazyInitialize();
   // This must not be called while there's an in-flight task.
   DCHECK(lru_origin_callback_.is_null());
@@ -1453,61 +1628,13 @@ void QuotaManager::GetLRUOrigin(
     return;
   }
 
-  std::set<GURL>* exceptions = new std::set<GURL>;
-  for (std::map<GURL, int>::const_iterator p = origins_in_use_.begin();
-       p != origins_in_use_.end();
-       ++p) {
-    if (p->second > 0)
-      exceptions->insert(p->first);
-  }
-  for (std::map<GURL, int>::const_iterator p = origins_in_error_.begin();
-       p != origins_in_error_.end();
-       ++p) {
-    if (p->second > QuotaManager::kThresholdOfErrorsToBeBlacklisted)
-      exceptions->insert(p->first);
-  }
-
   GURL* url = new GURL;
   PostTaskAndReplyWithResultForDBThread(
       FROM_HERE,
-      base::Bind(&GetLRUOriginOnDBThread,
-                 type,
-                 base::Owned(exceptions),
-                 special_storage_policy_,
-                 base::Unretained(url)),
-      base::Bind(&QuotaManager::DidGetLRUOrigin,
-                 weak_factory_.GetWeakPtr(),
+      base::Bind(&GetLRUOriginOnDBThread, type, GetEvictionOriginExceptions(),
+                 special_storage_policy_, base::Unretained(url)),
+      base::Bind(&QuotaManager::DidGetLRUOrigin, weak_factory_.GetWeakPtr(),
                  base::Owned(url)));
-}
-
-void QuotaManager::EvictOriginData(
-    const GURL& origin,
-    StorageType type,
-    const EvictOriginDataCallback& callback) {
-  DCHECK(io_thread_->BelongsToCurrentThread());
-  DCHECK_EQ(type, kStorageTypeTemporary);
-
-  eviction_context_.evicted_origin = origin;
-  eviction_context_.evicted_type = type;
-  eviction_context_.evict_origin_data_callback = callback;
-
-  DeleteOriginData(origin, type, QuotaClient::kAllClientsMask,
-      base::Bind(&QuotaManager::DidOriginDataEvicted,
-                 weak_factory_.GetWeakPtr()));
-}
-
-void QuotaManager::GetUsageAndQuotaForEviction(
-    const UsageAndQuotaCallback& callback) {
-  DCHECK(io_thread_->BelongsToCurrentThread());
-  LazyInitialize();
-
-  UsageAndQuotaCallbackDispatcher* dispatcher =
-      new UsageAndQuotaCallbackDispatcher(this);
-  GetUsageTracker(kStorageTypeTemporary)->
-      GetGlobalLimitedUsage(dispatcher->GetGlobalLimitedUsageCallback());
-  GetTemporaryGlobalQuota(dispatcher->GetQuotaCallback());
-  GetAvailableSpace(dispatcher->GetAvailableSpaceCallback());
-  dispatcher->WaitForResults(callback);
 }
 
 void QuotaManager::DidSetTemporaryGlobalOverrideQuota(
@@ -1564,14 +1691,8 @@ void QuotaManager::DidInitialize(int64* temporary_quota_override,
 void QuotaManager::DidGetLRUOrigin(const GURL* origin,
                                    bool success) {
   DidDatabaseWork(success);
-  // Make sure the returned origin is (still) not in the origin_in_use_ set
-  // and has not been accessed since we posted the task.
-  if (origins_in_use_.find(*origin) != origins_in_use_.end() ||
-      access_notified_origins_.find(*origin) != access_notified_origins_.end())
-    lru_origin_callback_.Run(GURL());
-  else
-    lru_origin_callback_.Run(*origin);
-  access_notified_origins_.clear();
+
+  lru_origin_callback_.Run(*origin);
   lru_origin_callback_.Reset();
 }
 
@@ -1599,6 +1720,10 @@ void QuotaManager::DidInitializeTemporaryOriginsInfo(bool success) {
 }
 
 void QuotaManager::DidGetAvailableSpace(int64 space) {
+  // crbug.com/349708
+  TRACE_EVENT1("io", "QuotaManager::DidGetAvailableSpace",
+               "n_callbacks", available_space_callbacks_.size());
+
   available_space_callbacks_.Run(kQuotaStatusOk, space);
 }
 

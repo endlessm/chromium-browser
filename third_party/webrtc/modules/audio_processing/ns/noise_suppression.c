@@ -8,7 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_processing/ns/include/noise_suppression.h"
+#include "webrtc/modules/audio_processing/ns/noise_suppression.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -41,7 +41,7 @@ void WebRtcNs_Analyze(NsHandle* NS_inst, const float* spframe) {
 
 void WebRtcNs_Process(NsHandle* NS_inst,
                       const float* const* spframe,
-                      int num_bands,
+                      size_t num_bands,
                       float* const* outframe) {
   WebRtcNs_ProcessCore((NoiseSuppressionC*)NS_inst, spframe, num_bands,
                        outframe);

@@ -45,6 +45,12 @@ const CGFloat kWindowGradientHeight = 24.0;
 
 @implementation FramedBrowserWindow
 
+- (void)setStyleMask:(NSUInteger)styleMask {
+  if (styleMaskLock_)
+    return;
+  [super setStyleMask:styleMask];
+}
+
 - (id)initWithContentRect:(NSRect)contentRect
               hasTabStrip:(BOOL)hasTabStrip{
   NSUInteger styleMask = NSTitledWindowMask |
@@ -175,6 +181,10 @@ const CGFloat kWindowGradientHeight = 24.0;
 
 - (void)setShouldHideTitle:(BOOL)flag {
   shouldHideTitle_ = flag;
+}
+
+- (void)setStyleMaskLock:(BOOL)lock {
+  styleMaskLock_ = lock;
 }
 
 - (BOOL)_isTitleHidden {

@@ -47,7 +47,6 @@ class StaticTabSceneLayer : public SceneLayer {
                       jint id,
                       jint toolbar_resource_id,
                       jboolean can_use_live_layer,
-                      jboolean can_use_ntp_fallback,
                       jint default_background_color,
                       jfloat x,
                       jfloat y,
@@ -68,6 +67,7 @@ class StaticTabSceneLayer : public SceneLayer {
 
   int last_set_tab_id_;
   int background_color_;
+  float brightness_;
 
   DISALLOW_COPY_AND_ASSIGN(StaticTabSceneLayer);
 };

@@ -79,8 +79,8 @@ void ExpandLanguageCodes(const std::vector<std::string>& languages,
       seen.insert(language);
     }
 
-    std::vector<std::string> tokens;
-    base::SplitString(language, '-', &tokens);
+    std::vector<std::string> tokens = base::SplitString(
+        language, "-", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
     if (tokens.size() == 0)
       continue;
     const std::string& main_part = tokens[0];
@@ -92,6 +92,60 @@ void ExpandLanguageCodes(const std::vector<std::string>& languages,
 }
 
 }  // namespace
+
+DenialTimeUpdate::DenialTimeUpdate(PrefService* prefs,
+                                   const std::string& language,
+                                   size_t max_denial_count)
+    : denial_time_dict_update_(
+          prefs,
+          TranslatePrefs::kPrefTranslateLastDeniedTimeForLanguage),
+      language_(language),
+      max_denial_count_(max_denial_count),
+      time_list_(nullptr) {}
+
+DenialTimeUpdate::~DenialTimeUpdate() {}
+
+// Gets the list of timestamps when translation was denied.
+base::ListValue* DenialTimeUpdate::GetDenialTimes() {
+  if (time_list_)
+    return time_list_;
+
+  // Any consumer of GetDenialTimes _will_ write to them, so let's get an
+  // update started.
+  base::DictionaryValue* denial_time_dict = denial_time_dict_update_.Get();
+  DCHECK(denial_time_dict);
+
+  base::Value* denial_value = nullptr;
+  bool has_value = denial_time_dict->Get(language_, &denial_value);
+  bool has_list = has_value && denial_value->GetAsList(&time_list_);
+
+  if (!has_list) {
+    time_list_ = new base::ListValue();
+    double oldest_denial_time = 0;
+    bool has_old_style =
+        has_value && denial_value->GetAsDouble(&oldest_denial_time);
+    if (has_old_style)
+      time_list_->AppendDouble(oldest_denial_time);
+    denial_time_dict->Set(language_, make_scoped_ptr(time_list_));
+  }
+  return time_list_;
+}
+
+base::Time DenialTimeUpdate::GetOldestDenialTime() {
+  double oldest_time;
+  bool result = GetDenialTimes()->GetDouble(0, &oldest_time);
+  if (!result)
+    return base::Time();
+  return base::Time::FromJsTime(oldest_time);
+}
+
+void DenialTimeUpdate::AddDenialTime(base::Time denial_time) {
+  DCHECK(GetDenialTimes());
+  GetDenialTimes()->AppendDouble(denial_time.ToJsTime());
+
+  while (GetDenialTimes()->GetSize() >= max_denial_count_)
+    GetDenialTimes()->Remove(0, nullptr);
+}
 
 TranslatePrefs::TranslatePrefs(PrefService* user_prefs,
                                const char* accept_languages_pref,
@@ -277,20 +331,15 @@ void TranslatePrefs::UpdateLastDeniedTime(const std::string& language) {
   if (IsTooOftenDenied(language))
     return;
 
-  const base::DictionaryValue* last_denied_time_dict =
-      prefs_->GetDictionary(kPrefTranslateLastDeniedTimeForLanguage);
-  double time = 0;
-  bool denied_before = last_denied_time_dict->GetDouble(language, &time);
-  base::Time last_closed_time = base::Time::FromJsTime(time);
+  DenialTimeUpdate update(prefs_, language, 2);
   base::Time now = base::Time::Now();
+  base::Time oldest_denial_time = update.GetOldestDenialTime();
+  update.AddDenialTime(now);
 
-  DictionaryPrefUpdate update(prefs_, kPrefTranslateLastDeniedTimeForLanguage);
-  update.Get()->SetDouble(language, now.ToJsTime());
-
-  if (!denied_before)
+  if (oldest_denial_time.is_null())
     return;
 
-  if (now - last_closed_time <= base::TimeDelta::FromDays(1)) {
+  if (now - oldest_denial_time <= base::TimeDelta::FromDays(1)) {
     DictionaryPrefUpdate update(prefs_,
                                 kPrefTranslateTooOftenDeniedForLanguage);
     update.Get()->SetBoolean(language, true);
@@ -319,14 +368,14 @@ void TranslatePrefs::GetLanguageList(std::vector<std::string>* languages) {
   const char* key = accept_languages_pref_.c_str();
 #endif
 
-  std::string languages_str = prefs_->GetString(key);
-  base::SplitString(languages_str, ',', languages);
+  *languages = base::SplitString(prefs_->GetString(key), ",",
+                                 base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
 }
 
 void TranslatePrefs::UpdateLanguageList(
     const std::vector<std::string>& languages) {
 #if defined(OS_CHROMEOS)
-  std::string languages_str = JoinString(languages, ',');
+  std::string languages_str = base::JoinString(languages, ",");
   prefs_->SetString(preferred_languages_pref_.c_str(), languages_str);
 #endif
 
@@ -335,7 +384,7 @@ void TranslatePrefs::UpdateLanguageList(
   // some web sites don't understand 'en-US' but 'en'. See crosbug.com/9884.
   std::vector<std::string> accept_languages;
   ExpandLanguageCodes(languages, &accept_languages);
-  std::string accept_languages_str = JoinString(accept_languages, ',');
+  std::string accept_languages_str = base::JoinString(accept_languages, ",");
   prefs_->SetString(accept_languages_pref_.c_str(), accept_languages_str);
 }
 
@@ -449,10 +498,9 @@ void TranslatePrefs::MigrateUserPrefs(PrefService* user_prefs,
     std::vector<std::string> blacklisted_languages;
     GetBlacklistedLanguages(user_prefs, &blacklisted_languages);
 
-    std::string accept_languages_str =
-        user_prefs->GetString(accept_languages_pref);
-    std::vector<std::string> accept_languages;
-    base::SplitString(accept_languages_str, ',', &accept_languages);
+    std::vector<std::string> accept_languages = base::SplitString(
+        user_prefs->GetString(accept_languages_pref), ",",
+        base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
 
     std::vector<std::string> blocked_languages;
     CreateBlockedLanguages(
@@ -485,7 +533,8 @@ void TranslatePrefs::MigrateUserPrefs(PrefService* user_prefs,
         accept_languages.push_back(lang);
     }
 
-    std::string new_accept_languages_str = JoinString(accept_languages, ",");
+    std::string new_accept_languages_str =
+        base::JoinString(accept_languages, ",");
     user_prefs->SetString(accept_languages_pref, new_accept_languages_str);
   }
 }
@@ -510,7 +559,8 @@ void TranslatePrefs::CreateBlockedLanguages(
       TranslateDownloadManager::GetInstance()->application_locale();
   std::string ui_lang = TranslateDownloadManager::GetLanguageCode(app_locale);
   bool is_ui_english =
-      ui_lang == "en" || base::StartsWithASCII(ui_lang, "en-", false);
+      ui_lang == "en" ||
+      base::StartsWith(ui_lang, "en-", base::CompareCase::INSENSITIVE_ASCII);
 
   for (std::vector<std::string>::const_iterator it = accept_languages.begin();
        it != accept_languages.end(); ++it) {

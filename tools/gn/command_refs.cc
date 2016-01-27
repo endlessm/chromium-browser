@@ -375,7 +375,7 @@ const char kRefs_Help[] =
     "      Display a reverse dependency tree to get to the given file. This\n"
     "      will show how dependencies will reference that file.\n"
     "\n"
-    "  gn refs out/Debug //base/macros.h //base/basictypes.h --all\n"
+    "  gn refs out/Debug //base/macros.h //base/at_exit.h --all\n"
     "      Display all unique targets with some dependency path to a target\n"
     "      containing either of the given files as a source.\n"
     "\n"
@@ -408,7 +408,6 @@ int RunRefs(const std::vector<std::string>& args) {
     if (args[i][0] == '@') {
       // The argument is as a path to a response file.
       std::string contents;
-      std::vector<std::string> lines;
       bool ret = base::ReadFileToString(UTF8ToFilePath(args[i].substr(1)),
                                         &contents);
       if (!ret) {
@@ -416,8 +415,8 @@ int RunRefs(const std::vector<std::string>& args) {
             .PrintToStdout();
         return 1;
       }
-      base::SplitString(contents, '\n', &lines);
-      for (const auto& line : lines) {
+      for (const std::string& line : base::SplitString(
+               contents, "\n", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)) {
         if (!line.empty())
           inputs.push_back(line);
       }

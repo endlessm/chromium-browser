@@ -85,7 +85,7 @@ static_library("platform") {
       ]
     }
 
-    if (current_os == "linux") {
+    if (is_linux) {
       sources += [
         "linux/nacl_clock.c",
         "linux/nacl_host_dir.c",
@@ -102,7 +102,7 @@ static_library("platform") {
     }
   }
   deps = [
-    "//native_client/build/config/nacl:nacl_base",
+    "//build/config/nacl:nacl_base",
     "//native_client/src/shared/gio:gio",
   ]
 }

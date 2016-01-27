@@ -21,6 +21,8 @@
 #include "content/public/common/content_switches.h"
 #include "media/base/limits.h"
 #include "ui/gl/gl_context.h"
+#include "ui/gl/gl_image_io_surface.h"
+#include "ui/gl/gl_implementation.h"
 #include "ui/gl/scoped_binders.h"
 
 using content_common_gpu_media::kModuleVt;
@@ -62,12 +64,6 @@ static const int kNumPictureBuffers = media::limits::kMaxVideoFrames + 1;
 // more. (NotifyEndOfBitstreamBuffer() is called when frames are moved into the
 // reorder queue.)
 static const int kMaxReorderQueueSize = 16;
-
-// When set to false, always create a new decoder instead of reusing the
-// existing configuration when the configuration changes. This works around a
-// bug in VideoToolbox that results in corruption before Mac OS X 10.10.3. The
-// value is set in InitializeVideoToolbox().
-static bool g_enable_compatible_configuration_reuse = true;
 
 // Build an |image_config| dictionary for VideoToolbox initialization.
 static base::ScopedCFTypeRef<CFMutableDictionaryRef>
@@ -186,7 +182,6 @@ static bool InitializeVideoToolboxInternal() {
     // CoreVideo is also required, but the loader stops after the first path is
     // loaded. Instead we rely on the transitive dependency from VideoToolbox to
     // CoreVideo.
-    // TODO(sandersd): Fallback to PrivateFrameworks to support OS X < 10.8.
     StubPathMap paths;
     paths[kModuleVt].push_back(FILE_PATH_LITERAL(
         "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox"));
@@ -222,12 +217,6 @@ static bool InitializeVideoToolboxInternal() {
                  << "Hardware accelerated video decoding will be disabled.";
     return false;
   }
-
-  // Set |g_enable_compatible_configuration_reuse| to false on
-  // Mac OS X < 10.10.3.
-  base::Version os_x_version(base::SysInfo::OperatingSystemVersion());
-  if (os_x_version.IsOlderThan("10.10.3"))
-    g_enable_compatible_configuration_reuse = false;
 
   return true;
 }
@@ -268,10 +257,23 @@ VTVideoDecodeAccelerator::Task::~Task() {
 }
 
 VTVideoDecodeAccelerator::Frame::Frame(int32_t bitstream_id)
-    : bitstream_id(bitstream_id), pic_order_cnt(0), reorder_window(0) {
+    : bitstream_id(bitstream_id),
+      pic_order_cnt(0),
+      is_idr(false),
+      reorder_window(0) {
 }
 
 VTVideoDecodeAccelerator::Frame::~Frame() {
+}
+
+VTVideoDecodeAccelerator::PictureInfo::PictureInfo(uint32_t client_texture_id,
+                                                   uint32_t service_texture_id)
+    : client_texture_id(client_texture_id),
+      service_texture_id(service_texture_id) {}
+
+VTVideoDecodeAccelerator::PictureInfo::~PictureInfo() {
+  if (gl_image)
+    gl_image->Destroy(false);
 }
 
 bool VTVideoDecodeAccelerator::FrameOrder::operator()(
@@ -287,8 +289,11 @@ bool VTVideoDecodeAccelerator::FrameOrder::operator()(
 }
 
 VTVideoDecodeAccelerator::VTVideoDecodeAccelerator(
-    const base::Callback<bool(void)>& make_context_current)
+    const base::Callback<bool(void)>& make_context_current,
+    const base::Callback<void(uint32, uint32, scoped_refptr<gl::GLImage>)>&
+        bind_image)
     : make_context_current_(make_context_current),
+      bind_image_(bind_image),
       client_(nullptr),
       state_(STATE_DECODING),
       format_(nullptr),
@@ -305,6 +310,7 @@ VTVideoDecodeAccelerator::VTVideoDecodeAccelerator(
 }
 
 VTVideoDecodeAccelerator::~VTVideoDecodeAccelerator() {
+  DCHECK(gpu_thread_checker_.CalledOnValidThread());
 }
 
 bool VTVideoDecodeAccelerator::Initialize(
@@ -370,7 +376,6 @@ bool VTVideoDecodeAccelerator::ConfigureDecoder() {
   nalu_data_sizes.push_back(last_pps_.size());
 
   // Construct a new format description from the parameter sets.
-  // TODO(sandersd): Replace this with custom code to support OS X < 10.9.
   format_.reset();
   OSStatus status = CMVideoFormatDescriptionCreateFromH264ParameterSets(
       kCFAllocatorDefault,
@@ -386,15 +391,12 @@ bool VTVideoDecodeAccelerator::ConfigureDecoder() {
   }
 
   // Store the new configuration data.
+  // TODO(sandersd): Despite the documentation, this seems to return the visible
+  // size. However, the output always appears to be top-left aligned, so it
+  // makes no difference. Re-verify this and update the variable name.
   CMVideoDimensions coded_dimensions =
       CMVideoFormatDescriptionGetDimensions(format_);
   coded_size_.SetSize(coded_dimensions.width, coded_dimensions.height);
-
-  // If the session is compatible, there's nothing else to do.
-  if (g_enable_compatible_configuration_reuse && session_ &&
-      VTDecompressionSessionCanAcceptFormatDescription(session_, format_)) {
-    return true;
-  }
 
   // Prepare VideoToolbox configuration dictionaries.
   base::ScopedCFTypeRef<CFMutableDictionaryRef> decoder_config(
@@ -542,12 +544,8 @@ void VTVideoDecodeAccelerator::DecodeTask(
       case media::H264NALU::kSliceDataB:
       case media::H264NALU::kSliceDataC:
       case media::H264NALU::kNonIDRSlice:
-        // TODO(sandersd): Check that there has been an IDR slice since the
-        // last reset.
       case media::H264NALU::kIDRSlice:
         // Compute the |pic_order_cnt| for the picture from the first slice.
-        // TODO(sandersd): Make sure that any further slices are part of the
-        // same picture or a redundant coded picture.
         if (!has_slice) {
           media::H264SliceHeader slice_hdr;
           result = parser_.ParseSliceHeader(nalu, &slice_hdr);
@@ -587,6 +585,9 @@ void VTVideoDecodeAccelerator::DecodeTask(
             return;
           }
 
+          if (nalu.nal_unit_type == media::H264NALU::kIDRSlice)
+            frame->is_idr = true;
+
           if (sps->vui_parameters_present_flag &&
               sps->bitstream_restriction_flag) {
             frame->reorder_window = std::min(sps->max_num_reorder_frames,
@@ -623,7 +624,10 @@ void VTVideoDecodeAccelerator::DecodeTask(
       NotifyError(INVALID_ARGUMENT, SFT_INVALID_STREAM);
       return;
     }
-    if (!ConfigureDecoder())
+
+    // If it's not an IDR frame, we can't reconfigure the decoder anyway. We
+    // assume that any config change not on an IDR must be compatible.
+    if (frame->is_idr && !ConfigureDecoder())
       return;
   }
 
@@ -810,10 +814,12 @@ void VTVideoDecodeAccelerator::AssignPictureBuffers(
   DCHECK(gpu_thread_checker_.CalledOnValidThread());
 
   for (const media::PictureBuffer& picture : pictures) {
-    DCHECK(!texture_ids_.count(picture.id()));
+    DCHECK(!picture_info_map_.count(picture.id()));
     assigned_picture_ids_.insert(picture.id());
     available_picture_ids_.push_back(picture.id());
-    texture_ids_[picture.id()] = picture.texture_id();
+    picture_info_map_.insert(picture.id(), make_scoped_ptr(new PictureInfo(
+                                               picture.internal_texture_id(),
+                                               picture.texture_id())));
   }
 
   // Pictures are not marked as uncleared until after this method returns, and
@@ -825,8 +831,13 @@ void VTVideoDecodeAccelerator::AssignPictureBuffers(
 
 void VTVideoDecodeAccelerator::ReusePictureBuffer(int32_t picture_id) {
   DCHECK(gpu_thread_checker_.CalledOnValidThread());
-  DCHECK_EQ(CFGetRetainCount(picture_bindings_[picture_id]), 1);
-  picture_bindings_.erase(picture_id);
+  DCHECK(picture_info_map_.count(picture_id));
+  PictureInfo* picture_info = picture_info_map_.find(picture_id)->second;
+  DCHECK_EQ(CFGetRetainCount(picture_info->cv_image), 1);
+  picture_info->cv_image.reset();
+  picture_info->gl_image->Destroy(false);
+  picture_info->gl_image = nullptr;
+
   if (assigned_picture_ids_.count(picture_id) != 0) {
     available_picture_ids_.push_back(picture_id);
     ProcessWorkQueues();
@@ -873,9 +884,8 @@ bool VTVideoDecodeAccelerator::ProcessTaskQueue() {
   const Task& task = task_queue_.front();
   switch (task.type) {
     case TASK_FRAME:
-      // TODO(sandersd): Signal IDR explicitly (not using pic_order_cnt == 0).
       if (reorder_queue_.size() < kMaxReorderQueueSize &&
-          (task.frame->pic_order_cnt != 0 || reorder_queue_.empty())) {
+          (!task.frame->is_idr || reorder_queue_.empty())) {
         assigned_bitstream_ids_.erase(task.frame->bitstream_id);
         client_->NotifyEndOfBitstreamBuffer(task.frame->bitstream_id);
         reorder_queue_.push(task.frame);
@@ -929,7 +939,7 @@ bool VTVideoDecodeAccelerator::ProcessReorderQueue() {
   // the next frame.
   bool flushing = !task_queue_.empty() &&
                   (task_queue_.front().type != TASK_FRAME ||
-                   task_queue_.front().frame->pic_order_cnt == 0);
+                   task_queue_.front().frame->is_idr);
 
   size_t reorder_window = std::max(0, reorder_queue_.top()->reorder_window);
   if (flushing || reorder_queue_.size() > reorder_window) {
@@ -985,7 +995,10 @@ bool VTVideoDecodeAccelerator::SendFrame(const Frame& frame) {
     return false;
 
   int32_t picture_id = available_picture_ids_.back();
-  IOSurfaceRef surface = CVPixelBufferGetIOSurface(frame.image.get());
+  DCHECK(picture_info_map_.count(picture_id));
+  PictureInfo* picture_info = picture_info_map_.find(picture_id)->second;
+  DCHECK(!picture_info->cv_image);
+  DCHECK(!picture_info->gl_image);
 
   if (!make_context_current_.Run()) {
     DLOG(ERROR) << "Failed to make GL context current";
@@ -993,9 +1006,11 @@ bool VTVideoDecodeAccelerator::SendFrame(const Frame& frame) {
     return false;
   }
 
-  glEnable(GL_TEXTURE_RECTANGLE_ARB);
-  gfx::ScopedTextureBinder
-      texture_binder(GL_TEXTURE_RECTANGLE_ARB, texture_ids_[picture_id]);
+  IOSurfaceRef surface = CVPixelBufferGetIOSurface(frame.image.get());
+  if (gfx::GetGLImplementation() != gfx::kGLImplementationDesktopGLCoreProfile)
+    glEnable(GL_TEXTURE_RECTANGLE_ARB);
+  gfx::ScopedTextureBinder texture_binder(GL_TEXTURE_RECTANGLE_ARB,
+                                          picture_info->service_texture_id);
   CGLContextObj cgl_context =
       static_cast<CGLContextObj>(gfx::GLContext::GetCurrent()->GetHandle());
   CGLError status = CGLTexImageIOSurface2D(
@@ -1008,16 +1023,38 @@ bool VTVideoDecodeAccelerator::SendFrame(const Frame& frame) {
       GL_UNSIGNED_SHORT_8_8_APPLE,  // type
       surface,                      // io_surface
       0);                           // plane
-  glDisable(GL_TEXTURE_RECTANGLE_ARB);
+  if (gfx::GetGLImplementation() != gfx::kGLImplementationDesktopGLCoreProfile)
+    glDisable(GL_TEXTURE_RECTANGLE_ARB);
   if (status != kCGLNoError) {
     NOTIFY_STATUS("CGLTexImageIOSurface2D()", status, SFT_PLATFORM_ERROR);
     return false;
   }
 
+  bool allow_overlay = false;
+  scoped_refptr<gl::GLImageIOSurface> gl_image(
+      new gl::GLImageIOSurface(frame.coded_size, GL_BGRA_EXT));
+  if (gl_image->Initialize(surface, gfx::GenericSharedMemoryId(),
+                           gfx::BufferFormat::BGRA_8888)) {
+    allow_overlay = true;
+  } else {
+    gl_image = nullptr;
+  }
+  bind_image_.Run(picture_info->client_texture_id, GL_TEXTURE_RECTANGLE_ARB,
+                  gl_image);
+
+  // Assign the new image(s) to the the picture info.
+  picture_info->gl_image = gl_image;
+  picture_info->cv_image = frame.image;
   available_picture_ids_.pop_back();
-  picture_bindings_[picture_id] = frame.image;
+
+  // TODO(sandersd): Currently, the size got from
+  // CMVideoFormatDescriptionGetDimensions is visible size. We pass it to
+  // GpuVideoDecoder so that GpuVideoDecoder can use correct visible size in
+  // resolution changed. We should find the correct API to get the real
+  // coded size and fix it.
   client_->PictureReady(media::Picture(picture_id, frame.bitstream_id,
-                                       gfx::Rect(frame.coded_size), false));
+                                       gfx::Rect(frame.coded_size),
+                                       allow_overlay));
   return true;
 }
 
@@ -1071,8 +1108,8 @@ void VTVideoDecodeAccelerator::Destroy() {
 
   // For a graceful shutdown, return assigned buffers and flush before
   // destructing |this|.
-  // TODO(sandersd): Make sure the decoder won't try to read the buffers again
-  // before discarding them.
+  // TODO(sandersd): Prevent the decoder from reading buffers before discarding
+  // them.
   for (int32_t bitstream_id : assigned_bitstream_ids_)
     client_->NotifyEndOfBitstreamBuffer(bitstream_id);
   assigned_bitstream_ids_.clear();

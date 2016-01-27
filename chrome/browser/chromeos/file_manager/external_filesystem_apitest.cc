@@ -10,16 +10,16 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
-#include "chrome/browser/chromeos/file_manager/drive_test_util.h"
+#include "chrome/browser/chromeos/file_manager/mount_test_util.h"
 #include "chrome/browser/chromeos/file_manager/volume_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
-#include "chrome/browser/drive/fake_drive_service.h"
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths.h"
+#include "components/drive/service/fake_drive_service.h"
 #include "components/user_manager/user_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/notification_service.h"
@@ -567,7 +567,8 @@ class MultiProfileDriveFileSystemExtensionApiTest :
     base::FilePath user_data_directory;
     PathService::Get(chrome::DIR_USER_DATA, &user_data_directory);
     user_manager::UserManager::Get()->UserLoggedIn(
-        kSecondProfileAccount, kSecondProfileHash, false);
+        AccountId::FromUserEmail(kSecondProfileAccount), kSecondProfileHash,
+        false);
     // Set up the secondary profile.
     base::FilePath profile_dir =
         user_data_directory.Append(

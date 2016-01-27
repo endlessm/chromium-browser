@@ -13,7 +13,6 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/prefs/pref_service_syncable.h"
 #include "chrome/browser/profiles/profile_avatar_downloader.h"
 #include "chrome/browser/profiles/profile_avatar_icon_util.h"
 #include "chrome/browser/profiles/profile_info_cache.h"
@@ -23,6 +22,7 @@
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "components/signin/core/common/profile_management_switches.h"
+#include "components/syncable_prefs/pref_service_syncable.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_utils.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -372,7 +372,7 @@ TEST_F(ProfileInfoCacheTest, GAIAPicture) {
       profiles::GetDefaultAvatarIconResourceIDAtIndex(kDefaultAvatarIndex);
   const gfx::Image& default_avatar_image(
       ResourceBundle::GetSharedInstance().GetImageNamed(default_avatar_id));
-  EXPECT_TRUE(gfx::test::IsEqual(
+  EXPECT_TRUE(gfx::test::AreImagesEqual(
       default_avatar_image, GetCache()->GetAvatarIconOfProfileAtIndex(1)));
 
   // Set GAIA picture.
@@ -380,13 +380,13 @@ TEST_F(ProfileInfoCacheTest, GAIAPicture) {
       kGaiaPictureSize, kGaiaPictureSize));
   GetCache()->SetGAIAPictureOfProfileAtIndex(1, &gaia_image);
   EXPECT_EQ(NULL, GetCache()->GetGAIAPictureOfProfileAtIndex(0));
-  EXPECT_TRUE(gfx::test::IsEqual(
+  EXPECT_TRUE(gfx::test::AreImagesEqual(
       gaia_image, *GetCache()->GetGAIAPictureOfProfileAtIndex(1)));
   // Since we're still using the default avatar, the GAIA image should be
   // preferred over the generic avatar image.
   EXPECT_TRUE(GetCache()->ProfileIsUsingDefaultAvatarAtIndex(1));
   EXPECT_TRUE(GetCache()->IsUsingGAIAPictureOfProfileAtIndex(1));
-  EXPECT_TRUE(gfx::test::IsEqual(
+  EXPECT_TRUE(gfx::test::AreImagesEqual(
       gaia_image, GetCache()->GetAvatarIconOfProfileAtIndex(1)));
 
   // Set a non-default avatar. This should be preferred over the GAIA image.
@@ -398,24 +398,24 @@ TEST_F(ProfileInfoCacheTest, GAIAPicture) {
       profiles::GetDefaultAvatarIconResourceIDAtIndex(kOtherAvatarIndex);
   const gfx::Image& other_avatar_image(
       ResourceBundle::GetSharedInstance().GetImageNamed(other_avatar_id));
-  EXPECT_TRUE(gfx::test::IsEqual(
+  EXPECT_TRUE(gfx::test::AreImagesEqual(
       other_avatar_image, GetCache()->GetAvatarIconOfProfileAtIndex(1)));
 
   // Explicitly setting the GAIA picture should make it preferred again.
   GetCache()->SetIsUsingGAIAPictureOfProfileAtIndex(1, true);
   EXPECT_TRUE(GetCache()->IsUsingGAIAPictureOfProfileAtIndex(1));
-  EXPECT_TRUE(gfx::test::IsEqual(
+  EXPECT_TRUE(gfx::test::AreImagesEqual(
       gaia_image, *GetCache()->GetGAIAPictureOfProfileAtIndex(1)));
-  EXPECT_TRUE(gfx::test::IsEqual(
+  EXPECT_TRUE(gfx::test::AreImagesEqual(
       gaia_image, GetCache()->GetAvatarIconOfProfileAtIndex(1)));
 
   // Clearing the IsUsingGAIAPicture flag should result in the generic image
   // being used again.
   GetCache()->SetIsUsingGAIAPictureOfProfileAtIndex(1, false);
   EXPECT_FALSE(GetCache()->IsUsingGAIAPictureOfProfileAtIndex(1));
-  EXPECT_TRUE(gfx::test::IsEqual(
+  EXPECT_TRUE(gfx::test::AreImagesEqual(
       gaia_image, *GetCache()->GetGAIAPictureOfProfileAtIndex(1)));
-  EXPECT_TRUE(gfx::test::IsEqual(
+  EXPECT_TRUE(gfx::test::AreImagesEqual(
       other_avatar_image, GetCache()->GetAvatarIconOfProfileAtIndex(1)));
 }
 
@@ -430,7 +430,7 @@ TEST_F(ProfileInfoCacheTest, PersistGAIAPicture) {
   // Make sure everything has completed, and the file has been written to disk.
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_TRUE(gfx::test::IsEqual(
+  EXPECT_TRUE(gfx::test::AreImagesEqual(
       gaia_image, *GetCache()->GetGAIAPictureOfProfileAtIndex(0)));
 
   ResetCache();
@@ -439,7 +439,7 @@ TEST_F(ProfileInfoCacheTest, PersistGAIAPicture) {
   EXPECT_EQ(NULL, GetCache()->GetGAIAPictureOfProfileAtIndex(0));
   base::RunLoop().RunUntilIdle();
 
-  EXPECT_TRUE(gfx::test::IsEqual(
+  EXPECT_TRUE(gfx::test::AreImagesEqual(
     gaia_image, *GetCache()->GetGAIAPictureOfProfileAtIndex(0)));
 }
 
@@ -478,7 +478,7 @@ TEST_F(ProfileInfoCacheTest, EmptyGAIAInfo) {
 
   // Verify that the profile name and picture are not empty.
   EXPECT_EQ(profile_name, GetCache()->GetNameOfProfileAtIndex(0));
-  EXPECT_TRUE(gfx::test::IsEqual(
+  EXPECT_TRUE(gfx::test::AreImagesEqual(
       profile_image, GetCache()->GetAvatarIconOfProfileAtIndex(0)));
 }
 
@@ -486,7 +486,7 @@ TEST_F(ProfileInfoCacheTest, CreateSupervisedTestingProfile) {
   testing_profile_manager_.CreateTestingProfile("default");
   base::string16 supervised_user_name = ASCIIToUTF16("Supervised User");
   testing_profile_manager_.CreateTestingProfile(
-      "test1", scoped_ptr<PrefServiceSyncable>(),
+      "test1", scoped_ptr<syncable_prefs::PrefServiceSyncable>(),
       supervised_user_name, 0, "TEST_ID", TestingProfile::TestingFactories());
   for (size_t i = 0; i < GetCache()->GetNumberOfProfiles(); i++) {
     bool is_supervised =
@@ -551,9 +551,6 @@ TEST_F(ProfileInfoCacheTest, AddStubProfile) {
 // High res avatar downloading is only supported on desktop.
 #if !defined(OS_ANDROID) && !defined(OS_IOS) && !defined(OS_CHROMEOS)
 TEST_F(ProfileInfoCacheTest, DownloadHighResAvatarTest) {
-  switches::EnableNewAvatarMenuForTesting(
-      base::CommandLine::ForCurrentProcess());
-
   // The TestingProfileManager's ProfileInfoCache doesn't download avatars.
   ProfileInfoCache profile_info_cache(g_browser_process->local_state(),
       testing_profile_manager_.profile_manager()->user_data_dir());
@@ -617,9 +614,6 @@ TEST_F(ProfileInfoCacheTest, DownloadHighResAvatarTest) {
 }
 
 TEST_F(ProfileInfoCacheTest, NothingToDownloadHighResAvatarTest) {
-  switches::EnableNewAvatarMenuForTesting(
-      base::CommandLine::ForCurrentProcess());
-
   // The TestingProfileManager's ProfileInfoCache doesn't download avatars.
   ProfileInfoCache profile_info_cache(
       g_browser_process->local_state(),
@@ -642,8 +636,6 @@ TEST_F(ProfileInfoCacheTest, NothingToDownloadHighResAvatarTest) {
 }
 
 TEST_F(ProfileInfoCacheTest, MigrateLegacyProfileNamesWithNewAvatarMenu) {
-  switches::EnableNewAvatarMenuForTesting(
-      base::CommandLine::ForCurrentProcess());
   EXPECT_EQ(0U, GetCache()->GetNumberOfProfiles());
 
   base::FilePath path_1 = GetProfilePath("path_1");
@@ -693,11 +685,9 @@ TEST_F(ProfileInfoCacheTest, MigrateLegacyProfileNamesWithNewAvatarMenu) {
 }
 #endif
 
+#if defined(OS_CHROMEOS) || defined(OS_ANDROID) || defined(OS_IOS)
 TEST_F(ProfileInfoCacheTest,
        DontMigrateLegacyProfileNamesWithoutNewAvatarMenu) {
-  switches::DisableNewAvatarMenuForTesting(
-      base::CommandLine::ForCurrentProcess());
-
   EXPECT_EQ(0U, GetCache()->GetNumberOfProfiles());
 
   base::string16 name_1 = ASCIIToUTF16("Default Profile");
@@ -734,3 +724,4 @@ TEST_F(ProfileInfoCacheTest,
   EXPECT_EQ(name_4, GetCache()->GetNameOfProfileAtIndex(
       GetCache()->GetIndexOfProfileWithPath(path_4)));
 }
+#endif

@@ -500,13 +500,7 @@ TEST_F(LimitedInMemoryURLIndexTest, Initialization) {
   EXPECT_EQ(17U, private_data.word_map_.size());
 }
 
-#if defined(OS_WIN)
-// Flaky on windows trybots: http://crbug.com/351500
-#define MAYBE_Retrieval DISABLED_Retrieval
-#else
-#define MAYBE_Retrieval Retrieval
-#endif
-TEST_F(InMemoryURLIndexTest, MAYBE_Retrieval) {
+TEST_F(InMemoryURLIndexTest, Retrieval) {
   // See if a very specific term gives a single result.
   ScoredHistoryMatches matches = url_index_->HistoryItemsForTerms(
       ASCIIToUTF16("DrudgeReport"), base::string16::npos, kMaxMatches);
@@ -549,17 +543,10 @@ TEST_F(InMemoryURLIndexTest, MAYBE_Retrieval) {
   EXPECT_FALSE(matches[0].can_inline);
 
   // Search which should result in very poor result.
+  // No results since it will be suppressed by default scoring.
   matches = url_index_->HistoryItemsForTerms(ASCIIToUTF16("qui c"),
                                              base::string16::npos, kMaxMatches);
-  ASSERT_EQ(1U, matches.size());
-  // The results should have a poor score.
-  EXPECT_LT(matches[0].raw_score, 500);
-  EXPECT_EQ(33, matches[0].url_info.id());
-  EXPECT_EQ("http://quiteuselesssearchresultxyz.com/",
-            matches[0].url_info.url().spec());  // Note: URL gets lowercased.
-  EXPECT_EQ(ASCIIToUTF16("Practically Useless Search Result"),
-            matches[0].url_info.title());
-  EXPECT_FALSE(matches[0].can_inline);
+  ASSERT_EQ(0U, matches.size());
 
   // Search which will match at the end of an URL with encoded characters.
   matches = url_index_->HistoryItemsForTerms(ASCIIToUTF16("Mice"),
@@ -679,10 +666,10 @@ TEST_F(InMemoryURLIndexTest, URLPrefixMatching) {
   ASSERT_EQ(1U, matches.size());
   EXPECT_TRUE(matches[0].can_inline);
 
-  // "ww.cnn.com" - found because we allow mid-term matches in hostnames
+  // "ww.cnn.com" - found because we suppress mid-term matches.
   matches = url_index_->HistoryItemsForTerms(ASCIIToUTF16("ww.cnn.com"),
                                              base::string16::npos, kMaxMatches);
-  ASSERT_EQ(1U, matches.size());
+  ASSERT_EQ(0U, matches.size());
 
   // "www.cnn.com" - found, can inline
   matches = url_index_->HistoryItemsForTerms(ASCIIToUTF16("www.cnn.com"),
@@ -732,13 +719,7 @@ TEST_F(InMemoryURLIndexTest, HugeResultSet) {
   ASSERT_EQ(kMaxMatches, private_data.post_scoring_item_count_);
 }
 
-#if defined(OS_WIN)
-// Flaky on windows trybots: http://crbug.com/351500
-#define MAYBE_TitleSearch DISABLED_TitleSearch
-#else
-#define MAYBE_TitleSearch TitleSearch
-#endif
-TEST_F(InMemoryURLIndexTest, MAYBE_TitleSearch) {
+TEST_F(InMemoryURLIndexTest, TitleSearch) {
   // Signal if someone has changed the test DB.
   EXPECT_EQ(29U, GetPrivateData()->history_info_map_.size());
 
@@ -1146,13 +1127,7 @@ TEST_F(InMemoryURLIndexTest, CacheSaveRestore) {
   ExpectPrivateDataEqual(*old_data.get(), new_data);
 }
 
-#if defined(OS_WIN)
-// http://crbug.com/351500
-#define MAYBE_RebuildFromHistoryIfCacheOld DISABLED_RebuildFromHistoryIfCacheOld
-#else
-#define MAYBE_RebuildFromHistoryIfCacheOld RebuildFromHistoryIfCacheOld
-#endif
-TEST_F(InMemoryURLIndexTest, MAYBE_RebuildFromHistoryIfCacheOld) {
+TEST_F(InMemoryURLIndexTest, RebuildFromHistoryIfCacheOld) {
   base::ScopedTempDir temp_directory;
   ASSERT_TRUE(temp_directory.CreateUniqueTempDir());
   set_history_dir(temp_directory.path());

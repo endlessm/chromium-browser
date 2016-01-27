@@ -26,10 +26,7 @@ const AudioPacket::SamplingRate kSamplingRate =
 }  // namespace
 
 AudioDecoderOpus::AudioDecoderOpus()
-    : sampling_rate_(0),
-      channels_(0),
-      decoder_(NULL) {
-}
+    : sampling_rate_(0), channels_(0), decoder_(nullptr) {}
 
 AudioDecoderOpus::~AudioDecoderOpus() {
   DestroyDecoder();
@@ -47,7 +44,7 @@ void AudioDecoderOpus::InitDecoder() {
 void AudioDecoderOpus::DestroyDecoder() {
   if (decoder_) {
     opus_decoder_destroy(decoder_);
-    decoder_ = NULL;
+    decoder_ = nullptr;
   }
 }
 
@@ -72,7 +69,7 @@ bool AudioDecoderOpus::ResetForPacket(AudioPacket* packet) {
     InitDecoder();
   }
 
-  return decoder_ != NULL;
+  return decoder_ != nullptr;
 }
 
 

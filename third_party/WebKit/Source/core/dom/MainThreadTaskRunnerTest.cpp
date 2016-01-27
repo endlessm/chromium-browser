@@ -63,10 +63,10 @@ private:
 TEST(MainThreadTaskRunnerTest, PostTask)
 {
     RefPtrWillBeRawPtr<NullExecutionContext> context = adoptRefWillBeNoop(new NullExecutionContext());
-    OwnPtr<MainThreadTaskRunner> runner = MainThreadTaskRunner::create(context.get());
+    OwnPtrWillBeRawPtr<MainThreadTaskRunner> runner = MainThreadTaskRunner::create(context.get());
     bool isMarked = false;
 
-    runner->postTask(FROM_HERE, MarkingBooleanTask::create(&isMarked));
+    runner->postTask(BLINK_FROM_HERE, MarkingBooleanTask::create(&isMarked));
     EXPECT_FALSE(isMarked);
     blink::testing::runPendingTasks();
     EXPECT_TRUE(isMarked);
@@ -75,11 +75,11 @@ TEST(MainThreadTaskRunnerTest, PostTask)
 TEST(MainThreadTaskRunnerTest, SuspendTask)
 {
     RefPtrWillBeRawPtr<NullExecutionContext> context = adoptRefWillBeNoop(new NullExecutionContext());
-    OwnPtr<MainThreadTaskRunner> runner = MainThreadTaskRunner::create(context.get());
+    OwnPtrWillBeRawPtr<MainThreadTaskRunner> runner = MainThreadTaskRunner::create(context.get());
     bool isMarked = false;
 
     context->setTasksNeedSuspension(true);
-    runner->postTask(FROM_HERE, MarkingBooleanTask::create(&isMarked));
+    runner->postTask(BLINK_FROM_HERE, MarkingBooleanTask::create(&isMarked));
     runner->suspend();
     blink::testing::runPendingTasks();
     EXPECT_FALSE(isMarked);
@@ -93,11 +93,11 @@ TEST(MainThreadTaskRunnerTest, SuspendTask)
 TEST(MainThreadTaskRunnerTest, RemoveRunner)
 {
     RefPtrWillBeRawPtr<NullExecutionContext> context = adoptRefWillBeNoop(new NullExecutionContext());
-    OwnPtr<MainThreadTaskRunner> runner = MainThreadTaskRunner::create(context.get());
+    OwnPtrWillBeRawPtr<MainThreadTaskRunner> runner = MainThreadTaskRunner::create(context.get());
     bool isMarked = false;
 
     context->setTasksNeedSuspension(true);
-    runner->postTask(FROM_HERE, MarkingBooleanTask::create(&isMarked));
+    runner->postTask(BLINK_FROM_HERE, MarkingBooleanTask::create(&isMarked));
     runner.clear();
     blink::testing::runPendingTasks();
     EXPECT_FALSE(isMarked);

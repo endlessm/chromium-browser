@@ -11,20 +11,23 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 
+import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CommandLineFlags;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeBrowserProvider.BookmarkNode;
 import org.chromium.chrome.browser.ChromeBrowserProviderClient;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.test.ChromeTabbedActivityTestBase;
+import org.chromium.chrome.test.util.ApplicationTestUtils;
 import org.chromium.chrome.test.util.BookmarkTestUtils;
 import org.chromium.chrome.test.util.ChromeTabUtils;
 import org.chromium.chrome.test.util.TestHttpServerClient;
 import org.chromium.components.dom_distiller.core.DomDistillerUrlUtils;
 
 import java.util.Locale;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.Callable;
 
 /**
  * Tests the ManageBookmarkActivity, which allows users to add and edit bookmarks.
@@ -43,7 +46,7 @@ public class ManageBookmarkActivityTest extends ChromeTabbedActivityTestBase {
         // TODO(tedchoc): figure out why.
         //
         // Disable for debugging a particular test.
-        clearAppData();
+        ApplicationTestUtils.clearAppData(getInstrumentation().getTargetContext());
     }
 
     @Override
@@ -67,16 +70,16 @@ public class ManageBookmarkActivityTest extends ChromeTabbedActivityTestBase {
 
     private void assertFolderText(final AddEditBookmarkFragment addEditFragment,
             String expectedText) {
-        final AtomicReference<String> actualTextContainer = new AtomicReference<String>();
-        getInstrumentation().runOnMainSync(new Runnable() {
-            @Override
-            public void run() {
-                Button button = (Button) addEditFragment.getView().findViewById(
-                        R.id.bookmark_folder_select);
-                actualTextContainer.set(button.getText().toString());
-            }
-        });
-        assertEquals(expectedText, actualTextContainer.get());
+        String actualTextContainer = ThreadUtils.runOnUiThreadBlockingNoException(
+                new Callable<String>() {
+                    @Override
+                    public String call() {
+                        Button button = (Button) addEditFragment.getView().findViewById(
+                                R.id.bookmark_folder_select);
+                        return button.getText().toString();
+                    }
+                });
+        assertEquals(expectedText, actualTextContainer);
     }
 
     @SmallTest
@@ -139,6 +142,7 @@ public class ManageBookmarkActivityTest extends ChromeTabbedActivityTestBase {
         assertFolderText(addNewFolderFragment, mobileBookmarksName);
     }
 
+    @DisabledTest // Fails on android-one: crbug.com/540703
     @SmallTest
     @Feature({"Bookmarks"})
     public void testAddFolder() throws InterruptedException {

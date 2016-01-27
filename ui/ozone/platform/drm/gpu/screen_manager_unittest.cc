@@ -4,13 +4,13 @@
 
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/ozone/platform/drm/gpu/crtc_controller.h"
-#include "ui/ozone/platform/drm/gpu/drm_buffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_generator.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_manager.h"
 #include "ui/ozone/platform/drm/gpu/drm_window.h"
 #include "ui/ozone/platform/drm/gpu/hardware_display_controller.h"
+#include "ui/ozone/platform/drm/gpu/mock_buffer_generator.h"
+#include "ui/ozone/platform/drm/gpu/mock_drm_device.h"
 #include "ui/ozone/platform/drm/gpu/screen_manager.h"
-#include "ui/ozone/platform/drm/test/mock_drm_device.h"
 
 namespace {
 
@@ -46,7 +46,7 @@ class ScreenManagerTest : public testing::Test {
   void SetUp() override {
     drm_ = new ui::MockDrmDevice();
     device_manager_.reset(new ui::DrmDeviceManager(nullptr));
-    buffer_generator_.reset(new ui::DrmBufferGenerator());
+    buffer_generator_.reset(new ui::MockBufferGenerator());
     screen_manager_.reset(new ui::ScreenManager(buffer_generator_.get()));
   }
   void TearDown() override {
@@ -57,7 +57,7 @@ class ScreenManagerTest : public testing::Test {
  protected:
   scoped_refptr<ui::MockDrmDevice> drm_;
   scoped_ptr<ui::DrmDeviceManager> device_manager_;
-  scoped_ptr<ui::DrmBufferGenerator> buffer_generator_;
+  scoped_ptr<ui::MockBufferGenerator> buffer_generator_;
   scoped_ptr<ui::ScreenManager> screen_manager_;
 
  private:
@@ -148,8 +148,9 @@ TEST_F(ScreenManagerTest, CheckChangingMode) {
   gfx::Rect new_bounds(0, 0, new_mode.hdisplay, new_mode.vdisplay);
   EXPECT_TRUE(screen_manager_->GetDisplayController(new_bounds));
   EXPECT_FALSE(screen_manager_->GetDisplayController(GetSecondaryBounds()));
-  drmModeModeInfo mode =
-      screen_manager_->GetDisplayController(new_bounds)->get_mode();
+  drmModeModeInfo mode = screen_manager_->GetDisplayController(new_bounds)
+                             ->crtc_controllers()[0]
+                             ->mode();
   EXPECT_EQ(new_mode.vdisplay, mode.vdisplay);
   EXPECT_EQ(new_mode.hdisplay, mode.hdisplay);
 }
@@ -200,6 +201,38 @@ TEST_F(ScreenManagerTest, CheckMirrorModeTransitions) {
       kDefaultMode);
   EXPECT_TRUE(screen_manager_->GetDisplayController(GetPrimaryBounds()));
   EXPECT_TRUE(screen_manager_->GetDisplayController(GetSecondaryBounds()));
+}
+
+// Make sure we're using each display's mode when doing mirror mode otherwise
+// the timings may be off.
+TEST_F(ScreenManagerTest, CheckMirrorModeModesettingWithDisplaysMode) {
+  screen_manager_->AddDisplayController(drm_, kPrimaryCrtc, kPrimaryConnector);
+  screen_manager_->ConfigureDisplayController(
+      drm_, kPrimaryCrtc, kPrimaryConnector, GetPrimaryBounds().origin(),
+      kDefaultMode);
+
+  // Copy the mode and use the copy so we can tell what mode the CRTC was
+  // configured with. The clock value is modified so we can tell which mode is
+  // being used.
+  drmModeModeInfo kSecondaryMode = kDefaultMode;
+  kSecondaryMode.clock++;
+
+  screen_manager_->AddDisplayController(drm_, kSecondaryCrtc,
+                                        kSecondaryConnector);
+  screen_manager_->ConfigureDisplayController(
+      drm_, kSecondaryCrtc, kSecondaryConnector, GetPrimaryBounds().origin(),
+      kSecondaryMode);
+
+  ui::HardwareDisplayController* controller =
+      screen_manager_->GetDisplayController(GetPrimaryBounds());
+  for (ui::CrtcController* crtc : controller->crtc_controllers()) {
+    if (crtc->crtc() == kPrimaryCrtc)
+      EXPECT_EQ(kDefaultMode.clock, crtc->mode().clock);
+    else if (crtc->crtc() == kSecondaryCrtc)
+      EXPECT_EQ(kSecondaryMode.clock, crtc->mode().clock);
+    else
+      NOTREACHED();
+  }
 }
 
 TEST_F(ScreenManagerTest, MonitorGoneInMirrorMode) {
@@ -341,7 +374,7 @@ TEST_F(ScreenManagerTest, CheckControllerToWindowMappingWithSameBounds) {
   scoped_ptr<ui::DrmWindow> window(
       new ui::DrmWindow(1, device_manager_.get(), screen_manager_.get()));
   window->Initialize();
-  window->OnBoundsChanged(GetPrimaryBounds());
+  window->SetBounds(GetPrimaryBounds());
   screen_manager_->AddWindow(1, window.Pass());
 
   screen_manager_->AddDisplayController(drm_, kPrimaryCrtc, kPrimaryConnector);
@@ -361,7 +394,7 @@ TEST_F(ScreenManagerTest, CheckControllerToWindowMappingWithDifferentBounds) {
   window->Initialize();
   gfx::Rect new_bounds = GetPrimaryBounds();
   new_bounds.Inset(0, 0, 1, 1);
-  window->OnBoundsChanged(new_bounds);
+  window->SetBounds(new_bounds);
   screen_manager_->AddWindow(1, window.Pass());
 
   screen_manager_->AddDisplayController(drm_, kPrimaryCrtc, kPrimaryConnector);
@@ -382,7 +415,7 @@ TEST_F(ScreenManagerTest,
     scoped_ptr<ui::DrmWindow> window(
         new ui::DrmWindow(i, device_manager_.get(), screen_manager_.get()));
     window->Initialize();
-    window->OnBoundsChanged(GetPrimaryBounds());
+    window->SetBounds(GetPrimaryBounds());
     screen_manager_->AddWindow(i, window.Pass());
   }
 
@@ -407,7 +440,7 @@ TEST_F(ScreenManagerTest, ShouldDissociateWindowOnControllerRemoval) {
   scoped_ptr<ui::DrmWindow> window(new ui::DrmWindow(
       window_id, device_manager_.get(), screen_manager_.get()));
   window->Initialize();
-  window->OnBoundsChanged(GetPrimaryBounds());
+  window->SetBounds(GetPrimaryBounds());
   screen_manager_->AddWindow(window_id, window.Pass());
 
   screen_manager_->AddDisplayController(drm_, kPrimaryCrtc, kPrimaryConnector);
@@ -429,7 +462,7 @@ TEST_F(ScreenManagerTest, EnableControllerWhenWindowHasNoBuffer) {
   scoped_ptr<ui::DrmWindow> window(
       new ui::DrmWindow(1, device_manager_.get(), screen_manager_.get()));
   window->Initialize();
-  window->OnBoundsChanged(GetPrimaryBounds());
+  window->SetBounds(GetPrimaryBounds());
   screen_manager_->AddWindow(1, window.Pass());
 
   screen_manager_->AddDisplayController(drm_, kPrimaryCrtc, kPrimaryConnector);
@@ -458,11 +491,12 @@ TEST_F(ScreenManagerTest, EnableControllerWhenWindowHasBuffer) {
   scoped_ptr<ui::DrmWindow> window(
       new ui::DrmWindow(1, device_manager_.get(), screen_manager_.get()));
   window->Initialize();
-  window->OnBoundsChanged(GetPrimaryBounds());
-  scoped_refptr<ui::ScanoutBuffer> buffer =
-      buffer_generator_->Create(drm_, GetPrimaryBounds().size());
-  window->QueueOverlayPlane(ui::OverlayPlane(buffer));
-  window->SchedulePageFlip(false /* is_sync */, base::Bind(&EmptySwapCallback));
+  window->SetBounds(GetPrimaryBounds());
+  scoped_refptr<ui::ScanoutBuffer> buffer = buffer_generator_->Create(
+      drm_, gfx::BufferFormat::BGRA_8888, GetPrimaryBounds().size());
+  window->SchedulePageFlip(
+      std::vector<ui::OverlayPlane>(1, ui::OverlayPlane(buffer)),
+      base::Bind(&EmptySwapCallback));
   screen_manager_->AddWindow(1, window.Pass());
 
   screen_manager_->AddDisplayController(drm_, kPrimaryCrtc, kPrimaryConnector);

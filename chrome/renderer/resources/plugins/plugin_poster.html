@@ -21,7 +21,6 @@
 #outer {
   border: none;
   cursor: pointer;
-  position: relative;
 }
 
 #shielding {
@@ -34,11 +33,15 @@
   z-index: 2;
 }
 
-#plugin_icon {
+#plugin-icon {
   opacity: 0.8;
+  max-height: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
 }
 
-#plugin_icon:hover {
+#plugin-icon:hover {
   opacity: 0.95;
 }
 
@@ -49,14 +52,18 @@
   z-index: 1;
 }
 
-#inner_container {
+#inner-container {
+  align-items: center;
+  display: flex;
   height: 100%;
-  position: relative;
+  justify-content: center;
+  left: 0px;
+  max-height: 100%;
+  max-width: 100%;
+  position: absolute;
+  top: 0px;
   width: 100%;
-}
-
-#inner {
-  margin-top: -25px;
+  z-index: 2;
 }
 </style>
 <base i18n-values="href:baseurl">
@@ -65,13 +72,10 @@
 <body>
   <div i18n-values="title:name" id="outer">
     <img id="poster" i18n-values="srcset:poster">
-    <div id="shielding">
-      <div id="inner_container"
-           i18n-values=".style.width:visibleWidth;.style.height:visibleHeight">
-        <div id="inner">
-          <img id="plugin_icon" src="plugin_power_saver_play.png" />
-        </div>
-      </div>
+    <div id="shielding"></div>
+    <div id="inner-container"
+         i18n-values=".style.width:visibleWidth;.style.height:visibleHeight">
+      <img id="plugin-icon" src="plugin_power_saver_play.png" />
     </div>
   </div>
   <script>
@@ -83,10 +87,19 @@
       plugin.load();
     };
 
-    window.setPosterMargin = function(marginLeft, marginTop) {
-      var container = document.getElementById('inner_container');
+    window.resizePoster = function(marginLeft, marginTop, width, height) {
+      var container = document.getElementById('inner-container');
       container.style.marginLeft = marginLeft;
       container.style.marginTop = marginTop;
+      container.style.width = width;
+      container.style.height = height;
+
+      if (plugin.didFinishIconRepositionForTesting) {
+        // Defer until reflow complete.
+        window.setTimeout(function() {
+          plugin.didFinishIconRepositionForTesting();
+        });
+      }
     };
   </script>
 </body>

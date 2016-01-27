@@ -19,22 +19,16 @@
 #include "base/thread_task_runner_handle.h"
 #include "base/threading/thread.h"
 #include "base/time/time.h"
-#include "chromecast/media/base/decrypt_context.h"
-#include "chromecast/media/cma/backend/audio_pipeline_device.h"
-#include "chromecast/media/cma/backend/media_clock_device.h"
-#include "chromecast/media/cma/backend/media_pipeline_device.h"
-#include "chromecast/media/cma/backend/media_pipeline_device_factory.h"
-#include "chromecast/media/cma/backend/media_pipeline_device_params.h"
-#include "chromecast/media/cma/backend/video_pipeline_device.h"
+#include "chromecast/base/task_runner_impl.h"
 #include "chromecast/media/cma/base/decoder_buffer_adapter.h"
-#include "chromecast/media/cma/base/decoder_buffer_base.h"
 #include "chromecast/media/cma/base/decoder_config_adapter.h"
 #include "chromecast/media/cma/test/frame_segmenter_for_test.h"
-#include "chromecast/media/cma/test/media_component_device_feeder_for_test.h"
 #include "chromecast/public/cast_media_shlib.h"
+#include "chromecast/public/media/cast_decoder_buffer.h"
 #include "chromecast/public/media/decoder_config.h"
+#include "chromecast/public/media/media_pipeline_backend.h"
+#include "chromecast/public/media/media_pipeline_device_params.h"
 #include "media/base/audio_decoder_config.h"
-#include "media/base/buffers.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/video_decoder_config.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -43,9 +37,6 @@ namespace chromecast {
 namespace media {
 
 namespace {
-
-typedef ScopedVector<MediaComponentDeviceFeederForTest>::iterator
-    ComponentDeviceIterator;
 
 const base::TimeDelta kMonitorLoopDelay = base::TimeDelta::FromMilliseconds(20);
 
@@ -61,7 +52,8 @@ base::FilePath GetTestDataFilePath(const std::string& name) {
 
 }  // namespace
 
-class AudioVideoPipelineDeviceTest : public testing::Test {
+class AudioVideoPipelineDeviceTest : public testing::Test,
+                                     public MediaPipelineBackend::Delegate {
  public:
   struct PauseInfo {
     PauseInfo() {}
@@ -81,12 +73,14 @@ class AudioVideoPipelineDeviceTest : public testing::Test {
   }
 
   void TearDown() override {
+    // Pipeline must be destroyed before finalizing media shlib.
+    backend_.reset();
     CastMediaShlib::Finalize();
   }
 
-  void ConfigureForFile(std::string filename);
-  void ConfigureForAudioOnly(std::string filename);
-  void ConfigureForVideoOnly(std::string filename, bool raw_h264);
+  void ConfigureForFile(const std::string& filename);
+  void ConfigureForAudioOnly(const std::string& filename);
+  void ConfigureForVideoOnly(const std::string& filename, bool raw_h264);
 
   // Pattern loops, waiting >= pattern[i].delay against media clock between
   // pauses, then pausing for >= pattern[i].length against MessageLoop
@@ -98,24 +92,31 @@ class AudioVideoPipelineDeviceTest : public testing::Test {
 
   void Start();
 
+  // MediaPipelineBackend::Delegate implementation:
+  void OnVideoResolutionChanged(MediaPipelineBackend::VideoDecoder* decoder,
+                                const Size& size) override {}
+  void OnPushBufferComplete(MediaPipelineBackend::Decoder* decoder,
+                            MediaPipelineBackend::BufferStatus status) override;
+  void OnEndOfStream(MediaPipelineBackend::Decoder* decoder) override;
+  void OnDecoderError(MediaPipelineBackend::Decoder* decoder) override;
+
  private:
   void Initialize();
 
-  void LoadAudioStream(std::string filename);
-  void LoadVideoStream(std::string filename, bool raw_h264);
+  void LoadAudioStream(const std::string& filename);
+  void LoadVideoStream(const std::string& filename, bool raw_h264);
+
+  void FeedAudioBuffer();
+  void FeedVideoBuffer();
 
   void MonitorLoop();
 
   void OnPauseCompleted();
 
-  void OnEos(MediaComponentDeviceFeederForTest* device_feeder);
-
-  scoped_ptr<MediaPipelineDevice> media_pipeline_device_;
-  MediaClockDevice* media_clock_device_;
-
-  // Devices to feed
-  ScopedVector<MediaComponentDeviceFeederForTest>
-      component_device_feeders_;
+  scoped_ptr<TaskRunnerImpl> task_runner_;
+  scoped_ptr<MediaPipelineBackend> backend_;
+  scoped_refptr<DecoderBufferBase> backend_audio_buffer_;
+  scoped_refptr<DecoderBufferBase> backend_video_buffer_;
 
   // Current media time.
   base::TimeDelta pause_time_;
@@ -124,11 +125,23 @@ class AudioVideoPipelineDeviceTest : public testing::Test {
   std::vector<PauseInfo> pause_pattern_;
   int pause_pattern_idx_;
 
+  BufferList audio_buffers_;
+  BufferList video_buffers_;
+
+  MediaPipelineBackend::AudioDecoder* audio_decoder_;
+  MediaPipelineBackend::VideoDecoder* video_decoder_;
+  bool audio_feeding_completed_;
+  bool video_feeding_completed_;
+
   DISALLOW_COPY_AND_ASSIGN(AudioVideoPipelineDeviceTest);
 };
 
 AudioVideoPipelineDeviceTest::AudioVideoPipelineDeviceTest()
-    : pause_pattern_() {
+    : pause_pattern_(),
+      audio_decoder_(nullptr),
+      video_decoder_(nullptr),
+      audio_feeding_completed_(true),
+      video_feeding_completed_(true) {
 }
 
 AudioVideoPipelineDeviceTest::~AudioVideoPipelineDeviceTest() {
@@ -144,53 +157,54 @@ void AudioVideoPipelineDeviceTest::SetPausePattern(
   pause_pattern_ = pattern;
 }
 
-void AudioVideoPipelineDeviceTest::ConfigureForAudioOnly(std::string filename) {
+void AudioVideoPipelineDeviceTest::ConfigureForAudioOnly(
+    const std::string& filename) {
   Initialize();
   LoadAudioStream(filename);
+  bool success = backend_->Initialize(this);
+  ASSERT_TRUE(success);
 }
 
-void AudioVideoPipelineDeviceTest::ConfigureForVideoOnly(std::string filename,
-                                                         bool raw_h264) {
+void AudioVideoPipelineDeviceTest::ConfigureForVideoOnly(
+    const std::string& filename,
+    bool raw_h264) {
   Initialize();
   LoadVideoStream(filename, raw_h264);
+  bool success = backend_->Initialize(this);
+  ASSERT_TRUE(success);
 }
 
-void AudioVideoPipelineDeviceTest::ConfigureForFile(std::string filename) {
+void AudioVideoPipelineDeviceTest::ConfigureForFile(
+    const std::string& filename) {
   Initialize();
   LoadVideoStream(filename, false /* raw_h264 */);
   LoadAudioStream(filename);
+  bool success = backend_->Initialize(this);
+  ASSERT_TRUE(success);
 }
 
-void AudioVideoPipelineDeviceTest::LoadAudioStream(std::string filename) {
+void AudioVideoPipelineDeviceTest::LoadAudioStream(
+    const std::string& filename) {
   base::FilePath file_path = GetTestDataFilePath(filename);
   DemuxResult demux_result = FFmpegDemuxForTest(file_path, true /* audio */);
-  BufferList frames = demux_result.frames;
 
-  AudioPipelineDevice* audio_pipeline_device =
-      media_pipeline_device_->GetAudioPipelineDevice();
+  audio_buffers_ = demux_result.frames;
+  audio_decoder_ = backend_->CreateAudioDecoder();
+  audio_feeding_completed_ = false;
 
-  bool success = audio_pipeline_device->SetConfig(
-      DecoderConfigAdapter::ToCastAudioConfig(kPrimary,
-                                              demux_result.audio_config));
+  bool success =
+      audio_decoder_->SetConfig(DecoderConfigAdapter::ToCastAudioConfig(
+          kPrimary, demux_result.audio_config));
   ASSERT_TRUE(success);
 
-  VLOG(2) << "Got " << frames.size() << " audio input frames";
+  VLOG(2) << "Got " << audio_buffers_.size() << " audio input frames";
 
-  frames.push_back(
-      scoped_refptr<DecoderBufferBase>(
-          new DecoderBufferAdapter(::media::DecoderBuffer::CreateEOSBuffer())));
-
-  MediaComponentDeviceFeederForTest* device_feeder =
-      new MediaComponentDeviceFeederForTest(audio_pipeline_device, frames);
-  device_feeder->Initialize(base::Bind(&AudioVideoPipelineDeviceTest::OnEos,
-                                       base::Unretained(this),
-                                       device_feeder));
-  component_device_feeders_.push_back(device_feeder);
+  audio_buffers_.push_back(scoped_refptr<DecoderBufferBase>(
+      new DecoderBufferAdapter(::media::DecoderBuffer::CreateEOSBuffer())));
 }
 
-void AudioVideoPipelineDeviceTest::LoadVideoStream(std::string filename,
+void AudioVideoPipelineDeviceTest::LoadVideoStream(const std::string& filename,
                                                    bool raw_h264) {
-  BufferList frames;
   VideoConfig video_config;
 
   if (raw_h264) {
@@ -198,7 +212,8 @@ void AudioVideoPipelineDeviceTest::LoadVideoStream(std::string filename,
     base::MemoryMappedFile video_stream;
     ASSERT_TRUE(video_stream.Initialize(file_path))
         << "Couldn't open stream file: " << file_path.MaybeAsASCII();
-    frames = H264SegmenterForTest(video_stream.data(), video_stream.length());
+    video_buffers_ =
+        H264SegmenterForTest(video_stream.data(), video_stream.length());
 
     // TODO(erickung): Either pull data from stream or make caller specify value
     video_config.codec = kCodecH264;
@@ -209,58 +224,158 @@ void AudioVideoPipelineDeviceTest::LoadVideoStream(std::string filename,
     base::FilePath file_path = GetTestDataFilePath(filename);
     DemuxResult demux_result = FFmpegDemuxForTest(file_path,
                                                   /*audio*/ false);
-    frames = demux_result.frames;
+    video_buffers_ = demux_result.frames;
     video_config = DecoderConfigAdapter::ToCastVideoConfig(
         kPrimary, demux_result.video_config);
   }
 
-  VideoPipelineDevice* video_pipeline_device =
-      media_pipeline_device_->GetVideoPipelineDevice();
-
-  // Set configuration.
-  bool success = video_pipeline_device->SetConfig(video_config);
+  video_decoder_ = backend_->CreateVideoDecoder();
+  video_feeding_completed_ = false;
+  bool success = video_decoder_->SetConfig(video_config);
   ASSERT_TRUE(success);
 
-  VLOG(2) << "Got " << frames.size() << " video input frames";
+  VLOG(2) << "Got " << video_buffers_.size() << " video input frames";
 
-  frames.push_back(
-      scoped_refptr<DecoderBufferBase>(new DecoderBufferAdapter(
-          ::media::DecoderBuffer::CreateEOSBuffer())));
+  video_buffers_.push_back(scoped_refptr<DecoderBufferBase>(
+      new DecoderBufferAdapter(::media::DecoderBuffer::CreateEOSBuffer())));
+}
 
-  MediaComponentDeviceFeederForTest* device_feeder =
-      new MediaComponentDeviceFeederForTest(video_pipeline_device, frames);
-  device_feeder->Initialize(base::Bind(&AudioVideoPipelineDeviceTest::OnEos,
-                                       base::Unretained(this),
-                                       device_feeder));
-  component_device_feeders_.push_back(device_feeder);
+void AudioVideoPipelineDeviceTest::FeedAudioBuffer() {
+  // Possibly feed one frame
+  DCHECK(!audio_buffers_.empty());
+  if (audio_feeding_completed_)
+    return;
+
+  backend_audio_buffer_ = audio_buffers_.front();
+
+  MediaPipelineBackend::BufferStatus status =
+      audio_decoder_->PushBuffer(backend_audio_buffer_.get());
+  EXPECT_NE(status, MediaPipelineBackend::kBufferFailed);
+  audio_buffers_.pop_front();
+
+  // Feeding is done, just wait for the end of stream callback.
+  if (backend_audio_buffer_->end_of_stream() || audio_buffers_.empty()) {
+    if (audio_buffers_.empty() && !backend_audio_buffer_->end_of_stream()) {
+      LOG(WARNING) << "Stream emptied without feeding EOS frame";
+    }
+
+    audio_feeding_completed_ = true;
+    return;
+  }
+
+  if (status == MediaPipelineBackend::kBufferPending)
+    return;
+
+  OnPushBufferComplete(audio_decoder_, MediaPipelineBackend::kBufferSuccess);
+}
+
+void AudioVideoPipelineDeviceTest::FeedVideoBuffer() {
+  // Possibly feed one frame
+  DCHECK(!video_buffers_.empty());
+  if (video_feeding_completed_)
+    return;
+
+  backend_video_buffer_ = video_buffers_.front();
+
+  MediaPipelineBackend::BufferStatus status =
+      video_decoder_->PushBuffer(backend_video_buffer_.get());
+  EXPECT_NE(status, MediaPipelineBackend::kBufferFailed);
+  video_buffers_.pop_front();
+
+  // Feeding is done, just wait for the end of stream callback.
+  if (backend_video_buffer_->end_of_stream() || video_buffers_.empty()) {
+    if (video_buffers_.empty() && !backend_video_buffer_->end_of_stream()) {
+      LOG(WARNING) << "Stream emptied without feeding EOS frame";
+    }
+
+    video_feeding_completed_ = true;
+    return;
+  }
+
+  if (status == MediaPipelineBackend::kBufferPending)
+    return;
+
+  OnPushBufferComplete(video_decoder_, MediaPipelineBackend::kBufferSuccess);
 }
 
 void AudioVideoPipelineDeviceTest::Start() {
   pause_time_ = base::TimeDelta();
   pause_pattern_idx_ = 0;
 
-  for (size_t i = 0; i < component_device_feeders_.size(); i++) {
+  if (audio_decoder_) {
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::Bind(&MediaComponentDeviceFeederForTest::Feed,
-                              base::Unretained(component_device_feeders_[i])));
+        FROM_HERE,
+        base::Bind(&AudioVideoPipelineDeviceTest::FeedAudioBuffer,
+                   base::Unretained(this)));
+  }
+  if (video_decoder_) {
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::Bind(&AudioVideoPipelineDeviceTest::FeedVideoBuffer,
+                   base::Unretained(this)));
   }
 
-  media_clock_device_->SetState(MediaClockDevice::kStateRunning);
+  backend_->Start(0);
 
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE, base::Bind(&AudioVideoPipelineDeviceTest::MonitorLoop,
                             base::Unretained(this)));
 }
 
+void AudioVideoPipelineDeviceTest::OnEndOfStream(
+    MediaPipelineBackend::Decoder* decoder) {
+
+  if (decoder == audio_decoder_)
+    audio_decoder_ = nullptr;
+  else if (decoder == video_decoder_)
+    video_decoder_ = nullptr;
+
+  if (!audio_decoder_ && !video_decoder_) {
+    bool success = backend_->Stop();
+    ASSERT_TRUE(success);
+    base::MessageLoop::current()->QuitWhenIdle();
+  }
+}
+
+void AudioVideoPipelineDeviceTest::OnDecoderError(
+    MediaPipelineBackend::Decoder* decoder) {
+  ASSERT_TRUE(false);
+}
+
+void AudioVideoPipelineDeviceTest::OnPushBufferComplete(
+    MediaPipelineBackend::Decoder* decoder,
+    MediaPipelineBackend::BufferStatus status) {
+  EXPECT_NE(status, MediaPipelineBackend::kBufferFailed);
+
+  if (decoder == audio_decoder_) {
+    if (audio_feeding_completed_)
+      return;
+
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::Bind(&AudioVideoPipelineDeviceTest::FeedAudioBuffer,
+                   base::Unretained(this)));
+  } else if (decoder == video_decoder_) {
+    if (video_feeding_completed_)
+      return;
+
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
+        FROM_HERE,
+        base::Bind(&AudioVideoPipelineDeviceTest::FeedVideoBuffer,
+                   base::Unretained(this)));
+  }
+}
+
 void AudioVideoPipelineDeviceTest::MonitorLoop() {
-  base::TimeDelta media_time = media_clock_device_->GetTime();
+  base::TimeDelta media_time =
+      base::TimeDelta::FromMicroseconds(backend_->GetCurrentPts());
 
   if (!pause_pattern_.empty() &&
       pause_pattern_[pause_pattern_idx_].delay >= base::TimeDelta() &&
       media_time >= pause_time_ + pause_pattern_[pause_pattern_idx_].delay) {
     // Do Pause
-    media_clock_device_->SetRate(0.0);
-    pause_time_ = media_clock_device_->GetTime();
+    backend_->Pause();
+    pause_time_ = base::TimeDelta::FromMicroseconds(backend_->GetCurrentPts());
 
     VLOG(2) << "Pausing at " << pause_time_.InMilliseconds() << "ms for " <<
         pause_pattern_[pause_pattern_idx_].length.InMilliseconds() << "ms";
@@ -282,7 +397,8 @@ void AudioVideoPipelineDeviceTest::MonitorLoop() {
 
 void AudioVideoPipelineDeviceTest::OnPauseCompleted() {
   // Make sure the media time didn't move during that time.
-  base::TimeDelta media_time = media_clock_device_->GetTime();
+  base::TimeDelta media_time =
+      base::TimeDelta::FromMicroseconds(backend_->GetCurrentPts());
 
   // TODO(damienv):
   // Should be:
@@ -299,42 +415,17 @@ void AudioVideoPipelineDeviceTest::OnPauseCompleted() {
   VLOG(2) << "Pause complete, restarting media clock";
 
   // Resume playback and frame feeding.
-  media_clock_device_->SetRate(1.0);
+  backend_->Resume();
 
   MonitorLoop();
 }
 
-void AudioVideoPipelineDeviceTest::OnEos(
-    MediaComponentDeviceFeederForTest* device_feeder) {
-  for (ComponentDeviceIterator it = component_device_feeders_.begin();
-       it != component_device_feeders_.end();
-       ++it) {
-    if (*it == device_feeder) {
-      component_device_feeders_.erase(it);
-      break;
-    }
-  }
-
-  // Check if all streams finished
-  if (component_device_feeders_.empty())
-    base::MessageLoop::current()->QuitWhenIdle();
-}
-
 void AudioVideoPipelineDeviceTest::Initialize() {
   // Create the media device.
-  MediaPipelineDeviceParams params;
-  scoped_ptr<MediaPipelineDeviceFactory> device_factory =
-      GetMediaPipelineDeviceFactory(params);
-  media_pipeline_device_.reset(new MediaPipelineDevice(device_factory.Pass()));
-  media_clock_device_ = media_pipeline_device_->GetMediaClockDevice();
-
-  // Clock initialization and configuration.
-  bool success =
-      media_clock_device_->SetState(MediaClockDevice::kStateIdle);
-  ASSERT_TRUE(success);
-  success = media_clock_device_->ResetTimeline(base::TimeDelta());
-  ASSERT_TRUE(success);
-  media_clock_device_->SetRate(1.0);
+  task_runner_.reset(new TaskRunnerImpl());
+  MediaPipelineDeviceParams params(task_runner_.get());
+  backend_.reset(CastMediaShlib::CreateMediaPipelineBackend(params));
+  DCHECK(backend_);
 }
 
 TEST_F(AudioVideoPipelineDeviceTest, Mp3Playback) {

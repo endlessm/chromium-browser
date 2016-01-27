@@ -48,7 +48,7 @@ class URLRequestFileDirJob
   void CompleteRead();
 
   // Fills a buffer with the output.
-  bool FillReadBuffer(char *buf, int buf_size, int *bytes_read);
+  bool FillReadBuffer(char* buf, int buf_size, int* bytes_read);
 
   DirectoryLister lister_;
   base::FilePath dir_path_;

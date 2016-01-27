@@ -14,13 +14,17 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/common/pref_names.h"
+#include "components/metrics/metrics_pref_names.h"
+#include "components/signin/core/common/signin_pref_names.h"
+#include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/base/url_util.h"
 
-InlineLoginHandler::InlineLoginHandler() {}
+InlineLoginHandler::InlineLoginHandler() : weak_ptr_factory_(this) {}
 
 InlineLoginHandler::~InlineLoginHandler() {}
 
@@ -38,6 +42,24 @@ void InlineLoginHandler::RegisterMessages() {
 }
 
 void InlineLoginHandler::HandleInitializeMessage(const base::ListValue* args) {
+  content::WebContents* contents = web_ui()->GetWebContents();
+  content::StoragePartition* partition =
+      content::BrowserContext::GetStoragePartitionForSite(
+          contents->GetBrowserContext(), signin::GetSigninPartitionURL());
+  if (partition) {
+    partition->ClearData(
+        content::StoragePartition::REMOVE_DATA_MASK_ALL,
+        content::StoragePartition::QUOTA_MANAGED_STORAGE_MASK_ALL,
+        GURL(),
+        content::StoragePartition::OriginMatcherFunction(),
+        base::Time(),
+        base::Time::Max(),
+        base::Bind(&InlineLoginHandler::ContinueHandleInitializeMessage,
+                   weak_ptr_factory_.GetWeakPtr()));
+  }
+}
+
+void InlineLoginHandler::ContinueHandleInitializeMessage() {
   base::DictionaryValue params;
 
   const std::string& app_locale = g_browser_process->GetApplicationLocale();
@@ -48,14 +70,6 @@ void InlineLoginHandler::HandleInitializeMessage(const base::ListValue* args) {
 
   const GURL& current_url = web_ui()->GetWebContents()->GetURL();
   signin_metrics::Source source = signin::GetSourceForPromoURL(current_url);
-  if (source == signin_metrics::SOURCE_AVATAR_BUBBLE_ADD_ACCOUNT ||
-      source == signin_metrics::SOURCE_AVATAR_BUBBLE_SIGN_IN ||
-      source == signin_metrics::SOURCE_REAUTH) {
-    // Drop the leading slash in the path.
-    params.SetString(
-        "gaiaPath",
-        GaiaUrls::GetInstance()->embedded_signin_url().path().substr(1));
-  }
 
   params.SetString(
       "continueUrl",
@@ -95,8 +109,7 @@ void InlineLoginHandler::HandleInitializeMessage(const base::ListValue* args) {
   // TODO(rogerta): this needs to be passed on to gaia somehow.
   std::string read_only_email;
   net::GetValueForKeyInQuery(current_url, "readOnlyEmail", &read_only_email);
-  if (!read_only_email.empty())
-    params.SetString("readOnlyEmail", read_only_email);
+  params.SetBoolean("readOnlyEmail", !read_only_email.empty());
 
   SetExtraInitParams(params);
 

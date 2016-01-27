@@ -17,9 +17,9 @@
 #include "chrome/browser/chromeos/login/ui/models/user_board_model.h"
 #include "components/proximity_auth/screenlock_bridge.h"
 #include "components/user_manager/user.h"
-#include "components/user_manager/user_id.h"
 #include "ui/base/user_activity/user_activity_observer.h"
 
+class AccountId;
 class EasyUnlockService;
 
 namespace chromeos {
@@ -47,7 +47,6 @@ class UserSelectionScreen
 
 
   virtual void Init(const user_manager::UserList& users, bool show_guest);
-  const user_manager::UserList& GetUsers() const;
   void OnUserImageChanged(const user_manager::User& user);
   void OnBeforeUserRemoved(const std::string& username);
   void OnUserRemoved(const std::string& username);
@@ -123,7 +122,7 @@ class UserSelectionScreen
   EasyUnlockService* GetEasyUnlockServiceForUser(
       const std::string& user_id) const;
 
-  void OnUserStatusChecked(const user_manager::UserID& user_id,
+  void OnUserStatusChecked(const AccountId& account_id,
                            TokenHandleUtil::TokenHandleStatus status);
 
   // Whether to show guest login.
@@ -141,7 +140,7 @@ class UserSelectionScreen
       user_auth_type_map_;
 
   // Timer for measuring idle state duration before password clear.
-  base::OneShotTimer<UserSelectionScreen> password_clear_timer_;
+  base::OneShotTimer password_clear_timer_;
 
   // Token handler util for checking user OAuth token status.
   scoped_ptr<TokenHandleUtil> token_handle_util_;

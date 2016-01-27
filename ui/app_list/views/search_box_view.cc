@@ -10,6 +10,7 @@
 #include "ui/app_list/app_list_model.h"
 #include "ui/app_list/app_list_switches.h"
 #include "ui/app_list/app_list_view_delegate.h"
+#include "ui/app_list/resources/grit/app_list_resources.h"
 #include "ui/app_list/search_box_model.h"
 #include "ui/app_list/speech_ui_model.h"
 #include "ui/app_list/views/app_list_menu_views.h"
@@ -21,7 +22,6 @@
 #include "ui/events/event.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/shadow_value.h"
-#include "ui/resources/grit/ui_resources.h"
 #include "ui/strings/grit/ui_strings.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
@@ -137,9 +137,7 @@ SearchBoxView::SearchBoxView(SearchBoxViewDelegate* delegate,
         rb.GetImageSkiaNamed(IDR_APP_LIST_FOLDER_BACK_NORMAL));
     back_button_->SetImageAlignment(views::ImageButton::ALIGN_CENTER,
                                     views::ImageButton::ALIGN_MIDDLE);
-    base::string16 back_title(l10n_util::GetStringUTF16(IDS_APP_LIST_BACK));
-    back_button_->SetAccessibleName(back_title);
-    back_button_->SetTooltipText(back_title);
+    SetBackButtonLabel(false);
     content_container_->AddChildView(back_button_);
 
     content_container_->set_background(new ExperimentalSearchBoxBackground());
@@ -308,6 +306,17 @@ void SearchBoxView::ResetTabFocus(bool on_contents) {
   focused_view_ = on_contents ? FOCUS_CONTENTS_VIEW : FOCUS_SEARCH_BOX;
 }
 
+void SearchBoxView::SetBackButtonLabel(bool folder) {
+  if (!back_button_)
+    return;
+
+  base::string16 back_button_label(l10n_util::GetStringUTF16(
+      folder ? IDS_APP_LIST_FOLDER_CLOSE_FOLDER_ACCESSIBILE_NAME
+             : IDS_APP_LIST_BACK));
+  back_button_->SetAccessibleName(back_button_label);
+  back_button_->SetTooltipText(back_button_label);
+}
+
 gfx::Size SearchBoxView::GetPreferredSize() const {
   return gfx::Size(kPreferredWidth, kPreferredHeight);
 }
@@ -388,7 +397,7 @@ void SearchBoxView::ButtonPressed(views::Button* sender,
   if (back_button_ && sender == back_button_)
     delegate_->BackButtonPressed();
   else if (speech_button_ && sender == speech_button_)
-    view_delegate_->ToggleSpeechRecognition();
+    view_delegate_->StartSpeechRecognition();
   else
     NOTREACHED();
 }

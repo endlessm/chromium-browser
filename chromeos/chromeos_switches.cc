@@ -185,10 +185,6 @@ const char kGuestSession[] = "bwsi";
 const char kGuestWallpaperLarge[] = "guest-wallpaper-large";
 const char kGuestWallpaperSmall[] = "guest-wallpaper-small";
 
-// If true, the Chromebook has a Chrome OS keyboard. Don't use the flag for
-// Chromeboxes.
-const char kHasChromeOSKeyboard[] = "has-chromeos-keyboard";
-
 // If true, the Chromebook has a keyboard with a diamond key.
 const char kHasChromeOSDiamondKey[] = "has-chromeos-diamond-key";
 
@@ -204,10 +200,6 @@ const char kHostPairingOobe[] = "host-pairing-oobe";
 // turn on multi-profile feature on ChromeOS.
 const char kIgnoreUserProfileMappingForTests[] =
     "ignore-user-profile-mapping-for-tests";
-
-// File to load internal display ICC file from.
-const char kInternalDisplayColorProfileFile[] =
-    "internal-display-color-profile-file";
 
 // Enables Chrome-as-a-login-manager behavior.
 const char kLoginManager[] = "login-manager";
@@ -293,8 +285,9 @@ const char kForceFirstRunUI[] = "force-first-run-ui";
 // Enables testing for auto update UI.
 const char kTestAutoUpdateUI[] = "test-auto-update-ui";
 
-// Enables waking the device based on the receipt of some network packets.
-const char kWakeOnPackets[] = "wake-on-packets";
+// Enables wake on wifi packet feature, which wakes the device on the receipt
+// of network packets from whitelisted sources.
+const char kWakeOnWifiPacket[] = "wake-on-wifi-packet";
 
 // Screenshot testing: specifies the directory where the golden screenshots are
 // stored.
@@ -311,13 +304,21 @@ const char kDisableCaptivePortalBypassProxy[] =
 const char kDisableTimeZoneTrackingOption[] =
     "disable-timezone-tracking-option";
 
-// Disable new GAIA sign-in flow.
-const char kDisableWebviewSigninFlow[] = "disable-webview-signin-flow";
-
 // Switches and optional value for Data Saver prompt on cellular networks.
 const char kDisableDataSaverPrompt[] = "disable-datasaver-prompt";
 const char kEnableDataSaverPrompt[] = "enable-datasaver-prompt";
 const char kDataSaverPromptDemoMode[] = "demo";
+
+// Control regions data load:
+// ""         - default
+// "override" - regions data is read first
+// "hide"     - VPD values are hidden
+const char kCrosRegionsMode[] = "cros-regions-mode";
+const char kCrosRegionsModeOverride[] = "override";
+const char kCrosRegionsModeHide[] = "hide";
+
+// Forces CrOS region value.
+const char kCrosRegion[] = "cros-region";
 
 bool WakeOnWifiEnabled() {
   return !base::CommandLine::ForCurrentProcess()->HasSwitch(kDisableWakeOnWifi);

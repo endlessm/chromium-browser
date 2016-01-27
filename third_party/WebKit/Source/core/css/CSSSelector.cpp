@@ -46,7 +46,7 @@ using namespace HTMLNames;
 
 struct SameSizeAsCSSSelector {
     unsigned bitfields;
-    void *pointers[1];
+    void* pointers[1];
 };
 
 static_assert(sizeof(CSSSelector) == sizeof(SameSizeAsCSSSelector), "CSSSelector should stay small");
@@ -224,6 +224,7 @@ PseudoId CSSSelector::pseudoId(PseudoType type)
     case PseudoDefault:
     case PseudoDisabled:
     case PseudoOptional:
+    case PseudoPlaceholderShown:
     case PseudoRequired:
     case PseudoReadOnly:
     case PseudoReadWrite:
@@ -261,7 +262,6 @@ PseudoId CSSSelector::pseudoId(PseudoType type)
     case PseudoHostContext:
     case PseudoShadow:
     case PseudoFullScreen:
-    case PseudoFullScreenDocument:
     case PseudoFullScreenAncestor:
     case PseudoSpatialNavigationFocus:
     case PseudoListBox:
@@ -292,7 +292,6 @@ const static NameToPseudoStruct pseudoTypeWithoutArgumentsMap[] = {
 {"-webkit-full-page-media",       CSSSelector::PseudoFullPageMedia},
 {"-webkit-full-screen",           CSSSelector::PseudoFullScreen},
 {"-webkit-full-screen-ancestor",  CSSSelector::PseudoFullScreenAncestor},
-{"-webkit-full-screen-document",  CSSSelector::PseudoFullScreenDocument},
 {"-webkit-resizer",               CSSSelector::PseudoResizer},
 {"-webkit-scrollbar",             CSSSelector::PseudoScrollbar},
 {"-webkit-scrollbar-button",      CSSSelector::PseudoScrollbarButton},
@@ -339,6 +338,7 @@ const static NameToPseudoStruct pseudoTypeWithoutArgumentsMap[] = {
 {"optional",                      CSSSelector::PseudoOptional},
 {"out-of-range",                  CSSSelector::PseudoOutOfRange},
 {"past",                          CSSSelector::PseudoPastCue},
+{"placeholder-shown",             CSSSelector::PseudoPlaceholderShown},
 {"read-only",                     CSSSelector::PseudoReadOnly},
 {"read-write",                    CSSSelector::PseudoReadWrite},
 {"required",                      CSSSelector::PseudoRequired},
@@ -511,7 +511,6 @@ void CSSSelector::updatePseudoType(const AtomicString& value, bool hasArguments)
     case PseudoFullPageMedia:
     case PseudoFullScreen:
     case PseudoFullScreenAncestor:
-    case PseudoFullScreenDocument:
     case PseudoFutureCue:
     case PseudoHorizontal:
     case PseudoHost:
@@ -535,6 +534,7 @@ void CSSSelector::updatePseudoType(const AtomicString& value, bool hasArguments)
     case PseudoOnlyChild:
     case PseudoOnlyOfType:
     case PseudoOptional:
+    case PseudoPlaceholderShown:
     case PseudoOutOfRange:
     case PseudoPastCue:
     case PseudoReadOnly:
@@ -590,9 +590,9 @@ String CSSSelector::selectorText(const String& rightSide) const
     StringBuilder str;
 
     if (m_match == Tag && !m_tagIsImplicit) {
-        if (tagQName().prefix().isNull())
+        if (tagQName().prefix().isNull()) {
             str.append(tagQName().localName());
-        else {
+        } else {
             str.append(tagQName().prefix().string());
             str.append('|');
             str.append(tagQName().localName());
@@ -612,12 +612,6 @@ String CSSSelector::selectorText(const String& rightSide) const
             str.append(cs->value());
 
             switch (cs->pseudoType()) {
-            case PseudoNot:
-                ASSERT(cs->selectorList());
-                str.append('(');
-                str.append(cs->selectorList()->first()->selectorText());
-                str.append(')');
-                break;
             case PseudoNthChild:
             case PseudoNthLastChild:
             case PseudoNthOfType:
@@ -646,52 +640,22 @@ String CSSSelector::selectorText(const String& rightSide) const
                 str.append(cs->argument());
                 str.append(')');
                 break;
-            case PseudoAny: {
-                str.append('(');
-                const CSSSelector* firstSubSelector = cs->selectorList()->first();
-                for (const CSSSelector* subSelector = firstSubSelector; subSelector; subSelector = CSSSelectorList::next(*subSelector)) {
-                    if (subSelector != firstSubSelector)
-                        str.append(',');
-                    str.append(subSelector->selectorText());
-                }
-                str.append(')');
+            case PseudoNot:
+                ASSERT(cs->selectorList());
                 break;
-            }
             case PseudoHost:
-            case PseudoHostContext: {
-                if (cs->selectorList()) {
-                    str.append('(');
-                    const CSSSelector* firstSubSelector = cs->selectorList()->first();
-                    for (const CSSSelector* subSelector = firstSubSelector; subSelector; subSelector = CSSSelectorList::next(*subSelector)) {
-                        if (subSelector != firstSubSelector)
-                            str.append(',');
-                        str.append(subSelector->selectorText());
-                    }
-                    str.append(')');
-                }
+            case PseudoHostContext:
+            case PseudoAny:
                 break;
-            }
             default:
                 break;
             }
         } else if (cs->m_match == PseudoElement) {
             str.appendLiteral("::");
             str.append(cs->value());
-
-            if (cs->pseudoType() == PseudoContent) {
-                if (cs->relation() == SubSelector && cs->tagHistory())
-                    return cs->tagHistory()->selectorText() + str.toString() + rightSide;
-            } else if (cs->pseudoType() == PseudoCue) {
-                if (cs->selectorList()) {
-                    str.append('(');
-                    const CSSSelector* firstSubSelector = cs->selectorList()->first();
-                    for (const CSSSelector* subSelector = firstSubSelector; subSelector; subSelector = CSSSelectorList::next(*subSelector)) {
-                        if (subSelector != firstSubSelector)
-                            str.append(',');
-                        str.append(subSelector->selectorText());
-                    }
-                    str.append(')');
-                }
+            // ::content is always stored at the end of the compound.
+            if (cs->pseudoType() == PseudoContent && cs->relation() == SubSelector && cs->tagHistory()) {
+                return cs->tagHistory()->selectorText() + str.toString() + rightSide;
             }
         } else if (cs->isAttributeSelector()) {
             str.append('[');
@@ -734,6 +698,18 @@ String CSSSelector::selectorText(const String& rightSide) const
                 str.append(']');
             }
         }
+
+        if (cs->selectorList()) {
+            str.append('(');
+            const CSSSelector* firstSubSelector = cs->selectorList()->first();
+            for (const CSSSelector* subSelector = firstSubSelector; subSelector; subSelector = CSSSelectorList::next(*subSelector)) {
+                if (subSelector != firstSubSelector)
+                    str.append(',');
+                str.append(subSelector->selectorText());
+            }
+            str.append(')');
+        }
+
         if (cs->relation() != SubSelector || !cs->tagHistory())
             break;
         cs = cs->tagHistory();

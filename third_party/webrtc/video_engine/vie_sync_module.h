@@ -15,8 +15,8 @@
 #define WEBRTC_VIDEO_ENGINE_VIE_SYNC_MODULE_H_
 
 #include "webrtc/base/scoped_ptr.h"
-#include "webrtc/modules/interface/module.h"
-#include "webrtc/system_wrappers/interface/tick_util.h"
+#include "webrtc/modules/include/module.h"
+#include "webrtc/system_wrappers/include/tick_util.h"
 #include "webrtc/video_engine/stream_synchronization.h"
 #include "webrtc/voice_engine/include/voe_video_sync.h"
 
@@ -39,9 +39,6 @@ class ViESyncModule : public Module {
                     RtpReceiver* video_receiver);
 
   int VoiceChannel();
-
-  // Set target delay for buffering mode (0 = real-time mode).
-  int SetTargetBufferingDelay(int target_delay_ms);
 
   // Implements Module.
   int64_t TimeUntilNextProcess() override;

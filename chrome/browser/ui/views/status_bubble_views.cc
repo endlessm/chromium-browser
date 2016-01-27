@@ -14,10 +14,10 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/thread_task_runner_handle.h"
 #include "chrome/browser/themes/theme_properties.h"
-#include "chrome/browser/ui/elide_url.h"
-#include "net/base/net_util.h"
+#include "components/url_formatter/elide_url.h"
+#include "components/url_formatter/url_formatter.h"
 #include "third_party/skia/include/core/SkPaint.h"
-#include "third_party/skia/include/core/SkRect.h"
+#include "third_party/skia/include/core/SkRRect.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/animation/animation_delegate.h"
 #include "ui/gfx/animation/linear_animation.h"
@@ -581,17 +581,13 @@ void StatusBubbleViews::Init() {
       view_ = new StatusView(popup_.get(), frame->GetThemeProvider());
     if (!expand_view_.get())
       expand_view_.reset(new StatusViewExpander(this, view_));
-    // On Windows use TYPE_MENU to ensure that this window uses the software
-    // compositor which avoids the UI thread blocking issue during command
-    // buffer creation. We can revert this change once http://crbug.com/125248
-    // is fixed.
-#if defined(OS_WIN)
-    views::Widget::InitParams params(views::Widget::InitParams::TYPE_MENU);
-    // The menu style assumes a top most window. We don't want that in this
-    // case.
-    params.keep_on_top = false;
-#else
+
     views::Widget::InitParams params(views::Widget::InitParams::TYPE_POPUP);
+#if defined(OS_WIN)
+  // On Windows use the software compositor to ensure that we don't block
+  // the UI thread blocking issue during command buffer creation. We can
+  // revert this change once http://crbug.com/125248 is fixed.
+  params.force_software_compositing = true;
 #endif
     params.opacity = views::Widget::InitParams::TRANSLUCENT_WINDOW;
     params.accept_events = false;
@@ -624,6 +620,8 @@ void StatusBubbleViews::Reposition() {
 void StatusBubbleViews::RepositionPopup() {
   if (popup_.get()) {
     gfx::Point top_left;
+    // TODO(flackr): Get the non-transformed point so that the status bubble
+    // popup window's position is consistent with the base_view_'s window.
     views::View::ConvertPointToScreen(base_view_, &top_left);
 
     popup_->SetBounds(gfx::Rect(top_left.x() + position_.x(),
@@ -694,7 +692,8 @@ void StatusBubbleViews::SetURL(const GURL& url, const std::string& languages) {
   gfx::Rect popup_bounds = popup_->GetWindowBoundsInScreen();
   int text_width = static_cast<int>(popup_bounds.width() -
       (kShadowThickness * 2) - kTextPositionX - kTextHorizPadding - 1);
-  url_text_ = ElideUrl(url, gfx::FontList(), text_width, languages);
+  url_text_ =
+      url_formatter::ElideUrl(url, gfx::FontList(), text_width, languages);
 
   // An URL is always treated as a left-to-right string. On right-to-left UIs
   // we need to explicitly mark the URL as LTR to make sure it is displayed
@@ -710,7 +709,8 @@ void StatusBubbleViews::SetURL(const GURL& url, const std::string& languages) {
     // size (shrinking or expanding). Otherwise delay.
     if (is_expanded_ && !url.is_empty()) {
       ExpandBubble();
-    } else if (net::FormatUrl(url, languages).length() > url_text_.length()) {
+    } else if (url_formatter::FormatUrl(url, languages).length() >
+               url_text_.length()) {
       base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
           FROM_HERE, base::Bind(&StatusBubbleViews::ExpandBubble,
                                 expand_timer_factory_.GetWeakPtr()),
@@ -857,7 +857,8 @@ void StatusBubbleViews::ExpandBubble() {
   gfx::Rect popup_bounds = popup_->GetWindowBoundsInScreen();
   int max_status_bubble_width = GetMaxStatusBubbleWidth();
   const gfx::FontList font_list;
-  url_text_ = ElideUrl(url_, font_list, max_status_bubble_width, languages_);
+  url_text_ = url_formatter::ElideUrl(url_, font_list, max_status_bubble_width,
+                                       languages_);
   int expanded_bubble_width =
       std::max(GetStandardStatusBubbleWidth(),
                std::min(gfx::GetStringWidth(url_text_, font_list) +

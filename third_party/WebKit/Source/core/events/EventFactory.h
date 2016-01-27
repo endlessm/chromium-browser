@@ -27,6 +27,7 @@
 #define EventFactory_h
 
 #include "platform/heap/Handle.h"
+#include "wtf/Allocator.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/text/AtomicString.h"
 
@@ -35,6 +36,7 @@ namespace blink {
 class Event;
 
 class EventFactoryBase {
+    USING_FAST_MALLOC(EventFactory);
 public:
     virtual PassRefPtrWillBeRawPtr<Event> create(const String& eventType) = 0;
     virtual ~EventFactoryBase() { }
@@ -50,7 +52,7 @@ public:
         return adoptPtr(new EventFactory());
     }
 
-    virtual PassRefPtrWillBeRawPtr<Event> create(const String& eventType) override;
+    PassRefPtrWillBeRawPtr<Event> create(const String& eventType) override;
 };
 
 }

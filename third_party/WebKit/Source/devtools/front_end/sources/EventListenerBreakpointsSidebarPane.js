@@ -35,7 +35,6 @@ WebInspector.EventListenerBreakpointsSidebarPane = function()
     this._createCategory(WebInspector.UIString("Mouse"), ["click", "dblclick", "mousedown", "mouseup", "mouseover", "mousemove", "mouseout", "mouseenter", "mouseleave", "mousewheel", "wheel", "contextmenu"]);
     this._createCategory(WebInspector.UIString("Parse"), ["setInnerHTML"], true);
     this._createCategory(WebInspector.UIString("Pointer"), ["pointerover", "pointerout", "pointerenter", "pointerleave", "pointerdown", "pointerup", "pointermove", "pointercancel", "gotpointercapture", "lostpointercapture"], true);
-    this._createCategory(WebInspector.UIString("Promise"), ["newPromise", "promiseResolved", "promiseRejected"], true);
     this._createCategory(WebInspector.UIString("Script"), ["scriptFirstStatement"], true);
     this._createCategory(WebInspector.UIString("Timer"), ["setTimer", "clearTimer", "timerFired"], true);
     this._createCategory(WebInspector.UIString("Touch"), ["touchstart", "touchmove", "touchend", "touchcancel"]);
@@ -43,7 +42,7 @@ WebInspector.EventListenerBreakpointsSidebarPane = function()
     this._createCategory(WebInspector.UIString("Window"), ["close"], true);
     this._createCategory(WebInspector.UIString("XHR"), ["readystatechange", "load", "loadstart", "loadend", "abort", "error", "progress", "timeout"], false, ["XMLHttpRequest", "XMLHttpRequestUpload"]);
 
-    WebInspector.targetManager.observeTargets(this);
+    WebInspector.targetManager.observeTargets(this, WebInspector.Target.Type.Page);
 }
 
 WebInspector.EventListenerBreakpointsSidebarPane.categoryListener = "listener:";
@@ -62,9 +61,6 @@ WebInspector.EventListenerBreakpointsSidebarPane.eventNameForUI = function(event
             "instrumentation:setTimer": WebInspector.UIString("Set Timer"),
             "instrumentation:clearTimer": WebInspector.UIString("Clear Timer"),
             "instrumentation:timerFired": WebInspector.UIString("Timer Fired"),
-            "instrumentation:newPromise": WebInspector.UIString("Promise Created"),
-            "instrumentation:promiseResolved": WebInspector.UIString("Promise Resolved"),
-            "instrumentation:promiseRejected": WebInspector.UIString("Promise Rejected"),
             "instrumentation:scriptFirstStatement": WebInspector.UIString("Script First Statement"),
             "instrumentation:requestAnimationFrame": WebInspector.UIString("Request Animation Frame"),
             "instrumentation:cancelAnimationFrame": WebInspector.UIString("Cancel Animation Frame"),
@@ -235,7 +231,7 @@ WebInspector.EventListenerBreakpointsSidebarPane.prototype = {
      */
     _updateBreakpointOnTarget: function(eventName, eventTargetName, enable, target)
     {
-        var targets = target ? [target] : WebInspector.targetManager.targets();
+        var targets = target ? [target] : WebInspector.targetManager.targets(WebInspector.Target.Type.Page);
         for (var i = 0; i < targets.length; ++i) {
             if (eventName.startsWith(WebInspector.EventListenerBreakpointsSidebarPane.categoryListener)) {
                 var protocolEventName = eventName.substring(WebInspector.EventListenerBreakpointsSidebarPane.categoryListener.length);

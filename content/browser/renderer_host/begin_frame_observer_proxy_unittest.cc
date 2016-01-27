@@ -38,9 +38,9 @@ class BeginFrameObserverProxyTest : public testing::Test {
     ui::ContextFactory* context_factory =
         ui::InitializeContextFactoryForTests(enable_pixel_output);
     compositor_task_runner_ = new base::TestSimpleTaskRunner();
-    compositor_.reset(new ui::Compositor(gfx::kNullAcceleratedWidget,
-                                         context_factory,
-                                         compositor_task_runner_));
+    compositor_.reset(
+        new ui::Compositor(context_factory, compositor_task_runner_));
+    compositor_->SetAcceleratedWidget(gfx::kNullAcceleratedWidget);
   }
 
   void TearDown() override {

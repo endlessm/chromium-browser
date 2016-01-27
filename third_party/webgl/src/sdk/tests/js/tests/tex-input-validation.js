@@ -309,15 +309,29 @@ var testCases = [
     internalFormat: gl.RGBA,
     border: 0,
     format: gl.RGBA,
-    type: gl.BYTE,
-    expectedError: gl.INVALID_ENUM },
-  { target: gl.TEXTURE_2D,
-    internalFormat: gl.RGBA,
-    border: 0,
-    format: gl.RGBA,
     type: gl.UNSIGNED_BYTE,
     expectedError: gl.NO_ERROR }
 ];
+
+if (contextVersion < 2) {
+  testCases = testCases.concat([
+    { target: gl.TEXTURE_2D,
+      internalFormat: gl.RGBA,
+      border: 0,
+      format: gl.RGBA,
+      type: gl.BYTE,
+      expectedError: gl.INVALID_ENUM }
+  ]);
+} else {
+  testCases = testCases.concat([
+    { target: gl.TEXTURE_2D,
+      internalFormat: gl.RGBA,
+      border: 0,
+      format: gl.RGBA,
+      type: gl.BYTE,
+      expectedError: gl.INVALID_OPERATION }
+  ]);
+}
 
 for (var ii = 0; ii < testCases.length; ++ii) {
   testTexImage2D(testCases[ii]);
@@ -328,18 +342,34 @@ debug("Checking TexSubImage2D: a set of inputs that are valid in GL but invalid 
 
 testCases = [
   { target: gl.TEXTURE_2D,
-    format: 0x1903, // GL_RED
-    type: gl.UNSIGNED_BYTE,
-    expectedError: gl.INVALID_ENUM },
-  { target: gl.TEXTURE_2D,
-    format: gl.RGBA,
-    type: gl.BYTE,
-    expectedError: gl.INVALID_ENUM },
-  { target: gl.TEXTURE_2D,
     format: gl.RGBA,
     type: gl.UNSIGNED_BYTE,
     expectedError: gl.NO_ERROR }
 ];
+
+if (contextVersion < 2) {
+  testCases = testCases.concat([
+    { target: gl.TEXTURE_2D,
+      format: 0x1903, // GL_RED
+      type: gl.UNSIGNED_BYTE,
+      expectedError: gl.INVALID_ENUM },
+    { target: gl.TEXTURE_2D,
+      format: gl.RGBA,
+      type: gl.BYTE,
+      expectedError: gl.INVALID_ENUM }
+  ]);
+} else {
+  testCases = testCases.concat([
+    { target: gl.TEXTURE_2D,
+      format: gl.RED,
+      type: gl.UNSIGNED_BYTE,
+      expectedError: gl.INVALID_OPERATION },
+    { target: gl.TEXTURE_2D,
+      format: gl.RGBA,
+      type: gl.BYTE,
+      expectedError: gl.INVALID_OPERATION }
+  ]);
+}
 
 for (var ii = 0; ii < testCases.length; ++ii) {
   testTexSubImage2D(testCases[ii]);
@@ -463,6 +493,40 @@ var testCases = [
     format: gl.RGBA,
     type: gl.UNSIGNED_BYTE,
     expectedError: gl.NO_ERROR }
+];
+
+for (var ii = 0; ii < testCases.length; ++ii) {
+  testTexImage3D(testCases[ii]);
+}
+
+debug("");
+debug("Checking TexImage3D: bad target, internalformats, formats, types");
+
+var testCases = [
+  { target: gl.TEXTURE_2D,
+    internalFormat: gl.RGBA,
+    border: 0,
+    format: gl.RGBA,
+    type: gl.UNSIGNED_BYTE,
+    expectedError: gl.INVALID_ENUM },
+  { target: gl.TEXTURE_3D,
+    internalFormat: gl.RG,
+    border: 0,
+    format: gl.RGBA,
+    type: gl.UNSIGNED_BYTE,
+    expectedError: gl.INVALID_ENUM},
+  { target: gl.TEXTURE_3D,
+    internalFormat: gl.RGBA,
+    border: 0,
+    format: gl.RG8,
+    type: gl.UNSIGNED_BYTE,
+    expectedError: gl.INVALID_ENUM },
+  { target: gl.TEXTURE_3D,
+    internalFormat: gl.RGBA,
+    border: 0,
+    format: gl.RGBA,
+    type: gl.INT,
+    expectedError: gl.INVALID_OPERATION},
 ];
 
 for (var ii = 0; ii < testCases.length; ++ii) {

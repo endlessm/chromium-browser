@@ -44,13 +44,13 @@ private:
     explicit AXTableColumn(AXObjectCacheImpl&);
 
 public:
-    static PassRefPtrWillBeRawPtr<AXTableColumn> create(AXObjectCacheImpl&);
+    static AXTableColumn* create(AXObjectCacheImpl&);
     ~AXTableColumn() override;
 
     // retrieves the topmost "column" header (th)
     AXObject* headerObject();
     // retrieves the "column" headers (th, scope) from top to bottom
-    void headerObjectsForColumn(AccessibilityChildrenVector&);
+    void headerObjectsForColumn(AXObjectVector&);
 
     AccessibilityRole roleValue() const override { return ColumnRole; }
 

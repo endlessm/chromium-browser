@@ -21,6 +21,7 @@
 #ifndef SpaceSplitString_h
 #define SpaceSplitString_h
 
+#include "wtf/Allocator.h"
 #include "wtf/RefCounted.h"
 #include "wtf/Vector.h"
 #include "wtf/text/AtomicString.h"
@@ -28,6 +29,7 @@
 namespace blink {
 
 class SpaceSplitString {
+    USING_FAST_MALLOC(SpaceSplitString);
 public:
     enum CaseFolding { ShouldNotFoldCase, ShouldFoldCase };
     SpaceSplitString() { }

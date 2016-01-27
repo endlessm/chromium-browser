@@ -31,6 +31,7 @@
 
 #include "modules/indexeddb/IDBKeyPath.h"
 #include "public/platform/modules/indexeddb/WebIDBMetadata.h"
+#include "wtf/Allocator.h"
 #include "wtf/HashMap.h"
 #include "wtf/text/StringHash.h"
 #include "wtf/text/WTFString.h"
@@ -38,6 +39,7 @@
 namespace blink {
 
 struct IDBIndexMetadata {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
     IDBIndexMetadata() { }
     IDBIndexMetadata(const String& name, int64_t id, const IDBKeyPath& keyPath, bool unique, bool multiEntry)
         : name(name)
@@ -55,6 +57,7 @@ struct IDBIndexMetadata {
 };
 
 struct IDBObjectStoreMetadata {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
     IDBObjectStoreMetadata() { }
     IDBObjectStoreMetadata(const String& name, int64_t id, const IDBKeyPath& keyPath, bool autoIncrement, int64_t maxIndexId)
         : name(name)
@@ -77,6 +80,7 @@ struct IDBObjectStoreMetadata {
 };
 
 struct IDBDatabaseMetadata {
+    DISALLOW_NEW();
     // FIXME: These can probably be collapsed into 0.
     enum {
         NoIntVersion = -1,

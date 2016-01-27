@@ -257,7 +257,7 @@ void URLRequestFileJob::DidOpen(int result) {
 
   if (!byte_range_.ComputeBounds(meta_info_.file_size)) {
     NotifyDone(URLRequestStatus(URLRequestStatus::FAILED,
-               ERR_REQUEST_RANGE_NOT_SATISFIABLE));
+                                ERR_REQUEST_RANGE_NOT_SATISFIABLE));
     return;
   }
 

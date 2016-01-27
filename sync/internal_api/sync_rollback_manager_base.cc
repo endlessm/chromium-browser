@@ -26,7 +26,7 @@ class DummyEntryptionHandler : public syncer::SyncEncryptionHandler {
                                bool is_explicit) override {}
   void SetDecryptionPassphrase(const std::string& passphrase) override {}
   void EnableEncryptEverything() override {}
-  bool EncryptEverythingEnabled() const override { return false; }
+  bool IsEncryptEverythingEnabled() const override { return false; }
   syncer::PassphraseType GetPassphraseType() const override {
     return syncer::KEYSTORE_PASSPHRASE;
   }
@@ -49,9 +49,9 @@ bool SyncRollbackManagerBase::InitInternal(
     const base::FilePath& database_location,
     InternalComponentsFactory* internal_components_factory,
     InternalComponentsFactory::StorageOption storage,
-    scoped_ptr<UnrecoverableErrorHandler> unrecoverable_error_handler,
+    const WeakHandle<UnrecoverableErrorHandler>& unrecoverable_error_handler,
     const base::Closure& report_unrecoverable_error_function) {
-  unrecoverable_error_handler_ = unrecoverable_error_handler.Pass();
+  unrecoverable_error_handler_ = unrecoverable_error_handler;
   report_unrecoverable_error_function_ = report_unrecoverable_error_function;
 
   if (!InitBackupDB(database_location, internal_components_factory, storage)) {
@@ -213,7 +213,7 @@ void SyncRollbackManagerBase::NotifyInitializationFailure() {
           false, ModelTypeSet()));
 }
 
-syncer::SyncContextProxy* SyncRollbackManagerBase::GetSyncContextProxy() {
+syncer_v2::SyncContextProxy* SyncRollbackManagerBase::GetSyncContextProxy() {
   return NULL;
 }
 
@@ -245,7 +245,7 @@ bool SyncRollbackManagerBase::InitBackupDB(
   share_.directory.reset(
       new syncable::Directory(
           backing_store.release(),
-          unrecoverable_error_handler_.get(),
+          unrecoverable_error_handler_,
           report_unrecoverable_error_function_,
           NULL,
           NULL));
@@ -323,5 +323,8 @@ bool SyncRollbackManagerBase::HasDirectoryTypeDebugInfoObserver(
     syncer::TypeDebugInfoObserver* observer) { return false; }
 
 void SyncRollbackManagerBase::RequestEmitDebugInfo() {}
+
+void SyncRollbackManagerBase::ClearServerData(
+    const ClearServerDataCallback& callback) {}
 
 }  // namespace syncer

@@ -25,8 +25,6 @@ import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 import org.chromium.content.browser.test.util.TouchCommon;
 
-import java.util.concurrent.Callable;
-
 /**
  * A test suite for the ChromeBowserPrerenderService. This makes sure the service initializes the
  * browser process and the UI and also can carry out prerendering related operations without causing
@@ -116,17 +114,6 @@ public class PrerenderServiceTest extends
     private void ensureBindingAndInitializingUI() {
         assertNotNull(getActivity());
         // TODO(yusufo): Add a check for native library loaded notification being received.
-
-        // TODO(dtrainor): Reenable this once ChromeNotificationCenter can handle non-Activity
-        // contexts.
-        /*
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
-            @Override
-            public boolean isSatisfied() {
-                return WarmupManager.getInstance().hasBuiltViewHierarchy();
-            }
-        }));
-        */
     }
 
     private void ensurePrerendering(final String url) throws InterruptedException {
@@ -148,13 +135,6 @@ public class PrerenderServiceTest extends
                 ((EditText) getActivity().findViewById(R.id.url_to_load)).setText(url);
             }
         });
-        // TODO(dtrainor): Make this assertTrue once ChromeNotificationCenter can handle
-        // non-Activity contexts.
-        ThreadUtils.runOnUiThreadBlocking(new Runnable(){
-            public void run() {
-                assertFalse(WarmupManager.getInstance().hasBuiltViewHierarchy());
-            }
-        });
         final ChromeActivity chromeActivity = ActivityUtils.waitForActivity(
                 getInstrumentation(),
                 FeatureUtilities.isDocumentMode(getActivity())
@@ -165,11 +145,6 @@ public class PrerenderServiceTest extends
                                         R.id.load_button));
                             }
                         });
-        ThreadUtils.runOnUiThreadBlocking(new Runnable(){
-            public void run() {
-                assertFalse(WarmupManager.getInstance().hasBuiltViewHierarchy());
-            }
-        });
         // TODO(yusufo): We should be using the NotificationCenter for checking the page loading.
         assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
             @Override
@@ -187,17 +162,10 @@ public class PrerenderServiceTest extends
     }
 
     private void assertServiceHasPrerenderedUrl(final String url) throws InterruptedException {
-        final Callable<Boolean> callable = new Callable<Boolean>() {
-            @Override
-            public Boolean call() throws Exception {
-                return WarmupManager.getInstance().hasPrerenderedUrl(url);
-            }
-        };
-
-        assertTrue(CriteriaHelper.pollForCriteria(new Criteria() {
+        assertTrue(CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
             @Override
             public boolean isSatisfied() {
-                return ThreadUtils.runOnUiThreadBlockingNoException(callable);
+                return WarmupManager.getInstance().hasPrerenderedUrl(url);
             }
         }));
     }

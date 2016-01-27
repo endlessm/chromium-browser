@@ -34,6 +34,12 @@ namespace syncer {
 // TODO(akalin): Move the non-exported functions in this file to a
 // private header.
 
+// A Java counterpart will be generated for this enum.
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.sync
+
+// |kModelTypeInfoMap| struct entries are in the same order as their definition
+// in ModelType enum. Don't forget to update the |kModelTypeInfoMap| struct in
+// model_type.cc when you make changes in ModelType enum.
 enum ModelType {
   // Object type unknown.  Objects may transition through
   // the unknown state during their initial creation, before

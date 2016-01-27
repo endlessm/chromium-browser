@@ -50,7 +50,7 @@ class TParseContext : angle::NonCopyable
           mCurrentFunctionType(nullptr),
           mFunctionReturnsValue(false),
           mChecksPrecisionErrors(checksPrecErrors),
-          mFragmentPrecisionHigh(false),
+          mFragmentPrecisionHighOnESSL1(false),
           mDefaultMatrixPacking(EmpColumnMajor),
           mDefaultBlockStorage(EbsShared),
           mDiagnostics(is),
@@ -58,7 +58,8 @@ class TParseContext : angle::NonCopyable
           mPreprocessor(&mDiagnostics, &mDirectiveHandler),
           mScanner(nullptr),
           mUsesFragData(false),
-          mUsesFragColor(false)
+          mUsesFragColor(false),
+          mUsesSecondaryOutputs(false)
     {
     }
 
@@ -80,10 +81,13 @@ class TParseContext : angle::NonCopyable
     TIntermNode *getTreeRoot() const { return mTreeRoot; }
     void setTreeRoot(TIntermNode *treeRoot) { mTreeRoot = treeRoot; }
 
-    bool getFragmentPrecisionHigh() const { return mFragmentPrecisionHigh; }
-    void setFragmentPrecisionHigh(bool fragmentPrecisionHigh)
+    bool getFragmentPrecisionHigh() const
     {
-        mFragmentPrecisionHigh = fragmentPrecisionHigh;
+        return mFragmentPrecisionHighOnESSL1 || mShaderVersion >= 300;
+    }
+    void setFragmentPrecisionHighOnESSL1(bool fragmentPrecisionHigh)
+    {
+        mFragmentPrecisionHighOnESSL1 = fragmentPrecisionHigh;
     }
 
     bool getFunctionReturnsValue() const { return mFunctionReturnsValue; }
@@ -111,9 +115,11 @@ class TParseContext : angle::NonCopyable
 
     // This method is guaranteed to succeed, even if no variable with 'name' exists.
     const TVariable *getNamedVariable(const TSourceLoc &location, const TString *name, const TSymbol *symbol);
+    TIntermTyped *parseVariableIdentifier(const TSourceLoc &location,
+                                          const TString *name,
+                                          const TSymbol *symbol);
 
     bool parseVectorFields(const TString&, int vecSize, TVectorFields&, const TSourceLoc &line);
-    bool parseMatrixFields(const TString&, int matCols, int matRows, TMatrixFields&, const TSourceLoc &line);
 
     bool reservedErrorCheck(const TSourceLoc &line, const TString &identifier);
     void assignError(const TSourceLoc &line, const char *op, TString left, TString right);
@@ -140,6 +146,9 @@ class TParseContext : angle::NonCopyable
     bool layoutLocationErrorCheck(const TSourceLoc &location, const TLayoutQualifier &layoutQualifier);
     bool functionCallLValueErrorCheck(const TFunction *fnCandidate, TIntermAggregate *);
     void es3InvariantErrorCheck(const TQualifier qualifier, const TSourceLoc &invariantLocation);
+    void es3InputOutputTypeCheck(const TQualifier qualifier,
+                                 const TPublicType &type,
+                                 const TSourceLoc &qualifierLocation);
 
     const TPragma &pragma() const { return mDirectiveHandler.pragma(); }
     const TExtensionBehavior &extensionBehavior() const { return mDirectiveHandler.extensionBehavior(); }
@@ -220,6 +229,11 @@ class TParseContext : angle::NonCopyable
                                                TIntermTyped *initializer);
 
     void parseGlobalLayoutQualifier(const TPublicType &typeQualifier);
+    void parseFunctionPrototype(const TSourceLoc &location,
+                                TFunction *function,
+                                TIntermAggregate **aggregateOut);
+    TFunction *parseFunctionDeclarator(const TSourceLoc &location,
+                                       TFunction *function);
     TFunction *addConstructorFunc(const TPublicType &publicType);
     TIntermTyped *addConstructor(TIntermNode *arguments,
                                  TType *type,
@@ -287,6 +301,8 @@ class TParseContext : angle::NonCopyable
     TIntermTyped *addAssign(
         TOperator op, TIntermTyped *left, TIntermTyped *right, const TSourceLoc &loc);
 
+    TIntermTyped *addComma(TIntermTyped *left, TIntermTyped *right, const TSourceLoc &loc);
+
     TIntermBranch *addBranch(TOperator op, const TSourceLoc &loc);
     TIntermBranch *addBranch(TOperator op, TIntermTyped *returnValue, const TSourceLoc &loc);
 
@@ -334,7 +350,8 @@ class TParseContext : angle::NonCopyable
     const TType *mCurrentFunctionType;  // the return type of the function that's currently being parsed
     bool mFunctionReturnsValue;  // true if a non-void function has a return
     bool mChecksPrecisionErrors;  // true if an error will be generated when a variable is declared without precision, explicit or implicit.
-    bool mFragmentPrecisionHigh;  // true if highp precision is supported in the fragment language.
+    bool mFragmentPrecisionHighOnESSL1;  // true if highp precision is supported when compiling
+                                         // ESSL1.
     TLayoutMatrixPacking mDefaultMatrixPacking;
     TLayoutBlockStorage mDefaultBlockStorage;
     TString mHashErrMsg;
@@ -344,6 +361,8 @@ class TParseContext : angle::NonCopyable
     void *mScanner;
     bool mUsesFragData; // track if we are using both gl_FragData and gl_FragColor
     bool mUsesFragColor;
+    bool mUsesSecondaryOutputs;  // Track if we are using either gl_SecondaryFragData or
+                                 // gl_Secondary FragColor or both.
 };
 
 int PaParseStrings(

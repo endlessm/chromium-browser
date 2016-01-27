@@ -25,7 +25,7 @@ using base::android::ToJavaIntArray;
 using content::BrowserThread;
 using content::MessagePortProvider;
 
-//static
+// static
 AwMessagePortServiceImpl* AwMessagePortServiceImpl::GetInstance() {
   return static_cast<AwMessagePortServiceImpl*>(
       AwBrowserContext::GetDefault()->GetMessagePortService());
@@ -231,7 +231,7 @@ bool RegisterAwMessagePortService(JNIEnv* env) {
 }
 
 // static
-jlong InitAwMessagePortService(JNIEnv* env, jobject obj) {
+jlong InitAwMessagePortService(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   AwMessagePortServiceImpl* service = AwMessagePortServiceImpl::GetInstance();
   service->Init(env, obj);
   return reinterpret_cast<intptr_t>(service);

@@ -4,35 +4,21 @@
 
 package org.chromium.chrome.browser.webapps;
 
-import android.content.Context;
-import android.content.Intent;
-import android.net.Uri;
 import android.os.Bundle;
-import android.text.TextUtils;
+import android.os.StrictMode;
 import android.util.Log;
-import android.view.ContextMenu;
-import android.view.Menu;
 
 import org.chromium.base.StreamUtil;
 import org.chromium.base.annotations.SuppressFBWarnings;
-import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeActivity;
-import org.chromium.chrome.browser.IntentHandler;
-import org.chromium.chrome.browser.ShortcutHelper;
-import org.chromium.chrome.browser.Tab;
 import org.chromium.chrome.browser.TabState;
-import org.chromium.chrome.browser.TabUma.TabCreationState;
-import org.chromium.chrome.browser.UrlUtilities;
 import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
-import org.chromium.chrome.browser.contextmenu.ContextMenuHelper;
-import org.chromium.chrome.browser.contextmenu.ContextMenuParams;
-import org.chromium.chrome.browser.contextmenu.ContextMenuPopulator;
-import org.chromium.chrome.browser.tab.ChromeTab;
+import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabUma.TabCreationState;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabLaunchType;
 import org.chromium.content_public.browser.LoadUrlParams;
 import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
-import org.chromium.ui.base.Clipboard;
 import org.chromium.ui.base.PageTransition;
 import org.chromium.ui.base.WindowAndroid;
 
@@ -41,13 +27,12 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.net.URI;
 
 /**
  * A tab that will be used for FullScreenActivity. See {@link FullScreenActivity} for more.
  */
 @SuppressFBWarnings("URF_UNREAD_FIELD")
-public class FullScreenActivityTab extends ChromeTab {
+public class FullScreenActivityTab extends Tab {
     private static final String TAG = "FullScreenActivityTab";
 
     /**
@@ -72,15 +57,15 @@ public class FullScreenActivityTab extends ChromeTab {
 
     private FullScreenActivityTab(ChromeActivity activity, WindowAndroid window,
             TopControlsVisibilityDelegate topControlsVisibilityDelegate) {
-        super(INVALID_TAB_ID, activity, false, window, TabLaunchType.FROM_MENU_OR_OVERVIEW,
-                INVALID_TAB_ID, null, null);
+        super(INVALID_TAB_ID, INVALID_TAB_ID, false, activity, window,
+                TabLaunchType.FROM_MENU_OR_OVERVIEW, null, null);
         initializeFullScreenActivityTab(
                 activity.getTabContentManager(), false, topControlsVisibilityDelegate);
     }
 
     private FullScreenActivityTab(int id, ChromeActivity activity, WindowAndroid window,
             TabState state, TopControlsVisibilityDelegate topControlsVisibilityDelegate) {
-        super(id, activity, false, window, TabLaunchType.FROM_RESTORE, Tab.INVALID_TAB_ID,
+        super(id, Tab.INVALID_TAB_ID, false, activity, window, TabLaunchType.FROM_RESTORE,
                 TabCreationState.FROZEN_ON_RESTORE, state);
         initializeFullScreenActivityTab(
                 activity.getTabContentManager(), true, topControlsVisibilityDelegate);
@@ -88,7 +73,7 @@ public class FullScreenActivityTab extends ChromeTab {
 
     private void initializeFullScreenActivityTab(TabContentManager tabContentManager,
             boolean unfreeze, TopControlsVisibilityDelegate topControlsVisibilityDelegate) {
-        initialize(null, tabContentManager, false);
+        initialize(null, tabContentManager, new FullScreenDelegateFactory(), false);
         if (unfreeze) unfreezeContents();
         mObserver = createWebContentsObserver();
         mTopControlsVisibilityDelegate = topControlsVisibilityDelegate;
@@ -141,6 +126,9 @@ public class FullScreenActivityTab extends ChromeTab {
         File tabFile = getTabFile(activityDirectory, getId());
 
         FileOutputStream foutput = null;
+        // Temporarily allowing disk access while fixing. TODO: http://crbug.com/525781
+        StrictMode.ThreadPolicy oldPolicy = StrictMode.allowThreadDiskReads();
+        StrictMode.allowThreadDiskWrites();
         try {
             foutput = new FileOutputStream(tabFile);
             TabState.saveState(foutput, getState(), false);
@@ -150,6 +138,7 @@ public class FullScreenActivityTab extends ChromeTab {
             Log.e(TAG, "Failed to save out tab state.", exception);
         } finally {
             StreamUtil.closeQuietly(foutput);
+            StrictMode.setThreadPolicy(oldPolicy);
         }
     }
 
@@ -209,84 +198,6 @@ public class FullScreenActivityTab extends ChromeTab {
     }
 
     @Override
-    protected ContextMenuPopulator createContextMenuPopulator() {
-        return new ContextMenuPopulator() {
-            private final Clipboard mClipboard;
-
-            // public ContextMenuPopulator()
-            {
-                mClipboard = new Clipboard(getApplicationContext());
-            }
-
-            @Override
-            public boolean shouldShowContextMenu(ContextMenuParams params) {
-                return params != null && params.isAnchor();
-            }
-
-            @Override
-            public boolean onItemSelected(ContextMenuHelper helper, ContextMenuParams params,
-                    int itemId) {
-                if (itemId == org.chromium.chrome.R.id.contextmenu_copy_link_address_text) {
-                    String url = params.getUnfilteredLinkUrl();
-                    mClipboard.setText(url, url);
-                    return true;
-                } else if (itemId == org.chromium.chrome.R.id.contextmenu_copy_link_text) {
-                    String text = params.getLinkText();
-                    mClipboard.setText(text, text);
-                    return true;
-                } else if (itemId == R.id.menu_id_open_in_chrome) {
-                    // TODO(dfalcantara): Merge into the TabDelegate. (https://crbug.com/451453)
-                    Intent chromeIntent =
-                            new Intent(Intent.ACTION_VIEW, Uri.parse(params.getLinkUrl()));
-                    chromeIntent.setPackage(getApplicationContext().getPackageName());
-                    chromeIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
-                    boolean activityStarted = false;
-                    if (params.getPageUrl() != null) {
-                        try {
-                            URI pageUri = URI.create(params.getPageUrl());
-                            if (UrlUtilities.isInternalScheme(pageUri)) {
-                                IntentHandler.startChromeLauncherActivityForTrustedIntent(
-                                        chromeIntent, getApplicationContext());
-                                activityStarted = true;
-                            }
-                        } catch (IllegalArgumentException ex) {
-                            // Ignore the exception for creating the URI and launch the intent
-                            // without the trusted intent extras.
-                        }
-                    }
-
-                    if (!activityStarted) {
-                        getApplicationContext().startActivity(chromeIntent);
-                        activityStarted = true;
-                    }
-                    return true;
-                }
-
-                return false;
-            }
-
-            @Override
-            public void buildContextMenu(ContextMenu menu, Context context,
-                    ContextMenuParams params) {
-                menu.add(Menu.NONE, org.chromium.chrome.R.id.contextmenu_copy_link_address_text,
-                        Menu.NONE, org.chromium.chrome.R.string.contextmenu_copy_link_address);
-
-                String linkText = params.getLinkText();
-                if (linkText != null) linkText = linkText.trim();
-
-                if (!TextUtils.isEmpty(linkText)) {
-                    menu.add(Menu.NONE, org.chromium.chrome.R.id.contextmenu_copy_link_text,
-                            Menu.NONE, org.chromium.chrome.R.string.contextmenu_copy_link_text);
-                }
-
-                menu.add(Menu.NONE, R.id.menu_id_open_in_chrome, Menu.NONE,
-                        R.string.menu_open_in_chrome);
-            }
-        };
-    }
-
-    @Override
     protected boolean isHidingTopControlsEnabled() {
         if (getFullscreenManager() == null) return true;
         if (getFullscreenManager().getPersistentFullscreenMode()) return true;
@@ -299,36 +210,5 @@ public class FullScreenActivityTab extends ChromeTab {
         // On webapp activity and embedd content view activity, it's either hiding or showing.
         // Users cannot change the visibility state by sliding it in or out.
         return !isHidingTopControlsEnabled();
-    }
-
-    @Override
-    protected FullScreenTabWebContentsDelegateAndroid createWebContentsDelegate() {
-        return new FullScreenTabWebContentsDelegateAndroid();
-    }
-
-    private class FullScreenTabWebContentsDelegateAndroid
-            extends TabChromeWebContentsDelegateAndroidImpl {
-        @Override
-        public void activateContents() {
-            if (!(mActivity instanceof WebappActivity)) return;
-
-            WebappInfo webAppInfo = ((WebappActivity) mActivity).getWebappInfo();
-            String url = webAppInfo.uri().toString();
-
-            Intent intent = new Intent();
-            intent.setAction(WebappLauncherActivity.ACTION_START_WEBAPP);
-            intent.setPackage(mActivity.getPackageName());
-
-            intent.putExtra(ShortcutHelper.EXTRA_ICON, webAppInfo.getEncodedIcon());
-            intent.putExtra(ShortcutHelper.EXTRA_ID, webAppInfo.id());
-            intent.putExtra(ShortcutHelper.EXTRA_URL, url);
-            intent.putExtra(ShortcutHelper.EXTRA_TITLE, webAppInfo.title());
-            intent.putExtra(ShortcutHelper.EXTRA_ORIENTATION, webAppInfo.orientation());
-            intent.putExtra(ShortcutHelper.EXTRA_MAC, ShortcutHelper.getEncodedMac(mActivity, url));
-            intent.putExtra(ShortcutHelper.EXTRA_SOURCE, webAppInfo.source());
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-
-            getApplicationContext().startActivity(intent);
-        }
     }
 }

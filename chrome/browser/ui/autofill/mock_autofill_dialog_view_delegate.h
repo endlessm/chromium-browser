@@ -54,8 +54,6 @@ class MockAutofillDialogViewDelegate : public AutofillDialogViewDelegate {
   MOCK_CONST_METHOD1(IconsForFields, FieldIconMap(const FieldValueMap&));
   MOCK_CONST_METHOD1(FieldControlsIcons, bool(ServerFieldType));
   MOCK_CONST_METHOD1(TooltipForField, base::string16(ServerFieldType));
-  MOCK_METHOD2(InputIsEditable, bool(const DetailInput& input,
-                                     DialogSection section));
   MOCK_METHOD3(InputValidityMessage,
       base::string16(DialogSection, ServerFieldType, const base::string16&));
   MOCK_METHOD2(InputsAreValid, ValidityMessages(DialogSection,
@@ -78,8 +76,8 @@ class MockAutofillDialogViewDelegate : public AutofillDialogViewDelegate {
                void(DialogNotification::Type, bool));
   MOCK_METHOD1(LegalDocumentLinkClicked, void(const gfx::Range&));
   MOCK_METHOD0(OverlayButtonPressed, void());
-  MOCK_METHOD0(OnCancel, bool());
-  MOCK_METHOD0(OnAccept, bool());
+  MOCK_METHOD0(OnCancel, void());
+  MOCK_METHOD0(OnAccept, void());
   MOCK_METHOD0(profile, Profile*());
   MOCK_METHOD0(GetWebContents, content::WebContents*());
 

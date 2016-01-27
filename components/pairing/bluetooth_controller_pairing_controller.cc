@@ -71,7 +71,7 @@ void BluetoothControllerPairingController::DeviceFound(
   DCHECK_EQ(current_stage_, STAGE_DEVICES_DISCOVERY);
   DCHECK(thread_checker_.CalledOnValidThread());
   if (base::StartsWith(device->GetName(), base::ASCIIToUTF16(kDeviceNamePrefix),
-                       false)) {
+                       base::CompareCase::INSENSITIVE_ASCII)) {
     discovered_devices_.insert(device->GetAddress());
     FOR_EACH_OBSERVER(ControllerPairingController::Observer, observers_,
                       DiscoveredDevicesListChanged());
@@ -312,6 +312,19 @@ void BluetoothControllerPairingController::SetConfirmationCodeIsCorrect(
   }
 }
 
+void BluetoothControllerPairingController::SetHostNetwork(
+    const std::string& onc_spec) {
+  pairing_api::AddNetwork add_network;
+  add_network.set_api_version(kPairingAPIVersion);
+  add_network.mutable_parameters()->set_onc_spec(onc_spec);
+
+  int size = 0;
+  scoped_refptr<net::IOBuffer> io_buffer(
+      ProtoDecoder::SendHostNetwork(add_network, &size));
+
+  SendBuffer(io_buffer, size);
+}
+
 void BluetoothControllerPairingController::SetHostConfiguration(
     bool accepted_eula,
     const std::string& lang,
@@ -325,10 +338,13 @@ void BluetoothControllerPairingController::SetHostConfiguration(
   pairing_api::ConfigureHost host_config;
   host_config.set_api_version(kPairingAPIVersion);
   host_config.mutable_parameters()->set_accepted_eula(accepted_eula);
-  host_config.mutable_parameters()->set_lang(lang);
-  host_config.mutable_parameters()->set_timezone(timezone);
+  if (!lang.empty())
+    host_config.mutable_parameters()->set_lang(lang);
+  if (!timezone.empty())
+    host_config.mutable_parameters()->set_timezone(timezone);
   host_config.mutable_parameters()->set_send_reports(send_reports);
-  host_config.mutable_parameters()->set_keyboard_layout(keyboard_layout);
+  if (!keyboard_layout.empty())
+    host_config.mutable_parameters()->set_keyboard_layout(keyboard_layout);
 
   int size = 0;
   scoped_refptr<net::IOBuffer> io_buffer(

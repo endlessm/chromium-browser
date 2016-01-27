@@ -239,6 +239,12 @@ WebInspector.ResourceScriptMapping.prototype = {
     _bindUISourceCodeToScripts: function(uiSourceCode, scripts)
     {
         console.assert(scripts.length);
+        // Due to different listeners order, a script file could be created just before uiSourceCode
+        // for the corresponding script was created. Check that we don't create scriptFile twice.
+        var boundScriptFile = this.scriptFile(uiSourceCode);
+        if (boundScriptFile && boundScriptFile._hasScripts(scripts))
+            return;
+
         var scriptFile = new WebInspector.ResourceScriptFile(this, uiSourceCode, scripts);
         this._setScriptFile(uiSourceCode, scriptFile);
         for (var i = 0; i < scripts.length; ++i)
@@ -295,12 +301,13 @@ WebInspector.ResourceScriptFile = function(resourceScriptMapping, uiSourceCode, 
 
     this._resourceScriptMapping = resourceScriptMapping;
     this._uiSourceCode = uiSourceCode;
+    this._uiSourceCode.forceLoadOnCheckContent();
 
     if (this._uiSourceCode.contentType() === WebInspector.resourceTypes.Script)
         this._script = scripts[0];
 
     this._uiSourceCode.addEventListener(WebInspector.UISourceCode.Events.WorkingCopyChanged, this._workingCopyChanged, this);
-    this._update();
+    this._uiSourceCode.addEventListener(WebInspector.UISourceCode.Events.WorkingCopyCommitted, this._workingCopyCommitted, this);
 }
 
 WebInspector.ResourceScriptFile.Events = {
@@ -310,28 +317,12 @@ WebInspector.ResourceScriptFile.Events = {
 
 WebInspector.ResourceScriptFile.prototype = {
     /**
-     * @param {function(?string,!DebuggerAgent.SetScriptSourceError=,!WebInspector.Script=)=} callback
+     * @param {!Array.<!WebInspector.Script>} scripts
+     * @return {boolean}
      */
-    commitLiveEdit: function(callback)
+    _hasScripts: function(scripts)
     {
-        /**
-         * @param {?string} error
-         * @param {!DebuggerAgent.SetScriptSourceError=} errorData
-         * @this {WebInspector.ResourceScriptFile}
-         */
-        function innerCallback(error, errorData)
-        {
-            if (!error)
-                this._scriptSource = source;
-            this._update();
-            if (callback)
-                callback(error, errorData, this._script);
-        }
-        if (!this._script)
-            return;
-        var debuggerModel = this._resourceScriptMapping._debuggerModel;
-        var source = this._uiSourceCode.workingCopy();
-        debuggerModel.setScriptSource(this._script.scriptId, source, innerCallback.bind(this));
+        return this._script && this._script === scripts[0];
     },
 
     /**
@@ -357,6 +348,44 @@ WebInspector.ResourceScriptFile.prototype = {
     _workingCopyChanged: function(event)
     {
         this._update();
+    },
+
+    _workingCopyCommitted: function(event)
+    {
+        if (this._uiSourceCode.project().type() === WebInspector.projectTypes.Snippets)
+            return;
+        if (!this._script)
+            return;
+        var debuggerModel = this._resourceScriptMapping._debuggerModel;
+        var source = this._uiSourceCode.workingCopy();
+        debuggerModel.setScriptSource(this._script.scriptId, source, scriptSourceWasSet.bind(this));
+
+        /**
+         * @param {?string} error
+         * @param {!DebuggerAgent.SetScriptSourceError=} errorData
+         * @this {WebInspector.ResourceScriptFile}
+         */
+        function scriptSourceWasSet(error, errorData)
+        {
+            if (!error)
+                this._scriptSource = source;
+            this._update();
+
+            if (!error)
+                return;
+            var warningLevel = WebInspector.Console.MessageLevel.Warning;
+            if (!errorData) {
+                WebInspector.console.addMessage(WebInspector.UIString("LiveEdit failed: %s", error), warningLevel);
+                return;
+            }
+            var compileError = errorData.compileError;
+            if (compileError) {
+                var messageText = WebInspector.UIString("LiveEdit compile failed: %s", compileError.message);
+                this._uiSourceCode.addMessage(WebInspector.UISourceCode.Message.Level.Error, messageText, compileError.lineNumber - 1, compileError.columnNumber + 1);
+            } else {
+                WebInspector.console.addMessage(WebInspector.UIString("Unknown LiveEdit error: %s; %s", JSON.stringify(errorData), error), warningLevel);
+            }
+        }
     },
 
     _update: function()
@@ -441,6 +470,7 @@ WebInspector.ResourceScriptFile.prototype = {
     dispose: function()
     {
         this._uiSourceCode.removeEventListener(WebInspector.UISourceCode.Events.WorkingCopyChanged, this._workingCopyChanged, this);
+        this._uiSourceCode.removeEventListener(WebInspector.UISourceCode.Events.WorkingCopyCommitted, this._workingCopyCommitted, this);
     },
 
     /**

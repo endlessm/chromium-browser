@@ -192,52 +192,6 @@ TEST(NetUtilTest, GetIdentityFromURL_UTF8) {
   EXPECT_EQ(WideToUTF16(L"\x4f60\x597d"), password);
 }
 
-// Just a bunch of fake headers.
-const char google_headers[] =
-    "HTTP/1.1 200 OK\n"
-    "Content-TYPE: text/html; charset=utf-8\n"
-    "Content-disposition: attachment; filename=\"download.pdf\"\n"
-    "Content-Length: 378557\n"
-    "X-Google-Google1: 314159265\n"
-    "X-Google-Google2: aaaa2:7783,bbb21:9441\n"
-    "X-Google-Google4: home\n"
-    "Transfer-Encoding: chunked\n"
-    "Set-Cookie: HEHE_AT=6666x66beef666x6-66xx6666x66; Path=/mail\n"
-    "Set-Cookie: HEHE_HELP=owned:0;Path=/\n"
-    "Set-Cookie: S=gmail=Xxx-beefbeefbeef_beefb:gmail_yj=beefbeef000beefbee"
-       "fbee:gmproxy=bee-fbeefbe; Domain=.google.com; Path=/\n"
-    "X-Google-Google2: /one/two/three/four/five/six/seven-height/nine:9411\n"
-    "Server: GFE/1.3\n"
-    "Transfer-Encoding: chunked\n"
-    "Date: Mon, 13 Nov 2006 21:38:09 GMT\n"
-    "Expires: Tue, 14 Nov 2006 19:23:58 GMT\n"
-    "X-Malformed: bla; arg=test\"\n"
-    "X-Malformed2: bla; arg=\n"
-    "X-Test: bla; arg1=val1; arg2=val2";
-
-TEST(NetUtilTest, GetSpecificHeader) {
-  const HeaderCase tests[] = {
-    {"content-type", "text/html; charset=utf-8"},
-    {"CONTENT-LENGTH", "378557"},
-    {"Date", "Mon, 13 Nov 2006 21:38:09 GMT"},
-    {"Bad-Header", ""},
-    {"", ""},
-  };
-
-  // Test first with google_headers.
-  for (size_t i = 0; i < arraysize(tests); ++i) {
-    std::string result =
-        GetSpecificHeader(google_headers, tests[i].header_name);
-    EXPECT_EQ(result, tests[i].expected);
-  }
-
-  // Test again with empty headers.
-  for (size_t i = 0; i < arraysize(tests); ++i) {
-    std::string result = GetSpecificHeader(std::string(), tests[i].header_name);
-    EXPECT_EQ(result, std::string());
-  }
-}
-
 TEST(NetUtilTest, CompliantHost) {
   struct CompliantHostCase {
     const char* const host;
@@ -486,21 +440,6 @@ TEST(NetUtilTest, SimplifyUrlForRequest) {
   }
 }
 
-TEST(NetUtilTest, SetExplicitlyAllowedPortsTest) {
-  std::string invalid[] = { "1,2,a", "'1','2'", "1, 2, 3", "1 0,11,12" };
-  std::string valid[] = { "", "1", "1,2", "1,2,3", "10,11,12,13" };
-
-  for (size_t i = 0; i < arraysize(invalid); ++i) {
-    SetExplicitlyAllowedPorts(invalid[i]);
-    EXPECT_EQ(0, static_cast<int>(GetCountOfExplicitlyAllowedPorts()));
-  }
-
-  for (size_t i = 0; i < arraysize(valid); ++i) {
-    SetExplicitlyAllowedPorts(valid[i]);
-    EXPECT_EQ(i, GetCountOfExplicitlyAllowedPorts());
-  }
-}
-
 TEST(NetUtilTest, GetHostOrSpecFromURL) {
   EXPECT_EQ("example.com",
             GetHostOrSpecFromURL(GURL("http://example.com/test")));
@@ -508,14 +447,6 @@ TEST(NetUtilTest, GetHostOrSpecFromURL) {
             GetHostOrSpecFromURL(GURL("http://example.com./test")));
   EXPECT_EQ("file:///tmp/test.html",
             GetHostOrSpecFromURL(GURL("file:///tmp/test.html")));
-}
-
-TEST(NetUtilTest, GetAddressFamily) {
-  IPAddressNumber number;
-  EXPECT_TRUE(ParseIPLiteralToNumber("192.168.0.1", &number));
-  EXPECT_EQ(ADDRESS_FAMILY_IPV4, GetAddressFamily(number));
-  EXPECT_TRUE(ParseIPLiteralToNumber("1:abcd::3:4:ff", &number));
-  EXPECT_EQ(ADDRESS_FAMILY_IPV6, GetAddressFamily(number));
 }
 
 TEST(NetUtilTest, IsLocalhost) {
@@ -540,6 +471,8 @@ TEST(NetUtilTest, IsLocalhost) {
   EXPECT_TRUE(IsLocalhost("0:0:0:0:0:0:0:1"));
   EXPECT_TRUE(IsLocalhost("foo.localhost"));
   EXPECT_TRUE(IsLocalhost("foo.localhost."));
+  EXPECT_TRUE(IsLocalhost("foo.localhoST"));
+  EXPECT_TRUE(IsLocalhost("foo.localhoST."));
 
   EXPECT_FALSE(IsLocalhost("localhostx"));
   EXPECT_FALSE(IsLocalhost("localhost.x"));
@@ -557,6 +490,7 @@ TEST(NetUtilTest, IsLocalhost) {
   EXPECT_FALSE(IsLocalhost("0:0:0:0:0:0:0:0:1"));
   EXPECT_FALSE(IsLocalhost("foo.localhost.com"));
   EXPECT_FALSE(IsLocalhost("foo.localhoste"));
+  EXPECT_FALSE(IsLocalhost("foo.localhos"));
 }
 
 TEST(NetUtilTest, ResolveLocalHostname) {
@@ -615,16 +549,6 @@ TEST(NetUtilTest, ResolveLocalHostname) {
                                     &addresses));
   EXPECT_FALSE(
       ResolveLocalHostname("foo.localhoste", kLocalhostLookupPort, &addresses));
-}
-
-TEST(NetUtilTest, IsLocalhostTLD) {
-  EXPECT_TRUE(IsLocalhostTLD("foo.localhost"));
-  EXPECT_TRUE(IsLocalhostTLD("foo.localhoST"));
-  EXPECT_TRUE(IsLocalhostTLD("foo.localhost."));
-  EXPECT_TRUE(IsLocalhostTLD("foo.localhoST."));
-  EXPECT_FALSE(IsLocalhostTLD("foo.localhos"));
-  EXPECT_FALSE(IsLocalhostTLD("foo.localhost.com"));
-  EXPECT_FALSE(IsLocalhost("foo.localhoste"));
 }
 
 TEST(NetUtilTest, GoogleHost) {

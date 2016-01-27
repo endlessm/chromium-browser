@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/basictypes.h"
-#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "ui/gfx/geometry/point.h"
 #include "ui/gfx/geometry/size.h"
@@ -59,12 +58,17 @@ class SkBitmap;
 ///////////////////////////////////////////////////////////////////////////////
 class GFX_EXPORT IconUtil {
  public:
+  // ATOMIC_WRITE ensures that a partially written icon won't be created even if
+  // Chrome crashes part way through, but ATOMIC_WRITE is more expensive than
+  // NORMAL_WRITE. See CreateIconFileFromImageFamily. ATOMIC_WRITE is the
+  // default for historical reasons.
+  enum WriteType { ATOMIC_WRITE, NORMAL_WRITE };
   // The size of the large icon entries in .ico files on Windows Vista+.
-  static const int kLargeIconSize = 256;
+  enum { kLargeIconSize = 256 };
   // The size of icons in the medium icons view on Windows Vista+. This is the
   // maximum size Windows will display an icon that does not have a 256x256
   // image, even at the large or extra large icons views.
-  static const int kMediumIconSize = 48;
+  enum { kMediumIconSize = 48 };
 
   // The dimensions for icon images in Windows icon files. All sizes are square;
   // that is, the value 48 means a 48x48 pixel image. Sizes are listed in
@@ -127,7 +131,8 @@ class GFX_EXPORT IconUtil {
   // |image_family| is empty.
   static bool CreateIconFileFromImageFamily(
       const gfx::ImageFamily& image_family,
-      const base::FilePath& icon_path);
+      const base::FilePath& icon_path,
+      WriteType write_type = ATOMIC_WRITE);
 
   // Creates a cursor of the specified size from the DIB passed in.
   // Returns the cursor on success or NULL on failure.
@@ -140,7 +145,7 @@ class GFX_EXPORT IconUtil {
   // The icon format is published in the MSDN but there is no definition of
   // the icon file structures in any of the Windows header files so we need to
   // define these structure within the class. We must make sure we use 2 byte
-  // packing so that the structures are layed out properly within the file.
+  // packing so that the structures are laid out properly within the file.
   // See: http://msdn.microsoft.com/en-us/library/ms997538.aspx
 #pragma pack(push)
 #pragma pack(2)

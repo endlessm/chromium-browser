@@ -2,10 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// TODO(shadi): create a common macro for end-to-end tests that need to be
-// disabled in regular bots.
-#define E2E_ONLY(x) DISABLED_E2ETest##x
-
 #include "base/guid.h"
 #include "base/hash.h"
 #include "base/rand_util.h"
@@ -80,6 +76,7 @@ IN_PROC_BROWSER_TEST_F(TwoClientPasswordsSyncTest, Race) {
 
 IN_PROC_BROWSER_TEST_F(TwoClientPasswordsSyncTest,
                        SetPassphraseAndAddPassword) {
+  GetFakeServer()->EnableImplicitPermanentFolderCreation();
   ASSERT_TRUE(SetupSync()) << "SetupSync() failed.";
 
   SetEncryptionPassphrase(0, kValidPassphrase, ProfileSyncService::EXPLICIT);

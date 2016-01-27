@@ -49,10 +49,13 @@ class Task {
 
   // Will be called to let the task refresh itself between refresh cycles.
   // |update_interval| is the time since the last task manager refresh.
-  virtual void Refresh(const base::TimeDelta& update_interval);
+  // the |refresh_flags| indicate which resources should be calculated on each
+  // refresh.
+  virtual void Refresh(const base::TimeDelta& update_interval,
+                       int64 refresh_flags);
 
   // Will receive this notification through the task manager from
-  // |ChromeNetworkDelegate::OnRawBytesRead()|. The task will add to the
+  // |ChromeNetworkDelegate::OnNetworkBytesReceived()|. The task will add to the
   // |current_byte_count_| in this refresh cycle.
   void OnNetworkBytesRead(int64 bytes_read);
 

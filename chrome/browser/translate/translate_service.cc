@@ -6,8 +6,10 @@
 
 #include "base/command_line.h"
 #include "base/logging.h"
+#include "base/metrics/field_trial.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/string_split.h"
+#include "base/strings/string_util.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -67,6 +69,7 @@ void TranslateService::Shutdown(bool cleanup_pending_fetcher) {
 void TranslateService::InitializeForTesting() {
   if (!g_translate_service) {
     TranslateService::Initialize();
+    translate::TranslateManager::SetIgnoreMissingKeyForTesting(true);
   } else {
     translate::TranslateDownloadManager::GetInstance()->ResetForTesting();
     g_translate_service->OnResourceRequestsAllowed();
@@ -95,9 +98,15 @@ bool TranslateService::IsTranslateBubbleEnabled() {
 #if defined(USE_AURA)
   return true;
 #elif defined(OS_MACOSX)
-  // The bubble UX is experimental on Mac OS X.
-  return base::CommandLine::ForCurrentProcess()->HasSwitch(
-      switches::kEnableTranslateNewUX);
+  const std::string group_name =
+      base::FieldTrialList::FindFullName("TranslateNewUX");
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableTranslateNewUX))
+    return false;
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kEnableTranslateNewUX))
+    return true;
+  return base::StartsWith(group_name, "Enabled", base::CompareCase::SENSITIVE);
 #else
   // The bubble UX is not implemented on other platforms.
   return false;
@@ -106,9 +115,9 @@ bool TranslateService::IsTranslateBubbleEnabled() {
 
 // static
 std::string TranslateService::GetTargetLanguage(PrefService* prefs) {
-  std::vector<std::string> accept_languages_list;
-  base::SplitString(prefs->GetString(prefs::kAcceptLanguages), ',',
-                    &accept_languages_list);
+  std::vector<std::string> accept_languages_list = base::SplitString(
+      prefs->GetString(prefs::kAcceptLanguages), ",",
+      base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   return translate::TranslateManager::GetTargetLanguage(accept_languages_list);
 }
 

@@ -24,6 +24,7 @@
 #include "components/nacl/loader/nacl_ipc_adapter.h"
 #include "components/nacl/loader/nacl_validation_db.h"
 #include "components/nacl/loader/nacl_validation_query.h"
+#include "ipc/attachment_broker_unprivileged.h"
 #include "ipc/ipc_channel_handle.h"
 #include "ipc/ipc_switches.h"
 #include "ipc/ipc_sync_channel.h"
@@ -194,17 +195,19 @@ class BrowserValidationDBProxy : public NaClValidationDB {
   NaClListener* listener_;
 };
 
-
-NaClListener::NaClListener() : shutdown_event_(true, false),
-                               io_thread_("NaCl_IOThread"),
+NaClListener::NaClListener()
+    : shutdown_event_(true, false),
+      io_thread_("NaCl_IOThread"),
 #if defined(OS_LINUX)
-                               prereserved_sandbox_size_(0),
+      prereserved_sandbox_size_(0),
 #endif
 #if defined(OS_POSIX)
-                               number_of_cores_(-1),  // unknown/error
+      number_of_cores_(-1),  // unknown/error
 #endif
-                               main_loop_(NULL),
-                               is_started_(false) {
+      main_loop_(NULL),
+      is_started_(false) {
+  attachment_broker_.reset(
+      IPC::AttachmentBrokerUnprivileged::CreateBroker().release());
   io_thread_.StartWithOptions(
       base::Thread::Options(base::MessageLoop::TYPE_IO, 0));
   DCHECK(g_listener == NULL);
@@ -262,10 +265,11 @@ void NaClListener::Listen() {
           switches::kProcessChannelID);
   channel_ = IPC::SyncChannel::Create(this, io_thread_.task_runner().get(),
                                       &shutdown_event_);
-  filter_ = new IPC::SyncMessageFilter(&shutdown_event_);
-  channel_->AddFilter(filter_.get());
+  filter_ = channel_->CreateSyncMessageFilter();
   channel_->AddFilter(new FileTokenMessageFilter());
   channel_->Init(channel_name, IPC::Channel::MODE_CLIENT, true);
+  if (attachment_broker_.get())
+    attachment_broker_->DesignateBrokerCommunicationChannel(channel_.get());
   main_loop_ = base::MessageLoop::current();
   main_loop_->Run();
 }
@@ -446,10 +450,6 @@ void NaClListener::OnStart(const nacl::NaClStartParams& params) {
     args->pnacl_mode = 0;
     args->initial_nexe_max_code_bytes = 0;
   } else if (params.process_type == nacl::kPNaClTranslatorProcessType) {
-    // Transitioning the PNaCl translators to use the IRT again:
-    // https://code.google.com/p/nativeclient/issues/detail?id=3914.
-    // Once done, this can be removed.
-    args->irt_load_optional = 1;
     args->pnacl_mode = 0;
   }
 

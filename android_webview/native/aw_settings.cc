@@ -50,13 +50,13 @@ void PopulateFixedWebPreferences(WebPreferences* web_prefs) {
   web_prefs->should_clear_document_background = false;
 }
 
-};  // namespace
+const void* const kAwSettingsUserDataKey = &kAwSettingsUserDataKey;
 
-const void* kAwSettingsUserDataKey = &kAwSettingsUserDataKey;
+};  // namespace
 
 class AwSettingsUserData : public base::SupportsUserData::Data {
  public:
-  AwSettingsUserData(AwSettings* ptr) : settings_(ptr) {}
+  explicit AwSettingsUserData(AwSettings* ptr) : settings_(ptr) {}
 
   static AwSettings* GetSettings(content::WebContents* web_contents) {
     if (!web_contents)
@@ -418,19 +418,23 @@ void AwSettings::PopulateWebPreferencesLocked(
 
   web_prefs->fullscreen_supported =
       Java_AwSettings_getFullscreenSupportedLocked(env, obj);
+  web_prefs->record_whole_document =
+      Java_AwSettings_getRecordFullDocument(env, obj);
 }
 
 static jlong Init(JNIEnv* env,
-                  jobject obj,
-                  jobject web_contents) {
+                  const JavaParamRef<jobject>& obj,
+                  const JavaParamRef<jobject>& web_contents) {
   content::WebContents* contents = content::WebContents::FromJavaWebContents(
       web_contents);
   AwSettings* settings = new AwSettings(env, obj, contents);
   return reinterpret_cast<intptr_t>(settings);
 }
 
-static jstring GetDefaultUserAgent(JNIEnv* env, jclass clazz) {
-  return base::android::ConvertUTF8ToJavaString(env, GetUserAgent()).Release();
+static ScopedJavaLocalRef<jstring> GetDefaultUserAgent(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& clazz) {
+  return base::android::ConvertUTF8ToJavaString(env, GetUserAgent());
 }
 
 bool RegisterAwSettings(JNIEnv* env) {

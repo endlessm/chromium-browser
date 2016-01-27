@@ -15,7 +15,7 @@ class TestToolbarActionViewController : public ToolbarActionViewController {
   ~TestToolbarActionViewController() override;
 
   // ToolbarActionViewController:
-  const std::string& GetId() const override;
+  std::string GetId() const override;
   void SetDelegate(ToolbarActionViewDelegate* delegate) override;
   gfx::Image GetIcon(content::WebContents* web_contents,
                      const gfx::Size& size) override;
@@ -30,7 +30,6 @@ class TestToolbarActionViewController : public ToolbarActionViewController {
   void HidePopup() override;
   gfx::NativeView GetPopupNativeView() override;
   ui::MenuModel* GetContextMenu() override;
-  bool CanDrag() const override;
   bool ExecuteAction(bool by_user) override;
   void UpdateState() override;
   bool DisabledClickOpensMenu() const override;

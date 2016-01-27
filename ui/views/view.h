@@ -545,9 +545,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // (views::Button, for example). This method is helpful for such classes
   // because their drawing logic stays the same and they can become agnostic to
   // the UI directionality.
-  void EnableCanvasFlippingForRTLUI(bool enable) {
-    flip_canvas_on_paint_for_rtl_ui_ = enable;
-  }
+  virtual void EnableCanvasFlippingForRTLUI(bool enable);
 
   // Input ---------------------------------------------------------------------
   // The points, rects, mouse locations, and touch locations in the following
@@ -903,7 +901,7 @@ class VIEWS_EXPORT View : public ui::LayerDelegate,
   // support dropping.
   virtual bool GetDropFormats(
       int* formats,
-      std::set<OSExchangeData::CustomFormat>* custom_formats);
+      std::set<ui::Clipboard::FormatType>* format_types);
 
   // Override and return true if the data must be available before any drop
   // methods should be invoked. The default is false.

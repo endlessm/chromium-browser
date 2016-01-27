@@ -11,11 +11,6 @@
 #include "base/memory/scoped_ptr.h"
 #include "mojo/application/public/cpp/application_delegate.h"
 #include "mojo/application/public/cpp/interface_factory.h"
-#include "third_party/mojo/src/mojo/public/cpp/bindings/error_handler.h"
-
-namespace base {
-class SequencedTaskRunner;
-}
 
 namespace mojo {
 class ApplicationImpl;
@@ -28,11 +23,9 @@ class DeviceManager;
 }
 
 class DevicesApp : public mojo::ApplicationDelegate,
-                   public mojo::InterfaceFactory<usb::DeviceManager>,
-                   public mojo::ErrorHandler {
+                   public mojo::InterfaceFactory<usb::DeviceManager> {
  public:
-  explicit DevicesApp(
-      scoped_refptr<base::SequencedTaskRunner> service_task_runner);
+  DevicesApp();
   ~DevicesApp() override;
 
  private:
@@ -48,8 +41,8 @@ class DevicesApp : public mojo::ApplicationDelegate,
   void Create(mojo::ApplicationConnection* connection,
               mojo::InterfaceRequest<usb::DeviceManager> request) override;
 
-  // mojo::ErrorHandler:
-  void OnConnectionError() override;
+  // Mojo error handler to track device manager count.
+  void OnConnectionError();
 
   // Sets the app for destruction after a period of idle time. If any top-level
   // services (e.g. usb::DeviceManager) are bound before the timeout elapses,
@@ -58,7 +51,6 @@ class DevicesApp : public mojo::ApplicationDelegate,
 
   mojo::ApplicationImpl* app_impl_;
   scoped_ptr<USBServiceInitializer> service_initializer_;
-  scoped_refptr<base::SequencedTaskRunner> service_task_runner_;
   size_t active_device_manager_count_;
 
   // Callback used to shut down the app after a period of inactivity.

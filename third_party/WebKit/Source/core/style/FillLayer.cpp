@@ -29,7 +29,7 @@ namespace blink {
 struct SameSizeAsFillLayer {
     FillLayer* m_next;
 
-    RefPtr<StyleImage> m_image;
+    RefPtrWillBePersistent<StyleImage> m_image;
 
     Length m_xPosition;
     Length m_yPosition;
@@ -73,6 +73,9 @@ FillLayer::FillLayer(EFillLayerType type, bool useInitialValues)
     , m_blendModeSet(useInitialValues)
     , m_maskSourceTypeSet(useInitialValues)
     , m_type(type)
+    , m_thisOrNextLayersClipMax(0)
+    , m_thisOrNextLayersUseContentBox(0)
+    , m_thisOrNextLayersHaveLocalAttachment(0)
     , m_cachedPropertiesComputed(false)
 {
 }
@@ -108,6 +111,9 @@ FillLayer::FillLayer(const FillLayer& o)
     , m_blendModeSet(o.m_blendModeSet)
     , m_maskSourceTypeSet(o.m_maskSourceTypeSet)
     , m_type(o.m_type)
+    , m_thisOrNextLayersClipMax(0)
+    , m_thisOrNextLayersUseContentBox(0)
+    , m_thisOrNextLayersHaveLocalAttachment(0)
     , m_cachedPropertiesComputed(false)
 {
 }
@@ -155,6 +161,8 @@ FillLayer& FillLayer::operator=(const FillLayer& o)
     m_maskSourceTypeSet = o.m_maskSourceTypeSet;
 
     m_type = o.m_type;
+
+    m_cachedPropertiesComputed = false;
 
     return *this;
 }
@@ -384,6 +392,22 @@ bool FillLayer::hasOpaqueImage(const LayoutObject* layoutObject) const
 bool FillLayer::hasRepeatXY() const
 {
     return m_repeatX == RepeatFill && m_repeatY == RepeatFill;
+}
+
+static inline bool layerImagesIdentical(const FillLayer& layer1, const FillLayer& layer2)
+{
+    // We just care about pointer equivalency.
+    return layer1.image() == layer2.image();
+}
+
+bool FillLayer::imagesIdentical(const FillLayer* layer1, const FillLayer* layer2)
+{
+    for (; layer1 && layer2; layer1 = layer1->next(), layer2 = layer2->next()) {
+        if (!layerImagesIdentical(*layer1, *layer2))
+            return false;
+    }
+
+    return !layer1 && !layer2;
 }
 
 } // namespace blink

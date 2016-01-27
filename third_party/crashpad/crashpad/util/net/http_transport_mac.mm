@@ -22,6 +22,8 @@
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
 #include "third_party/apple_cf/CFStreamAbstract.h"
+#include "util/file/file_io.h"
+#include "util/misc/implicit_cast.h"
 #include "util/net/http_body.h"
 
 namespace crashpad {
@@ -87,15 +89,18 @@ class HTTPBodyStreamCFReadStream {
                       CFStreamError* error,
                       Boolean* at_eof,
                       void* info) {
-    if (buffer_length == 0)
+    if (buffer_length == 0) {
+      *at_eof = FALSE;
       return 0;
+    }
 
-    ssize_t bytes_read = GetStream(info)->GetBytesBuffer(buffer, buffer_length);
-    if (bytes_read == 0) {
-      *at_eof = TRUE;
-    } else if (bytes_read < 0) {
+    FileOperationResult bytes_read =
+        GetStream(info)->GetBytesBuffer(buffer, buffer_length);
+    if (bytes_read < 0) {
       error->error = -1;
       error->domain = kCFStreamErrorDomainCustom;
+    } else {
+      *at_eof = bytes_read == 0;
     }
 
     return bytes_read;
@@ -178,9 +183,15 @@ bool HTTPTransportMac::ExecuteSynchronously(std::string* response_body) {
 
     NSURLResponse* response = nil;
     NSError* error = nil;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    // Deprecated in OS X 10.11. The suggested replacement, NSURLSession, is
+    // only available on 10.9 and later, and this needs to run on earlier
+    // releases.
     NSData* body = [NSURLConnection sendSynchronousRequest:request
                                          returningResponse:&response
                                                      error:&error];
+#pragma clang diagnostic pop
 
     if (error) {
       LOG(ERROR) << [[error localizedDescription] UTF8String] << " ("

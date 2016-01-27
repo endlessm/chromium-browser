@@ -25,10 +25,10 @@
 #include "webrtc/engine_configurations.h"
 #include "webrtc/modules/audio_coding/main/acm2/acm_common_defs.h"
 #include "webrtc/modules/audio_coding/main/test/utility.h"
-#include "webrtc/system_wrappers/interface/event_wrapper.h"
-#include "webrtc/system_wrappers/interface/thread_wrapper.h"
-#include "webrtc/system_wrappers/interface/tick_util.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/event_wrapper.h"
+#include "webrtc/system_wrappers/include/thread_wrapper.h"
+#include "webrtc/system_wrappers/include/tick_util.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/test/testsupport/fileutils.h"
 
 namespace webrtc {
@@ -86,7 +86,6 @@ APITest::APITest(const Config& config)
       _dotMoveDirectionA(1),
       _dotPositionB(39),
       _dotMoveDirectionB(-1),
-      _dtmfCallback(NULL),
       _vadCallbackA(NULL),
       _vadCallbackB(NULL),
       _apiTestRWLock(*RWLockWrapper::CreateRWLock()),
@@ -125,7 +124,6 @@ APITest::~APITest() {
   _inFileB.Close();
   _outFileB.Close();
 
-  DELETE_POINTER(_dtmfCallback);
   DELETE_POINTER(_vadCallbackA);
   DELETE_POINTER(_vadCallbackB);
 
@@ -290,9 +288,6 @@ int16_t APITest::SetUp() {
     }
   }
 
-#ifdef WEBRTC_DTMF_DETECTION
-  _dtmfCallback = new DTMFDetector;
-#endif
   _vadCallbackA = new VADCallback;
   _vadCallbackB = new VADCallback;
 
@@ -429,7 +424,7 @@ void APITest::RunTest(char thread) {
   {
     WriteLockScoped cs(_apiTestRWLock);
     if (thread == 'A') {
-      _testNumA = (_testNumB + 1 + (rand() % 4)) % 5;
+      _testNumA = (_testNumB + 1 + (rand() % 3)) % 4;
       testNum = _testNumA;
 
       _movingDot[_dotPositionA] = ' ';
@@ -442,7 +437,7 @@ void APITest::RunTest(char thread) {
       _dotPositionA += _dotMoveDirectionA;
       _movingDot[_dotPositionA] = (_dotMoveDirectionA > 0) ? '>' : '<';
     } else {
-      _testNumB = (_testNumA + 1 + (rand() % 4)) % 5;
+      _testNumB = (_testNumA + 1 + (rand() % 3)) % 4;
       testNum = _testNumB;
 
       _movingDot[_dotPositionB] = ' ';
@@ -464,18 +459,15 @@ void APITest::RunTest(char thread) {
       ChangeCodec('A');
       break;
     case 1:
-      TestPlayout('B');
-      break;
-    case 2:
       if (!_randomTest) {
         fprintf(stdout, "\nTesting Delay ...\n");
       }
       TestDelay('A');
       break;
-    case 3:
+    case 2:
       TestSendVAD('A');
       break;
-    case 4:
+    case 3:
       TestRegisteration('A');
       break;
     default:
@@ -498,7 +490,6 @@ bool APITest::APIRunA() {
   } else {
     CurrentCodec('A');
     ChangeCodec('A');
-    TestPlayout('B');
     if (_codecCntrA == 0) {
       fprintf(stdout, "\nTesting Delay ...\n");
       TestDelay('A');
@@ -832,9 +823,11 @@ void APITest::TestRegisteration(char sendSide) {
       exit(-1);
   }
 
-  CodecInst myCodec;
-  if (sendACM->SendCodec(&myCodec) < 0) {
-    AudioCodingModule::Codec(_codecCntrA, &myCodec);
+  auto myCodec = sendACM->SendCodec();
+  if (!myCodec) {
+    CodecInst ci;
+    AudioCodingModule::Codec(_codecCntrA, &ci);
+    myCodec = rtc::Optional<CodecInst>(ci);
   }
 
   if (!_randomTest) {
@@ -846,12 +839,12 @@ void APITest::TestRegisteration(char sendSide) {
     *thereIsDecoder = false;
   }
   //myEvent->Wait(20);
-  CHECK_ERROR_MT(receiveACM->UnregisterReceiveCodec(myCodec.pltype));
+  CHECK_ERROR_MT(receiveACM->UnregisterReceiveCodec(myCodec->pltype));
   Wait(1000);
 
-  int currentPayload = myCodec.pltype;
+  int currentPayload = myCodec->pltype;
 
-  if (!FixedPayloadTypeCodec(myCodec.plname)) {
+  if (!FixedPayloadTypeCodec(myCodec->plname)) {
     int32_t i;
     for (i = 0; i < 32; i++) {
       if (!_payloadUsed[i]) {
@@ -859,9 +852,9 @@ void APITest::TestRegisteration(char sendSide) {
           fprintf(stdout,
                   "Register receive codec with new Payload, AUDIO BACK.\n");
         }
-        //myCodec.pltype = i + 96;
-        //CHECK_ERROR_MT(receiveACM->RegisterReceiveCodec(myCodec));
-        //CHECK_ERROR_MT(sendACM->RegisterSendCodec(myCodec));
+        //myCodec->pltype = i + 96;
+        //CHECK_ERROR_MT(receiveACM->RegisterReceiveCodec(*myCodec));
+        //CHECK_ERROR_MT(sendACM->RegisterSendCodec(*myCodec));
         //myEvent->Wait(20);
         //{
         //    WriteLockScoped wl(_apiTestRWLock);
@@ -877,17 +870,17 @@ void APITest::TestRegisteration(char sendSide) {
         //    *thereIsDecoder = false;
         //}
         //myEvent->Wait(20);
-        //CHECK_ERROR_MT(receiveACM->UnregisterReceiveCodec(myCodec.pltype));
+        //CHECK_ERROR_MT(receiveACM->UnregisterReceiveCodec(myCodec->pltype));
         Wait(1000);
 
-        myCodec.pltype = currentPayload;
+        myCodec->pltype = currentPayload;
         if (!_randomTest) {
           fprintf(stdout,
                   "Register receive codec with default Payload, AUDIO BACK.\n");
           fflush (stdout);
         }
-        CHECK_ERROR_MT(receiveACM->RegisterReceiveCodec(myCodec));
-        //CHECK_ERROR_MT(sendACM->RegisterSendCodec(myCodec));
+        CHECK_ERROR_MT(receiveACM->RegisterReceiveCodec(*myCodec));
+        //CHECK_ERROR_MT(sendACM->RegisterSendCodec(*myCodec));
         myEvent->Wait(20);
         {
           WriteLockScoped wl(_apiTestRWLock);
@@ -899,7 +892,7 @@ void APITest::TestRegisteration(char sendSide) {
       }
     }
     if (i == 32) {
-      CHECK_ERROR_MT(receiveACM->RegisterReceiveCodec(myCodec));
+      CHECK_ERROR_MT(receiveACM->RegisterReceiveCodec(*myCodec));
       {
         WriteLockScoped wl(_apiTestRWLock);
         *thereIsDecoder = true;
@@ -911,9 +904,9 @@ void APITest::TestRegisteration(char sendSide) {
               "Register receive codec with fixed Payload, AUDIO BACK.\n");
       fflush (stdout);
     }
-    CHECK_ERROR_MT(receiveACM->RegisterReceiveCodec(myCodec));
-    //CHECK_ERROR_MT(receiveACM->UnregisterReceiveCodec(myCodec.pltype));
-    //CHECK_ERROR_MT(receiveACM->RegisterReceiveCodec(myCodec));
+    CHECK_ERROR_MT(receiveACM->RegisterReceiveCodec(*myCodec));
+    //CHECK_ERROR_MT(receiveACM->UnregisterReceiveCodec(myCodec->pltype));
+    //CHECK_ERROR_MT(receiveACM->RegisterReceiveCodec(*myCodec));
     myEvent->Wait(20);
     {
       WriteLockScoped wl(_apiTestRWLock);
@@ -924,67 +917,6 @@ void APITest::TestRegisteration(char sendSide) {
   if (!_randomTest) {
     fprintf(stdout,
             "---------------------------------------------------------\n");
-  }
-}
-
-// Playout Mode, background noise mode.
-// Receiver Frequency, playout frequency.
-void APITest::TestPlayout(char receiveSide) {
-  AudioCodingModule* receiveACM;
-  AudioPlayoutMode* playoutMode = NULL;
-  switch (receiveSide) {
-    case 'A': {
-      receiveACM = _acmA.get();
-      playoutMode = &_playoutModeA;
-      break;
-    }
-    case 'B': {
-      receiveACM = _acmB.get();
-      playoutMode = &_playoutModeB;
-      break;
-    }
-    default:
-      receiveACM = _acmA.get();
-  }
-
-  int32_t receiveFreqHz = receiveACM->ReceiveFrequency();
-  int32_t playoutFreqHz = receiveACM->PlayoutFrequency();
-
-  CHECK_ERROR_MT(receiveFreqHz);
-  CHECK_ERROR_MT(playoutFreqHz);
-
-
-  char playoutString[25];
-  switch (*playoutMode) {
-    case voice: {
-      *playoutMode = fax;
-      strncpy(playoutString, "FAX", 25);
-      break;
-    }
-    case fax: {
-      *playoutMode = streaming;
-      strncpy(playoutString, "Streaming", 25);
-      break;
-    }
-    case streaming: {
-      *playoutMode = voice;
-      strncpy(playoutString, "Voice", 25);
-      break;
-    }
-    default:
-      *playoutMode = voice;
-      strncpy(playoutString, "Voice", 25);
-  }
-  CHECK_ERROR_MT(receiveACM->SetPlayoutMode(*playoutMode));
-  playoutString[24] = '\0';
-
-  if (!_randomTest) {
-    fprintf(stdout, "\n");
-    fprintf(stdout, "In Side %c\n", receiveSide);
-    fprintf(stdout, "---------------------------------\n");
-    fprintf(stdout, "Receive Frequency....... %d Hz\n", receiveFreqHz);
-    fprintf(stdout, "Playout Frequency....... %d Hz\n", playoutFreqHz);
-    fprintf(stdout, "Audio Playout Mode...... %s\n", playoutString);
   }
 }
 
@@ -1071,22 +1003,17 @@ void APITest::TestSendVAD(char side) {
 }
 
 void APITest::CurrentCodec(char side) {
-  CodecInst myCodec;
-  if (side == 'A') {
-    _acmA->SendCodec(&myCodec);
-  } else {
-    _acmB->SendCodec(&myCodec);
-  }
+  auto myCodec = (side == 'A' ? _acmA : _acmB)->SendCodec();
 
   if (!_randomTest) {
     fprintf(stdout, "\n\n");
     fprintf(stdout, "Send codec in Side A\n");
     fprintf(stdout, "----------------------------\n");
-    fprintf(stdout, "Name................. %s\n", myCodec.plname);
-    fprintf(stdout, "Sampling Frequency... %d\n", myCodec.plfreq);
-    fprintf(stdout, "Rate................. %d\n", myCodec.rate);
-    fprintf(stdout, "Payload-type......... %d\n", myCodec.pltype);
-    fprintf(stdout, "Packet-size.......... %d\n", myCodec.pacsize);
+    fprintf(stdout, "Name................. %s\n", myCodec->plname);
+    fprintf(stdout, "Sampling Frequency... %d\n", myCodec->plfreq);
+    fprintf(stdout, "Rate................. %d\n", myCodec->rate);
+    fprintf(stdout, "Payload-type......... %d\n", myCodec->pltype);
+    fprintf(stdout, "Packet-size.......... %d\n", myCodec->pacsize);
   }
 
   Wait(100);
@@ -1129,7 +1056,6 @@ void APITest::ChangeCodec(char side) {
     myChannel = _channel_B2A;
   }
 
-  myACM->ResetEncoder();
   Wait(100);
 
   // Register the next codec

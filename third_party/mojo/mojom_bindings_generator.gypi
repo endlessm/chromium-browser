@@ -34,7 +34,6 @@
         'java_out_dir': '<(PRODUCT_DIR)/java_mojo/<(_target_name)/src',
         'mojom_import_args%': [
          '-I<(DEPTH)',
-         '-I<(DEPTH)/third_party/mojo/src'
         ],
         'stamp_filename': '<(PRODUCT_DIR)/java_mojo/<(_target_name)/<(_target_name).stamp',
       },
@@ -46,7 +45,6 @@
         '<(SHARED_INTERMEDIATE_DIR)/<(mojom_base_output_dir)/<(RULE_INPUT_DIRNAME)/<(RULE_INPUT_ROOT).mojom.cc',
         '<(SHARED_INTERMEDIATE_DIR)/<(mojom_base_output_dir)/<(RULE_INPUT_DIRNAME)/<(RULE_INPUT_ROOT).mojom.h',
         '<(SHARED_INTERMEDIATE_DIR)/<(mojom_base_output_dir)/<(RULE_INPUT_DIRNAME)/<(RULE_INPUT_ROOT).mojom.js',
-        '<(SHARED_INTERMEDIATE_DIR)/<(mojom_base_output_dir)/<(RULE_INPUT_DIRNAME)/<(RULE_INPUT_ROOT)_mojom.py',
         '<(SHARED_INTERMEDIATE_DIR)/<(mojom_base_output_dir)/<(RULE_INPUT_DIRNAME)/<(RULE_INPUT_ROOT).mojom-internal.h',
       ],
       'action': [
@@ -57,7 +55,6 @@
         '<@(mojom_import_args)',
         '-o', '<(SHARED_INTERMEDIATE_DIR)',
         '--java_output_directory=<(java_out_dir)',
-        '--dart_mojo_root=//third_party/mojo/src',
       ],
       'message': 'Generating Mojo bindings from <(RULE_INPUT_DIRNAME)/<(RULE_INPUT_ROOT).mojom',
       'process_outputs_as_sources': 1,
@@ -68,16 +65,12 @@
   ],
   'include_dirs': [
     '<(DEPTH)',
-    '<(DEPTH)/third_party/mojo/src',
     '<(SHARED_INTERMEDIATE_DIR)',
-    '<(SHARED_INTERMEDIATE_DIR)/third_party/mojo/src',
   ],
   'direct_dependent_settings': {
     'include_dirs': [
       '<(DEPTH)',
-      '<(DEPTH)/third_party/mojo/src',
       '<(SHARED_INTERMEDIATE_DIR)',
-      '<(SHARED_INTERMEDIATE_DIR)/third_party/mojo/src',
     ],
     'variables': {
       'generated_src_dirs': [

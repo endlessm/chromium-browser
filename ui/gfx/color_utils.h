@@ -20,6 +20,13 @@ struct HSL {
   double l;
 };
 
+// The minimum contrast between text and background that is still readable.
+// This value is taken from w3c accessibility guidelines.
+const double kMinimumReadableContrastRatio = 4.5f;
+
+// Determines the contrast ratio of two colors.
+GFX_EXPORT double GetContrastRatio(SkColor color_a, SkColor color_b);
+
 GFX_EXPORT unsigned char GetLuminanceForColor(SkColor color);
 
 // Calculated according to http://www.w3.org/TR/WCAG20/#relativeluminancedef
@@ -107,6 +114,10 @@ GFX_EXPORT SkColor GetSysSkColor(int which);
 // only true if the system has high-contrast mode enabled and and is using a
 // light-on-dark color scheme.
 GFX_EXPORT bool IsInvertedColorScheme();
+
+// Derives a color for icons on a UI surface based on the text color on the same
+// surface.
+GFX_EXPORT SkColor DeriveDefaultIconColor(SkColor text_color);
 
 }  // namespace color_utils
 

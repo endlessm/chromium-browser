@@ -72,6 +72,7 @@ class ExtensionMessageBubbleBrowserTestMac
   void SetUpCommandLine(base::CommandLine* command_line) override;
   void CheckBubble(Browser* browser, AnchorPosition anchor) override;
   void CloseBubble(Browser* browser) override;
+  void CheckBubbleIsNotPresent(Browser* browser) override;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionMessageBubbleBrowserTestMac);
 };
@@ -94,7 +95,7 @@ void ExtensionMessageBubbleBrowserTestMac::CheckBubble(
     case ANCHOR_BROWSER_ACTION:
       anchorView = [actionsController buttonWithIndex:0];
       break;
-    case ANCHOR_WRENCH_MENU:
+    case ANCHOR_APP_MENU:
       anchorView = [toolbarController wrenchButton];
       break;
   }
@@ -110,19 +111,27 @@ void ExtensionMessageBubbleBrowserTestMac::CloseBubble(Browser* browser) {
   EXPECT_EQ(nil, [controller activeBubble]);
 }
 
+void ExtensionMessageBubbleBrowserTestMac::CheckBubbleIsNotPresent(
+    Browser* browser) {
+  EXPECT_EQ(
+      nil,
+      [[ToolbarControllerForBrowser(browser) browserActionsController]
+          activeBubble]);
+}
+
 IN_PROC_BROWSER_TEST_F(ExtensionMessageBubbleBrowserTestMac,
                        ExtensionBubbleAnchoredToExtensionAction) {
   TestBubbleAnchoredToExtensionAction();
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionMessageBubbleBrowserTestMac,
-                       ExtensionBubbleAnchoredToWrenchMenu) {
-  TestBubbleAnchoredToWrenchMenu();
+                       ExtensionBubbleAnchoredToAppMenu) {
+  TestBubbleAnchoredToAppMenu();
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionMessageBubbleBrowserTestMac,
-                       ExtensionBubbleAnchoredToWrenchMenuWithOtherAction) {
-  TestBubbleAnchoredToWrenchMenuWithOtherAction();
+                       ExtensionBubbleAnchoredToAppMenuWithOtherAction) {
+  TestBubbleAnchoredToAppMenuWithOtherAction();
 }
 
 IN_PROC_BROWSER_TEST_F(ExtensionMessageBubbleBrowserTestMac,
@@ -133,4 +142,9 @@ IN_PROC_BROWSER_TEST_F(ExtensionMessageBubbleBrowserTestMac,
 IN_PROC_BROWSER_TEST_F(ExtensionMessageBubbleBrowserTestMac,
                        ExtensionBubbleShowsOnStartup) {
   TestBubbleShowsOnStartup();
+}
+
+IN_PROC_BROWSER_TEST_F(ExtensionMessageBubbleBrowserTestMac,
+                       TestUninstallDangerousExtension) {
+  TestUninstallDangerousExtension();
 }

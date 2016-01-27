@@ -16,8 +16,8 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/ui/cocoa/omnibox/omnibox_popup_view_mac.h"
 #include "chrome/browser/ui/cocoa/omnibox/omnibox_view_mac.h"
-#include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/omnibox/browser/omnibox_popup_model.h"
 #include "components/omnibox/browser/suggestion_answer.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "ui/base/l10n/l10n_util.h"
@@ -563,8 +563,10 @@ NSAttributedString* CreateClassifiedAttributedString(
       match.GetAdditionalInfo(kACMatchPropertyContentsStartIndex),
       &contentsStartIndex);
   // Ignore invalid state.
-  if (!base::StartsWith(match.fill_into_edit, inputText, true) ||
-      !base::EndsWith(match.fill_into_edit, match.contents, true) ||
+  if (!base::StartsWith(match.fill_into_edit, inputText,
+                        base::CompareCase::SENSITIVE) ||
+      !base::EndsWith(match.fill_into_edit, match.contents,
+                      base::CompareCase::SENSITIVE) ||
       ((size_t)contentsStartIndex >= inputText.length())) {
     return 0;
   }

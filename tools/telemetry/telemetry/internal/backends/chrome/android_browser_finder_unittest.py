@@ -4,13 +4,10 @@
 
 import unittest
 
-from telemetry.core import util
 from telemetry.internal.backends.chrome import android_browser_finder
-from telemetry.internal.browser import browser_options
+from telemetry.testing import options_for_unittests
 from telemetry.testing import system_stub
-
-util.AddDirToPythonPath(util.GetTelemetryDir(), 'third_party', 'mock')
-import mock # pylint: disable=import-error
+import mock
 
 
 class FakeAndroidPlatform(object):
@@ -24,12 +21,12 @@ class FakeAndroidPlatform(object):
 
 class AndroidBrowserFinderTest(unittest.TestCase):
   def setUp(self):
-    self.finder_options = browser_options.BrowserFinderOptions()
+    self.finder_options = options_for_unittests.GetCopy()
 
     # Mock out what's needed for testing with exact APKs
     self._android_browser_finder_stub = system_stub.Override(
         android_browser_finder, ['os'])
-    self._patcher = mock.patch('pylib.utils.apk_helper.GetPackageName')
+    self._patcher = mock.patch('devil.android.apk_helper.GetPackageName')
     self._get_package_name_mock = self._patcher.start()
 
 
@@ -56,8 +53,8 @@ class AndroidBrowserFinderTest(unittest.TestCase):
 
   def testCanLaunchAlwaysTrueWithExactApkReturnsAll(self):
     self._android_browser_finder_stub.os.path.files.append(
-        '/foo/content-shell.apk')
-    self.finder_options.browser_executable = '/foo/content-shell.apk'
+        '/foo/ContentShell.apk')
+    self.finder_options.browser_executable = '/foo/ContentShell.apk'
     self._get_package_name_mock.return_value = 'org.chromium.content_shell_apk'
 
     fake_platform = FakeAndroidPlatform(can_launch=True)
@@ -71,8 +68,8 @@ class AndroidBrowserFinderTest(unittest.TestCase):
 
   def testErrorWithUnknownExactApk(self):
     self._android_browser_finder_stub.os.path.files.append(
-        '/foo/content-shell.apk')
-    self.finder_options.browser_executable = '/foo/content-shell.apk'
+        '/foo/ContentShell.apk')
+    self.finder_options.browser_executable = '/foo/ContentShell.apk'
     self._get_package_name_mock.return_value = 'org.unknown.app'
 
     fake_platform = FakeAndroidPlatform(can_launch=True)
@@ -81,12 +78,23 @@ class AndroidBrowserFinderTest(unittest.TestCase):
         self.finder_options, fake_platform)
 
   def testErrorWithNonExistantExactApk(self):
-    self.finder_options.browser_executable = '/foo/content-shell.apk'
+    self.finder_options.browser_executable = '/foo/ContentShell.apk'
+    self._get_package_name_mock.return_value = 'org.chromium.content_shell_apk'
 
     fake_platform = FakeAndroidPlatform(can_launch=True)
     self.assertRaises(Exception,
         android_browser_finder._FindAllPossibleBrowsers,
         self.finder_options, fake_platform)
+
+  def testNoErrorWithUnrecognizedApkName(self):
+    self._android_browser_finder_stub.os.path.files.append(
+        '/foo/unknown.apk')
+    self.finder_options.browser_executable = '/foo/unknown.apk'
+
+    fake_platform = FakeAndroidPlatform(can_launch=True)
+    possible_browsers = android_browser_finder._FindAllPossibleBrowsers(
+        self.finder_options, fake_platform)
+    self.assertNotIn('exact', [b.browser_type for b in possible_browsers])
 
 
 class FakePossibleBrowser(object):

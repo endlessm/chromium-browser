@@ -9,6 +9,7 @@
 #include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/test/scoped_path_override.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_service_test_base.h"
 #include "chrome/browser/extensions/tab_helper.h"
@@ -24,7 +25,10 @@
 #include "chrome/browser/web_data_service_factory.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
+#include "components/content_settings/core/browser/content_settings_info.h"
+#include "components/content_settings/core/browser/content_settings_registry.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/content_settings/core/browser/website_settings_info.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/search_engines/template_url_service_client.h"
 #include "content/public/browser/web_contents.h"
@@ -481,15 +485,18 @@ TEST_F(ProfileResetterTest, ResetHomepagePartially) {
 
 TEST_F(ProfileResetterTest, ResetContentSettings) {
   HostContentSettingsMap* host_content_settings_map =
-      profile()->GetHostContentSettingsMap();
+      HostContentSettingsMapFactory::GetForProfile(profile());
   ContentSettingsPattern pattern =
       ContentSettingsPattern::FromString("[*.]example.org");
   std::map<ContentSettingsType, ContentSetting> default_settings;
 
-  for (int type = 0; type < CONTENT_SETTINGS_NUM_TYPES; ++type) {
-    ContentSettingsType content_type = static_cast<ContentSettingsType>(type);
-    if (content_type == CONTENT_SETTINGS_TYPE_AUTO_SELECT_CERTIFICATE ||
-        content_type == CONTENT_SETTINGS_TYPE_MIXEDSCRIPT ||
+  // TODO(raymes): Clean up this test so that we don't have such ugly iteration
+  // over the content settings.
+  content_settings::ContentSettingsRegistry* registry =
+      content_settings::ContentSettingsRegistry::GetInstance();
+  for (const content_settings::ContentSettingsInfo* info : *registry) {
+    ContentSettingsType content_type = info->website_settings_info()->type();
+    if (content_type == CONTENT_SETTINGS_TYPE_MIXEDSCRIPT ||
         content_type == CONTENT_SETTINGS_TYPE_PROTOCOL_HANDLERS) {
       // These types are excluded because one can't call
       // GetDefaultContentSetting() for them.
@@ -508,14 +515,11 @@ TEST_F(ProfileResetterTest, ResetContentSettings) {
     ContentSetting site_setting = default_setting == CONTENT_SETTING_ALLOW
                                       ? CONTENT_SETTING_ALLOW
                                       : CONTENT_SETTING_BLOCK;
-    if (HostContentSettingsMap::IsSettingAllowedForType(
-            profile()->GetPrefs(), wildcard_setting, content_type)) {
+    if (info->IsSettingValid(wildcard_setting)) {
       host_content_settings_map->SetDefaultContentSetting(content_type,
                                                           wildcard_setting);
     }
-    if (!HostContentSettingsMap::ContentTypeHasCompoundValue(content_type) &&
-        HostContentSettingsMap::IsSettingAllowedForType(
-            profile()->GetPrefs(), site_setting, content_type)) {
+    if (info->IsSettingValid(site_setting)) {
       host_content_settings_map->SetContentSetting(
           pattern, ContentSettingsPattern::Wildcard(), content_type,
           std::string(), site_setting);
@@ -528,11 +532,9 @@ TEST_F(ProfileResetterTest, ResetContentSettings) {
 
   ResetAndWait(ProfileResetter::CONTENT_SETTINGS);
 
-  for (int type = 0; type < CONTENT_SETTINGS_NUM_TYPES; ++type) {
-    ContentSettingsType content_type = static_cast<ContentSettingsType>(type);
-    if (HostContentSettingsMap::ContentTypeHasCompoundValue(content_type) ||
-        content_type == CONTENT_SETTINGS_TYPE_AUTO_SELECT_CERTIFICATE ||
-        content_type == CONTENT_SETTINGS_TYPE_MIXEDSCRIPT ||
+  for (const content_settings::ContentSettingsInfo* info : *registry) {
+    ContentSettingsType content_type = info->website_settings_info()->type();
+    if (content_type == CONTENT_SETTINGS_TYPE_MIXEDSCRIPT ||
         content_type == CONTENT_SETTINGS_TYPE_MEDIASTREAM ||
         content_type == CONTENT_SETTINGS_TYPE_PROTOCOL_HANDLERS)
       continue;
@@ -541,15 +543,9 @@ TEST_F(ProfileResetterTest, ResetContentSettings) {
                                                               NULL);
     EXPECT_TRUE(default_settings.count(content_type));
     EXPECT_EQ(default_settings[content_type], default_setting);
-    if (!HostContentSettingsMap::ContentTypeHasCompoundValue(content_type)) {
-      ContentSetting site_setting =
-          host_content_settings_map->GetContentSetting(
-              GURL("example.org"),
-              GURL(),
-              content_type,
-              std::string());
-      EXPECT_EQ(default_setting, site_setting);
-    }
+    ContentSetting site_setting = host_content_settings_map->GetContentSetting(
+        GURL("example.org"), GURL(), content_type, std::string());
+    EXPECT_EQ(default_setting, site_setting);
 
     ContentSettingsForOneType host_settings;
     host_content_settings_map->GetSettingsForOneType(

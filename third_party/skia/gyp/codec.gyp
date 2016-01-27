@@ -18,11 +18,9 @@
       'dependencies': [
         'core.gyp:*',
         'giflib.gyp:giflib',
-        'libjpeg-turbo.gyp:libjpeg-turbo',
+        'libjpeg-turbo-selector.gyp:libjpeg-turbo-selector',
+        'libpng.gyp:libpng',
         'libwebp.gyp:libwebp',
-      ],
-      'export_dependent_settings': [
-        'libjpeg-turbo.gyp:libjpeg-turbo',
       ],
       'cflags':[
         # FIXME: This gets around a longjmp warning. See
@@ -31,23 +29,30 @@
       ],
       'include_dirs': [
         '../include/codec',
+        '../include/private',
         '../src/codec',
         '../src/core',
       ],
       'sources': [
+        '../src/codec/SkAndroidCodec.cpp',
+        '../src/codec/SkBmpCodec.cpp',
+        '../src/codec/SkBmpMaskCodec.cpp',
+        '../src/codec/SkBmpRLECodec.cpp',
+        '../src/codec/SkBmpStandardCodec.cpp',
         '../src/codec/SkCodec.cpp',
-        '../src/codec/SkCodec_libbmp.cpp',
         '../src/codec/SkCodec_libgif.cpp',
         '../src/codec/SkCodec_libico.cpp',
         '../src/codec/SkCodec_libpng.cpp',
         '../src/codec/SkCodec_wbmp.cpp',
-        '../src/codec/SkGifInterlaceIter.cpp',
         '../src/codec/SkJpegCodec.cpp',
         '../src/codec/SkJpegDecoderMgr.cpp',
         '../src/codec/SkJpegUtility_codec.cpp',
         '../src/codec/SkMaskSwizzler.cpp',
         '../src/codec/SkMasks.cpp',
+        '../src/codec/SkSampler.cpp',
+        '../src/codec/SkSampledCodec.cpp',
         '../src/codec/SkSwizzler.cpp',
+        '../src/codec/SkWebpAdapterCodec.cpp',
         '../src/codec/SkWebpCodec.cpp',
       ],
       'direct_dependent_settings': {
@@ -55,34 +60,9 @@
           '../include/codec',
         ],
       },
-      'conditions': [
-        [ 'skia_android_framework == 1',
-          {
-            # TODO(djsollen): this is a temporary dependency until we can update
-            # the android framework to a more recent version of libpng.
-            'dependencies': [
-              'libpng.gyp:libpng',
-            ],
-            # TODO(msarett): update libjpeg-turbo on Android so we can compile SkJpegCodec
-            # for the framework.
-            'sources!': [
-              '../src/codec/SkJpegCodec.cpp',
-              '../src/codec/SkJpegDecoderMgr.cpp',
-              '../src/codec/SkJpegUtility_codec.cpp',
-            ],
-            'dependencies!': [
-              'libjpeg-turbo.gyp:libjpeg-turbo',
-            ],
-          }, {  # !skia_android_framework
-            'dependencies': [
-              'libpng.gyp:libpng_static',
-            ],
-            'cflags': [
-              '-DTURBO_HAS_SKIP',
-            ],
-          }
-        ]
-      ]
+      'defines': [
+        'TURBO_HAS_SKIP',
+      ],
     },
   ],
 }

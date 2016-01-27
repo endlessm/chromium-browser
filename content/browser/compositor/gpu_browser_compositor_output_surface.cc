@@ -17,18 +17,20 @@ namespace content {
 
 GpuBrowserCompositorOutputSurface::GpuBrowserCompositorOutputSurface(
     const scoped_refptr<ContextProviderCommandBuffer>& context,
+    const scoped_refptr<ContextProviderCommandBuffer>& worker_context,
     const scoped_refptr<ui::CompositorVSyncManager>& vsync_manager,
     scoped_ptr<BrowserCompositorOverlayCandidateValidator>
         overlay_candidate_validator)
     : BrowserCompositorOutputSurface(context,
+                                     worker_context,
                                      vsync_manager,
                                      overlay_candidate_validator.Pass()),
 #if defined(OS_MACOSX)
       should_show_frames_state_(SHOULD_SHOW_FRAMES),
 #endif
-      swap_buffers_completion_callback_(
-          base::Bind(&GpuBrowserCompositorOutputSurface::OnSwapBuffersCompleted,
-                     base::Unretained(this))),
+      swap_buffers_completion_callback_(base::Bind(
+          &GpuBrowserCompositorOutputSurface::OnGpuSwapBuffersCompleted,
+          base::Unretained(this))),
       update_vsync_parameters_callback_(base::Bind(
           &BrowserCompositorOutputSurface::OnUpdateVSyncParametersFromGpu,
           base::Unretained(this))) {
@@ -104,24 +106,14 @@ void GpuBrowserCompositorOutputSurface::SwapBuffers(
 #endif
 }
 
-void GpuBrowserCompositorOutputSurface::OnSwapBuffersCompleted(
+void GpuBrowserCompositorOutputSurface::OnGpuSwapBuffersCompleted(
     const std::vector<ui::LatencyInfo>& latency_info,
     gfx::SwapResult result) {
-#if defined(OS_MACOSX)
-  // On Mac, delay acknowledging the swap to the output surface client until
-  // it has been drawn, see OnSurfaceDisplayed();
-  NOTREACHED();
-#else
   RenderWidgetHostImpl::CompositorFrameDrawn(latency_info);
   OnSwapBuffersComplete();
-#endif
 }
 
 #if defined(OS_MACOSX)
-void GpuBrowserCompositorOutputSurface::OnSurfaceDisplayed() {
-  cc::OutputSurface::OnSwapBuffersComplete();
-}
-
 void GpuBrowserCompositorOutputSurface::SetSurfaceSuspendedForRecycle(
     bool suspended) {
   if (suspended) {

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <string>
 
+#include "base/memory/memory_pressure_monitor.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/sessions/session_restore_stats_collector.h"
@@ -126,7 +127,17 @@ void TabLoader::StartLoading(const std::vector<RestoredTab>& tabs) {
   if (!delegate_) {
     delegate_ = TabLoaderDelegate::Create(this);
     // There is already at least one tab loading (the active tab). As such we
-    // only have to start the timeout timer here.
+    // only have to start the timeout timer here. But, don't restore background
+    // tabs if the system is under memory pressure.
+    base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level =
+        CurrentMemoryPressureLevel();
+
+    if (memory_pressure_level !=
+        base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE) {
+      OnMemoryPressure(memory_pressure_level);
+      return;
+    }
+
     StartFirstTimer();
   }
 }
@@ -135,7 +146,25 @@ void TabLoader::LoadNextTab() {
   // LoadNextTab should only get called after we have started the tab
   // loading.
   CHECK(delegate_);
+
+  // Abort if loading is not enabled.
+  if (!loading_enabled_)
+    return;
+
   if (!tabs_to_load_.empty()) {
+    // Check the memory pressure before restoring the next tab, and abort if
+    // there is pressure. This is important on the Mac because of the sometimes
+    // large delay between a memory pressure event and receiving a notification
+    // of that event (in that case tab restore can trigger memory pressure but
+    // will complete before the notification arrives).
+    base::MemoryPressureListener::MemoryPressureLevel memory_pressure_level =
+        CurrentMemoryPressureLevel();
+    if (memory_pressure_level !=
+        base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE) {
+      OnMemoryPressure(memory_pressure_level);
+      return;
+    }
+
     NavigationController* controller = tabs_to_load_.front();
     DCHECK(controller);
     tabs_loading_.insert(controller);
@@ -207,8 +236,23 @@ void TabLoader::RegisterForNotifications(NavigationController* controller) {
 
 void TabLoader::HandleTabClosedOrLoaded(NavigationController* controller) {
   RemoveTab(controller);
-  if (delegate_ && loading_enabled_)
+  if (delegate_)
     LoadNextTab();
+}
+
+base::MemoryPressureListener::MemoryPressureLevel
+    TabLoader::CurrentMemoryPressureLevel() {
+#if defined(OS_WIN) || (defined(OS_MACOSX) && !defined(OS_IOS))
+  // Check for explicit memory pressure integration.
+  std::string react_to_memory_pressure = variations::GetVariationParamValue(
+      "IntelligentSessionRestore", "ReactToMemoryPressure");
+  if (react_to_memory_pressure != "true")
+    return base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE;
+#endif  // defined(OS_WIN) || (defined(OS_MACOSX) && !defined(OS_IOS))
+  if (base::MemoryPressureMonitor::Get())
+    return base::MemoryPressureMonitor::Get()->GetCurrentPressureLevel();
+
+  return base::MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE;
 }
 
 void TabLoader::OnMemoryPressure(

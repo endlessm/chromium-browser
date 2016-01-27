@@ -21,7 +21,7 @@ namespace ui {
 // We can't include ui/events/keycodes/dom/dom_code.h here because of
 // conflicts with preprocessor macros in <linux/input.h>, so we use the
 // same underlying data with an additional prefix.
-#define USB_KEYMAP(usb, xkb, win, mac, code, id) DOM_CODE_ ## id = usb
+#define USB_KEYMAP(usb, evdev, xkb, win, mac, code, id) DOM_CODE_ ## id = usb
 #define USB_KEYMAP_DECLARATION enum class DomCode
 #include "ui/events/keycodes/dom/keycode_converter_data.inc"
 #undef USB_KEYMAP
@@ -125,6 +125,12 @@ void KeyboardEvdev::GetAutoRepeatRate(base::TimeDelta* delay,
   *interval = repeat_interval_;
 }
 
+bool KeyboardEvdev::SetCurrentLayoutByName(const std::string& layout_name) {
+  bool result = keyboard_layout_engine_->SetCurrentLayoutByName(layout_name);
+  RefreshModifiers();
+  return result;
+}
+
 void KeyboardEvdev::UpdateModifier(int modifier_flag, bool down) {
   if (modifier_flag == EF_NONE)
     return;
@@ -144,6 +150,28 @@ void KeyboardEvdev::UpdateModifier(int modifier_flag, bool down) {
     modifiers_->UpdateModifier(EVDEV_MODIFIER_MOD3, down);
   else
     modifiers_->UpdateModifier(modifier, down);
+}
+
+void KeyboardEvdev::RefreshModifiers() {
+  // Release all keyboard modifiers.
+  modifiers_->ResetKeyboardModifiers();
+  // Press modifiers for currently held keys.
+  for (int key = 0; key < KEY_CNT; ++key) {
+    if (!key_state_.test(key))
+      continue;
+    DomCode dom_code =
+        KeycodeConverter::NativeKeycodeToDomCode(EvdevCodeToNativeCode(key));
+    if (dom_code == DomCode::DOM_CODE_NONE)
+      continue;
+    DomKey dom_key;
+    KeyboardCode keycode;
+    if (!keyboard_layout_engine_->Lookup(dom_code, EF_NONE, &dom_key, &keycode))
+      continue;
+    int flag = ModifierDomKeyToEventFlag(dom_key);
+    if (flag == EF_NONE)
+      continue;
+    UpdateModifier(flag, true);
+  }
 }
 
 void KeyboardEvdev::UpdateKeyRepeat(unsigned int key,
@@ -212,22 +240,17 @@ void KeyboardEvdev::DispatchKey(unsigned int key,
   int flags = modifiers_->GetModifierFlags();
   DomKey dom_key;
   KeyboardCode key_code;
-  uint16 character;
-  uint32 platform_keycode = 0;
-  if (!keyboard_layout_engine_->Lookup(dom_code, flags, &dom_key, &character,
-                                       &key_code, &platform_keycode)) {
+  if (!keyboard_layout_engine_->Lookup(dom_code, flags, &dom_key, &key_code))
     return;
-  }
   if (!repeat) {
     int flag = ModifierDomKeyToEventFlag(dom_key);
     UpdateModifier(flag, down);
   }
 
   KeyEvent event(down ? ET_KEY_PRESSED : ET_KEY_RELEASED, key_code, dom_code,
-                 modifiers_->GetModifierFlags(), dom_key, character, timestamp);
+                 modifiers_->GetModifierFlags(), dom_key, timestamp);
   event.set_source_device_id(device_id);
-  if (platform_keycode)
-    event.set_platform_keycode(platform_keycode);
   callback_.Run(&event);
 }
+
 }  // namespace ui

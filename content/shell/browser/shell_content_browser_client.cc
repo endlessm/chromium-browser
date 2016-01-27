@@ -18,8 +18,8 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/common/web_preferences.h"
+#include "content/public/test/test_mojo_app.h"
 #include "content/shell/browser/blink_test_controller.h"
-#include "content/shell/browser/ipc_echo_message_filter.h"
 #include "content/shell/browser/layout_test/layout_test_browser_main_parts.h"
 #include "content/shell/browser/layout_test/layout_test_resource_dispatcher_host_delegate.h"
 #include "content/shell/browser/shell.h"
@@ -33,21 +33,20 @@
 #include "content/shell/browser/shell_web_contents_view_delegate_creator.h"
 #include "content/shell/common/shell_messages.h"
 #include "content/shell/common/shell_switches.h"
-#include "content/shell/renderer/layout_test/blink_test_helpers.h"
 #include "net/url_request/url_request_context_getter.h"
 #include "url/gurl.h"
 
 #if defined(OS_ANDROID)
 #include "base/android/apk_assets.h"
 #include "base/android/path_utils.h"
-#include "components/crash/browser/crash_dump_manager_android.h"
+#include "components/crash/content/browser/crash_dump_manager_android.h"
 #include "content/shell/android/shell_descriptors.h"
 #endif
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
 #include "base/debug/leak_annotations.h"
-#include "components/crash/app/breakpad_linux.h"
-#include "components/crash/browser/crash_handler_host_linux.h"
+#include "components/crash/content/app/breakpad_linux.h"
+#include "components/crash/content/browser/crash_handler_host_linux.h"
 #include "content/public/common/content_descriptors.h"
 #endif
 
@@ -147,13 +146,6 @@ BrowserMainParts* ShellContentBrowserClient::CreateBrowserMainParts(
   return shell_browser_main_parts_;
 }
 
-void ShellContentBrowserClient::RenderProcessWillLaunch(
-    RenderProcessHost* host) {
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kExposeIpcEcho))
-    host->AddFilter(new IPCEchoMessageFilter());
-}
-
 net::URLRequestContextGetter* ShellContentBrowserClient::CreateRequestContext(
     BrowserContext* content_browser_context,
     ProtocolHandlerMap* protocol_handlers,
@@ -183,7 +175,6 @@ ShellContentBrowserClient::CreateRequestContextForStoragePartition(
 bool ShellContentBrowserClient::IsHandledURL(const GURL& url) {
   if (!url.is_valid())
     return false;
-  DCHECK_EQ(url.scheme(), base::StringToLowerASCII(url.scheme()));
   // Keep in sync with ProtocolHandlers added by
   // ShellURLRequestContextGetter::GetURLRequestContext().
   static const char* const kProtocolList[] = {
@@ -209,6 +200,12 @@ bool ShellContentBrowserClient::IsNPAPIEnabled() {
 #endif
 }
 
+void ShellContentBrowserClient::RegisterOutOfProcessMojoApplications(
+      OutOfProcessMojoApplicationMap* apps) {
+  apps->insert(std::make_pair(GURL(kTestMojoAppUrl),
+                              base::UTF8ToUTF16("Test Mojo App")));
+}
+
 void ShellContentBrowserClient::AppendExtraCommandLineSwitches(
     base::CommandLine* command_line,
     int child_process_id) {
@@ -225,12 +222,12 @@ void ShellContentBrowserClient::AppendExtraCommandLineSwitches(
     command_line->AppendSwitch(switches::kEnableFontAntialiasing);
   }
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kExposeInternalsForTesting)) {
-    command_line->AppendSwitch(switches::kExposeInternalsForTesting);
+          switches::kAlwaysUseComplexText)) {
+    command_line->AppendSwitch(switches::kAlwaysUseComplexText);
   }
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kExposeIpcEcho)) {
-    command_line->AppendSwitch(switches::kExposeIpcEcho);
+          switches::kExposeInternalsForTesting)) {
+    command_line->AppendSwitch(switches::kExposeInternalsForTesting);
   }
   if (base::CommandLine::ForCurrentProcess()->HasSwitch(
           switches::kStableReleaseMode)) {
@@ -377,11 +374,11 @@ void ShellContentBrowserClient::GetAdditionalMappedFilesForChildProcess(
 #endif  // defined(OS_ANDROID)
 
 #if defined(OS_WIN)
-void ShellContentBrowserClient::PreSpawnRenderer(sandbox::TargetPolicy* policy,
-                                                 bool* success) {
+bool ShellContentBrowserClient::PreSpawnRenderer(
+    sandbox::TargetPolicy* policy) {
   // Add sideloaded font files for testing. See also DIR_WINDOWS_FONTS
   // addition in |StartSandboxedProcess|.
-  std::vector<std::string> font_files = GetSideloadFontFiles();
+  std::vector<std::string> font_files = switches::GetSideloadFontFiles();
   for (std::vector<std::string>::const_iterator i(font_files.begin());
       i != font_files.end();
       ++i) {
@@ -389,6 +386,7 @@ void ShellContentBrowserClient::PreSpawnRenderer(sandbox::TargetPolicy* policy,
         sandbox::TargetPolicy::FILES_ALLOW_READONLY,
         base::UTF8ToWide(*i).c_str());
   }
+  return true;
 }
 #endif  // OS_WIN
 

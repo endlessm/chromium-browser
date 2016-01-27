@@ -35,6 +35,11 @@ const char kRejectCommand[] = "reject";
 const char kDisconnectCommand[] = "disconnect";
 const char kForgetCommand[] = "forget";
 
+// |SendDeviceNotification| provides BluetoothPairingEvent properties.
+const char kPincode[] = "pincode";
+const char kPasskey[] = "passkey";
+const char kEnteredKey[] = "enteredKey";
+
 // |SendDeviceNotification| may include a pairing parameter whose value
 // is one of the following constants instructing the UI to perform a certain
 // action.
@@ -54,8 +59,7 @@ namespace chromeos {
 namespace options {
 
 BluetoothOptionsHandler::BluetoothOptionsHandler()
-    : should_run_device_discovery_(false),
-      pairing_device_passkey_(1000000),
+    : pairing_device_passkey_(1000000),
       pairing_device_entered_(kInvalidEntered),
       weak_ptr_factory_(this) {
 }
@@ -78,7 +82,6 @@ void BluetoothOptionsHandler::GetLocalizedValues(
         IDS_OPTIONS_SETTINGS_BLUETOOTH_ADD_DEVICE_TITLE },
     { "bluetoothOptionsPageTabTitle",
         IDS_OPTIONS_SETTINGS_BLUETOOTH_ADD_DEVICE_TITLE },
-    { "findBluetoothDevices", IDS_OPTIONS_SETTINGS_FIND_BLUETOOTH_DEVICES },
     { "bluetoothNoDevices", IDS_OPTIONS_SETTINGS_BLUETOOTH_NO_DEVICES },
     { "bluetoothNoDevicesFound",
         IDS_OPTIONS_SETTINGS_BLUETOOTH_NO_DEVICES_FOUND },
@@ -185,17 +188,8 @@ void BluetoothOptionsHandler::AdapterDiscoveringChanged(
 }
 
 void BluetoothOptionsHandler::RegisterMessages() {
-  web_ui()->RegisterMessageCallback("bluetoothEnableChange",
-      base::Bind(&BluetoothOptionsHandler::EnableChangeCallback,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("findBluetoothDevices",
-      base::Bind(&BluetoothOptionsHandler::FindDevicesCallback,
-                 base::Unretained(this)));
   web_ui()->RegisterMessageCallback("updateBluetoothDevice",
       base::Bind(&BluetoothOptionsHandler::UpdateDeviceCallback,
-                 base::Unretained(this)));
-  web_ui()->RegisterMessageCallback("stopBluetoothDeviceDiscovery",
-      base::Bind(&BluetoothOptionsHandler::StopDiscoveryCallback,
                  base::Unretained(this)));
   web_ui()->RegisterMessageCallback("getPairedBluetoothDevices",
       base::Bind(&BluetoothOptionsHandler::GetPairedDevicesCallback,
@@ -212,11 +206,6 @@ void BluetoothOptionsHandler::InitializePage() {
   // Show or hide the bluetooth settings and update the checkbox based
   // on the current present/powered state.
   AdapterPresentChanged(adapter_.get(), adapter_->IsPresent());
-
-  // Automatically start device discovery if the "Add Bluetooth Device"
-  // overlay is visible.
-  web_ui()->CallJavascriptFunction(
-      "options.BluetoothOptions.startDeviceDiscovery");
 }
 
 void BluetoothOptionsHandler::InitializeAdapter(
@@ -224,56 +213,6 @@ void BluetoothOptionsHandler::InitializeAdapter(
   adapter_ = adapter;
   CHECK(adapter_.get());
   adapter_->AddObserver(this);
-}
-
-void BluetoothOptionsHandler::EnableChangeCallback(
-    const base::ListValue* args) {
-  bool bluetooth_enabled;
-  args->GetBoolean(0, &bluetooth_enabled);
-
-  adapter_->SetPowered(bluetooth_enabled,
-                       base::Bind(&base::DoNothing),
-                       base::Bind(&BluetoothOptionsHandler::EnableChangeError,
-                                  weak_ptr_factory_.GetWeakPtr()));
-}
-
-void BluetoothOptionsHandler::EnableChangeError() {
-  VLOG(1) << "Failed to change power state.";
-  ReportError("bluetoothChangePowerFailed", std::string());
-}
-
-void BluetoothOptionsHandler::FindDevicesCallback(
-    const base::ListValue* args) {
-  if (discovery_session_.get() && discovery_session_->IsActive()) {
-    VLOG(1) << "Already have an active discovery session.";
-    return;
-  }
-  should_run_device_discovery_ = true;
-  adapter_->StartDiscoverySession(
-      base::Bind(&BluetoothOptionsHandler::OnStartDiscoverySession,
-                 weak_ptr_factory_.GetWeakPtr()),
-      base::Bind(&BluetoothOptionsHandler::FindDevicesError,
-                 weak_ptr_factory_.GetWeakPtr()));
-}
-
-void BluetoothOptionsHandler::OnStartDiscoverySession(
-    scoped_ptr<device::BluetoothDiscoverySession> discovery_session) {
-  // If the discovery session was returned after a request to stop discovery
-  // (e.g. the "Add Device" dialog was dismissed), don't claim the discovery
-  // session and let it clean up.
-  if (!should_run_device_discovery_)
-    return;
-  discovery_session_ = discovery_session.Pass();
-}
-
-void BluetoothOptionsHandler::FindDevicesError() {
-  VLOG(1) << "Failed to start discovery.";
-  ReportError("bluetoothStartDiscoveryFailed", std::string());
-  if (!adapter_.get())
-    return;
-  base::FundamentalValue discovering(adapter_->IsDiscovering());
-  web_ui()->CallJavascriptFunction(
-      "options.BluetoothOptions.updateDiscoveryState", discovering);
 }
 
 void BluetoothOptionsHandler::UpdateDeviceCallback(
@@ -320,15 +259,10 @@ void BluetoothOptionsHandler::UpdateDeviceCallback(
                      << ": " << auth_token;
       }
     } else {
-      // Determine if the device supports pairing:
-      PairingDelegate* delegate = NULL;
-      if (device->IsPairable())
-        delegate = this;
-
       // Connection request.
       VLOG(1) << "Connect: " << address;
       device->Connect(
-          delegate,
+          this,
           base::Bind(&BluetoothOptionsHandler::Connected,
                      weak_ptr_factory_.GetWeakPtr()),
           base::Bind(&BluetoothOptionsHandler::ConnectError,
@@ -359,9 +293,10 @@ void BluetoothOptionsHandler::UpdateDeviceCallback(
   } else if (command == kForgetCommand) {
     // Disconnect from device and delete pairing information.
     VLOG(1) << "Forget device: " << address;
-    device->Forget(base::Bind(&BluetoothOptionsHandler::ForgetError,
-                              weak_ptr_factory_.GetWeakPtr(),
-                              device->GetAddress()));
+    device->Forget(
+        base::Bind(&base::DoNothing),
+        base::Bind(&BluetoothOptionsHandler::ForgetError,
+                   weak_ptr_factory_.GetWeakPtr(), device->GetAddress()));
   } else {
     LOG(WARNING) << "Unknown updateBluetoothDevice command: " << command;
   }
@@ -379,7 +314,7 @@ void BluetoothOptionsHandler::Connected() {
 void BluetoothOptionsHandler::ConnectError(
     const std::string& address,
     device::BluetoothDevice::ConnectErrorCode error_code) {
-  const char* error_name = NULL;
+  const char* error_name = nullptr;
 
   // Invalidate the local cache.
   pairing_device_address_.clear();
@@ -427,120 +362,101 @@ void BluetoothOptionsHandler::ForgetError(const std::string& address) {
   ReportError("bluetoothForgetFailed", address);
 }
 
-void BluetoothOptionsHandler::StopDiscoveryCallback(
-    const base::ListValue* args) {
-  should_run_device_discovery_ = false;
-  if (!discovery_session_.get() || !discovery_session_->IsActive()) {
-    VLOG(1) << "No active discovery session.";
-    return;
-  }
-  discovery_session_->Stop(
-      base::Bind(&base::DoNothing),
-      base::Bind(&BluetoothOptionsHandler::StopDiscoveryError,
-                 weak_ptr_factory_.GetWeakPtr()));
-}
-
-void BluetoothOptionsHandler::StopDiscoveryError() {
-  VLOG(1) << "Failed to stop discovery.";
-  ReportError("bluetoothStopDiscoveryFailed", std::string());
-}
-
 void BluetoothOptionsHandler::GetPairedDevicesCallback(
     const base::ListValue* args) {
   device::BluetoothAdapter::DeviceList devices = adapter_->GetDevices();
 
   for (device::BluetoothAdapter::DeviceList::iterator iter = devices.begin();
        iter != devices.end(); ++iter)
-    SendDeviceNotification(*iter, NULL);
+    SendDeviceNotification(*iter, nullptr, std::string());
 }
 
 void BluetoothOptionsHandler::SendDeviceNotification(
     const device::BluetoothDevice* device,
-    base::DictionaryValue* params) {
-  base::DictionaryValue js_properties;
-  js_properties.SetString("name", device->GetName());
-  js_properties.SetString("address", device->GetAddress());
-  js_properties.SetBoolean("paired", device->IsPaired());
-  js_properties.SetBoolean("connected", device->IsConnected());
-  js_properties.SetBoolean("connecting", device->IsConnecting());
-  js_properties.SetBoolean("connectable", device->IsConnectable());
-  if (params)
-    js_properties.MergeDictionary(params);
+    base::DictionaryValue* params,
+    std::string pairing) {
+  scoped_ptr<base::DictionaryValue> js_device_properties(
+      new base::DictionaryValue);
+  js_device_properties->SetString("name", device->GetName());
+  js_device_properties->SetString("address", device->GetAddress());
+  js_device_properties->SetBoolean("paired", device->IsPaired());
+  js_device_properties->SetBoolean("connected", device->IsConnected());
+  js_device_properties->SetBoolean("connecting", device->IsConnecting());
+  js_device_properties->SetBoolean("connectable", device->IsConnectable());
 
-  // Use the cached values to update js_property.
+  scoped_ptr<base::DictionaryValue> js_event_properties(
+      new base::DictionaryValue);
+  if (params)
+    js_event_properties->MergeDictionary(params);
+  js_event_properties->SetString("pairing", pairing);
+  js_event_properties->Set("device", js_device_properties.Pass());
+
+  // Use the cached values to update event properties.
   if (device->GetAddress() == pairing_device_address_) {
-    std::string pairing;
-    if (!js_properties.GetString("pairing", &pairing)) {
+    if (pairing.empty()) {
       pairing = pairing_device_pairing_;
-      js_properties.SetString("pairing", pairing);
+      js_event_properties->SetString("pairing", pairing);
     }
-    if (pairing == kRemotePinCode && !js_properties.HasKey("pincode"))
-      js_properties.SetString("pincode", pairing_device_pincode_);
-    if (pairing == kRemotePasskey && !js_properties.HasKey("passkey"))
-      js_properties.SetInteger("passkey", pairing_device_passkey_);
+    if (pairing == kRemotePinCode && !js_event_properties->HasKey(kPincode))
+      js_event_properties->SetString(kPincode, pairing_device_pincode_);
+    if (pairing == kRemotePasskey && !js_event_properties->HasKey(kPasskey))
+      js_event_properties->SetInteger(kPasskey, pairing_device_passkey_);
     if ((pairing == kRemotePinCode || pairing == kRemotePasskey) &&
-        !js_properties.HasKey("entered") &&
+        !js_event_properties->HasKey(kEnteredKey) &&
         pairing_device_entered_ != kInvalidEntered) {
-      js_properties.SetInteger("entered", pairing_device_entered_);
+      js_event_properties->SetInteger(kEnteredKey, pairing_device_entered_);
     }
   }
 
   // Update the cache with the new information.
-  if (js_properties.HasKey("pairing")) {
+  if (!pairing.empty()) {
     pairing_device_address_ = device->GetAddress();
-    js_properties.GetString("pairing", &pairing_device_pairing_);
-    js_properties.GetString("pincode", &pairing_device_pincode_);
-    js_properties.GetInteger("passkey", &pairing_device_passkey_);
-    if (!js_properties.GetInteger("entered", &pairing_device_entered_))
+    pairing_device_pairing_ = pairing;
+    js_event_properties->GetString(kPincode, &pairing_device_pincode_);
+    js_event_properties->GetInteger(kPasskey, &pairing_device_passkey_);
+    if (!js_event_properties->GetInteger(kEnteredKey, &pairing_device_entered_))
       pairing_device_entered_ = kInvalidEntered;
   }
 
   web_ui()->CallJavascriptFunction(
-      "options.BrowserOptions.addBluetoothDevice",
-      js_properties);
+      "options.BrowserOptions.bluetoothPairingEvent",
+      *js_event_properties);
 }
 
 void BluetoothOptionsHandler::RequestPinCode(device::BluetoothDevice* device) {
-  base::DictionaryValue params;
-  params.SetString("pairing", kEnterPinCode);
-  SendDeviceNotification(device, &params);
+  SendDeviceNotification(device, nullptr, kEnterPinCode);
 }
 
 void BluetoothOptionsHandler::RequestPasskey(device::BluetoothDevice* device) {
-  base::DictionaryValue params;
-  params.SetString("pairing", kEnterPasskey);
-  SendDeviceNotification(device, &params);
+  SendDeviceNotification(device, nullptr, kEnterPasskey);
 }
 
 void BluetoothOptionsHandler::DisplayPinCode(device::BluetoothDevice* device,
                                              const std::string& pincode) {
   base::DictionaryValue params;
-  params.SetString("pairing", kRemotePinCode);
-  params.SetString("pincode", pincode);
-  SendDeviceNotification(device, &params);
+  params.SetString(kPincode, pincode);
+  SendDeviceNotification(device, &params, kRemotePinCode);
 }
 
 void BluetoothOptionsHandler::DisplayPasskey(device::BluetoothDevice* device,
                                              uint32 passkey) {
   base::DictionaryValue params;
-  params.SetString("pairing", kRemotePasskey);
-  params.SetInteger("passkey", passkey);
-  SendDeviceNotification(device, &params);
+  params.SetInteger(kPasskey, passkey);
+  SendDeviceNotification(device, &params, kRemotePasskey);
 }
 
 void BluetoothOptionsHandler::KeysEntered(device::BluetoothDevice* device,
                                           uint32 entered) {
   base::DictionaryValue params;
-  params.SetInteger("entered", entered);
-  SendDeviceNotification(device, &params);
+  params.SetInteger(kEnteredKey, entered);
+  SendDeviceNotification(device, &params, "");
 }
 
 void BluetoothOptionsHandler::ConfirmPasskey(device::BluetoothDevice* device,
                                              uint32 passkey) {
   base::DictionaryValue params;
-  params.SetString("pairing", kConfirmPasskey);
-  params.SetInteger("passkey", passkey);
-  SendDeviceNotification(device, &params);
+  params.SetInteger(kPasskey, passkey);
+  SendDeviceNotification(device, &params, kConfirmPasskey);
 }
 
 void BluetoothOptionsHandler::AuthorizePairing(
@@ -566,14 +482,14 @@ void BluetoothOptionsHandler::DeviceAdded(device::BluetoothAdapter* adapter,
                                           device::BluetoothDevice* device) {
   DCHECK(adapter == adapter_.get());
   DCHECK(device);
-  SendDeviceNotification(device, NULL);
+  SendDeviceNotification(device, nullptr, std::string());
 }
 
 void BluetoothOptionsHandler::DeviceChanged(device::BluetoothAdapter* adapter,
                                             device::BluetoothDevice* device) {
   DCHECK(adapter == adapter_.get());
   DCHECK(device);
-  SendDeviceNotification(device, NULL);
+  SendDeviceNotification(device, nullptr, std::string());
 }
 
 void BluetoothOptionsHandler::DeviceRemoved(device::BluetoothAdapter* adapter,
@@ -596,9 +512,7 @@ void BluetoothOptionsHandler::DeviceRemoved(device::BluetoothAdapter* adapter,
 void BluetoothOptionsHandler::DeviceConnecting(
     device::BluetoothDevice* device) {
   DCHECK(device);
-  base::DictionaryValue params;
-  params.SetString("pairing", kStartConnecting);
-  SendDeviceNotification(device, &params);
+  SendDeviceNotification(device, nullptr, kStartConnecting);
 }
 
 }  // namespace options

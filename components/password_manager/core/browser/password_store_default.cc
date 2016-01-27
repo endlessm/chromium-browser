@@ -10,6 +10,7 @@
 #include "base/prefs/pref_service.h"
 #include "base/stl_util.h"
 #include "components/password_manager/core/browser/password_store_change.h"
+#include "url/origin.h"
 
 using autofill::PasswordForm;
 
@@ -80,6 +81,26 @@ PasswordStoreChangeList PasswordStoreDefault::RemoveLoginImpl(
   return changes;
 }
 
+PasswordStoreChangeList PasswordStoreDefault::RemoveLoginsByOriginAndTimeImpl(
+    const url::Origin& origin,
+    base::Time delete_begin,
+    base::Time delete_end) {
+  ScopedVector<autofill::PasswordForm> forms;
+  PasswordStoreChangeList changes;
+  if (login_db_ &&
+      login_db_->GetLoginsCreatedBetween(delete_begin, delete_end, &forms)) {
+    for (autofill::PasswordForm* form : forms) {
+      if (origin.IsSameOriginWith(url::Origin(form->origin)) &&
+          login_db_->RemoveLogin(*form))
+        changes.push_back(
+            PasswordStoreChange(PasswordStoreChange::REMOVE, *form));
+    }
+    if (!changes.empty())
+      LogStatsForBulkDeletion(changes.size());
+  }
+  return changes;
+}
+
 PasswordStoreChangeList PasswordStoreDefault::RemoveLoginsCreatedBetweenImpl(
     base::Time delete_begin,
     base::Time delete_end) {
@@ -116,6 +137,13 @@ PasswordStoreChangeList PasswordStoreDefault::RemoveLoginsSyncedBetweenImpl(
   return changes;
 }
 
+bool PasswordStoreDefault::RemoveStatisticsCreatedBetweenImpl(
+    base::Time delete_begin,
+    base::Time delete_end) {
+  return login_db_ &&
+         login_db_->stats_table().RemoveStatsBetween(delete_begin, delete_end);
+}
+
 ScopedVector<autofill::PasswordForm> PasswordStoreDefault::FillMatchingLogins(
     const autofill::PasswordForm& form,
     AuthorizationPromptPolicy prompt_policy) {
@@ -149,11 +177,11 @@ void PasswordStoreDefault::RemoveSiteStatsImpl(const GURL& origin_domain) {
     login_db_->stats_table().RemoveRow(origin_domain);
 }
 
-scoped_ptr<InteractionsStats> PasswordStoreDefault::GetSiteStatsImpl(
+ScopedVector<InteractionsStats> PasswordStoreDefault::GetSiteStatsImpl(
     const GURL& origin_domain) {
   DCHECK(GetBackgroundTaskRunner()->BelongsToCurrentThread());
-  return login_db_ ? login_db_->stats_table().GetRow(origin_domain)
-                   : scoped_ptr<InteractionsStats>();
+  return login_db_ ? login_db_->stats_table().GetRows(origin_domain)
+                   : ScopedVector<InteractionsStats>();
 }
 
 void PasswordStoreDefault::ResetLoginDB() {

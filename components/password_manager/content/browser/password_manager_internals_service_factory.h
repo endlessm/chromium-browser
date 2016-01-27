@@ -16,7 +16,9 @@ namespace password_manager {
 
 class PasswordManagerInternalsService;
 
-// BrowserContextKeyedServiceFactory for PasswordManagerInternalsService.
+// BrowserContextKeyedServiceFactory for PasswordManagerInternalsService. It
+// does not override BrowserContextKeyedServiceFactory::GetBrowserContextToUse,
+// which means that no service is returned in Incognito.
 class PasswordManagerInternalsServiceFactory
     : public BrowserContextKeyedServiceFactory {
  public:
@@ -26,7 +28,8 @@ class PasswordManagerInternalsServiceFactory
   static PasswordManagerInternalsServiceFactory* GetInstance();
 
  private:
-  friend struct DefaultSingletonTraits<PasswordManagerInternalsServiceFactory>;
+  friend struct base::DefaultSingletonTraits<
+      PasswordManagerInternalsServiceFactory>;
 
   PasswordManagerInternalsServiceFactory();
   ~PasswordManagerInternalsServiceFactory() override;

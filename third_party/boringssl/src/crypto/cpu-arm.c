@@ -14,17 +14,16 @@
 
 #include <openssl/cpu.h>
 
-#if defined(OPENSSL_ARM) || defined(OPENSSL_AARCH64)
+#if (defined(OPENSSL_ARM) || defined(OPENSSL_AARCH64)) && \
+    !defined(OPENSSL_STATIC_ARMCAP)
 
 #include <inttypes.h>
 #include <string.h>
 
-#if !defined(OPENSSL_TRUSTY)
 #include <setjmp.h>
 #include <signal.h>
-#endif
 
-#include "arm_arch.h"
+#include <openssl/arm_arch.h>
 
 
 /* We can't include <sys/auxv.h> because the Android SDK version against which
@@ -32,6 +31,8 @@
  * that we need and have a weak pointer to getauxval. */
 
 unsigned long getauxval(unsigned long type) __attribute__((weak));
+
+extern uint32_t OPENSSL_armcap_P;
 
 char CRYPTO_is_NEON_capable(void) {
   return (OPENSSL_armcap_P & ARMV7_NEON) != 0;
@@ -62,7 +63,15 @@ void CRYPTO_set_NEON_functional(char neon_functional) {
   }
 }
 
-#if !defined(OPENSSL_NO_ASM) && defined(OPENSSL_ARM) && !defined(OPENSSL_TRUSTY)
+int CRYPTO_is_ARMv8_AES_capable(void) {
+  return (OPENSSL_armcap_P & ARMV8_AES) != 0;
+}
+
+int CRYPTO_is_ARMv8_PMULL_capable(void) {
+  return (OPENSSL_armcap_P & ARMV8_PMULL) != 0;
+}
+
+#if !defined(OPENSSL_NO_ASM) && defined(OPENSSL_ARM)
 
 static sigjmp_buf sigill_jmp;
 
@@ -70,12 +79,12 @@ static void sigill_handler(int signal) {
   siglongjmp(sigill_jmp, signal);
 }
 
-void CRYPTO_arm_neon_probe();
+void CRYPTO_arm_neon_probe(void);
 
 // probe_for_NEON returns 1 if a NEON instruction runs successfully. Because
 // getauxval doesn't exist on Android until Jelly Bean, supporting NEON on
 // older devices requires this.
-static int probe_for_NEON() {
+static int probe_for_NEON(void) {
   int supported = 0;
 
   sigset_t sigmask;
@@ -120,7 +129,7 @@ static int probe_for_NEON(void) {
   return 0;
 }
 
-#endif  /* !OPENSSL_NO_ASM && OPENSSL_ARM && !OPENSSL_TRUSTY */
+#endif  /* !OPENSSL_NO_ASM && OPENSSL_ARM */
 
 void OPENSSL_cpuid_setup(void) {
   if (getauxval == NULL) {
@@ -186,4 +195,5 @@ void OPENSSL_cpuid_setup(void) {
   }
 }
 
-#endif  /* defined(OPENSSL_ARM) || defined(OPENSSL_AARCH64) */
+#endif  /* (defined(OPENSSL_ARM) || defined(OPENSSL_AARCH64)) &&
+           !defined(OPENSSL_STATIC_ARMCAP) */

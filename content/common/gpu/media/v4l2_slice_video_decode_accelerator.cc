@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include <errno.h>
 #include <fcntl.h>
 #include <linux/videodev2.h>
 #include <poll.h>
@@ -588,6 +589,24 @@ bool V4L2SliceVideoDecodeAccelerator::SetupFormats() {
   else
     input_size = kInputBufferMaxSizeFor1080p;
 
+  struct v4l2_fmtdesc fmtdesc;
+  memset(&fmtdesc, 0, sizeof(fmtdesc));
+  fmtdesc.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+  bool is_format_supported = false;
+  while (device_->Ioctl(VIDIOC_ENUM_FMT, &fmtdesc) == 0) {
+    if (fmtdesc.pixelformat == input_format_fourcc) {
+      is_format_supported = true;
+      break;
+    }
+    ++fmtdesc.index;
+  }
+
+  if (!is_format_supported) {
+    DVLOG(1) << "Input fourcc " << input_format_fourcc
+             << " not supported by device.";
+    return false;
+  }
+
   struct v4l2_format format;
   memset(&format, 0, sizeof(format));
   format.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
@@ -599,7 +618,6 @@ bool V4L2SliceVideoDecodeAccelerator::SetupFormats() {
   // We have to set up the format for output, because the driver may not allow
   // changing it once we start streaming; whether it can support our chosen
   // output format or not may depend on the input format.
-  struct v4l2_fmtdesc fmtdesc;
   memset(&fmtdesc, 0, sizeof(fmtdesc));
   fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
   output_format_fourcc_ = 0;
@@ -712,28 +730,14 @@ bool V4L2SliceVideoDecodeAccelerator::CreateOutputBuffers() {
     return false;
   }
 
-  struct v4l2_requestbuffers reqbufs;
-  memset(&reqbufs, 0, sizeof(reqbufs));
-  reqbufs.count = num_pictures;
-  reqbufs.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-  reqbufs.memory = V4L2_MEMORY_MMAP;
-  IOCTL_OR_ERROR_RETURN_FALSE(VIDIOC_REQBUFS, &reqbufs);
-
-  if (reqbufs.count < num_pictures) {
-    PLOG(ERROR) << "Could not allocate enough output buffers";
-    return false;
-  }
-
-  output_buffer_map_.resize(reqbufs.count);
-
-  DVLOGF(3) << "buffer_count=" << output_buffer_map_.size()
+  DVLOGF(3) << "buffer_count=" << num_pictures
             << ", visible size=" << visible_size_.ToString()
             << ", coded size=" << coded_size_.ToString();
 
   child_task_runner_->PostTask(
       FROM_HERE,
       base::Bind(&VideoDecodeAccelerator::Client::ProvidePictureBuffers,
-                 client_, output_buffer_map_.size(), coded_size_,
+                 client_, num_pictures, coded_size_,
                  device_->GetTextureTarget()));
 
   // Wait for the client to call AssignPictureBuffers() on the Child thread.
@@ -1415,10 +1419,12 @@ void V4L2SliceVideoDecodeAccelerator::AssignPictureBuffers(
   DVLOGF(3);
   DCHECK(child_task_runner_->BelongsToCurrentThread());
 
-  if (buffers.size() != output_buffer_map_.size()) {
+  const uint32_t req_buffer_count = decoder_->GetRequiredNumOfPictures();
+
+  if (buffers.size() < req_buffer_count) {
     DLOG(ERROR) << "Failed to provide requested picture buffers. "
                 << "(Got " << buffers.size()
-                << ", requested " << output_buffer_map_.size() << ")";
+                << ", requested " << req_buffer_count << ")";
     NOTIFY_ERROR(INVALID_ARGUMENT);
     return;
   }
@@ -1433,6 +1439,23 @@ void V4L2SliceVideoDecodeAccelerator::AssignPictureBuffers(
 
   // It's safe to manipulate all the buffer state here, because the decoder
   // thread is waiting on pictures_assigned_.
+
+  // Allocate the output buffers.
+  struct v4l2_requestbuffers reqbufs;
+  memset(&reqbufs, 0, sizeof(reqbufs));
+  reqbufs.count = buffers.size();
+  reqbufs.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+  reqbufs.memory = V4L2_MEMORY_MMAP;
+  IOCTL_OR_ERROR_RETURN(VIDIOC_REQBUFS, &reqbufs);
+
+  if (reqbufs.count != buffers.size()) {
+    DLOG(ERROR) << "Could not allocate enough output buffers";
+    NOTIFY_ERROR(PLATFORM_FAILURE);
+    return;
+  }
+
+  output_buffer_map_.resize(buffers.size());
+
   DCHECK(free_output_buffers_.empty());
   for (size_t i = 0; i < output_buffer_map_.size(); ++i) {
     DCHECK(buffers[i].size() == coded_size_);
@@ -1755,18 +1778,23 @@ void V4L2SliceVideoDecodeAccelerator::V4L2H264Accelerator::H264DPBToV4L2DPB(
       DVLOG(1) << "Invalid DPB size";
       break;
     }
+
+    int index = VIDEO_MAX_FRAME;
+    if (!pic->nonexisting) {
+      scoped_refptr<V4L2DecodeSurface> dec_surface =
+          H264PictureToV4L2DecodeSurface(pic);
+      index = dec_surface->output_record();
+      ref_surfaces->push_back(dec_surface);
+    }
+
     struct v4l2_h264_dpb_entry& entry = v4l2_decode_param_.dpb[i++];
-    scoped_refptr<V4L2DecodeSurface> dec_surface =
-        H264PictureToV4L2DecodeSurface(pic);
-    entry.buf_index = dec_surface->output_record();
+    entry.buf_index = index;
     entry.frame_num = pic->frame_num;
     entry.pic_num = pic->pic_num;
     entry.top_field_order_cnt = pic->top_field_order_cnt;
     entry.bottom_field_order_cnt = pic->bottom_field_order_cnt;
     entry.flags = (pic->ref ? V4L2_H264_DPB_ENTRY_FLAG_ACTIVE : 0) |
                   (pic->long_term ? V4L2_H264_DPB_ENTRY_FLAG_LONG_TERM : 0);
-
-    ref_surfaces->push_back(dec_surface);
   }
 }
 
@@ -2411,8 +2439,11 @@ void V4L2SliceVideoDecodeAccelerator::OutputSurface(
   DCHECK_NE(output_record.picture_id, -1);
   output_record.at_client = true;
 
+  // TODO(posciak): Use visible size from decoder here instead
+  // (crbug.com/402760). Passing (0, 0) results in the client using the
+  // visible size extracted from the container instead.
   media::Picture picture(output_record.picture_id, dec_surface->bitstream_id(),
-                         gfx::Rect(visible_size_), false);
+                         gfx::Rect(0, 0), false);
   DVLOGF(3) << dec_surface->ToString()
             << ", bitstream_id: " << picture.bitstream_buffer_id()
             << ", picture_id: " << picture.picture_buffer_id();

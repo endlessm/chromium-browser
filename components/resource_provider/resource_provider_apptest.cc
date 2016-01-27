@@ -15,8 +15,8 @@
 #include "mojo/application/public/cpp/service_provider_impl.h"
 #include "mojo/common/common_type_converters.h"
 #include "mojo/platform_handle/platform_handle_functions.h"
-#include "third_party/mojo/src/mojo/public/cpp/bindings/array.h"
-#include "third_party/mojo/src/mojo/public/cpp/system/macros.h"
+#include "mojo/public/cpp/bindings/array.h"
+#include "mojo/public/cpp/system/macros.h"
 
 namespace resource_provider {
 namespace {
@@ -56,7 +56,7 @@ class ResourceProviderApplicationTest : public mojo::test::ApplicationTestBase {
   // resources are returned. The return map maps from the path to the contents
   // of the file at the specified path.
   ResourceContentsMap GetResources(const std::set<std::string>& paths) {
-    ResourceLoader loader(application_impl()->shell(), paths);
+    ResourceLoader loader(application_impl(), paths);
     loader.BlockUntilLoaded();
 
     // Load the contents of each of the handles.

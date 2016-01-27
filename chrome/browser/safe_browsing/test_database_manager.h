@@ -11,6 +11,8 @@
 
 #include "chrome/browser/safe_browsing/database_manager.h"
 
+namespace safe_browsing {
+
 // This is a non-pure-virtual implementation of the SafeBrowsingDatabaseManager
 // interface.  It's used in tests by overriding only the functions that get
 // called, and it'll complain if you call one that isn't overriden.
@@ -18,6 +20,10 @@ class TestSafeBrowsingDatabaseManager
     : public SafeBrowsingDatabaseManager {
  public:
   // SafeBrowsingDatabaseManager implementation:
+  bool IsSupported() const override;
+  safe_browsing::ThreatSource GetThreatSource() const override;
+  bool ChecksAreAlwaysAsync() const override;
+  bool CanCheckResourceType(content::ResourceType resource_type) const override;
   bool CanCheckUrl(const GURL& url) const override;
   bool download_protection_enabled() const override;
   bool CheckBrowseUrl(const GURL& url, Client* client) override;
@@ -39,4 +45,7 @@ class TestSafeBrowsingDatabaseManager
  protected:
   ~TestSafeBrowsingDatabaseManager() override {};
 };
+
+}  // namespace safe_browsing
+
 #endif  // CHROME_BROWSER_SAFE_BROWSING_TEST_DATABASE_MANAGER_H_

@@ -5,32 +5,18 @@
 #ifndef WebBluetoothGATTCharacteristic_h
 #define WebBluetoothGATTCharacteristic_h
 
-#include "public/platform/WebString.h"
 #include "public/platform/WebVector.h"
 
 namespace blink {
 
-// Contains members corresponding to BluetoothGATTCharacteristic attributes as
-// specified in the IDL.
-struct WebBluetoothGATTCharacteristic {
-    WebBluetoothGATTCharacteristic(const WebString& characteristicInstanceID,
-        const WebString& serviceInstanceID,
-        const WebString& uuid)
-        : characteristicInstanceID(characteristicInstanceID)
-        , serviceInstanceID(serviceInstanceID)
-        , uuid(uuid)
-    {
-    }
-
-    const WebString characteristicInstanceID;
-    const WebString serviceInstanceID;
-    const WebString uuid;
-    // TODO(ortuno): Add 'properties' once CharacteristicProperties is implemented.
-    // https://crbug.com/483345
-    // const WebCharacteristicProperties properties;
-    const WebVector<uint8_t> value;
+// An object through which the embedder can trigger events on a Document-bound
+// Web Bluetooth GATT Characteristic object.
+class WebBluetoothGATTCharacteristic {
+public:
+    // Used to notify blink that the characteristic's value changed.
+    virtual void dispatchCharacteristicValueChanged(const WebVector<uint8_t>&) = 0;
 };
 
 } // namespace blink
 
-#endif // WebBluetoothGATTCharacteristic_h
+#endif // WebBluetoothGATTCharacteristicDelegate_h

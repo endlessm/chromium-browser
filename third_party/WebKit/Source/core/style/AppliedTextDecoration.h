@@ -7,10 +7,12 @@
 
 #include "core/css/StyleColor.h"
 #include "core/style/ComputedStyleConstants.h"
+#include "wtf/Allocator.h"
 
 namespace blink {
 
 class AppliedTextDecoration {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     AppliedTextDecoration(TextDecoration, TextDecorationStyle, StyleColor);
     explicit AppliedTextDecoration(TextDecoration);

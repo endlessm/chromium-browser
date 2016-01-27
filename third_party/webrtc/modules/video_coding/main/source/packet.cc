@@ -8,7 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/interface/module_common_types.h"
+#include "webrtc/modules/include/module_common_types.h"
 #include "webrtc/modules/video_coding/main/source/packet.h"
 
 #include <assert.h>
@@ -16,23 +16,21 @@
 namespace webrtc {
 
 VCMPacket::VCMPacket()
-  :
-    payloadType(0),
-    timestamp(0),
-    ntp_time_ms_(0),
-    seqNum(0),
-    dataPtr(NULL),
-    sizeBytes(0),
-    markerBit(false),
-    frameType(kFrameEmpty),
-    codec(kVideoCodecUnknown),
-    isFirstPacket(false),
-    completeNALU(kNaluUnset),
-    insertStartCode(false),
-    width(0),
-    height(0),
-    codecSpecificHeader() {
-}
+    : payloadType(0),
+      timestamp(0),
+      ntp_time_ms_(0),
+      seqNum(0),
+      dataPtr(NULL),
+      sizeBytes(0),
+      markerBit(false),
+      frameType(kEmptyFrame),
+      codec(kVideoCodecUnknown),
+      isFirstPacket(false),
+      completeNALU(kNaluUnset),
+      insertStartCode(false),
+      width(0),
+      height(0),
+      codecSpecificHeader() {}
 
 VCMPacket::VCMPacket(const uint8_t* ptr,
                      const size_t size,
@@ -88,7 +86,7 @@ void VCMPacket::Reset() {
   dataPtr = NULL;
   sizeBytes = 0;
   markerBit = false;
-  frameType = kFrameEmpty;
+  frameType = kEmptyFrame;
   codec = kVideoCodecUnknown;
   isFirstPacket = false;
   completeNALU = kNaluUnset;
@@ -117,6 +115,18 @@ void VCMPacket::CopyCodecSpecifics(const RTPVideoHeader& videoHeader) {
         completeNALU = kNaluIncomplete;
 
       codec = kVideoCodecVP8;
+      return;
+    case kRtpVideoVp9:
+      if (isFirstPacket && markerBit)
+        completeNALU = kNaluComplete;
+      else if (isFirstPacket)
+        completeNALU = kNaluStart;
+      else if (markerBit)
+        completeNALU = kNaluEnd;
+      else
+        completeNALU = kNaluIncomplete;
+
+      codec = kVideoCodecVP9;
       return;
     case kRtpVideoH264:
       isFirstPacket = videoHeader.isFirstPacket;

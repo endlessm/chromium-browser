@@ -15,12 +15,12 @@ import os
 import posixpath
 import re
 import shlex
-import shutil
 import stat
 import sys
 import unicodedata
 import time
 
+from utils import fs
 from utils import tools
 
 
@@ -29,6 +29,7 @@ HARDLINK, HARDLINK_WITH_FALLBACK, SYMLINK, COPY = range(1, 5)
 
 
 ## OS-specific imports
+
 
 if sys.platform == 'win32':
   from ctypes.wintypes import create_unicode_buffer
@@ -60,16 +61,12 @@ if sys.platform == 'win32':
 
   def GetShortPathName(long_path):
     """Returns the Windows short path equivalent for a 'long' path."""
-    assert isinstance(long_path, unicode), repr(long_path)
-    # Adds '\\\\?\\' when given an absolute path so the MAX_PATH (260) limit is
-    # not enforced.
-    if os.path.isabs(long_path) and not long_path.startswith('\\\\?\\'):
-      long_path = '\\\\?\\' + long_path
-    chars = windll.kernel32.GetShortPathNameW(long_path, None, 0)
+    path = fs.extend(long_path)
+    chars = windll.kernel32.GetShortPathNameW(path, None, 0)
     if chars:
       p = create_unicode_buffer(chars)
-      if windll.kernel32.GetShortPathNameW(long_path, p, chars):
-        return p.value
+      if windll.kernel32.GetShortPathNameW(path, p, chars):
+        return fs.trim(p.value)
 
     err = GetLastError()
     if err:
@@ -81,16 +78,12 @@ if sys.platform == 'win32':
 
   def GetLongPathName(short_path):
     """Returns the Windows long path equivalent for a 'short' path."""
-    assert isinstance(short_path, unicode)
-    # Adds '\\\\?\\' when given an absolute path so the MAX_PATH (260) limit is
-    # not enforced.
-    if os.path.isabs(short_path) and not short_path.startswith('\\\\?\\'):
-      short_path = '\\\\?\\' + short_path
-    chars = windll.kernel32.GetLongPathNameW(short_path, None, 0)
+    path = fs.extend(short_path)
+    chars = windll.kernel32.GetLongPathNameW(path, None, 0)
     if chars:
       p = create_unicode_buffer(chars)
-      if windll.kernel32.GetLongPathNameW(short_path, p, chars):
-        return p.value
+      if windll.kernel32.GetLongPathNameW(path, p, chars):
+        return fs.trim(p.value)
 
     err = GetLastError()
     if err:
@@ -144,6 +137,34 @@ if sys.platform == 'win32':
       if not drive or not match.group(2):
         return drive
       return drive + match.group(2)
+
+
+  def change_acl_for_delete(path):
+    """Zaps the SECURITY_DESCRIPTOR's DACL on a directory entry that is tedious
+    to delete.
+
+    This function is a heavy hammer. It discards the SECURITY_DESCRIPTOR and
+    creates a new one with only one DACL set to user:FILE_ALL_ACCESS.
+
+    Used as last resort.
+    """
+    STANDARD_RIGHTS_REQUIRED = 0xf0000
+    SYNCHRONIZE = 0x100000
+    FILE_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | 0x3ff
+
+    import win32security
+    user, _domain, _type = win32security.LookupAccountName(
+        '', getpass.getuser())
+    sd = win32security.SECURITY_DESCRIPTOR()
+    sd.Initialize()
+    sd.SetSecurityDescriptorOwner(user, False)
+    dacl = win32security.ACL()
+    dacl.Initialize()
+    dacl.AddAccessAllowedAce(
+        win32security.ACL_REVISION_DS, FILE_ALL_ACCESS, user)
+    sd.SetSecurityDescriptorDacl(1, dacl, 0)
+    win32security.SetFileSecurity(
+        fs.extend(path), win32security.DACL_SECURITY_INFORMATION, sd)
 
 
   def isabs(path):
@@ -202,8 +223,6 @@ if sys.platform == 'win32':
         rest = os.path.basename(p)
         return os.path.join(get_native_path_case(base), rest)
       raise
-    if out.startswith('\\\\?\\'):
-      out = out[4:]
     # Always upper case the first letter since GetLongPathName() will return the
     # drive letter in the case it was given.
     return out[0].upper() + out[1:] + suffix
@@ -272,6 +291,7 @@ if sys.platform == 'win32':
       out.update((p, processes[p]) for p in found)
     return out.values()
 
+
 elif sys.platform == 'darwin':
 
 
@@ -325,7 +345,7 @@ elif sys.platform == 'darwin':
       return item
 
     item = item.lower()
-    for element in listdir(root_path):
+    for element in fs.listdir(root_path):
       if element.lower() == item:
         return element
 
@@ -474,7 +494,7 @@ if sys.platform != 'win32':  # All non-Windows OSes.
       except ValueError:
         index = len(relfile)
       full = at_root(relfile[:index])
-      if os.path.islink(full):
+      if fs.islink(full):
         # A symlink!
         base = os.path.dirname(relfile[:index])
         symlink = os.path.basename(relfile[:index])
@@ -487,15 +507,6 @@ if sys.platform != 'win32':  # All non-Windows OSes.
         break
       index += 1
     return relfile, None, None
-
-
-@tools.profile
-def listdir(abspath):
-  """Lists a directory given an absolute path to it."""
-  if not isabs(abspath):
-    raise ValueError(
-        'list_dir(%r): Require an absolute path' % abspath, abspath)
-  return os.listdir(abspath)
 
 
 def relpath(path, root):
@@ -613,11 +624,11 @@ def is_same_filesystem(path1, path2):
     # If the drive letter mismatches, assume it's a separate partition.
     # TODO(maruel): It should look at the underlying drive, a drive letter could
     # be a mount point to a directory on another drive.
-    assert re.match(r'^[a-zA-Z]\:\\.*', path1), path1
-    assert re.match(r'^[a-zA-Z]\:\\.*', path2), path2
+    assert re.match(ur'^[a-zA-Z]\:\\.*', path1), path1
+    assert re.match(ur'^[a-zA-Z]\:\\.*', path2), path2
     if path1[0].lower() != path2[0].lower():
       return False
-  return os.stat(path1).st_dev == os.stat(path2).st_dev
+  return fs.stat(path1).st_dev == fs.stat(path2).st_dev
 
 
 def get_free_space(path):
@@ -628,7 +639,7 @@ def get_free_space(path):
         ctypes.c_wchar_p(path), None, None, ctypes.pointer(free_bytes))
     return free_bytes.value
   # For OSes other than Windows.
-  f = os.statvfs(path)  # pylint: disable=E1101
+  f = fs.statvfs(path)  # pylint: disable=E1101
   return f.f_bfree * f.f_frsize
 
 
@@ -644,20 +655,18 @@ def hardlink(source, link_name):
   assert isinstance(link_name, unicode), link_name
   if sys.platform == 'win32':
     if not ctypes.windll.kernel32.CreateHardLinkW(
-        unicode(link_name), unicode(source), 0):
+        fs.extend(link_name), fs.extend(source), 0):
       raise OSError()
   else:
-    os.link(source, link_name)
+    fs.link(source, link_name)
 
 
 def readable_copy(outfile, infile):
   """Makes a copy of the file that is readable by everyone."""
-  assert isinstance(outfile, unicode), outfile
-  assert isinstance(infile, unicode), infile
-  shutil.copy2(infile, outfile)
-  read_enabled_mode = (os.stat(outfile).st_mode | stat.S_IRUSR |
-                       stat.S_IRGRP | stat.S_IROTH)
-  os.chmod(outfile, read_enabled_mode)
+  fs.copy2(infile, outfile)
+  fs.chmod(
+      outfile,
+      fs.stat(outfile).st_mode | stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
 
 
 def set_read_only(path, read_only):
@@ -665,16 +674,11 @@ def set_read_only(path, read_only):
 
   Zaps out access to 'group' and 'others'.
   """
-  assert isinstance(path, unicode), path
-  assert isinstance(read_only, bool), read_only
-  mode = os.lstat(path).st_mode
+  mode = fs.lstat(path).st_mode
   # TODO(maruel): Stop removing GO bits.
-  if read_only:
-    mode = mode & 0500
-  else:
-    mode = mode | 0200
+  mode = (mode & 0500) if read_only else (mode | 0200)
   if hasattr(os, 'lchmod'):
-    os.lchmod(path, mode)  # pylint: disable=E1101
+    fs.lchmod(path, mode)  # pylint: disable=E1101
   else:
     if stat.S_ISLNK(mode):
       # Skip symlink without lchmod() support.
@@ -684,12 +688,19 @@ def set_read_only(path, read_only):
       return
 
     # TODO(maruel): Implement proper DACL modification on Windows.
-    os.chmod(path, mode)
+    fs.chmod(path, mode)
+
+
+def set_read_only_swallow(path, read_only):
+  """Returns if an OSError exception occured."""
+  try:
+    set_read_only(path, read_only)
+  except OSError as e:
+    return e
 
 
 def try_remove(filepath):
   """Removes a file without crashing even if it doesn't exist."""
-  assert isinstance(filepath, unicode), filepath
   try:
     # TODO(maruel): Not do it unless necessary since it slows this function
     # down.
@@ -699,29 +710,31 @@ def try_remove(filepath):
     else:
       # Deleting a read-only file will fail if the directory is read-only.
       set_read_only(os.path.dirname(filepath), False)
-    os.remove(filepath)
+    fs.remove(filepath)
   except OSError:
     pass
 
 
 def link_file(outfile, infile, action):
-  """Links a file. The type of link depends on |action|."""
-  assert isinstance(outfile, unicode), outfile
-  assert isinstance(infile, unicode), infile
+  """Links a file. The type of link depends on |action|.
+
+  Returns:
+    True if the action was caried on, False if fallback was used.
+  """
   if action not in (HARDLINK, HARDLINK_WITH_FALLBACK, SYMLINK, COPY):
     raise ValueError('Unknown mapping action %s' % action)
-  if not os.path.isfile(infile):
+  if not fs.isfile(infile):
     raise OSError('%s is missing' % infile)
-  if os.path.isfile(outfile):
+  if fs.isfile(outfile):
     raise OSError(
         '%s already exist; insize:%d; outsize:%d' %
-        (outfile, os.stat(infile).st_size, os.stat(outfile).st_size))
+        (outfile, fs.stat(infile).st_size, fs.stat(outfile).st_size))
 
   if action == COPY:
     readable_copy(outfile, infile)
   elif action == SYMLINK and sys.platform != 'win32':
     # On windows, symlink are converted to hardlink and fails over to copy.
-    os.symlink(infile, outfile)  # pylint: disable=E1101
+    fs.symlink(infile, outfile)  # pylint: disable=E1101
   else:
     # HARDLINK or HARDLINK_WITH_FALLBACK.
     try:
@@ -734,6 +747,9 @@ def link_file(outfile, infile, action):
           'Failed to hardlink, failing back to copy %s to %s' % (
             infile, outfile))
       readable_copy(outfile, infile)
+      # Signal caller that fallback copy was used.
+      return False
+  return True
 
 
 ### Write directory functions.
@@ -746,18 +762,26 @@ def make_tree_read_only(root):
 
   This means no file can be created or deleted.
   """
+  err = None
   logging.debug('make_tree_read_only(%s)', root)
-  assert isinstance(root, unicode), root
-  assert os.path.isabs(root), root
-  for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+  for dirpath, dirnames, filenames in fs.walk(root, topdown=True):
     for filename in filenames:
-      set_read_only(os.path.join(dirpath, filename), True)
+      e = set_read_only_swallow(os.path.join(dirpath, filename), True)
+      if not err:
+        err = e
     if sys.platform != 'win32':
       # It must not be done on Windows.
       for dirname in dirnames:
-        set_read_only(os.path.join(dirpath, dirname), True)
+        e = set_read_only_swallow(os.path.join(dirpath, dirname), True)
+        if not err:
+          err = e
   if sys.platform != 'win32':
-    set_read_only(root, True)
+    e = set_read_only_swallow(root, True)
+    if not err:
+      err = e
+  if err:
+    # pylint: disable=raising-bad-type
+    raise err
 
 
 def make_tree_files_read_only(root):
@@ -767,11 +791,9 @@ def make_tree_files_read_only(root):
   This means files can be created or deleted.
   """
   logging.debug('make_tree_files_read_only(%s)', root)
-  assert isinstance(root, unicode), root
-  assert os.path.isabs(root), root
   if sys.platform != 'win32':
     set_read_only(root, False)
-  for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+  for dirpath, dirnames, filenames in fs.walk(root, topdown=True):
     for filename in filenames:
       set_read_only(os.path.join(dirpath, filename), True)
     if sys.platform != 'win32':
@@ -789,11 +811,9 @@ def make_tree_writeable(root):
   the files.
   """
   logging.debug('make_tree_writeable(%s)', root)
-  assert isinstance(root, unicode), root
-  assert os.path.isabs(root), root
   if sys.platform != 'win32':
     set_read_only(root, False)
-  for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+  for dirpath, dirnames, filenames in fs.walk(root, topdown=True):
     for filename in filenames:
       set_read_only(os.path.join(dirpath, filename), False)
     if sys.platform != 'win32':
@@ -814,44 +834,25 @@ def make_tree_deleteable(root):
   file node has its file permission modified.
   """
   logging.debug('make_tree_deleteable(%s)', root)
-  assert isinstance(root, unicode), root
-  assert os.path.isabs(root), root
+  err = None
   if sys.platform != 'win32':
-    set_read_only(root, False)
-  for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+    e = set_read_only_swallow(root, False)
+    if not err:
+      err = e
+  for dirpath, dirnames, filenames in fs.walk(root, topdown=True):
     if sys.platform == 'win32':
       for filename in filenames:
-        set_read_only(os.path.join(dirpath, filename), False)
+        e = set_read_only_swallow(os.path.join(dirpath, filename), False)
+        if not err:
+          err = e
     else:
       for dirname in dirnames:
-        set_read_only(os.path.join(dirpath, dirname), False)
-
-
-def change_acl_for_delete_win(path):
-  """Zaps the SECURITY_DESCRIPTOR's DACL on a directory entry that is tedious to
-  delete.
-
-  This function is a heavy hammer. It discards the SECURITY_DESCRIPTOR and
-  creates a new one with only one DACL set to user:FILE_ALL_ACCESS.
-
-  Used as last resort.
-  """
-  assert isinstance(path, unicode), path
-  STANDARD_RIGHTS_REQUIRED = 0xf0000
-  SYNCHRONIZE = 0x100000
-  FILE_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | 0x3ff
-
-  import win32security
-  user, _domain, _type = win32security.LookupAccountName('', getpass.getuser())
-  sd = win32security.SECURITY_DESCRIPTOR()
-  sd.Initialize()
-  sd.SetSecurityDescriptorOwner(user, False)
-  dacl = win32security.ACL()
-  dacl.Initialize()
-  dacl.AddAccessAllowedAce(win32security.ACL_REVISION_DS, FILE_ALL_ACCESS, user)
-  sd.SetSecurityDescriptorDacl(1, dacl, 0)
-  win32security.SetFileSecurity(
-      path, win32security.DACL_SECURITY_INFORMATION, sd)
+        e = set_read_only_swallow(os.path.join(dirpath, dirname), False)
+        if not err:
+          err = e
+  if err:
+    # pylint: disable=raising-bad-type
+    raise err
 
 
 def rmtree(root):
@@ -864,27 +865,29 @@ def rmtree(root):
     True on normal execution, False if berserk techniques (like killing
     processes) had to be used.
   """
+  logging.info('rmtree(%s)', root)
+  assert sys.getdefaultencoding() == 'utf-8', sys.getdefaultencoding()
   # Do not assert here yet because this would break too much code.
   root = unicode(root)
-  make_tree_deleteable(root)
-  logging.info('rmtree(%s)', root)
-  if sys.platform != 'win32':
-    shutil.rmtree(root)
-    return True
+  try:
+    make_tree_deleteable(root)
+  except OSError as e:
+    logging.warning('Swallowing make_tree_deleteable() error: %s', e)
 
-  # Windows is more 'challenging'. First tries the soft way: tries 3 times to
-  # delete and sleep a bit in between.
+  # First try the soft way: tries 3 times to delete and sleep a bit in between.
+  # Retries help if test subprocesses outlive main process and try to actively
+  # use or write to the directory while it is being deleted.
   max_tries = 3
   for i in xrange(max_tries):
     # errors is a list of tuple(function, path, excinfo).
     errors = []
-    shutil.rmtree(root, onerror=lambda *args: errors.append(args))
+    fs.rmtree(root, onerror=lambda *args: errors.append(args))
     if not errors:
       return True
-    if not i:
+    if not i and sys.platform == 'win32':
       for _, path, _ in errors:
         try:
-          change_acl_for_delete_win(path)
+          change_acl_for_delete(path)
         except Exception as e:
           sys.stderr.write('- %s (failed to update ACL: %s)\n' % (path, e))
 
@@ -901,6 +904,10 @@ def rmtree(root):
           '  Sleeping %d seconds.\n' %
           (root, len(errors), delay))
       time.sleep(delay)
+
+  # If soft retries fail on Linux, there's nothing better we can do.
+  if sys.platform != 'win32':
+    raise errors[0][2][0], errors[0][2][1], errors[0][2][2]
 
   # The soft way was not good enough. Try the hard way. Enumerates both:
   # - all child processes from this process.
@@ -948,7 +955,7 @@ def rmtree(root):
 
   # Now that annoying processes in root are evicted, try again.
   errors = []
-  shutil.rmtree(root, onerror=lambda *args: errors.append(args))
+  fs.rmtree(root, onerror=lambda *args: errors.append(args))
   if errors:
     # There's no hope.
     sys.stderr.write(

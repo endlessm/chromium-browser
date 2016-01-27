@@ -90,9 +90,6 @@ class SearchTabHelper : public content::WebContentsObserver,
   // Called when the tab corresponding to |this| instance is deactivated.
   void OnTabDeactivated();
 
-  // Tells the page to toggle voice search.
-  void ToggleVoiceSearch();
-
   // Returns true if the underlying page is a search results page.
   bool IsSearchResultsPage();
 
@@ -128,12 +125,6 @@ class SearchTabHelper : public content::WebContentsObserver,
                            OnHistorySyncCheckSyncing);
   FRIEND_TEST_ALL_PREFIXES(SearchTabHelperTest,
                            OnHistorySyncCheckNotSyncing);
-  FRIEND_TEST_ALL_PREFIXES(SearchTabHelperWindowTest,
-                           OnProvisionalLoadFailRedirectNTPToLocal);
-  FRIEND_TEST_ALL_PREFIXES(SearchTabHelperWindowTest,
-                           OnProvisionalLoadFailDontRedirectIfAborted);
-  FRIEND_TEST_ALL_PREFIXES(SearchTabHelperWindowTest,
-                           OnProvisionalLoadFailDontRedirectNonNTP);
   FRIEND_TEST_ALL_PREFIXES(SearchIPCRouterTest,
                            IgnoreMessageIfThePageIsNotActive);
   FRIEND_TEST_ALL_PREFIXES(SearchIPCRouterTest,
@@ -164,7 +155,6 @@ class SearchTabHelper : public content::WebContentsObserver,
 
   // Overridden from SearchIPCRouter::Delegate:
   void OnInstantSupportDetermined(bool supports_instant) override;
-  void OnSetVoiceSearchSupport(bool supports_voice_search) override;
   void FocusOmnibox(OmniboxFocusState state) override;
   void NavigateToURL(const GURL& url,
                      WindowOpenDisposition disposition,

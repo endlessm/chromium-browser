@@ -93,37 +93,8 @@
 #endif
 
 #if OS(MACOSX)
-#define WTF_USE_CF 1
-#endif /* OS(MACOSX) */
-
-#if OS(POSIX)
-#define HAVE_SIGNAL_H 1
-#define HAVE_SYS_TIME_H 1
-#define WTF_USE_PTHREADS 1
-#endif /* OS(POSIX) */
-
-#if !OS(WIN) && !OS(ANDROID)
-#define HAVE_TM_GMTOFF 1
-#define HAVE_TM_ZONE 1
-#define HAVE_TIMEGM 1
-#endif
-
-#if OS(MACOSX)
 #define WTF_USE_NEW_THEME 1
 #endif /* OS(MACOSX) */
-
-#if OS(WIN)
-
-// If we don't define these, they get defined in windef.h.
-// We want to use std::min and std::max.
-#ifndef max
-#define max max
-#endif
-#ifndef min
-#define min min
-#endif
-
-#endif /* OS(WIN) */
 
 #ifdef __cplusplus
 
@@ -131,14 +102,5 @@
 // Helps us catch if anyone uses new or delete by accident in code and doesn't include "config.h".
 #undef new
 #undef delete
-#include <ciso646>
-#include <cstddef>
 
-#endif
-
-// Adopted from base/compiler_specific.h where you can find a detailed explanation.
-#if COMPILER(MSVC)
-#define STATIC_CONST_MEMBER_DEFINITION __declspec(selectany)
-#else
-#define STATIC_CONST_MEMBER_DEFINITION
 #endif

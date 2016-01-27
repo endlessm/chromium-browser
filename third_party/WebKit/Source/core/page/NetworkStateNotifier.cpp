@@ -58,28 +58,13 @@ void NetworkStateNotifier::setOnLine(bool onLine)
     Page::networkStateChanged(onLine);
 }
 
-void NetworkStateNotifier::setWebConnectionType(WebConnectionType type)
+void NetworkStateNotifier::setWebConnection(WebConnectionType type, double maxBandwidthMbps)
 {
     ASSERT(isMainThread());
     if (m_testUpdatesOnly)
         return;
 
-    setWebConnectionTypeImpl(type);
-}
-
-void NetworkStateNotifier::setWebConnectionTypeImpl(WebConnectionType type)
-{
-    ASSERT(isMainThread());
-
-    MutexLocker locker(m_mutex);
-    if (m_type == type)
-        return;
-    m_type = type;
-
-    for (const auto& entry : m_observers) {
-        ExecutionContext* context = entry.key;
-        context->postTask(FROM_HERE, createCrossThreadTask(&NetworkStateNotifier::notifyObserversOnContext, this, type));
-    }
+    setWebConnectionImpl(type, maxBandwidthMbps);
 }
 
 void NetworkStateNotifier::addObserver(NetworkStateObserver* observer, ExecutionContext* context)
@@ -119,17 +104,42 @@ void NetworkStateNotifier::removeObserver(NetworkStateObserver* observer, Execut
 void NetworkStateNotifier::setTestUpdatesOnly(bool updatesOnly)
 {
     ASSERT(isMainThread());
+    MutexLocker locker(m_mutex);
+
+    // Reset state to default when entering or leaving test mode.
+    if (updatesOnly != m_testUpdatesOnly) {
+        m_isOnLine = true;
+        m_type = WebConnectionTypeOther;
+        m_maxBandwidthMbps = std::numeric_limits<double>::infinity();
+    }
+
     m_testUpdatesOnly = updatesOnly;
 }
 
-void NetworkStateNotifier::setWebConnectionTypeForTest(WebConnectionType type)
+void NetworkStateNotifier::setWebConnectionForTest(WebConnectionType type, double maxBandwidthMbps)
 {
     ASSERT(isMainThread());
     ASSERT(m_testUpdatesOnly);
-    setWebConnectionTypeImpl(type);
+    setWebConnectionImpl(type, maxBandwidthMbps);
 }
 
-void NetworkStateNotifier::notifyObserversOnContext(WebConnectionType type, ExecutionContext* context)
+void NetworkStateNotifier::setWebConnectionImpl(WebConnectionType type, double maxBandwidthMbps)
+{
+    ASSERT(isMainThread());
+
+    MutexLocker locker(m_mutex);
+    if (m_type == type && m_maxBandwidthMbps == maxBandwidthMbps)
+        return;
+    m_type = type;
+    m_maxBandwidthMbps = maxBandwidthMbps;
+
+    for (const auto& entry : m_observers) {
+        ExecutionContext* context = entry.key;
+        context->postTask(BLINK_FROM_HERE, createCrossThreadTask(&NetworkStateNotifier::notifyObserversOfConnectionChangeOnContext, this, type, maxBandwidthMbps));
+    }
+}
+
+void NetworkStateNotifier::notifyObserversOfConnectionChangeOnContext(WebConnectionType type, double maxBandwidthMbps, ExecutionContext* context)
 {
     ObserverList* observerList = lockAndFindObserverList(context);
 
@@ -144,7 +154,7 @@ void NetworkStateNotifier::notifyObserversOnContext(WebConnectionType type, Exec
     for (size_t i = 0; i < observerList->observers.size(); ++i) {
         // Observers removed during iteration are zeroed out, skip them.
         if (observerList->observers[i])
-            observerList->observers[i]->connectionTypeChange(type);
+            observerList->observers[i]->connectionChange(type, maxBandwidthMbps);
     }
 
     observerList->iterating = false;
@@ -157,7 +167,7 @@ NetworkStateNotifier::ObserverList* NetworkStateNotifier::lockAndFindObserverLis
 {
     MutexLocker locker(m_mutex);
     ObserverListMap::iterator it = m_observers.find(context);
-    return it == m_observers.end() ? 0 : it->value.get();
+    return it == m_observers.end() ? nullptr : it->value.get();
 }
 
 void NetworkStateNotifier::collectZeroedObservers(ObserverList* list, ExecutionContext* context)

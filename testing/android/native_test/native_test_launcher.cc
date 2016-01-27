@@ -36,11 +36,6 @@ namespace android {
 
 namespace {
 
-// The test runner script writes the command line file in
-// "/data/local/tmp".
-static const char kCommandLineFilePath[] =
-    "/data/local/tmp/chrome-native-tests-command-line";
-
 const char kLogTag[] = "chromium";
 const char kCrashedMarker[] = "[ CRASHED      ]\n";
 
@@ -70,20 +65,18 @@ void AndroidLog(int priority, const char* format, ...) {
 }  // namespace
 
 static void RunTests(JNIEnv* env,
-                     jobject obj,
-                     jstring jcommand_line_flags,
-                     jstring jcommand_line_file_path,
-                     jstring jstdout_file_path,
+                     const JavaParamRef<jobject>& obj,
+                     const JavaParamRef<jstring>& jcommand_line_flags,
+                     const JavaParamRef<jstring>& jcommand_line_file_path,
+                     const JavaParamRef<jstring>& jstdout_file_path,
                      jboolean jstdout_fifo,
-                     jobject app_context) {
+                     const JavaParamRef<jobject>& app_context) {
   // Command line initialized basically, will be fully initialized later.
   static const char* const kInitialArgv[] = { "ChromeTestActivity" };
   base::CommandLine::Init(arraysize(kInitialArgv), kInitialArgv);
 
   // Set the application context in base.
-  base::android::ScopedJavaLocalRef<jobject> scoped_context(
-      env, env->NewLocalRef(app_context));
-  base::android::InitApplicationContext(env, scoped_context);
+  base::android::InitApplicationContext(env, app_context);
   base::android::RegisterJni(env);
 
   std::vector<std::string> args;
@@ -91,7 +84,7 @@ static void RunTests(JNIEnv* env,
   const std::string command_line_file_path(
       base::android::ConvertJavaStringToUTF8(env, jcommand_line_file_path));
   if (command_line_file_path.empty())
-    ParseArgsFromCommandLineFile(kCommandLineFilePath, &args);
+    args.push_back("_");
   else
     ParseArgsFromCommandLineFile(command_line_file_path.c_str(), &args);
 

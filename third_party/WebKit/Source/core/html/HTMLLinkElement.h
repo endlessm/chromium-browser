@@ -56,7 +56,7 @@ typedef EventSender<HTMLLinkElement> LinkEventSender;
 // sticking current way so far.
 //
 class LinkStyle final : public LinkResource, ResourceOwner<StyleSheetResource> {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(LinkStyle);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(LinkStyle);
 public:
     static PassOwnPtrWillBeRawPtr<LinkStyle> create(HTMLLinkElement* owner);
 
@@ -87,6 +87,7 @@ public:
 private:
     // From StyleSheetResourceClient
     void setCSSStyleSheet(const String& href, const KURL& baseURL, const String& charset, const CSSStyleSheetResource*) override;
+    String debugName() const override { return "LinkStyle"; }
 
     enum DisabledState {
         Unset,
@@ -110,6 +111,10 @@ private:
     {
         ASSERT(!m_fetchFollowingCORS);
         m_fetchFollowingCORS = true;
+    }
+    void clearFetchFollowingCORS()
+    {
+        m_fetchFollowingCORS = false;
     }
 
     RefPtrWillBeMember<CSSStyleSheet> m_sheet;

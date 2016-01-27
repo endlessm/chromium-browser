@@ -89,9 +89,9 @@ void SoftwareBrowserCompositorOutputSurfaceTest::SetUp() {
   ui::ContextFactory* context_factory =
       ui::InitializeContextFactoryForTests(enable_pixel_output);
 
-  compositor_.reset(new ui::Compositor(gfx::kNullAcceleratedWidget,
-                                       context_factory,
-                                       base::ThreadTaskRunnerHandle::Get()));
+  compositor_.reset(
+      new ui::Compositor(context_factory, base::ThreadTaskRunnerHandle::Get()));
+  compositor_->SetAcceleratedWidget(gfx::kNullAcceleratedWidget);
 }
 
 void SoftwareBrowserCompositorOutputSurfaceTest::TearDown() {

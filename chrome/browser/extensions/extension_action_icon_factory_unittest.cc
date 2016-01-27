@@ -109,10 +109,8 @@ class ExtensionActionIconFactoryTest
     std::string error;
     JSONFileValueDeserializer deserializer(
         test_file.AppendASCII("manifest.json"));
-    scoped_ptr<base::DictionaryValue> valid_value(
-        static_cast<base::DictionaryValue*>(
-            deserializer.Deserialize(&error_code,
-                                     &error)));
+    scoped_ptr<base::DictionaryValue> valid_value = base::DictionaryValue::From(
+        deserializer.Deserialize(&error_code, &error));
     EXPECT_EQ(0, error_code) << error;
     if (error_code != 0)
       return NULL;
@@ -149,7 +147,7 @@ class ExtensionActionIconFactoryTest
   // ExtensionActionIconFactory::Observer overrides:
   void OnIconUpdated() override {
     if (quit_in_icon_updated_)
-      base::MessageLoop::current()->Quit();
+      base::MessageLoop::current()->QuitWhenIdle();
   }
 
   gfx::ImageSkia GetFavicon() {

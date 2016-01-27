@@ -42,7 +42,6 @@ namespace blink {
 TreeScopeStyleSheetCollection::TreeScopeStyleSheetCollection(TreeScope& treeScope)
     : m_treeScope(treeScope)
     , m_hadActiveLoadingStylesheet(false)
-    , m_usesRemUnits(false)
 {
 }
 
@@ -51,14 +50,7 @@ void TreeScopeStyleSheetCollection::addStyleSheetCandidateNode(Node* node, bool 
     if (!node->inDocument())
         return;
 
-    // Until the <body> exists, we have no choice but to compare document positions,
-    // since styles outside of the body and head continue to be shunted into the head
-    // (and thus can shift to end up before dynamically added DOM content that is also
-    // outside the body).
-    if (createdByParser && document().body() && !node->nextSibling())
-        m_styleSheetCandidateNodes.parserAdd(node);
-    else
-        m_styleSheetCandidateNodes.add(node);
+    m_styleSheetCandidateNodes.add(node);
 }
 
 TreeScopeStyleSheetCollection::StyleResolverUpdateType TreeScopeStyleSheetCollection::compareStyleSheets(const WillBeHeapVector<RefPtrWillBeMember<CSSStyleSheet>>& oldStyleSheets, const WillBeHeapVector<RefPtrWillBeMember<CSSStyleSheet>>& newStylesheets, WillBeHeapVector<RawPtrWillBeMember<StyleSheetContents>>& addedSheets)
@@ -159,10 +151,10 @@ void TreeScopeStyleSheetCollection::analyzeStyleSheetChange(StyleResolverUpdateM
     // If we are already parsing the body and so may have significant amount of elements, put some effort into trying to avoid style recalcs.
     if (!document().body() || document().hasNodesWithPlaceholderStyle())
         return;
-    StyleSheetInvalidationAnalysis invalidationAnalysis(addedSheets);
+    StyleSheetInvalidationAnalysis invalidationAnalysis(*m_treeScope, addedSheets);
     if (invalidationAnalysis.dirtiesAllStyle())
         return;
-    invalidationAnalysis.invalidateStyle(document());
+    invalidationAnalysis.invalidateStyle();
     change.requiresFullStyleRecalc = false;
     return;
 }
@@ -174,20 +166,6 @@ void TreeScopeStyleSheetCollection::clearMediaQueryRuleSetStyleSheets()
         if (contents->hasMediaQueries())
             contents->clearRuleSet();
     }
-}
-
-static bool styleSheetsUseRemUnits(const WillBeHeapVector<RefPtrWillBeMember<CSSStyleSheet>>& sheets)
-{
-    for (unsigned i = 0; i < sheets.size(); ++i) {
-        if (sheets[i]->contents()->usesRemUnits())
-            return true;
-    }
-    return false;
-}
-
-void TreeScopeStyleSheetCollection::updateUsesRemUnits()
-{
-    m_usesRemUnits = styleSheetsUseRemUnits(m_activeAuthorStyleSheets);
 }
 
 DEFINE_TRACE(TreeScopeStyleSheetCollection)

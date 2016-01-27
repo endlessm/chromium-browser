@@ -13,11 +13,6 @@
 #include "base/sequenced_task_runner_helpers.h"
 #include "storage/common/quota/quota_types.h"
 
-
-namespace base {
-class SingleThreadTaskRunner;
-}  // namespace base
-
 class BrowsingDataQuotaHelper;
 class Profile;
 
@@ -56,9 +51,9 @@ class BrowsingDataQuotaHelper
     bool operator ==(const QuotaInfo& rhs) const;
 
     std::string host;
-    int64 temporary_usage;
-    int64 persistent_usage;
-    int64 syncable_usage;
+    int64 temporary_usage = 0;
+    int64 persistent_usage = 0;
+    int64 syncable_usage = 0;
   };
 
   typedef std::list<QuotaInfo> QuotaInfoArray;
@@ -71,13 +66,12 @@ class BrowsingDataQuotaHelper
   virtual void RevokeHostQuota(const std::string& host) = 0;
 
  protected:
-  explicit BrowsingDataQuotaHelper(base::SingleThreadTaskRunner* io_thread_);
+  BrowsingDataQuotaHelper();
   virtual ~BrowsingDataQuotaHelper();
 
  private:
   friend class base::DeleteHelper<BrowsingDataQuotaHelper>;
   friend struct BrowsingDataQuotaHelperDeleter;
-  scoped_refptr<base::SingleThreadTaskRunner> io_thread_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowsingDataQuotaHelper);
 };

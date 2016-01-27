@@ -50,6 +50,7 @@
             "type": "@WebInspector.ActionDelegate",
             "actionId": "main.toggle-drawer",
             "className": "WebInspector.InspectorView.DrawerToggleActionDelegate",
+            "order": 100,
             "bindings": [
                 {
                     "shortcut": "Esc"
@@ -63,22 +64,6 @@
             "bindings": [
                 {
                     "shortcut": "Alt+R"
-                }
-            ]
-        },
-        {
-            "type": "@WebInspector.ActionDelegate",
-            "actionId": "main.toggle-element-search",
-            "contextTypes": ["WebInspector.InspectElementModeController"],
-            "className": "WebInspector.InspectElementModeController.ToggleSearchActionDelegate",
-            "bindings": [
-                {
-                    "platform": "windows,linux",
-                    "shortcut": "Ctrl+Shift+C"
-                },
-                {
-                    "platform": "mac",
-                    "shortcut": "Meta+Shift+C"
                 }
             ]
         },
@@ -143,18 +128,65 @@
             ]
         },
         {
-            "type": "drawer-view",
-            "name": "rendering",
-            "title": "Rendering",
-            "order": "11",
-            "className": "WebInspector.RenderingOptions.View"
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "main.search-in-panel.find",
+            "className": "WebInspector.Main.SearchActionDelegate",
+            "bindings": [
+                {
+                    "platform": "windows,linux",
+                    "shortcut": "Ctrl+F"
+                },
+                {
+                    "platform": "mac",
+                    "shortcut": "Meta+F F3"
+                }
+            ]
         },
         {
-            "type": "@WebInspector.ToolbarItem.Provider",
-            "className": "WebInspector.InspectElementModeController.ToggleButtonProvider",
-            "location": "main-toolbar-left",
-            "order": 0,
-            "actionId": "main.toggle-element-search"
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "main.search-in-panel.cancel",
+            "className": "WebInspector.Main.SearchActionDelegate",
+            "order": 10,
+            "bindings": [
+                {
+                    "shortcut": "Esc"
+                }
+            ]
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "main.search-in-panel.find-next",
+            "className": "WebInspector.Main.SearchActionDelegate",
+            "bindings": [
+                {
+                    "platform": "mac",
+                    "shortcut": "Meta+G"
+                }
+            ]
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "main.search-in-panel.find-previous",
+            "className": "WebInspector.Main.SearchActionDelegate",
+            "bindings": [
+                {
+                    "platform": "mac",
+                    "shortcut": "Meta+Shift+G"
+                }
+            ]
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "main.inspect-devices",
+            "title": "Inspect devices\u2026",
+            "className": "WebInspector.Main.InspectDevicesActionDelegate",
+            "experiment": "!inspectDevicesDialog"
+        },
+        {
+            "type": "@WebInspector.ActionDelegate",
+            "actionId": "main.show-rendering-options",
+            "title": "Rendering settings",
+            "className": "WebInspector.RenderingOptionsView.ShowActionDelegate"
         },
         {
             "type": "@WebInspector.ToolbarItem.Provider",
@@ -170,26 +202,14 @@
         },
         {
             "type": "@WebInspector.ToolbarItem.Provider",
-            "className": "WebInspector.InspectorView.ToggleDrawerButtonProvider",
-            "order": 2,
-            "location": "main-toolbar-right"
-        },
-        {
-            "type": "@WebInspector.ToolbarItem.Provider",
             "separator": true,
-            "order": 3,
+            "order": 98,
             "location": "main-toolbar-right"
         },
         {
             "type": "@WebInspector.ToolbarItem.Provider",
-            "className": "WebInspector.DockController.ButtonProvider",
-            "order": 5,
-            "location": "main-toolbar-right"
-        },
-        {
-            "type": "@WebInspector.ToolbarItem.Provider",
-            "separator": true,
-            "order": 90,
+            "className": "WebInspector.Main.MainMenuItem",
+            "order": 99,
             "location": "main-toolbar-right"
         },
         {
@@ -223,10 +243,15 @@
         {
             "type": "setting",
             "category": "Appearance",
-            "title": "Split panels vertically when docked to right",
-            "settingName": "splitVerticallyWhenDockedToRight",
-            "settingType": "boolean",
-            "defaultValue": true
+            "title": "Panel layout:",
+            "settingName": "sidebarPosition",
+            "settingType": "enum",
+            "defaultValue": "auto",
+            "options": [
+                ["horizontal", "bottom"],
+                ["vertical", "right"],
+                ["auto", "auto"]
+            ]
         },
         {
             "type": "setting",
@@ -267,34 +292,32 @@
             "className": "WebInspector.HandlerRegistry.OpenAnchorLocationSettingUI"
         },
         {
-            "type": "setting",
-            "settingName": "showPaintRects",
-            "settingType": "boolean",
-            "defaultValue": false
+            "type": "context-menu-item",
+            "location": "mainMenu/tools/open",
+            "order": 50,
+            "actionId": "main.inspect-devices",
+            "experiment": "!inspectDevicesDialog"
         },
         {
-            "type": "setting",
-            "settingName": "showDebugBorders",
-            "settingType": "boolean",
-            "defaultValue": false
+            "type": "context-menu-item",
+            "location": "mainMenu/navigate",
+            "title": "More tools",
+            "subMenuId": "mainMenu/tools",
+            "order": 80
         },
         {
-            "type": "setting",
-            "settingName": "showFPSCounter",
-            "settingType": "boolean",
-            "defaultValue": false
+            "type": "context-menu-item",
+            "location": "mainMenu/tools/open",
+            "order": 80,
+            "actionId": "main.show-rendering-options"
         },
         {
-            "type": "setting",
-            "settingName": "continuousPainting",
-            "settingType": "boolean",
-            "defaultValue": false
-        },
-        {
-            "type": "setting",
-            "settingName": "showScrollBottleneckRects",
-            "settingType": "boolean",
-            "defaultValue": false
+            "type": "drawer-view",
+            "name": "rendering",
+            "title": "Rendering",
+            "persistence": "closeable",
+            "order": 50,
+            "className": "WebInspector.RenderingOptionsView"
         }
     ],
     "dependencies": [
@@ -305,11 +328,10 @@
         "emulation"
     ],
     "scripts": [
-        "HelpScreenUntilReload.js",
         "AdvancedApp.js",
+        "FrontendWebSocketAPI.js",
         "RenderingOptions.js",
         "SimpleApp.js",
-        "TestController.js",
         "Tests.js",
         "OverlayController.js",
         "Main.js"
@@ -318,5 +340,8 @@
         "Tests.js"
     ],
     "resources": [
+        "remoteDebuggingTerminatedScreen.css",
+        "renderingOptions.css",
+        "targetCrashedScreen.css"
     ]
 }

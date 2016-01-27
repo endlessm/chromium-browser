@@ -15,9 +15,9 @@
 #include "webrtc/common.h"
 #include "webrtc/common_types.h"
 #include "webrtc/engine_configurations.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module_typedefs.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module_typedefs.h"
 #include "webrtc/modules/audio_coding/main/test/utility.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/test/testsupport/fileutils.h"
 
 #ifdef SUPPORT_RED_WB
@@ -37,11 +37,15 @@ namespace webrtc {
 namespace {
   const char kNameL16[] = "L16";
   const char kNamePCMU[] = "PCMU";
+  const char kNameCN[] = "CN";
+  const char kNameRED[] = "RED";
+
+  // These three are only used by code #ifdeffed on WEBRTC_CODEC_G722.
+#ifdef WEBRTC_CODEC_G722
   const char kNameISAC[] = "ISAC";
   const char kNameG722[] = "G722";
   const char kNameOPUS[] = "opus";
-  const char kNameCN[] = "CN";
-  const char kNameRED[] = "RED";
+#endif
 }
 
 TestRedFec::TestRedFec()
@@ -82,10 +86,6 @@ void TestRedFec::Perform() {
   _acmA->RegisterTransportCallback(_channelA2B);
   _channelA2B->RegisterReceiverACM(_acmB.get());
 
-#ifndef WEBRTC_CODEC_PCM16
-  EXPECT_TRUE(false) << "PCM16 needs to be activated to run this test\n");
-  return;
-#endif
   EXPECT_EQ(0, RegisterSendCodec('A', kNameL16, 8000));
   EXPECT_EQ(0, RegisterSendCodec('A', kNameCN, 8000));
   EXPECT_EQ(0, RegisterSendCodec('A', kNameRED));
@@ -108,7 +108,7 @@ void TestRedFec::Perform() {
   EXPECT_TRUE(false);
   printf("G722 needs to be activated to run this test\n");
   return;
-#endif
+#else
   EXPECT_EQ(0, RegisterSendCodec('A', kNameG722, 16000));
   EXPECT_EQ(0, RegisterSendCodec('A', kNameCN, 16000));
 
@@ -412,6 +412,8 @@ void TestRedFec::Perform() {
   EXPECT_FALSE(_acmA->REDStatus());
   EXPECT_EQ(0, _acmA->SetCodecFEC(false));
   EXPECT_FALSE(_acmA->CodecFEC());
+
+#endif  // defined(WEBRTC_CODEC_G722)
 }
 
 int32_t TestRedFec::SetVAD(bool enableDTX, bool enableVAD, ACMVADMode vadMode) {

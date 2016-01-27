@@ -17,10 +17,14 @@
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/common/renderer_preferences.h"
+#include "content/public/common/webrtc_ip_handling_policy.h"
 #include "content/shell/browser/blink_test_controller.h"
+#include "content/shell/browser/layout_test/layout_test_bluetooth_chooser_factory.h"
 #include "content/shell/browser/layout_test/layout_test_devtools_frontend.h"
 #include "content/shell/browser/layout_test/layout_test_javascript_dialog_manager.h"
 #include "content/shell/browser/notify_done_forwarder.h"
@@ -64,7 +68,9 @@ Shell::Shell(WebContents* web_contents)
       devtools_frontend_(NULL),
       is_fullscreen_(false),
       window_(NULL),
+#if defined(OS_MACOSX)
       url_edit_view_(NULL),
+#endif
       headless_(false) {
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
@@ -92,7 +98,7 @@ Shell::~Shell() {
     if (headless_)
       PlatformExit();
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::MessageLoop::QuitClosure());
+        FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
   }
 }
 
@@ -113,6 +119,14 @@ Shell* Shell::CreateShell(WebContents* web_contents,
     web_contents->GetMutableRendererPrefs()->use_custom_colors = false;
     web_contents->GetRenderViewHost()->SyncRendererPrefs();
   }
+
+#if defined(ENABLE_WEBRTC)
+  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDisableWebRtcMultipleRoutes)) {
+    web_contents->GetMutableRendererPrefs()->webrtc_ip_handling_policy =
+        kWebRTCIPHandlingDefaultPublicInterfaceOnly;
+  }
+#endif
 
   return shell;
 }
@@ -303,7 +317,7 @@ void Shell::ToggleFullscreenModeForTab(WebContents* web_contents,
     return;
   if (is_fullscreen_ != enter_fullscreen) {
     is_fullscreen_ = enter_fullscreen;
-    web_contents->GetRenderViewHost()->WasResized();
+    web_contents->GetRenderViewHost()->GetWidget()->WasResized();
   }
 }
 
@@ -358,6 +372,19 @@ JavaScriptDialogManager* Shell::GetJavaScriptDialogManager(
   return dialog_manager_.get();
 }
 
+scoped_ptr<BluetoothChooser> Shell::RunBluetoothChooser(
+    WebContents* web_contents,
+    const BluetoothChooser::EventHandler& event_handler,
+    const GURL& origin) {
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
+  if (command_line.HasSwitch(switches::kRunLayoutTest)) {
+    return BlinkTestController::Get()->RunBluetoothChooser(
+        web_contents, event_handler, origin);
+  }
+  return nullptr;
+}
+
 bool Shell::AddMessageToConsole(WebContents* source,
                                 int32 level,
                                 const base::string16& message,
@@ -375,18 +402,7 @@ void Shell::RendererUnresponsive(WebContents* source) {
 }
 
 void Shell::ActivateContents(WebContents* contents) {
-  contents->GetRenderViewHost()->Focus();
-}
-
-void Shell::DeactivateContents(WebContents* contents) {
-  contents->GetRenderViewHost()->Blur();
-}
-
-void Shell::WorkerCrashed(WebContents* source) {
-  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kRunLayoutTest))
-    return;
-  BlinkTestController::Get()->WorkerCrashed();
+  contents->GetRenderViewHost()->GetWidget()->Focus();
 }
 
 bool Shell::HandleContextMenu(const content::ContextMenuParams& params) {

@@ -79,12 +79,12 @@ namespace chromeos {
 NetworkState::NetworkState(const std::string& path)
     : ManagedState(MANAGED_TYPE_NETWORK, path),
       visible_(false),
+      priority_(0),
       prefix_length_(0),
       connectable_(false),
       is_captive_portal_(false),
       signal_strength_(0),
-      cellular_out_of_credits_(false) {
-}
+      cellular_out_of_credits_(false) {}
 
 NetworkState::~NetworkState() {
 }
@@ -126,6 +126,8 @@ bool NetworkState::PropertyChanged(const std::string& key,
     return GetStringValue(key, value, &security_class_);
   } else if (key == shill::kEapMethodProperty) {
     return GetStringValue(key, value, &eap_method_);
+  } else if (key == shill::kEapKeyMgmtProperty) {
+    return GetStringValue(key, value, &eap_key_mgmt_);
   } else if (key == shill::kNetworkTechnologyProperty) {
     return GetStringValue(key, value, &network_technology_);
   } else if (key == shill::kDeviceProperty) {
@@ -141,6 +143,8 @@ bool NetworkState::PropertyChanged(const std::string& key,
     }
     raw_ssid_.clear();
     return base::HexStringToBytes(ssid_hex, &raw_ssid_);
+  } else if (key == shill::kPriorityProperty) {
+    return GetIntegerValue(key, value, &priority_);
   } else if (key == shill::kOutOfCreditsProperty) {
     return GetBooleanValue(key, value, &cellular_out_of_credits_);
   } else if (key == shill::kProxyConfigProperty) {
@@ -229,6 +233,8 @@ void NetworkState::GetStateProperties(base::DictionaryValue* dictionary) const {
                                             security_class());
   dictionary->SetStringWithoutPathExpansion(shill::kProfileProperty,
                                             profile_path());
+  dictionary->SetIntegerWithoutPathExpansion(shill::kPriorityProperty,
+                                             priority_);
 
   if (visible()) {
     dictionary->SetStringWithoutPathExpansion(shill::kStateProperty,
@@ -330,6 +336,11 @@ std::string NetworkState::connection_state() const {
   if (!visible())
     return shill::kStateDisconnect;
   return connection_state_;
+}
+
+bool NetworkState::IsDynamicWep() const {
+  return security_class_ == shill::kSecurityWep &&
+         eap_key_mgmt_ == shill::kKeyManagementIEEE8021X;
 }
 
 bool NetworkState::IsConnectedState() const {

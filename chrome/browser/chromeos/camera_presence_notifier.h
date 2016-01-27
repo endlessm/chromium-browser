@@ -28,7 +28,7 @@ class CameraPresenceNotifier {
   void RemoveObserver(CameraPresenceNotifier::Observer* observer);
 
  private:
-  friend struct DefaultSingletonTraits<CameraPresenceNotifier>;
+  friend struct base::DefaultSingletonTraits<CameraPresenceNotifier>;
   CameraPresenceNotifier();
   ~CameraPresenceNotifier();
 
@@ -40,7 +40,7 @@ class CameraPresenceNotifier {
   bool camera_present_on_last_check_;
 
   // Timer for camera check cycle.
-  base::RepeatingTimer<CameraPresenceNotifier> camera_check_timer_;
+  base::RepeatingTimer camera_check_timer_;
 
   base::ObserverList<Observer> observers_;
 

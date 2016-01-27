@@ -8,6 +8,8 @@
 #ifndef NET_TOOLS_QUIC_QUIC_DISPATCHER_H_
 #define NET_TOOLS_QUIC_QUIC_DISPATCHER_H_
 
+#include <vector>
+
 #include "base/basictypes.h"
 #include "base/containers/hash_tables.h"
 #include "base/memory/scoped_ptr.h"
@@ -122,26 +124,20 @@ class QuicDispatcher : public QuicServerSessionVisitor,
   // Deletes all sessions on the closed session list and clears the list.
   void DeleteSessions();
 
-  // The largest packet sequence number we expect to receive with a connection
+  // The largest packet number we expect to receive with a connection
   // ID for a connection that is not established yet.  The current design will
   // send a handshake and then up to 50 or so data packets, and then it may
   // resend the handshake packet up to 10 times.  (Retransmitted packets are
-  // sent with unique sequence numbers.)
-  static const QuicPacketSequenceNumber kMaxReasonableInitialSequenceNumber =
-      100;
-  static_assert(kMaxReasonableInitialSequenceNumber >=
-                    kInitialCongestionWindowSecure + 10,
-                "kMaxReasonableInitialSequenceNumber is unreasonably small "
-                "relative to kInitialCongestionWindowSecure.");
-  static_assert(kMaxReasonableInitialSequenceNumber >=
-                    kInitialCongestionWindowInsecure + 10,
-                "kMaxReasonableInitialSequenceNumber is unreasonably small "
-                "relative to kInitialCongestionWindowInsecure.");
+  // sent with unique packet numbers.)
+  static const QuicPacketNumber kMaxReasonableInitialPacketNumber = 100;
+  static_assert(kMaxReasonableInitialPacketNumber >=
+                    kInitialCongestionWindow + 10,
+                "kMaxReasonableInitialPacketNumber is unreasonably small "
+                "relative to kInitialCongestionWindow.");
 
  protected:
   virtual QuicServerSession* CreateQuicSession(
       QuicConnectionId connection_id,
-      const IPEndPoint& server_address,
       const IPEndPoint& client_address);
 
   // Called by |framer_visitor_| when the public header has been parsed.
@@ -248,7 +244,7 @@ class QuicDispatcher : public QuicServerSessionVisitor,
   scoped_ptr<QuicTimeWaitListManager> time_wait_list_manager_;
 
   // The list of closed but not-yet-deleted sessions.
-  std::list<QuicServerSession*> closed_session_list_;
+  std::vector<QuicServerSession*> closed_session_list_;
 
   // The helper used for all connections.
   scoped_ptr<QuicConnectionHelperInterface> helper_;

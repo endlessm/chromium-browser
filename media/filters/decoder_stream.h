@@ -5,6 +5,8 @@
 #ifndef MEDIA_FILTERS_DECODER_STREAM_H_
 #define MEDIA_FILTERS_DECODER_STREAM_H_
 
+#include <list>
+
 #include "base/basictypes.h"
 #include "base/callback.h"
 #include "base/compiler_specific.h"
@@ -12,11 +14,12 @@
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "media/base/audio_decoder.h"
-#include "media/base/decryptor.h"
+#include "media/base/cdm_context.h"
 #include "media/base/demuxer_stream.h"
 #include "media/base/media_export.h"
 #include "media/base/media_log.h"
 #include "media/base/pipeline_status.h"
+#include "media/base/timestamp_constants.h"
 #include "media/filters/decoder_selector.h"
 #include "media/filters/decoder_stream_traits.h"
 
@@ -64,7 +67,7 @@ class MEDIA_EXPORT DecoderStream {
   // through |init_cb|. Note that |init_cb| is always called asynchronously.
   void Initialize(DemuxerStream* stream,
                   const InitCB& init_cb,
-                  const SetDecryptorReadyCB& set_decryptor_ready_cb,
+                  const SetCdmReadyCB& set_cdm_ready_cb,
                   const StatisticsCB& statistics_cb,
                   const base::Closure& waiting_for_decryption_key_cb);
 
@@ -112,6 +115,10 @@ class MEDIA_EXPORT DecoderStream {
     config_change_observer_cb_ = config_change_observer;
   }
 
+  const Decoder* get_previous_decoder_for_testing() const {
+    return previous_decoder_.get();
+  }
+
  private:
   enum State {
     STATE_UNINITIALIZED,
@@ -124,7 +131,7 @@ class MEDIA_EXPORT DecoderStream {
     STATE_ERROR
   };
 
-  void SelectDecoder(const SetDecryptorReadyCB& set_decryptor_ready_cb);
+  void SelectDecoder(const SetCdmReadyCB& set_cdm_ready_cb);
 
   // Called when |decoder_selector| selected the |selected_decoder|.
   // |decrypting_demuxer_stream| was also populated if a DecryptingDemuxerStream
@@ -185,9 +192,11 @@ class MEDIA_EXPORT DecoderStream {
   scoped_ptr<DecoderSelector<StreamType> > decoder_selector_;
 
   scoped_ptr<Decoder> decoder_;
-  // TODO(watk): When falling back from H/W decoding to S/W decoding,
-  // destructing the GpuVideoDecoder too early results in black frames being
-  // displayed. |previous_decoder_| is used to keep it alive.
+  // When falling back from H/W decoding to S/W decoding, destructing the
+  // GpuVideoDecoder too early results in black frames being displayed.
+  // |previous_decoder_| is used to keep it alive.  It is destroyed once we've
+  // decoded at least media::limits::kMaxVideoFrames frames after fallback.
+  int decoded_frames_since_fallback_;
   scoped_ptr<Decoder> previous_decoder_;
   scoped_ptr<DecryptingDemuxerStream> decrypting_demuxer_stream_;
 

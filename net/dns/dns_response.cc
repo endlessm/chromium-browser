@@ -8,11 +8,11 @@
 #include "base/strings/string_util.h"
 #include "base/sys_byteorder.h"
 #include "net/base/address_list.h"
-#include "net/base/dns_util.h"
 #include "net/base/io_buffer.h"
 #include "net/base/net_errors.h"
 #include "net/dns/dns_protocol.h"
 #include "net/dns/dns_query.h"
+#include "net/dns/dns_util.h"
 
 namespace net {
 
@@ -303,7 +303,7 @@ DnsResponse::Result DnsResponse::ParseToAddressList(
       if (!ip_addresses.empty())
         return DNS_CNAME_AFTER_ADDRESS;
 
-      if (base::strcasecmp(record.name.c_str(), expected_name.c_str()) != 0)
+      if (!base::EqualsCaseInsensitiveASCII(record.name, expected_name))
         return DNS_NAME_MISMATCH;
 
       if (record.rdata.size() !=
@@ -315,7 +315,7 @@ DnsResponse::Result DnsResponse::ParseToAddressList(
       if (record.rdata.size() != expected_size)
         return DNS_SIZE_MISMATCH;
 
-      if (base::strcasecmp(record.name.c_str(), expected_name.c_str()) != 0)
+      if (!base::EqualsCaseInsensitiveASCII(record.name, expected_name))
         return DNS_NAME_MISMATCH;
 
       ttl_sec = std::min(ttl_sec, record.ttl);

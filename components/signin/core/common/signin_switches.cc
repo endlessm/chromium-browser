@@ -16,10 +16,11 @@ const char kDisableAccountConsistency[] = "disable-account-consistency";
 // Disables new profile management system, including new profile chooser UI.
 const char kDisableNewProfileManagement[] = "disable-new-profile-management";
 
-// Disables the new avatar menu, forcing the top-corner avatar button.
-const char kDisableNewAvatarMenu[] = "disable-new-avatar-menu";
+// Disables new gaia password-separated sign in flow.
+const char kDisablePasswordSeparatedSigninFlow[] =
+    "disable-password-separated-signin-flow";
 
-// Disable sending signin scoped device id to LSO with refresh token request.
+// Disables sending signin scoped device id to LSO with refresh token request.
 const char kDisableSigninScopedDeviceId[] = "disable-signin-scoped-device-id";
 
 // Enables consistent identity features.
@@ -29,13 +30,14 @@ const char kEnableAccountConsistency[] = "enable-account-consistency";
 // webview-based flow.
 const char kEnableIframeBasedSignin[] = "enable-iframe-based-signin";
 
-// Enable the new avatar menu and the User Manager.
-const char kEnableNewAvatarMenu[] = "enable-new-avatar-menu";
+// Enables new gaia password-separated sign in flow.
+const char kEnablePasswordSeparatedSigninFlow[] =
+    "enable-password-separated-signin-flow";
 
 // Enables new profile management system, including lock mode.
 const char kEnableNewProfileManagement[] = "new-profile-management";
 
-// Enable sending EnableRefreshTokenAnnotationRequest.
+// Enables sending EnableRefreshTokenAnnotationRequest.
 extern const char kEnableRefreshTokenAnnotationRequest[] =
     "enable-refresh-token-annotation-request";
 

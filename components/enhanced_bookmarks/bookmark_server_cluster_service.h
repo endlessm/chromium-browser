@@ -10,7 +10,6 @@
 
 #include "base/compiler_specific.h"
 #include "components/enhanced_bookmarks/bookmark_server_service.h"
-#include "components/keyed_service/content/browser_context_keyed_service_factory.h"
 #include "components/signin/core/browser/signin_manager_base.h"
 #include "components/sync_driver/sync_service_observer.h"
 #include "net/url_request/url_fetcher.h"
@@ -88,15 +87,6 @@ class BookmarkServerClusterService : public KeyedService,
                                        const std::string& remote_id) override;
 
  private:
-  FRIEND_TEST_ALL_PREFIXES(BookmarkServerServiceTest, Cluster);
-  FRIEND_TEST_ALL_PREFIXES(BookmarkServerServiceTest, SignOut);
-  FRIEND_TEST_ALL_PREFIXES(BookmarkServerServiceTest, Serialization);
-  FRIEND_TEST_ALL_PREFIXES(BookmarkServerServiceTest, SaveToPrefs);
-  FRIEND_TEST_ALL_PREFIXES(BookmarkServerServiceTest, BadAuth);
-  FRIEND_TEST_ALL_PREFIXES(BookmarkServerServiceTest, EmptyAuth);
-  FRIEND_TEST_ALL_PREFIXES(BookmarkServerServiceTest,
-                           ClearClusterMapOnRemoveAllBookmarks);
-
   // Overriden from SigninManagerBase::Observer.
   void GoogleSignedOut(const std::string& account_id,
                        const std::string& username) override;

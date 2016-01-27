@@ -37,6 +37,7 @@
 #include "public/platform/WebPoint.h"
 #include "public/platform/WebRect.h"
 #include "public/platform/WebScreenInfo.h"
+#include "public/web/WebMeaningfulLayout.h"
 #include "public/web/WebTouchAction.h"
 
 namespace blink {
@@ -75,14 +76,14 @@ public:
     // FIXME: Remove all overrides of this and change layerTreeView() above to ASSERT_NOT_REACHED.
     virtual bool allowsBrokenNullLayerTreeView() const { return false; }
 
-    // Sometimes the WebWidget enters a state where it will generate a sequence
-    // of invalidations that should not, by themselves, trigger the compositor
-    // to schedule a new frame. This call indicates to the embedder that it
-    // should suppress compositor scheduling temporarily.
-    virtual void suppressCompositorScheduling(bool enable) { }
-
     // Called when a call to WebWidget::animate is required
     virtual void scheduleAnimation() { }
+
+    // Called immediately following the first compositor-driven (frame-generating) layout that
+    // happened after an interesting document lifecyle change (see WebMeaningfulLayout for details.)
+    virtual void didMeaningfulLayout(WebMeaningfulLayout) {}
+
+    virtual void didFirstLayoutAfterFinishedParsing() { }
 
     // Called when the widget acquires or loses focus, respectively.
     virtual void didFocus() { }
@@ -115,9 +116,6 @@ public:
     // Called to query information about the screen where this widget is
     // displayed.
     virtual WebScreenInfo screenInfo() { return WebScreenInfo(); }
-
-    // Called to get the scale factor of the display.
-    virtual float deviceScaleFactor() { return 1; }
 
     // When this method gets called, WebWidgetClient implementation should
     // reset the input method by cancelling any ongoing composition.

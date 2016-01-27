@@ -68,7 +68,7 @@ void HandlePpapiFlashDebugURL(const GURL& url) {
 bool IsKaskoDebugURL(const GURL& url) {
 #if defined(KASKO)
   return (url.is_valid() && url.SchemeIs(kChromeUIScheme) &&
-          url.DomainIs(kKaskoCrashDomain, sizeof(kKaskoCrashDomain) - 1) &&
+          url.DomainIs(kKaskoCrashDomain) &&
           url.path() == kKaskoSendReport);
 #else
   return false;
@@ -101,7 +101,7 @@ bool IsAsanDebugURL(const GURL& url) {
 #endif
 
   if (!(url.is_valid() && url.SchemeIs(kChromeUIScheme) &&
-        url.DomainIs(kAsanCrashDomain, sizeof(kAsanCrashDomain) - 1) &&
+        url.DomainIs(kAsanCrashDomain) &&
         url.has_path())) {
     return false;
   }
@@ -162,7 +162,7 @@ bool HandleDebugURL(const GURL& url, ui::PageTransition transition) {
   bool is_telemetry_navigation =
       base::CommandLine::ForCurrentProcess()->HasSwitch(
           cc::switches::kEnableGpuBenchmarking) &&
-      (transition & ui::PAGE_TRANSITION_TYPED);
+      (PageTransitionCoreTypeIs(transition, ui::PAGE_TRANSITION_TYPED));
 
   if (!(transition & ui::PAGE_TRANSITION_FROM_ADDRESS_BAR) &&
       !is_telemetry_navigation)
@@ -226,7 +226,8 @@ bool IsRendererDebugURL(const GURL& url) {
   if (url.SchemeIs(url::kJavaScriptScheme))
     return true;
 
-  return url == GURL(kChromeUICrashURL) ||
+  return url == GURL(kChromeUIBadCastCrashURL) ||
+         url == GURL(kChromeUICrashURL) ||
          url == GURL(kChromeUIDumpURL) ||
          url == GURL(kChromeUIKillURL) ||
          url == GURL(kChromeUIHangURL) ||

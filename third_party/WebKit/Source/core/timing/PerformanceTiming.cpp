@@ -39,6 +39,7 @@
 #include "core/loader/DocumentLoadTiming.h"
 #include "core/loader/DocumentLoader.h"
 #include "core/loader/FrameLoader.h"
+#include "core/timing/PerformanceBase.h"
 #include "platform/network/ResourceLoadTiming.h"
 #include "platform/network/ResourceResponse.h"
 
@@ -47,7 +48,8 @@ namespace blink {
 static unsigned long long toIntegerMilliseconds(double seconds)
 {
     ASSERT(seconds >= 0);
-    return static_cast<unsigned long long>(seconds * 1000.0);
+    double clampedSeconds = PerformanceBase::clampTimeResolution(seconds);
+    return static_cast<unsigned long long>(clampedSeconds * 1000.0);
 }
 
 static double toDoubleSeconds(unsigned long long integerMilliseconds)
@@ -320,6 +322,33 @@ unsigned long long PerformanceTiming::firstLayout() const
         return 0;
 
     return monotonicTimeToIntegerMilliseconds(timing->firstLayout());
+}
+
+unsigned long long PerformanceTiming::firstPaint() const
+{
+    const DocumentTiming* timing = documentTiming();
+    if (!timing)
+        return 0;
+
+    return monotonicTimeToIntegerMilliseconds(timing->firstPaint());
+}
+
+unsigned long long PerformanceTiming::firstTextPaint() const
+{
+    const DocumentTiming* timing = documentTiming();
+    if (!timing)
+        return 0;
+
+    return monotonicTimeToIntegerMilliseconds(timing->firstTextPaint());
+}
+
+unsigned long long PerformanceTiming::firstImagePaint() const
+{
+    const DocumentTiming* timing = documentTiming();
+    if (!timing)
+        return 0;
+
+    return monotonicTimeToIntegerMilliseconds(timing->firstImagePaint());
 }
 
 DocumentLoader* PerformanceTiming::documentLoader() const

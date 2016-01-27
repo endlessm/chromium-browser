@@ -24,25 +24,23 @@ void TestSynchronousCompositor::SetClient(SynchronousCompositorClient* client) {
 }
 
 scoped_ptr<cc::CompositorFrame> TestSynchronousCompositor::DemandDrawHw(
-    gfx::Size surface_size,
+    const gfx::Size& surface_size,
     const gfx::Transform& transform,
-    gfx::Rect viewport,
-    gfx::Rect clip,
-    gfx::Rect viewport_rect_for_tile_priority,
+    const gfx::Rect& viewport,
+    const gfx::Rect& clip,
+    const gfx::Rect& viewport_rect_for_tile_priority,
     const gfx::Transform& transform_for_tile_priority) {
-  scoped_ptr<cc::CompositorFrame> compositor_frame(new cc::CompositorFrame);
-  scoped_ptr<cc::DelegatedFrameData> frame(new cc::DelegatedFrameData);
-  scoped_ptr<cc::RenderPass> root_pass(cc::RenderPass::Create());
-  root_pass->SetNew(cc::RenderPassId(1, 1), viewport, viewport,
-                    gfx::Transform());
-  frame->render_pass_list.push_back(root_pass.Pass());
-  compositor_frame->delegated_frame_data = frame.Pass();
-  return compositor_frame.Pass();
+  return hardware_frame_.Pass();
 }
 
 bool TestSynchronousCompositor::DemandDrawSw(SkCanvas* canvas) {
   DCHECK(canvas);
   return true;
+}
+
+void TestSynchronousCompositor::SetHardwareFrame(
+    scoped_ptr<cc::CompositorFrame> frame) {
+  hardware_frame_ = frame.Pass();
 }
 
 }  // namespace content

@@ -23,14 +23,15 @@
 #include "chrome/browser/ui/startup/startup_browser_creator_impl.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/toolbar/app_menu_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
-#include "chrome/browser/ui/views/toolbar/wrench_toolbar_button.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/installer/util/google_update_settings.h"
+#include "components/metrics/metrics_pref_names.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_source.h"
@@ -138,7 +139,7 @@ class SessionCrashedBubbleView::BrowserRemovalObserver
 };
 
 // static
-bool SessionCrashedBubbleView::Show(Browser* browser) {
+bool SessionCrashedBubble::Show(Browser* browser) {
   if (!IsBubbleUIEnabled())
     return false;
 
@@ -147,8 +148,8 @@ bool SessionCrashedBubbleView::Show(Browser* browser) {
     return true;
 
   // Observes browser removal event and will be deallocated in ShowForReal.
-  scoped_ptr<BrowserRemovalObserver> browser_observer(
-      new BrowserRemovalObserver(browser));
+  scoped_ptr<SessionCrashedBubbleView::BrowserRemovalObserver> browser_observer(
+      new SessionCrashedBubbleView::BrowserRemovalObserver(browser));
 
 // Stats collection only applies to Google Chrome builds.
 #if defined(GOOGLE_CHROME_BUILD)
@@ -179,8 +180,10 @@ void SessionCrashedBubbleView::ShowForReal(
 
 #if defined(GOOGLE_CHROME_BUILD)
   if (!uma_opted_in_already) {
-    offer_uma_optin = g_browser_process->local_state()->FindPreference(
-        prefs::kMetricsReportingEnabled)->IsUserModifiable();
+    offer_uma_optin =
+        g_browser_process->local_state()
+            ->FindPreference(metrics::prefs::kMetricsReportingEnabled)
+            ->IsUserModifiable();
   }
 #endif  // defined(GOOGLE_CHROME_BUILD)
 
@@ -191,8 +194,9 @@ void SessionCrashedBubbleView::ShowForReal(
     return;
   }
 
-  views::View* anchor_view =
-      BrowserView::GetBrowserViewForBrowser(browser)->toolbar()->app_menu();
+  views::View* anchor_view = BrowserView::GetBrowserViewForBrowser(browser)
+                                 ->toolbar()
+                                 ->app_menu_button();
   content::WebContents* web_contents =
       browser->tab_strip_model()->GetActiveWebContents();
 

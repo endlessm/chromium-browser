@@ -19,7 +19,7 @@ void MockCredentialManagerClient::SetResponse(
   credential_.reset(credential);
 }
 
-void MockCredentialManagerClient::dispatchSignedIn(
+void MockCredentialManagerClient::dispatchStore(
     const blink::WebCredential&,
     blink::WebCredentialManagerClient::NotificationCallbacks* callbacks) {
   callbacks->onSuccess();
@@ -32,7 +32,7 @@ void MockCredentialManagerClient::dispatchRequireUserMediation(
   delete callbacks;
 }
 
-void MockCredentialManagerClient::dispatchRequest(
+void MockCredentialManagerClient::dispatchGet(
     bool zeroClickOnly,
     const blink::WebVector<blink::WebURL>& federations,
     RequestCallbacks* callbacks) {

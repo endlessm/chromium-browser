@@ -34,6 +34,7 @@ class CONTENT_EXPORT MidiHost : public BrowserMessageFilter,
   MidiHost(int renderer_process_id, media::midi::MidiManager* midi_manager);
 
   // BrowserMessageFilter implementation.
+  void OnChannelClosing() override;
   void OnDestruct() const override;
   bool OnMessageReceived(const IPC::Message& message) override;
 
@@ -50,6 +51,7 @@ class CONTENT_EXPORT MidiHost : public BrowserMessageFilter,
                        size_t length,
                        double timestamp) override;
   void AccumulateMidiBytesSent(size_t n) override;
+  void Detach() override;
 
   // Start session to access MIDI hardware.
   void OnStartSession();
@@ -70,7 +72,7 @@ class CONTENT_EXPORT MidiHost : public BrowserMessageFilter,
   friend class BrowserThread;
 
   // Returns true if |data| fulfills the requirements of MidiOutput.send API
-  // defined in the WebMIDI spec.
+  // defined in the Web MIDI spec.
   // - |data| must be any number of complete MIDI messages (data abbreviation
   //    called "running status" is disallowed).
   // - 1-byte MIDI realtime messages can be placed at any position of |data|.
@@ -90,7 +92,7 @@ class CONTENT_EXPORT MidiHost : public BrowserMessageFilter,
   // does not support MIDI.  If not supported then a call to
   // OnRequestAccess() will always refuse access and a call to
   // OnSendData() will do nothing.
-  media::midi::MidiManager* const midi_manager_;
+  media::midi::MidiManager* midi_manager_;
 
   // Buffers where data sent from each MIDI input port is stored.
   ScopedVector<media::midi::MidiMessageQueue> received_messages_queues_;

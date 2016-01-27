@@ -24,6 +24,13 @@ namespace {
 const char kUMAProxyStartupStateHistogram[] =
     "DataReductionProxy.StartupState";
 
+void RecordSettingsEnabledState(
+    data_reduction_proxy::DataReductionSettingsEnabledAction action) {
+  UMA_HISTOGRAM_ENUMERATION(
+      "DataReductionProxy.EnabledState", action,
+      data_reduction_proxy::DATA_REDUCTION_SETTINGS_ACTION_BOUNDARY);
+}
+
 }  // namespace
 
 namespace data_reduction_proxy {
@@ -84,6 +91,7 @@ void DataReductionProxySettings::InitDataReductionProxySettings(
   InitPrefMembers();
   UpdateConfigValues();
   RecordDataReductionInit();
+  data_reduction_proxy_service_->InitializeLoFiPrefs();
 }
 
 void DataReductionProxySettings::OnServiceInitialized() {
@@ -175,8 +183,14 @@ void DataReductionProxySettings::SetLoFiLoadImageRequested() {
   lo_fi_load_image_requested_ = true;
 }
 
+void DataReductionProxySettings::IncrementLoFiSnackbarShown() {
+  prefs_->SetInteger(
+      prefs::kLoFiSnackbarsShownPerSession,
+      prefs_->GetInteger(prefs::kLoFiSnackbarsShownPerSession) + 1);
+}
+
 void DataReductionProxySettings::IncrementLoFiUserRequestsForImages() {
-  if (!prefs_ || params::IsLoFiAlwaysOnViaFlags())
+  if (!prefs_ || params::IsLoFiOnViaFlags())
     return;
   prefs_->SetInteger(prefs::kLoFiLoadImagesPerSession,
                      prefs_->GetInteger(prefs::kLoFiLoadImagesPerSession) + 1);
@@ -240,12 +254,16 @@ void DataReductionProxySettings::MaybeActivateDataReductionProxy(
   // related prefs.
   if (!prefs)
     return;
-  // TODO(marq): Consider moving this so stats are wiped the first time the
-  // proxy settings are actually (not maybe) turned on.
   if (spdy_proxy_auth_enabled_.GetValue() &&
       !prefs->GetBoolean(prefs::kDataReductionProxyWasEnabledBefore)) {
     prefs->SetBoolean(prefs::kDataReductionProxyWasEnabledBefore, true);
     ResetDataReductionStatistics();
+  }
+  if (!at_startup) {
+    if (IsDataReductionProxyEnabled())
+      RecordSettingsEnabledState(DATA_REDUCTION_SETTINGS_ACTION_OFF_TO_ON);
+    else
+      RecordSettingsEnabledState(DATA_REDUCTION_SETTINGS_ACTION_ON_TO_OFF);
   }
   // Configure use of the data reduction proxy if it is enabled.
   if (at_startup && !data_reduction_proxy_service_->Initialized())

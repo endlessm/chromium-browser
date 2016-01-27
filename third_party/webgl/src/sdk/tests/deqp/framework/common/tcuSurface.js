@@ -113,7 +113,7 @@ tcuSurface.Surface.prototype.getPixel = function(x, y) {
 
 /**
  * Read the viewport contents into this surface
- * @param {*} ctx WebGL or ref context
+ * @param {*=} ctx WebGL or ref context
  * @param {(Array<number>|{x: number, y: number, width: number, height: number})=} view
  */
 tcuSurface.Surface.prototype.readViewport = function(ctx, view) {
@@ -123,7 +123,7 @@ tcuSurface.Surface.prototype.readViewport = function(ctx, view) {
     /** @type {number} */ var y;
     /** @type {number} */ var width;
     /** @type {number} */ var height;
-    if (v instanceof Array) {
+    if (v instanceof Array || ArrayBuffer.isView(v)) {
         x = v[0];
         y = v[1];
         width = v[2];

@@ -14,6 +14,8 @@
 #include "components/autofill/core/browser/autofill_xml_parser.h"
 #include "components/autofill/core/browser/form_structure.h"
 #include "components/autofill/core/common/autofill_pref_names.h"
+#include "components/compression/compression_utils.h"
+#include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/variations/net/variations_http_header_provider.h"
 #include "net/base/load_flags.h"
 #include "net/http/http_request_headers.h"
@@ -28,12 +30,20 @@ namespace {
 
 const char kAutofillQueryServerNameStartInHeader[] = "GFE/";
 const size_t kMaxFormCacheSize = 16;
+const size_t kMaxFieldsPerQueryRequest = 100;
 
 #if defined(GOOGLE_CHROME_BUILD)
 const char kClientName[] = "Google Chrome";
 #else
 const char kClientName[] = "Chromium";
 #endif  // defined(GOOGLE_CHROME_BUILD)
+
+size_t CountActiveFieldsInForms(const std::vector<FormStructure*>& forms) {
+  size_t active_field_count = 0;
+  for (const auto* form : forms)
+    active_field_count += form->active_field_count();
+  return active_field_count;
+}
 
 std::string RequestTypeToString(AutofillDownloadManager::RequestType type) {
   switch (type) {
@@ -88,6 +98,12 @@ bool AutofillDownloadManager::StartQueryRequest(
     // We are in back-off mode: do not do the request.
     return false;
   }
+
+  // Do not send the request if it contains more fields than the server can
+  // accept.
+  if (CountActiveFieldsInForms(forms) > kMaxFieldsPerQueryRequest)
+    return false;
+
   std::string form_xml;
   FormRequestData request_data;
   if (!FormStructure::EncodeQueryRequest(forms, &request_data.form_signatures,
@@ -103,7 +119,8 @@ bool AutofillDownloadManager::StartQueryRequest(
     VLOG(1) << "AutofillDownloadManager: query request has been retrieved "
              << "from the cache, form signatures: "
              << GetCombinedSignature(request_data.form_signatures);
-    observer_->OnLoadedServerPredictions(query_data);
+    observer_->OnLoadedServerPredictions(query_data,
+                                         request_data.form_signatures);
     return true;
   }
 
@@ -113,10 +130,11 @@ bool AutofillDownloadManager::StartQueryRequest(
 bool AutofillDownloadManager::StartUploadRequest(
     const FormStructure& form,
     bool form_was_autofilled,
-    const ServerFieldTypeSet& available_field_types) {
+    const ServerFieldTypeSet& available_field_types,
+    const std::string& login_form_signature) {
   std::string form_xml;
   if (!form.EncodeUploadRequest(available_field_types, form_was_autofilled,
-                                &form_xml))
+                                login_form_signature, &form_xml))
     return false;
 
   if (next_upload_request_ > base::Time::Now()) {
@@ -177,19 +195,32 @@ bool AutofillDownloadManager::StartRequest(
   DCHECK(request_context);
   GURL request_url = GetRequestUrl(request_data.request_type);
 
+  std::string compressed_data;
+  if (!compression::GzipCompress(form_xml, &compressed_data)) {
+    NOTREACHED();
+    return false;
+  }
+
+  AutofillMetrics::LogPayloadCompressionRatio(
+      static_cast<int>(100 * compressed_data.size() / form_xml.size()),
+      request_data.request_type);
+
   // Id is ignored for regular chrome, in unit test id's for fake fetcher
   // factory will be 0, 1, 2, ...
   net::URLFetcher* fetcher =
       net::URLFetcher::Create(fetcher_id_for_unittest_++, request_url,
                               net::URLFetcher::POST, this).release();
+  data_use_measurement::DataUseUserData::AttachToFetcher(
+      fetcher, data_use_measurement::DataUseUserData::AUTOFILL);
   url_fetchers_[fetcher] = request_data;
   fetcher->SetAutomaticallyRetryOn5xx(false);
   fetcher->SetRequestContext(request_context);
-  fetcher->SetUploadData("text/plain", form_xml);
+  fetcher->SetUploadData("text/xml", compressed_data);
   fetcher->SetLoadFlags(net::LOAD_DO_NOT_SAVE_COOKIES |
                         net::LOAD_DO_NOT_SEND_COOKIES);
-  // Add Chrome experiment state to the request headers.
+  // Add Chrome experiment state and GZIP encoding to the request headers.
   net::HttpRequestHeaders headers;
+  headers.SetHeaderIfMissing("content-encoding", "gzip");
   variations::VariationsHttpHeaderProvider::GetInstance()->AppendHeaders(
       fetcher->GetOriginalURL(), driver_->IsOffTheRecord(), false, &headers);
   fetcher->SetExtraRequestHeaders(headers.ToString());
@@ -206,8 +237,7 @@ void AutofillDownloadManager::CacheQueryRequest(
     const std::vector<std::string>& forms_in_query,
     const std::string& query_data) {
   std::string signature = GetCombinedSignature(forms_in_query);
-  for (QueryRequestCache::iterator it = cached_forms_.begin();
-       it != cached_forms_.end(); ++it) {
+  for (auto it = cached_forms_.begin(); it != cached_forms_.end(); ++it) {
     if (it->first == signature) {
       // We hit the cache, move to the first position and return.
       std::pair<std::string, std::string> data = *it;
@@ -228,11 +258,10 @@ bool AutofillDownloadManager::CheckCacheForQueryRequest(
     const std::vector<std::string>& forms_in_query,
     std::string* query_data) const {
   std::string signature = GetCombinedSignature(forms_in_query);
-  for (QueryRequestCache::const_iterator it = cached_forms_.begin();
-       it != cached_forms_.end(); ++it) {
-    if (it->first == signature) {
+  for (const auto& it : cached_forms_) {
+    if (it.first == signature) {
       // We hit the cache, fill the data and return.
-      *query_data = it->second;
+      *query_data = it.second;
       return true;
     }
   }
@@ -279,9 +308,9 @@ void AutofillDownloadManager::OnURLFetchComplete(
       case kHttpBadGateway:
         if (!source->GetResponseHeaders()->EnumerateHeader(NULL, "server",
                                                            &server_header) ||
-            base::StartsWithASCII(server_header.c_str(),
-                                  kAutofillQueryServerNameStartInHeader,
-                                  false) != 0)
+            base::StartsWith(server_header.c_str(),
+                             kAutofillQueryServerNameStartInHeader,
+                             base::CompareCase::INSENSITIVE_ASCII) != 0)
           break;
         // Bad gateway was received from Autofill servers. Fall through to back
         // off.
@@ -313,7 +342,8 @@ void AutofillDownloadManager::OnURLFetchComplete(
              << " request has succeeded with response body: " << response_body;
     if (it->second.request_type == AutofillDownloadManager::REQUEST_QUERY) {
       CacheQueryRequest(it->second.form_signatures, response_body);
-      observer_->OnLoadedServerPredictions(response_body);
+      observer_->OnLoadedServerPredictions(response_body,
+                                           it->second.form_signatures);
     } else {
       double new_positive_upload_rate = 0;
       double new_negative_upload_rate = 0;

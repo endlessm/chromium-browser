@@ -69,8 +69,10 @@ BOT_ASSIGNMENT = {
         python + ' buildbot/buildbot_pnacl.py opt 64 pnacl',
     'win7-64-newlib-opt-pnacl':
         python + ' buildbot/buildbot_pnacl.py opt 64 pnacl',
+    # TODO: Use buildbot_pnacl.py instead of buildbot_pnacl.sh once
+    # the gyp_build is moved to buildbot_pnacl.py.
     'precise_64-newlib-mips-pnacl':
-        echo + ' "TODO(mseaborn): add mips"',
+        bash + ' buildbot/buildbot_pnacl.sh mode-trybot-qemu mips32',
     # PNaCl Spec
     'precise_64-newlib-arm_qemu-pnacl-buildonly-spec':
         bash + ' buildbot/buildbot_spec2k.sh pnacl-arm-buildonly',
@@ -85,12 +87,6 @@ BOT_ASSIGNMENT = {
         bash + ' buildbot/buildbot_spec2k.sh nacl-x8632',
     'lucid_64-newlib-x86_64-spec':
         bash + ' buildbot/buildbot_spec2k.sh nacl-x8664',
-
-    # Android bots.
-    'precise64-newlib-dbg-android':
-        python + ' buildbot/buildbot_standard.py dbg arm newlib --android',
-    'precise64-newlib-opt-android':
-        python + ' buildbot/buildbot_standard.py opt arm newlib --android',
 
     # Valgrind bots.
     'precise-64-newlib-dbg-valgrind':
@@ -124,9 +120,9 @@ BOT_ASSIGNMENT = {
         bash + ' buildbot/buildbot_valgrind.sh glibc',
     # Android trybots.
     'nacl-precise64-newlib-dbg-android':
-        python + ' buildbot/buildbot_standard.py dbg arm newlib --android',
+        echo + ' "Android bots are disabled and going away"',
     'nacl-precise64-newlib-opt-android':
-        python + ' buildbot/buildbot_standard.py opt arm newlib --android',
+        echo + ' "Android bots are disabled and going away"',
     # Coverage trybots.
     'nacl-mac10.6-newlib-coverage':
          python + (' buildbot/buildbot_standard.py '
@@ -158,7 +154,7 @@ BOT_ASSIGNMENT = {
     'nacl-precise_64-newlib-x86_64-pnacl':
          python + ' buildbot/buildbot_pnacl.py opt 64 pnacl',
     'nacl-precise_64-newlib-mips-pnacl':
-        echo + ' "TODO(mseaborn): add mips"',
+        bash + ' buildbot/buildbot_pnacl.sh mode-trybot-qemu mips32',
     'nacl-arm_opt_panda':
         bash + ' buildbot/buildbot_pnacl.sh mode-buildbot-arm-try',
     'nacl-arm_hw_opt_panda':
@@ -180,10 +176,6 @@ BOT_ASSIGNMENT = {
     'precise64-glibc': bash + ' buildbot/buildbot_linux-glibc-makefile.sh',
     'mac-glibc': bash + ' buildbot/buildbot_mac-glibc-makefile.sh',
     'win7-glibc': 'buildbot\\buildbot_windows-glibc-makefile.bat',
-    # Toolchain newlib x86.
-    'win7-toolchain_x86': 'buildbot\\buildbot_toolchain_win.bat',
-    'mac-toolchain_x86': bash + ' buildbot/buildbot_toolchain.sh mac',
-    'precise64-toolchain_x86': bash + ' buildbot/buildbot_toolchain.sh linux',
     # Toolchain (glibc) ARM.
     'win7-toolchain_arm':
         python +
@@ -236,10 +228,6 @@ BOT_ASSIGNMENT = {
         bash + ' buildbot/buildbot_pnacl.sh mode-trybot-qemu mips32',
 
     # Toolchain trybots.
-    'nacl-toolchain-precise64-newlib':
-        bash + ' buildbot/buildbot_toolchain.sh linux',
-    'nacl-toolchain-mac-newlib': bash + ' buildbot/buildbot_toolchain.sh mac',
-    'nacl-toolchain-win7-newlib': 'buildbot\\buildbot_toolchain_win.bat',
     'nacl-toolchain-precise64-newlib-arm': # TODO(bradnelson): rename
         python +
         ' buildbot/buildbot_toolchain_build.py'
@@ -270,7 +258,6 @@ BOT_ASSIGNMENT = {
     'nacl-toolchain-linux-pnacl-x86_64':
         python +
         ' buildbot/buildbot_pnacl_toolchain.py --trybot --tests-arch x86-64',
-    'nacl-toolchain-linux-pnacl-mips': echo + ' "TODO(mseaborn)"',
     'nacl-toolchain-mac-pnacl-x86_32':
         python + ' buildbot/buildbot_pnacl_toolchain.py --trybot',
     'nacl-toolchain-win7-pnacl-x86_64':
@@ -340,11 +327,12 @@ for platform in [
       for libc in ['newlib', 'glibc']:
         # Buildbots.
         for bare in ['', '-bare']:
-          name = platform + arch_part + bare + '-' + libc + '-' + mode
-          assert name not in BOT_ASSIGNMENT, name
-          BOT_ASSIGNMENT[name] = (
-              python + ' buildbot/buildbot_standard.py ' +
-              mode + ' ' + real_arch + ' ' + libc + arch_flags)
+          for test in ['', '-test']:
+            name = platform + arch_part + bare + '-' + libc + '-' + mode + test
+            assert name not in BOT_ASSIGNMENT, name
+            BOT_ASSIGNMENT[name] = (
+                python + ' buildbot/buildbot_standard.py ' +
+                mode + ' ' + real_arch + ' ' + libc + arch_flags)
         # Trybots
         for arch_sep in ['', '-', '_']:
           name = 'nacl-' + platform + arch_sep + arch + '_' + libc + '_' + mode
@@ -450,10 +438,13 @@ def Main():
       'step_name': 'naclperf',  # Seems unused, but is required.
       'test_name': 'naclperf',  # Really "Test Suite"
   }
-  # Locate the buildbot build directory by relative path, as it's absolute
-  # location varies by platform and configuration.
-  buildbot_build_dir = os.path.join(* [os.pardir] * 4)
-  runtest = os.path.join(buildbot_build_dir, 'scripts', 'slave', 'runtest.py')
+  # Get runtest from the environment, is available.
+  runtest = os.environ.get('RUNTEST')
+  if runtest is None:
+    # Locate the buildbot build directory by relative path, as it's absolute
+    # location varies by platform and configuration.
+    buildbot_build_dir = os.path.join(* [os.pardir] * 4)
+    runtest = os.path.join(buildbot_build_dir, 'scripts', 'slave', 'runtest.py')
   # For builds with an actual build number, require that the script is present
   # (i.e. that we're run from an actual buildbot).
   if build_number is not None and not os.path.exists(runtest):

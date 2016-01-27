@@ -1,6 +1,4 @@
-
-
-  Polymer({
+Polymer({
 
     is: 'transform-animation',
 
@@ -8,6 +6,15 @@
       Polymer.NeonAnimationBehavior
     ],
 
+    /**
+     * @param {{
+     *   node: !Element,
+     *   transformOrigin: (string|undefined),
+     *   transformFrom: (string|undefined),
+     *   transformTo: (string|undefined),
+     *   timing: (Object|undefined)
+     * }} config
+     */
     configure: function(config) {
       var node = config.node;
       var transformFrom = config.transformFrom || 'none';
@@ -26,4 +33,3 @@
     }
 
   });
-

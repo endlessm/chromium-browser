@@ -7,6 +7,7 @@
   },
   'targets': [
     {
+      # GN version: //android_webview/native:native
       'target_name': 'webview_native',
       'type': 'static_library',
       'dependencies': [
@@ -43,18 +44,24 @@
         'aw_browser_dependency_factory.h',
         'aw_contents.cc',
         'aw_contents.h',
+        'aw_contents_background_thread_client.cc',
+        'aw_contents_background_thread_client.h',
         'aw_contents_client_bridge.cc',
         'aw_contents_client_bridge.h',
         'aw_contents_io_thread_client_impl.cc',
         'aw_contents_io_thread_client_impl.h',
         'aw_contents_statics.cc',
         'aw_contents_statics.h',
+        'aw_debug.cc',
+        'aw_debug.h',
         'aw_dev_tools_server.cc',
         'aw_dev_tools_server.h',
         'aw_form_database.cc',
         'aw_form_database.h',
         'aw_http_auth_handler.cc',
         'aw_http_auth_handler.h',
+        'aw_locale_manager_impl.cc',
+        'aw_locale_manager_impl.h',
         'aw_media_url_interceptor.cc',
         'aw_media_url_interceptor.h',
         'aw_message_port_service_impl.cc',
@@ -108,6 +115,7 @@
       ],
     },
     {
+      # GN version:  //android_webview/native:cancellation_signal_android_jar_jni_headers' 
       'target_name': 'cancellation_signal_android_jar_jni_headers',
       'type': 'none',
       'variables': {
@@ -117,16 +125,19 @@
       'includes': [ '../../build/jar_file_jni_generator.gypi' ],
     },
     {
+      # GN version:  //android_webview/native:native_jni 
       'target_name': 'android_webview_native_jni',
       'type': 'none',
       'sources': [
           '../java/src/org/chromium/android_webview/AndroidProtocolHandler.java',
           '../java/src/org/chromium/android_webview/AwAutofillClient.java',
           '../java/src/org/chromium/android_webview/AwContents.java',
+          '../java/src/org/chromium/android_webview/AwContentsBackgroundThreadClient.java',
           '../java/src/org/chromium/android_webview/AwContentsClientBridge.java',
           '../java/src/org/chromium/android_webview/AwContentsIoThreadClient.java',
           '../java/src/org/chromium/android_webview/AwContentsStatics.java',
           '../java/src/org/chromium/android_webview/AwCookieManager.java',
+          '../java/src/org/chromium/android_webview/AwDebug.java',
           '../java/src/org/chromium/android_webview/AwDevToolsServer.java',
           '../java/src/org/chromium/android_webview/AwFormDatabase.java',
           '../java/src/org/chromium/android_webview/AwHttpAuthHandler.java',
@@ -149,6 +160,15 @@
       'dependencies': [
         'cancellation_signal_android_jar_jni_headers',
       ],
+    },
+    # GN version:  //android_webview/native:aw_permission_request_resource' 
+    {
+      'target_name': 'android_webview_aw_permission_request_resource',
+      'type': 'none',
+      'variables': {
+        'source_file': 'permission/aw_permission_request.h',
+      },
+      'includes': [ '../../build/android/java_cpp_enum.gypi' ],
     },
   ],
 }

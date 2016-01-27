@@ -25,7 +25,7 @@
 #include "libavutil/channel_layout.h"
 #include "config.h"
 
-#define SWR_CH_MAX 32
+#define SWR_CH_MAX 64
 
 #define SQRT3_2      1.22474487139158904909  /* sqrt(3/2) */
 
@@ -119,6 +119,7 @@ struct SwrContext {
     int user_used_ch_count;                         ///< User set used channel count
     int64_t user_in_ch_layout;                      ///< User set input channel layout
     int64_t user_out_ch_layout;                     ///< User set output channel layout
+    enum AVSampleFormat user_int_sample_fmt;        ///< User set internal sample format
 
     struct DitherContext dither;
 
@@ -157,6 +158,7 @@ struct SwrContext {
     int64_t outpts;                                 ///< output PTS
     int64_t firstpts;                               ///< first PTS
     int drop_output;                                ///< number of output samples to drop
+    double delayed_samples_fixup;                   ///< soxr 0.1.1: needed to fixup delayed_samples after flush has been called.
 
     struct AudioConvert *in_convert;                ///< input conversion context
     struct AudioConvert *out_convert;               ///< output conversion context
@@ -182,6 +184,7 @@ struct SwrContext {
     /* TODO: callbacks for ASM optimizations */
 };
 
+av_warn_unused_result
 int swri_realloc_audio(AudioData *a, int count);
 
 void swri_noise_shaping_int16 (SwrContext *s, AudioData *dsts, const AudioData *srcs, const AudioData *noises, int count);
@@ -189,12 +192,15 @@ void swri_noise_shaping_int32 (SwrContext *s, AudioData *dsts, const AudioData *
 void swri_noise_shaping_float (SwrContext *s, AudioData *dsts, const AudioData *srcs, const AudioData *noises, int count);
 void swri_noise_shaping_double(SwrContext *s, AudioData *dsts, const AudioData *srcs, const AudioData *noises, int count);
 
+av_warn_unused_result
 int swri_rematrix_init(SwrContext *s);
 void swri_rematrix_free(SwrContext *s);
 int swri_rematrix(SwrContext *s, AudioData *out, AudioData *in, int len, int mustcopy);
 int swri_rematrix_init_x86(struct SwrContext *s);
 
+av_warn_unused_result
 int swri_get_dither(SwrContext *s, void *dst, int len, unsigned seed, enum AVSampleFormat noise_fmt);
+av_warn_unused_result
 int swri_dither_init(SwrContext *s, enum AVSampleFormat out_fmt, enum AVSampleFormat in_fmt);
 
 void swri_audio_convert_init_aarch64(struct AudioConvert *ac,

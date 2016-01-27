@@ -24,6 +24,7 @@ goog.require('framework.common.tcuTexture');
 goog.require('framework.common.tcuTextureUtil');
 goog.require('framework.delibs.debase.deMath');
 goog.require('framework.delibs.debase.deString');
+goog.require('framework.delibs.debase.deUtil');
 goog.require('framework.opengl.simplereference.sglrShaderProgram');
 goog.require('framework.referencerenderer.rrDefs');
 goog.require('framework.referencerenderer.rrFragmentOperations');
@@ -50,6 +51,7 @@ var rrGenericVector = framework.referencerenderer.rrGenericVector;
 var sglrShaderProgram = framework.opengl.simplereference.sglrShaderProgram;
 var rrVertexAttrib = framework.referencerenderer.rrVertexAttrib;
 var deString = framework.delibs.debase.deString;
+var deUtil = framework.delibs.debase.deUtil;
 
 /**
  * @enum
@@ -142,17 +144,18 @@ rrRenderer.RenderTarget = function(colorMultisampleBuffer, depthMultisampleBuffe
  * @constructor
  * @param {ArrayBuffer} data
  * @param {rrDefs.IndexType} type
+ * @param {number} offset
  * @param {number=} baseVertex_
  */
-rrRenderer.DrawIndices = function(data, type, baseVertex_) {
+rrRenderer.DrawIndices = function(data, type, offset, baseVertex_) {
     /** @type {ArrayBuffer} */ this.data = data;
     /** @type {number} */ this.baseVertex = baseVertex_ || 0;
     /** @type {rrDefs.IndexType} */ this.indexType = type;
     /** @type {goog.NumberArray} */ this.access = null;
     switch (type) {
-        case rrDefs.IndexType.INDEXTYPE_UINT8: this.access = new Uint8Array(data); break;
-        case rrDefs.IndexType.INDEXTYPE_UINT16: this.access = new Uint16Array(data); break;
-        case rrDefs.IndexType.INDEXTYPE_UINT32: this.access = new Uint32Array(data); break;
+        case rrDefs.IndexType.INDEXTYPE_UINT8: this.access = new Uint8Array(data).subarray(offset); break;
+        case rrDefs.IndexType.INDEXTYPE_UINT16: this.access = new Uint16Array(data).subarray(offset / 2); break;
+        case rrDefs.IndexType.INDEXTYPE_UINT32: this.access = new Uint32Array(data).subarray(offset / 4); break;
         default: throw new Error('Invalid type: ' + type);
     }
 };
@@ -257,6 +260,34 @@ rrRenderer.PrimitiveList.prototype.getNextPrimitive = function(reset) {
                 this.m_iterator += 2;
             }
             break;
+        case rrRenderer.PrimitiveType.LINES:
+            if (this.m_iterator + 2 <= this.m_numElements) {
+                result = [i, i + 1];
+                this.m_iterator += 2;
+            }
+            break;
+        case rrRenderer.PrimitiveType.LINE_STRIP:
+            if (this.m_iterator + 2 <= this.m_numElements) {
+                result = [i, i + 1];
+                this.m_iterator += 1;
+            }
+            break;
+        case rrRenderer.PrimitiveType.LINE_LOOP:
+            if (this.m_iterator == this.m_numElements)
+                break;
+            if (this.m_iterator + 2 <= this.m_numElements)
+                result = [i, i + 1];
+            else
+                result = [i, 0];
+            this.m_iterator += 1;
+            break;
+        case rrRenderer.PrimitiveType.POINTS:
+            if (this.m_iterator == this.m_numElements)
+                break;
+            else
+                result = [i];
+            this.m_iterator += 1;
+            break;
         default:
             throw new Error('Unsupported primitive type: ' + deString.enumToString(rrRenderer.PrimitiveType, this.m_primitiveType));
     }
@@ -334,13 +365,13 @@ void FragmentProcessor::render (const rr::MultisamplePixelBufferAccess& msColorB
     var doDepthTest = hasDepth && state.depthTestEnabled;
     var doStencilTest = hasStencil && state.stencilTestEnabled;
 
-    var colorbufferClass = tcuTextureUtil.getTextureChannelClass(colorBuffer.getFormat().type);
+    var colorbufferClass = tcuTexture.getTextureChannelClass(colorBuffer.getFormat().type);
     var fragmentDataType = rrGenericVector.GenericVecType.FLOAT;
     switch (colorbufferClass) {
-        case tcuTextureUtil.TextureChannelClass.SIGNED_INTEGER:
+        case tcuTexture.TextureChannelClass.SIGNED_INTEGER:
             fragmentDataType = rrGenericVector.GenericVecType.INT32;
             break;
-        case tcuTextureUtil.TextureChannelClass.UNSIGNED_INTEGER:
+        case tcuTexture.TextureChannelClass.UNSIGNED_INTEGER:
             fragmentDataType = rrGenericVector.GenericVecType.UINT32;
             break;
     }
@@ -401,8 +432,7 @@ void FragmentProcessor::render (const rr::MultisamplePixelBufferAccess& msColorB
                 for (var i = 0; i < fragments.length; i++) {
                     var frag = fragments[i];
                     if (frag.isAlive) {
-                        var fragSampleNdx = 1;
-                        var dstColor = colorBuffer.getPixel(fragSampleNdx, frag.pixelCoord[0], frag.pixelCoord[1]);
+                        var dstColor = colorBuffer.getPixel(0, frag.pixelCoord[0], frag.pixelCoord[1]);
 
                         /* TODO: Check frag.value and frag.value1 types */
                         frag.clampedBlendSrcColor = deMath.clampVector(frag.value, 0, 1);
@@ -491,9 +521,10 @@ rrRenderer.getIndexOfCorner = function(isTop, isRight, vertexPackets) {
         y = y != null ? ycriteria(vertexPackets[i].position[1], y) : vertexPackets[i].position[1];
     }
 
-    // Search for mathing vertex
+    // Search for matching vertex
     for (var v = 0; v < vertexPackets.length; v++)
-        if (vertexPackets[v].position[0] == x && vertexPackets[v].position[1] == y)
+        if (vertexPackets[v].position[0] == x &&
+            vertexPackets[v].position[1] == y)
             return v;
 
     throw new Error('Corner not found');
@@ -506,10 +537,30 @@ rrRenderer.getIndexOfCorner = function(isTop, isRight, vertexPackets) {
  * @return {number}
  */
 rrRenderer.calculateDepth = function(x, y, depths) {
-    var d1 = x * depths[0] + (1 - x) * depths[1];
-    var d2 = x * depths[2] + (1 - x) * depths[3];
+    var d1 = x * depths[1] + (1 - x) * depths[0];
+    var d2 = x * depths[3] + (1 - x) * depths[2];
     var d = y * d1 + (1 - y) * d2;
     return d;
+};
+
+/**
+ * Check that point is in the clipping volume
+ * @param {number} x
+ * @param {number} y
+ * @param {number} z
+ * @param {rrRenderState.WindowRectangle} rect
+ * @return {boolean}
+ */
+rrRenderer.clipTest = function(x, y, z, rect) {
+    x = Math.round(x);
+    y = Math.round(y);
+    if (!deMath.deInBounds32(x, rect.left, rect.left + rect.width))
+        return false;
+    if (!deMath.deInBounds32(y, rect.bottom, rect.bottom + rect.height))
+        return false;
+    if (z < 0 || z > 1)
+        return false;
+    return true;
 };
 
 /**
@@ -565,6 +616,11 @@ rrRenderer.drawQuads = function(state, renderTarget, program, vertexAttribs, pri
     }
     program.shadeVertices(vertexAttribs, vertexPackets, numVertexPackets);
 
+    var zn = state.viewport.zn;
+    var zf = state.viewport.zf;
+    var depthScale = (zf - zn) / 2;
+    var depthBias = (zf + zn) / 2;
+
     // For each quad, we get a group of six vertex packets
     for (var prim = primitives.getNextPrimitive(true); prim.length > 0; prim = primitives.getNextPrimitive()) {
         var quadPackets = selectVertices(vertexPackets, prim);
@@ -595,6 +651,7 @@ rrRenderer.drawQuads = function(state, renderTarget, program, vertexAttribs, pri
             quadPackets[topLeftVertexNdx].outputs,
             quadPackets[bottomRightVertexNdx].outputs
         );
+        shadingContextTopLeft.setSize(width, height);
         var packetsTopLeft = [];
 
         var shadingContextBottomRight = new rrShadingContext.FragmentShadingContext(
@@ -602,6 +659,7 @@ rrRenderer.drawQuads = function(state, renderTarget, program, vertexAttribs, pri
             quadPackets[topLeftVertexNdx].outputs,
             quadPackets[topRightVertexNdx].outputs
         );
+        shadingContextBottomRight.setSize(width, height);
         var packetsBottomRight = [];
 
         for (var i = 0; i < width; i++)
@@ -612,6 +670,9 @@ rrRenderer.drawQuads = function(state, renderTarget, program, vertexAttribs, pri
                 var xf = (i + 0.5) / width;
                 var yf = (j + 0.5) / height;
                 var depth = rrRenderer.calculateDepth(xf, yf, [v0[2], v1[2], v2[2], v3[2]]);
+                depth = depth * depthScale + depthBias;
+                if (!rrRenderer.clipTest(v0[0] + i, v1[1] + j, depth, state.viewport.rect))
+                    continue;
                 var triNdx = xf + yf >= 1;
                 if (!triNdx) {
                     var b = rrRenderer.getBarycentricCoefficients([x, y], v0, v1, v3);
@@ -627,6 +688,269 @@ rrRenderer.drawQuads = function(state, renderTarget, program, vertexAttribs, pri
 
         rrRenderer.writeFragments2(state, renderTarget, packetsTopLeft);
         rrRenderer.writeFragments2(state, renderTarget, packetsBottomRight);
+    }
+};
+
+/**
+ * @param {rrRenderState.RenderState} state
+ * @param {rrRenderer.RenderTarget} renderTarget
+ * @param {sglrShaderProgram.ShaderProgram} program
+ * @param {Array<rrVertexAttrib.VertexAttrib>} vertexAttribs
+ * @param {rrRenderer.PrimitiveType} primitive
+ * @param {(number|rrRenderer.DrawIndices)} first Index of first quad vertex
+ * @param {number} count Number of indices
+ * @param {number} instanceID
+ */
+rrRenderer.drawLines = function(state, renderTarget, program, vertexAttribs, primitive, first, count, instanceID) {
+
+    /**
+     * @param {Array<rrVertexPacket.VertexPacket>} vertices
+     * @param {Array<number>} indices
+     * @return {Array<rrVertexPacket.VertexPacket>}
+     */
+    var selectVertices = function(vertices, indices) {
+        var result = [];
+        for (var i = 0; i < indices.length; i++)
+            result.push(vertices[indices[i]]);
+        return result;
+    };
+
+    var lengthSquared = function(a) {
+        var sqSum = 0;
+        for (var i = 0; i < a.length; i++)
+            sqSum += a[i] * a[i];
+        return sqSum;
+    };
+
+    var dot = function(a, b) {
+        var res = 0;
+        for (var i = 0; i < a.length; i++)
+            res += a[i] * b[i];
+        return res;
+    };
+
+    var rasterizeLine = function(v0, v1) {
+        var d = [
+            Math.abs(v1[0] - v0[0]),
+            Math.abs(v1[1] - v0[1])];
+        var xstep = v0[0] < v1[0] ? 1 : -1;
+        var ystep = v0[1] < v1[1] ? 1 : -1;
+        var x = v0[0];
+        var y = v0[1];
+        var offset = d[0] - d[1];
+        var lenV = [v1[0] - v0[0], v1[1] - v0[1]];
+        var lenSq = lengthSquared(lenV);
+
+        var packets = [];
+
+        while (true) {
+            var t = dot([x - v0[0], y - v0[1]], lenV) / lenSq;
+            var depth = (1 - t) * v0[2] + t * v1[2];
+            var b = [0, 0, 0];
+            b[0] = 1 - t;
+            b[1] = t;
+
+            if (x == v1[0] && y == v1[1])
+                break;
+
+            depth = depth * depthScale + depthBias;
+            packets.push(new rrFragmentOperations.Fragment(b, [x, y], depth));
+
+            var offset2 = 2 * offset;
+            if (offset2 > -1 * d[1]) {
+                x += xstep;
+                offset -= d[1];
+            }
+
+            if (offset2 < d[0]) {
+                y += ystep;
+                offset += d[0];
+            }
+        }
+        return packets;
+    };
+
+    var primitives = new rrRenderer.PrimitiveList(primitive, count, first);
+    // Do not draw if nothing to draw
+    if (primitives.getNumElements() == 0)
+        return;
+
+    // Prepare transformation
+    var numVaryings = program.vertexShader.getOutputs().length;
+    var vpalloc = new rrVertexPacket.VertexPacketAllocator(numVaryings);
+    var vertexPackets = vpalloc.allocArray(primitives.getNumElements());
+    var drawContext = new rrRenderer.DrawContext();
+    drawContext.primitiveID = 0;
+
+    var numberOfVertices = primitives.getNumElements();
+    var numVertexPackets = 0;
+    for (var elementNdx = 0; elementNdx < numberOfVertices; ++elementNdx) {
+
+        // input
+        vertexPackets[numVertexPackets].instanceNdx = instanceID;
+        vertexPackets[numVertexPackets].vertexNdx = primitives.getIndex(elementNdx);
+
+        // output
+        vertexPackets[numVertexPackets].pointSize = state.point.pointSize; // default value from the current state
+        vertexPackets[numVertexPackets].position = [0, 0, 0, 0]; // no undefined values
+
+        ++numVertexPackets;
+
+    }
+    program.shadeVertices(vertexAttribs, vertexPackets, numVertexPackets);
+
+    var zn = state.viewport.zn;
+    var zf = state.viewport.zf;
+    var depthScale = (zf - zn) / 2;
+    var depthBias = (zf + zn) / 2;
+
+    // For each quad, we get a group of six vertex packets
+    for (var prim = primitives.getNextPrimitive(true); prim.length > 0; prim = primitives.getNextPrimitive()) {
+        var linePackets = selectVertices(vertexPackets, prim);
+
+        var v0 = rrRenderer.transformGLToWindowCoords(state, linePackets[0]);
+        var v1 = rrRenderer.transformGLToWindowCoords(state, linePackets[1]);
+        v0[2] = linePackets[0].position[2];
+        v1[2] = linePackets[1].position[2];
+
+        v0[0] = Math.floor(v0[0]);
+        v0[1] = Math.floor(v0[1]);
+        v1[0] = Math.floor(v1[0]);
+        v1[1] = Math.floor(v1[1]);
+
+        var lineWidth = state.line.lineWidth;
+
+        var shadingContext = new rrShadingContext.FragmentShadingContext(
+            linePackets[0].outputs,
+            linePackets[1].outputs,
+            null
+        );
+        var isXmajor = Math.abs(v1[0] - v0[0]) >= Math.abs(v1[1] - v0[1]);
+        var packets = [];
+        if (isXmajor)
+            packets = rasterizeLine([v0[0], v0[1] - (lineWidth - 1) / 2, v0[2]],
+                                    [v1[0], v1[1] - (lineWidth - 1) / 2, v1[2]]);
+        else
+            packets = rasterizeLine([v0[0] - (lineWidth - 1) / 2, v0[1], v0[2]],
+                                    [v1[0] - (lineWidth - 1) / 2, v1[1], v1[2]]);
+        var numPackets = packets.length;
+        if (lineWidth > 1)
+            for (var i = 0; i < numPackets; i++) {
+                var p = packets[i];
+                for (var j = 1; j < lineWidth; j++) {
+                    var p2 = deUtil.clone(p);
+                    if (isXmajor)
+                        p2.pixelCoord[1] += j;
+                    else
+                        p2.pixelCoord[0] += j;
+                    packets.push(p2);
+                }
+            }
+
+        var clipped = [];
+        for (var i = 0; i < packets.length; i++) {
+            var p = packets[i];
+            if (rrRenderer.clipTest(p.pixelCoord[0], p.pixelCoord[1], p.sampleDepths[0], state.viewport.rect))
+                clipped.push(p);
+        }
+        program.shadeFragments(clipped, shadingContext);
+
+        rrRenderer.writeFragments2(state, renderTarget, clipped);
+    }
+};
+
+/**
+ * @param {rrRenderState.RenderState} state
+ * @param {rrRenderer.RenderTarget} renderTarget
+ * @param {sglrShaderProgram.ShaderProgram} program
+ * @param {Array<rrVertexAttrib.VertexAttrib>} vertexAttribs
+ * @param {rrRenderer.PrimitiveType} primitive
+ * @param {(number|rrRenderer.DrawIndices)} first Index of first quad vertex
+ * @param {number} count Number of indices
+ * @param {number} instanceID
+ */
+rrRenderer.drawPoints = function(state, renderTarget, program, vertexAttribs, primitive, first, count, instanceID) {
+    /**
+     * @param {Array<rrVertexPacket.VertexPacket>} vertices
+     * @param {Array<number>} indices
+     * @return {Array<rrVertexPacket.VertexPacket>}
+     */
+    var selectVertices = function(vertices, indices) {
+        var result = [];
+        for (var i = 0; i < indices.length; i++)
+            result.push(vertices[indices[i]]);
+        return result;
+    };
+
+    var primitives = new rrRenderer.PrimitiveList(primitive, count, first);
+    // Do not draw if nothing to draw
+    if (primitives.getNumElements() == 0)
+        return;
+
+    // Prepare transformation
+    var numVaryings = program.vertexShader.getOutputs().length;
+    var vpalloc = new rrVertexPacket.VertexPacketAllocator(numVaryings);
+    var vertexPackets = vpalloc.allocArray(primitives.getNumElements());
+    var drawContext = new rrRenderer.DrawContext();
+    drawContext.primitiveID = 0;
+
+    var numberOfVertices = primitives.getNumElements();
+    var numVertexPackets = 0;
+    for (var elementNdx = 0; elementNdx < numberOfVertices; ++elementNdx) {
+
+        // input
+        vertexPackets[numVertexPackets].instanceNdx = instanceID;
+        vertexPackets[numVertexPackets].vertexNdx = primitives.getIndex(elementNdx);
+
+        // output
+        vertexPackets[numVertexPackets].pointSize = state.point.pointSize; // default value from the current state
+        vertexPackets[numVertexPackets].position = [0, 0, 0, 0]; // no undefined values
+
+        ++numVertexPackets;
+
+    }
+    program.shadeVertices(vertexAttribs, vertexPackets, numVertexPackets);
+
+    var zn = state.viewport.zn;
+    var zf = state.viewport.zf;
+    var depthScale = (zf - zn) / 2;
+    var depthBias = (zf + zn) / 2;
+
+    // For each primitive, we draw a point.
+    for (var prim = primitives.getNextPrimitive(true); prim.length > 0; prim = primitives.getNextPrimitive()) {
+        var pointPackets = selectVertices(vertexPackets, prim);
+
+        var v0 = rrRenderer.transformGLToWindowCoords(state, pointPackets[0]);
+        v0[2] = pointPackets[0].position[2];
+        var pointSize = pointPackets[0].pointSize;
+
+        var shadingContext = new rrShadingContext.FragmentShadingContext(
+            pointPackets[0].outputs,
+            null,
+            null
+        );
+        var packets = [];
+
+        var x = v0[0];
+        var y = v0[1];
+        var depth = v0[2];
+        var b = [1, 0, 0];
+        depth = depth * depthScale + depthBias;
+
+        for (var i = Math.floor(x - pointSize / 2); i < x + pointSize / 2; i++) {
+            for (var j = Math.floor(y - pointSize / 2); j < y + pointSize / 2; j++) {
+                var centerX = i + 0.5;
+                var centerY = j + 0.5;
+                if (Math.abs(centerX - x) < pointSize / 2 &&
+                    Math.abs(centerY - y) < pointSize / 2 &&
+                    rrRenderer.clipTest(i, j, depth, state.viewport.rect))
+                    packets.push(new rrFragmentOperations.Fragment(b, [i, j], depth));
+            }
+        }
+
+        program.shadeFragments(packets, shadingContext);
+
+        rrRenderer.writeFragments2(state, renderTarget, packets);
     }
 };
 

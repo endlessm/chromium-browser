@@ -8,12 +8,13 @@
 //
 
 #include "libANGLE/angletypes.h"
-#include "libANGLE/formatutils.h"
 #include "libANGLE/Context.h"
+#include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/d3d/d3d11/formatutils11.h"
 #include "libANGLE/renderer/d3d/d3d11/Renderer11.h"
-#include "test_utils/ANGLETest.h"
+#include "libANGLE/renderer/d3d/d3d11/texture_format_table.h"
 #include "test_utils/angle_test_instantiate.h"
+#include "test_utils/ANGLETest.h"
 
 using namespace angle;
 
@@ -95,7 +96,8 @@ TEST_P(D3D11FormatTablesTest, TestFormatSupport)
         if (renderSuccess && ((renderSupport & D3D11_FORMAT_SUPPORT_MULTISAMPLE_RENDERTARGET) != 0))
         {
             EXPECT_TRUE(!textureInfo.sampleCounts.empty());
-            for (size_t sampleCount = 1; sampleCount <= D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT; sampleCount *= 2)
+            for (unsigned int sampleCount = 1; sampleCount <= D3D11_MAX_MULTISAMPLE_SAMPLE_COUNT;
+                 sampleCount *= 2)
             {
                 UINT qualityCount = 0;
                 bool sampleSuccess = SUCCEEDED(device->CheckMultisampleQualityLevels(formatInfo.renderFormat, sampleCount, &qualityCount));

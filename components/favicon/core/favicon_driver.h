@@ -32,9 +32,6 @@ class FaviconDriver {
   // Initiates loading the favicon for the specified url.
   virtual void FetchFavicon(const GURL& url) = 0;
 
-  // Saves the favicon for the current page.
-  virtual void SaveFavicon() = 0;
-
   // Returns the favicon for this tab, or IDR_DEFAULT_FAVICON if the tab does
   // not have a favicon. The default implementation uses the current navigation
   // entry. Returns an empty bitmap if there are no navigation entries, which
@@ -64,27 +61,15 @@ class FaviconDriver {
   // otherwise.
   virtual GURL GetActiveURL() = 0;
 
-  // Returns the title of the current page. Requires GetActiveURL() to be valid.
-  virtual base::string16 GetActiveTitle() = 0;
-
-  // Returns whether the page's favicon is valid (returns false if the default
-  // favicon is being used). Requires GetActiveURL() to be valid.
-  virtual bool GetActiveFaviconValidity() = 0;
-
   // Sets whether the page's favicon is valid (if false, the default favicon is
   // being used).
   virtual void SetActiveFaviconValidity(bool valid) = 0;
 
-  // Returns the URL of the current page's favicon. Requires GetActiveURL() to
-  // be valid.
+  // Returns the URL of the current page's favicon.
   virtual GURL GetActiveFaviconURL() = 0;
 
   // Sets the URL of the favicon's bitmap.
   virtual void SetActiveFaviconURL(const GURL& url) = 0;
-
-  // Returns the bitmap of the current page's favicon. Requires GetActiveURL()
-  // to be valid.
-  virtual gfx::Image GetActiveFaviconImage() = 0;
 
   // Sets the bitmap of the current page's favicon.
   virtual void SetActiveFaviconImage(const gfx::Image& image) = 0;
@@ -93,8 +78,9 @@ class FaviconDriver {
   // necessarily 16x16. |icon_url| is the url the image is from. If
   // |is_active_favicon| is true the image corresponds to the favicon
   // (possibly empty) of the page.
-  virtual void OnFaviconAvailable(const gfx::Image& image,
+  virtual void OnFaviconAvailable(const GURL& page_url,
                                   const GURL& icon_url,
+                                  const gfx::Image& image,
                                   bool is_active_favicon) = 0;
 
   // Returns whether the driver is waiting for a download to complete or for

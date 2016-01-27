@@ -79,6 +79,7 @@ class ExtensionBrowserTest : virtual public InProcessBrowserTest {
   void SetUp() override;
   void SetUpCommandLine(base::CommandLine* command_line) override;
   void SetUpOnMainThread() override;
+  void TearDownOnMainThread() override;
 
   const extensions::Extension* LoadExtension(const base::FilePath& path);
 
@@ -227,7 +228,7 @@ class ExtensionBrowserTest : virtual public InProcessBrowserTest {
         std::string(), path, INSTALL_UI_TYPE_CANCEL, 0);
   }
 
-  void ReloadExtension(const std::string extension_id);
+  void ReloadExtension(const std::string& extension_id);
 
   void UnloadExtension(const std::string& extension_id);
 

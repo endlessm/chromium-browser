@@ -9,7 +9,7 @@
 #include "content/common/content_export.h"
 #include "content/common/p2p_socket_type.h"
 #include "ipc/ipc_message_macros.h"
-#include "net/base/net_util.h"
+#include "net/base/network_interfaces.h"
 #include "third_party/webrtc/base/asyncpacketsocket.h"
 
 #undef IPC_MESSAGE_EXPORT
@@ -41,6 +41,7 @@ IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(rtc::PacketOptions)
   IPC_STRUCT_TRAITS_MEMBER(dscp)
+  IPC_STRUCT_TRAITS_MEMBER(packet_id)
   IPC_STRUCT_TRAITS_MEMBER(packet_time_params)
 IPC_STRUCT_TRAITS_END()
 
@@ -51,12 +52,16 @@ IPC_STRUCT_TRAITS_END()
 
 IPC_STRUCT_TRAITS_BEGIN(content::P2PSendPacketMetrics)
   IPC_STRUCT_TRAITS_MEMBER(packet_id)
+  IPC_STRUCT_TRAITS_MEMBER(rtc_packet_id)
+  IPC_STRUCT_TRAITS_MEMBER(send_time)
 IPC_STRUCT_TRAITS_END()
 
 // P2P Socket messages sent from the browser to the renderer.
 
-IPC_MESSAGE_CONTROL1(P2PMsg_NetworkListChanged,
-                     net::NetworkInterfaceList /* networks */)
+IPC_MESSAGE_CONTROL3(P2PMsg_NetworkListChanged,
+                     net::NetworkInterfaceList /* networks */,
+                     net::IPAddressNumber /* default_ipv4_local_address */,
+                     net::IPAddressNumber /* default_ipv6_local_address */)
 
 IPC_MESSAGE_CONTROL2(P2PMsg_GetHostAddressResult,
                      int32 /* request_id */,

@@ -34,7 +34,7 @@
 #include "platform/graphics/GraphicsTypes.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/core/SkPathMeasure.h"
-#include "wtf/FastAllocBase.h"
+#include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 
 class SkPath;
@@ -66,7 +66,7 @@ struct PathElement {
 typedef void (*PathApplierFunction)(void* info, const PathElement*);
 
 class PLATFORM_EXPORT Path {
-    WTF_MAKE_FAST_ALLOCATED(Path);
+    USING_FAST_MALLOC(Path);
 public:
     Path();
     ~Path();

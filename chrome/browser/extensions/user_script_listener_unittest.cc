@@ -74,12 +74,11 @@ class SimpleTestJob : public net::URLRequestTestJob {
 };
 
 // Yoinked from extension_manifest_unittest.cc.
-base::DictionaryValue* LoadManifestFile(const base::FilePath path,
-                                        std::string* error) {
+scoped_ptr<base::DictionaryValue> LoadManifestFile(const base::FilePath path,
+                                                   std::string* error) {
   EXPECT_TRUE(base::PathExists(path));
   JSONFileValueDeserializer deserializer(path);
-  return static_cast<base::DictionaryValue*>(
-      deserializer.Deserialize(NULL, error));
+  return base::DictionaryValue::From(deserializer.Deserialize(NULL, error));
 }
 
 scoped_refptr<Extension> LoadExtension(const std::string& filename,
@@ -90,7 +89,7 @@ scoped_refptr<Extension> LoadExtension(const std::string& filename,
       AppendASCII("extensions").
       AppendASCII("manifest_tests").
       AppendASCII(filename.c_str());
-  scoped_ptr<base::DictionaryValue> value(LoadManifestFile(path, error));
+  scoped_ptr<base::DictionaryValue> value = LoadManifestFile(path, error);
   if (!value)
     return NULL;
   return Extension::Create(path.DirName(), Manifest::UNPACKED, *value,

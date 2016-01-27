@@ -5,7 +5,6 @@
 #ifndef PopupMenuImpl_h
 #define PopupMenuImpl_h
 
-#include "core/html/forms/PopupMenuClient.h"
 #include "core/page/PagePopupClient.h"
 #include "platform/PopupMenu.h"
 
@@ -17,18 +16,20 @@ class HTMLElement;
 class HTMLHRElement;
 class HTMLOptGroupElement;
 class HTMLOptionElement;
+class HTMLSelectElement;
 
 class PopupMenuImpl final : public PopupMenu, public PagePopupClient {
 public:
-    static PassRefPtrWillBeRawPtr<PopupMenuImpl> create(ChromeClientImpl*, PopupMenuClient*);
+    static PassRefPtrWillBeRawPtr<PopupMenuImpl> create(ChromeClientImpl*, HTMLSelectElement&);
     ~PopupMenuImpl() override;
+    DECLARE_VIRTUAL_TRACE();
 
     void update();
 
     void dispose();
 
 private:
-    PopupMenuImpl(ChromeClientImpl*, PopupMenuClient*);
+    PopupMenuImpl(ChromeClientImpl*, HTMLSelectElement&);
 
     class ItemIterationContext;
     void addOption(ItemIterationContext&, HTMLOptionElement&);
@@ -53,8 +54,8 @@ private:
     Locale& locale() override;
     void didClosePopup() override;
 
-    ChromeClientImpl* m_chromeClient;
-    PopupMenuClient* m_client;
+    RawPtrWillBeMember<ChromeClientImpl> m_chromeClient;
+    RawPtrWillBeMember<HTMLSelectElement> m_ownerElement;
     PagePopup* m_popup;
     bool m_needsUpdate;
 };

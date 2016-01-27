@@ -4,6 +4,8 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
+#include "SkTypes.h"
+#if defined(SK_BUILD_FOR_WIN32)
 
 #include "SkDWrite.h"
 #include "SkHRESULT.h"
@@ -12,7 +14,7 @@
 
 #include <dwrite.h>
 
-static IDWriteFactory* gDWriteFactory = NULL;
+static IDWriteFactory* gDWriteFactory = nullptr;
 
 static void release_dwrite_factory() {
     if (gDWriteFactory) {
@@ -52,7 +54,7 @@ IDWriteFactory* sk_get_dwrite_factory() {
 
 /** Converts a utf8 string to a WCHAR string. */
 HRESULT sk_cstring_to_wchar(const char* skname, SkSMallocWCHAR* name) {
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, skname, -1, NULL, 0);
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, skname, -1, nullptr, 0);
     if (0 == wlen) {
         HRM(HRESULT_FROM_WIN32(GetLastError()),
             "Could not get length for wchar to utf-8 conversion.");
@@ -67,7 +69,7 @@ HRESULT sk_cstring_to_wchar(const char* skname, SkSMallocWCHAR* name) {
 
 /** Converts a WCHAR string to a utf8 string. */
 HRESULT sk_wchar_to_skstring(WCHAR* name, int nameLen, SkString* skname) {
-    int len = WideCharToMultiByte(CP_UTF8, 0, name, nameLen, NULL, 0, NULL, NULL);
+    int len = WideCharToMultiByte(CP_UTF8, 0, name, nameLen, nullptr, 0, nullptr, nullptr);
     if (0 == len) {
         if (nameLen <= 0) {
             skname->reset();
@@ -78,7 +80,7 @@ HRESULT sk_wchar_to_skstring(WCHAR* name, int nameLen, SkString* skname) {
     }
     skname->resize(len);
 
-    len = WideCharToMultiByte(CP_UTF8, 0, name, nameLen, skname->writable_str(), len, NULL, NULL);
+    len = WideCharToMultiByte(CP_UTF8, 0, name, nameLen, skname->writable_str(), len, nullptr, nullptr);
     if (0 == len) {
         HRM(HRESULT_FROM_WIN32(GetLastError()), "Could not convert utf-8 to wchar.");
     }
@@ -122,3 +124,5 @@ HRESULT SkGetGetUserDefaultLocaleNameProc(SkGetUserDefaultLocaleNameProc* proc) 
     }
     return S_OK;
 }
+
+#endif//defined(SK_BUILD_FOR_WIN32)

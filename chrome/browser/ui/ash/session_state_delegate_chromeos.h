@@ -27,12 +27,6 @@ class SessionStateDelegateChromeos
   ~SessionStateDelegateChromeos() override;
 
   // ash::SessionStateDelegate:
-  content::BrowserContext* GetBrowserContextByIndex(
-      ash::MultiProfileIndex index) override;
-  content::BrowserContext* GetBrowserContextForWindow(
-      aura::Window* window) override;
-  content::BrowserContext* GetUserPresentingBrowserContextForWindow(
-      aura::Window* window) override;
   int GetMaximumNumberOfLoggedInUsers() const override;
   int NumberOfLoggedInUsers() const override;
   bool CanAddUserToMultiProfile(AddUserError* error) const override;
@@ -45,11 +39,10 @@ class SessionStateDelegateChromeos
   bool IsUserSessionBlocked() const override;
   SessionState GetSessionState() const override;
   const user_manager::UserInfo* GetUserInfo(
-      ash::MultiProfileIndex index) const override;
-  const user_manager::UserInfo* GetUserInfo(
-      content::BrowserContext* context) const override;
+      ash::UserIndex index) const override;
   bool ShouldShowAvatar(aura::Window* window) const override;
-  void SwitchActiveUser(const std::string& user_id) override;
+  gfx::ImageSkia GetAvatarImageForWindow(aura::Window* window) const override;
+  void SwitchActiveUser(const AccountId& account_id) override;
   void CycleActiveUser(CycleUser cycle_user) override;
   bool IsMultiProfileAllowedByPrimaryUserPolicy() const override;
   void AddSessionStateObserver(ash::SessionStateObserver* observer) override;
@@ -77,7 +70,7 @@ class SessionStateDelegateChromeos
 
   // Switches to a new user. This call might show a dialog asking the user if he
   // wants to stop desktop casting before switching.
-  void TryToSwitchUser(const std::string& user_id);
+  void TryToSwitchUser(const AccountId& account_id);
 
   // List of observers is only used on Chrome OS for now.
   base::ObserverList<ash::SessionStateObserver> session_state_observer_list_;

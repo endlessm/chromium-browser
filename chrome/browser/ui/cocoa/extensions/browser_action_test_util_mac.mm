@@ -19,7 +19,6 @@
 #import "chrome/browser/ui/cocoa/info_bubble_window.h"
 #import "chrome/browser/ui/cocoa/themed_window.h"
 #import "chrome/browser/ui/cocoa/toolbar/toolbar_controller.h"
-#import "chrome/browser/ui/cocoa/toolbar/wrench_toolbar_button_cell.h"
 #include "chrome/browser/ui/toolbar/toolbar_action_view_controller.h"
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar.h"
 #include "chrome/common/chrome_constants.h"
@@ -103,6 +102,9 @@ BrowserActionTestUtil::BrowserActionTestUtil(Browser* browser,
     : browser_(browser) {
   if (!is_real_window)
     test_helper_.reset(new TestToolbarActionsBarHelperCocoa(browser, nullptr));
+  // We disable animations on extension popups so that tests aren't waiting for
+  // a popup to fade out.
+  [ExtensionPopupController setAnimationsEnabledForTesting:NO];
 }
 
 BrowserActionTestUtil::~BrowserActionTestUtil() {}
@@ -172,9 +174,6 @@ gfx::Size BrowserActionTestUtil::GetPopupSize() {
 
 bool BrowserActionTestUtil::HidePopup() {
   ExtensionPopupController* controller = [ExtensionPopupController popup];
-  // The window must be gone or we'll fail a unit test with windows left open.
-  [static_cast<InfoBubbleWindow*>([controller window])
-      setAllowedAnimations:info_bubble::kAnimateNone];
   [controller close];
   return !HasPopup();
 }
@@ -183,13 +182,12 @@ bool BrowserActionTestUtil::ActionButtonWantsToRun(size_t index) {
   return [GetButton(browser_, test_helper_.get(), index) wantsToRunForTesting];
 }
 
-bool BrowserActionTestUtil::OverflowedActionButtonWantsToRun() {
-  NSView* wrench = [[[BrowserWindowController browserWindowControllerForWindow:
-      browser_->window()->GetNativeWindow()] toolbarController] wrenchButton];
-  NSButton* wrenchButton = base::mac::ObjCCastStrict<NSButton>(wrench);
-  WrenchToolbarButtonCell* cell =
-      base::mac::ObjCCastStrict<WrenchToolbarButtonCell>([wrenchButton cell]);
-  return [cell overflowedToolbarActionWantsToRun];
+void BrowserActionTestUtil::SetWidth(int width) {
+  BrowserActionsContainerView* containerView =
+      [GetController(browser_, test_helper_.get()) containerView];
+  NSRect frame = [containerView frame];
+  frame.size.width = width;
+  [containerView setFrame:frame];
 }
 
 ToolbarActionsBar* BrowserActionTestUtil::GetToolbarActionsBar() {

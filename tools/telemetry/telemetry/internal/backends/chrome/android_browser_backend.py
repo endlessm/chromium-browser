@@ -3,10 +3,10 @@
 # found in the LICENSE file.
 
 import logging
-import sys
+import subprocess
 
 from telemetry.core import exceptions
-from telemetry.core.platform import android_platform_backend as \
+from telemetry.internal.platform import android_platform_backend as \
   android_platform_backend_module
 from telemetry.core import util
 from telemetry.internal.backends import android_command_line_backend
@@ -14,12 +14,7 @@ from telemetry.internal.backends import browser_backend
 from telemetry.internal.backends.chrome import chrome_browser_backend
 from telemetry.internal import forwarders
 
-util.AddDirToPythonPath(util.GetChromiumSrcDir(), 'build', 'android')
-try:
-  from pylib import ports # pylint: disable=import-error
-except ImportError:
-  ports = None
-from pylib.device import intent  # pylint: disable=import-error
+from devil.android.sdk import intent
 
 
 class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
@@ -35,6 +30,12 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         supports_extensions=False, browser_options=browser_options,
         output_profile_path=output_profile_path,
         extensions_to_load=extensions_to_load)
+
+    self._port_keeper = util.PortKeeper()
+    # Use the port hold by _port_keeper by default.
+    self._port = self._port_keeper.port
+
+
     if len(extensions_to_load) > 0:
       raise browser_backend.ExtensionsNotSupportedException(
           'Android browser does not support extensions.')
@@ -43,10 +44,6 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self._backend_settings = backend_settings
     self._target_arch = target_arch
     self._saved_sslflag = ''
-
-    # TODO(tonyg): This is flaky because it doesn't reserve the port that it
-    # allocates. Need to fix this.
-    self._port = ports.AllocateTestServerPort()
 
     # TODO(wuhu): Move to network controller backend.
     self.platform_backend.InstallTestCa()
@@ -74,6 +71,10 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
 
     # Set the debug app if needed.
     self.platform_backend.SetDebugApp(self._backend_settings.package)
+
+  @property
+  def log_file_path(self):
+    return None
 
   @property
   def device(self):
@@ -109,8 +110,41 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
 
       remote_devtools_port = self._backend_settings.GetDevtoolsRemotePort(
           self.device)
-      self.platform_backend.ForwardHostToDevice(self._port,
-                                                remote_devtools_port)
+      try:
+        # Release reserved port right before forwarding host to device.
+        self._port_keeper.Release()
+        assert self._port == self._port_keeper.port, (
+          'Android browser backend must use reserved port by _port_keeper')
+        self.platform_backend.ForwardHostToDevice(
+            self._port, remote_devtools_port)
+      except Exception:
+        logging.exception('Failed to forward %s to %s.',
+            str(self._port), str(remote_devtools_port))
+        logging.warning('Currently forwarding:')
+        try:
+          for line in self.device.adb.ForwardList().splitlines():
+            logging.warning('  %s', line)
+        except Exception:
+          logging.warning('Exception raised while listing forwarded '
+                          'connections.')
+
+        logging.warning('Host tcp ports in use:')
+        try:
+          for line in subprocess.check_output(['netstat', '-t']).splitlines():
+            logging.warning('  %s', line)
+        except Exception:
+          logging.warning('Exception raised while listing tcp ports.')
+
+        logging.warning('Device unix domain sockets in use:')
+        try:
+          for line in self.device.ReadFile('/proc/net/unix', as_root=True,
+                                           force_pull=True).splitlines():
+            logging.warning('  %s', line)
+        except Exception:
+          logging.warning('Exception raised while listing unix domain sockets.')
+
+        raise
+
       try:
         self._WaitForBrowserToComeUp()
         self._InitDevtoolsClientBackend(remote_devtools_port)
@@ -122,10 +156,9 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
             '(1) Flashing to a userdebug build OR '
             '(2) Manually enabling web debugging in Chrome at '
             'Settings > Developer tools > Enable USB Web debugging.')
-        sys.exit(1)
+        self.Close()
+        raise
       except:
-        import traceback
-        traceback.print_exc()
         self.Close()
         raise
 
@@ -141,7 +174,11 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     pids = self.device.GetPids(self._backend_settings.package)
     if not pids or self._backend_settings.package not in pids:
       raise exceptions.BrowserGoneException(self.browser)
-    return int(pids[self._backend_settings.package])
+    if len(pids[self._backend_settings.package]) > 1:
+      raise Exception(
+          'At most one instance of process %s expected but found pids: '
+          '%s' % (self._backend_settings.package, pids))
+    return int(pids[self._backend_settings.package][0])
 
   @property
   def browser_directory(self):
@@ -168,6 +205,8 @@ class AndroidBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
     self.platform_backend.RemoveTestCa()
 
     self._KillBrowser()
+
+    self.platform_backend.StopForwardingHost(self._port)
 
     if self._output_profile_path:
       self.platform_backend.PullProfile(

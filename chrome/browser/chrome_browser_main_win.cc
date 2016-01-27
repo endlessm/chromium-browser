@@ -9,6 +9,7 @@
 
 #include <algorithm>
 
+#include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/environment.h"
 #include "base/files/file_enumerator.h"
@@ -43,7 +44,6 @@
 #include "chrome/common/chrome_result_codes.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/chrome_utility_messages.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/env_vars.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
@@ -53,7 +53,6 @@
 #include "chrome/installer/util/installer_util_strings.h"
 #include "chrome/installer/util/l10n_string_util.h"
 #include "chrome/installer/util/shell_util.h"
-#include "components/variations/variations_associated_data.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/utility_process_host.h"
 #include "content/public/browser/utility_process_host_client.h"
@@ -253,10 +252,11 @@ int DoUninstallTasks(bool chrome_still_running) {
     base::FilePath chrome_exe;
     if (PathService::Get(base::FILE_EXE, &chrome_exe)) {
       ShellUtil::ShortcutLocation user_shortcut_locations[] = {
-        ShellUtil::SHORTCUT_LOCATION_DESKTOP,
-        ShellUtil::SHORTCUT_LOCATION_QUICK_LAUNCH,
-        ShellUtil::SHORTCUT_LOCATION_START_MENU_CHROME_DIR,
-        ShellUtil::SHORTCUT_LOCATION_START_MENU_CHROME_APPS_DIR,
+          ShellUtil::SHORTCUT_LOCATION_DESKTOP,
+          ShellUtil::SHORTCUT_LOCATION_QUICK_LAUNCH,
+          ShellUtil::SHORTCUT_LOCATION_START_MENU_ROOT,
+          ShellUtil::SHORTCUT_LOCATION_START_MENU_CHROME_DIR_DEPRECATED,
+          ShellUtil::SHORTCUT_LOCATION_START_MENU_CHROME_APPS_DIR,
       };
       BrowserDistribution* dist = BrowserDistribution::GetDistribution();
       for (size_t i = 0; i < arraysize(user_shortcut_locations); ++i) {
@@ -349,8 +349,7 @@ void ChromeBrowserMainPartsWin::PostProfileInit() {
     // This function will create a read only section if cache file exists
     // otherwise it will spawn utility process to build cache file, which will
     // be used during next browser start/postprofileinit.
-    if (!variations::GetVariationParamValue("LightSpeed",
-          "DisableDWriteFontCache").empty() || !content::LoadFontCache(path)) {
+    if (!content::LoadFontCache(path)) {
       // We delay building of font cache until first startup page loads.
       // During first renderer start there are lot of things happening
       // simultaneously some of them are:

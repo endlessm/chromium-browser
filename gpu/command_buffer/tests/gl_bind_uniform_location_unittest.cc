@@ -15,12 +15,13 @@
 
 namespace gpu {
 
-class BindUniformLocationTest : public testing::Test {
+class BindUniformLocationTest : public testing::TestWithParam<bool> {
  protected:
   static const GLsizei kResolution = 4;
   void SetUp() override {
     GLManager::Options options;
     options.size = gfx::Size(kResolution, kResolution);
+    options.force_shader_name_hashing = GetParam();
     gl_.Initialize(options);
   }
 
@@ -29,7 +30,7 @@ class BindUniformLocationTest : public testing::Test {
   GLManager gl_;
 };
 
-TEST_F(BindUniformLocationTest, Basic) {
+TEST_P(BindUniformLocationTest, Basic) {
   ASSERT_TRUE(
       GLTestHelper::HasExtension("GL_CHROMIUM_bind_uniform_location"));
 
@@ -99,7 +100,58 @@ TEST_F(BindUniformLocationTest, Basic) {
   GLTestHelper::CheckGLError("no errors", __LINE__);
 }
 
-TEST_F(BindUniformLocationTest, Compositor) {
+TEST_P(BindUniformLocationTest, ConflictsDetection) {
+  ASSERT_TRUE(
+      GLTestHelper::HasExtension("GL_CHROMIUM_bind_uniform_location"));
+
+  static const char* v_shader_str = SHADER(
+      attribute vec4 a_position;
+      void main()
+      {
+         gl_Position = a_position;
+      }
+  );
+  static const char* f_shader_str = SHADER(
+      precision mediump float;
+      uniform vec4 u_colorA;
+      uniform vec4 u_colorB;
+      void main()
+      {
+        gl_FragColor = u_colorA + u_colorB;
+      }
+  );
+
+  GLint color_a_location = 3;
+  GLint color_b_location = 4;
+
+  GLuint vertex_shader = GLTestHelper::LoadShader(
+      GL_VERTEX_SHADER, v_shader_str);
+  GLuint fragment_shader = GLTestHelper::LoadShader(
+      GL_FRAGMENT_SHADER, f_shader_str);
+
+  GLuint program = glCreateProgram();
+  glAttachShader(program, vertex_shader);
+  glAttachShader(program, fragment_shader);
+
+  glBindUniformLocationCHROMIUM(program, color_a_location, "u_colorA");
+  // Bind u_colorB to location a, causing conflicts, link should fail.
+  glBindUniformLocationCHROMIUM(program, color_a_location, "u_colorB");
+  glLinkProgram(program);
+  GLint linked = 0;
+  glGetProgramiv(program, GL_LINK_STATUS, &linked);
+  EXPECT_EQ(0, linked);
+
+  // Bind u_colorB to location b, no conflicts, link should succeed.
+  glBindUniformLocationCHROMIUM(program, color_b_location, "u_colorB");
+  glLinkProgram(program);
+  linked = 0;
+  glGetProgramiv(program, GL_LINK_STATUS, &linked);
+  EXPECT_EQ(1, linked);
+
+  GLTestHelper::CheckGLError("no errors", __LINE__);
+}
+
+TEST_P(BindUniformLocationTest, Compositor) {
   ASSERT_TRUE(
       GLTestHelper::HasExtension("GL_CHROMIUM_bind_uniform_location"));
 
@@ -142,7 +194,7 @@ TEST_F(BindUniformLocationTest, Compositor) {
       }
   );
 
-  int counter = 0;
+  int counter = 6;
   int matrix_location = counter++;
   int color_a_location = counter++;
   int color_b_location = counter++;
@@ -215,6 +267,10 @@ TEST_F(BindUniformLocationTest, Compositor) {
   GLTestHelper::CheckGLError("no errors", __LINE__);
 
 }
+
+INSTANTIATE_TEST_CASE_P(WithAndWithoutShaderNameMapping,
+                        BindUniformLocationTest,
+                        ::testing::Bool());
 
 }  // namespace gpu
 

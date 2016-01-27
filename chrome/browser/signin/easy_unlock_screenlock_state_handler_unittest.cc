@@ -38,7 +38,8 @@ bool StringHasPlaceholders(const base::string16& input) {
   std::vector<base::string16> subst;
   subst.push_back(base::string16());
 
-  base::string16 replaced = ReplaceStringPlaceholders(input, subst, &offsets);
+  base::string16 replaced =
+      base::ReplaceStringPlaceholders(input, subst, &offsets);
   return !offsets.empty();
 }
 
@@ -352,7 +353,7 @@ TEST_F(EasyUnlockScreenlockStateHandlerTest, StatesWithLockedIcon) {
   states.push_back(ScreenlockState::PHONE_LOCKED);
 
   for (size_t i = 0; i < states.size(); ++i) {
-    SCOPED_TRACE(base::IntToString(i));
+    SCOPED_TRACE(base::SizeTToString(i));
     state_handler_->ChangeState(states[i]);
     EXPECT_TRUE(state_handler_->IsActive());
 
@@ -468,7 +469,7 @@ TEST_F(EasyUnlockScreenlockStateHandlerTest,
   states.push_back(ScreenlockState::AUTHENTICATED);
 
   for (size_t i = 0; i < states.size(); ++i) {
-    SCOPED_TRACE(base::IntToString(i));
+    SCOPED_TRACE(base::SizeTToString(i));
     state_handler_->ChangeState(states[i]);
     ASSERT_TRUE(lock_handler_->HasCustomIcon());
     EXPECT_FALSE(lock_handler_->CustomIconHardlocksOnClick());
@@ -479,7 +480,7 @@ TEST_F(EasyUnlockScreenlockStateHandlerTest,
   proximity_auth::ScreenlockBridge::Get()->SetLockHandler(lock_handler_.get());
 
   for (size_t i = 0; i < states.size(); ++i) {
-    SCOPED_TRACE(base::IntToString(i));
+    SCOPED_TRACE(base::SizeTToString(i));
     state_handler_->ChangeState(states[i]);
     ASSERT_TRUE(lock_handler_->HasCustomIcon());
     EXPECT_TRUE(lock_handler_->CustomIconHardlocksOnClick());

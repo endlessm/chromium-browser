@@ -49,8 +49,7 @@ class TestShellContentRendererClient : public ShellContentRendererClient {
         latest_error_reason_(0),
         latest_error_stale_copy_in_cache_(false) {}
 
-  void GetNavigationErrorStrings(content::RenderView* render_view,
-                                 blink::WebFrame* frame,
+  void GetNavigationErrorStrings(content::RenderFrame* render_frame,
                                  const blink::WebURLRequest& failed_request,
                                  const blink::WebURLError& error,
                                  std::string* error_html,
@@ -79,7 +78,7 @@ class TestShellContentRendererClient : public ShellContentRendererClient {
 // Must be called on IO thread.
 void InterceptNetworkTransactions(net::URLRequestContextGetter* getter,
                                   net::Error error) {
-  DCHECK(content::BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   net::HttpCache* cache(
       getter->GetURLRequestContext()->http_transaction_factory()->GetCache());
   DCHECK(cache);
@@ -112,7 +111,7 @@ void BackendClearCache(scoped_ptr<disk_cache::Backend*> backend,
 // completion of cache clearing on the UI thread.
 void ClearCache(net::URLRequestContextGetter* getter,
                 const base::Closure& callback) {
-  DCHECK(content::BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   net::HttpCache* cache(
       getter->GetURLRequestContext()->http_transaction_factory()->GetCache());
   DCHECK(cache);
@@ -195,10 +194,10 @@ class RenderViewBrowserTest : public ContentBrowserTest {
 };
 
 IN_PROC_BROWSER_TEST_F(RenderViewBrowserTest, ConfirmCacheInformationPlumbed) {
-  ASSERT_TRUE(test_server()->Start());
+  ASSERT_TRUE(embedded_test_server()->Start());
 
   // Load URL with "nocache" set, to create stale cache.
-  GURL test_url(test_server()->GetURL("files/nocache.html"));
+  GURL test_url(embedded_test_server()->GetURL("/nocache.html"));
   NavigateToURLAndWaitForTitle(test_url, "Nocache Test Page", 1);
 
   // Reload same URL after forcing an error from the the network layer;

@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_UI_VIEWS_EXTENSIONS_EXTENSION_INSTALLED_BUBBLE_VIEW_H_
 
 #include "base/compiler_specific.h"
+#include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/extensions/extension_installed_bubble.h"
 #include "ui/views/bubble/bubble_delegate.h"
 
@@ -22,10 +23,10 @@ class Extension;
 //    BROWSER_ACTION -> The browserAction icon in the toolbar.
 //    PAGE_ACTION    -> A preview of the pageAction icon in the location
 //                      bar which is shown while the Bubble is shown.
-//    GENERIC        -> The wrench menu. This case includes pageActions that
-//                      don't specify a default icon.
+//    GENERIC        -> The app menu. This case includes pageActions that don't
+//                      specify a default icon.
 class ExtensionInstalledBubbleView
-    : public ExtensionInstalledBubble::Delegate,
+    : public ExtensionInstalledBubble::ExtensionInstalledBubbleUi,
       public views::BubbleDelegateView {
  public:
   // Creates the ExtensionInstalledBubbleView and schedules it to be shown once
@@ -37,14 +38,13 @@ class ExtensionInstalledBubbleView
                    const SkBitmap& icon);
 
  private:
-  ExtensionInstalledBubbleView(const extensions::Extension* extension,
-                               Browser* browser,
-                               const SkBitmap& icon);
+  explicit ExtensionInstalledBubbleView(
+      scoped_ptr<ExtensionInstalledBubble> bubble);
 
   ~ExtensionInstalledBubbleView() override;
 
-  // ExtensionInstalledBubble::Delegate:
-  bool MaybeShowNow() override;
+  // ExtensionInstalledBubble::ExtensionInstalledBubbleUi:
+  void Show() override;
 
   // views::WidgetDelegate:
   void WindowClosing() override;
@@ -52,7 +52,7 @@ class ExtensionInstalledBubbleView
   // views::BubbleDelegate:
   gfx::Rect GetAnchorRect() const override;
 
-  ExtensionInstalledBubble bubble_;
+  scoped_ptr<ExtensionInstalledBubble> bubble_;
 
   DISALLOW_COPY_AND_ASSIGN(ExtensionInstalledBubbleView);
 };

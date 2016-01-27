@@ -6,7 +6,6 @@ package org.chromium.chrome.browser.toolbar;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
-import android.content.res.ColorStateList;
 import android.util.AttributeSet;
 import android.view.View;
 import android.view.View.OnClickListener;
@@ -18,10 +17,10 @@ import org.chromium.base.metrics.RecordUserAction;
 import org.chromium.chrome.R;
 import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.NavigationPopup;
-import org.chromium.chrome.browser.Tab;
 import org.chromium.chrome.browser.device.DeviceClassManager;
 import org.chromium.chrome.browser.omnibox.LocationBar;
 import org.chromium.chrome.browser.partnercustomizations.HomepageManager;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.widget.TintedImageButton;
 
 /**
@@ -188,6 +187,7 @@ public class ToolbarTablet extends ToolbarLayout implements OnClickListener {
 
         mAccessibilitySwitcherButton.setOnClickListener(this);
         mBookmarkButton.setOnClickListener(this);
+
         mMenuButton.setOnKeyListener(new KeyboardNavigationListener() {
             @Override
             public View getNextFocusForward() {
@@ -236,8 +236,8 @@ public class ToolbarTablet extends ToolbarLayout implements OnClickListener {
     private void displayNavigationPopup(boolean isForward, View anchorView) {
         Tab tab = getToolbarDataProvider().getTab();
         if (tab == null || tab.getWebContents() == null) return;
-        mNavigationPopup = new NavigationPopup(
-                getContext(), tab.getWebContents().getNavigationController(), isForward);
+        mNavigationPopup = new NavigationPopup(tab.getProfile(), getContext(),
+                tab.getWebContents().getNavigationController(), isForward);
 
         mNavigationPopup.setAnchorView(anchorView);
 
@@ -291,12 +291,10 @@ public class ToolbarTablet extends ToolbarLayout implements OnClickListener {
             setBackgroundResource(incognito
                     ? R.color.incognito_primary_color : R.color.default_primary_color);
 
-            ColorStateList dark = getResources().getColorStateList(R.color.dark_mode_tint);
-            ColorStateList white = getResources().getColorStateList(R.color.light_mode_tint);
-            mMenuButton.setTint(incognito ? white : dark);
-            mHomeButton.setTint(incognito ? white : dark);
-            mBackButton.setTint(incognito ? white : dark);
-            mForwardButton.setTint(incognito ? white : dark);
+            mMenuButton.setTint(incognito ? mLightModeTint : mDarkModeTint);
+            mHomeButton.setTint(incognito ? mLightModeTint : mDarkModeTint);
+            mBackButton.setTint(incognito ? mLightModeTint : mDarkModeTint);
+            mForwardButton.setTint(incognito ? mLightModeTint : mDarkModeTint);
             if (incognito) {
                 mLocationBar.getContainerView().getBackground().setAlpha(
                         ToolbarPhone.LOCATION_BAR_TRANSPARENT_BACKGROUND_ALPHA);
@@ -336,24 +334,24 @@ public class ToolbarTablet extends ToolbarLayout implements OnClickListener {
             mReloadButton.setContentDescription(getContext().getString(
                     R.string.accessibility_btn_refresh));
         }
-        ColorStateList dark = getResources().getColorStateList(R.color.dark_mode_tint);
-        ColorStateList white = getResources().getColorStateList(R.color.light_mode_tint);
-        mReloadButton.setTint(isIncognito() ? white : dark);
+        mReloadButton.setTint(isIncognito() ? mLightModeTint : mDarkModeTint);
         mReloadButton.setEnabled(!mInTabSwitcherwMode);
     }
 
     @Override
-    protected void updateBookmarkButtonVisibility(boolean isBookmarked) {
-        int tintColor = isIncognito() ? R.color.light_mode_tint : R.color.dark_mode_tint;
+    protected void updateBookmarkButton(boolean isBookmarked, boolean editingAllowed) {
         if (isBookmarked) {
             mBookmarkButton.setImageResource(R.drawable.btn_star_filled);
             // Non-incognito mode shows a blue filled star.
-            if (!isIncognito()) tintColor = R.color.blue_mode_tint;
+            mBookmarkButton.setTint(isIncognito()
+                    ? mLightModeTint
+                    : ApiCompatibilityUtils.getColorStateList(
+                            getResources(), R.color.blue_mode_tint));
         } else {
             mBookmarkButton.setImageResource(R.drawable.btn_star);
+            mBookmarkButton.setTint(isIncognito() ? mLightModeTint : mDarkModeTint);
         }
-        ColorStateList tint = getResources().getColorStateList(tintColor);
-        mBookmarkButton.setTint(tint);
+        mBookmarkButton.setEnabled(editingAllowed);
     }
 
     @Override

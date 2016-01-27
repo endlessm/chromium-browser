@@ -277,8 +277,8 @@ class DiskMountManagerImpl : public DiskMountManager {
     for (MountPointMap::iterator it = mount_points_.begin();
          it != mount_points_.end();
          ++it) {
-      if (base::StartsWithASCII(it->second.source_path, mount_path,
-                                true /*case sensitive*/)) {
+      if (base::StartsWith(it->second.source_path, mount_path,
+                           base::CompareCase::SENSITIVE)) {
         // TODO(tbarzic): Handle the case where this fails.
         UnmountPath(it->second.mount_path,
                     UNMOUNT_OPTIONS_NONE,
@@ -500,8 +500,8 @@ class DiskMountManagerImpl : public DiskMountManager {
         devices[index],
         base::Bind(&DiskMountManagerImpl::RefreshAfterGetDeviceProperties,
                    weak_ptr_factory_.GetWeakPtr(), devices, index + 1),
-        base::Bind(&DiskMountManagerImpl::RefreshCompleted,
-                   weak_ptr_factory_.GetWeakPtr(), false));
+        base::Bind(&DiskMountManagerImpl::RefreshDeviceAtIndex,
+                   weak_ptr_factory_.GetWeakPtr(), devices, index + 1));
   }
 
   // Part of EnsureMountInfoRefreshed().
@@ -607,7 +607,7 @@ class DiskMountManagerImpl : public DiskMountManager {
          it != system_path_prefixes_.end();
          ++it) {
       const std::string& prefix = *it;
-      if (base::StartsWithASCII(system_path, prefix, true))
+      if (base::StartsWith(system_path, prefix, base::CompareCase::SENSITIVE))
         return prefix;
     }
     return base::EmptyString();

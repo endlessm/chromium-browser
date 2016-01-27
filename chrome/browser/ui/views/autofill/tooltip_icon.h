@@ -48,8 +48,8 @@ class TooltipIcon : public views::ImageView,
   }
 
  private:
-  // Changes this view's image to the resource indicated by |idr|.
-  void ChangeImageTo(int idr);
+  // Changes the color to reflect the hover state.
+  void SetDrawAsHovered(bool hovered);
 
   // Creates and shows |bubble_|. If |bubble_| already exists, just cancels a
   // potential close timer.
@@ -71,7 +71,7 @@ class TooltipIcon : public views::ImageView,
   views::BubbleBorder::Arrow bubble_arrow_;
 
   // A timer to delay showing |bubble_|.
-  base::OneShotTimer<TooltipIcon> show_timer_;
+  base::OneShotTimer show_timer_;
 
   // A watcher that keeps |bubble_| open if the user's mouse enters it.
   scoped_ptr<views::MouseWatcher> mouse_watcher_;

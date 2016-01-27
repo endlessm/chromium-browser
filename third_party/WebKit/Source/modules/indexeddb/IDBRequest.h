@@ -32,7 +32,6 @@
 #include "bindings/core/v8/ScriptState.h"
 #include "bindings/core/v8/ScriptValue.h"
 #include "core/dom/ActiveDOMObject.h"
-#include "core/dom/DOMError.h"
 #include "core/dom/DOMStringList.h"
 #include "core/events/EventListener.h"
 #include "core/events/EventTarget.h"
@@ -49,6 +48,7 @@
 
 namespace blink {
 
+class DOMException;
 class ExceptionState;
 class IDBCursor;
 struct IDBDatabaseMetadata;
@@ -67,7 +67,7 @@ public:
 
     ScriptState* scriptState() { return m_scriptState.get(); }
     ScriptValue result(ExceptionState&);
-    DOMError* error(ExceptionState&) const;
+    DOMException* error(ExceptionState&) const;
     ScriptValue source() const;
     IDBTransaction* transaction() const { return m_transaction.get(); }
 
@@ -94,7 +94,7 @@ public:
     void setPendingCursor(IDBCursor*);
     void abort();
 
-    virtual void onError(DOMError*);
+    virtual void onError(DOMException*);
     virtual void onSuccess(const Vector<String>&);
     virtual void onSuccess(PassOwnPtr<WebIDBCursor>, IDBKey*, IDBKey* primaryKey, PassRefPtr<IDBValue>);
     virtual void onSuccess(IDBKey*);
@@ -118,9 +118,6 @@ public:
     ExecutionContext* executionContext() const final;
     void uncaughtExceptionInEventHandler() final;
 
-    using EventTarget::dispatchEvent;
-    bool dispatchEvent(PassRefPtrWillBeRawPtr<Event>) override;
-
     // Called by a version change transaction that has finished to set this
     // request back from DONE (following "upgradeneeded") back to PENDING (for
     // the upcoming "success" or "error").
@@ -136,10 +133,13 @@ protected:
     void onSuccessInternal(IDBAny*);
     void setResult(IDBAny*);
 
-    bool m_contextStopped;
+    // EventTarget
+    bool dispatchEventInternal(PassRefPtrWillBeRawPtr<Event>) override;
+
+    bool m_contextStopped = false;
     Member<IDBTransaction> m_transaction;
-    ReadyState m_readyState;
-    bool m_requestAborted; // May be aborted by transaction then receive async onsuccess; ignore vs. assert.
+    ReadyState m_readyState = PENDING;
+    bool m_requestAborted = false; // May be aborted by transaction then receive async onsuccess; ignore vs. assert.
 
 private:
     void setResultCursor(IDBCursor*, IDBKey*, IDBKey* primaryKey, PassRefPtr<IDBValue>);
@@ -149,14 +149,14 @@ private:
     RefPtr<ScriptState> m_scriptState;
     Member<IDBAny> m_source;
     Member<IDBAny> m_result;
-    Member<DOMError> m_error;
+    Member<DOMException> m_error;
 
-    bool m_hasPendingActivity;
+    bool m_hasPendingActivity = true;
     WillBeHeapVector<RefPtrWillBeMember<Event>> m_enqueuedEvents;
 
     // Only used if the result type will be a cursor.
-    IndexedDB::CursorType m_cursorType;
-    WebIDBCursorDirection m_cursorDirection;
+    IndexedDB::CursorType m_cursorType = IndexedDB::CursorKeyAndValue;
+    WebIDBCursorDirection m_cursorDirection = WebIDBCursorDirectionNext;
     // When a cursor is continued/advanced, m_result is cleared and m_pendingCursor holds it.
     Member<IDBCursor> m_pendingCursor;
     // New state is not applied to the cursor object until the event is dispatched.
@@ -164,9 +164,9 @@ private:
     Member<IDBKey> m_cursorPrimaryKey;
     RefPtr<IDBValue> m_cursorValue;
 
-    bool m_didFireUpgradeNeededEvent;
-    bool m_preventPropagation;
-    bool m_resultDirty;
+    bool m_didFireUpgradeNeededEvent = false;
+    bool m_preventPropagation = false;
+    bool m_resultDirty = true;
 };
 
 } // namespace blink

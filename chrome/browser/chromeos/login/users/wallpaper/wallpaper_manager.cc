@@ -42,6 +42,7 @@
 #include "chromeos/cryptohome/async_method_caller.h"
 #include "chromeos/dbus/dbus_thread_manager.h"
 #include "chromeos/login/user_names.h"
+#include "components/signin/core/account_id/account_id.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_image/user_image.h"
 #include "components/user_manager/user_manager.h"
@@ -49,6 +50,7 @@
 #include "components/wallpaper/wallpaper_layout.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_service.h"
+#include "content/public/common/content_switches.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "ui/gfx/codec/jpeg_codec.h"
 #include "ui/gfx/image/image_skia_operations.h"
@@ -265,7 +267,7 @@ class WallpaperManager::PendingWallpaper :
   // This is "on destroy" callback that will call OnWallpaperSet() when
   // image will be loaded.
   wallpaper::MovableOnDestroyCallbackHolder on_finish_;
-  base::OneShotTimer<WallpaperManager::PendingWallpaper> timer;
+  base::OneShotTimer timer;
 
   // Load start time to calculate duration.
   base::Time started_load_at_;
@@ -372,7 +374,7 @@ void WallpaperManager::InitializeWallpaper() {
 
   if (!user_manager->IsUserLoggedIn()) {
     if (!StartupUtils::IsDeviceRegistered())
-      SetDefaultWallpaperDelayed(chromeos::login::kSignInUser);
+      SetDefaultWallpaperDelayed(login::SignInAccountId().GetUserEmail());
     else
       InitializeRegisteredDeviceWallpaper();
     return;
@@ -425,9 +427,15 @@ void WallpaperManager::Observe(int type,
 }
 
 void WallpaperManager::RemoveUserWallpaperInfo(const std::string& user_id) {
+  if (wallpaper_cache_.find(user_id) != wallpaper_cache_.end())
+    wallpaper_cache_.erase(user_id);
+
+  PrefService* prefs = g_browser_process->local_state();
+  // PrefService could be NULL in tests.
+  if (!prefs)
+    return;
   WallpaperInfo info;
   GetUserWallpaperInfo(user_id, &info);
-  PrefService* prefs = g_browser_process->local_state();
   DictionaryPrefUpdate prefs_wallpapers_info_update(
       prefs, wallpaper::kUsersWallpaperInfo);
   prefs_wallpapers_info_update->RemoveWithoutPathExpansion(user_id, NULL);
@@ -476,12 +484,12 @@ void WallpaperManager::SetCustomWallpaper(
     return;
   }
 
-  const user_manager::User* user =
-      user_manager::UserManager::Get()->FindUser(user_id);
+  const user_manager::User* user = user_manager::UserManager::Get()->FindUser(
+      AccountId::FromUserEmail(user_id));
   CHECK(user);
-  bool is_persistent =
+  const bool is_persistent =
       !user_manager::UserManager::Get()->IsUserNonCryptohomeDataEphemeral(
-          user_id) ||
+          AccountId::FromUserEmail(user_id)) ||
       (type == user_manager::User::POLICY &&
        user->GetType() == user_manager::USER_TYPE_PUBLIC_ACCOUNT);
 
@@ -554,8 +562,8 @@ void WallpaperManager::DoSetDefaultWallpaper(
 
   const base::FilePath* file = NULL;
 
-  const user_manager::User* user =
-      user_manager::UserManager::Get()->FindUser(user_id);
+  const user_manager::User* user = user_manager::UserManager::Get()->FindUser(
+      AccountId::FromUserEmail(user_id));
 
   if (user_manager::UserManager::Get()->IsLoggedInAsGuest()) {
     file =
@@ -616,28 +624,30 @@ void WallpaperManager::SetUserWallpaperInfo(const std::string& user_id,
 void WallpaperManager::ScheduleSetUserWallpaper(const std::string& user_id,
                                                 bool delayed) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  // Some unit tests come here without a UserManager or without a pref system.q
+  // Some unit tests come here without a UserManager or without a pref system.
   if (!user_manager::UserManager::IsInitialized() ||
       !g_browser_process->local_state()) {
     return;
   }
 
-  // There is no visible background in kiosk mode.
-  if (user_manager::UserManager::Get()->IsLoggedInAsKioskApp())
-    return;
-  // Guest user, regular user in ephemeral mode, or kiosk app.
+  const AccountId account_id = AccountId::FromUserEmail(user_id);
   const user_manager::User* user =
-      user_manager::UserManager::Get()->FindUser(user_id);
-  if (user_manager::UserManager::Get()->IsUserNonCryptohomeDataEphemeral(
-          user_id) ||
-      (user != NULL && user->GetType() == user_manager::USER_TYPE_KIOSK_APP)) {
+      user_manager::UserManager::Get()->FindUser(account_id);
+
+  // User is unknown or there is no visible background in kiosk mode.
+  if (!user || user->GetType() == user_manager::USER_TYPE_KIOSK_APP)
+    return;
+
+  // Guest user or regular user in ephemeral mode.
+  if ((user_manager::UserManager::Get()->IsUserNonCryptohomeDataEphemeral(
+           account_id) &&
+       user->HasGaiaAccount()) ||
+      user->GetType() == user_manager::USER_TYPE_GUEST) {
+    LOG(ERROR) << "User is ephemeral or guest! Fallback to default wallpaper.";
     InitInitialUserWallpaper(user_id, false);
     GetPendingWallpaper(user_id, delayed)->ResetSetDefaultWallpaper();
     return;
   }
-
-  if (!user_manager::UserManager::Get()->IsKnownUser(user_id))
-    return;
 
   last_selected_user_ = user_id;
 
@@ -790,7 +800,7 @@ void WallpaperManager::InitializeRegisteredDeviceWallpaper() {
   int public_session_user_index = FindPublicSession(users);
   if ((!show_users && public_session_user_index == -1) || users.empty()) {
     // Boot into sign in form, preload default wallpaper.
-    SetDefaultWallpaperDelayed(chromeos::login::kSignInUser);
+    SetDefaultWallpaperDelayed(login::SignInAccountId().GetUserEmail());
     return;
   }
 
@@ -808,7 +818,7 @@ bool WallpaperManager::GetUserWallpaperInfo(const std::string& user_id,
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 
   if (user_manager::UserManager::Get()->IsUserNonCryptohomeDataEphemeral(
-          user_id)) {
+          AccountId::FromUserEmail(user_id))) {
     // Default to the values cached in memory.
     *info = current_user_wallpaper_info_;
 

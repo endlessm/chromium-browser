@@ -39,7 +39,7 @@ class LayoutBox;
 enum ShapeOutsideFloatOffsetMode { ShapeOutsideFloatShapeOffset, ShapeOutsideFloatMarginBoxOffset };
 
 class FloatingObject {
-    WTF_MAKE_NONCOPYABLE(FloatingObject); WTF_MAKE_FAST_ALLOCATED(FloatingObject);
+    WTF_MAKE_NONCOPYABLE(FloatingObject); USING_FAST_MALLOC(FloatingObject);
 public:
 #ifndef NDEBUG
     // Used by the PODIntervalTree for debugging the FloatingObject.
@@ -114,6 +114,7 @@ private:
 };
 
 struct FloatingObjectHashFunctions {
+    STATIC_ONLY(FloatingObjectHashFunctions);
     static unsigned hash(FloatingObject* key) { return DefaultHash<LayoutBox*>::Hash::hash(key->layoutObject()); }
     static unsigned hash(const OwnPtr<FloatingObject>& key) { return hash(key.get()); }
     static unsigned hash(const PassOwnPtr<FloatingObject>& key) { return hash(key.get()); }
@@ -124,19 +125,20 @@ struct FloatingObjectHashFunctions {
     static const bool safeToCompareToEmptyOrDeleted = true;
 };
 struct FloatingObjectHashTranslator {
+    STATIC_ONLY(FloatingObjectHashTranslator);
     static unsigned hash(LayoutBox* key) { return DefaultHash<LayoutBox*>::Hash::hash(key); }
     static bool equal(FloatingObject* a, LayoutBox* b) { return a->layoutObject() == b; }
     static bool equal(const OwnPtr<FloatingObject>& a, LayoutBox* b) { return a->layoutObject() == b; }
 };
 typedef ListHashSet<OwnPtr<FloatingObject>, 4, FloatingObjectHashFunctions> FloatingObjectSet;
 typedef FloatingObjectSet::const_iterator FloatingObjectSetIterator;
-typedef PODInterval<int, FloatingObject*> FloatingObjectInterval;
-typedef PODIntervalTree<int, FloatingObject*> FloatingObjectTree;
+typedef PODInterval<LayoutUnit, FloatingObject*> FloatingObjectInterval;
+typedef PODIntervalTree<LayoutUnit, FloatingObject*> FloatingObjectTree;
 typedef PODFreeListArena<PODRedBlackTree<FloatingObjectInterval>::Node> IntervalArena;
 typedef HashMap<LayoutBox*, OwnPtr<FloatingObject>> LayoutBoxToFloatInfoMap;
 
 class FloatingObjects {
-    WTF_MAKE_NONCOPYABLE(FloatingObjects); WTF_MAKE_FAST_ALLOCATED(FloatingObjects);
+    WTF_MAKE_NONCOPYABLE(FloatingObjects); USING_FAST_MALLOC(FloatingObjects);
 public:
     FloatingObjects(const LayoutBlockFlow*, bool horizontalWritingMode);
     ~FloatingObjects();
@@ -198,8 +200,8 @@ private:
 
 #ifndef NDEBUG
 // These structures are used by PODIntervalTree for debugging purposes.
-template <> struct ValueToString<int> {
-    static String string(const int value);
+template <> struct ValueToString<LayoutUnit> {
+    static String string(const LayoutUnit value);
 };
 template<> struct ValueToString<FloatingObject*> {
     static String string(const FloatingObject*);

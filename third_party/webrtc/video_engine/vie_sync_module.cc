@@ -10,12 +10,12 @@
 
 #include "webrtc/video_engine/vie_sync_module.h"
 
-#include "webrtc/modules/rtp_rtcp/interface/rtp_receiver.h"
-#include "webrtc/modules/rtp_rtcp/interface/rtp_rtcp.h"
+#include "webrtc/base/logging.h"
+#include "webrtc/base/trace_event.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_receiver.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp.h"
 #include "webrtc/modules/video_coding/main/interface/video_coding.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
-#include "webrtc/system_wrappers/interface/logging.h"
-#include "webrtc/system_wrappers/interface/trace_event.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 #include "webrtc/video_engine/stream_synchronization.h"
 #include "webrtc/voice_engine/include/voe_video_sync.h"
 
@@ -67,6 +67,13 @@ int ViESyncModule::ConfigureSync(int voe_channel_id,
                                  RtpRtcp* video_rtcp_module,
                                  RtpReceiver* video_receiver) {
   CriticalSectionScoped cs(data_cs_.get());
+  // Prevent expensive no-ops.
+  if (voe_channel_id_ == voe_channel_id &&
+      voe_sync_interface_ == voe_sync_interface &&
+      video_receiver_ == video_receiver &&
+      video_rtp_rtcp_ == video_rtcp_module) {
+    return 0;
+  }
   voe_channel_id_ = voe_channel_id;
   voe_sync_interface_ = voe_sync_interface;
   video_receiver_ = video_receiver;
@@ -161,20 +168,6 @@ int32_t ViESyncModule::Process() {
     LOG(LS_ERROR) << "Error setting voice delay.";
   }
   vcm_->SetMinimumPlayoutDelay(target_video_delay_ms);
-  return 0;
-}
-
-int ViESyncModule::SetTargetBufferingDelay(int target_delay_ms) {
-  CriticalSectionScoped cs(data_cs_.get());
-  if (!voe_sync_interface_) {
-    LOG(LS_ERROR) << "voe_sync_interface_ NULL, can't set playout delay.";
-    return -1;
-  }
-  sync_->SetTargetBufferingDelay(target_delay_ms);
-  // Setting initial playout delay to voice engine (video engine is updated via
-  // the VCM interface).
-  voe_sync_interface_->SetInitialPlayoutDelay(voe_channel_id_,
-                                              target_delay_ms);
   return 0;
 }
 

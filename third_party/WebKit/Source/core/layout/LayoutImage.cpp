@@ -31,8 +31,8 @@
 #include "core/HTMLNames.h"
 #include "core/editing/FrameSelection.h"
 #include "core/fetch/ImageResource.h"
-#include "core/fetch/ResourceLoadPriorityOptimizer.h"
 #include "core/fetch/ResourceLoader.h"
+#include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
 #include "core/html/HTMLAreaElement.h"
 #include "core/html/HTMLImageElement.h"
@@ -57,7 +57,6 @@ LayoutImage::LayoutImage(Element* element)
     , m_isGeneratedContent(false)
     , m_imageDevicePixelRatio(1.0f)
 {
-    ResourceLoadPriorityOptimizer::resourceLoadPriorityOptimizer()->addLayoutObject(this);
 }
 
 LayoutImage* LayoutImage::createAnonymous(Document* document)
@@ -78,7 +77,16 @@ void LayoutImage::willBeDestroyed()
     LayoutReplaced::willBeDestroyed();
 }
 
-void LayoutImage::setImageResource(PassOwnPtr<LayoutImageResource> imageResource)
+void LayoutImage::styleDidChange(StyleDifference diff, const ComputedStyle* oldStyle)
+{
+    LayoutReplaced::styleDidChange(diff, oldStyle);
+
+    RespectImageOrientationEnum oldOrientation = oldStyle ? oldStyle->respectImageOrientation() : ComputedStyle::initialRespectImageOrientation();
+    if (style() && style()->respectImageOrientation() != oldOrientation)
+        intrinsicSizeChanged();
+}
+
+void LayoutImage::setImageResource(PassOwnPtrWillBeRawPtr<LayoutImageResource> imageResource)
 {
     ASSERT(!m_imageResource);
     m_imageResource = imageResource;
@@ -87,6 +95,8 @@ void LayoutImage::setImageResource(PassOwnPtr<LayoutImageResource> imageResource
 
 void LayoutImage::imageChanged(WrappedImagePtr newImage, const IntRect* rect)
 {
+    ASSERT(view());
+    ASSERT(view()->frameView());
     if (documentBeingDestroyed())
         return;
 
@@ -99,10 +109,17 @@ void LayoutImage::imageChanged(WrappedImagePtr newImage, const IntRect* rect)
     if (newImage != m_imageResource->imagePtr())
         return;
 
+    if (isGeneratedContent() && isHTMLImageElement(node()) && m_imageResource->errorOccurred())  {
+        toHTMLImageElement(node())->ensureFallbackForGeneratedContent();
+        return;
+    }
+
     // Per the spec, we let the server-sent header override srcset/other sources of dpr.
     // https://github.com/igrigorik/http-client-hints/blob/master/draft-grigorik-http-client-hints-01.txt#L255
-    if (m_imageResource->cachedImage() && m_imageResource->cachedImage()->hasDevicePixelRatioHeaderValue())
+    if (m_imageResource->cachedImage() && m_imageResource->cachedImage()->hasDevicePixelRatioHeaderValue()) {
+        UseCounter::count(&(view()->frameView()->frame()), UseCounter::ClientHintsContentDPR);
         m_imageDevicePixelRatio = 1 / m_imageResource->cachedImage()->devicePixelRatioHeaderValue();
+    }
 
     if (!m_didIncrementVisuallyNonEmptyPixelCount) {
         // At a zoom level of 1 the image is guaranteed to have an integer size.
@@ -168,7 +185,7 @@ void LayoutImage::invalidatePaintAndMarkForLayoutIfNeeded()
         updateInnerContentRect();
     }
 
-    if (imageResource() && imageResource()->image() && imageResource()->image()->maybeAnimated())
+    if (imageResource() && imageResource()->maybeAnimated())
         setShouldDoFullPaintInvalidation(PaintInvalidationDelayedFull);
     else
         setShouldDoFullPaintInvalidation(PaintInvalidationFull);
@@ -194,12 +211,12 @@ void LayoutImage::notifyFinished(Resource* newImage)
     }
 }
 
-void LayoutImage::paintReplaced(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+void LayoutImage::paintReplaced(const PaintInfo& paintInfo, const LayoutPoint& paintOffset) const
 {
     ImagePainter(*this).paintReplaced(paintInfo, paintOffset);
 }
 
-void LayoutImage::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+void LayoutImage::paint(const PaintInfo& paintInfo, const LayoutPoint& paintOffset) const
 {
     ImagePainter(*this).paint(paintInfo, paintOffset);
 }
@@ -215,7 +232,7 @@ void LayoutImage::areaElementFocusChanged(HTMLAreaElement* areaElement)
     invalidatePaintAndMarkForLayoutIfNeeded();
 }
 
-bool LayoutImage::boxShadowShouldBeAppliedToBackground(BackgroundBleedAvoidance bleedAvoidance, InlineFlowBox*) const
+bool LayoutImage::boxShadowShouldBeAppliedToBackground(BackgroundBleedAvoidance bleedAvoidance, const InlineFlowBox*) const
 {
     if (!LayoutBoxModelObject::boxShadowShouldBeAppliedToBackground(bleedAvoidance))
         return false;
@@ -249,7 +266,7 @@ bool LayoutImage::foregroundIsKnownToBeOpaqueInRect(const LayoutRect& localRect,
     return m_imageResource->cachedImage() && m_imageResource->cachedImage()->currentFrameKnownToBeOpaque(this);
 }
 
-bool LayoutImage::computeBackgroundIsKnownToBeObscured()
+bool LayoutImage::computeBackgroundIsKnownToBeObscured() const
 {
     if (!hasBackground())
         return false;
@@ -287,36 +304,6 @@ void LayoutImage::layout()
 {
     LayoutReplaced::layout();
     updateInnerContentRect();
-}
-
-bool LayoutImage::updateImageLoadingPriorities()
-{
-    if (!m_imageResource || !m_imageResource->cachedImage() || m_imageResource->cachedImage()->isLoaded())
-        return false;
-
-    LayoutRect viewBounds = viewRect();
-    LayoutRect objectBounds = LayoutRect(absoluteContentBox());
-
-    // The object bounds might be empty right now, so intersects will fail since it doesn't deal
-    // with empty rects. Use LayoutRect::contains in that case.
-    bool isVisible;
-    if (!objectBounds.isEmpty())
-        isVisible =  viewBounds.intersects(objectBounds);
-    else
-        isVisible = viewBounds.contains(objectBounds);
-
-    ResourceLoadPriorityOptimizer::VisibilityStatus status = isVisible ?
-        ResourceLoadPriorityOptimizer::Visible : ResourceLoadPriorityOptimizer::NotVisible;
-
-    LayoutRect screenArea;
-    if (!objectBounds.isEmpty()) {
-        screenArea = viewBounds;
-        screenArea.intersect(objectBounds);
-    }
-
-    ResourceLoadPriorityOptimizer::resourceLoadPriorityOptimizer()->notifyImageResourceVisibility(m_imageResource->cachedImage(), status, screenArea);
-
-    return true;
 }
 
 void LayoutImage::computeIntrinsicRatioInformation(FloatSize& intrinsicSize, double& intrinsicRatio) const

@@ -8,7 +8,6 @@
     'user_manager_shared_sources': [
       'user_manager/empty_user_info.cc',
       'user_manager/empty_user_info.h',
-      'user_manager/user_id.h',
       'user_manager/user_info.cc',
       'user_manager/user_info.h',
       'user_manager/user_info_impl.cc',
@@ -36,6 +35,7 @@
     'type': '<(component)',
     'dependencies': [
       '<(DEPTH)/base/base.gyp:base',
+      '<(DEPTH)/components/components.gyp:signin_core_account_id',
       '<(DEPTH)/skia/skia.gyp:skia',
       '<(DEPTH)/ui/gfx/gfx.gyp:gfx',
     ],
@@ -73,6 +73,7 @@
         'dependencies': [
           '<(DEPTH)/base/base.gyp:base',
           '<(DEPTH)/base/base.gyp:test_support_base',
+          '<(DEPTH)/skia/skia.gyp:skia',
           '<(DEPTH)/testing/gmock.gyp:gmock',
           '<(DEPTH)/testing/gtest.gyp:gtest',
           'user_manager',

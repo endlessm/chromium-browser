@@ -22,14 +22,12 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_info_cache.h"
 #include "chrome/browser/profiles/profile_metrics.h"
+#include "chrome/browser/signin/chrome_signin_helper.h"
 #include "chrome/browser/signin/signin_error_controller_factory.h"
-#include "chrome/browser/signin/signin_header_helper.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/signin_promo.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/webui/options/options_handlers_helper.h"
@@ -40,8 +38,10 @@
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
 #include "chrome/grit/locale_settings.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/google/core/browser/google_util.h"
 #include "components/signin/core/browser/signin_error_controller.h"
+#include "components/signin/core/browser/signin_header_helper.h"
 #include "components/signin/core/browser/signin_metrics.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "components/sync_driver/sync_prefs.h"
@@ -368,7 +368,7 @@ void SyncSetupHandler::DisplayGaiaLoginInNewTabOrWindow() {
     SigninErrorController* error_controller =
         SigninErrorControllerFactory::GetForProfile(browser->profile());
     DCHECK(error_controller->HasError());
-    if (switches::IsNewAvatarMenu() && !force_new_tab) {
+    if (!force_new_tab) {
       browser->window()->ShowAvatarBubbleFromAvatarButton(
           BrowserWindow::AVATAR_BUBBLE_MODE_REAUTH,
           signin::ManageAccountsParams());
@@ -378,7 +378,7 @@ void SyncSetupHandler::DisplayGaiaLoginInNewTabOrWindow() {
     }
   } else {
     signin_metrics::LogSigninSource(signin_metrics::SOURCE_SETTINGS);
-    if (switches::IsNewAvatarMenu() && !force_new_tab) {
+    if (!force_new_tab) {
       browser->window()->ShowAvatarBubbleFromAvatarButton(
           BrowserWindow::AVATAR_BUBBLE_MODE_SIGNIN,
           signin::ManageAccountsParams());
@@ -417,7 +417,7 @@ void SyncSetupHandler::DisplaySpinner() {
 
   const int kTimeoutSec = 30;
   DCHECK(!backend_start_timer_);
-  backend_start_timer_.reset(new base::OneShotTimer<SyncSetupHandler>());
+  backend_start_timer_.reset(new base::OneShotTimer());
   backend_start_timer_->Start(FROM_HERE,
                               base::TimeDelta::FromSeconds(kTimeoutSec),
                               this, &SyncSetupHandler::DisplayTimeout);
@@ -456,7 +456,7 @@ void SyncSetupHandler::SyncStartupFailed() {
 
 void SyncSetupHandler::SyncStartupCompleted() {
   ProfileSyncService* service = GetSyncService();
-  DCHECK(service->backend_initialized());
+  DCHECK(service->IsBackendInitialized());
 
   // Stop a timer to handle timeout in waiting for checking network connection.
   backend_start_timer_.reset();
@@ -500,7 +500,7 @@ void SyncSetupHandler::HandleConfigure(const base::ListValue* args) {
 
   // If the sync engine has shutdown for some reason, just close the sync
   // dialog.
-  if (!service || !service->backend_initialized()) {
+  if (!service || !service->IsBackendInitialized()) {
     CloseUI();
     return;
   }
@@ -521,7 +521,7 @@ void SyncSetupHandler::HandleConfigure(const base::ListValue* args) {
   // Don't allow "encrypt all" if the ProfileSyncService doesn't allow it.
   // The UI is hidden, but the user may have enabled it e.g. by fiddling with
   // the web inspector.
-  if (!service->EncryptEverythingAllowed())
+  if (!service->IsEncryptEverythingAllowed())
     configuration.encrypt_all = false;
 
   // Note: Data encryption will not occur until configuration is complete
@@ -696,7 +696,7 @@ void SyncSetupHandler::CloseSyncSetup() {
           // Sign out the user on desktop Chrome if they click cancel during
           // initial setup.
           // TODO(rsimha): Revisit this for M30. See http://crbug.com/252049.
-          if (sync_service->FirstSetupInProgress()) {
+          if (sync_service->IsFirstSetupInProgress()) {
             SigninManagerFactory::GetForProfile(GetProfile())->SignOut(
                 signin_metrics::ABORT_SIGNIN);
           }
@@ -802,7 +802,7 @@ void SyncSetupHandler::DisplayConfigureSync(bool passphrase_failed) {
       GetProfile())->IsAuthenticated());
   ProfileSyncService* service = GetSyncService();
   DCHECK(service);
-  if (!service->backend_initialized()) {
+  if (!service->IsBackendInitialized()) {
     service->RequestStart();
 
     // See if it's even possible to bring up the sync backend - if not
@@ -824,8 +824,8 @@ void SyncSetupHandler::DisplayConfigureSync(bool passphrase_failed) {
   // longer need a SyncStartupTracker.
   sync_startup_tracker_.reset();
   configuring_sync_ = true;
-  DCHECK(service->backend_initialized()) <<
-      "Cannot configure sync until the sync backend is initialized";
+  DCHECK(service->IsBackendInitialized())
+      << "Cannot configure sync until the sync backend is initialized";
 
   // Setup args for the sync configure screen:
   //   syncAllDataTypes: true if the user wants to sync everything
@@ -859,8 +859,9 @@ void SyncSetupHandler::DisplayConfigureSync(bool passphrase_failed) {
   args.SetBoolean("passphraseFailed", passphrase_failed);
   args.SetBoolean("syncAllDataTypes", sync_prefs.HasKeepEverythingSynced());
   args.SetBoolean("syncNothing", false);  // Always false during initial setup.
-  args.SetBoolean("encryptAllData", service->EncryptEverythingEnabled());
-  args.SetBoolean("encryptAllDataAllowed", service->EncryptEverythingAllowed());
+  args.SetBoolean("encryptAllData", service->IsEncryptEverythingEnabled());
+  args.SetBoolean("encryptAllDataAllowed",
+                  service->IsEncryptEverythingAllowed());
 
   // We call IsPassphraseRequired() here, instead of calling
   // IsPassphraseRequiredForDecryption(), because we want to show the passphrase

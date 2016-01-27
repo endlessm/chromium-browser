@@ -148,4 +148,14 @@ class MockLayoutHost implements LayoutManagerHost, LayoutRenderHost {
 
     @Override
     public void onContentChanged() { }
+
+    @Override
+    public int getTopControlsBackgroundColor() {
+        return 0;
+    }
+
+    @Override
+    public float getTopControlsUrlBarAlpha() {
+        return 1f;
+    }
 }

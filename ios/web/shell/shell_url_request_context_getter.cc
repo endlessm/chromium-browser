@@ -7,6 +7,7 @@
 #include "base/base_paths.h"
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
+#include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
 #include "base/threading/worker_pool.h"
 #include "ios/net/cookies/cookie_store_ios.h"
@@ -82,20 +83,19 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
     net::CookieStoreIOS::SwitchSynchronizedStore(nullptr, cookie_store.get());
 
     std::string user_agent = web::GetWebClient()->GetUserAgent(false);
-    storage_->set_http_user_agent_settings(
-        new net::StaticHttpUserAgentSettings("en-us,en", user_agent));
+    storage_->set_http_user_agent_settings(make_scoped_ptr(
+        new net::StaticHttpUserAgentSettings("en-us,en", user_agent)));
     storage_->set_proxy_service(
         net::ProxyService::CreateUsingSystemProxyResolver(
-            proxy_config_service_.release(), 0,
-            url_request_context_->net_log()));
+            proxy_config_service_.Pass(), 0, url_request_context_->net_log()));
     storage_->set_ssl_config_service(new net::SSLConfigServiceDefaults);
     storage_->set_cert_verifier(net::CertVerifier::CreateDefault());
 
-    net::TransportSecurityState* transport_security_state =
-        new net::TransportSecurityState();
-    storage_->set_transport_security_state(transport_security_state);
+    storage_->set_transport_security_state(
+        make_scoped_ptr(new net::TransportSecurityState()));
     transport_security_persister_.reset(new net::TransportSecurityPersister(
-        transport_security_state, base_path_, file_task_runner_, false));
+        url_request_context_->transport_security_state(), base_path_,
+        file_task_runner_, false));
     storage_->set_channel_id_service(make_scoped_ptr(
         new net::ChannelIDService(new net::DefaultChannelIDStore(nullptr),
                                   base::WorkerPool::GetTaskRunner(true))));
@@ -130,22 +130,25 @@ net::URLRequestContext* ShellURLRequestContextGetter::GetURLRequestContext() {
         url_request_context_->host_resolver();
 
     base::FilePath cache_path = base_path_.Append(FILE_PATH_LITERAL("Cache"));
-    net::HttpCache::DefaultBackend* main_backend =
+    scoped_ptr<net::HttpCache::DefaultBackend> main_backend(
         new net::HttpCache::DefaultBackend(net::DISK_CACHE,
                                            net::CACHE_BACKEND_DEFAULT,
-                                           cache_path, 0, cache_task_runner_);
+                                           cache_path, 0, cache_task_runner_));
 
-    net::HttpCache* main_cache =
-        new net::HttpCache(network_session_params, main_backend);
-    storage_->set_http_transaction_factory(main_cache);
+    storage_->set_http_network_session(
+        make_scoped_ptr(new net::HttpNetworkSession(network_session_params)));
+    storage_->set_http_transaction_factory(make_scoped_ptr(
+        new net::HttpCache(storage_->http_network_session(),
+                           main_backend.Pass(),
+                           true /* set_up_quic_server_info */)));
 
     scoped_ptr<net::URLRequestJobFactoryImpl> job_factory(
         new net::URLRequestJobFactoryImpl());
-    bool set_protocol =
-        job_factory->SetProtocolHandler("data", new net::DataProtocolHandler);
+    bool set_protocol = job_factory->SetProtocolHandler(
+        "data", make_scoped_ptr(new net::DataProtocolHandler));
     DCHECK(set_protocol);
 
-    storage_->set_job_factory(job_factory.release());
+    storage_->set_job_factory(job_factory.Pass());
   }
 
   return url_request_context_.get();

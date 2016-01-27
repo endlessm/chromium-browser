@@ -29,7 +29,8 @@ bool GetByteRange(const std::string& headers, uint32_t* start, uint32_t* end) {
   while (it.GetNext()) {
     if (base::LowerCaseEqualsASCII(it.name(), "content-range")) {
       std::string range = it.values().c_str();
-      if (base::StartsWithASCII(range, "bytes", false)) {
+      if (base::StartsWith(range, "bytes",
+                           base::CompareCase::INSENSITIVE_ASCII)) {
         range = range.substr(strlen("bytes"));
         std::string::size_type pos = range.find('-');
         std::string range_end;
@@ -52,8 +53,8 @@ std::string GetMultiPartBoundary(const std::string& headers) {
   net::HttpUtil::HeadersIterator it(headers.begin(), headers.end(), "\n");
   while (it.GetNext()) {
     if (base::LowerCaseEqualsASCII(it.name(), "content-type")) {
-      std::string type = base::StringToLowerASCII(it.values());
-      if (base::StartsWithASCII(type, "multipart/", true)) {
+      std::string type = base::ToLowerASCII(it.values());
+      if (base::StartsWith(type, "multipart/", base::CompareCase::SENSITIVE)) {
         const char* boundary = strstr(type.c_str(), "boundary=");
         if (!boundary) {
           NOTREACHED();
@@ -68,12 +69,15 @@ std::string GetMultiPartBoundary(const std::string& headers) {
 }
 
 bool IsValidContentType(const std::string& type) {
-  return (base::EndsWith(type, "/pdf", false) ||
-          base::EndsWith(type, ".pdf", false) ||
-          base::EndsWith(type, "/x-pdf", false) ||
-          base::EndsWith(type, "/*", false) ||
-          base::EndsWith(type, "/acrobat", false) ||
-          base::EndsWith(type, "/unknown", false));
+  return (base::EndsWith(type, "/pdf", base::CompareCase::INSENSITIVE_ASCII) ||
+          base::EndsWith(type, ".pdf", base::CompareCase::INSENSITIVE_ASCII) ||
+          base::EndsWith(type, "/x-pdf",
+                         base::CompareCase::INSENSITIVE_ASCII) ||
+          base::EndsWith(type, "/*", base::CompareCase::INSENSITIVE_ASCII) ||
+          base::EndsWith(type, "/acrobat",
+                         base::CompareCase::INSENSITIVE_ASCII) ||
+          base::EndsWith(type, "/unknown",
+                         base::CompareCase::INSENSITIVE_ASCII));
 }
 
 }  // namespace
@@ -118,8 +122,10 @@ bool DocumentLoader::Init(const pp::URLLoader& loader,
 
   // This happens for PDFs not loaded from http(s) sources.
   if (response_headers == "Content-Type: text/plain") {
-    if (!base::StartsWithASCII(url, "http://", false) &&
-        !base::StartsWithASCII(url, "https://", false)) {
+    if (!base::StartsWith(url, "http://",
+                          base::CompareCase::INSENSITIVE_ASCII) &&
+        !base::StartsWith(url, "https://",
+                          base::CompareCase::INSENSITIVE_ASCII)) {
       type = "application/pdf";
     }
   }
@@ -147,7 +153,8 @@ bool DocumentLoader::Init(const pp::URLLoader& loader,
   }
   if (!type.empty() && !IsValidContentType(type))
     return false;
-  if (base::StartsWithASCII(disposition, "attachment", false))
+  if (base::StartsWith(disposition, "attachment",
+                       base::CompareCase::INSENSITIVE_ASCII))
     return false;
 
   if (content_length > 0)

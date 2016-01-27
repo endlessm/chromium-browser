@@ -29,9 +29,9 @@ class TraceMessageFilter : public BrowserMessageFilter {
       const base::trace_event::TraceConfig& trace_config);
   void SendEndTracing();
   void SendCancelTracing();
-  void SendEnableMonitoring(
+  void SendStartMonitoring(
       const base::trace_event::TraceConfig& trace_config);
-  void SendDisableMonitoring();
+  void SendStopMonitoring();
   void SendCaptureMonitoringSnapshot();
   void SendGetTraceLogStatus();
   void SendSetWatchEvent(const std::string& category_name,
@@ -57,6 +57,8 @@ class TraceMessageFilter : public BrowserMessageFilter {
   void OnProcessMemoryDumpResponse(uint64 dump_guid, bool success);
 
   void SendGlobalMemoryDumpResponse(uint64 dump_guid, bool success);
+  void OnTriggerBackgroundTrace(const std::string& histogram_name);
+  void OnAbortBackgroundTrace();
 
   // ChildTraceMessageFilter exists:
   bool has_child_;

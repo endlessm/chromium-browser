@@ -114,8 +114,8 @@ class GrContext* TestInProcessContextProvider::GrContext() {
   g_gles2_initializer.Get();
   gles2::SetGLContext(ContextGL());
 
-  skia::RefPtr<GrGLInterface> interface =
-      skia::AdoptRef(skia_bindings::CreateCommandBufferSkiaGLBinding());
+  skia::RefPtr<GrGLInterface> interface = skia::AdoptRef(new GrGLInterface);
+  skia_bindings::InitCommandBufferSkiaGLBinding(interface.get());
   interface->fCallback = BindGrContextCallback;
   interface->fCallbackData = reinterpret_cast<GrGLInterfaceCallbackData>(this);
 
@@ -142,6 +142,7 @@ TestInProcessContextProvider::ContextCapabilities() {
   ContextProvider::Capabilities capabilities;
   capabilities.gpu.image = true;
   capabilities.gpu.texture_rectangle = true;
+  capabilities.gpu.sync_query = true;
 
   switch (PlatformColor::Format()) {
     case PlatformColor::SOURCE_FORMAT_RGBA8:
@@ -155,19 +156,12 @@ TestInProcessContextProvider::ContextCapabilities() {
   return capabilities;
 }
 
-void TestInProcessContextProvider::VerifyContexts() {}
-
 void TestInProcessContextProvider::DeleteCachedResources() {
   if (gr_context_)
     gr_context_->freeGpuResources();
 }
 
-bool TestInProcessContextProvider::DestroyedOnMainThread() { return false; }
-
 void TestInProcessContextProvider::SetLostContextCallback(
     const LostContextCallback& lost_context_callback) {}
-
-void TestInProcessContextProvider::SetMemoryPolicyChangedCallback(
-    const MemoryPolicyChangedCallback& memory_policy_changed_callback) {}
 
 }  // namespace cc

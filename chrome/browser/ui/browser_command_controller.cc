@@ -16,11 +16,9 @@
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/shell_integration.h"
 #include "chrome/browser/signin/signin_promo.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/ui/bookmarks/bookmark_tab_helper.h"
 #include "chrome/browser/ui/browser.h"
@@ -30,10 +28,14 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_utils.h"
 #include "chrome/browser/ui/webui/inspect_ui.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/content_restriction.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/profiling.h"
+#include "components/bookmarks/common/bookmark_pref_names.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
+#include "components/dom_distiller/core/dom_distiller_switches.h"
+#include "components/sessions/core/tab_restore_service.h"
+#include "components/signin/core/common/signin_pref_names.h"
 #include "content/public/browser/native_web_keyboard_event.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
@@ -237,7 +239,7 @@ BrowserCommandController::BrowserCommandController(Browser* browser)
 
   InitCommandState();
 
-  TabRestoreService* tab_restore_service =
+  sessions::TabRestoreService* tab_restore_service =
       TabRestoreServiceFactory::GetForProfile(profile());
   if (tab_restore_service) {
     tab_restore_service->AddObserver(this);
@@ -248,7 +250,7 @@ BrowserCommandController::BrowserCommandController(Browser* browser)
 BrowserCommandController::~BrowserCommandController() {
   // TabRestoreService may have been shutdown by the time we get here. Don't
   // trigger creating it.
-  TabRestoreService* tab_restore_service =
+  sessions::TabRestoreService* tab_restore_service =
       TabRestoreServiceFactory::GetForProfileIfExisting(profile());
   if (tab_restore_service)
     tab_restore_service->RemoveObserver(this);
@@ -548,12 +550,21 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
     case IDC_PRINT:
       Print(browser_);
       break;
+
 #if defined(ENABLE_BASIC_PRINTING)
     case IDC_BASIC_PRINT:
       content::RecordAction(base::UserMetricsAction("Accel_Advanced_Print"));
       BasicPrint(browser_);
       break;
 #endif  // ENABLE_BASIC_PRINTING
+
+// TODO(bondd): Implement save credit card bubble and icon on Mac.
+#if defined(TOOLKIT_VIEWS) && !defined(OS_MACOSX)
+    case IDC_SAVE_CREDIT_CARD_FOR_PAGE:
+      SaveCreditCard(browser_);
+      break;
+#endif
+
     case IDC_TRANSLATE_PAGE:
       Translate(browser_);
       break;
@@ -767,9 +778,6 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
     case IDC_SHOW_SIGNIN:
       ShowBrowserSigninOrSettings(browser_, signin_metrics::SOURCE_MENU);
       break;
-    case IDC_TOGGLE_SPEECH_INPUT:
-      ToggleSpeechInput(browser_);
-      break;
     case IDC_DISTILL_PAGE:
       DistillCurrentPage(browser_);
       break;
@@ -778,6 +786,9 @@ void BrowserCommandController::ExecuteCommandWithDisposition(
       ash::accelerators::ToggleTouchHudProjection();
       break;
 #endif
+    case IDC_ROUTE_MEDIA:
+      RouteMedia(browser_);
+      break;
 
     default:
       LOG(WARNING) << "Received Unimplemented Command: " << id;
@@ -821,23 +832,24 @@ void BrowserCommandController::TabBlockedStateChanged(
   PrintingStateChanged();
   FullscreenStateChanged();
   UpdateCommandsForFind();
+  UpdateCommandsForMediaRouter();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // BrowserCommandController, TabRestoreServiceObserver implementation:
 
 void BrowserCommandController::TabRestoreServiceChanged(
-    TabRestoreService* service) {
+    sessions::TabRestoreService* service) {
   UpdateTabRestoreCommandState();
 }
 
 void BrowserCommandController::TabRestoreServiceDestroyed(
-    TabRestoreService* service) {
+    sessions::TabRestoreService* service) {
   service->RemoveObserver(this);
 }
 
 void BrowserCommandController::TabRestoreServiceLoaded(
-    TabRestoreService* service) {
+    sessions::TabRestoreService* service) {
   UpdateTabRestoreCommandState();
 }
 
@@ -1021,9 +1033,6 @@ void BrowserCommandController::InitCommandState() {
   command_updater_.UpdateCommandEnabled(IDC_UPGRADE_DIALOG, true);
   command_updater_.UpdateCommandEnabled(IDC_VIEW_INCOMPATIBILITIES, true);
 
-  // Toggle speech input
-  command_updater_.UpdateCommandEnabled(IDC_TOGGLE_SPEECH_INPUT, true);
-
   // Distill current page.
   command_updater_.UpdateCommandEnabled(
       IDC_DISTILL_PAGE, base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -1137,6 +1146,7 @@ void BrowserCommandController::UpdateCommandsForTabState() {
   UpdateCommandsForContentRestrictionState();
   UpdateCommandsForBookmarkEditing();
   UpdateCommandsForFind();
+  UpdateCommandsForMediaRouter();
   // Update the zoom commands when an active tab is selected.
   UpdateCommandsForZoomState();
 }
@@ -1322,7 +1332,7 @@ void BrowserCommandController::UpdateReloadStopState(bool is_loading,
 }
 
 void BrowserCommandController::UpdateTabRestoreCommandState() {
-  TabRestoreService* tab_restore_service =
+  sessions::TabRestoreService* tab_restore_service =
       TabRestoreServiceFactory::GetForProfile(profile());
   // The command is enabled if the service hasn't loaded yet to trigger loading.
   // The command is updated once the load completes.
@@ -1341,6 +1351,11 @@ void BrowserCommandController::UpdateCommandsForFind() {
   command_updater_.UpdateCommandEnabled(IDC_FIND, enabled);
   command_updater_.UpdateCommandEnabled(IDC_FIND_NEXT, enabled);
   command_updater_.UpdateCommandEnabled(IDC_FIND_PREVIOUS, enabled);
+}
+
+void BrowserCommandController::UpdateCommandsForMediaRouter() {
+  command_updater_.UpdateCommandEnabled(IDC_ROUTE_MEDIA,
+                                        CanRouteMedia(browser_));
 }
 
 void BrowserCommandController::AddInterstitialObservers(WebContents* contents) {

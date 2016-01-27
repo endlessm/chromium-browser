@@ -7,19 +7,42 @@
 Handles benchmark configuration, but all the logic for
 actually running the benchmark is in Benchmark and PageRunner."""
 
-import difflib
 import hashlib
 import inspect
 import json
+import logging
 import os
 import sys
+
+
+# We need to set logging format here to make sure that any other modules
+# imported by telemetry doesn't set the logging format before this, which will
+# make this a no-op call.
+# (See: https://docs.python.org/2/library/logging.html#logging.basicConfig)
+logging.basicConfig(
+    format='(%(levelname)s) %(asctime)s %(module)s.%(funcName)s:%(lineno)d  '
+           '%(message)s')
+
 
 from telemetry import benchmark
 from telemetry.core import discover
 from telemetry import decorators
 from telemetry.internal.browser import browser_finder
 from telemetry.internal.browser import browser_options
+from telemetry.internal.util import binary_manager
 from telemetry.internal.util import command_line
+from telemetry.internal.util import ps_util
+from telemetry import project_config
+
+
+# TODO(aiolos): Remove this once clients move over to project_config version.
+ProjectConfig = project_config.ProjectConfig
+
+
+def _IsBenchmarkEnabled(benchmark_class, possible_browser):
+  return (issubclass(benchmark_class, benchmark.Benchmark) and
+          not benchmark_class.ShouldDisable(possible_browser) and
+          decorators.IsEnabled(benchmark_class, possible_browser)[0])
 
 
 def PrintBenchmarkList(benchmarks, possible_browser, output_pipe=sys.stdout):
@@ -45,86 +68,24 @@ def PrintBenchmarkList(benchmarks, possible_browser, output_pipe=sys.stdout):
   disabled_benchmarks = []
 
   print >> output_pipe, 'Available benchmarks %sare:' % (
-      'for %s ' %possible_browser.browser_type if possible_browser else '')
-  for benchmark_class in benchmarks:
-    if possible_browser and not decorators.IsEnabled(benchmark_class,
-                                                     possible_browser)[0]:
-      disabled_benchmarks.append(benchmark_class)
-      continue
-    print >> output_pipe, format_string % (
-        benchmark_class.Name(), benchmark_class.Description())
+      'for %s ' % possible_browser.browser_type if possible_browser else '')
+
+  # Sort the benchmarks by benchmark name.
+  benchmarks = sorted(benchmarks, key=lambda b: b.Name())
+  for b in benchmarks:
+    if not possible_browser or _IsBenchmarkEnabled(b, possible_browser):
+      print >> output_pipe, format_string % (b.Name(), b.Description())
+    else:
+      disabled_benchmarks.append(b)
 
   if disabled_benchmarks:
-    print >> output_pipe
     print >> output_pipe, (
-        'Disabled benchmarks for %s are (force run with -d):' %
+        '\nDisabled benchmarks for %s are (force run with -d):' %
         possible_browser.browser_type)
-    for benchmark_class in disabled_benchmarks:
-      print >> output_pipe, format_string % (
-          benchmark_class.Name(), benchmark_class.Description())
+    for b in disabled_benchmarks:
+      print >> output_pipe, format_string % (b.Name(), b.Description())
   print >> output_pipe, (
-      'Pass --browser to list benchmarks for another browser.')
-  print >> output_pipe
-
-def GetMostLikelyMatchedBenchmarks(all_benchmarks, input_benchmark_name):
-  """ Returns the list of benchmarks whose name most likely matched with
-    |input_benchmark_name|.
-
-  Args:
-    all_benchmarks: the list of benchmark classes.
-    input_benchmark_name: a string to be matched against the names of benchmarks
-      in |all_benchmarks|.
-
-  Returns:
-    A list of benchmark classes whose name likely matched
-    |input_benchmark_name|. Benchmark classes are arranged in descending order
-    of similarity between their names to |input_benchmark_name|.
-  """
-  def MatchedWithBenchmarkInputNameScore(benchmark_class):
-    return difflib.SequenceMatcher(
-        isjunk=None,
-        a=benchmark_class.Name(), b=input_benchmark_name).ratio()
-  benchmarks_with_similar_names = [
-      b for b in all_benchmarks if
-      MatchedWithBenchmarkInputNameScore(b) > 0.4]
-  ordered_list = sorted(benchmarks_with_similar_names,
-                        key=MatchedWithBenchmarkInputNameScore,
-                        reverse=True)
-  return ordered_list
-
-
-class ProjectConfig(object):
-  """Contains information about the benchmark runtime environment.
-
-  Attributes:
-    top_level_dir: A dir that contains benchmark, page test, and/or story
-        set dirs and associated artifacts.
-    benchmark_dirs: A list of dirs containing benchmarks.
-    benchmark_aliases: A dict of name:alias string pairs to be matched against
-        exactly during benchmark selection.
-  """
-  def __init__(self, top_level_dir, benchmark_dirs=None,
-               benchmark_aliases=None):
-    self._top_level_dir = top_level_dir
-    self._benchmark_dirs = benchmark_dirs or []
-    self._benchmark_aliases = benchmark_aliases or dict()
-
-    if benchmark_aliases:
-      self._benchmark_aliases = benchmark_aliases
-    else:
-      self._benchmark_aliases = {}
-
-  @property
-  def top_level_dir(self):
-    return self._top_level_dir
-
-  @property
-  def benchmark_dirs(self):
-    return self._benchmark_dirs
-
-  @property
-  def benchmark_aliases(self):
-    return self._benchmark_aliases
+      'Pass --browser to list benchmarks for another browser.\n')
 
 
 class Help(command_line.OptparseCommand):
@@ -181,7 +142,7 @@ class List(command_line.OptparseCommand):
   def Run(self, args):
     possible_browser = browser_finder.FindBrowser(args)
     if args.browser_type in (
-        'exact', 'release', 'release_x64', 'debug', 'debug_x64', 'canary'):
+        'release', 'release_x64', 'debug', 'debug_x64', 'canary'):
       args.browser_type = 'reference'
       possible_reference_browser = browser_finder.FindBrowser(args)
     else:
@@ -239,8 +200,8 @@ class Run(command_line.OptparseCommand):
     if not matching_benchmarks:
       print >> sys.stderr, 'No benchmark named "%s".' % input_benchmark_name
       print >> sys.stderr
-      most_likely_matched_benchmarks = GetMostLikelyMatchedBenchmarks(
-          all_benchmarks, input_benchmark_name)
+      most_likely_matched_benchmarks = command_line.GetMostLikelyMatchedObject(
+          all_benchmarks, input_benchmark_name, lambda x: x.Name())
       if most_likely_matched_benchmarks:
         print >> sys.stderr, 'Do you mean any of those benchmarks below?'
         PrintBenchmarkList(most_likely_matched_benchmarks, None, sys.stderr)
@@ -324,6 +285,14 @@ def _MatchBenchmarkName(input_benchmark_name, environment, exact_matches=True):
           if _Matches(input_benchmark_name, benchmark_class.Name())]
 
 
+def GetBenchmarkByName(name, environment):
+  matched = _MatchBenchmarkName(name, environment, exact_matches=True)
+  # With exact_matches, len(matched) is either 0 or 1.
+  if len(matched) == 0:
+    return None
+  return matched[0]
+
+
 def _GetJsonBenchmarkList(possible_browser, possible_reference_browser,
                           benchmark_classes, num_shards):
   """Returns a list of all enabled benchmarks in a JSON format expected by
@@ -347,10 +316,7 @@ def _GetJsonBenchmarkList(possible_browser, possible_reference_browser,
     }
   }
   for benchmark_class in benchmark_classes:
-    if not issubclass(benchmark_class, benchmark.Benchmark):
-      continue
-    enabled, _ = decorators.IsEnabled(benchmark_class, possible_browser)
-    if not enabled:
+    if not _IsBenchmarkEnabled(benchmark_class, possible_browser):
       continue
 
     base_name = benchmark_class.Name()
@@ -383,21 +349,21 @@ def _GetJsonBenchmarkList(possible_browser, possible_reference_browser,
       'device_affinity': device_affinity,
       'perf_dashboard_id': perf_dashboard_id,
     }
-    if possible_reference_browser:
-      enabled, _ = decorators.IsEnabled(
-          benchmark_class, possible_reference_browser)
-      if enabled:
-        output['steps'][base_name + '.reference'] = {
-          'cmd': ' '.join(base_cmd + [
-                '--browser=reference', '--output-trace-tag=_ref']),
-          'device_affinity': device_affinity,
-          'perf_dashboard_id': perf_dashboard_id,
-        }
+    if (possible_reference_browser and
+        _IsBenchmarkEnabled(benchmark_class, possible_reference_browser)):
+      output['steps'][base_name + '.reference'] = {
+        'cmd': ' '.join(base_cmd + [
+              '--browser=reference', '--output-trace-tag=_ref']),
+        'device_affinity': device_affinity,
+        'perf_dashboard_id': perf_dashboard_id,
+      }
 
   return json.dumps(output, indent=2, sort_keys=True)
 
 
 def main(environment):
+  ps_util.EnableListingStrayProcessesUponExitHook()
+
   # Get the command name from the command line.
   if len(sys.argv) > 1 and sys.argv[1] == '--help':
     sys.argv[1] = 'help'
@@ -427,10 +393,17 @@ def main(environment):
   else:
     command = Run
 
+  binary_manager.InitDependencyManager(environment.client_config)
+
   # Parse and run the command.
   parser = command.CreateParser()
   command.AddCommandLineArgs(parser, environment)
+
+  # Set the default chrome root variable.
+  parser.set_defaults(chrome_root=environment.default_chrome_root)
+
   options, args = parser.parse_args()
+
   if commands:
     args = args[1:]
   options.positional_args = args

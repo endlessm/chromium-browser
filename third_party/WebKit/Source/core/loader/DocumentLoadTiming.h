@@ -27,15 +27,19 @@
 #define DocumentLoadTiming_h
 
 #include "core/CoreExport.h"
+#include "platform/heap/Handle.h"
 #include "wtf/CurrentTime.h"
 
 namespace blink {
 
+class DocumentLoader;
 class KURL;
+class LocalFrame;
 
-class CORE_EXPORT DocumentLoadTiming {
+class CORE_EXPORT DocumentLoadTiming final {
+    DISALLOW_NEW();
 public:
-    DocumentLoadTiming();
+    explicit DocumentLoadTiming(DocumentLoader&);
 
     double monotonicTimeToZeroBasedDocumentTime(double) const;
     double monotonicTimeToPseudoWallTime(double) const;
@@ -69,9 +73,13 @@ public:
 
     double referenceMonotonicTime() const { return m_referenceMonotonicTime; }
 
+    DECLARE_TRACE();
+
 private:
     void setRedirectStart(double);
     void markRedirectEnd();
+    void notifyDocumentTimingChanged();
+    LocalFrame* frame() const;
 
     double m_referenceMonotonicTime;
     double m_referenceWallTime;
@@ -87,6 +95,8 @@ private:
     double m_loadEventEnd;
     bool m_hasCrossOriginRedirect;
     bool m_hasSameOriginAsPreviousDocument;
+
+    RawPtrWillBeMember<DocumentLoader> m_documentLoader;
 };
 
 } // namespace blink

@@ -40,6 +40,24 @@ struct Parsed;
 
 namespace net {
 
+// A subset of IP address attributes which are actionable by the
+// application layer. Currently unimplemented for all hosts;
+// IP_ADDRESS_ATTRIBUTE_NONE is always returned.
+enum IPAddressAttributes {
+  IP_ADDRESS_ATTRIBUTE_NONE = 0,
+
+  // A temporary address is dynamic by nature and will not contain MAC
+  // address. Presence of MAC address in IPv6 addresses can be used to
+  // track an endpoint and cause privacy concern. Please refer to
+  // RFC4941.
+  IP_ADDRESS_ATTRIBUTE_TEMPORARY = 1 << 0,
+
+  // A temporary address could become deprecated once the preferred
+  // lifetime is reached. It is still valid but shouldn't be used to
+  // create new connections.
+  IP_ADDRESS_ATTRIBUTE_DEPRECATED = 1 << 1,
+};
+
 // struct that is used by GetNetworkList() to represent a network
 // interface.
 struct NET_EXPORT NetworkInterface {
@@ -79,7 +97,7 @@ NET_EXPORT bool GetNetworkList(NetworkInterfaceList* networks,
 
 // Gets the SSID of the currently associated WiFi access point if there is one.
 // Otherwise, returns empty string.
-// Currently only implemented on Linux, ChromeOS and Android.
+// Currently only implemented on Linux, ChromeOS, Android and Windows.
 NET_EXPORT std::string GetWifiSSID();
 
 // General category of the IEEE 802.11 (wifi) physical layer operating mode.
@@ -101,7 +119,7 @@ enum WifiPHYLayerProtocol {
 };
 
 // Characterize the PHY mode of the currently associated access point.
-// Currently only available on OS_WIN.
+// Currently only available on Windows.
 NET_EXPORT WifiPHYLayerProtocol GetWifiPHYLayerProtocol();
 
 enum WifiOptions {
@@ -123,7 +141,7 @@ class NET_EXPORT ScopedWifiOptions {
 // Set temporary options on all wifi interfaces.
 // |options| is an ORed bitfield of WifiOptions.
 // Options are automatically disabled when the scoped pointer
-// is freed. Currently only available on OS_WIN.
+// is freed. Currently only available on Windows.
 NET_EXPORT scoped_ptr<ScopedWifiOptions> SetWifiOptions(int options);
 
 }  // namespace net

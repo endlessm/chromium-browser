@@ -23,7 +23,7 @@
 #include "ipc/ipc_message_macros.h"
 #include "ipc/ipc_message_utils.h"
 #include "third_party/WebKit/public/web/WebFormElement.h"
-#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/ipc/gfx_param_traits.h"
 #include "url/gurl.h"
 
@@ -76,7 +76,6 @@ IPC_STRUCT_TRAITS_END()
 IPC_STRUCT_TRAITS_BEGIN(autofill::FormDataPredictions)
   IPC_STRUCT_TRAITS_MEMBER(data)
   IPC_STRUCT_TRAITS_MEMBER(signature)
-  IPC_STRUCT_TRAITS_MEMBER(experiment_id)
   IPC_STRUCT_TRAITS_MEMBER(fields)
 IPC_STRUCT_TRAITS_END()
 
@@ -89,7 +88,6 @@ IPC_STRUCT_TRAITS_BEGIN(autofill::PasswordFormFillData)
   IPC_STRUCT_TRAITS_MEMBER(name)
   IPC_STRUCT_TRAITS_MEMBER(origin)
   IPC_STRUCT_TRAITS_MEMBER(action)
-  IPC_STRUCT_TRAITS_MEMBER(user_submitted)
   IPC_STRUCT_TRAITS_MEMBER(username_field)
   IPC_STRUCT_TRAITS_MEMBER(password_field)
   IPC_STRUCT_TRAITS_MEMBER(preferred_realm)
@@ -124,11 +122,6 @@ using FormsPredictionsMap =
 // Tells the render frame that a user gesture was observed somewhere in the tab
 // (including in a different frame).
 IPC_MESSAGE_ROUTED0(AutofillMsg_FirstUserGestureObservedInTab)
-
-// Instructs the renderer to immediately return an IPC acknowledging the ping.
-// This is used to correctly sequence events, since IPCs are guaranteed to be
-// processed in order.
-IPC_MESSAGE_ROUTED0(AutofillMsg_Ping)
 
 // Instructs the renderer to fill the active form with the given form data.
 IPC_MESSAGE_ROUTED2(AutofillMsg_FillForm,
@@ -311,6 +304,11 @@ IPC_MESSAGE_ROUTED0(AutofillHostMsg_DidEndTextFieldEditing)
 
 // Instructs the browser to hide the Autofill popup if it is open.
 IPC_MESSAGE_ROUTED0(AutofillHostMsg_HidePopup)
+
+// Instructs the browser that generation is available for this particular form.
+// This is used for UMA stats.
+IPC_MESSAGE_ROUTED1(AutofillHostMsg_GenerationAvailableForForm,
+                    autofill::PasswordForm)
 
 // Instructs the browser to show the password generation popup at the
 // specified location. This location should be specified in the renderers

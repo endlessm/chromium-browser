@@ -50,7 +50,7 @@ namespace {
 
 ACTION(QuitUIMessageLoop) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::MessageLoop::current()->Quit();
+  base::MessageLoop::current()->QuitWhenIdle();
 }
 
 // From the mock's argument #0 of type const std::vector<PasswordForm*>& takes
@@ -163,7 +163,7 @@ void CheckFormsAgainstExpectations(
         created + base::TimeDelta::FromDays(
                       password_manager::kTestingDaysAfterPasswordsAreSynced),
         form->date_synced);
-    EXPECT_EQ(GURL(password_manager::kTestingAvatarUrlSpec), form->avatar_url);
+    EXPECT_EQ(GURL(password_manager::kTestingIconUrlSpec), form->icon_url);
   }
 }
 
@@ -1204,10 +1204,7 @@ class PasswordStoreMacTest : public testing::Test {
     // OSCrypt shouldn't call the Keychain. The histogram doesn't cover the
     // internet passwords.
     if (histogram_tester_) {
-      scoped_ptr<base::HistogramSamples> samples =
-          histogram_tester_->GetHistogramSamplesSinceCreation(
-              "OSX.Keychain.Access");
-      EXPECT_TRUE(!samples || samples->TotalCount() == 0);
+      histogram_tester_->ExpectTotalCount("OSX.Keychain.Access", 0);
     }
   }
 
@@ -1454,6 +1451,8 @@ TEST_F(PasswordStoreMacTest, TestDBKeychainAssociation) {
   base::MessageLoop::current()->Run();
 
   // 3. Add the returned password for m.facebook.com.
+  returned_form.signon_realm = "http://m.facebook.com";
+  returned_form.origin = GURL("http://m.facebook.com/index.html");
   EXPECT_EQ(AddChangeForForm(returned_form),
             login_db()->AddLogin(returned_form));
   owned_keychain_adapter.AddPassword(m_form);
@@ -1531,8 +1530,6 @@ void CheckRemoveLoginsBetween(PasswordStoreMacTest* test, bool check_created) {
   scoped_ptr<PasswordForm> form_other =
       CreatePasswordFormFromDataForTesting(www_form_data_other);
   base::Time now = base::Time::Now();
-  // TODO(vasilii): remove the next line once crbug/374132 is fixed.
-  now = base::Time::FromTimeT(now.ToTimeT());
   base::Time next_day = now + base::TimeDelta::FromDays(1);
   if (check_created) {
     form_facebook_old->date_created = now;

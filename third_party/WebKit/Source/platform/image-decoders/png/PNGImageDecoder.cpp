@@ -39,8 +39,6 @@
 #include "config.h"
 #include "platform/image-decoders/png/PNGImageDecoder.h"
 
-#include "wtf/PassOwnPtr.h"
-
 #include "png.h"
 #if !defined(PNG_LIBPNG_VER_MAJOR) || !defined(PNG_LIBPNG_VER_MINOR)
 #error version error: compile against a versioned libpng.
@@ -87,11 +85,11 @@ void PNGAPI pngFailed(png_structp png, png_const_charp)
 namespace blink {
 
 class PNGImageReader {
-    WTF_MAKE_FAST_ALLOCATED(PNGImageReader);
+    USING_FAST_MALLOC(PNGImageReader);
 public:
-    PNGImageReader(PNGImageDecoder* decoder)
+    PNGImageReader(PNGImageDecoder* decoder, unsigned readOffset)
         : m_decoder(decoder)
-        , m_readOffset(0)
+        , m_readOffset(readOffset)
         , m_currentBufferSize(0)
         , m_decodingSizeOnly(false)
         , m_hasAlpha(false)
@@ -107,17 +105,12 @@ public:
 
     ~PNGImageReader()
     {
-        close();
-    }
-
-    void close()
-    {
-        if (m_png && m_info)
-            // This will zero the pointers.
-            png_destroy_read_struct(&m_png, &m_info, 0);
 #if USE(QCMSLIB)
         clearColorTransform();
 #endif
+        png_destroy_read_struct(m_png ? &m_png : 0, m_info ? &m_info : 0, 0);
+        ASSERT(!m_png && !m_info);
+
         m_readOffset = 0;
     }
 
@@ -204,9 +197,10 @@ private:
 #endif
 };
 
-PNGImageDecoder::PNGImageDecoder(ImageSource::AlphaOption alphaOption, ImageSource::GammaAndColorProfileOption colorOptions, size_t maxDecodedBytes)
+PNGImageDecoder::PNGImageDecoder(AlphaOption alphaOption, GammaAndColorProfileOption colorOptions, size_t maxDecodedBytes, unsigned offset)
     : ImageDecoder(alphaOption, colorOptions, maxDecodedBytes)
     , m_hasColorProfile(false)
+    , m_offset(offset)
 {
 }
 
@@ -495,7 +489,7 @@ void PNGImageDecoder::decode(bool onlySize)
         return;
 
     if (!m_reader)
-        m_reader = adoptPtr(new PNGImageReader(this));
+        m_reader = adoptPtr(new PNGImageReader(this, m_offset));
 
     // If we couldn't decode the image but have received all the data, decoding
     // has failed.

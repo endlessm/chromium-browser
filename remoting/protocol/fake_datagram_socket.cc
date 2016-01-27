@@ -51,7 +51,8 @@ base::WeakPtr<FakeDatagramSocket> FakeDatagramSocket::GetWeakPtr() {
   return weak_factory_.GetWeakPtr();
 }
 
-int FakeDatagramSocket::Read(net::IOBuffer* buf, int buf_len,
+int FakeDatagramSocket::Recv(const scoped_refptr<net::IOBuffer>& buf,
+                             int buf_len,
                              const net::CompletionCallback& callback) {
   EXPECT_TRUE(task_runner_->BelongsToCurrentThread());
   if (input_pos_ < static_cast<int>(input_packets_.size())) {
@@ -64,34 +65,59 @@ int FakeDatagramSocket::Read(net::IOBuffer* buf, int buf_len,
   }
 }
 
-int FakeDatagramSocket::Write(net::IOBuffer* buf, int buf_len,
-                         const net::CompletionCallback& callback) {
+int FakeDatagramSocket::Send(const scoped_refptr<net::IOBuffer>& buf,
+                             int buf_len,
+                             const net::CompletionCallback& callback) {
   EXPECT_TRUE(task_runner_->BelongsToCurrentThread());
+  EXPECT_FALSE(send_pending_);
+
+  if (async_send_) {
+    send_pending_ = true;
+    task_runner_->PostTask(
+        FROM_HERE,
+        base::Bind(&FakeDatagramSocket::DoAsyncSend, weak_factory_.GetWeakPtr(),
+                   buf, buf_len, callback));
+    return net::ERR_IO_PENDING;
+  } else {
+    return DoSend(buf, buf_len);
+  }
+}
+
+void FakeDatagramSocket::DoAsyncSend(const scoped_refptr<net::IOBuffer>& buf,
+                                     int buf_len,
+                                     const net::CompletionCallback& callback) {
+  EXPECT_TRUE(task_runner_->BelongsToCurrentThread());
+
+  EXPECT_TRUE(send_pending_);
+  send_pending_ = false;
+  callback.Run(DoSend(buf, buf_len));
+}
+
+int FakeDatagramSocket::DoSend(const scoped_refptr<net::IOBuffer>& buf,
+                               int buf_len) {
+  EXPECT_TRUE(task_runner_->BelongsToCurrentThread());
+
+  if (next_send_error_ != net::OK) {
+    int r = next_send_error_;
+    next_send_error_ = net::OK;
+    return r;
+  }
+
   written_packets_.push_back(std::string());
   written_packets_.back().assign(buf->data(), buf->data() + buf_len);
 
   if (peer_socket_.get()) {
     task_runner_->PostTask(
         FROM_HERE,
-        base::Bind(&FakeDatagramSocket::AppendInputPacket,
-                   peer_socket_,
+        base::Bind(&FakeDatagramSocket::AppendInputPacket, peer_socket_,
                    std::string(buf->data(), buf->data() + buf_len)));
   }
 
   return buf_len;
 }
 
-int FakeDatagramSocket::SetReceiveBufferSize(int32 size) {
-  NOTIMPLEMENTED();
-  return net::ERR_NOT_IMPLEMENTED;
-}
-
-int FakeDatagramSocket::SetSendBufferSize(int32 size) {
-  NOTIMPLEMENTED();
-  return net::ERR_NOT_IMPLEMENTED;
-}
-
-int FakeDatagramSocket::CopyReadData(net::IOBuffer* buf, int buf_len) {
+int FakeDatagramSocket::CopyReadData(const scoped_refptr<net::IOBuffer>& buf,
+                                     int buf_len) {
   int size = std::min(
       buf_len, static_cast<int>(input_packets_[input_pos_].size()));
   memcpy(buf->data(), &(*input_packets_[input_pos_].begin()), size);

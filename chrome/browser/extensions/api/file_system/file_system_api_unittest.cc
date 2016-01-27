@@ -61,13 +61,15 @@ AcceptOption* BuildAcceptOption(const std::string& description,
     option->description.reset(new std::string(description));
 
   if (!mime_types.empty()) {
-    option->mime_types.reset(new std::vector<std::string>());
-    base::SplitString(mime_types, ',', option->mime_types.get());
+    option->mime_types.reset(new std::vector<std::string>(
+        base::SplitString(mime_types, ",",
+                          base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)));
   }
 
   if (!extensions.empty()) {
-    option->extensions.reset(new std::vector<std::string>());
-    base::SplitString(extensions, ',', option->extensions.get());
+    option->extensions.reset(new std::vector<std::string>(
+        base::SplitString(extensions, ",",
+                          base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)));
   }
 
   return option;
@@ -364,8 +366,10 @@ TEST_F(FileSystemApiConsentProviderTest, ForKioskApps) {
                                .SetBoolean("kiosk_enabled", true)
                                .SetBoolean("kiosk_only", true))
             .Build());
-    user_manager_->AddKioskAppUser(auto_launch_kiosk_app->id());
-    user_manager_->LoginUser(auto_launch_kiosk_app->id());
+    user_manager_->AddKioskAppUser(
+        AccountId::FromUserEmail(auto_launch_kiosk_app->id()));
+    user_manager_->LoginUser(
+        AccountId::FromUserEmail(auto_launch_kiosk_app->id()));
 
     TestingConsentProviderDelegate delegate;
     delegate.SetIsAutoLaunched(true);
@@ -391,7 +395,8 @@ TEST_F(FileSystemApiConsentProviderTest, ForKioskApps) {
                              .SetBoolean("kiosk_enabled", true)
                              .SetBoolean("kiosk_only", true))
           .Build());
-  user_manager_->KioskAppLoggedIn(manual_launch_kiosk_app->id());
+  user_manager_->KioskAppLoggedIn(
+      AccountId::FromUserEmail(manual_launch_kiosk_app->id()));
   {
     TestingConsentProviderDelegate delegate;
     delegate.SetDialogButton(ui::DIALOG_BUTTON_OK);

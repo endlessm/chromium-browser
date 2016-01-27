@@ -66,7 +66,7 @@ class PDFiumEngine : public PDFEngine,
       uint32_t page_range_count,
       const PP_PrintSettings_Dev& print_settings);
   virtual void PrintEnd();
-  virtual void StartFind(const char* text, bool case_sensitive);
+  virtual void StartFind(const std::string& text, bool case_sensitive);
   virtual bool SelectFindResult(bool forward);
   virtual void StopFind();
   virtual void ZoomUpdated(double new_zoom_level);
@@ -84,6 +84,7 @@ class PDFiumEngine : public PDFEngine,
   virtual int GetMostVisiblePage();
   virtual pp::Rect GetPageRect(int index);
   virtual pp::Rect GetPageContentsRect(int index);
+  virtual pp::Rect GetPageScreenRect(int page_index) const;
   virtual int GetVerticalScrollbarYPosition() { return position_.y(); }
   virtual void PaintThumbnail(pp::ImageData* image_data, int index);
   virtual void SetGrayscale(bool grayscale);
@@ -98,6 +99,7 @@ class PDFiumEngine : public PDFEngine,
   virtual pp::Point GetScrollPosition();
   virtual void SetScrollPosition(const pp::Point& position);
   virtual bool IsProgressiveLoad();
+  virtual std::string GetMetadata(const std::string& key);
 
   // DocumentLoader::Client implementation.
   virtual pp::Instance* GetPluginInstance();
@@ -372,10 +374,6 @@ class PDFiumEngine : public PDFEngine,
 
   // Returns the currently visible rectangle in document coordinates.
   pp::Rect GetVisibleRect() const;
-
-  // Returns a page's rect in screen coordinates, as well as its surrounding
-  // border areas and bottom separator.
-  pp::Rect GetPageScreenRect(int page_index) const;
 
   // Given a rectangle in document coordinates, returns the rectange into screen
   // coordinates (i.e. 0,0 is top left corner of plugin area).  If it's not

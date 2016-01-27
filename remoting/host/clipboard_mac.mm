@@ -30,7 +30,6 @@ class ClipboardMac : public Clipboard {
   ClipboardMac();
   ~ClipboardMac() override;
 
-  // Must be called on the UI thread.
   void Start(scoped_ptr<protocol::ClipboardStub> client_clipboard) override;
   void InjectClipboardEvent(const protocol::ClipboardEvent& event) override;
 
@@ -38,20 +37,15 @@ class ClipboardMac : public Clipboard {
   void CheckClipboardForChanges();
 
   scoped_ptr<protocol::ClipboardStub> client_clipboard_;
-  scoped_ptr<base::RepeatingTimer<ClipboardMac> > clipboard_polling_timer_;
+  scoped_ptr<base::RepeatingTimer> clipboard_polling_timer_;
   NSInteger current_change_count_;
 
   DISALLOW_COPY_AND_ASSIGN(ClipboardMac);
 };
 
-ClipboardMac::ClipboardMac() : current_change_count_(0) {
-}
+ClipboardMac::ClipboardMac() : current_change_count_(0) {}
 
-ClipboardMac::~ClipboardMac() {
-  // In it2me the destructor is not called in the same thread that the timer is
-  // created. Thus the timer must have already been destroyed by now.
-  DCHECK(clipboard_polling_timer_.get() == nullptr);
-}
+ClipboardMac::~ClipboardMac() {}
 
 void ClipboardMac::Start(scoped_ptr<protocol::ClipboardStub> client_clipboard) {
   client_clipboard_.reset(client_clipboard.release());
@@ -62,7 +56,7 @@ void ClipboardMac::Start(scoped_ptr<protocol::ClipboardStub> client_clipboard) {
 
   // OS X doesn't provide a clipboard-changed notification. The only way to
   // detect clipboard changes is by polling.
-  clipboard_polling_timer_.reset(new base::RepeatingTimer<ClipboardMac>());
+  clipboard_polling_timer_.reset(new base::RepeatingTimer());
   clipboard_polling_timer_->Start(FROM_HERE,
       base::TimeDelta::FromMilliseconds(kClipboardPollingIntervalMs),
       this, &ClipboardMac::CheckClipboardForChanges);

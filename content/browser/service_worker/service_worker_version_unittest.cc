@@ -10,8 +10,9 @@
 #include "content/browser/service_worker/service_worker_context_core.h"
 #include "content/browser/service_worker/service_worker_registration.h"
 #include "content/browser/service_worker/service_worker_test_utils.h"
-#include "content/browser/service_worker/service_worker_utils.h"
 #include "content/browser/service_worker/service_worker_version.h"
+#include "content/common/service_worker/service_worker_utils.h"
+#include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -22,8 +23,8 @@
 
 #define IPC_MESSAGE_START TestMsgStart
 
-IPC_MESSAGE_CONTROL0(TestMsg_Message);
-IPC_MESSAGE_ROUTED1(TestMsg_MessageFromWorker, int);
+IPC_MESSAGE_CONTROL0(TestMsg_Message)
+IPC_MESSAGE_ROUTED1(TestMsg_MessageFromWorker, int)
 
 // ---------------------------------------------------------------------------
 
@@ -31,12 +32,10 @@ namespace content {
 
 namespace {
 
-static const int kRenderProcessId = 1;
-
 class MessageReceiver : public EmbeddedWorkerTestHelper {
  public:
   MessageReceiver()
-      : EmbeddedWorkerTestHelper(base::FilePath(), kRenderProcessId),
+      : EmbeddedWorkerTestHelper(base::FilePath()),
         current_embedded_worker_id_(0) {}
   ~MessageReceiver() override {}
 
@@ -151,15 +150,14 @@ class ServiceWorkerVersionTest : public testing::Test {
   void SetUp() override {
     helper_ = GetMessageReceiver();
 
-    pattern_ = GURL("http://www.example.com/");
+    pattern_ = GURL("http://www.example.com/test/");
     registration_ = new ServiceWorkerRegistration(
         pattern_,
         1L,
         helper_->context()->AsWeakPtr());
     version_ = new ServiceWorkerVersion(
         registration_.get(),
-        GURL("http://www.example.com/service_worker.js"),
-        1L,
+        GURL("http://www.example.com/test/service_worker.js"), 1L,
         helper_->context()->AsWeakPtr());
     std::vector<ServiceWorkerDatabase::ResourceRecord> records;
     records.push_back(
@@ -178,7 +176,8 @@ class ServiceWorkerVersionTest : public testing::Test {
     ASSERT_EQ(SERVICE_WORKER_OK, status);
 
     // Simulate adding one process to the pattern.
-    helper_->SimulateAddProcessToPattern(pattern_, kRenderProcessId);
+    helper_->SimulateAddProcessToPattern(pattern_,
+                                         helper_->mock_render_process_id());
     ASSERT_TRUE(helper_->context()->process_manager()
         ->PatternHasProcessToRun(pattern_));
   }
@@ -231,6 +230,31 @@ class ServiceWorkerFailToStartTest : public ServiceWorkerVersionTest {
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ServiceWorkerFailToStartTest);
+};
+
+class MessageReceiverDisallowStop : public MessageReceiver {
+ public:
+  MessageReceiverDisallowStop() : MessageReceiver() {}
+  ~MessageReceiverDisallowStop() override {}
+
+  void OnStopWorker(int embedded_worker_id) override {
+    // Do nothing.
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(MessageReceiverDisallowStop);
+};
+
+class ServiceWorkerStallInStoppingTest : public ServiceWorkerVersionTest {
+ protected:
+  ServiceWorkerStallInStoppingTest() : ServiceWorkerVersionTest() {}
+
+  scoped_ptr<MessageReceiver> GetMessageReceiver() override {
+    return make_scoped_ptr(new MessageReceiverDisallowStop());
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(ServiceWorkerStallInStoppingTest);
 };
 
 class MessageReceiverDisallowFetch : public MessageReceiver {
@@ -343,6 +367,46 @@ TEST_F(ServiceWorkerVersionTest, DispatchEventToStoppedWorker) {
   version_->DispatchInstallEvent(CreateReceiverOnCurrentThread(&status));
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(SERVICE_WORKER_OK, stop_status);
+
+  // Dispatch an event should return SERVICE_WORKER_OK since the worker
+  // should have been restarted to dispatch the event.
+  EXPECT_EQ(SERVICE_WORKER_OK, status);
+
+  // The worker should be now started again.
+  EXPECT_EQ(ServiceWorkerVersion::RUNNING, version_->running_status());
+}
+
+TEST_F(ServiceWorkerVersionTest, StartUnregisteredButStillLiveWorker) {
+  // Start the worker.
+  ServiceWorkerStatusCode status = SERVICE_WORKER_ERROR_FAILED;
+  version_->StartWorker(CreateReceiverOnCurrentThread(&status));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(ServiceWorkerVersion::RUNNING, version_->running_status());
+  version_->SetStatus(ServiceWorkerVersion::ACTIVATED);
+
+  // Delete the registration.
+  status = SERVICE_WORKER_ERROR_FAILED;
+  helper_->context()->storage()->DeleteRegistration(
+      registration_->id(), registration_->pattern().GetOrigin(),
+      CreateReceiverOnCurrentThread(&status));
+  base::RunLoop().RunUntilIdle();
+  ASSERT_EQ(SERVICE_WORKER_OK, status);
+
+  // The live registration is marked as deleted, but still exists.
+  ASSERT_TRUE(registration_->is_deleted());
+
+  // Stop the worker.
+  ServiceWorkerStatusCode stop_status = SERVICE_WORKER_ERROR_FAILED;
+  version_->StopWorker(CreateReceiverOnCurrentThread(&stop_status));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(SERVICE_WORKER_OK, stop_status);
+
+  // Dispatch an event on the unregistered and stopped but still live worker.
+  status = SERVICE_WORKER_ERROR_FAILED;
+  version_->DispatchFetchEvent(ServiceWorkerFetchRequest(),
+                               base::Bind(&base::DoNothing),
+                               base::Bind(&ReceiveFetchResult, &status));
+  base::RunLoop().RunUntilIdle();
 
   // Dispatch an event should return SERVICE_WORKER_OK since the worker
   // should have been restarted to dispatch the event.
@@ -506,6 +570,24 @@ TEST_F(ServiceWorkerVersionTest, IdleTimeout) {
 
   EXPECT_EQ(SERVICE_WORKER_OK, status);
   EXPECT_LT(idle_time, version_->idle_time_);
+}
+
+// Test that the worker stays alive for some time after
+// receiving a push event.
+// TODO(falken): Remove this test once Facebook doesn't rely on the behavior:
+// crbug.com/519993
+TEST_F(ServiceWorkerVersionTest, StayAliveAfterPush) {
+  const base::TimeDelta kTenSeconds = base::TimeDelta::FromSeconds(10);
+  ServiceWorkerStatusCode status = SERVICE_WORKER_ERROR_FAILED;
+  version_->SetStatus(ServiceWorkerVersion::ACTIVATED);
+  version_->DispatchPushEvent(CreateReceiverOnCurrentThread(&status),
+                              std::string());
+  base::RunLoop().RunUntilIdle();
+
+  // Pretend we've been idle for 10 seconds and fire the timeout code.
+  version_->idle_time_ = base::TimeTicks::Now() - kTenSeconds;
+  version_->OnTimeoutTimer();
+  EXPECT_EQ(ServiceWorkerVersion::RUNNING, version_->running_status());
 }
 
 TEST_F(ServiceWorkerVersionTest, SetDevToolsAttached) {
@@ -745,6 +827,133 @@ TEST_F(ServiceWorkerFailToStartTest, Timeout) {
   base::RunLoop().RunUntilIdle();
   EXPECT_EQ(SERVICE_WORKER_ERROR_TIMEOUT, status);
   EXPECT_EQ(ServiceWorkerVersion::STOPPED, version_->running_status());
+}
+
+// Test that a service worker stalled in stopping will timeout and not get in a
+// sticky error state.
+TEST_F(ServiceWorkerStallInStoppingTest, DetachThenStart) {
+  // Start a worker.
+  ServiceWorkerStatusCode status = SERVICE_WORKER_ERROR_FAILED;
+  version_->StartWorker(CreateReceiverOnCurrentThread(&status));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(SERVICE_WORKER_OK, status);
+  EXPECT_EQ(ServiceWorkerVersion::RUNNING, version_->running_status());
+
+  // Try to stop the worker.
+  status = SERVICE_WORKER_ERROR_FAILED;
+  version_->StopWorker(CreateReceiverOnCurrentThread(&status));
+  EXPECT_EQ(ServiceWorkerVersion::STOPPING, version_->running_status());
+  base::RunLoop().RunUntilIdle();
+
+  // Worker is now stalled in stopping. Verify a fast timeout is in place.
+  EXPECT_TRUE(version_->timeout_timer_.IsRunning());
+  EXPECT_EQ(base::TimeDelta::FromSeconds(
+                ServiceWorkerVersion::kStopWorkerTimeoutSeconds),
+            version_->timeout_timer_.GetCurrentDelay());
+
+  // Simulate timeout.
+  version_->stop_time_ =
+      base::TimeTicks::Now() -
+      base::TimeDelta::FromSeconds(
+          ServiceWorkerVersion::kStopWorkerTimeoutSeconds + 1);
+  version_->timeout_timer_.user_task().Run();
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(SERVICE_WORKER_OK, status);
+  EXPECT_EQ(ServiceWorkerVersion::STOPPED, version_->running_status());
+
+  // Try to start the worker again. It should work.
+  status = SERVICE_WORKER_ERROR_FAILED;
+  version_->StartWorker(CreateReceiverOnCurrentThread(&status));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(SERVICE_WORKER_OK, status);
+  EXPECT_EQ(ServiceWorkerVersion::RUNNING, version_->running_status());
+
+  // The timeout interval should be reset to normal.
+  EXPECT_TRUE(version_->timeout_timer_.IsRunning());
+  EXPECT_EQ(base::TimeDelta::FromSeconds(
+                ServiceWorkerVersion::kTimeoutTimerDelaySeconds),
+            version_->timeout_timer_.GetCurrentDelay());
+}
+
+// Test that a service worker stalled in stopping with a start worker
+// request queued up will timeout and restart.
+TEST_F(ServiceWorkerStallInStoppingTest, DetachThenRestart) {
+  // Start a worker.
+  ServiceWorkerStatusCode status = SERVICE_WORKER_ERROR_FAILED;
+  version_->StartWorker(CreateReceiverOnCurrentThread(&status));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(SERVICE_WORKER_OK, status);
+  EXPECT_EQ(ServiceWorkerVersion::RUNNING, version_->running_status());
+
+  // Try to stop the worker.
+  status = SERVICE_WORKER_ERROR_FAILED;
+  version_->StopWorker(CreateReceiverOnCurrentThread(&status));
+  EXPECT_EQ(ServiceWorkerVersion::STOPPING, version_->running_status());
+
+  // Worker is now stalled in stopping. Add a start worker requset.
+  ServiceWorkerStatusCode start_status = SERVICE_WORKER_ERROR_FAILED;
+  version_->StartWorker(CreateReceiverOnCurrentThread(&start_status));
+
+  // Simulate timeout. The worker should stop and get restarted.
+  EXPECT_TRUE(version_->timeout_timer_.IsRunning());
+  version_->stop_time_ =
+      base::TimeTicks::Now() -
+      base::TimeDelta::FromSeconds(
+          ServiceWorkerVersion::kStopWorkerTimeoutSeconds + 1);
+  version_->timeout_timer_.user_task().Run();
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(SERVICE_WORKER_OK, status);
+  EXPECT_EQ(SERVICE_WORKER_OK, start_status);
+  EXPECT_EQ(ServiceWorkerVersion::RUNNING, version_->running_status());
+}
+
+TEST_F(ServiceWorkerVersionTest, RegisterForeignFetchScopes) {
+  version_->SetStatus(ServiceWorkerVersion::INSTALLING);
+  // Start a worker.
+  ServiceWorkerStatusCode status = SERVICE_WORKER_ERROR_FAILED;
+  version_->StartWorker(CreateReceiverOnCurrentThread(&status));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(SERVICE_WORKER_OK, status);
+  EXPECT_EQ(ServiceWorkerVersion::RUNNING, version_->running_status());
+  EXPECT_EQ(0, helper_->mock_render_process_host()->bad_msg_count());
+
+  // Invalid URL, should kill worker (but in tests will only increase bad
+  // message count).
+  version_->OnRegisterForeignFetchScopes(std::vector<GURL>(1, GURL()));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(1, helper_->mock_render_process_host()->bad_msg_count());
+  EXPECT_EQ(0u, version_->foreign_fetch_scopes_.size());
+
+  // URL outside the scope of the worker.
+  version_->OnRegisterForeignFetchScopes(
+      std::vector<GURL>(1, GURL("http://www.example.com/wrong")));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(2, helper_->mock_render_process_host()->bad_msg_count());
+  EXPECT_EQ(0u, version_->foreign_fetch_scopes_.size());
+
+  // URL on wrong origin.
+  version_->OnRegisterForeignFetchScopes(
+      std::vector<GURL>(1, GURL("http://example.com/test/")));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(3, helper_->mock_render_process_host()->bad_msg_count());
+  EXPECT_EQ(0u, version_->foreign_fetch_scopes_.size());
+
+  // Valid URL 1.
+  GURL valid_scope_1("http://www.example.com/test/subscope");
+  version_->OnRegisterForeignFetchScopes(std::vector<GURL>(1, valid_scope_1));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(3, helper_->mock_render_process_host()->bad_msg_count());
+  EXPECT_EQ(1u, version_->foreign_fetch_scopes_.size());
+  EXPECT_EQ(valid_scope_1, version_->foreign_fetch_scopes_[0]);
+
+  // Valid URL 2.
+  GURL valid_scope_2("http://www.example.com/test/subscope");
+  version_->OnRegisterForeignFetchScopes(std::vector<GURL>(1, valid_scope_2));
+  base::RunLoop().RunUntilIdle();
+  EXPECT_EQ(3, helper_->mock_render_process_host()->bad_msg_count());
+  EXPECT_EQ(2u, version_->foreign_fetch_scopes_.size());
+  EXPECT_EQ(valid_scope_1, version_->foreign_fetch_scopes_[0]);
+  EXPECT_EQ(valid_scope_2, version_->foreign_fetch_scopes_[1]);
 }
 
 }  // namespace content

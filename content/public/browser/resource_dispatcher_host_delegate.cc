@@ -60,6 +60,7 @@ bool ResourceDispatcherHostDelegate::ShouldForceDownloadResource(
 
 bool ResourceDispatcherHostDelegate::ShouldInterceptResourceAsStream(
     net::URLRequest* request,
+    const base::FilePath& plugin_path,
     const std::string& mime_type,
     GURL* origin,
     std::string* payload) {
@@ -87,6 +88,12 @@ void ResourceDispatcherHostDelegate::OnRequestRedirected(
 
 void ResourceDispatcherHostDelegate::RequestComplete(
     net::URLRequest* url_request) {
+}
+
+bool ResourceDispatcherHostDelegate::ShouldEnableLoFiMode(
+    const net::URLRequest& url_request,
+    content::ResourceContext* resource_context) {
+  return false;
 }
 
 ResourceDispatcherHostDelegate::ResourceDispatcherHostDelegate() {

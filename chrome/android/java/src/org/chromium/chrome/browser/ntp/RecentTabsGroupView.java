@@ -13,8 +13,9 @@ import android.widget.ImageView;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
+import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ForeignSessionHelper.ForeignSession;
+import org.chromium.chrome.browser.ntp.ForeignSessionHelper.ForeignSession;
 import org.chromium.chrome.browser.widget.TintedDrawable;
 import org.chromium.ui.base.DeviceFormFactor;
 
@@ -50,10 +51,13 @@ public class RecentTabsGroupView extends RelativeLayout {
     public RecentTabsGroupView(Context context, AttributeSet attrs) {
         super(context, attrs);
         Resources res = getResources();
-        mDeviceLabelExpandedColor = res.getColor(R.color.light_active_color);
-        mDeviceLabelCollapsedColor = res.getColor(R.color.ntp_list_header_text);
-        mTimeLabelExpandedColor = res.getColor(R.color.ntp_list_header_subtext_active);
-        mTimeLabelCollapsedColor = res.getColor(R.color.ntp_list_header_subtext);
+        mDeviceLabelExpandedColor = ApiCompatibilityUtils.getColor(res, R.color.light_active_color);
+        mDeviceLabelCollapsedColor =
+                ApiCompatibilityUtils.getColor(res, R.color.ntp_list_header_text);
+        mTimeLabelExpandedColor =
+                ApiCompatibilityUtils.getColor(res, R.color.ntp_list_header_subtext_active);
+        mTimeLabelCollapsedColor =
+                ApiCompatibilityUtils.getColor(res, R.color.ntp_list_header_subtext);
     }
 
     @Override
@@ -67,10 +71,11 @@ public class RecentTabsGroupView extends RelativeLayout {
         // Create drawable for expand/collapse arrow.
         LevelListDrawable collapseIcon = new LevelListDrawable();
         collapseIcon.addLevel(DRAWABLE_LEVEL_COLLAPSED, DRAWABLE_LEVEL_COLLAPSED,
-                TintedDrawable.constructTintedDrawable(getResources(), R.drawable.ic_expand));
+                TintedDrawable.constructTintedDrawable(getResources(), R.drawable.ic_expanded));
         TintedDrawable collapse =
-                TintedDrawable.constructTintedDrawable(getResources(), R.drawable.ic_collapse);
-        collapse.setTint(getResources().getColorStateList(R.color.blue_mode_tint));
+                TintedDrawable.constructTintedDrawable(getResources(), R.drawable.ic_collapsed);
+        collapse.setTint(
+                ApiCompatibilityUtils.getColorStateList(getResources(), R.color.blue_mode_tint));
         collapseIcon.addLevel(DRAWABLE_LEVEL_EXPANDED, DRAWABLE_LEVEL_EXPANDED, collapse);
         mExpandCollapseIcon.setImageDrawable(collapseIcon);
     }

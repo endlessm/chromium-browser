@@ -8,9 +8,10 @@
 
 #include "base/basictypes.h"
 #include "base/bind.h"
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
 #include "base/metrics/histogram.h"
 #include "base/strings/string_number_conversions.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/time/clock.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
@@ -544,7 +545,7 @@ void MCSClient::MaybeSendMessage() {
         packet->persistent_id,
         base::Bind(&MCSClient::OnGCMUpdateFinished,
                    weak_ptr_factory_.GetWeakPtr()));
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
             FROM_HERE,
             base::Bind(&MCSClient::MaybeSendMessage,
                        weak_ptr_factory_.GetWeakPtr()));
@@ -680,8 +681,9 @@ void MCSClient::HandlePacketFromWire(
            << ", stream id " << stream_id_in_ << " and last stream id received "
            << last_stream_id_received;
 
-  if (unacked_server_ids_.size() > 0 &&
-      unacked_server_ids_.size() % kUnackedMessageBeforeStreamAck == 0) {
+  if ((unacked_server_ids_.size() > 0 &&
+       unacked_server_ids_.size() % kUnackedMessageBeforeStreamAck == 0) ||
+      IsImmediateAckRequested(*protobuf)) {
     SendMessage(MCSMessage(kIqStanzaTag, BuildStreamAck()));
   }
 
@@ -717,14 +719,14 @@ void MCSClient::HandlePacketFromWire(
       DCHECK_EQ(1U, stream_id_out_);
 
       // Pass the login response on up.
-      base::MessageLoop::current()->PostTask(
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
           base::Bind(message_received_callback_,
                      MCSMessage(tag, protobuf.Pass())));
 
       // If there are pending messages, attempt to send one.
       if (!to_send_.empty()) {
-        base::MessageLoop::current()->PostTask(
+        base::ThreadTaskRunnerHandle::Get()->PostTask(
             FROM_HERE,
             base::Bind(&MCSClient::MaybeSendMessage,
                        weak_ptr_factory_.GetWeakPtr()));
@@ -788,7 +790,7 @@ void MCSClient::HandlePacketFromWire(
       }
 
       DCHECK(protobuf.get());
-      base::MessageLoop::current()->PostTask(
+      base::ThreadTaskRunnerHandle::Get()->PostTask(
           FROM_HERE,
           base::Bind(message_received_callback_,
                      MCSMessage(tag, protobuf.Pass())));
@@ -896,7 +898,7 @@ void MCSClient::HandleSelectiveAck(const PersistentIdList& id_list) {
     to_send_.push_front(to_resend_.back());
     to_resend_.pop_back();
   }
-  base::MessageLoop::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(&MCSClient::MaybeSendMessage,
                  weak_ptr_factory_.GetWeakPtr()));
@@ -923,7 +925,7 @@ void MCSClient::HandleServerConfirmedReceipt(StreamId device_stream_id) {
 }
 
 MCSClient::PersistentId MCSClient::GetNextPersistentId() {
-  return base::Uint64ToString(base::TimeTicks::Now().ToInternalValue());
+  return base::Int64ToString(base::TimeTicks::Now().ToInternalValue());
 }
 
 void MCSClient::OnConnectionResetByHeartbeat(

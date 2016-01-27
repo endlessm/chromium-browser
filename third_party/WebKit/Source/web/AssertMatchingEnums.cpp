@@ -35,11 +35,11 @@
 
 #include "bindings/core/v8/SerializedScriptValue.h"
 #include "core/dom/AXObjectCache.h"
-#include "core/dom/DocumentMarker.h"
 #include "core/dom/ExceptionCode.h"
 #include "core/dom/IconURL.h"
 #include "core/editing/SelectionType.h"
 #include "core/editing/TextAffinity.h"
+#include "core/editing/markers/DocumentMarker.h"
 #include "core/fileapi/FileError.h"
 #include "core/frame/Frame.h"
 #include "core/frame/Settings.h"
@@ -72,7 +72,6 @@
 #include "platform/fonts/FontDescription.h"
 #include "platform/fonts/FontSmoothingMode.h"
 #include "platform/graphics/filters/FilterOperation.h"
-#include "platform/graphics/media/MediaPlayer.h"
 #include "platform/mediastream/MediaStreamSource.h"
 #include "platform/network/ContentSecurityPolicyParsers.h"
 #include "platform/network/ResourceLoadPriority.h"
@@ -158,8 +157,10 @@ STATIC_ASSERT_MATCHING_ENUM(WebAXEventAutocorrectionOccured, AXObjectCache::AXAu
 STATIC_ASSERT_MATCHING_ENUM(WebAXEventBlur, AXObjectCache::AXBlur);
 STATIC_ASSERT_MATCHING_ENUM(WebAXEventCheckedStateChanged, AXObjectCache::AXCheckedStateChanged);
 STATIC_ASSERT_MATCHING_ENUM(WebAXEventChildrenChanged, AXObjectCache::AXChildrenChanged);
+STATIC_ASSERT_MATCHING_ENUM(WebAXEventDocumentSelectionChanged, AXObjectCache::AXDocumentSelectionChanged);
 STATIC_ASSERT_MATCHING_ENUM(WebAXEventFocus, AXObjectCache::AXFocusedUIElementChanged);
 STATIC_ASSERT_MATCHING_ENUM(WebAXEventHide, AXObjectCache::AXHide);
+STATIC_ASSERT_MATCHING_ENUM(WebAXEventHover, AXObjectCache::AXHover);
 STATIC_ASSERT_MATCHING_ENUM(WebAXEventInvalidStatusChanged, AXObjectCache::AXInvalidStatusChanged);
 STATIC_ASSERT_MATCHING_ENUM(WebAXEventLayoutComplete, AXObjectCache::AXLayoutComplete);
 STATIC_ASSERT_MATCHING_ENUM(WebAXEventLiveRegionChanged, AXObjectCache::AXLiveRegionChanged);
@@ -309,7 +310,6 @@ STATIC_ASSERT_MATCHING_ENUM(WebAXStateFocusable, AXFocusableState);
 STATIC_ASSERT_MATCHING_ENUM(WebAXStateFocused, AXFocusedState);
 STATIC_ASSERT_MATCHING_ENUM(WebAXStateHaspopup, AXHaspopupState);
 STATIC_ASSERT_MATCHING_ENUM(WebAXStateHovered, AXHoveredState);
-STATIC_ASSERT_MATCHING_ENUM(WebAXStateIndeterminate, AXIndeterminateState);
 STATIC_ASSERT_MATCHING_ENUM(WebAXStateInvisible, AXInvisibleState);
 STATIC_ASSERT_MATCHING_ENUM(WebAXStateLinked, AXLinkedState);
 STATIC_ASSERT_MATCHING_ENUM(WebAXStateMultiline, AXMultilineState);
@@ -356,11 +356,18 @@ STATIC_ASSERT_MATCHING_ENUM(WebAXTextStyleItalic, TextStyleItalic);
 STATIC_ASSERT_MATCHING_ENUM(WebAXTextStyleUnderline, TextStyleUnderline);
 STATIC_ASSERT_MATCHING_ENUM(WebAXTextStyleLineThrough, TextStyleLineThrough);
 
+STATIC_ASSERT_MATCHING_ENUM(WebAXNameFromUninitialized, AXNameFromUninitialized);
 STATIC_ASSERT_MATCHING_ENUM(WebAXNameFromAttribute, AXNameFromAttribute);
+STATIC_ASSERT_MATCHING_ENUM(WebAXNameFromCaption, AXNameFromCaption);
 STATIC_ASSERT_MATCHING_ENUM(WebAXNameFromContents, AXNameFromContents);
 STATIC_ASSERT_MATCHING_ENUM(WebAXNameFromPlaceholder, AXNameFromPlaceholder);
 STATIC_ASSERT_MATCHING_ENUM(WebAXNameFromRelatedElement, AXNameFromRelatedElement);
+STATIC_ASSERT_MATCHING_ENUM(WebAXNameFromValue, AXNameFromValue);
+STATIC_ASSERT_MATCHING_ENUM(WebAXNameFromTitle, AXNameFromTitle);
 
+STATIC_ASSERT_MATCHING_ENUM(WebAXDescriptionFromUninitialized, AXDescriptionFromUninitialized);
+STATIC_ASSERT_MATCHING_ENUM(WebAXDescriptionFromAttribute, AXDescriptionFromAttribute);
+STATIC_ASSERT_MATCHING_ENUM(WebAXDescriptionFromContents, AXDescriptionFromContents);
 STATIC_ASSERT_MATCHING_ENUM(WebAXDescriptionFromPlaceholder, AXDescriptionFromPlaceholder);
 STATIC_ASSERT_MATCHING_ENUM(WebAXDescriptionFromRelatedElement, AXDescriptionFromRelatedElement);
 
@@ -449,30 +456,41 @@ STATIC_ASSERT_MATCHING_ENUM(WebFontDescription::Weight900, FontWeight900);
 STATIC_ASSERT_MATCHING_ENUM(WebFontDescription::WeightNormal, FontWeightNormal);
 STATIC_ASSERT_MATCHING_ENUM(WebFontDescription::WeightBold, FontWeightBold);
 
+STATIC_ASSERT_MATCHING_ENUM(WebFrameOwnerProperties::ScrollingMode::Auto, ScrollbarAuto);
+STATIC_ASSERT_MATCHING_ENUM(WebFrameOwnerProperties::ScrollingMode::AlwaysOff, ScrollbarAlwaysOff);
+STATIC_ASSERT_MATCHING_ENUM(WebFrameOwnerProperties::ScrollingMode::AlwaysOn, ScrollbarAlwaysOn);
+
 STATIC_ASSERT_MATCHING_ENUM(WebIconURL::TypeInvalid, InvalidIcon);
 STATIC_ASSERT_MATCHING_ENUM(WebIconURL::TypeFavicon, Favicon);
 STATIC_ASSERT_MATCHING_ENUM(WebIconURL::TypeTouch, TouchIcon);
 STATIC_ASSERT_MATCHING_ENUM(WebIconURL::TypeTouchPrecomposed, TouchPrecomposedIcon);
 
-STATIC_ASSERT_MATCHING_ENUM(WebNode::ElementNode, Node::ELEMENT_NODE);
-STATIC_ASSERT_MATCHING_ENUM(WebNode::AttributeNode, Node::ATTRIBUTE_NODE);
-STATIC_ASSERT_MATCHING_ENUM(WebNode::TextNode, Node::TEXT_NODE);
-STATIC_ASSERT_MATCHING_ENUM(WebNode::CDataSectionNode, Node::CDATA_SECTION_NODE);
-STATIC_ASSERT_MATCHING_ENUM(WebNode::ProcessingInstructionsNode, Node::PROCESSING_INSTRUCTION_NODE);
-STATIC_ASSERT_MATCHING_ENUM(WebNode::CommentNode, Node::COMMENT_NODE);
-STATIC_ASSERT_MATCHING_ENUM(WebNode::DocumentNode, Node::DOCUMENT_NODE);
-STATIC_ASSERT_MATCHING_ENUM(WebNode::DocumentTypeNode, Node::DOCUMENT_TYPE_NODE);
-STATIC_ASSERT_MATCHING_ENUM(WebNode::DocumentFragmentNode, Node::DOCUMENT_FRAGMENT_NODE);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::ShiftKey, PlatformEvent::ShiftKey);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::ControlKey, PlatformEvent::CtrlKey);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::AltKey, PlatformEvent::AltKey);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::MetaKey, PlatformEvent::MetaKey);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::AltGrKey, PlatformEvent::AltGrKey);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::OSKey, PlatformEvent::OSKey);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::FnKey, PlatformEvent::FnKey);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::SymbolKey, PlatformEvent::SymbolKey);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::IsKeyPad, PlatformEvent::IsKeyPad);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::IsAutoRepeat, PlatformEvent::IsAutoRepeat);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::IsLeft, PlatformEvent::IsLeft);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::IsRight, PlatformEvent::IsRight);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::IsTouchAccessibility, PlatformEvent::IsTouchAccessibility);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::IsComposing, PlatformEvent::IsComposing);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::LeftButtonDown, PlatformEvent::LeftButtonDown);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::MiddleButtonDown, PlatformEvent::MiddleButtonDown);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::RightButtonDown, PlatformEvent::RightButtonDown);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::CapsLockOn, PlatformEvent::CapsLockOn);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::NumLockOn, PlatformEvent::NumLockOn);
+STATIC_ASSERT_MATCHING_ENUM(WebInputEvent::ScrollLockOn, PlatformEvent::ScrollLockOn);
 
 STATIC_ASSERT_MATCHING_ENUM(WebMediaPlayer::ReadyStateHaveNothing, HTMLMediaElement::HAVE_NOTHING);
 STATIC_ASSERT_MATCHING_ENUM(WebMediaPlayer::ReadyStateHaveMetadata, HTMLMediaElement::HAVE_METADATA);
 STATIC_ASSERT_MATCHING_ENUM(WebMediaPlayer::ReadyStateHaveCurrentData, HTMLMediaElement::HAVE_CURRENT_DATA);
 STATIC_ASSERT_MATCHING_ENUM(WebMediaPlayer::ReadyStateHaveFutureData, HTMLMediaElement::HAVE_FUTURE_DATA);
 STATIC_ASSERT_MATCHING_ENUM(WebMediaPlayer::ReadyStateHaveEnoughData, HTMLMediaElement::HAVE_ENOUGH_DATA);
-
-STATIC_ASSERT_MATCHING_ENUM(WebMediaPlayer::PreloadNone, MediaPlayer::None);
-STATIC_ASSERT_MATCHING_ENUM(WebMediaPlayer::PreloadMetaData, MediaPlayer::MetaData);
-STATIC_ASSERT_MATCHING_ENUM(WebMediaPlayer::PreloadAuto, MediaPlayer::Auto);
 
 STATIC_ASSERT_MATCHING_ENUM(WebMouseEvent::ButtonNone, NoButton);
 STATIC_ASSERT_MATCHING_ENUM(WebMouseEvent::ButtonLeft, LeftButton);
@@ -514,8 +532,8 @@ STATIC_ASSERT_MATCHING_ENUM(WebSettings::EditingBehaviorWin, EditingWindowsBehav
 STATIC_ASSERT_MATCHING_ENUM(WebSettings::EditingBehaviorUnix, EditingUnixBehavior);
 STATIC_ASSERT_MATCHING_ENUM(WebSettings::EditingBehaviorAndroid, EditingAndroidBehavior);
 
-STATIC_ASSERT_MATCHING_ENUM(WebTextAffinityUpstream, UPSTREAM);
-STATIC_ASSERT_MATCHING_ENUM(WebTextAffinityDownstream, DOWNSTREAM);
+STATIC_ASSERT_MATCHING_ENUM(WebTextAffinityUpstream, TextAffinity::Upstream);
+STATIC_ASSERT_MATCHING_ENUM(WebTextAffinityDownstream, TextAffinity::Downstream);
 
 STATIC_ASSERT_MATCHING_ENUM(WebIDBDatabaseExceptionUnknownError, UnknownError);
 STATIC_ASSERT_MATCHING_ENUM(WebIDBDatabaseExceptionConstraintError, ConstraintError);
@@ -612,10 +630,15 @@ STATIC_ASSERT_MATCHING_ENUM(WebReferrerPolicyOriginWhenCrossOrigin, ReferrerPoli
 STATIC_ASSERT_MATCHING_ENUM(WebContentSecurityPolicyTypeReport, ContentSecurityPolicyHeaderTypeReport);
 STATIC_ASSERT_MATCHING_ENUM(WebContentSecurityPolicyTypeEnforce, ContentSecurityPolicyHeaderTypeEnforce);
 
-STATIC_ASSERT_MATCHING_ENUM(WebURLResponse::Unknown, ResourceResponse::Unknown);
-STATIC_ASSERT_MATCHING_ENUM(WebURLResponse::HTTP_0_9, ResourceResponse::HTTP_0_9);
-STATIC_ASSERT_MATCHING_ENUM(WebURLResponse::HTTP_1_0, ResourceResponse::HTTP_1_0);
-STATIC_ASSERT_MATCHING_ENUM(WebURLResponse::HTTP_1_1, ResourceResponse::HTTP_1_1);
+STATIC_ASSERT_MATCHING_ENUM(WebURLResponse::HTTPVersionUnknown, ResourceResponse::HTTPVersionUnknown);
+STATIC_ASSERT_MATCHING_ENUM(WebURLResponse::HTTPVersion_0_9,
+    ResourceResponse::HTTPVersion_0_9);
+STATIC_ASSERT_MATCHING_ENUM(WebURLResponse::HTTPVersion_1_0,
+    ResourceResponse::HTTPVersion_1_0);
+STATIC_ASSERT_MATCHING_ENUM(WebURLResponse::HTTPVersion_1_1,
+    ResourceResponse::HTTPVersion_1_1);
+STATIC_ASSERT_MATCHING_ENUM(WebURLResponse::HTTPVersion_2_0,
+    ResourceResponse::HTTPVersion_2_0);
 
 STATIC_ASSERT_MATCHING_ENUM(WebFormElement::AutocompleteResultSuccess, HTMLFormElement::AutocompleteResultSuccess);
 STATIC_ASSERT_MATCHING_ENUM(WebFormElement::AutocompleteResultErrorDisabled, HTMLFormElement::AutocompleteResultErrorDisabled);
@@ -659,14 +682,17 @@ STATIC_ASSERT_MATCHING_ENUM(WebCustomHandlersRegistered, NavigatorContentUtilsCl
 STATIC_ASSERT_MATCHING_ENUM(WebCustomHandlersDeclined, NavigatorContentUtilsClient::CustomHandlersDeclined);
 
 STATIC_ASSERT_MATCHING_ENUM(WebTouchActionNone, TouchActionNone);
-STATIC_ASSERT_MATCHING_ENUM(WebTouchActionAuto, TouchActionAuto);
 STATIC_ASSERT_MATCHING_ENUM(WebTouchActionPanLeft, TouchActionPanLeft);
 STATIC_ASSERT_MATCHING_ENUM(WebTouchActionPanRight, TouchActionPanRight);
 STATIC_ASSERT_MATCHING_ENUM(WebTouchActionPanX, TouchActionPanX);
 STATIC_ASSERT_MATCHING_ENUM(WebTouchActionPanUp, TouchActionPanUp);
 STATIC_ASSERT_MATCHING_ENUM(WebTouchActionPanDown, TouchActionPanDown);
 STATIC_ASSERT_MATCHING_ENUM(WebTouchActionPanY, TouchActionPanY);
+STATIC_ASSERT_MATCHING_ENUM(WebTouchActionPan, TouchActionPan);
 STATIC_ASSERT_MATCHING_ENUM(WebTouchActionPinchZoom, TouchActionPinchZoom);
+STATIC_ASSERT_MATCHING_ENUM(WebTouchActionManipulation, TouchActionManipulation);
+STATIC_ASSERT_MATCHING_ENUM(WebTouchActionDoubleTapZoom, TouchActionDoubleTapZoom);
+STATIC_ASSERT_MATCHING_ENUM(WebTouchActionAuto, TouchActionAuto);
 
 STATIC_ASSERT_MATCHING_ENUM(WebSelection::NoSelection, NoSelection);
 STATIC_ASSERT_MATCHING_ENUM(WebSelection::CaretSelection, CaretSelection);
@@ -717,7 +743,7 @@ STATIC_ASSERT_MATCHING_ENUM(WebFrameLoadType::Standard, FrameLoadTypeStandard);
 STATIC_ASSERT_MATCHING_ENUM(WebFrameLoadType::BackForward, FrameLoadTypeBackForward);
 STATIC_ASSERT_MATCHING_ENUM(WebFrameLoadType::Reload, FrameLoadTypeReload);
 STATIC_ASSERT_MATCHING_ENUM(WebFrameLoadType::Same, FrameLoadTypeSame);
-STATIC_ASSERT_MATCHING_ENUM(WebFrameLoadType::RedirectWithLockedBackForwardList, FrameLoadTypeRedirectWithLockedBackForwardList);
+STATIC_ASSERT_MATCHING_ENUM(WebFrameLoadType::ReplaceCurrentItem, FrameLoadTypeReplaceCurrentItem);
 STATIC_ASSERT_MATCHING_ENUM(WebFrameLoadType::InitialInChildFrame, FrameLoadTypeInitialInChildFrame);
 STATIC_ASSERT_MATCHING_ENUM(WebFrameLoadType::InitialHistoryLoad, FrameLoadTypeInitialHistoryLoad);
 STATIC_ASSERT_MATCHING_ENUM(WebFrameLoadType::ReloadFromOrigin, FrameLoadTypeReloadFromOrigin);

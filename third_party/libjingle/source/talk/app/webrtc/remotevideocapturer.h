@@ -51,13 +51,13 @@ class RemoteVideoCapturer : public cricket::VideoCapturer {
       const cricket::VideoFormat& capture_format) override;
   void Stop() override;
   bool IsRunning() override;
-  bool GetPreferredFourccs(std::vector<uint32>* fourccs) override;
+  bool GetPreferredFourccs(std::vector<uint32_t>* fourccs) override;
   bool GetBestCaptureFormat(const cricket::VideoFormat& desired,
                             cricket::VideoFormat* best_format) override;
   bool IsScreencast() const override;
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(RemoteVideoCapturer);
+  RTC_DISALLOW_COPY_AND_ASSIGN(RemoteVideoCapturer);
 };
 
 }  // namespace webrtc

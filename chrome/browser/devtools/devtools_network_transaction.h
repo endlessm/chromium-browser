@@ -5,8 +5,11 @@
 #ifndef CHROME_BROWSER_DEVTOOLS_DEVTOOLS_NETWORK_TRANSACTION_H_
 #define CHROME_BROWSER_DEVTOOLS_DEVTOOLS_NETWORK_TRANSACTION_H_
 
+#include <stdint.h>
+
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
+#include "chrome/browser/devtools/devtools_network_interceptor.h"
 #include "net/base/completion_callback.h"
 #include "net/base/load_states.h"
 #include "net/base/request_priority.h"
@@ -14,7 +17,6 @@
 #include "net/websockets/websocket_handshake_stream_base.h"
 
 class DevToolsNetworkController;
-class DevToolsNetworkInterceptor;
 class GURL;
 
 namespace net {
@@ -39,9 +41,10 @@ class DevToolsNetworkControllerHelper;
 // parameter is saved and replaced with proxy callback. Fail method should be
 // used to simulate network outage. It runs saved callback (if any) with
 // net::ERR_INTERNET_DISCONNECTED result value.
-class DevToolsNetworkTransaction : public net::HttpTransaction {
+class DevToolsNetworkTransaction
+    : public net::HttpTransaction,
+      public DevToolsNetworkInterceptor::Throttable {
  public:
-  static const char kDevToolsRequestInitiator[];
   static const char kDevToolsEmulateNetworkConditionsClientId[];
 
   DevToolsNetworkTransaction(
@@ -50,29 +53,12 @@ class DevToolsNetworkTransaction : public net::HttpTransaction {
 
   ~DevToolsNetworkTransaction() override;
 
-  const net::HttpRequestInfo* request() const { return request_; }
-
-  // Checks if request contains DevTools specific headers. Found values are
-  // remembered and corresponding keys are removed from headers.
-  void ProcessRequest();
-
-  bool failed() const { return failed_; }
-
-  // Runs callback (if any) with net::ERR_INTERNET_DISCONNECTED result value.
-  void Fail();
-
-  int64_t throttled_byte_count() const { return throttled_byte_count_; }
-  void DecreaseThrottledByteCount(int64_t delta) {
-    throttled_byte_count_ -= delta;
-  }
-
-  const std::string& request_initiator() const { return request_initiator_; }
-
-  const std::string& client_id() const {
-    return client_id_;
-  }
-
-  void FireThrottledCallback();
+  // DevToolsNetworkInterceptor::Throttable implementation.
+  void Fail() override;
+  int64_t ThrottledByteCount() override;
+  void Throttled(int64_t count) override;
+  void ThrottleFinished() override;
+  void GetSendEndTiming(base::TimeTicks* send_end) override;
 
   // HttpTransaction methods:
   int Start(const net::HttpRequestInfo* request,
@@ -91,13 +77,15 @@ class DevToolsNetworkTransaction : public net::HttpTransaction {
            const net::CompletionCallback& callback) override;
   void StopCaching() override;
   bool GetFullRequestHeaders(net::HttpRequestHeaders* headers) const override;
-  int64 GetTotalReceivedBytes() const override;
+  int64_t GetTotalReceivedBytes() const override;
+  int64_t GetTotalSentBytes() const override;
   void DoneReading() override;
   const net::HttpResponseInfo* GetResponseInfo() const override;
   net::LoadState GetLoadState() const override;
   net::UploadProgress GetUploadProgress() const override;
   void SetQuicServerInfo(net::QuicServerInfo* quic_server_info) override;
   bool GetLoadTimingInfo(net::LoadTimingInfo* load_timing_info) const override;
+  bool GetRemoteEndpoint(net::IPEndPoint* endpoint) const override;
   void SetPriority(net::RequestPriority priority) override;
   void SetWebSocketHandshakeStreamCreateHelper(
       net::WebSocketHandshakeStreamBase::CreateHelper* create_helper) override;
@@ -112,6 +100,11 @@ class DevToolsNetworkTransaction : public net::HttpTransaction {
   friend class test::DevToolsNetworkControllerHelper;
 
  private:
+  // Checks whether request contains
+  // "X-DevTools-Emulate-Network-Conditions-Client-Id" header.
+  // If it does, header is removed from request, and it's value is returned.
+  void ProcessRequest(std::string* client_id);
+
   // Proxy callback handler. Runs saved callback.
   void OnCallback(int result);
 
@@ -129,10 +122,7 @@ class DevToolsNetworkTransaction : public net::HttpTransaction {
   // True if Fail was already invoked.
   bool failed_;
 
-  // Value of "X-DevTools-Request-Initiator" request header.
-  std::string request_initiator_;
-
-  // Value of "X-DevTools-Emulate-Network-Conditions-Client-Id" request header.
+  // Value of  request header.
   std::string client_id_;
 
   enum CallbackType {

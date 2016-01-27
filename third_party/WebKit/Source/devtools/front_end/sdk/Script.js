@@ -36,10 +36,11 @@
  * @param {number} endColumn
  * @param {boolean} isContentScript
  * @param {boolean} isInternalScript
+ * @param {boolean} isLiveEdit
  * @param {string=} sourceMapURL
  * @param {boolean=} hasSourceURL
  */
-WebInspector.Script = function(debuggerModel, scriptId, sourceURL, startLine, startColumn, endLine, endColumn, isContentScript, isInternalScript, sourceMapURL, hasSourceURL)
+WebInspector.Script = function(debuggerModel, scriptId, sourceURL, startLine, startColumn, endLine, endColumn, isContentScript, isInternalScript, isLiveEdit, sourceMapURL, hasSourceURL)
 {
     WebInspector.SDKObject.call(this, debuggerModel.target());
     this.debuggerModel = debuggerModel;
@@ -51,6 +52,7 @@ WebInspector.Script = function(debuggerModel, scriptId, sourceURL, startLine, st
     this.endColumn = endColumn;
     this._isContentScript = isContentScript;
     this._isInternalScript = isInternalScript;
+    this._isLiveEdit = isLiveEdit;
     this.sourceMapURL = sourceMapURL;
     this.hasSourceURL = hasSourceURL;
 }
@@ -87,6 +89,14 @@ WebInspector.Script.prototype = {
     isInternalScript: function()
     {
         return this._isInternalScript;
+    },
+
+    /**
+     * @return {boolean}
+     */
+    isLiveEdit: function()
+    {
+        return this._isLiveEdit;
     },
 
     /**
@@ -193,18 +203,15 @@ WebInspector.Script.prototype = {
          * @param {?Protocol.Error} error
          * @param {!DebuggerAgent.SetScriptSourceError=} errorData
          * @param {!Array.<!DebuggerAgent.CallFrame>=} callFrames
-         * @param {!Object=} debugData
+         * @param {boolean=} stackChanged
          * @param {!DebuggerAgent.StackTrace=} asyncStackTrace
          */
-        function didEditScriptSource(error, errorData, callFrames, debugData, asyncStackTrace)
+        function didEditScriptSource(error, errorData, callFrames, stackChanged, asyncStackTrace)
         {
-            // FIXME: support debugData.stack_update_needs_step_in flag by calling WebInspector.debugger_model.callStackModified
             if (!error)
                 this._source = newSource;
-            var needsStepIn = !!debugData && debugData["stack_update_needs_step_in"] === true;
+            var needsStepIn = !!stackChanged;
             callback(error, errorData, callFrames, asyncStackTrace, needsStepIn);
-            if (!error)
-                this.dispatchEventToListeners(WebInspector.Script.Events.ScriptEdited, newSource);
         }
 
         newSource = WebInspector.Script._trimSourceURLComment(newSource);

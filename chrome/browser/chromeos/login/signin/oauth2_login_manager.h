@@ -166,7 +166,7 @@ class OAuth2LoginManager : public KeyedService,
   void OnOAuth2TokensFetchFailed() override;
 
   // OAuth2TokenService::Observer implementation:
-  void OnRefreshTokenAvailable(const std::string& account_id) override;
+  void OnRefreshTokenAvailable(const std::string& user_email) override;
 
   // Signals delegate that authentication is completed, kicks off token fetching
   // process.
@@ -189,6 +189,9 @@ class OAuth2LoginManager : public KeyedService,
 
   // Update the token service and inform listeners of a new refresh token.
   void UpdateCredentials(const std::string& account_id);
+
+  // Notify that the refresh tokens are loaded and ready to use.
+  void FireRefreshTokensLoaded();
 
   // Attempts to fetch OAuth2 tokens by using pre-authenticated cookie jar from
   // provided |auth_profile|.

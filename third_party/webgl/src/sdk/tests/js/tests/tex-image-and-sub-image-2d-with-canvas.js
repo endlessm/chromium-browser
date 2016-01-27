@@ -21,20 +21,38 @@
 ** MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
 */
 
-function generateTest(pixelFormat, pixelType, prologue) {
+function generateTest(internalFormat, pixelFormat, pixelType, prologue, resourcePath) {
     var wtu = WebGLTestUtils;
+    var tiu = TexImageUtils;
     var gl = null;
     var successfullyParsed = false;
+    var whiteColor = [255, 255, 255, 255];
+    var redColor = [255, 0, 0];
+    var greenColor = [0, 255, 0];
 
-    var init = function()
+    function init()
     {
-        description('Verify texImage2D and texSubImage2D code paths taking canvas elements (' + pixelFormat + '/' + pixelType + ')');
+        description('Verify texImage2D and texSubImage2D code paths taking canvas elements (' + internalFormat + '/' + pixelFormat + '/' + pixelType + ')');
 
         gl = wtu.create3DContext("example");
 
         if (!prologue(gl)) {
             finishTest();
             return;
+        }
+
+        switch (gl[pixelFormat]) {
+          case gl.RED:
+          case gl.RED_INTEGER:
+            whiteColor = [255, 0, 0, 255];
+            greenColor = [0, 0, 0];
+            break;
+          case gl.RG:
+          case gl.RG_INTEGER:
+            whiteColor = [255, 255, 0, 255];
+            break;
+          default:
+            break;
         }
 
         gl.clearColor(0,0,0,1);
@@ -120,11 +138,11 @@ function generateTest(pixelFormat, pixelType, prologue) {
         for (var tt = 0; tt < targets.length; ++tt) {
             // Initialize the texture to black first
             if (useTexSubImage2D) {
-                gl.texImage2D(targets[tt], 0, gl[pixelFormat], canvas.width, canvas.height, 0,
+                gl.texImage2D(targets[tt], 0, gl[internalFormat], canvas.width, canvas.height, 0,
                               gl[pixelFormat], gl[pixelType], null);
                 gl.texSubImage2D(targets[tt], 0, 0, 0, gl[pixelFormat], gl[pixelType], canvas);
             } else {
-                gl.texImage2D(targets[tt], 0, gl[pixelFormat], gl[pixelFormat], gl[pixelType], canvas);
+                gl.texImage2D(targets[tt], 0, gl[internalFormat], gl[pixelFormat], gl[pixelType], canvas);
             }
         }
 
@@ -150,12 +168,12 @@ function generateTest(pixelFormat, pixelType, prologue) {
                 // check half is a solid color.
                 wtu.checkCanvasRect(
                       gl, 0, top, width, halfHeight,
-                      [255, 255, 255, 255],
+                      whiteColor,
                       "should be white");
                 // check other half is not a solid color.
                 wtu.checkCanvasRectColor(
                       gl, 0, bottom, width, halfHeight,
-                      [255, 255, 255, 255], 0,
+                      whiteColor, 0,
                       function() {
                         testFailed("font missing");
                       },
@@ -165,14 +183,12 @@ function generateTest(pixelFormat, pixelType, prologue) {
                       debug);
             } else {
                 // Check the top and bottom halves and make sure they have the right color.
-                var red = [255, 0, 0];
-                var green = [0, 255, 0];
                 debug("Checking " + (flipY ? "top" : "bottom"));
-                wtu.checkCanvasRect(gl, 0, bottom, width, halfHeight, red,
-                                    "shouldBe " + red);
+                wtu.checkCanvasRect(gl, 0, bottom, width, halfHeight, redColor,
+                                    "shouldBe " + redColor);
                 debug("Checking " + (flipY ? "bottom" : "top"));
-                wtu.checkCanvasRect(gl, 0, top, width, halfHeight, green,
-                                    "shouldBe " + green);
+                wtu.checkCanvasRect(gl, 0, top, width, halfHeight, greenColor,
+                                    "shouldBe " + greenColor);
             }
 
             if (!useTexSubImage2D && pixelFormat == "RGBA") {
@@ -182,7 +198,7 @@ function generateTest(pixelFormat, pixelType, prologue) {
                     var pixels = new Float32Array([1000.0, 1000.0, 1000.0, 1000.0]);
                     gl.texSubImage2D(targets[tt], 0, 0, 0, 1, 1, gl[pixelFormat], gl[pixelType], pixels);
                     wtu.glErrorShouldBe(gl, gl.NO_ERROR, "Texture should be backed by floats");
-                } else if (pixelType == "HALF_FLOAT_OES") {
+                } else if (pixelType == "HALF_FLOAT_OES" || pixelType == "HALF_FLOAT") {
                     // Attempt to set a pixel in the texture to ensure the texture was
                     // actually created with half-floats. Regression test for http://crbug.com/484968
                     var halfFloatTenK = 0x70E2; // Half float 10000
@@ -224,9 +240,9 @@ function generateTest(pixelFormat, pixelType, prologue) {
         function runTexImageTest(bindingTarget) {
             var program;
             if (bindingTarget == gl.TEXTURE_2D) {
-                program = wtu.setupTexturedQuad(gl);
+                program = tiu.setupTexturedQuad(gl, internalFormat);
             } else {
-                program = wtu.setupTexturedQuadWithCubeMap(gl);
+                program = tiu.setupTexturedQuadWithCubeMap(gl, internalFormat);
             }
 
             return new Promise(function(resolve, reject) {
@@ -263,7 +279,7 @@ function generateTest(pixelFormat, pixelType, prologue) {
                 wtu.glErrorShouldBe(gl, gl.NO_ERROR, "should be no errors");
                 finishTest();
             });
-        })
+        });
     }
 
     return init;

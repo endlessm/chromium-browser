@@ -119,8 +119,6 @@ base::ListValue* GetTabsForProcess(int process_id) {
   while (content::RenderWidgetHost* widget = widgets->GetNextHost()) {
     if (widget->GetProcess()->GetID() != process_id)
       continue;
-    if (!widget->IsRenderView())
-      continue;
 
     content::RenderViewHost* host = content::RenderViewHost::From(widget);
     content::WebContents* contents =
@@ -314,7 +312,7 @@ void ProcessesEventRouter::OnItemsAdded(int start, int length) {
 
   args->Append(process);
 
-  DispatchEvent(keys::kOnCreated, args.Pass());
+  DispatchEvent(events::PROCESSES_ON_CREATED, keys::kOnCreated, args.Pass());
 #endif  // defined(ENABLE_TASK_MANAGER)
 }
 
@@ -362,7 +360,7 @@ void ProcessesEventRouter::OnItemsChanged(int start, int length) {
 
     scoped_ptr<base::ListValue> args(new base::ListValue());
     args->Append(processes);
-    DispatchEvent(keys::kOnUpdated, args.Pass());
+    DispatchEvent(events::PROCESSES_ON_UPDATED, keys::kOnUpdated, args.Pass());
   }
 
   if (updated_memory) {
@@ -381,7 +379,8 @@ void ProcessesEventRouter::OnItemsChanged(int start, int length) {
 
     scoped_ptr<base::ListValue> args(new base::ListValue());
     args->Append(processes);
-    DispatchEvent(keys::kOnUpdatedWithMemory, args.Pass());
+    DispatchEvent(events::PROCESSES_ON_UPDATED_WITH_MEMORY,
+                  keys::kOnUpdatedWithMemory, args.Pass());
   }
 #endif  // defined(ENABLE_TASK_MANAGER)
 }
@@ -410,7 +409,7 @@ void ProcessesEventRouter::OnItemsToBeRemoved(int start, int length) {
   // Third arg: The exit code for the process.
   args->Append(new base::FundamentalValue(0));
 
-  DispatchEvent(keys::kOnExited, args.Pass());
+  DispatchEvent(events::PROCESSES_ON_EXITED, keys::kOnExited, args.Pass());
 #endif  // defined(ENABLE_TASK_MANAGER)
 }
 
@@ -439,7 +438,8 @@ void ProcessesEventRouter::ProcessHangEvent(content::RenderWidgetHost* widget) {
   scoped_ptr<base::ListValue> args(new base::ListValue());
   args->Append(process);
 
-  DispatchEvent(keys::kOnUnresponsive, args.Pass());
+  DispatchEvent(events::PROCESSES_ON_UNRESPONSIVE, keys::kOnUnresponsive,
+                args.Pass());
 #endif  // defined(ENABLE_TASK_MANAGER)
 }
 
@@ -459,17 +459,18 @@ void ProcessesEventRouter::ProcessClosedEvent(
   // Third arg: The exit code for the process.
   args->Append(new base::FundamentalValue(details->exit_code));
 
-  DispatchEvent(keys::kOnExited, args.Pass());
+  DispatchEvent(events::PROCESSES_ON_EXITED, keys::kOnExited, args.Pass());
 #endif  // defined(ENABLE_TASK_MANAGER)
 }
 
 void ProcessesEventRouter::DispatchEvent(
+    events::HistogramValue histogram_value,
     const std::string& event_name,
     scoped_ptr<base::ListValue> event_args) {
   EventRouter* event_router = EventRouter::Get(browser_context_);
   if (event_router) {
-    scoped_ptr<extensions::Event> event(new extensions::Event(
-        extensions::events::UNKNOWN, event_name, event_args.Pass()));
+    scoped_ptr<Event> event(
+        new Event(histogram_value, event_name, event_args.Pass()));
     event_router->BroadcastEvent(event.Pass());
   }
 }
@@ -487,9 +488,9 @@ ProcessesAPI::ProcessesAPI(content::BrowserContext* context)
                                  processes_api_constants::kOnUpdatedWithMemory);
   ExtensionFunctionRegistry* registry =
       ExtensionFunctionRegistry::GetInstance();
-  registry->RegisterFunction<extensions::GetProcessIdForTabFunction>();
-  registry->RegisterFunction<extensions::TerminateFunction>();
-  registry->RegisterFunction<extensions::GetProcessInfoFunction>();
+  registry->RegisterFunction<GetProcessIdForTabFunction>();
+  registry->RegisterFunction<TerminateFunction>();
+  registry->RegisterFunction<GetProcessInfoFunction>();
 }
 
 ProcessesAPI::~ProcessesAPI() {
@@ -579,9 +580,8 @@ void GetProcessIdForTabFunction::GetProcessIdForTab() {
                                     NULL,
                                     &contents,
                                     &tab_index)) {
-    error_ = ErrorUtils::FormatErrorMessage(
-        extensions::tabs_constants::kTabNotFoundError,
-        base::IntToString(tab_id_));
+    error_ = ErrorUtils::FormatErrorMessage(tabs_constants::kTabNotFoundError,
+                                            base::IntToString(tab_id_));
     SetResult(new base::FundamentalValue(-1));
     SendResponse(false);
   } else {
@@ -635,31 +635,35 @@ void TerminateFunction::TerminateProcess() {
 #if defined(ENABLE_TASK_MANAGER)
   TaskManagerModel* model = TaskManager::GetInstance()->model();
 
-  int count = model->ResourceCount();
-  bool killed = false;
   bool found = false;
-
-  for (int i = 0; i < count; ++i) {
-    if (model->IsResourceFirstInGroup(i)) {
-      if (process_id_ == model->GetUniqueChildProcessId(i)) {
-        found = true;
-        base::Process process =
-            base::Process::DeprecatedGetProcessFromHandle(model->GetProcess(i));
-        killed = process.Terminate(content::RESULT_CODE_KILLED, true);
-        UMA_HISTOGRAM_COUNTS("ChildProcess.KilledByExtensionAPI", 1);
-        break;
-      }
+  for (int i = 0, count = model->ResourceCount(); i < count; ++i) {
+    if (!model->IsResourceFirstInGroup(i) ||
+        process_id_ != model->GetUniqueChildProcessId(i)) {
+      continue;
     }
+    base::ProcessHandle process_handle = model->GetProcess(i);
+    if (process_handle == base::GetCurrentProcessHandle()) {
+      // Cannot kill the browser process.
+      // TODO(kalman): Are there other sensitive processes?
+      error_ = ErrorUtils::FormatErrorMessage(errors::kNotAllowedToTerminate,
+                                              base::IntToString(process_id_));
+    } else {
+      base::Process process =
+          base::Process::DeprecatedGetProcessFromHandle(process_handle);
+      bool did_terminate = process.Terminate(content::RESULT_CODE_KILLED, true);
+      if (did_terminate)
+        UMA_HISTOGRAM_COUNTS("ChildProcess.KilledByExtensionAPI", 1);
+      SetResult(new base::FundamentalValue(did_terminate));
+    }
+    found = true;
+    break;
   }
-
   if (!found) {
     error_ = ErrorUtils::FormatErrorMessage(errors::kProcessNotFound,
-        base::IntToString(process_id_));
-    SendResponse(false);
-  } else {
-    SetResult(new base::FundamentalValue(killed));
-    SendResponse(true);
+                                            base::IntToString(process_id_));
   }
+
+  SendResponse(error_.empty());
 
   // Balance the AddRef in the RunAsync.
   Release();
@@ -685,9 +689,7 @@ bool GetProcessInfoFunction::RunAsync() {
 
   EXTENSION_FUNCTION_VALIDATE(args_->Get(0, &processes));
   EXTENSION_FUNCTION_VALIDATE(args_->GetBoolean(1, &memory_));
-
-  EXTENSION_FUNCTION_VALIDATE(extensions::ReadOneOrMoreIntegers(
-      processes, &process_ids_));
+  EXTENSION_FUNCTION_VALIDATE(ReadOneOrMoreIntegers(processes, &process_ids_));
 
   // Add a reference, which is balanced in GatherProcessInfo to keep the object
   // around and allow for the callback to be invoked.
@@ -757,7 +759,13 @@ void GetProcessInfoFunction::GatherProcessInfo() {
         }
       }
     }
-    DCHECK_EQ(process_ids_.size(), 0U);
+    // If not all processes were found, log them to the extension's console to
+    // help the developer, but don't fail the API call.
+    for (int pid : process_ids_) {
+      WriteToConsole(content::CONSOLE_MESSAGE_LEVEL_ERROR,
+                     ErrorUtils::FormatErrorMessage(errors::kProcessNotFound,
+                                                    base::IntToString(pid)));
+    }
   }
 
   SetResult(processes);

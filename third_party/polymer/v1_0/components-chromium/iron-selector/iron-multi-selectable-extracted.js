@@ -1,5 +1,4 @@
-
-  /** @polymerBehavior Polymer.IronMultiSelectableBehavior */
+/** @polymerBehavior Polymer.IronMultiSelectableBehavior */
   Polymer.IronMultiSelectableBehaviorImpl = {
     properties: {
 
@@ -59,6 +58,11 @@
       this._selection.multi = multi;
     },
 
+    get _shouldUpdateSelection() {
+      return this.selected != null ||
+        (this.selectedValues != null && this.selectedValues.length);
+    },
+
     _updateSelected: function() {
       if (this.multi) {
         this._selectMulti(this.selectedValues);
@@ -90,9 +94,9 @@
       var i = this.selectedValues.indexOf(value);
       var unselected = i < 0;
       if (unselected) {
-        this.selectedValues.push(value);
+        this.push('selectedValues',value);
       } else {
-        this.selectedValues.splice(i, 1);
+        this.splice('selectedValues',i,1);
       }
       this._selection.setItemSelected(this._valueToItem(value), unselected);
     }
@@ -103,4 +107,3 @@
     Polymer.IronSelectableBehavior,
     Polymer.IronMultiSelectableBehaviorImpl
   ];
-

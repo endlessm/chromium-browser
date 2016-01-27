@@ -23,6 +23,7 @@ class OffscreenBrowserCompositorOutputSurface
  public:
   OffscreenBrowserCompositorOutputSurface(
       const scoped_refptr<ContextProviderCommandBuffer>& context,
+      const scoped_refptr<ContextProviderCommandBuffer>& worker_context,
       const scoped_refptr<ui::CompositorVSyncManager>& vsync_manager,
       scoped_ptr<BrowserCompositorOverlayCandidateValidator>
           overlay_candidate_validator);
@@ -40,8 +41,10 @@ class OffscreenBrowserCompositorOutputSurface
   // BrowserCompositorOutputSurface
   void OnReflectorChanged() override;
   base::Closure CreateCompositionStartedCallback() override;
+  void OnGpuSwapBuffersCompleted(
+      const std::vector<ui::LatencyInfo>& latency_info,
+      gfx::SwapResult result) override{};
 #if defined(OS_MACOSX)
-  void OnSurfaceDisplayed() override {};
   void SetSurfaceSuspendedForRecycle(bool suspended) override {};
   bool SurfaceShouldNotShowFramesAfterSuspendForRecycle() const override;
 #endif

@@ -25,13 +25,7 @@
     target.style.bottom = pos.bottom + 'px';
   }
 
-  /**
-   * @constructor
-   * @extends {PolymerElement}
-   */
-  var ControlPanelElement = function() {};
-
-  ControlPanelElement.prototype = {
+  Polymer({
     is: 'control-panel',
 
     properties: {
@@ -117,6 +111,18 @@
 
       this.$.volumeSlider.addEventListener('focusout', onFocusoutBound);
       this.$.volumeButton.addEventListener('focusout', onFocusoutBound);
+
+      // Prevent the time slider from being moved by arrow keys.
+      this.$.timeInput.addEventListener('keydown', function(event) {
+        switch (event.keyCode) {
+          case 37:  // Left arrow
+          case 38:  // Up arrow
+          case 39:  // Right arrow
+          case 40:  // Down arrow
+            event.preventDefault();
+            break;
+        };
+      });
     },
 
     /**
@@ -150,15 +156,15 @@
 
     /**
      * Invoked when the focus goes out of the volume elements.
-     * @param {!FocusEvent} event The focusout event.
+     * @param {!UIEvent} event The focusout event.
      * @private
      */
     onVolumeControllerFocusout_: function(event) {
       if (this.volumeSliderShown) {
         // If the focus goes out of the volume, hide the volume control.
         if (!event.relatedTarget ||
-            (event.relatedTarget !== this.$.volumeButton &&
-             event.relatedTarget !== this.$.volumeSlider)) {
+            (!this.$.volumeButton.contains(event.relatedTarget) &&
+             !this.$.volumeSlider.contains(event.relatedTarget))) {
           this.volumeSliderShown = false;
         }
       }
@@ -202,7 +208,5 @@
     computeProgressBarStyle_: function(time, duration) {
       return 'width: ' + (time / duration * 100) + '%;';
     }
-  };
-
-  Polymer(ControlPanelElement.prototype);
+  });
 })();  // Anonymous closure

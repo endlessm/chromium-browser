@@ -34,6 +34,7 @@
 #include "bindings/core/v8/ExceptionStatePlaceholder.h"
 #include "core/HTMLNames.h"
 #include "core/InputTypeNames.h"
+#include "core/dom/ExecutionContextTask.h"
 #include "core/dom/shadow/ShadowRoot.h"
 #include "core/events/KeyboardEvent.h"
 #include "core/html/HTMLInputElement.h"
@@ -113,19 +114,20 @@ void SearchInputType::startSearchEventTimer()
     unsigned length = element().innerEditorValue().length();
 
     if (!length) {
-        stopSearchEventTimer();
-        element().onSearch();
+        m_searchEventTimer.stop();
+        element().document().postTask(BLINK_FROM_HERE, createSameThreadTask(&HTMLInputElement::onSearch, PassRefPtrWillBeRawPtr<HTMLInputElement>(&element())));
         return;
     }
 
     // After typing the first key, we wait 0.5 seconds.
     // After the second key, 0.4 seconds, then 0.3, then 0.2 from then on.
-    m_searchEventTimer.startOneShot(max(0.2, 0.6 - 0.1 * length), FROM_HERE);
+    m_searchEventTimer.startOneShot(max(0.2, 0.6 - 0.1 * length), BLINK_FROM_HERE);
 }
 
-void SearchInputType::stopSearchEventTimer()
+void SearchInputType::dispatchSearchEvent()
 {
     m_searchEventTimer.stop();
+    element().dispatchEvent(Event::createBubble(EventTypeNames::search));
 }
 
 void SearchInputType::searchEventTimerFired(Timer<SearchInputType>*)
@@ -167,7 +169,7 @@ void SearchInputType::updateCancelButtonVisibility()
     if (!button)
         return;
     if (element().value().isEmpty()) {
-        button->setInlineStyleProperty(CSSPropertyOpacity, 0.0, CSSPrimitiveValue::CSS_NUMBER);
+        button->setInlineStyleProperty(CSSPropertyOpacity, 0.0, CSSPrimitiveValue::UnitType::Number);
         button->setInlineStyleProperty(CSSPropertyPointerEvents, CSSValueNone);
     } else {
         button->removeInlineStyleProperty(CSSPropertyOpacity);

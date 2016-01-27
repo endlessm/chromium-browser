@@ -54,8 +54,9 @@
 #include <sstream>
 #include <string>
 #include <utility>
+
 #include "webrtc/base/basictypes.h"
-#include "webrtc/base/criticalsection.h"
+#include "webrtc/base/constructormagic.h"
 #include "webrtc/base/thread_annotations.h"
 
 namespace rtc {
@@ -80,7 +81,7 @@ struct ConstantLabel { int value; const char * label; };
 #define TLABEL(x, y) { x, y }
 #define LASTLABEL { 0, 0 }
 
-const char * FindLabel(int value, const ConstantLabel entries[]);
+const char* FindLabel(int value, const ConstantLabel entries[]);
 std::string ErrorName(int err, const ConstantLabel* err_table);
 
 //////////////////////////////////////////////////////////////////////
@@ -131,11 +132,15 @@ class LogSink {
 
 class LogMessage {
  public:
-  static const uint32 WARN_SLOW_LOGS_DELAY = 50;  // ms
-
   LogMessage(const char* file, int line, LoggingSeverity sev,
              LogErrorContext err_ctx = ERRCTX_NONE, int err = 0,
              const char* module = NULL);
+
+  LogMessage(const char* file,
+             int line,
+             LoggingSeverity sev,
+             const std::string& tag);
+
   ~LogMessage();
 
   static inline bool Loggable(LoggingSeverity sev) { return (sev >= min_sev_); }
@@ -146,11 +151,11 @@ class LogMessage {
   // If this is not called externally, the LogMessage ctor also calls it, in
   // which case the logging start time will be the time of the first LogMessage
   // instance is created.
-  static uint32 LogStartTime();
+  static uint32_t LogStartTime();
 
   // Returns the wall clock equivalent of |LogStartTime|, in seconds from the
   // epoch.
-  static uint32 WallClockStartTime();
+  static uint32_t WallClockStartTime();
 
   //  LogThreads: Display the thread identifier of the current thread
   static void LogThreads(bool on = true);
@@ -162,6 +167,9 @@ class LogMessage {
   //  Debug: Debug console on Windows, otherwise stderr
   static void LogToDebug(LoggingSeverity min_sev);
   static LoggingSeverity GetLogToDebug() { return dbg_sev_; }
+
+  // Sets whether logs will be directed to stderr in debug mode.
+  static void SetLogToStderr(bool log_to_stderr);
 
   //  Stream: Any non-blocking stream interface.  LogMessage takes ownership of
   //   the stream. Multiple streams may be specified by using AddLogToStream.
@@ -187,10 +195,12 @@ class LogMessage {
   typedef std::list<StreamAndSeverity> StreamList;
 
   // Updates min_sev_ appropriately when debug sinks change.
-  static void UpdateMinLogSeverity() EXCLUSIVE_LOCKS_REQUIRED(crit_);
+  static void UpdateMinLogSeverity();
 
   // These write out the actual log messages.
-  static void OutputToDebug(const std::string& msg, LoggingSeverity severity_);
+  static void OutputToDebug(const std::string& msg,
+                            LoggingSeverity severity,
+                            const std::string& tag);
 
   // The ostream that buffers the formatted message before output
   std::ostringstream print_stream_;
@@ -198,16 +208,12 @@ class LogMessage {
   // The severity level of this message
   LoggingSeverity severity_;
 
+  // The Android debug output tag.
+  std::string tag_;
+
   // String data generated in the constructor, that should be appended to
   // the message before output.
   std::string extra_;
-
-  // If time it takes to write to stream is more than this, log one
-  // additional warning about it.
-  uint32 warn_slow_logs_delay_;
-
-  // Global lock for the logging subsystem
-  static CriticalSection crit_;
 
   // dbg_sev_ is the thresholds for those output targets
   // min_sev_ is the minimum (most verbose) of those levels, and is used
@@ -222,7 +228,10 @@ class LogMessage {
   // Flags for formatting options
   static bool thread_, timestamp_;
 
-  DISALLOW_COPY_AND_ASSIGN(LogMessage);
+  // Determines if logs will be directed to stderr in debug mode.
+  static bool log_to_stderr_;
+
+  RTC_DISALLOW_COPY_AND_ASSIGN(LogMessage);
 };
 
 //////////////////////////////////////////////////////////////////////
@@ -276,7 +285,7 @@ class LogMessageVoidify {
     rtc::LogMessage(__FILE__, __LINE__, sev).stream()
 
 // The _F version prefixes the message with the current function name.
-#if (defined(__GNUC__) && defined(_DEBUG)) || defined(WANT_PRETTY_LOG_F)
+#if (defined(__GNUC__) && !defined(NDEBUG)) || defined(WANT_PRETTY_LOG_F)
 #define LOG_F(sev) LOG(sev) << __PRETTY_FUNCTION__ << ": "
 #define LOG_T_F(sev) LOG(sev) << this << ": " << __PRETTY_FUNCTION__ << ": "
 #else
@@ -334,6 +343,10 @@ inline bool LogCheckLevel(LoggingSeverity sev) {
 #define LAST_SYSTEM_ERROR \
   (errno)
 #endif  // WEBRTC_WIN
+
+#define LOG_TAG(sev, tag) \
+  LOG_SEVERITY_PRECONDITION(sev) \
+    rtc::LogMessage(NULL, 0, sev, tag).stream()
 
 #define PLOG(sev, err) \
   LOG_ERR_EX(sev, err)

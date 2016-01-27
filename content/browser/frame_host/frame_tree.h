@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "content/browser/frame_host/frame_tree_node.h"
 #include "content/common/content_export.h"
@@ -50,7 +51,7 @@ class CONTENT_EXPORT FrameTree {
             RenderFrameHostManager::Delegate* manager_delegate);
   ~FrameTree();
 
-  FrameTreeNode* root() const { return root_.get(); }
+  FrameTreeNode* root() const { return root_; }
 
   // Returns the FrameTreeNode with the given |frame_tree_node_id| if it is part
   // of this FrameTree.
@@ -77,12 +78,14 @@ class CONTENT_EXPORT FrameTree {
   // match the process of the |parent| node.  Otherwise this method returns
   // nullptr.  Passing MSG_ROUTING_NONE for |new_routing_id| will allocate a new
   // routing ID for the new frame.
-  RenderFrameHostImpl* AddFrame(FrameTreeNode* parent,
-                                int process_id,
-                                int new_routing_id,
-                                blink::WebTreeScopeType scope,
-                                const std::string& frame_name,
-                                blink::WebSandboxFlags sandbox_flags);
+  RenderFrameHostImpl* AddFrame(
+      FrameTreeNode* parent,
+      int process_id,
+      int new_routing_id,
+      blink::WebTreeScopeType scope,
+      const std::string& frame_name,
+      blink::WebSandboxFlags sandbox_flags,
+      const blink::WebFrameOwnerProperties& frame_owner_properties);
   void RemoveFrame(FrameTreeNode* child);
 
   // This method walks the entire frame tree and creates a RenderFrameProxyHost
@@ -113,8 +116,8 @@ class CONTENT_EXPORT FrameTree {
   // |site_instance|.  The RenderViewHost will have its Shutdown method called
   // when all of the RenderFrameHosts using it are deleted.
   RenderViewHostImpl* CreateRenderViewHost(SiteInstance* site_instance,
-                                           int routing_id,
-                                           int main_frame_routing_id,
+                                           int32 routing_id,
+                                           int32 main_frame_routing_id,
                                            bool swapped_out,
                                            bool hidden);
 
@@ -144,6 +147,16 @@ class CONTENT_EXPORT FrameTree {
 
   // Returns true if at least one of the nodes in this FrameTree is loading.
   bool IsLoading();
+
+  // Set page-level focus in all SiteInstances involved in rendering
+  // this FrameTree, not including the current main frame's
+  // SiteInstance. The focus update will be sent via the main frame's proxies
+  // in those SiteInstances.
+  void ReplicatePageFocus(bool is_focused);
+
+  // Updates page-level focus for this FrameTree in the subframe renderer
+  // identified by |instance|.
+  void SetPageFocus(SiteInstance* instance, bool is_focused);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(RenderFrameHostImplBrowserTest, RemoveFocusedFrame);
@@ -179,7 +192,11 @@ class CONTENT_EXPORT FrameTree {
   // their state is already gone away).
   RenderViewHostMultiMap render_view_host_pending_shutdown_map_;
 
-  scoped_ptr<FrameTreeNode> root_;
+  // This is an owned ptr to the root FrameTreeNode, which never changes over
+  // the lifetime of the FrameTree. It is not a scoped_ptr because we need the
+  // pointer to remain valid even while the FrameTreeNode is being destroyed,
+  // since it's common for a node to test whether it's the root node.
+  FrameTreeNode* root_;
 
   int focused_frame_tree_node_id_;
 

@@ -6,6 +6,7 @@
 
 #include <windows.h>
 #include <string>
+
 #include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -164,6 +165,7 @@ class ChromeWatcherClientThread : public base::SimpleThread {
  private:
   // Returns a command line to launch back into ChromeWatcherClientTestProcess.
   base::CommandLine GenerateCommandLine(HANDLE parent_handle,
+                                        DWORD main_thread_id,
                                         HANDLE on_initialized_event) {
     base::CommandLine ret = base::GetMultiProcessTestChildBaseCommandLine();
     ret.AppendSwitchASCII(switches::kTestChildProcess,
@@ -174,6 +176,11 @@ class ChromeWatcherClientThread : public base::SimpleThread {
     ret.AppendSwitchASCII(
         kParentHandle,
         base::UintToString(reinterpret_cast<unsigned int>(parent_handle)));
+
+    // Our child does not actually need the main thread ID, but we verify here
+    // that the correct ID is being passed from the client.
+    EXPECT_EQ(::GetCurrentThreadId(), main_thread_id);
+
     ret.AppendSwitchASCII(kNamedEventSuffix,
                           base::UTF16ToASCII(NamedEventSuffix()));
     return ret;

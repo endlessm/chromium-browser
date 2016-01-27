@@ -7,6 +7,7 @@
 
 #include "include/v8-platform.h"
 #include "src/base/macros.h"
+#include "src/cancelable-task.h"
 
 namespace v8 {
 namespace internal {
@@ -95,25 +96,22 @@ class MemoryReducer {
     double last_gc_time_ms;
   };
 
-  enum EventType {
-    kTimer,
-    kMarkCompact,
-    kContextDisposed,
-    kBackgroundIdleNotification
-  };
+  enum EventType { kTimer, kMarkCompact, kContextDisposed };
 
   struct Event {
     EventType type;
     double time_ms;
-    bool low_allocation_rate;
     bool next_gc_likely_to_collect_more;
+    bool should_start_incremental_gc;
     bool can_start_incremental_gc;
   };
 
   explicit MemoryReducer(Heap* heap)
-      : heap_(heap), state_(kDone, 0, 0.0, 0.0), pending_task_(nullptr) {}
+      : heap_(heap),
+        state_(kDone, 0, 0.0, 0.0),
+        js_calls_counter_(0),
+        js_calls_sample_time_ms_(0.0) {}
   // Callbacks.
-  void NotifyTimer(const Event& event);
   void NotifyMarkCompact(const Event& event);
   void NotifyContextDisposed(const Event& event);
   void NotifyBackgroundIdleNotification(const Event& event);
@@ -121,12 +119,8 @@ class MemoryReducer {
   // the incoming event.
   static State Step(const State& state, const Event& event);
   // Posts a timer task that will call NotifyTimer after the given delay.
-  void ScheduleTimer(double delay_ms);
+  void ScheduleTimer(double time_ms, double delay_ms);
   void TearDown();
-  void ClearTask(v8::Task* task);
-
-  static bool WatchdogGC(const State& state, const Event& event);
-
   static const int kLongDelayMs;
   static const int kShortDelayMs;
   static const int kWatchdogDelayMs;
@@ -139,28 +133,31 @@ class MemoryReducer {
   }
 
  private:
-  class TimerTask : public v8::Task {
+  class TimerTask : public v8::internal::CancelableTask {
    public:
-    explicit TimerTask(MemoryReducer* memory_reducer)
-        : memory_reducer_(memory_reducer), heap_is_torn_down_(false) {}
-    virtual ~TimerTask() {
-      if (!heap_is_torn_down_) {
-        memory_reducer_->ClearTask(this);
-      }
-    }
-    void NotifyHeapTearDown() { heap_is_torn_down_ = true; }
+    explicit TimerTask(MemoryReducer* memory_reducer);
 
    private:
-    // v8::Task overrides.
-    void Run() override;
+    // v8::internal::CancelableTask overrides.
+    void RunInternal() override;
     MemoryReducer* memory_reducer_;
-    bool heap_is_torn_down_;
     DISALLOW_COPY_AND_ASSIGN(TimerTask);
   };
+
+  void NotifyTimer(const Event& event);
+
+  static bool WatchdogGC(const State& state, const Event& event);
+
+  // Returns the rate of JS calls initiated from the API.
+  double SampleAndGetJsCallsPerMs(double time_ms);
+
   Heap* heap_;
   State state_;
-  TimerTask* pending_task_;
+  unsigned int js_calls_counter_;
+  double js_calls_sample_time_ms_;
 
+  // Used in cctest.
+  friend class HeapTester;
   DISALLOW_COPY_AND_ASSIGN(MemoryReducer);
 };
 

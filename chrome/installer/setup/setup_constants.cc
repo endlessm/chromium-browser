@@ -10,7 +10,7 @@ namespace installer {
 const wchar_t kChromeArchive[] = L"chrome.7z";
 const wchar_t kChromeCompressedArchive[] = L"chrome.packed.7z";
 const wchar_t kVisualElements[] = L"VisualElements";
-const wchar_t kVisualElementsManifest[] = L"VisualElementsManifest.xml";
+const wchar_t kVisualElementsManifest[] = L"chrome.VisualElementsManifest.xml";
 const wchar_t kWowHelperExe[] = L"wow_helper.exe";
 
 // Sub directory of install source package under install temporary directory.
@@ -19,5 +19,20 @@ const wchar_t kInstallSourceChromeDir[] = L"Chrome-bin";
 
 const wchar_t kMediaPlayerRegPath[] =
     L"Software\\Microsoft\\MediaPlayer\\ShimInclusionList";
+
+namespace switches {
+
+// Setting this will delay the operation of setup by the specified number of
+// seconds.  This is used when changing the DisplayVersion registry value
+// only after some time has passed, called by the MSI installer.
+const char kDelay[] = "delay";
+
+// Set the MSI-managed DisplayVersion in the registry to match Chrome's real
+// version number. The parameter to this option specifies the product-id in
+// the registry under HKLM.
+const char kSetDisplayVersionProduct[] = "set-display-version-product";
+const char kSetDisplayVersionValue[] = "set-display-version-value";
+
+}  // namespace switches
 
 }  // namespace installer

@@ -3,7 +3,7 @@
 # found in the LICENSE file.
 
 import("../../mojo_edk.gni")
-import("../../../public/tools/bindings/mojom.gni")
+import("//mojo/public/tools/bindings/mojom.gni")
 
 mojo_edk_source_set("js_to_cpp_tests") {
   testonly = true
@@ -17,7 +17,7 @@ mojo_edk_source_set("js_to_cpp_tests") {
     "mojo/edk/js",
     "mojo/edk/test:test_support",
   ]
-  
+
   mojo_sdk_deps = [
     "mojo/public/cpp/bindings",
     "mojo/public/cpp/system",
@@ -34,4 +34,6 @@ mojom("js_to_cpp_bindings") {
   sources = [
     "js_to_cpp.mojom",
   ]
+
+  with_environment = false
 }

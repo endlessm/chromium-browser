@@ -15,6 +15,7 @@
 #include "components/policy/core/common/configuration_policy_provider_test.h"
 #include "components/policy/core/common/policy_bundle.h"
 #include "components/policy/core/common/policy_map.h"
+#include "components/policy/core/common/policy_types.h"
 
 namespace policy {
 
@@ -68,7 +69,9 @@ class TestHarness : public PolicyProviderTestHarness {
 };
 
 TestHarness::TestHarness()
-    : PolicyProviderTestHarness(POLICY_LEVEL_MANDATORY, POLICY_SCOPE_MACHINE),
+    : PolicyProviderTestHarness(POLICY_LEVEL_MANDATORY,
+                                POLICY_SCOPE_MACHINE,
+                                POLICY_SOURCE_PLATFORM),
       next_policy_file_index_(100) {}
 
 TestHarness::~TestHarness() {}
@@ -212,12 +215,12 @@ TEST_F(ConfigDirPolicyLoaderTest, ReadPrefsMergePrefs) {
   base::DictionaryValue test_dict_bar;
   test_dict_bar.SetString("HomepageLocation", "http://bar.com");
   for (unsigned int i = 1; i <= 4; ++i)
-    harness_.WriteConfigFile(test_dict_bar, base::IntToString(i));
+    harness_.WriteConfigFile(test_dict_bar, base::UintToString(i));
   base::DictionaryValue test_dict_foo;
   test_dict_foo.SetString("HomepageLocation", "http://foo.com");
   harness_.WriteConfigFile(test_dict_foo, "9");
   for (unsigned int i = 5; i <= 8; ++i)
-    harness_.WriteConfigFile(test_dict_bar, base::IntToString(i));
+    harness_.WriteConfigFile(test_dict_bar, base::UintToString(i));
 
   ConfigDirPolicyLoader loader(loop_.task_runner(), harness_.test_dir(),
                                POLICY_SCOPE_USER);
@@ -225,7 +228,8 @@ TEST_F(ConfigDirPolicyLoaderTest, ReadPrefsMergePrefs) {
   ASSERT_TRUE(bundle.get());
   PolicyBundle expected_bundle;
   expected_bundle.Get(PolicyNamespace(POLICY_DOMAIN_CHROME, std::string()))
-      .LoadFrom(&test_dict_foo, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER);
+      .LoadFrom(&test_dict_foo, POLICY_LEVEL_MANDATORY, POLICY_SCOPE_USER,
+                POLICY_SOURCE_PLATFORM);
   EXPECT_TRUE(bundle->Equals(expected_bundle));
 }
 

@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/callback.h"
 #include "base/containers/hash_tables.h"
 #include "base/format_macros.h"
 #include "base/memory/discardable_memory_allocator.h"
@@ -17,6 +18,7 @@
 #include "base/memory/weak_ptr.h"
 #include "base/process/process_handle.h"
 #include "base/synchronization/lock.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "content/common/content_export.h"
 
@@ -41,7 +43,8 @@ class CONTENT_EXPORT HostDiscardableSharedMemoryManager
       size_t size) override;
 
   // Overridden from base::trace_event::MemoryDumpProvider:
-  bool OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd) override;
+  bool OnMemoryDump(const base::trace_event::MemoryDumpArgs& args,
+                    base::trace_event::ProcessMemoryDump* pmd) override;
 
   // This allocates a discardable memory segment for |process_handle|.
   // A valid shared memory handle is returned on success.
@@ -126,6 +129,9 @@ class CONTENT_EXPORT HostDiscardableSharedMemoryManager
   size_t memory_limit_;
   size_t bytes_allocated_;
   scoped_ptr<base::MemoryPressureListener> memory_pressure_listener_;
+  scoped_refptr<base::SingleThreadTaskRunner>
+      enforce_memory_policy_task_runner_;
+  base::Closure enforce_memory_policy_callback_;
   bool enforce_memory_policy_pending_;
   base::WeakPtrFactory<HostDiscardableSharedMemoryManager> weak_ptr_factory_;
 

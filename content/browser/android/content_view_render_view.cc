@@ -43,7 +43,7 @@ ContentViewRenderView::~ContentViewRenderView() {
 
 // static
 static jlong Init(JNIEnv* env,
-                  jobject obj,
+                  const JavaParamRef<jobject>& obj,
                   jlong native_root_window) {
   gfx::NativeWindow root_window =
       reinterpret_cast<gfx::NativeWindow>(native_root_window);
@@ -96,9 +96,9 @@ void ContentViewRenderView::SetNeedsComposite(JNIEnv* env, jobject obj) {
     compositor_->SetNeedsComposite();
 }
 
-void ContentViewRenderView::Layout() {
-  JNIEnv* env = base::android::AttachCurrentThread();
-  Java_ContentViewRenderView_onCompositorLayout(env, java_obj_.obj());
+void ContentViewRenderView::UpdateLayerTreeHost() {
+  // TODO(wkorman): Rename Layout to UpdateLayerTreeHost in all Android
+  // Compositor related classes.
 }
 
 void ContentViewRenderView::OnSwapBuffersCompleted(int pending_swap_buffers) {

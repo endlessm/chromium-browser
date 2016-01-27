@@ -26,6 +26,7 @@
 #include "chrome/browser/ui/toolbar/toolbar_actions_bar_delegate.h"
 #include "grit/theme_resources.h"
 #import "third_party/google_toolbox_for_mac/src/AppKit/GTMNSAnimation+Duration.h"
+#include "ui/base/cocoa/appkit_utils.h"
 
 NSString* const kBrowserActionVisibilityChangedNotification =
     @"BrowserActionVisibilityChangedNotification";
@@ -164,7 +165,7 @@ const CGFloat kBrowserActionBubbleYOffset = 3.0;
 // menu if no |anchorAction| is null.
 - (ToolbarActionsBarBubbleMac*)createMessageBubble:
     (scoped_ptr<ToolbarActionsBarBubbleDelegate>)delegate
-    anchorAction:(ToolbarActionViewController*)anchorAction;
+    anchorToSelf:(BOOL)anchorToSelf;
 
 // Called when the window for the active bubble is closing, and sets the active
 // bubble to nil.
@@ -197,12 +198,10 @@ class ToolbarActionsBarBridge : public ToolbarActionsBarDelegate {
                         int target_width,
                         bool suppress_chevron) override;
   void SetChevronVisibility(bool chevron_visible) override;
-  int GetWidth() const override;
+  int GetWidth(GetWidthTime get_width_time) const override;
   bool IsAnimating() const override;
   void StopAnimating() override;
   int GetChevronWidth() const override;
-  void OnOverflowedActionWantsToRunChanged(bool overflowed_action_wants_to_run)
-      override;
   void ShowExtensionMessageBubble(
       scoped_ptr<extensions::ExtensionMessageBubbleController> controller,
       ToolbarActionViewController* anchor_action) override;
@@ -252,8 +251,12 @@ void ToolbarActionsBarBridge::SetChevronVisibility(bool chevron_visible) {
                         inFrame:[[controller_ containerView] frame]];
 }
 
-int ToolbarActionsBarBridge::GetWidth() const {
-  return NSWidth([[controller_ containerView] frame]);
+int ToolbarActionsBarBridge::GetWidth(GetWidthTime get_width_time) const {
+  NSRect frame =
+      get_width_time == ToolbarActionsBarDelegate::GET_WIDTH_AFTER_ANIMATION
+          ? [[controller_ containerView] animationEndFrame]
+          : [[controller_ containerView] frame];
+  return NSWidth(frame);
 }
 
 bool ToolbarActionsBarBridge::IsAnimating() const {
@@ -273,28 +276,23 @@ int ToolbarActionsBarBridge::GetChevronWidth() const {
   return kChevronWidth;
 }
 
-void ToolbarActionsBarBridge::OnOverflowedActionWantsToRunChanged(
-    bool overflowed_action_wants_to_run) {
-  [[controller_ toolbarController]
-      setOverflowedToolbarActionWantsToRun:overflowed_action_wants_to_run];
-}
-
 void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
-    scoped_ptr<extensions::ExtensionMessageBubbleController> controller,
+    scoped_ptr<extensions::ExtensionMessageBubbleController> bubble_controller,
     ToolbarActionViewController* anchor_action) {
   // This goop is a by-product of needing to wire together abstract classes,
   // C++/Cocoa bridges, and ExtensionMessageBubbleController's somewhat strange
   // Show() interface. It's ugly, but it's pretty confined, so it's probably
   // okay (but if we ever need to expand, it might need to be reconsidered).
+  extensions::ExtensionMessageBubbleController* weak_controller =
+      bubble_controller.get();
   scoped_ptr<ExtensionMessageBubbleBridge> bridge(
-      new ExtensionMessageBubbleBridge(controller.Pass(),
+      new ExtensionMessageBubbleBridge(bubble_controller.Pass(),
                                        anchor_action != nullptr));
-  ExtensionMessageBubbleBridge* weak_bridge = bridge.get();
   ToolbarActionsBarBubbleMac* bubble =
       [controller_ createMessageBubble:bridge.Pass()
-                          anchorAction:anchor_action];
-  weak_bridge->SetBubble(bubble);
-  weak_bridge->controller()->Show(weak_bridge);
+                          anchorToSelf:anchor_action != nil];
+  weak_controller->OnShown();
+  [bubble showWindow:nil];
 }
 
 }  // namespace
@@ -496,6 +494,11 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
   }
 }
 
+- (gfx::Size)sizeForOverflowWidth:(int)maxWidth {
+  toolbarActionsBar_->SetOverflowRowWidth(maxWidth);
+  return [self preferredSize];
+}
+
 #pragma mark -
 #pragma mark NSMenuDelegate
 
@@ -554,7 +557,17 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
   if (![self updateContainerVisibility])
     return;  // Container is hidden; no need to update.
 
-  [containerView_ setIsHighlighting:toolbarActionsBar_->is_highlighting()];
+  scoped_ptr<ui::NinePartImageIds> highlight;
+  if (toolbarActionsBar_->is_highlighting()) {
+    if (toolbarActionsBar_->highlight_type() ==
+        ToolbarActionsModel::HIGHLIGHT_INFO)
+      highlight.reset(
+          new ui::NinePartImageIds(IMAGE_GRID(IDR_TOOLBAR_ACTION_HIGHLIGHT)));
+    else
+      highlight.reset(
+          new ui::NinePartImageIds(IMAGE_GRID(IDR_DEVELOPER_MODE_HIGHLIGHT)));
+  }
+  [containerView_ setHighlight:highlight.Pass()];
 
   std::vector<ToolbarActionViewController*> toolbar_actions =
       toolbarActionsBar_->GetActions();
@@ -575,18 +588,16 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
   }
 
   [self showChevronIfNecessaryInFrame:[containerView_ frame]];
-  NSUInteger minIndex = isOverflow_ ?
-      [buttons_ count] - toolbarActionsBar_->GetIconCount() : 0;
-  NSUInteger maxIndex = isOverflow_ ?
-      [buttons_ count] : toolbarActionsBar_->GetIconCount();
+  NSUInteger startIndex = toolbarActionsBar_->GetStartIndexInBounds();
+  NSUInteger endIndex = toolbarActionsBar_->GetEndIndexInBounds();
   for (NSUInteger i = 0; i < [buttons_ count]; ++i) {
     BrowserActionButton* button = [buttons_ objectAtIndex:i];
     if ([button isBeingDragged])
       continue;
 
-    [self moveButton:[buttons_ objectAtIndex:i] toIndex:i - minIndex];
+    [self moveButton:[buttons_ objectAtIndex:i] toIndex:i];
 
-    if (i >= minIndex && i < maxIndex) {
+    if (i >= startIndex && i < endIndex) {
       // Make sure the button is within the visible container.
       if ([button superview] != containerView_) {
         // We add the subview under the sibling views so that when it
@@ -660,17 +671,24 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
 
 - (void)updateButtonOpacity {
   for (BrowserActionButton* button in buttons_.get()) {
-    NSRect buttonFrame = [button frame];
+    NSRect buttonFrame = [button frameAfterAnimation];
+    // The button is fully in the container view, and should get full opacity.
     if (NSContainsRect([containerView_ bounds], buttonFrame)) {
       if ([button alphaValue] != 1.0)
         [button setAlphaValue:1.0];
 
       continue;
     }
-    CGFloat intersectionWidth =
-        NSWidth(NSIntersectionRect([containerView_ bounds], buttonFrame));
-    CGFloat alpha = std::max(static_cast<CGFloat>(0.0),
-                             intersectionWidth / NSWidth(buttonFrame));
+    // The button is only partially in the container view. If the user is
+    // resizing the container, we have partial alpha so the icon fades in as
+    // space is made. Otherwise, hide the icon fully.
+    CGFloat alpha = 0.0;
+    if ([containerView_ userIsResizing]) {
+      CGFloat intersectionWidth =
+          NSWidth(NSIntersectionRect([containerView_ bounds], buttonFrame));
+      alpha = std::max(static_cast<CGFloat>(0.0),
+                       intersectionWidth / NSWidth(buttonFrame));
+    }
     [button setAlphaValue:alpha];
     [button setNeedsDisplay:YES];
   }
@@ -788,13 +806,11 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
   if (!activeBubble_ &&  // only show one bubble at a time
       ExtensionToolbarIconSurfacingBubbleDelegate::ShouldShowForProfile(
           browser_->profile())) {
-    ToolbarActionViewController* anchorAction = [buttons_ count] > 0 ?
-        [[self buttonAtIndex:0] viewController] : nullptr;
     scoped_ptr<ToolbarActionsBarBubbleDelegate> delegate(
         new ExtensionToolbarIconSurfacingBubbleDelegate(browser_->profile()));
     ToolbarActionsBarBubbleMac* bubble =
         [self createMessageBubble:delegate.Pass()
-                     anchorAction:anchorAction];
+                     anchorToSelf:YES];
     [bubble showWindow:nil];
   }
   [containerView_ setTrackingEnabled:NO];
@@ -847,29 +863,27 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
 }
 
 - (NSRect)frameForIndex:(NSUInteger)index {
-  const ToolbarActionsBar::PlatformSettings& platformSettings =
-      toolbarActionsBar_->platform_settings();
-  int icons_per_overflow_row = platformSettings.icons_per_overflow_menu_row;
-  NSUInteger rowIndex = isOverflow_ ? index / icons_per_overflow_row : 0;
-  NSUInteger indexInRow = isOverflow_ ? index % icons_per_overflow_row : index;
-
-  CGFloat xOffset = platformSettings.left_padding +
-      (indexInRow * ToolbarActionsBar::IconWidth(true));
-  CGFloat yOffset = NSHeight([containerView_ frame]) -
-       (ToolbarActionsBar::IconHeight() * (rowIndex + 1));
-
-  return NSMakeRect(xOffset,
-                    yOffset,
-                    ToolbarActionsBar::IconWidth(false),
-                    ToolbarActionsBar::IconHeight());
+  gfx::Rect frameRect = toolbarActionsBar_->GetFrameForIndex(index);
+  int iconWidth = ToolbarActionsBar::IconWidth(false);
+  // The toolbar actions bar will return an empty rect if the index is for an
+  // action that is before range we show (i.e., is for a button that's on the
+  // main bar, and this is the overflow). Set the frame to be outside the bounds
+  // of the view.
+  NSRect frame = frameRect.IsEmpty() ?
+      NSMakeRect(-iconWidth - 1, 0, iconWidth,
+                 ToolbarActionsBar::IconHeight()) :
+      NSRectFromCGRect(frameRect.ToCGRect());
+  // We need to flip the y coordinate for Cocoa's view system.
+  frame.origin.y = NSHeight([containerView_ frame]) - NSMaxY(frame);
+  return frame;
 }
 
 - (NSPoint)popupPointForView:(NSView*)view
                   withBounds:(NSRect)bounds {
   // Anchor point just above the center of the bottom.
-  DCHECK([view isFlipped]);
-  NSPoint anchor = NSMakePoint(NSMidX(bounds),
-                               NSMaxY(bounds) - kBrowserActionBubbleYOffset);
+  int y = [view isFlipped] ? NSMaxY(bounds) - kBrowserActionBubbleYOffset :
+                             kBrowserActionBubbleYOffset;
+  NSPoint anchor = NSMakePoint(NSMidX(bounds), y);
   // Convert the point to the container view's frame, and adjust for animation.
   NSPoint anchorInContainer =
       [containerView_ convertPoint:anchor fromView:view];
@@ -896,8 +910,13 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
   // the container change).
   if ((currentX == NSMinX(buttonFrame) ||
        currentX == NSWidth([containerView_ frame]) - xLeft) &&
-      NSMinY([button frame]) == NSMinY(buttonFrame))
+      NSMinY([button frame]) == NSMinY(buttonFrame)) {
+    // If the button is in the right place, but animating, we need to stop the
+    // animation.
+    if ([button isAnimating])
+      [button stopAnimation];
     return;
+  }
 
   // It's possible the button is already animating to the right place. Don't
   // call move again, because it will stop the current animation.
@@ -1001,16 +1020,12 @@ void ToolbarActionsBarBridge::ShowExtensionMessageBubble(
 
 - (ToolbarActionsBarBubbleMac*)createMessageBubble:
     (scoped_ptr<ToolbarActionsBarBubbleDelegate>)delegate
-    anchorAction:(ToolbarActionViewController*)anchorAction {
+    anchorToSelf:(BOOL)anchorToSelf {
   DCHECK_GE([buttons_ count], 0u);
-  NSPoint anchor;
-  if (anchorAction) {
-    anchor = [self popupPointForId:anchorAction->GetId()];
-  } else {
-    NSView* wrenchButton = [[self toolbarController] wrenchButton];
-    anchor = [self popupPointForView:wrenchButton
-                          withBounds:[wrenchButton bounds]];
-  }
+  NSView* anchorView =
+      anchorToSelf ? containerView_ : [[self toolbarController] wrenchButton];
+  NSPoint anchor = [self popupPointForView:anchorView
+                                withBounds:[anchorView bounds]];
 
   anchor = [[containerView_ window] convertBaseToScreen:anchor];
   activeBubble_ = [[ToolbarActionsBarBubbleMac alloc]

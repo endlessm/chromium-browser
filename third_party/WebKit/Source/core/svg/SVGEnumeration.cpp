@@ -29,7 +29,6 @@
  */
 
 #include "config.h"
-
 #include "core/svg/SVGEnumeration.h"
 
 #include "bindings/core/v8/ExceptionState.h"
@@ -39,12 +38,7 @@
 
 namespace blink {
 
-inline PassRefPtrWillBeRawPtr<SVGEnumerationBase> toSVGEnumerationBase(PassRefPtrWillBeRawPtr<SVGPropertyBase> passBase)
-{
-    RefPtrWillBeRawPtr<SVGPropertyBase> base = passBase;
-    ASSERT(base->type() == SVGEnumerationBase::classType());
-    return static_pointer_cast<SVGEnumerationBase>(base.release());
-}
+DEFINE_SVG_PROPERTY_TYPE_CASTS(SVGEnumerationBase);
 
 SVGEnumerationBase::~SVGEnumerationBase()
 {
@@ -68,18 +62,8 @@ String SVGEnumerationBase::valueAsString() const
     return emptyString();
 }
 
-void SVGEnumerationBase::setValue(unsigned short value, ExceptionState& exceptionState)
+void SVGEnumerationBase::setValue(unsigned short value)
 {
-    if (!value) {
-        exceptionState.throwTypeError("The enumeration value provided is 0, which is not settable.");
-        return;
-    }
-
-    if (value > maxExposedEnumValue()) {
-        exceptionState.throwTypeError("The enumeration value provided (" + String::number(value) + ") is larger than the largest allowed value (" + String::number(maxExposedEnumValue()) + ").");
-        return;
-    }
-
     m_value = value;
     notifyChange();
 }

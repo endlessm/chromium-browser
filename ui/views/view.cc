@@ -699,7 +699,7 @@ void View::ConvertPointFromScreen(const View* dst, gfx::Point* p) {
 }
 
 gfx::Rect View::ConvertRectToParent(const gfx::Rect& rect) const {
-  gfx::RectF x_rect = rect;
+  gfx::RectF x_rect = gfx::RectF(rect);
   GetTransform().TransformRect(&x_rect);
   x_rect.Offset(GetMirroredPosition().OffsetFromOrigin());
   // Pixels we partially occupy in the parent should be included.
@@ -742,7 +742,7 @@ void View::Paint(const ui::PaintContext& parent_context) {
   if (!layer()) {
     // If the View has a layer() then it is a paint root. Otherwise, we need to
     // add the offset from the parent into the total offset from the paint root.
-    DCHECK_IMPLIES(!parent(), bounds().origin() == gfx::Point());
+    DCHECK(parent() || bounds().origin() == gfx::Point());
     offset_to_parent = GetMirroredPosition().OffsetFromOrigin();
   }
   ui::PaintContext context(parent_context, offset_to_parent);
@@ -836,6 +836,12 @@ ui::ThemeProvider* View::GetThemeProvider() const {
 const ui::NativeTheme* View::GetNativeTheme() const {
   const Widget* widget = GetWidget();
   return widget ? widget->GetNativeTheme() : ui::NativeTheme::instance();
+}
+
+// RTL painting ----------------------------------------------------------------
+
+void View::EnableCanvasFlippingForRTLUI(bool enable) {
+  flip_canvas_on_paint_for_rtl_ui_ = enable;
 }
 
 // Input -----------------------------------------------------------------------
@@ -1219,9 +1225,8 @@ gfx::Point View::GetKeyboardContextMenuLocation() {
 
 // Drag and drop ---------------------------------------------------------------
 
-bool View::GetDropFormats(
-      int* formats,
-      std::set<OSExchangeData::CustomFormat>* custom_formats) {
+bool View::GetDropFormats(int* formats,
+                          std::set<ui::Clipboard::FormatType>* format_types) {
   return false;
 }
 
@@ -1982,7 +1987,7 @@ bool View::ConvertPointForAncestor(const View* ancestor,
   gfx::Transform trans;
   // TODO(sad): Have some way of caching the transformation results.
   bool result = GetTransformRelativeTo(ancestor, &trans);
-  gfx::Point3F p(*point);
+  auto p = gfx::Point3F(gfx::PointF(*point));
   trans.TransformPoint(&p);
   *point = gfx::ToFlooredPoint(p.AsPointF());
   return result;
@@ -1992,7 +1997,7 @@ bool View::ConvertPointFromAncestor(const View* ancestor,
                                     gfx::Point* point) const {
   gfx::Transform trans;
   bool result = GetTransformRelativeTo(ancestor, &trans);
-  gfx::Point3F p(*point);
+  auto p = gfx::Point3F(gfx::PointF(*point));
   trans.TransformPointReverse(&p);
   *point = gfx::ToFlooredPoint(p.AsPointF());
   return result;

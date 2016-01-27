@@ -19,13 +19,17 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/observer_list.h"
 #include "base/timer/timer.h"
+#include "content/browser/background_sync/background_sync_registration_handle.h"
 #include "content/browser/service_worker/embedded_worker_instance.h"
 #include "content/browser/service_worker/service_worker_script_cache_map.h"
+#include "content/common/background_sync_service.mojom.h"
 #include "content/common/content_export.h"
+#include "content/common/service_port_service.mojom.h"
 #include "content/common/service_worker/service_worker_status_code.h"
 #include "content/common/service_worker/service_worker_types.h"
+#include "content/public/common/service_registry.h"
 #include "third_party/WebKit/public/platform/WebGeofencingEventType.h"
-#include "third_party/WebKit/public/platform/WebServiceWorkerEventResult.h"
+#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerEventResult.h"
 
 // Windows headers will redefine SendMessage.
 #ifdef SendMessage
@@ -69,10 +73,10 @@ class CONTENT_EXPORT ServiceWorkerVersion
                               ServiceWorkerFetchEventResult,
                               const ServiceWorkerResponse&)> FetchCallback;
   typedef base::Callback<void(ServiceWorkerStatusCode,
-                              bool /* accept_connction */)>
-      CrossOriginConnectCallback;
-  typedef base::Callback<void(ServiceWorkerStatusCode, const std::vector<int>&)>
-      SendStashedPortsCallback;
+                              bool /* accept_connction */,
+                              const base::string16& /* name */,
+                              const base::string16& /* data */)>
+      ServicePortConnectCallback;
 
   enum RunningStatus {
     STOPPED = EmbeddedWorkerInstance::STOPPED,
@@ -138,6 +142,13 @@ class CONTENT_EXPORT ServiceWorkerVersion
   }
   ServiceWorkerVersionInfo GetInfo();
   Status status() const { return status_; }
+
+  const std::vector<GURL>& foreign_fetch_scopes() const {
+    return foreign_fetch_scopes_;
+  }
+  void set_foreign_fetch_scopes(const std::vector<GURL>& scopes) {
+    foreign_fetch_scopes_ = scopes;
+  }
 
   // This sets the new status and also run status change callbacks
   // if there're any (see RegisterStatusChangeCallback).
@@ -206,7 +217,9 @@ class CONTENT_EXPORT ServiceWorkerVersion
   // notify completion.
   //
   // This must be called when the status() is ACTIVATED.
-  void DispatchSyncEvent(const StatusCallback& callback);
+  void DispatchSyncEvent(BackgroundSyncRegistrationHandle::HandleId handle_id,
+                         BackgroundSyncEventLastChance last_chance,
+                         const StatusCallback& callback);
 
   // Sends notificationclick event to the associated embedded worker and
   // asynchronously calls |callback| when it errors out or it gets a response
@@ -216,7 +229,8 @@ class CONTENT_EXPORT ServiceWorkerVersion
   void DispatchNotificationClickEvent(
       const StatusCallback& callback,
       int64_t persistent_notification_id,
-      const PlatformNotificationData& notification_data);
+      const PlatformNotificationData& notification_data,
+      int action_index);
 
   // Sends push event to the associated embedded worker and asynchronously calls
   // |callback| when it errors out or it gets a response from the worker to
@@ -237,13 +251,15 @@ class CONTENT_EXPORT ServiceWorkerVersion
       const std::string& region_id,
       const blink::WebCircularGeofencingRegion& region);
 
-  // Sends a cross origin connect event to the associated embedded worker and
+  // Sends a ServicePort connect event to the associated embedded worker and
   // asynchronously calls |callback| with the response from the worker.
   //
   // This must be called when the status() is ACTIVATED.
-  void DispatchCrossOriginConnectEvent(
-      const CrossOriginConnectCallback& callback,
-      const NavigatorConnectClient& client);
+  void DispatchServicePortConnectEvent(
+      const ServicePortConnectCallback& callback,
+      const GURL& target_url,
+      const GURL& origin,
+      int port_id);
 
   // Sends a cross origin message event to the associated embedded worker and
   // asynchronously calls |callback| when the message was sent (or failed to
@@ -258,16 +274,6 @@ class CONTENT_EXPORT ServiceWorkerVersion
       const base::string16& message,
       const std::vector<TransferredMessagePort>& sent_message_ports,
       const StatusCallback& callback);
-
-  // Transfers one or more stashed message ports to the associated embedded
-  // worker, and asynchronously calls |callback| with the new route ids for the
-  // transferred ports as soon as the ports are sent to the renderer.
-  // Once the ports are received by the renderer, the ports themselves will
-  // inform MessagePortService, which will enable actual messages to be sent.
-  void SendStashedMessagePorts(
-      const std::vector<TransferredMessagePort>& stashed_message_ports,
-      const std::vector<base::string16>& port_names,
-      const SendStashedPortsCallback& callback);
 
   // Adds and removes |provider_host| as a controllee of this ServiceWorker.
   // A potential controllee is a host having the version as its .installing
@@ -307,11 +313,16 @@ class CONTENT_EXPORT ServiceWorkerVersion
   bool skip_waiting() const { return skip_waiting_; }
   void set_skip_waiting(bool skip_waiting) { skip_waiting_ = skip_waiting; }
 
-  bool force_bypass_cache_for_scripts() {
+  bool force_bypass_cache_for_scripts() const {
     return force_bypass_cache_for_scripts_;
   }
   void set_force_bypass_cache_for_scripts(bool force_bypass_cache_for_scripts) {
     force_bypass_cache_for_scripts_ = force_bypass_cache_for_scripts;
+  }
+
+  bool skip_script_comparison() const { return skip_script_comparison_; }
+  void set_skip_script_comparison(bool skip_script_comparison) {
+    skip_script_comparison_ = skip_script_comparison;
   }
 
   void SetDevToolsAttached(bool attached);
@@ -328,7 +339,9 @@ class CONTENT_EXPORT ServiceWorkerVersion
 
  private:
   friend class base::RefCounted<ServiceWorkerVersion>;
+  friend class ServiceWorkerMetrics;
   friend class ServiceWorkerURLRequestJobTest;
+  friend class ServiceWorkerStallInStoppingTest;
   friend class ServiceWorkerVersionBrowserTest;
 
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerControlleeRequestHandlerTest,
@@ -348,6 +361,11 @@ class CONTENT_EXPORT ServiceWorkerVersion
                            TimeoutStartingWorker);
   FRIEND_TEST_ALL_PREFIXES(ServiceWorkerVersionBrowserTest,
                            TimeoutWorkerInEvent);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerVersionTest, StayAliveAfterPush);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerStallInStoppingTest, DetachThenStart);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerStallInStoppingTest, DetachThenRestart);
+  FRIEND_TEST_ALL_PREFIXES(ServiceWorkerVersionTest,
+                           RegisterForeignFetchScopes);
 
   class Metrics;
   class PingController;
@@ -355,6 +373,7 @@ class CONTENT_EXPORT ServiceWorkerVersion
   typedef ServiceWorkerVersion self;
   using ServiceWorkerClients = std::vector<ServiceWorkerClientInfo>;
 
+  // Used for UMA; add new entries to the end, before NUM_REQUEST_TYPES.
   enum RequestType {
     REQUEST_ACTIVATE,
     REQUEST_INSTALL,
@@ -363,31 +382,47 @@ class CONTENT_EXPORT ServiceWorkerVersion
     REQUEST_NOTIFICATION_CLICK,
     REQUEST_PUSH,
     REQUEST_GEOFENCING,
-    REQUEST_CROSS_ORIGIN_CONNECT
+    REQUEST_SERVICE_PORT_CONNECT,
+    NUM_REQUEST_TYPES
   };
 
   struct RequestInfo {
-    RequestInfo(int id, RequestType type);
+    RequestInfo(int id, RequestType type, const base::TimeTicks& time);
     ~RequestInfo();
     int id;
     RequestType type;
     base::TimeTicks time;
   };
 
+  template <typename CallbackType>
+  struct PendingRequest {
+    PendingRequest(const CallbackType& callback, const base::TimeTicks& time);
+    ~PendingRequest();
+
+    CallbackType callback;
+    base::TimeTicks start_time;
+  };
+
+  // The timeout timer interval.
+  static const int kTimeoutTimerDelaySeconds;
   // Timeout for the worker to start.
   static const int kStartWorkerTimeoutMinutes;
   // Timeout for a request to be handled.
   static const int kRequestTimeoutMinutes;
+  // Timeout for the worker to stop.
+  static const int kStopWorkerTimeoutSeconds;
 
   ~ServiceWorkerVersion() override;
 
   // EmbeddedWorkerInstance::Listener overrides:
-  void OnScriptLoaded() override;
+  void OnThreadStarted() override;
   void OnStarting() override;
   void OnStarted() override;
   void OnStopping() override;
   void OnStopped(EmbeddedWorkerInstance::Status old_status) override;
   void OnDetached(EmbeddedWorkerInstance::Status old_status) override;
+  void OnScriptLoaded() override;
+  void OnScriptLoadFailed() override;
   void OnReportException(const base::string16& error_message,
                          int line_number,
                          int column_number,
@@ -422,14 +457,15 @@ class CONTENT_EXPORT ServiceWorkerVersion
   void OnFetchEventFinished(int request_id,
                             ServiceWorkerFetchEventResult result,
                             const ServiceWorkerResponse& response);
-  void OnSyncEventFinished(int request_id,
-                           blink::WebServiceWorkerEventResult result);
+  void OnSyncEventFinished(int request_id, ServiceWorkerEventStatus status);
   void OnNotificationClickEventFinished(int request_id);
   void OnPushEventFinished(int request_id,
                            blink::WebServiceWorkerEventResult result);
   void OnGeofencingEventFinished(int request_id);
-  void OnCrossOriginConnectEventFinished(int request_id,
-                                         bool accept_connection);
+  void OnServicePortConnectEventFinished(int request_id,
+                                         ServicePortConnectResult result,
+                                         const mojo::String& name,
+                                         const mojo::String& data);
   void OnOpenWindow(int request_id, GURL url);
   void DidOpenWindow(int request_id,
                      int render_process_id,
@@ -448,19 +484,29 @@ class CONTENT_EXPORT ServiceWorkerVersion
       const base::string16& message,
       const std::vector<TransferredMessagePort>& sent_message_ports);
   void OnFocusClient(int request_id, const std::string& client_uuid);
+  void OnNavigateClient(int request_id,
+                        const std::string& client_uuid,
+                        const GURL& url);
+  void DidNavigateClient(int request_id,
+                         int render_process_id,
+                         int render_frame_id);
+  void OnNavigateClientFinished(int request_id,
+                                const std::string& client_uuid,
+                                const ServiceWorkerClientInfo& client);
   void OnSkipWaiting(int request_id);
   void OnClaimClients(int request_id);
   void OnPongFromWorker();
-  void OnStashMessagePort(int message_port_id, const base::string16& name);
 
   void OnFocusClientFinished(int request_id,
                              const std::string& client_uuid,
                              const ServiceWorkerClientInfo& client);
 
+  void OnRegisterForeignFetchScopes(const std::vector<GURL>& sub_scopes);
+
   void DidEnsureLiveRegistrationForStartWorker(
       const StatusCallback& callback,
       ServiceWorkerStatusCode status,
-      const scoped_refptr<ServiceWorkerRegistration>& protect);
+      const scoped_refptr<ServiceWorkerRegistration>& registration);
   void StartWorkerInternal();
 
   void DidSkipWaiting(int request_id);
@@ -473,8 +519,7 @@ class CONTENT_EXPORT ServiceWorkerVersion
   void GetNonWindowClients(int request_id,
                            const ServiceWorkerClientQueryOptions& options,
                            ServiceWorkerClients* clients);
-  void OnGetClientsFinished(int request_id,
-                            const ServiceWorkerClients& clients);
+  void OnGetClientsFinished(int request_id, ServiceWorkerClients* clients);
 
   // The timeout timer periodically calls OnTimeoutTimer, which stops the worker
   // if it is excessively idle or unresponsive to ping.
@@ -499,11 +544,12 @@ class CONTENT_EXPORT ServiceWorkerVersion
   void RemoveCallbackAndStopIfRedundant(IDMAP* callbacks, int request_id);
 
   template <typename CallbackType>
-  int AddRequest(const CallbackType& callback,
-                 IDMap<CallbackType, IDMapOwnPointer>* callback_map,
-                 RequestType request_type);
+  int AddRequest(
+      const CallbackType& callback,
+      IDMap<PendingRequest<CallbackType>, IDMapOwnPointer>* callback_map,
+      RequestType request_type);
 
-  bool OnRequestTimeout(const RequestInfo& info);
+  bool MaybeTimeOutRequest(const RequestInfo& info);
   void SetAllRequestTimes(const base::TimeTicks& ticks);
 
   // Returns the reason the embedded worker failed to start, using information
@@ -522,10 +568,22 @@ class CONTENT_EXPORT ServiceWorkerVersion
 
   void OnStoppedInternal(EmbeddedWorkerInstance::Status old_status);
 
+  // Called when a connection to a mojo event Dispatcher drops or fails.
+  // Calls callbacks for any outstanding requests to the dispatcher as well
+  // as cleans up the dispatcher.
+  void OnServicePortDispatcherConnectionError();
+  void OnBackgroundSyncDispatcherConnectionError();
+
+  // Called at the beginning of each Dispatch*Event function: records
+  // the time elapsed since idle (generally the time since the previous
+  // event ended).
+  void OnBeginEvent();
+
   const int64 version_id_;
   const int64 registration_id_;
   const GURL script_url_;
   const GURL scope_;
+  std::vector<GURL> foreign_fetch_scopes_;
 
   Status status_ = NEW;
   scoped_ptr<EmbeddedWorkerInstance> embedded_worker_;
@@ -535,15 +593,19 @@ class CONTENT_EXPORT ServiceWorkerVersion
 
   // Message callbacks. (Update HasInflightRequests() too when you update this
   // list.)
-  IDMap<StatusCallback, IDMapOwnPointer> activate_callbacks_;
-  IDMap<StatusCallback, IDMapOwnPointer> install_callbacks_;
-  IDMap<FetchCallback, IDMapOwnPointer> fetch_callbacks_;
-  IDMap<StatusCallback, IDMapOwnPointer> sync_callbacks_;
-  IDMap<StatusCallback, IDMapOwnPointer> notification_click_callbacks_;
-  IDMap<StatusCallback, IDMapOwnPointer> push_callbacks_;
-  IDMap<StatusCallback, IDMapOwnPointer> geofencing_callbacks_;
-  IDMap<CrossOriginConnectCallback, IDMapOwnPointer>
-      cross_origin_connect_callbacks_;
+  IDMap<PendingRequest<StatusCallback>, IDMapOwnPointer> activate_requests_;
+  IDMap<PendingRequest<StatusCallback>, IDMapOwnPointer> install_requests_;
+  IDMap<PendingRequest<FetchCallback>, IDMapOwnPointer> fetch_requests_;
+  IDMap<PendingRequest<StatusCallback>, IDMapOwnPointer> sync_requests_;
+  IDMap<PendingRequest<StatusCallback>, IDMapOwnPointer>
+      notification_click_requests_;
+  IDMap<PendingRequest<StatusCallback>, IDMapOwnPointer> push_requests_;
+  IDMap<PendingRequest<StatusCallback>, IDMapOwnPointer> geofencing_requests_;
+  IDMap<PendingRequest<ServicePortConnectCallback>, IDMapOwnPointer>
+      service_port_connect_requests_;
+
+  ServicePortDispatcherPtr service_port_dispatcher_;
+  BackgroundSyncServiceClientPtr background_sync_dispatcher_;
 
   std::set<const ServiceWorkerURLRequestJob*> streaming_url_request_jobs_;
 
@@ -552,10 +614,10 @@ class CONTENT_EXPORT ServiceWorkerVersion
   base::WeakPtr<ServiceWorkerContextCore> context_;
   base::ObserverList<Listener> listeners_;
   ServiceWorkerScriptCacheMap script_cache_map_;
-  base::OneShotTimer<ServiceWorkerVersion> update_timer_;
+  base::OneShotTimer update_timer_;
 
   // Starts running in StartWorker and continues until the worker is stopped.
-  base::RepeatingTimer<ServiceWorkerVersion> timeout_timer_;
+  base::RepeatingTimer timeout_timer_;
   // Holds the time the worker last started being considered idle.
   base::TimeTicks idle_time_;
   // Holds the time that the outstanding StartWorker() request started.
@@ -576,7 +638,9 @@ class CONTENT_EXPORT ServiceWorkerVersion
   bool skip_waiting_ = false;
   bool skip_recording_startup_time_ = false;
   bool force_bypass_cache_for_scripts_ = false;
+  bool skip_script_comparison_ = false;
   bool is_update_scheduled_ = false;
+  bool in_dtor_ = false;
 
   std::vector<int> pending_skip_waiting_requests_;
   scoped_ptr<net::HttpResponseInfo> main_script_http_info_;
@@ -589,6 +653,7 @@ class CONTENT_EXPORT ServiceWorkerVersion
 
   scoped_ptr<PingController> ping_controller_;
   scoped_ptr<Metrics> metrics_;
+  const bool should_exclude_from_uma_ = false;
 
   base::WeakPtrFactory<ServiceWorkerVersion> weak_factory_;
 

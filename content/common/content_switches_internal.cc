@@ -11,6 +11,7 @@
 #include "content/public/common/content_switches.h"
 
 #if defined(OS_WIN)
+#include "base/strings/string_tokenizer.h"
 #include "base/win/windows_version.h"
 #include "ui/gfx/win/direct_write.h"
 #endif
@@ -61,6 +62,33 @@ bool IsWin32kRendererLockdownEnabled() {
     return false;
   return true;
 }
+
+bool IsWin32kLockdownEnabledForMimeType(const std::string& mime_type) {
+  // Consider PPAPI lockdown a superset of renderer lockdown.
+  if (!IsWin32kRendererLockdownEnabled())
+    return false;
+  const base::CommandLine* cmd_line = base::CommandLine::ForCurrentProcess();
+
+  std::string mime_types =
+      base::FieldTrialList::FindFullName("EnableWin32kLockDownMimeTypes");
+  if (cmd_line->HasSwitch(switches::kEnableWin32kLockDownMimeTypes)) {
+    mime_types =
+        cmd_line->GetSwitchValueASCII(switches::kEnableWin32kLockDownMimeTypes);
+  }
+
+  // Consider the value * to enable all mime types for lockdown.
+  if (mime_types == "*")
+    return true;
+
+  base::StringTokenizer tokenizer(mime_types, ",");
+  tokenizer.set_quote_chars("\"");
+  while (tokenizer.GetNext()) {
+    if (tokenizer.token() == mime_type)
+      return true;
+  }
+
+  return false;
+}
 #endif
 
 V8CacheOptions GetV8CacheOptions() {
@@ -79,6 +107,12 @@ V8CacheOptions GetV8CacheOptions() {
   } else {
     return V8_CACHE_OPTIONS_DEFAULT;
   }
+}
+
+bool IsUseZoomForDSFEnabled() {
+  static bool enabled = base::CommandLine::ForCurrentProcess()->HasSwitch(
+      switches::kEnableUseZoomForDSF);
+  return enabled;
 }
 
 } // namespace content

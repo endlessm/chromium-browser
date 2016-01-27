@@ -113,13 +113,6 @@ class PolicyWatcherTest : public testing::Test {
     unknown_policies_.SetString("UnknownPolicyTwo", std::string());
     unknown_policies_.SetBoolean("RemoteAccessHostUnknownPolicyThree", true);
 
-    const char kOverrideNatTraversalToFalse[] =
-        "{ \"RemoteAccessHostFirewallTraversal\": false }";
-    nat_true_and_overridden_.SetBoolean(key::kRemoteAccessHostFirewallTraversal,
-                                        true);
-    nat_true_and_overridden_.SetString(
-        key::kRemoteAccessHostDebugOverridePolicies,
-        kOverrideNatTraversalToFalse);
     pairing_true_.SetBoolean(key::kRemoteAccessHostAllowClientPairing, true);
     pairing_false_.SetBoolean(key::kRemoteAccessHostAllowClientPairing, false);
     gnubby_auth_true_.SetBoolean(key::kRemoteAccessHostAllowGnubbyAuth, true);
@@ -152,15 +145,6 @@ class PolicyWatcherTest : public testing::Test {
     third_party_auth_cert_empty_.MergeDictionary(&third_party_auth_partial_);
     third_party_auth_cert_empty_.SetString(
         key::kRemoteAccessHostTokenValidationCertificateIssuer, "");
-
-#if !defined(NDEBUG)
-    SetDefaults(nat_false_overridden_others_default_);
-    nat_false_overridden_others_default_.SetBoolean(
-        key::kRemoteAccessHostFirewallTraversal, false);
-    nat_false_overridden_others_default_.SetString(
-        key::kRemoteAccessHostDebugOverridePolicies,
-        kOverrideNatTraversalToFalse);
-#endif
   }
 
   void TearDown() override {
@@ -186,7 +170,8 @@ class PolicyWatcherTest : public testing::Test {
     policy::PolicyBundle policy_bundle;
     policy::PolicyMap& policy_map = policy_bundle.Get(policy_namespace);
     policy_map.LoadFrom(&dict, policy::POLICY_LEVEL_MANDATORY,
-                        policy::POLICY_SCOPE_MACHINE);
+                        policy::POLICY_SCOPE_MACHINE,
+                        policy::POLICY_SOURCE_CLOUD);
 
     // Simulate a policy file/registry/preference update.
     policy_loader_->SetPolicies(policy_bundle);
@@ -232,8 +217,6 @@ class PolicyWatcherTest : public testing::Test {
   base::DictionaryValue nat_false_domain_full_;
   base::DictionaryValue nat_true_domain_empty_others_default_;
   base::DictionaryValue unknown_policies_;
-  base::DictionaryValue nat_true_and_overridden_;
-  base::DictionaryValue nat_false_overridden_others_default_;
   base::DictionaryValue pairing_true_;
   base::DictionaryValue pairing_false_;
   base::DictionaryValue gnubby_auth_true_;
@@ -268,9 +251,6 @@ class PolicyWatcherTest : public testing::Test {
     dict.SetString(key::kRemoteAccessHostTokenValidationCertificateIssuer, "");
     dict.SetBoolean(key::kRemoteAccessHostAllowClientPairing, true);
     dict.SetBoolean(key::kRemoteAccessHostAllowGnubbyAuth, true);
-#if !defined(NDEBUG)
-    dict.SetString(key::kRemoteAccessHostDebugOverridePolicies, "");
-#endif
 
     ASSERT_THAT(&dict, IsPolicies(&GetDefaultValues()))
         << "Sanity check that defaults expected by the test code "
@@ -477,20 +457,6 @@ INSTANTIATE_TEST_CASE_P(
                       "RemoteAccessHostdomain",
                       "RemoteAccessHostPolicyForFutureVersion"));
 
-TEST_F(PolicyWatcherTest, DebugOverrideNatPolicy) {
-#if !defined(NDEBUG)
-  EXPECT_CALL(
-      mock_policy_callback_,
-      OnPolicyUpdatePtr(IsPolicies(&nat_false_overridden_others_default_)));
-#else
-  EXPECT_CALL(mock_policy_callback_,
-              OnPolicyUpdatePtr(IsPolicies(&nat_true_others_default_)));
-#endif
-
-  SetPolicies(nat_true_and_overridden_);
-  StartWatching();
-}
-
 TEST_F(PolicyWatcherTest, PairingFalseThenTrue) {
   testing::InSequence sequence;
   EXPECT_CALL(mock_policy_callback_,
@@ -647,13 +613,6 @@ TEST_F(PolicyWatcherTest, PolicySchemaAndPolicyWatcherShouldBeInSync) {
   // supported on Windows and therefore is (by design) excluded from the schema.
   expected_schema.erase(key::kRemoteAccessHostMatchUsername);
 #endif
-#if defined(NDEBUG)
-  // Policy schema / policy_templates.json cannot differ between debug and
-  // release builds so we compensate below to account for the fact that
-  // PolicyWatcher::default_values_ does differ between debug and release.
-  expected_schema[key::kRemoteAccessHostDebugOverridePolicies] =
-      base::Value::TYPE_STRING;
-#endif
 
   std::map<std::string, base::Value::Type> actual_schema;
   const policy::Schema* schema = GetPolicySchema();
@@ -729,7 +688,13 @@ void OnPolicyUpdatedDumpPolicy(scoped_ptr<base::DictionaryValue> policies) {
 
 // To dump policy contents, run unit tests with the following flags:
 // out/Debug/remoting_unittests --gtest_filter=*TestRealChromotingPolicy* -v=1
-TEST_F(PolicyWatcherTest, TestRealChromotingPolicy) {
+#if defined(ADDRESS_SANITIZER)
+// http://crbug.com/517918
+#define MAYBE_TestRealChromotingPolicy DISABLED_TestRealChromotingPolicy
+#else
+#define MAYBE_TestRealChromotingPolicy TestRealChromotingPolicy
+#endif
+TEST_F(PolicyWatcherTest, MAYBE_TestRealChromotingPolicy) {
   scoped_refptr<base::SingleThreadTaskRunner> task_runner =
       base::MessageLoop::current()->task_runner();
   scoped_ptr<PolicyWatcher> policy_watcher(

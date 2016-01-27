@@ -38,7 +38,9 @@ DSC_FORMAT = {
         # lib = library target
         # so = shared object target, automatically added to NMF
         # so-standalone =  shared object target, not put into NMF
-        'TYPE': (str, ['main', 'lib', 'static-lib', 'so', 'so-standalone'],
+        'TYPE': (str,
+                 ['main', 'lib', 'static-lib', 'so', 'so-standalone',
+                  'linker-script'],
                  True),
         'SOURCES': (list, '', True),
         'CFLAGS': (list, '', False),
@@ -227,7 +229,7 @@ def DescMatchesFilter(desc, filters):
     value = desc.get(key, False)
 
     # If we provide an expected list, match at least one
-    if type(expected) != list:
+    if type(expected) not in (list, tuple):
       expected = set([expected])
     if type(value) != list:
       value = set([value])

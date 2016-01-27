@@ -12,6 +12,7 @@
 #include "base/metrics/field_trial.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_piece.h"
+#include "base/strings/string_split.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_client_config_parser.h"
 #include "components/data_reduction_proxy/core/common/data_reduction_proxy_switches.h"
 #include "components/data_reduction_proxy/proto/client_config.pb.h"
@@ -25,6 +26,7 @@ using base::FieldTrialList;
 namespace {
 
 const char kEnabled[] = "Enabled";
+const char kControl[] = "Control";
 const char kDefaultSpdyOrigin[] = "https://proxy.googlezip.net:443";
 const char kDefaultQuicOrigin[] = "quic://proxy.googlezip.net:443";
 // A one-off change, until the Data Reduction Proxy configuration service is
@@ -40,8 +42,10 @@ const char kDefaultWarmupUrl[] = "http://www.gstatic.com/generate_204";
 const char kAndroidOneIdentifier[] = "sprout";
 
 const char kQuicFieldTrial[] = "DataReductionProxyUseQuic";
+const char kDevRolloutFieldTrial[] = "DataCompressionProxyDevRollout";
 
 const char kLoFiFieldTrial[] = "DataCompressionProxyLoFi";
+const char kLoFiFlagFieldTrial[] = "DataCompressionProxyLoFiFlag";
 
 const char kConfigServiceFieldTrial[] = "DataReductionProxyConfigService";
 const char kConfigServiceURLParam[] = "url";
@@ -74,6 +78,24 @@ std::string GetLoFiFieldTrialName() {
   return kLoFiFieldTrial;
 }
 
+std::string GetLoFiFlagFieldTrialName() {
+  return kLoFiFlagFieldTrial;
+}
+
+bool IsIncludedInLoFiEnabledFieldTrial() {
+  return FieldTrialList::FindFullName(GetLoFiFieldTrialName()).find(kEnabled) ==
+         0;
+}
+
+bool IsIncludedInLoFiControlFieldTrial() {
+  return FieldTrialList::FindFullName(GetLoFiFieldTrialName()) == kControl;
+}
+
+bool IsLoFiOnViaFlags() {
+  return IsLoFiAlwaysOnViaFlags() || IsLoFiCellularOnlyViaFlags() ||
+         IsLoFiSlowConnectionsOnlyViaFlags();
+}
+
 bool IsLoFiAlwaysOnViaFlags() {
   const std::string& lo_fi_value =
       base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
@@ -88,6 +110,14 @@ bool IsLoFiCellularOnlyViaFlags() {
           data_reduction_proxy::switches::kDataReductionProxyLoFi);
   return lo_fi_value == data_reduction_proxy::switches::
                             kDataReductionProxyLoFiValueCellularOnly;
+}
+
+bool IsLoFiSlowConnectionsOnlyViaFlags() {
+  const std::string& lo_fi_value =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          data_reduction_proxy::switches::kDataReductionProxyLoFi);
+  return lo_fi_value == data_reduction_proxy::switches::
+                            kDataReductionProxyLoFiValueSlowConnectionsOnly;
 }
 
 bool IsLoFiDisabledViaFlags() {
@@ -108,16 +138,25 @@ bool WarnIfNoDataReductionProxy() {
 }
 
 bool IsIncludedInQuicFieldTrial() {
-  return FieldTrialList::FindFullName(kQuicFieldTrial) == kEnabled;
+  return FieldTrialList::FindFullName(kQuicFieldTrial).find(kEnabled) == 0;
 }
 
 std::string GetQuicFieldTrialName() {
   return kQuicFieldTrial;
 }
 
-bool IsIncludedInUseDataSaverOnVPNFieldTrial() {
-  return FieldTrialList::FindFullName("DataReductionProxyUseDataSaverOnVPN") ==
-         kEnabled;
+bool IsDevRolloutEnabled() {
+  const base::CommandLine& command_line =
+      *base::CommandLine::ForCurrentProcess();
+  if (command_line.HasSwitch(switches::kDisableDataReductionProxyDev))
+    return false;
+
+  return command_line.HasSwitch(switches::kEnableDataReductionProxyDev) ||
+         (FieldTrialList::FindFullName(kDevRolloutFieldTrial) == kEnabled);
+}
+
+std::string GetClientConfigFieldTrialName() {
+  return kConfigServiceFieldTrial;
 }
 
 bool IsConfigClientEnabled() {
@@ -189,12 +228,36 @@ int GetFieldTrialParameterAsInteger(const std::string& group,
   return value;
 }
 
+bool GetOverrideProxiesForHttpFromCommandLine(
+    std::vector<net::ProxyServer>* override_proxies_for_http) {
+  DCHECK(override_proxies_for_http);
+  if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
+          switches::kDataReductionProxyHttpProxies)) {
+    return false;
+  }
+
+  override_proxies_for_http->clear();
+
+  std::string proxy_overrides =
+      base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+          switches::kDataReductionProxyHttpProxies);
+  std::vector<std::string> proxy_override_values = base::SplitString(
+      proxy_overrides, ";", base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY);
+  for (const std::string& proxy_override : proxy_override_values) {
+    override_proxies_for_http->push_back(net::ProxyServer::FromURI(
+        proxy_override, net::ProxyServer::SCHEME_HTTP));
+  }
+
+  return true;
+}
+
 }  // namespace params
 
 void DataReductionProxyParams::EnableQuic(bool enable) {
   quic_enabled_ = enable;
   DCHECK(!quic_enabled_ || params::IsIncludedInQuicFieldTrial());
-  if (override_quic_origin_.empty() && quic_enabled_) {
+  if (!params::IsDevRolloutEnabled() && override_quic_origin_.empty() &&
+      quic_enabled_) {
     origin_ = net::ProxyServer::FromURI(kDefaultQuicOrigin,
                                         net::ProxyServer::SCHEME_HTTP);
     proxies_for_http_.clear();
@@ -213,15 +276,7 @@ DataReductionProxyTypeInfo::~DataReductionProxyTypeInfo(){
 }
 
 DataReductionProxyParams::DataReductionProxyParams(int flags)
-    : allowed_((flags & kAllowed) == kAllowed),
-      fallback_allowed_((flags & kFallbackAllowed) == kFallbackAllowed),
-      promo_allowed_((flags & kPromoAllowed) == kPromoAllowed),
-      holdback_((flags & kHoldback) == kHoldback),
-      quic_enabled_(false),
-      configured_on_command_line_(false) {
-  bool result = Init(allowed_, fallback_allowed_);
-  DCHECK(result);
-}
+    : DataReductionProxyParams(flags, true) {}
 
 DataReductionProxyParams::~DataReductionProxyParams() {
 }
@@ -233,7 +288,8 @@ DataReductionProxyParams::DataReductionProxyParams(int flags,
       promo_allowed_((flags & kPromoAllowed) == kPromoAllowed),
       holdback_((flags & kHoldback) == kHoldback),
       quic_enabled_(false),
-      configured_on_command_line_(false) {
+      configured_on_command_line_(false),
+      use_override_proxies_for_http_(false) {
   if (should_call_init) {
     bool result = Init(allowed_, fallback_allowed_);
     DCHECK(result);
@@ -274,10 +330,13 @@ bool DataReductionProxyParams::Init(bool allowed, bool fallback_allowed) {
     return false;
   }
   return true;
-
 }
 
 void DataReductionProxyParams::InitWithoutChecks() {
+  use_override_proxies_for_http_ =
+      params::GetOverrideProxiesForHttpFromCommandLine(
+          &override_proxies_for_http_);
+
   const base::CommandLine& command_line =
       *base::CommandLine::ForCurrentProcess();
   std::string origin;
@@ -347,6 +406,8 @@ bool DataReductionProxyParams::UsingHTTPTunnel(
 
 const std::vector<net::ProxyServer>&
 DataReductionProxyParams::proxies_for_http() const {
+  if (use_override_proxies_for_http_)
+    return override_proxies_for_http_;
   return proxies_for_http_;
 }
 
@@ -405,29 +466,11 @@ bool DataReductionProxyParams::holdback() const {
 }
 
 std::string DataReductionProxyParams::GetDefaultDevOrigin() const {
-  const base::CommandLine& command_line =
-      *base::CommandLine::ForCurrentProcess();
-  if (command_line.HasSwitch(switches::kDisableDataReductionProxyDev))
-    return std::string();
-  if (command_line.HasSwitch(switches::kEnableDataReductionProxyDev) ||
-      (FieldTrialList::FindFullName("DataCompressionProxyDevRollout") ==
-         kEnabled)) {
-    return kDevOrigin;
-  }
-  return std::string();
+  return params::IsDevRolloutEnabled() ? kDevOrigin : std::string();
 }
 
 std::string DataReductionProxyParams::GetDefaultDevFallbackOrigin() const {
-  const base::CommandLine& command_line =
-      *base::CommandLine::ForCurrentProcess();
-  if (command_line.HasSwitch(switches::kDisableDataReductionProxyDev))
-    return std::string();
-  if (command_line.HasSwitch(switches::kEnableDataReductionProxyDev) ||
-      (FieldTrialList::FindFullName("DataCompressionProxyDevRollout") ==
-           kEnabled)) {
-    return kDevFallbackOrigin;
-  }
-  return std::string();
+  return params::IsDevRolloutEnabled() ? kDevFallbackOrigin : std::string();
 }
 
 // TODO(kundaji): Remove tests for macro definitions.

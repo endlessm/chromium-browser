@@ -44,7 +44,6 @@ class WebRtcVideoFrameFactoryTest
     captured_frame_.fourcc = cricket::FOURCC_I420;
     captured_frame_.pixel_width = 1;
     captured_frame_.pixel_height = 1;
-    captured_frame_.elapsed_time = 1234;
     captured_frame_.time_stamp = 5678;
     captured_frame_.rotation = frame_rotation;
     captured_frame_.width = frame_width;
@@ -52,7 +51,7 @@ class WebRtcVideoFrameFactoryTest
     captured_frame_.data_size =
         (frame_width * frame_height) +
         ((frame_width + 1) / 2) * ((frame_height + 1) / 2) * 2;
-    captured_frame_buffer_.reset(new uint8[captured_frame_.data_size]);
+    captured_frame_buffer_.reset(new uint8_t[captured_frame_.data_size]);
     // Initialize memory to satisfy DrMemory tests.
     memset(captured_frame_buffer_.get(), 0, captured_frame_.data_size);
     captured_frame_.data = captured_frame_buffer_.get();
@@ -112,7 +111,7 @@ class WebRtcVideoFrameFactoryTest
 
  private:
   cricket::CapturedFrame captured_frame_;
-  rtc::scoped_ptr<uint8[]> captured_frame_buffer_;
+  rtc::scoped_ptr<uint8_t[]> captured_frame_buffer_;
   cricket::WebRtcVideoFrameFactory factory_;
 };
 

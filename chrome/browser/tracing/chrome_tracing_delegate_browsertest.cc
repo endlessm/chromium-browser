@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "base/base_switches.h"
 #include "base/bind.h"
 #include "base/command_line.h"
 #include "base/prefs/pref_service.h"
@@ -13,9 +14,9 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "components/metrics/metrics_pref_names.h"
+#include "content/public/browser/background_tracing_config.h"
 #include "content/public/browser/background_tracing_manager.h"
-#include "content/public/browser/background_tracing_preemptive_config.h"
-#include "content/public/browser/background_tracing_reactive_config.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_utils.h"
 
@@ -28,21 +29,37 @@ class ChromeTracingDelegateBrowserTest : public InProcessBrowserTest {
         started_finalizations_count_(0),
         last_on_started_finalizing_success_(false) {}
 
+#if !defined(OS_CHROMEOS)
+  void SetUpOnMainThread() override {
+    PrefService* local_state = g_browser_process->local_state();
+    DCHECK(local_state);
+    local_state->SetBoolean(metrics::prefs::kMetricsReportingEnabled, true);
+  }
+#endif
+
   bool StartPreemptiveScenario(
       const base::Closure& on_upload_callback,
       content::BackgroundTracingManager::DataFiltering data_filtering) {
     on_upload_callback_ = on_upload_callback;
 
-    scoped_ptr<content::BackgroundTracingPreemptiveConfig> config(
-        new content::BackgroundTracingPreemptiveConfig());
+    base::DictionaryValue dict;
 
-    content::BackgroundTracingPreemptiveConfig::MonitoringRule rule;
-    rule.type = content::BackgroundTracingPreemptiveConfig::
-        MONITOR_AND_DUMP_WHEN_TRIGGER_NAMED;
-    rule.named_trigger_info.trigger_name = "test";
+    dict.SetString("mode", "PREEMPTIVE_TRACING_MODE");
+    dict.SetString("category", "BENCHMARK");
 
-    config->configs.push_back(rule);
+    scoped_ptr<base::ListValue> rules_list(new base::ListValue());
+    {
+      scoped_ptr<base::DictionaryValue> rules_dict(new base::DictionaryValue());
+      rules_dict->SetString("rule", "MONITOR_AND_DUMP_WHEN_TRIGGER_NAMED");
+      rules_dict->SetString("trigger_name", "test");
+      rules_list->Append(rules_dict.Pass());
+    }
+    dict.Set("configs", rules_list.Pass());
 
+    scoped_ptr<content::BackgroundTracingConfig> config(
+        content::BackgroundTracingConfig::FromDict(&dict));
+
+    DCHECK(config);
     content::BackgroundTracingManager::ReceiveCallback receive_callback =
         base::Bind(&ChromeTracingDelegateBrowserTest::OnUpload,
                    base::Unretained(this));
@@ -51,7 +68,7 @@ class ChromeTracingDelegateBrowserTest : public InProcessBrowserTest {
         config.Pass(), receive_callback, data_filtering);
   }
 
-  void TriggerReactiveScenario(
+  void TriggerPreemptiveScenario(
       const base::Closure& on_started_finalization_callback) {
     on_started_finalization_callback_ = on_started_finalization_callback;
     trigger_handle_ =
@@ -76,7 +93,7 @@ class ChromeTracingDelegateBrowserTest : public InProcessBrowserTest {
 
  private:
   void OnUpload(const scoped_refptr<base::RefCountedString>& file_contents,
-                scoped_ptr<base::DictionaryValue> metadata,
+                scoped_ptr<const base::DictionaryValue> metadata,
                 base::Callback<void()> done_callback) {
     receive_count_ += 1;
 
@@ -113,7 +130,7 @@ IN_PROC_BROWSER_TEST_F(ChromeTracingDelegateBrowserTest,
       wait_for_upload.QuitClosure(),
       content::BackgroundTracingManager::NO_DATA_FILTERING));
 
-  TriggerReactiveScenario(base::Closure());
+  TriggerPreemptiveScenario(base::Closure());
 
   wait_for_upload.Run();
 
@@ -139,7 +156,7 @@ IN_PROC_BROWSER_TEST_F(ChromeTracingDelegateBrowserTest,
       wait_for_upload.QuitClosure(),
       content::BackgroundTracingManager::NO_DATA_FILTERING));
 
-  TriggerReactiveScenario(base::Closure());
+  TriggerPreemptiveScenario(base::Closure());
 
   wait_for_upload.Run();
 
@@ -181,7 +198,7 @@ IN_PROC_BROWSER_TEST_F(ChromeTracingDelegateBrowserTest,
   EXPECT_TRUE(BrowserList::IsOffTheRecordSessionActive());
 
   base::RunLoop wait_for_finalization_start;
-  TriggerReactiveScenario(wait_for_finalization_start.QuitClosure());
+  TriggerPreemptiveScenario(wait_for_finalization_start.QuitClosure());
   wait_for_finalization_start.Run();
 
   EXPECT_TRUE(get_started_finalizations() == 1);
@@ -217,17 +234,35 @@ class ChromeTracingDelegateBrowserTestOnStartup
   }
 };
 
+#if !defined(OS_CHROMEOS)
+IN_PROC_BROWSER_TEST_F(ChromeTracingDelegateBrowserTestOnStartup,
+                       PRE_ScenarioSetFromFieldtrial) {
+  // At this point the metrics pref is not set.
+  EXPECT_FALSE(
+      content::BackgroundTracingManager::GetInstance()->HasActiveScenario());
+}
+#endif // OS_CHROMEOS
+
 IN_PROC_BROWSER_TEST_F(ChromeTracingDelegateBrowserTestOnStartup,
                        ScenarioSetFromFieldtrial) {
   // We should reach this point without crashing.
-  EXPECT_TRUE(content::BackgroundTracingManager::GetInstance()
-                  ->HasActiveScenarioForTesting());
+  EXPECT_TRUE(
+      content::BackgroundTracingManager::GetInstance()->HasActiveScenario());
 }
+
+#if !defined(OS_CHROMEOS)
+IN_PROC_BROWSER_TEST_F(ChromeTracingDelegateBrowserTestOnStartup,
+                       PRE_PRE_StartupTracingThrottle) {
+  // At this point the metrics pref is not set.
+  EXPECT_FALSE(
+      content::BackgroundTracingManager::GetInstance()->HasActiveScenario());
+}
+#endif // OS_CHROMEOS
 
 IN_PROC_BROWSER_TEST_F(ChromeTracingDelegateBrowserTestOnStartup,
                        PRE_StartupTracingThrottle) {
-  EXPECT_TRUE(content::BackgroundTracingManager::GetInstance()
-                  ->HasActiveScenarioForTesting());
+  EXPECT_TRUE(
+      content::BackgroundTracingManager::GetInstance()->HasActiveScenario());
 
   // Simulate a trace upload.
   PrefService* local_state = g_browser_process->local_state();
@@ -240,8 +275,8 @@ IN_PROC_BROWSER_TEST_F(ChromeTracingDelegateBrowserTestOnStartup,
                        StartupTracingThrottle) {
   // The startup scenario should *not* be started, since not enough
   // time has elapsed since the last upload (set in the PRE_ above).
-  EXPECT_FALSE(content::BackgroundTracingManager::GetInstance()
-                   ->HasActiveScenarioForTesting());
+  EXPECT_FALSE(
+      content::BackgroundTracingManager::GetInstance()->HasActiveScenario());
 }
 
 }  // namespace

@@ -42,6 +42,7 @@ import org.chromium.chrome.browser.compositor.layouts.eventfilter.EdgeSwipeHandl
 import org.chromium.chrome.browser.compositor.layouts.phone.StackLayout;
 import org.chromium.chrome.browser.compositor.layouts.phone.stack.Stack;
 import org.chromium.chrome.browser.compositor.layouts.phone.stack.StackTab;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelObserver;
 import org.chromium.chrome.browser.tabmodel.EmptyTabModelSelectorObserver;
 import org.chromium.chrome.browser.tabmodel.TabModel;
@@ -68,7 +69,6 @@ import org.chromium.content_public.browser.WebContents;
 import org.chromium.content_public.browser.WebContentsObserver;
 
 import java.util.Locale;
-import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -133,7 +133,7 @@ public class TabsTest extends ChromeTabbedActivityTestBase {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                tab.getWebContents().evaluateJavaScript(
+                tab.getWebContents().evaluateJavaScriptForTests(
                         "(function() {"
                         + "  window.open('www.google.com');"
                         + "})()",
@@ -158,7 +158,7 @@ public class TabsTest extends ChromeTabbedActivityTestBase {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                tab.getWebContents().evaluateJavaScript(
+                tab.getWebContents().evaluateJavaScriptForTests(
                         "(function() {"
                         + "  alert('hi');"
                         + "})()",
@@ -222,14 +222,13 @@ public class TabsTest extends ChromeTabbedActivityTestBase {
                 getActivity().getLayoutManager(), true, false);
         View tabSwitcherButton = getActivity().findViewById(R.id.tab_switcher_button);
         assertNotNull("'tab_switcher_button' view is not found", tabSwitcherButton);
-        singleClickView(tabSwitcherButton, tabSwitcherButton.getWidth() / 2,
-                tabSwitcherButton.getHeight() / 2);
+        singleClickView(tabSwitcherButton);
         overviewModeWatcher.waitForBehavior();
         overviewModeWatcher = new OverviewModeBehaviorWatcher(
                 getActivity().getLayoutManager(), false, true);
         View newTabButton = getActivity().findViewById(R.id.new_tab_button);
         assertNotNull("'new_tab_button' view is not found", newTabButton);
-        singleClickView(newTabButton, newTabButton.getWidth() / 2, newTabButton.getHeight() / 2);
+        singleClickView(newTabButton);
         overviewModeWatcher.waitForBehavior();
 
         getInstrumentation().runOnMainSync(new Runnable() {
@@ -264,8 +263,9 @@ public class TabsTest extends ChromeTabbedActivityTestBase {
      * renderer. https://crbug.com/434477.
      * @throws InterruptedException
      * @throws TimeoutException
+     * @SmallTest
      */
-    @SmallTest
+    @FlakyTest
     public void testNewTabSetsContentViewSize() throws InterruptedException, TimeoutException {
         ChromeTabUtils.newTabFromMenu(getInstrumentation(), getActivity());
 
@@ -350,7 +350,7 @@ public class TabsTest extends ChromeTabbedActivityTestBase {
         View button = getActivity().findViewById(R.id.tab_switcher_button);
         OverviewModeBehaviorWatcher overviewModeWatcher = new OverviewModeBehaviorWatcher(
                 getActivity().getLayoutManager(), true, false);
-        singleClickView(button, button.getWidth() / 2, button.getHeight() / 2);
+        singleClickView(button);
         overviewModeWatcher.waitForBehavior();
         assertTrue("Expected: " + (initialTabCount + 1) + " tab Got: "
                 + getActivity().getCurrentTabModel().getCount(),
@@ -1171,9 +1171,9 @@ public class TabsTest extends ChromeTabbedActivityTestBase {
         assertNotNull("Could not find 'tab_switcher_button'", button);
 
         for (int i = 0; i < 15; i++) {
-            singleClickView(button, button.getWidth() / 2, button.getHeight() / 2);
+            singleClickView(button);
             // Switch back to the tab view from the tab-switcher mode.
-            singleClickView(button, button.getWidth() / 2, button.getHeight() / 2);
+            singleClickView(button);
 
             assertEquals("URL mismatch after switching back to the tab from tab-switch mode",
                     urls[lastUrlIndex], getActivity().getActivityTab().getUrl());
@@ -1398,22 +1398,15 @@ public class TabsTest extends ChromeTabbedActivityTestBase {
     }
 
     private void waitForStaticLayout() throws InterruptedException {
-        final Callable<Boolean> callable = new Callable<Boolean>() {
-            @Override
-            public Boolean call() throws Exception {
-                CompositorViewHolder compositorViewHolder = (CompositorViewHolder)
-                        getActivity().findViewById(R.id.compositor_view_holder);
-                LayoutManager layoutManager = compositorViewHolder.getLayoutManager();
-
-                return layoutManager.getActiveLayout() instanceof StaticLayout;
-            }
-        };
-
         assertTrue("Static Layout never selected after side swipe",
-                CriteriaHelper.pollForCriteria(new Criteria() {
+                CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
                     @Override
                     public boolean isSatisfied() {
-                        return ThreadUtils.runOnUiThreadBlockingNoException(callable);
+                        CompositorViewHolder compositorViewHolder = (CompositorViewHolder)
+                                getActivity().findViewById(R.id.compositor_view_holder);
+                        LayoutManager layoutManager = compositorViewHolder.getLayoutManager();
+
+                        return layoutManager.getActiveLayout() instanceof StaticLayout;
                     }
                 }));
     }

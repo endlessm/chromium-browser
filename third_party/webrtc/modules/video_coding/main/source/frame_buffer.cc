@@ -15,7 +15,7 @@
 
 #include "webrtc/base/checks.h"
 #include "webrtc/modules/video_coding/main/source/packet.h"
-#include "webrtc/system_wrappers/interface/logging.h"
+#include "webrtc/system_wrappers/include/logging.h"
 
 namespace webrtc {
 
@@ -75,6 +75,15 @@ bool VCMFrameBuffer::NonReference() const {
   return _sessionInfo.NonReference();
 }
 
+void VCMFrameBuffer::SetGofInfo(const GofInfoVP9& gof_info, size_t idx) {
+  _sessionInfo.SetGofInfo(gof_info, idx);
+  // TODO(asapersson): Consider adding hdr->VP9.ref_picture_id for testing.
+  _codecSpecificInfo.codecSpecific.VP9.temporal_idx =
+      gof_info.temporal_idx[idx];
+  _codecSpecificInfo.codecSpecific.VP9.temporal_up_switch =
+      gof_info.temporal_up_switch[idx];
+}
+
 bool
 VCMFrameBuffer::IsSessionComplete() const {
     return _sessionInfo.complete();
@@ -98,7 +107,7 @@ VCMFrameBuffer::InsertPacket(const VCMPacket& packet,
         // We only take the ntp timestamp of the first packet of a frame.
         ntp_time_ms_ = packet.ntp_time_ms_;
         _codec = packet.codec;
-        if (packet.frameType != kFrameEmpty) {
+        if (packet.frameType != kEmptyFrame) {
             // first media packet
             SetState(kStateIncomplete);
         }
@@ -154,7 +163,7 @@ VCMFrameBuffer::InsertPacket(const VCMPacket& packet,
     // frame (I-frame or IDR frame in H.264 (AVC), or an IRAP picture in H.265
     // (HEVC)).
     if (packet.markerBit) {
-      DCHECK(!_rotation_set);
+      RTC_DCHECK(!_rotation_set);
       _rotation = packet.codecSpecificHeader.rotation;
       _rotation_set = true;
     }
@@ -280,7 +289,7 @@ VCMFrameBuffer::PrepareForDecode(bool continuous) {
 #endif
     // Transfer frame information to EncodedFrame and create any codec
     // specific information.
-    _frameType = ConvertFrameType(_sessionInfo.FrameType());
+    _frameType = _sessionInfo.FrameType();
     _completeFrame = _sessionInfo.complete();
     _missingFrame = !continuous;
 }

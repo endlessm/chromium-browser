@@ -33,7 +33,6 @@
 
 #include "libyuv/scale_argb.h"
 #include "talk/media/base/videoframefactory.h"
-#include "talk/media/base/videoprocessor.h"
 #include "webrtc/base/common.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/systeminfo.h"
@@ -59,7 +58,7 @@ enum {
   MSG_STATE_CHANGE
 };
 
-static const int64 kMaxDistance = ~(static_cast<int64>(1) << 63);
+static const int64_t kMaxDistance = ~(static_cast<int64_t>(1) << 63);
 #ifdef LINUX
 static const int kYU12Penalty = 16;  // Needs to be higher than MJPG index.
 #endif
@@ -81,14 +80,13 @@ CapturedFrame::CapturedFrame()
       fourcc(0),
       pixel_width(0),
       pixel_height(0),
-      elapsed_time(0),
       time_stamp(0),
       data_size(0),
       rotation(0),
       data(NULL) {}
 
 // TODO(fbarchard): Remove this function once lmimediaengine stops using it.
-bool CapturedFrame::GetDataSize(uint32* size) const {
+bool CapturedFrame::GetDataSize(uint32_t* size) const {
   if (!size || data_size == CapturedFrame::kUnknownDataSize) {
     return false;
   }
@@ -107,7 +105,6 @@ webrtc::VideoRotation CapturedFrame::GetRotation() const {
 VideoCapturer::VideoCapturer()
     : thread_(rtc::Thread::Current()),
       adapt_frame_drops_data_(kMaxAccumulatorSize),
-      effect_frame_drops_data_(kMaxAccumulatorSize),
       frame_time_data_(kMaxAccumulatorSize),
       apply_rotation_(true) {
   Construct();
@@ -116,7 +113,6 @@ VideoCapturer::VideoCapturer()
 VideoCapturer::VideoCapturer(rtc::Thread* thread)
     : thread_(thread),
       adapt_frame_drops_data_(kMaxAccumulatorSize),
-      effect_frame_drops_data_(kMaxAccumulatorSize),
       frame_time_data_(kMaxAccumulatorSize),
       apply_rotation_(true) {
   Construct();
@@ -135,7 +131,6 @@ void VideoCapturer::Construct() {
   black_frame_count_down_ = kNumBlackFramesOnMute;
   enable_video_adapter_ = true;
   adapt_frame_drops_ = 0;
-  effect_frame_drops_ = 0;
   previous_frame_time_ = 0.0;
 #ifdef HAVE_WEBRTC_VIDEO
   // There are lots of video capturers out there that don't call
@@ -280,11 +275,11 @@ bool VideoCapturer::GetBestCaptureFormat(const VideoFormat& format,
     return false;
   }
   LOG(LS_INFO) << " Capture Requested " << format.ToString();
-  int64 best_distance = kMaxDistance;
+  int64_t best_distance = kMaxDistance;
   std::vector<VideoFormat>::const_iterator best = supported_formats->end();
   std::vector<VideoFormat>::const_iterator i;
   for (i = supported_formats->begin(); i != supported_formats->end(); ++i) {
-    int64 distance = GetFormatDistance(format, *i);
+    int64_t distance = GetFormatDistance(format, *i);
     // TODO(fbarchard): Reduce to LS_VERBOSE if/when camera capture is
     // relatively bug free.
     LOG(LS_INFO) << " Supported " << i->ToString() << " distance " << distance;
@@ -309,24 +304,6 @@ bool VideoCapturer::GetBestCaptureFormat(const VideoFormat& format,
   return true;
 }
 
-void VideoCapturer::AddVideoProcessor(VideoProcessor* video_processor) {
-  rtc::CritScope cs(&crit_);
-  ASSERT(std::find(video_processors_.begin(), video_processors_.end(),
-                   video_processor) == video_processors_.end());
-  video_processors_.push_back(video_processor);
-}
-
-bool VideoCapturer::RemoveVideoProcessor(VideoProcessor* video_processor) {
-  rtc::CritScope cs(&crit_);
-  VideoProcessors::iterator found = std::find(
-      video_processors_.begin(), video_processors_.end(), video_processor);
-  if (found == video_processors_.end()) {
-    return false;
-  }
-  video_processors_.erase(found);
-  return true;
-}
-
 void VideoCapturer::ConstrainSupportedFormats(const VideoFormat& max_format) {
   max_format_.reset(new VideoFormat(max_format));
   LOG(LS_VERBOSE) << " ConstrainSupportedFormats " << max_format.ToString();
@@ -345,8 +322,7 @@ std::string VideoCapturer::ToString(const CapturedFrame* captured_frame) const {
   }
 
   std::ostringstream ss;
-  ss << fourcc_name << captured_frame->width << "x" << captured_frame->height
-     << "x" << VideoFormat::IntervalToFpsFloat(captured_frame->elapsed_time);
+  ss << fourcc_name << captured_frame->width << "x" << captured_frame->height;
   return ss.str();
 }
 
@@ -363,12 +339,10 @@ void VideoCapturer::GetStats(VariableInfo<int>* adapt_drops_stats,
                              VideoFormat* last_captured_frame_format) {
   rtc::CritScope cs(&frame_stats_crit_);
   GetVariableSnapshot(adapt_frame_drops_data_, adapt_drops_stats);
-  GetVariableSnapshot(effect_frame_drops_data_, effect_drops_stats);
   GetVariableSnapshot(frame_time_data_, frame_time_stats);
   *last_captured_frame_format = last_captured_frame_format_;
 
   adapt_frame_drops_data_.Reset();
-  effect_frame_drops_data_.Reset();
   frame_time_data_.Reset();
 }
 
@@ -387,7 +361,7 @@ void VideoCapturer::OnFrameCaptured(VideoCapturer*,
   }
 
   // Use a temporary buffer to scale
-  rtc::scoped_ptr<uint8[]> scale_buffer;
+  rtc::scoped_ptr<uint8_t[]> scale_buffer;
 
   if (IsScreencast()) {
     int scaled_width, scaled_height;
@@ -416,16 +390,15 @@ void VideoCapturer::OnFrameCaptured(VideoCapturer*,
       CapturedFrame* modified_frame =
           const_cast<CapturedFrame*>(captured_frame);
       const int modified_frame_size = scaled_width * scaled_height * 4;
-      scale_buffer.reset(new uint8[modified_frame_size]);
+      scale_buffer.reset(new uint8_t[modified_frame_size]);
       // Compute new width such that width * height is less than maximum but
       // maintains original captured frame aspect ratio.
       // Round down width to multiple of 4 so odd width won't round up beyond
       // maximum, and so chroma channel is even width to simplify spatial
       // resampling.
-      libyuv::ARGBScale(reinterpret_cast<const uint8*>(captured_frame->data),
+      libyuv::ARGBScale(reinterpret_cast<const uint8_t*>(captured_frame->data),
                         captured_frame->width * 4, captured_frame->width,
-                        captured_frame->height,
-                        scale_buffer.get(),
+                        captured_frame->height, scale_buffer.get(),
                         scaled_width * 4, scaled_width, scaled_height,
                         libyuv::kFilterBilinear);
       modified_frame->width = scaled_width;
@@ -442,7 +415,7 @@ void VideoCapturer::OnFrameCaptured(VideoCapturer*,
   // TODO(fbarchard): Avoid scale and convert if muted.
   // Temporary buffer is scoped here so it will persist until i420_frame.Init()
   // makes a copy of the frame, converting to I420.
-  rtc::scoped_ptr<uint8[]> temp_buffer;
+  rtc::scoped_ptr<uint8_t[]> temp_buffer;
   // YUY2 can be scaled vertically using an ARGB scaler.  Aspect ratio is only
   // a problem on OSX.  OSX always converts webcams to YUY2 or UYVY.
   bool can_scale =
@@ -476,26 +449,26 @@ void VideoCapturer::OnFrameCaptured(VideoCapturer*,
       scaled_height_ = scaled_height;
     }
     const int modified_frame_size = scaled_width * scaled_height * kYuy2Bpp;
-    uint8* temp_buffer_data;
+    uint8_t* temp_buffer_data;
     // Pixels are wide and short; Increasing height. Requires temporary buffer.
     if (scaled_height > captured_frame->height) {
-      temp_buffer.reset(new uint8[modified_frame_size]);
+      temp_buffer.reset(new uint8_t[modified_frame_size]);
       temp_buffer_data = temp_buffer.get();
     } else {
       // Pixels are narrow and tall; Decreasing height. Scale will be done
       // in place.
-      temp_buffer_data = reinterpret_cast<uint8*>(captured_frame->data);
+      temp_buffer_data = reinterpret_cast<uint8_t*>(captured_frame->data);
     }
 
     // Use ARGBScaler to vertically scale the YUY2 image, adjusting for 16 bpp.
-    libyuv::ARGBScale(reinterpret_cast<const uint8*>(captured_frame->data),
+    libyuv::ARGBScale(reinterpret_cast<const uint8_t*>(captured_frame->data),
                       captured_frame->width * kYuy2Bpp,  // Stride for YUY2.
                       captured_frame->width * kYuy2Bpp / kArgbBpp,  // Width.
-                      abs(captured_frame->height),  // Height.
+                      abs(captured_frame->height),                  // Height.
                       temp_buffer_data,
-                      scaled_width * kYuy2Bpp,  // Stride for YUY2.
+                      scaled_width * kYuy2Bpp,             // Stride for YUY2.
                       scaled_width * kYuy2Bpp / kArgbBpp,  // Width.
-                      abs(scaled_height),  // New height.
+                      abs(scaled_height),                  // New height.
                       libyuv::kFilterBilinear);
     modified_frame->width = scaled_width;
     modified_frame->height = scaled_height;
@@ -567,11 +540,6 @@ void VideoCapturer::OnFrameCaptured(VideoCapturer*,
     return;
   }
 
-  if (!muted_ && !ApplyProcessors(adapted_frame.get())) {
-    // Processor dropped the frame.
-    ++effect_frame_drops_;
-    return;
-  }
   if (muted_) {
     // TODO(pthatcher): Use frame_factory_->CreateBlackFrame() instead.
     adapted_frame->SetToBlack();
@@ -620,16 +588,16 @@ void VideoCapturer::OnMessage(rtc::Message* message) {
 // 3) Framerate closeness. If not same, we prefer faster.
 // 4) Compression. If desired format has a specific fourcc, we need exact match;
 //                otherwise, we use preference.
-int64 VideoCapturer::GetFormatDistance(const VideoFormat& desired,
-                                       const VideoFormat& supported) {
-  int64 distance = kMaxDistance;
+int64_t VideoCapturer::GetFormatDistance(const VideoFormat& desired,
+                                         const VideoFormat& supported) {
+  int64_t distance = kMaxDistance;
 
   // Check fourcc.
-  uint32 supported_fourcc = CanonicalFourCC(supported.fourcc);
-  int64 delta_fourcc = kMaxDistance;
+  uint32_t supported_fourcc = CanonicalFourCC(supported.fourcc);
+  int64_t delta_fourcc = kMaxDistance;
   if (FOURCC_ANY == desired.fourcc) {
     // Any fourcc is OK for the desired. Use preference to find best fourcc.
-    std::vector<uint32> preferred_fourccs;
+    std::vector<uint32_t> preferred_fourccs;
     if (!GetPreferredFourccs(&preferred_fourccs)) {
       return distance;
     }
@@ -660,15 +628,15 @@ int64 VideoCapturer::GetFormatDistance(const VideoFormat& desired,
   // Check resolution and fps.
   int desired_width = desired.width;
   int desired_height = desired.height;
-  int64 delta_w = supported.width - desired_width;
+  int64_t delta_w = supported.width - desired_width;
   float supported_fps = VideoFormat::IntervalToFpsFloat(supported.interval);
   float delta_fps =
       supported_fps - VideoFormat::IntervalToFpsFloat(desired.interval);
   // Check height of supported height compared to height we would like it to be.
-  int64 aspect_h =
-      desired_width ? supported.width * desired_height / desired_width
-                    : desired_height;
-  int64 delta_h = supported.height - aspect_h;
+  int64_t aspect_h = desired_width
+                         ? supported.width * desired_height / desired_width
+                         : desired_height;
+  int64_t delta_h = supported.height - aspect_h;
 
   distance = 0;
   // Set high penalty if the supported format is lower than the desired format.
@@ -695,31 +663,18 @@ int64 VideoCapturer::GetFormatDistance(const VideoFormat& desired,
     VideoFormat::IntervalToFpsFloat(desired.interval) * 23.f / 30.f;
     delta_fps = -delta_fps;
     if (supported_fps < min_desirable_fps) {
-      distance |= static_cast<int64>(1) << 62;
+      distance |= static_cast<int64_t>(1) << 62;
     } else {
-      distance |= static_cast<int64>(1) << 15;
+      distance |= static_cast<int64_t>(1) << 15;
     }
   }
-  int64 idelta_fps = static_cast<int>(delta_fps);
+  int64_t idelta_fps = static_cast<int>(delta_fps);
 
   // 12 bits for width and height and 8 bits for fps and fourcc.
   distance |=
       (delta_w << 28) | (delta_h << 16) | (idelta_fps << 8) | delta_fourcc;
 
   return distance;
-}
-
-bool VideoCapturer::ApplyProcessors(VideoFrame* video_frame) {
-  bool drop_frame = false;
-  rtc::CritScope cs(&crit_);
-  for (VideoProcessors::iterator iter = video_processors_.begin();
-       iter != video_processors_.end(); ++iter) {
-    (*iter)->OnFrame(kDummyVideoSsrc, video_frame, &drop_frame);
-    if (drop_frame) {
-      return false;
-    }
-  }
-  return true;
 }
 
 void VideoCapturer::UpdateFilteredSupportedFormats() {
@@ -765,11 +720,9 @@ void VideoCapturer::UpdateStats(const CapturedFrame* captured_frame) {
   double time_now = frame_length_time_reporter_.TimerNow();
   if (previous_frame_time_ != 0.0) {
     adapt_frame_drops_data_.AddSample(adapt_frame_drops_);
-    effect_frame_drops_data_.AddSample(effect_frame_drops_);
     frame_time_data_.AddSample(time_now - previous_frame_time_);
   }
   previous_frame_time_ = time_now;
-  effect_frame_drops_ = 0;
   adapt_frame_drops_ = 0;
 }
 

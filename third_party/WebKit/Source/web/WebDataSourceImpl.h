@@ -44,8 +44,6 @@
 
 namespace blink {
 
-class WebPluginLoadObserver;
-
 class WebDataSourceImpl final : public DocumentLoader, public WebDataSource {
 public:
     static PassRefPtrWillBeRawPtr<WebDataSourceImpl> create(LocalFrame*, const ResourceRequest&, const SubstituteData&);
@@ -72,8 +70,8 @@ public:
 
     static WebNavigationType toWebNavigationType(NavigationType);
 
-    PassOwnPtr<WebPluginLoadObserver> releasePluginLoadObserver() { return m_pluginLoadObserver.release(); }
-    static void setNextPluginLoadObserver(PassOwnPtr<WebPluginLoadObserver>);
+    PassOwnPtrWillBeRawPtr<WebPluginLoadObserver> releasePluginLoadObserver() { return m_pluginLoadObserver.release(); }
+    static void setNextPluginLoadObserver(PassOwnPtrWillBeRawPtr<WebPluginLoadObserver>);
 
     DECLARE_VIRTUAL_TRACE();
 
@@ -81,6 +79,7 @@ private:
     WebDataSourceImpl(LocalFrame*, const ResourceRequest&, const SubstituteData&);
     ~WebDataSourceImpl() override;
     void detachFromFrame() override;
+    String debugName() const override { return "WebDataSourceImpl"; }
 
     // Mutable because the const getters will magically sync these to the
     // latest version from WebKit.
@@ -89,7 +88,7 @@ private:
     mutable WrappedResourceResponse m_responseWrapper;
 
     OwnPtr<ExtraData> m_extraData;
-    OwnPtr<WebPluginLoadObserver> m_pluginLoadObserver;
+    OwnPtrWillBeMember<WebPluginLoadObserver> m_pluginLoadObserver;
 };
 
 } // namespace blink

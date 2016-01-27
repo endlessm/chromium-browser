@@ -5,6 +5,7 @@
 #include "chrome/browser/extensions/extension_apitest.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_utils.h"
+#include "device/core/device_client.h"
 #include "device/usb/mock_usb_device.h"
 #include "device/usb/mock_usb_device_handle.h"
 #include "device/usb/mock_usb_service.h"
@@ -20,6 +21,7 @@ using testing::AnyNumber;
 using testing::Invoke;
 using testing::Return;
 using content::BrowserThread;
+using device::DeviceClient;
 using device::MockUsbDevice;
 using device::MockUsbDeviceHandle;
 using device::MockUsbService;
@@ -68,6 +70,19 @@ class TestDevicePermissionsPrompt
   }
 };
 
+class TestDeviceClient : public DeviceClient {
+ public:
+  TestDeviceClient() : DeviceClient() {}
+  ~TestDeviceClient() override {}
+
+  MockUsbService& mock_usb_service() { return usb_service_; }
+
+ private:
+  UsbService* GetUsbService() override { return &usb_service_; }
+
+  MockUsbService usb_service_;
+};
+
 class TestExtensionsAPIClient : public ShellExtensionsAPIClient {
  public:
   TestExtensionsAPIClient() : ShellExtensionsAPIClient() {}
@@ -83,23 +98,33 @@ class UsbApiTest : public ShellApiTest {
   void SetUpOnMainThread() override {
     ShellApiTest::SetUpOnMainThread();
 
-    mock_device_ = new MockUsbDevice(0, 0);
+    std::vector<UsbConfigDescriptor> configs;
+    UsbConfigDescriptor config;
+    config.configuration_value = 1;
+    configs.push_back(config);
+    config.configuration_value = 2;
+    configs.push_back(config);
+
+    mock_device_ = new MockUsbDevice(0, 0, "Test Manufacturer", "Test Device",
+                                     "ABC123", configs);
     mock_device_handle_ = new MockUsbDeviceHandle(mock_device_.get());
     EXPECT_CALL(*mock_device_.get(), Open(_))
         .WillRepeatedly(InvokeCallback<0>(mock_device_handle_));
-    mock_service_.reset(new MockUsbService());
-    mock_service_->AddDevice(mock_device_);
+    device_client_.reset(new TestDeviceClient());
+    device_client_->mock_usb_service().AddDevice(mock_device_);
   }
 
  protected:
   scoped_refptr<MockUsbDeviceHandle> mock_device_handle_;
   scoped_refptr<MockUsbDevice> mock_device_;
-  scoped_ptr<MockUsbService> mock_service_;
+  scoped_ptr<TestDeviceClient> device_client_;
 };
 
 }  // namespace
 
 IN_PROC_BROWSER_TEST_F(UsbApiTest, DeviceHandling) {
+  EXPECT_CALL(*mock_device_.get(), GetActiveConfiguration())
+      .WillOnce(Return(&mock_device_->configurations()[0]));
   EXPECT_CALL(*mock_device_handle_.get(), Close()).Times(2);
   ASSERT_TRUE(RunAppTest("api_test/usb/device_handling"));
 }
@@ -110,7 +135,7 @@ IN_PROC_BROWSER_TEST_F(UsbApiTest, ResetDevice) {
       .WillOnce(InvokeCallback<0>(true))
       .WillOnce(InvokeCallback<0>(false));
   EXPECT_CALL(*mock_device_handle_.get(),
-              InterruptTransfer(device::USB_DIRECTION_OUTBOUND, 2, _, 1, _, _))
+              GenericTransfer(device::USB_DIRECTION_OUTBOUND, 2, _, 1, _, _))
       .WillOnce(InvokeUsbTransferCallback<5>(device::USB_TRANSFER_COMPLETED));
   ASSERT_TRUE(RunAppTest("api_test/usb/reset_device"));
 }
@@ -120,7 +145,7 @@ IN_PROC_BROWSER_TEST_F(UsbApiTest, SetConfiguration) {
   EXPECT_CALL(*mock_device_handle_.get(), SetConfiguration(1, _))
       .WillOnce(InvokeCallback<1>(true));
   EXPECT_CALL(*mock_device_handle_.get(), Close()).Times(1);
-  EXPECT_CALL(*mock_device_.get(), GetConfiguration())
+  EXPECT_CALL(*mock_device_.get(), GetActiveConfiguration())
       .WillOnce(Return(nullptr))
       .WillOnce(Return(&config_descriptor));
   ASSERT_TRUE(RunAppTest("api_test/usb/set_configuration"));
@@ -129,7 +154,7 @@ IN_PROC_BROWSER_TEST_F(UsbApiTest, SetConfiguration) {
 IN_PROC_BROWSER_TEST_F(UsbApiTest, ListInterfaces) {
   UsbConfigDescriptor config_descriptor;
   EXPECT_CALL(*mock_device_handle_.get(), Close()).Times(1);
-  EXPECT_CALL(*mock_device_.get(), GetConfiguration())
+  EXPECT_CALL(*mock_device_.get(), GetActiveConfiguration())
       .WillOnce(Return(&config_descriptor));
   ASSERT_TRUE(RunAppTest("api_test/usb/list_interfaces"));
 }
@@ -148,10 +173,10 @@ IN_PROC_BROWSER_TEST_F(UsbApiTest, TransferEvent) {
                               _))
       .WillOnce(InvokeUsbTransferCallback<9>(device::USB_TRANSFER_COMPLETED));
   EXPECT_CALL(*mock_device_handle_.get(),
-              BulkTransfer(device::USB_DIRECTION_OUTBOUND, 1, _, 1, _, _))
+              GenericTransfer(device::USB_DIRECTION_OUTBOUND, 1, _, 1, _, _))
       .WillOnce(InvokeUsbTransferCallback<5>(device::USB_TRANSFER_COMPLETED));
   EXPECT_CALL(*mock_device_handle_.get(),
-              InterruptTransfer(device::USB_DIRECTION_OUTBOUND, 2, _, 1, _, _))
+              GenericTransfer(device::USB_DIRECTION_OUTBOUND, 2, _, 1, _, _))
       .WillOnce(InvokeUsbTransferCallback<5>(device::USB_TRANSFER_COMPLETED));
   EXPECT_CALL(
       *mock_device_handle_.get(),
@@ -162,14 +187,14 @@ IN_PROC_BROWSER_TEST_F(UsbApiTest, TransferEvent) {
 }
 
 IN_PROC_BROWSER_TEST_F(UsbApiTest, ZeroLengthTransfer) {
-  EXPECT_CALL(*mock_device_handle_.get(), BulkTransfer(_, _, _, 0, _, _))
+  EXPECT_CALL(*mock_device_handle_.get(), GenericTransfer(_, _, _, 0, _, _))
       .WillOnce(InvokeUsbTransferCallback<5>(device::USB_TRANSFER_COMPLETED));
   EXPECT_CALL(*mock_device_handle_.get(), Close()).Times(AnyNumber());
   ASSERT_TRUE(RunAppTest("api_test/usb/zero_length_transfer"));
 }
 
 IN_PROC_BROWSER_TEST_F(UsbApiTest, TransferFailure) {
-  EXPECT_CALL(*mock_device_handle_.get(), BulkTransfer(_, _, _, _, _, _))
+  EXPECT_CALL(*mock_device_handle_.get(), GenericTransfer(_, _, _, _, _, _))
       .WillOnce(InvokeUsbTransferCallback<5>(device::USB_TRANSFER_COMPLETED))
       .WillOnce(InvokeUsbTransferCallback<5>(device::USB_TRANSFER_ERROR))
       .WillOnce(InvokeUsbTransferCallback<5>(device::USB_TRANSFER_TIMEOUT));
@@ -196,10 +221,10 @@ IN_PROC_BROWSER_TEST_F(UsbApiTest, OnDeviceAdded) {
   ASSERT_TRUE(load_listener.WaitUntilSatisfied());
 
   scoped_refptr<MockUsbDevice> device(new MockUsbDevice(0x18D1, 0x58F0));
-  mock_service_->AddDevice(device);
+  device_client_->mock_usb_service().AddDevice(device);
 
   device = new MockUsbDevice(0x18D1, 0x58F1);
-  mock_service_->AddDevice(device);
+  device_client_->mock_usb_service().AddDevice(device);
 
   ASSERT_TRUE(result_listener.WaitUntilSatisfied());
 }
@@ -212,7 +237,7 @@ IN_PROC_BROWSER_TEST_F(UsbApiTest, OnDeviceRemoved) {
   ASSERT_TRUE(LoadApp("api_test/usb/remove_event"));
   ASSERT_TRUE(load_listener.WaitUntilSatisfied());
 
-  mock_service_->RemoveDevice(mock_device_);
+  device_client_->mock_usb_service().RemoveDevice(mock_device_);
   ASSERT_TRUE(result_listener.WaitUntilSatisfied());
 }
 
@@ -227,7 +252,7 @@ IN_PROC_BROWSER_TEST_F(UsbApiTest, GetUserSelectedDevices) {
   ASSERT_TRUE(LoadApp("api_test/usb/get_user_selected_devices"));
   ASSERT_TRUE(ready_listener.WaitUntilSatisfied());
 
-  mock_service_->RemoveDevice(mock_device_);
+  device_client_->mock_usb_service().RemoveDevice(mock_device_);
   ASSERT_TRUE(result_listener.WaitUntilSatisfied());
 }
 

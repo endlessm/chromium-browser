@@ -20,6 +20,7 @@
 #include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_messages.h"
+#include "extensions/common/view_type.h"
 
 namespace extensions {
 
@@ -75,19 +76,7 @@ void ExtensionWebContentsObserver::RenderViewCreated(
   if (!extension)
     return;
 
-  content::RenderProcessHost* process = render_view_host->GetProcess();
-
-  // Some extensions use chrome:// URLs.
-  // This is a temporary solution. Replace it with access to chrome-static://
-  // once it is implemented. See: crbug.com/226927.
   Manifest::Type type = extension->GetType();
-  if (type == Manifest::TYPE_EXTENSION ||
-      type == Manifest::TYPE_LEGACY_PACKAGED_APP ||
-      (type == Manifest::TYPE_PLATFORM_APP &&
-       extension->location() == Manifest::COMPONENT)) {
-    content::ChildProcessSecurityPolicy::GetInstance()->GrantScheme(
-        process->GetID(), content::kChromeUIScheme);
-  }
 
   // Some extensions use file:// URLs.
   if (type == Manifest::TYPE_EXTENSION ||
@@ -95,7 +84,7 @@ void ExtensionWebContentsObserver::RenderViewCreated(
     ExtensionPrefs* prefs = ExtensionPrefs::Get(browser_context_);
     if (prefs->AllowFileAccess(extension->id())) {
       content::ChildProcessSecurityPolicy::GetInstance()->GrantScheme(
-          process->GetID(), url::kFileScheme);
+          render_view_host->GetProcess()->GetID(), url::kFileScheme);
     }
   }
 
@@ -134,19 +123,25 @@ bool ExtensionWebContentsObserver::OnMessageReceived(
 }
 
 void ExtensionWebContentsObserver::PepperInstanceCreated() {
-  ProcessManager* const process_manager = ProcessManager::Get(browser_context_);
-  const Extension* const extension =
-      process_manager->GetExtensionForWebContents(web_contents());
-  if (extension)
-    process_manager->IncrementLazyKeepaliveCount(extension);
+  if (GetViewType(web_contents()) == VIEW_TYPE_EXTENSION_BACKGROUND_PAGE) {
+    ProcessManager* const process_manager =
+        ProcessManager::Get(browser_context_);
+    const Extension* const extension =
+        process_manager->GetExtensionForWebContents(web_contents());
+    if (extension)
+      process_manager->IncrementLazyKeepaliveCount(extension);
+  }
 }
 
 void ExtensionWebContentsObserver::PepperInstanceDeleted() {
-  ProcessManager* const process_manager = ProcessManager::Get(browser_context_);
-  const Extension* const extension =
-      process_manager->GetExtensionForWebContents(web_contents());
-  if (extension)
-    process_manager->DecrementLazyKeepaliveCount(extension);
+  if (GetViewType(web_contents()) == VIEW_TYPE_EXTENSION_BACKGROUND_PAGE) {
+    ProcessManager* const process_manager =
+        ProcessManager::Get(browser_context_);
+    const Extension* const extension =
+        process_manager->GetExtensionForWebContents(web_contents());
+    if (extension)
+      process_manager->DecrementLazyKeepaliveCount(extension);
+  }
 }
 
 std::string ExtensionWebContentsObserver::GetExtensionIdFromFrame(

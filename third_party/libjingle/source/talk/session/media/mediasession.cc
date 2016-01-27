@@ -45,7 +45,7 @@
 #ifdef HAVE_SCTP
 #include "talk/media/sctp/sctpdataengine.h"
 #else
-static const uint32 kMaxSctpSid = 1023;
+static const uint32_t kMaxSctpSid = 1023;
 #endif
 
 namespace {
@@ -63,8 +63,8 @@ const char kMediaProtocolAvpf[] = "RTP/AVPF";
 // RFC5124
 const char kMediaProtocolDtlsSavpf[] = "UDP/TLS/RTP/SAVPF";
 
-// This should be replaced by "UDP/TLS/RTP/SAVPF", but we need to support it for
-// now to be compatible with previous Chrome versions.
+// We always generate offers with "UDP/TLS/RTP/SAVPF" when using DTLS-SRTP,
+// but we tolerate "RTP/SAVPF" in offers we receive, for compatibility.
 const char kMediaProtocolSavpf[] = "RTP/SAVPF";
 
 const char kMediaProtocolRtpPrefix[] = "RTP/";
@@ -155,25 +155,24 @@ bool FindMatchingCrypto(const CryptoParamsVec& cryptos,
 void GetSupportedAudioCryptoSuites(
     std::vector<std::string>* crypto_suites) {
 #ifdef HAVE_SRTP
-  crypto_suites->push_back(CS_AES_CM_128_HMAC_SHA1_32);
-  crypto_suites->push_back(CS_AES_CM_128_HMAC_SHA1_80);
+  crypto_suites->push_back(rtc::CS_AES_CM_128_HMAC_SHA1_32);
+  crypto_suites->push_back(rtc::CS_AES_CM_128_HMAC_SHA1_80);
 #endif
 }
 
 void GetSupportedVideoCryptoSuites(
     std::vector<std::string>* crypto_suites) {
-  GetSupportedDefaultCryptoSuites(crypto_suites);
+  GetDefaultSrtpCryptoSuiteNames(crypto_suites);
 }
 
 void GetSupportedDataCryptoSuites(
     std::vector<std::string>* crypto_suites) {
-  GetSupportedDefaultCryptoSuites(crypto_suites);
+  GetDefaultSrtpCryptoSuiteNames(crypto_suites);
 }
 
-void GetSupportedDefaultCryptoSuites(
-    std::vector<std::string>* crypto_suites) {
+void GetDefaultSrtpCryptoSuiteNames(std::vector<std::string>* crypto_suites) {
 #ifdef HAVE_SRTP
-  crypto_suites->push_back(CS_AES_CM_128_HMAC_SHA1_80);
+  crypto_suites->push_back(rtc::CS_AES_CM_128_HMAC_SHA1_80);
 #endif
 }
 
@@ -188,8 +187,9 @@ static bool SelectCrypto(const MediaContentDescription* offer,
 
   for (CryptoParamsVec::const_iterator i = cryptos.begin();
        i != cryptos.end(); ++i) {
-    if (CS_AES_CM_128_HMAC_SHA1_80 == i->cipher_suite ||
-        (CS_AES_CM_128_HMAC_SHA1_32 == i->cipher_suite && audio && !bundle)) {
+    if (rtc::CS_AES_CM_128_HMAC_SHA1_80 == i->cipher_suite ||
+        (rtc::CS_AES_CM_128_HMAC_SHA1_32 == i->cipher_suite && audio &&
+         !bundle)) {
       return CreateCryptoParams(i->tag, i->cipher_suite, crypto);
     }
   }
@@ -250,9 +250,9 @@ static bool GenerateCname(const StreamParamsVec& params_vec,
 // |num_ssrcs| is the number of the SSRC will be generated.
 static void GenerateSsrcs(const StreamParamsVec& params_vec,
                           int num_ssrcs,
-                          std::vector<uint32>* ssrcs) {
+                          std::vector<uint32_t>* ssrcs) {
   for (int i = 0; i < num_ssrcs; i++) {
-    uint32 candidate;
+    uint32_t candidate;
     do {
       candidate = rtc::CreateRandomNonZeroId();
     } while (GetStreamBySsrc(params_vec, candidate) ||
@@ -262,15 +262,14 @@ static void GenerateSsrcs(const StreamParamsVec& params_vec,
 }
 
 // Returns false if we exhaust the range of SIDs.
-static bool GenerateSctpSid(const StreamParamsVec& params_vec,
-                            uint32* sid) {
+static bool GenerateSctpSid(const StreamParamsVec& params_vec, uint32_t* sid) {
   if (params_vec.size() > kMaxSctpSid) {
     LOG(LS_WARNING) <<
         "Could not generate an SCTP SID: too many SCTP streams.";
     return false;
   }
   while (true) {
-    uint32 candidate = rtc::CreateRandomNonZeroId() % kMaxSctpSid;
+    uint32_t candidate = rtc::CreateRandomNonZeroId() % kMaxSctpSid;
     if (!GetStreamBySsrc(params_vec, candidate)) {
       *sid = candidate;
       return true;
@@ -279,8 +278,8 @@ static bool GenerateSctpSid(const StreamParamsVec& params_vec,
 }
 
 static bool GenerateSctpSids(const StreamParamsVec& params_vec,
-                             std::vector<uint32>* sids) {
-  uint32 sid;
+                             std::vector<uint32_t>* sids) {
+  uint32_t sid;
   if (!GenerateSctpSid(params_vec, &sid)) {
     LOG(LS_WARNING) << "Could not generated an SCTP SID.";
     return false;
@@ -441,7 +440,7 @@ static bool AddStreamParams(
 
   if (streams.empty() && add_legacy_stream) {
     // TODO(perkj): Remove this legacy stream when all apps use StreamParams.
-    std::vector<uint32> ssrcs;
+    std::vector<uint32_t> ssrcs;
     if (IsSctp(content_description)) {
       GenerateSctpSids(*current_streams, &ssrcs);
     } else {
@@ -476,7 +475,7 @@ static bool AddStreamParams(
         return false;
       }
 
-      std::vector<uint32> ssrcs;
+      std::vector<uint32_t> ssrcs;
       if (IsSctp(content_description)) {
         GenerateSctpSids(*current_streams, &ssrcs);
       } else {
@@ -495,7 +494,7 @@ static bool AddStreamParams(
       // Generate extra ssrcs for include_rtx_streams case.
       if (include_rtx_streams) {
         // Generate an RTX ssrc for every ssrc in the group.
-        std::vector<uint32> rtx_ssrcs;
+        std::vector<uint32_t> rtx_ssrcs;
         GenerateSsrcs(*current_streams, static_cast<int>(ssrcs.size()),
                       &rtx_ssrcs);
         for (size_t i = 0; i < ssrcs.size(); ++i) {
@@ -529,7 +528,7 @@ static bool UpdateTransportInfoForBundle(const ContentGroup& bundle_group,
   }
 
   // We should definitely have a transport for the first content.
-  std::string selected_content_name = *bundle_group.FirstContentName();
+  const std::string& selected_content_name = *bundle_group.FirstContentName();
   const TransportInfo* selected_transport_info =
       sdesc->GetTransportInfoByName(selected_content_name);
   if (!selected_transport_info) {
@@ -537,9 +536,9 @@ static bool UpdateTransportInfoForBundle(const ContentGroup& bundle_group,
   }
 
   // Set the other contents to use the same ICE credentials.
-  const std::string selected_ufrag =
+  const std::string& selected_ufrag =
       selected_transport_info->description.ice_ufrag;
-  const std::string selected_pwd =
+  const std::string& selected_pwd =
       selected_transport_info->description.ice_pwd;
   for (TransportInfos::iterator it =
            sdesc->transport_infos().begin();
@@ -614,8 +613,8 @@ static bool IsRtpContent(SessionDescription* sdesc,
       return false;
     }
     is_rtp = media_desc->protocol().empty() ||
-             rtc::starts_with(media_desc->protocol().data(),
-                                    kMediaProtocolRtpPrefix);
+             (media_desc->protocol().find(cricket::kMediaProtocolRtpPrefix) !=
+              std::string::npos);
   }
   return is_rtp;
 }
@@ -907,20 +906,41 @@ static bool FindByUri(const RtpHeaderExtensions& extensions,
   return false;
 }
 
-static void FindAndSetRtpHdrExtUsed(
-  const RtpHeaderExtensions& reference_extensions,
-  RtpHeaderExtensions* offered_extensions,
-  const RtpHeaderExtensions& other_extensions,
-  UsedRtpHeaderExtensionIds* used_extensions) {
-  for (RtpHeaderExtensions::const_iterator it = reference_extensions.begin();
-      it != reference_extensions.end(); ++it) {
-    if (!FindByUri(*offered_extensions, *it, NULL)) {
-      RtpHeaderExtension ext;
-      if (!FindByUri(other_extensions, *it, &ext)) {
-        ext = *it;
-        used_extensions->FindAndSetIdUsed(&ext);
+// Iterates through |offered_extensions|, adding each one to |all_extensions|
+// and |used_ids|, and resolving ID conflicts. If an offered extension has the
+// same URI as one in |all_extensions|, it will re-use the same ID and won't be
+// treated as a conflict.
+static void FindAndSetRtpHdrExtUsed(RtpHeaderExtensions* offered_extensions,
+                                    RtpHeaderExtensions* all_extensions,
+                                    UsedRtpHeaderExtensionIds* used_ids) {
+  for (auto& extension : *offered_extensions) {
+    RtpHeaderExtension existing;
+    if (FindByUri(*all_extensions, extension, &existing)) {
+      extension.id = existing.id;
+    } else {
+      used_ids->FindAndSetIdUsed(&extension);
+      all_extensions->push_back(extension);
+    }
+  }
+}
+
+// Adds |reference_extensions| to |offered_extensions|, while updating
+// |all_extensions| and |used_ids|.
+static void FindRtpHdrExtsToOffer(
+    const RtpHeaderExtensions& reference_extensions,
+    RtpHeaderExtensions* offered_extensions,
+    RtpHeaderExtensions* all_extensions,
+    UsedRtpHeaderExtensionIds* used_ids) {
+  for (auto reference_extension : reference_extensions) {
+    if (!FindByUri(*offered_extensions, reference_extension, NULL)) {
+      RtpHeaderExtension existing;
+      if (FindByUri(*all_extensions, reference_extension, &existing)) {
+        offered_extensions->push_back(existing);
+      } else {
+        used_ids->FindAndSetIdUsed(&reference_extension);
+        all_extensions->push_back(reference_extension);
+        offered_extensions->push_back(reference_extension);
       }
-      offered_extensions->push_back(ext);
     }
   }
 }
@@ -1016,12 +1036,15 @@ static bool CreateMediaContentAnswer(
       answer->set_direction(MD_RECVONLY);
       break;
     case MD_RECVONLY:
-      answer->set_direction(MD_SENDONLY);
+      answer->set_direction(answer->streams().empty() ? MD_INACTIVE
+                                                      : MD_SENDONLY);
       break;
     case MD_SENDRECV:
-      answer->set_direction(MD_SENDRECV);
+      answer->set_direction(answer->streams().empty() ? MD_RECVONLY
+                                                      : MD_SENDRECV);
       break;
     default:
+      RTC_DCHECK(false && "MediaContentDescription has unexpected direction.");
       break;
   }
 
@@ -1047,8 +1070,10 @@ static bool IsMediaProtocolSupported(MediaType type,
 
 static void SetMediaProtocol(bool secure_transport,
                              MediaContentDescription* desc) {
-  if (!desc->cryptos().empty() || secure_transport)
+  if (!desc->cryptos().empty())
     desc->set_protocol(kMediaProtocolSavpf);
+  else if (secure_transport)
+    desc->set_protocol(kMediaProtocolDtlsSavpf);
   else
     desc->set_protocol(kMediaProtocolAvpf);
 }
@@ -1396,6 +1421,7 @@ void MediaSessionDescriptionFactory::GetRtpHdrExtsToOffer(
   // All header extensions allocated from the same range to avoid potential
   // issues when using BUNDLE.
   UsedRtpHeaderExtensionIds used_ids;
+  RtpHeaderExtensions all_extensions;
   audio_extensions->clear();
   video_extensions->clear();
 
@@ -1408,22 +1434,22 @@ void MediaSessionDescriptionFactory::GetRtpHdrExtsToOffer(
         GetFirstAudioContentDescription(current_description);
     if (audio) {
       *audio_extensions = audio->rtp_header_extensions();
-      used_ids.FindAndSetIdUsed(audio_extensions);
+      FindAndSetRtpHdrExtUsed(audio_extensions, &all_extensions, &used_ids);
     }
     const VideoContentDescription* video =
         GetFirstVideoContentDescription(current_description);
     if (video) {
       *video_extensions = video->rtp_header_extensions();
-      used_ids.FindAndSetIdUsed(video_extensions);
+      FindAndSetRtpHdrExtUsed(video_extensions, &all_extensions, &used_ids);
     }
   }
 
   // Add our default RTP header extensions that are not in
   // |current_description|.
-  FindAndSetRtpHdrExtUsed(audio_rtp_header_extensions(), audio_extensions,
-                          *video_extensions, &used_ids);
-  FindAndSetRtpHdrExtUsed(video_rtp_header_extensions(), video_extensions,
-                          *audio_extensions, &used_ids);
+  FindRtpHdrExtsToOffer(audio_rtp_header_extensions(), audio_extensions,
+                        &all_extensions, &used_ids);
+  FindRtpHdrExtsToOffer(video_rtp_header_extensions(), video_extensions,
+                        &all_extensions, &used_ids);
 }
 
 bool MediaSessionDescriptionFactory::AddTransportOffer(
@@ -1506,8 +1532,18 @@ bool MediaSessionDescriptionFactory::AddAudioContentForOffer(
   bool secure_transport = (transport_desc_factory_->secure() != SEC_DISABLED);
   SetMediaProtocol(secure_transport, audio.get());
 
-  if (!options.recv_audio) {
-    audio->set_direction(MD_SENDONLY);
+  if (!audio->streams().empty()) {
+    if (options.recv_audio) {
+      audio->set_direction(MD_SENDRECV);
+    } else {
+      audio->set_direction(MD_SENDONLY);
+    }
+  } else {
+    if (options.recv_audio) {
+      audio->set_direction(MD_RECVONLY);
+    } else {
+      audio->set_direction(MD_INACTIVE);
+    }
   }
 
   desc->AddContent(CN_AUDIO, NS_JINGLE_RTP, audio.release());
@@ -1551,8 +1587,18 @@ bool MediaSessionDescriptionFactory::AddVideoContentForOffer(
   bool secure_transport = (transport_desc_factory_->secure() != SEC_DISABLED);
   SetMediaProtocol(secure_transport, video.get());
 
-  if (!options.recv_video) {
-    video->set_direction(MD_SENDONLY);
+  if (!video->streams().empty()) {
+    if (options.recv_video) {
+      video->set_direction(MD_SENDRECV);
+    } else {
+      video->set_direction(MD_SENDONLY);
+    }
+  } else {
+    if (options.recv_video) {
+      video->set_direction(MD_RECVONLY);
+    } else {
+      video->set_direction(MD_INACTIVE);
+    }
   }
 
   desc->AddContent(CN_VIDEO, NS_JINGLE_RTP, video.release());
@@ -1882,73 +1928,6 @@ const DataContentDescription* GetFirstDataContentDescription(
     const SessionDescription* sdesc) {
   return static_cast<const DataContentDescription*>(
       GetFirstMediaContentDescription(sdesc, MEDIA_TYPE_DATA));
-}
-
-bool GetMediaChannelNameFromComponent(
-    int component, MediaType media_type, std::string* channel_name) {
-  if (media_type == MEDIA_TYPE_AUDIO) {
-    if (component == ICE_CANDIDATE_COMPONENT_RTP) {
-      *channel_name = GICE_CHANNEL_NAME_RTP;
-      return true;
-    } else if (component == ICE_CANDIDATE_COMPONENT_RTCP) {
-      *channel_name = GICE_CHANNEL_NAME_RTCP;
-      return true;
-    }
-  } else if (media_type == MEDIA_TYPE_VIDEO) {
-    if (component == ICE_CANDIDATE_COMPONENT_RTP) {
-      *channel_name = GICE_CHANNEL_NAME_VIDEO_RTP;
-      return true;
-    } else if (component == ICE_CANDIDATE_COMPONENT_RTCP) {
-      *channel_name = GICE_CHANNEL_NAME_VIDEO_RTCP;
-      return true;
-    }
-  } else if (media_type == MEDIA_TYPE_DATA) {
-    if (component == ICE_CANDIDATE_COMPONENT_RTP) {
-      *channel_name = GICE_CHANNEL_NAME_DATA_RTP;
-      return true;
-    } else if (component == ICE_CANDIDATE_COMPONENT_RTCP) {
-      *channel_name = GICE_CHANNEL_NAME_DATA_RTCP;
-      return true;
-    }
-  }
-
-  return false;
-}
-
-bool GetMediaComponentFromChannelName(
-    const std::string& channel_name, int* component) {
-  if (channel_name == GICE_CHANNEL_NAME_RTP ||
-      channel_name == GICE_CHANNEL_NAME_VIDEO_RTP ||
-      channel_name == GICE_CHANNEL_NAME_DATA_RTP) {
-    *component = ICE_CANDIDATE_COMPONENT_RTP;
-    return true;
-  } else if (channel_name == GICE_CHANNEL_NAME_RTCP ||
-             channel_name == GICE_CHANNEL_NAME_VIDEO_RTCP ||
-             channel_name == GICE_CHANNEL_NAME_DATA_RTP) {
-    *component = ICE_CANDIDATE_COMPONENT_RTCP;
-    return true;
-  }
-
-  return false;
-}
-
-bool GetMediaTypeFromChannelName(
-    const std::string& channel_name, MediaType* media_type) {
-  if (channel_name == GICE_CHANNEL_NAME_RTP ||
-      channel_name == GICE_CHANNEL_NAME_RTCP) {
-    *media_type = MEDIA_TYPE_AUDIO;
-    return true;
-  } else if (channel_name == GICE_CHANNEL_NAME_VIDEO_RTP ||
-             channel_name == GICE_CHANNEL_NAME_VIDEO_RTCP) {
-    *media_type = MEDIA_TYPE_VIDEO;
-    return true;
-  } else if (channel_name == GICE_CHANNEL_NAME_DATA_RTP ||
-             channel_name == GICE_CHANNEL_NAME_DATA_RTCP) {
-    *media_type = MEDIA_TYPE_DATA;
-    return true;
-  }
-
-  return false;
 }
 
 }  // namespace cricket

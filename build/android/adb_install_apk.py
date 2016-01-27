@@ -12,12 +12,12 @@ import logging
 import os
 import sys
 
+from devil.android import apk_helper
+from devil.android import device_blacklist
+from devil.android import device_errors
+from devil.android import device_utils
+from devil.utils import run_tests_helper
 from pylib import constants
-from pylib.device import device_blacklist
-from pylib.device import device_errors
-from pylib.device import device_utils
-from pylib.utils import apk_helper
-from pylib.utils import run_tests_helper
 
 
 def main():
@@ -53,6 +53,7 @@ def main():
                            'Default is env var BUILDTYPE or Debug.')
   parser.add_argument('-d', '--device', dest='device',
                       help='Target device for apk to install on.')
+  parser.add_argument('--blacklist-file', help='Device blacklist JSON file.')
   parser.add_argument('-v', '--verbose', action='count',
                       help='Enable verbose logging.')
 
@@ -75,14 +76,17 @@ def main():
     for split_glob in args.splits:
       apks = [f for f in glob.glob(split_glob) if f.endswith('.apk')]
       if not apks:
-        logging.warning('No apks matched for %s.' % split_glob)
+        logging.warning('No apks matched for %s.', split_glob)
       for f in apks:
         helper = apk_helper.ApkHelper(f)
         if (helper.GetPackageName() == base_apk_package
             and helper.GetSplitName()):
           splits.append(f)
 
-  devices = device_utils.DeviceUtils.HealthyDevices()
+  blacklist = (device_blacklist.Blacklist(args.blacklist_file)
+               if args.blacklist_file
+               else None)
+  devices = device_utils.DeviceUtils.HealthyDevices(blacklist)
 
   if args.device:
     devices = [d for d in devices if d == args.device]
@@ -99,12 +103,14 @@ def main():
         device.Install(apk, reinstall=args.keep_data)
     except device_errors.CommandFailedError:
       logging.exception('Failed to install %s', args.apk_name)
-      device_blacklist.ExtendBlacklist([str(device)])
-      logging.warning('Blacklisting %s', str(device))
+      if blacklist:
+        blacklist.Extend([str(device)], reason='install_failure')
+        logging.warning('Blacklisting %s', str(device))
     except device_errors.CommandTimeoutError:
       logging.exception('Timed out while installing %s', args.apk_name)
-      device_blacklist.ExtendBlacklist([str(device)])
-      logging.warning('Blacklisting %s', str(device))
+      if blacklist:
+        blacklist.Extend([str(device)], reason='install_timeout')
+        logging.warning('Blacklisting %s', str(device))
 
   device_utils.DeviceUtils.parallel(devices).pMap(blacklisting_install)
 

@@ -5,10 +5,10 @@
 {% macro attribute_getter(attribute, world_suffix) %}
 {% filter conditional(attribute.conditional_string) %}
 static void {{attribute.name}}AttributeGetter{{world_suffix}}(
-{%- if attribute.is_expose_js_accessors %}
-const v8::FunctionCallbackInfo<v8::Value>& info
-{%- else %}
+{%- if attribute.is_data_type_property %}
 const v8::PropertyCallbackInfo<v8::Value>& info
+{%- else %}
+const v8::FunctionCallbackInfo<v8::Value>& info
 {%- endif %})
 {
     {% if attribute.is_reflect and not attribute.is_url
@@ -19,14 +19,11 @@ const v8::PropertyCallbackInfo<v8::Value>& info
     {# holder #}
     {% if not attribute.is_static %}
     {% if attribute.is_lenient_this %}
-    v8::Local<v8::Object> holder = {{v8_class}}::findInstanceInPrototypeChain(info.This(), info.GetIsolate());
-    if (holder.IsEmpty())
+    {# Make sure that info.Holder() really points to an instance if [LenientThis]. #}
+    if (!{{v8_class}}::hasInstance(info.Holder(), info.GetIsolate()))
         return; // Return silently because of [LenientThis].
-    // Note that it's okay to use |holder|, but |info.Holder()| is still unsafe
-    // and must not be used.
-    {% else %}
-    v8::Local<v8::Object> holder = info.Holder();
     {% endif %}
+    v8::Local<v8::Object> holder = info.Holder();
     {% endif %}
     {# impl #}
     {% if attribute.cached_attribute_validation_method %}
@@ -55,7 +52,7 @@ const v8::PropertyCallbackInfo<v8::Value>& info
     {% endif %}
     {% if ((attribute.is_check_security_for_frame or
             attribute.is_check_security_for_window) and
-           attribute.is_expose_js_accessors) or
+           not attribute.is_data_type_property) or
           attribute.is_check_security_for_node or
           attribute.is_getter_raises_exception %}
     ExceptionState exceptionState(ExceptionState::GetterContext, "{{attribute.name}}", "{{interface_name}}", holder, info.GetIsolate());
@@ -76,10 +73,10 @@ const v8::PropertyCallbackInfo<v8::Value>& info
         return;
     {% endif %}
     {# Security checks #}
-    {% if attribute.is_expose_js_accessors %}
+    {% if not attribute.is_data_type_property %}
     {% if attribute.is_check_security_for_window %}
     if (LocalDOMWindow* window = impl->toDOMWindow()) {
-        if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), window->frame(), exceptionState)) {
+        if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), window->frame(), exceptionState)) {
             v8SetReturnValueNull(info);
             exceptionState.throwIfNeeded();
             return;
@@ -88,7 +85,7 @@ const v8::PropertyCallbackInfo<v8::Value>& info
             return;
     }
     {% elif attribute.is_check_security_for_frame %}
-    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), impl->frame(), exceptionState)) {
+    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), impl->frame(), exceptionState)) {
         v8SetReturnValueNull(info);
         exceptionState.throwIfNeeded();
         return;
@@ -96,7 +93,7 @@ const v8::PropertyCallbackInfo<v8::Value>& info
     {% endif %}
     {% endif %}
     {% if attribute.is_check_security_for_node %}
-    if (!BindingSecurity::shouldAllowAccessToNode(info.GetIsolate(), {{attribute.cpp_value}}, exceptionState)) {
+    if (!BindingSecurity::shouldAllowAccessToNode(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), {{attribute.cpp_value}}, exceptionState)) {
         v8SetReturnValueNull(info);
         exceptionState.throwIfNeeded();
         return;
@@ -140,6 +137,7 @@ const v8::PropertyCallbackInfo<v8::Value>& info
 {% endfilter %}
 {% endmacro %}
 
+
 {######################################}
 {% macro release_only_check(reflect_only_values, reflect_missing,
                             reflect_invalid, reflect_empty, cpp_value) %}
@@ -178,10 +176,10 @@ if ({{cpp_value}}.isEmpty()) {
 {% macro attribute_getter_callback(attribute, world_suffix) %}
 {% filter conditional(attribute.conditional_string) %}
 static void {{attribute.name}}AttributeGetterCallback{{world_suffix}}(
-{%- if attribute.is_expose_js_accessors %}
-const v8::FunctionCallbackInfo<v8::Value>& info
-{%- else %}
+{%- if attribute.is_data_type_property %}
 v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info
+{%- else %}
+const v8::FunctionCallbackInfo<v8::Value>& info
 {%- endif %})
 {
     TRACE_EVENT_SET_SAMPLING_STATE("blink", "DOMGetter");
@@ -215,12 +213,7 @@ v8::Local<v8::Name>, const v8::PropertyCallbackInfo<v8::Value>& info
 {##############################################################################}
 {% macro constructor_getter_callback(attribute, world_suffix) %}
 {% filter conditional(attribute.conditional_string) %}
-static void {{attribute.name}}ConstructorGetterCallback{{world_suffix}}(
-{%- if attribute.is_expose_js_accessors %}
-const v8::FunctionCallbackInfo<v8::Value>& info
-{%- else %}
-v8::Local<v8::Name> property, const v8::PropertyCallbackInfo<v8::Value>& info
-{%- endif %})
+static void {{attribute.name}}ConstructorGetterCallback{{world_suffix}}(v8::Local<v8::Name> property, const v8::PropertyCallbackInfo<v8::Value>& info)
 {
     TRACE_EVENT_SET_SAMPLING_STATE("blink", "DOMGetter");
     {% if attribute.deprecate_as %}
@@ -240,10 +233,10 @@ v8::Local<v8::Name> property, const v8::PropertyCallbackInfo<v8::Value>& info
 {% macro attribute_setter(attribute, world_suffix) %}
 {% filter conditional(attribute.conditional_string) %}
 static void {{attribute.name}}AttributeSetter{{world_suffix}}(
-{%- if attribute.is_expose_js_accessors %}
-v8::Local<v8::Value> v8Value, const v8::FunctionCallbackInfo<v8::Value>& info
-{%- else %}
+{%- if attribute.is_data_type_property %}
 v8::Local<v8::Value> v8Value, const v8::PropertyCallbackInfo<void>& info
+{%- else %}
+v8::Local<v8::Value> v8Value, const v8::FunctionCallbackInfo<v8::Value>& info
 {%- endif %})
 {
     {% if attribute.is_reflect and attribute.idl_type == 'DOMString'
@@ -253,7 +246,7 @@ v8::Local<v8::Value> v8Value, const v8::PropertyCallbackInfo<void>& info
     {% if attribute.has_setter_exception_state or
           ((not attribute.is_replaceable and
             not attribute.constructor_type and
-            attribute.is_expose_js_accessors) and
+            not attribute.is_data_type_property) and
            (attribute.is_check_security_for_frame or
             attribute.is_check_security_for_node or
             attribute.is_check_security_for_window)) %}
@@ -267,14 +260,11 @@ v8::Local<v8::Value> v8Value, const v8::PropertyCallbackInfo<void>& info
            not attribute.constructor_type) or
           raise_exception %}
     {% if attribute.is_lenient_this %}
-    v8::Local<v8::Object> holder = {{v8_class}}::findInstanceInPrototypeChain(info.This(), info.GetIsolate());
-    if (holder.IsEmpty())
+    {# Make sure that info.Holder() really points to an instance if [LenientThis]. #}
+    if (!{{v8_class}}::hasInstance(info.Holder(), info.GetIsolate()))
         return; // Return silently because of [LenientThis].
-    // Note that it's okay to use |holder|, but |info.Holder()| is still unsafe
-    // and must not be used.
-    {% else %}
-    v8::Local<v8::Object> holder = info.Holder();
     {% endif %}
+    v8::Local<v8::Object> holder = info.Holder();
     {% endif %}
     {% if raise_exception %}
     ExceptionState exceptionState(ExceptionState::SetterContext, "{{attribute.name}}", "{{interface_name}}", holder, info.GetIsolate());
@@ -301,10 +291,10 @@ v8::Local<v8::Value> v8Value, const v8::PropertyCallbackInfo<void>& info
     {# Security checks #}
     {% if not attribute.is_replaceable and
           not attribute.constructor_type %}
-    {% if attribute.is_expose_js_accessors %}
+    {% if not attribute.is_data_type_property %}
     {% if attribute.is_check_security_for_window %}
     if (LocalDOMWindow* window = impl->toDOMWindow()) {
-        if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), window->frame(), exceptionState)) {
+        if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), window->frame(), exceptionState)) {
             v8SetReturnValue(info, v8Value);
             exceptionState.throwIfNeeded();
             return;
@@ -313,7 +303,7 @@ v8::Local<v8::Value> v8Value, const v8::PropertyCallbackInfo<void>& info
             return;
     }
     {% elif attribute.is_check_security_for_frame %}
-    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), impl->frame(), exceptionState)) {
+    if (!BindingSecurity::shouldAllowAccessToFrame(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), impl->frame(), exceptionState)) {
         v8SetReturnValue(info, v8Value);
         exceptionState.throwIfNeeded();
         return;
@@ -321,13 +311,14 @@ v8::Local<v8::Value> v8Value, const v8::PropertyCallbackInfo<void>& info
     {% endif %}
     {% endif %}
     {% if attribute.is_check_security_for_node %}
-    if (!BindingSecurity::shouldAllowAccessToNode(info.GetIsolate(), {{attribute.cpp_value}}, exceptionState)) {
+    if (!BindingSecurity::shouldAllowAccessToNode(info.GetIsolate(), callingDOMWindow(info.GetIsolate()), {{attribute.cpp_value}}, exceptionState)) {
         v8SetReturnValue(info, v8Value);
         exceptionState.throwIfNeeded();
         return;
     }
     {% endif %}
-    {% endif %}{# not attribute.is_replaceable #}
+    {% endif %}{# not attribute.is_replaceable and
+                  not attribute.constructor_type #}
     {# Convert JS value to C++ value #}
     {% if attribute.idl_type != 'EventHandler' %}
     {% if v8_value_to_local_cpp_value(attribute) %}
@@ -392,13 +383,13 @@ v8::Local<v8::Value> v8Value, const v8::PropertyCallbackInfo<void>& info
 {% macro attribute_setter_callback(attribute, world_suffix) %}
 {% filter conditional(attribute.conditional_string) %}
 static void {{attribute.name}}AttributeSetterCallback{{world_suffix}}(
-{%- if attribute.is_expose_js_accessors %}
-const v8::FunctionCallbackInfo<v8::Value>& info
-{%- else %}
+{%- if attribute.is_data_type_property %}
 v8::Local<v8::Name>, v8::Local<v8::Value> v8Value, const v8::PropertyCallbackInfo<void>& info
+{%- else %}
+const v8::FunctionCallbackInfo<v8::Value>& info
 {%- endif %})
 {
-    {% if attribute.is_expose_js_accessors %}
+    {% if not attribute.is_data_type_property %}
     v8::Local<v8::Value> v8Value = info[0];
     {% endif %}
     TRACE_EVENT_SET_SAMPLING_STATE("blink", "DOMSetter");
@@ -492,6 +483,7 @@ bool {{v8_class}}::PrivateScript::{{attribute.name}}AttributeSetter(LocalFrame* 
 
 {##############################################################################}
 {% macro attribute_configuration(attribute) %}
+{% from 'conversions.cpp' import property_location %}
 {% if attribute.constructor_type %}
 {% set getter_callback =
        '%sV8Internal::%sConstructorGetterCallback' % (cpp_class_or_partial, attribute.name)
@@ -518,25 +510,18 @@ bool {{v8_class}}::PrivateScript::{{attribute.name}}AttributeSetter(LocalFrame* 
        'const_cast<WrapperTypeInfo*>(&V8%s::wrapperTypeInfo)' %
            attribute.constructor_type
        if attribute.constructor_type else '0' %}
+{% if attribute.is_data_type_property %}
 {% set access_control = 'static_cast<v8::AccessControl>(%s)' %
                         ' | '.join(attribute.access_control_list) %}
+{% else %}
+{% set access_control = 'v8::DEFAULT' %}
+{% endif %}
 {% set property_attribute = 'static_cast<v8::PropertyAttribute>(%s)' %
                             ' | '.join(attribute.property_attributes) %}
 {% set only_exposed_to_private_script =
        'V8DOMConfiguration::OnlyExposedToPrivateScript'
        if attribute.only_exposed_to_private_script else
        'V8DOMConfiguration::ExposedToAllScripts' %}
-{% set property_location_list = [] %}
-{% if attribute.on_instance %}
-{% set property_location_list = property_location_list + ['V8DOMConfiguration::OnInstance'] %}
-{% endif %}
-{% if attribute.on_prototype %}
-{% set property_location_list = property_location_list + ['V8DOMConfiguration::OnPrototype'] %}
-{% endif %}
-{% if attribute.on_interface %}
-{% set property_location_list = property_location_list + ['V8DOMConfiguration::OnInterface'] %}
-{% endif %}
-{% set property_location = property_location_list | join(' | ') %}
 {% set holder_check = 'V8DOMConfiguration::DoNotCheckHolder'
        if attribute.is_lenient_this else 'V8DOMConfiguration::CheckHolder' %}
 {% set attribute_configuration_list = [
@@ -549,7 +534,7 @@ bool {{v8_class}}::PrivateScript::{{attribute.name}}AttributeSetter(LocalFrame* 
        access_control,
        property_attribute,
        only_exposed_to_private_script,
-       property_location,
+       property_location(attribute),
        holder_check,
    ] %}
 {{'{'}}{{attribute_configuration_list | join(', ')}}{{'}'}}

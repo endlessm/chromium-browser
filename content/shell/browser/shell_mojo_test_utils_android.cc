@@ -23,19 +23,21 @@ struct TestEnvironment {
 
 namespace content {
 
-static jlong SetupTestEnvironment(JNIEnv* env, jclass jcaller) {
+static jlong SetupTestEnvironment(JNIEnv* env,
+                                  const JavaParamRef<jclass>& jcaller) {
   return reinterpret_cast<intptr_t>(new TestEnvironment());
 }
 
 static void TearDownTestEnvironment(JNIEnv* env,
-                                    jclass jcaller,
+                                    const JavaParamRef<jclass>& jcaller,
                                     jlong test_environment) {
   delete reinterpret_cast<TestEnvironment*>(test_environment);
 }
 
-static jobject CreateServiceRegistryPair(JNIEnv* env,
-                                         jclass jcaller,
-                                         jlong native_test_environment) {
+static ScopedJavaLocalRef<jobject> CreateServiceRegistryPair(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& jcaller,
+    jlong native_test_environment) {
   TestEnvironment* test_environment =
       reinterpret_cast<TestEnvironment*>(native_test_environment);
 
@@ -60,13 +62,14 @@ static jobject CreateServiceRegistryPair(JNIEnv* env,
   test_environment->wrappers.push_back(wrapper_b);
 
   return Java_ShellMojoTestUtils_makePair(env, wrapper_a->GetObj().obj(),
-                                          wrapper_b->GetObj().obj()).Release();
+                                          wrapper_b->GetObj().obj());
 }
 
-static void RunLoop(JNIEnv* env, jclass jcaller, jlong timeout_ms) {
+static void RunLoop(JNIEnv* env,
+                    const JavaParamRef<jclass>& jcaller,
+                    jlong timeout_ms) {
   base::MessageLoop::current()->PostDelayedTask(
-      FROM_HERE,
-      base::MessageLoop::QuitClosure(),
+      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
       base::TimeDelta::FromMilliseconds(timeout_ms));
   base::RunLoop run_loop;
   run_loop.Run();

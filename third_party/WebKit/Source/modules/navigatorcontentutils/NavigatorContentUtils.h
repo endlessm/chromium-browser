@@ -42,6 +42,7 @@ class Navigator;
 
 class MODULES_EXPORT NavigatorContentUtils final : public NoBaseWillBeGarbageCollectedFinalized<NavigatorContentUtils>, public WillBeHeapSupplement<LocalFrame> {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(NavigatorContentUtils);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(NavigatorContentUtils);
 public:
     virtual ~NavigatorContentUtils();
 

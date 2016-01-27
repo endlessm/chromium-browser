@@ -34,12 +34,14 @@ beforeunload
 beginEvent
 blocked
 blur
+bufferedamountlow
 boundary
 cached
 cancel
 canplay
 canplaythrough
 change
+characteristicvaluechanged
 chargingchange
 chargingtimechange
 checking
@@ -51,12 +53,12 @@ compositionstart
 compositionupdate
 connect
 connecting
+connectionavailable
 contextlost
 contextmenu
 contextrestored
 controllerchange
 copy
-crossoriginconnect
 crossoriginmessage
 cuechange
 cut
@@ -66,10 +68,12 @@ defaultsessionstart
 devicelight
 devicemotion
 deviceorientation
+deviceorientationabsolute
 dischargingtimechange
 disconnect
 display
 downloading
+dataavailable
 drag
 dragend
 dragenter
@@ -106,6 +110,7 @@ gestureshowpress
 gesturetap
 gesturetapdown
 gesturetapunconfirmed
+gestureflingstart
 gotpointercapture
 hashchange
 icecandidate
@@ -180,6 +185,7 @@ removetrack
 repeatEvent
 reset
 resize
+resourcetimingbufferfull
 result
 resume
 scroll
@@ -201,6 +207,7 @@ speechend
 speechstart
 stalled
 start
+stop
 statechange
 storage
 submit

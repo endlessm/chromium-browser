@@ -20,6 +20,7 @@
 
 namespace net {
 
+class CertPolicyEnforcer;
 class CertVerifier;
 class TransportSecurityState;
 
@@ -56,6 +57,7 @@ struct ProofVerifyContextChromium : public ProofVerifyContext {
 class NET_EXPORT_PRIVATE ProofVerifierChromium : public ProofVerifier {
  public:
   ProofVerifierChromium(CertVerifier* cert_verifier,
+                        CertPolicyEnforcer* cert_policy_enforcer,
                         TransportSecurityState* transport_security_state);
   ~ProofVerifierChromium() override;
 
@@ -63,6 +65,7 @@ class NET_EXPORT_PRIVATE ProofVerifierChromium : public ProofVerifier {
   QuicAsyncStatus VerifyProof(const std::string& hostname,
                               const std::string& server_config,
                               const std::vector<std::string>& certs,
+                              const std::string& cert_sct,
                               const std::string& signature,
                               const ProofVerifyContext* verify_context,
                               std::string* error_details,
@@ -80,6 +83,7 @@ class NET_EXPORT_PRIVATE ProofVerifierChromium : public ProofVerifier {
 
   // Underlying verifier used to verify certificates.
   CertVerifier* const cert_verifier_;
+  CertPolicyEnforcer* const cert_policy_enforcer_;
 
   TransportSecurityState* const transport_security_state_;
 

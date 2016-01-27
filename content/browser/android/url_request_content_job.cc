@@ -73,11 +73,10 @@ bool URLRequestContentJob::ReadRawData(net::IOBuffer* dest,
     return true;
   }
 
-  int rv = stream_->Read(dest,
-                         dest_size,
-                         base::Bind(&URLRequestContentJob::DidRead,
-                                    weak_ptr_factory_.GetWeakPtr(),
-                                    make_scoped_refptr(dest)));
+  int rv =
+      stream_->Read(dest, dest_size, base::Bind(&URLRequestContentJob::DidRead,
+                                                weak_ptr_factory_.GetWeakPtr(),
+                                                make_scoped_refptr(dest)));
   if (rv >= 0) {
     // Data is immediately available.
     *bytes_read = rv;
@@ -123,9 +122,8 @@ void URLRequestContentJob::SetExtraRequestHeaders(
       byte_range_ = ranges[0];
     } else {
       // We don't support multiple range requests.
-      NotifyDone(net::URLRequestStatus(
-          net::URLRequestStatus::FAILED,
-          net::ERR_REQUEST_RANGE_NOT_SATISFIABLE));
+      NotifyDone(net::URLRequestStatus(net::URLRequestStatus::FAILED,
+                                       net::ERR_REQUEST_RANGE_NOT_SATISFIABLE));
     }
   }
 }
@@ -204,8 +202,8 @@ void URLRequestContentJob::DidSeek(int64 result) {
   NotifyHeadersComplete();
 }
 
-void URLRequestContentJob::DidRead(
-    scoped_refptr<net::IOBuffer> buf, int result) {
+void URLRequestContentJob::DidRead(scoped_refptr<net::IOBuffer> buf,
+                                   int result) {
   if (result > 0) {
     SetStatus(net::URLRequestStatus());  // Clear the IO_PENDING status
     remaining_bytes_ -= result;

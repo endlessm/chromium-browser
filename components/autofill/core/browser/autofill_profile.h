@@ -114,8 +114,9 @@ class AutofillProfile : public AutofillDataModel {
                              const std::string& app_locale,
                              const ServerFieldTypeSet& types) const;
 
-  // Overwrites the field data in |profile| with this Profile.
-  void OverwriteWith(const AutofillProfile& profile,
+  // Overwrites the field data in |profile| with this Profile. Returns |true| if
+  // at least one field was overwritten.
+  bool OverwriteWith(const AutofillProfile& profile,
                      const std::string& app_locale);
 
   // Saves info from |profile| into |this|, provided |this| and |profile| do not
@@ -160,13 +161,18 @@ class AutofillProfile : public AutofillDataModel {
     language_code_ = language_code;
   }
 
-  // Nonempty only when type() == SERVER_PROFILE.
+  // Nonempty only when type() == SERVER_PROFILE. base::kSHA1Length bytes long.
+  // Not necessarily valid UTF-8.
   const std::string& server_id() const { return server_id_; }
 
   // Creates an identifier and saves it as |server_id_|. Only used for
   // server credit cards. The server doesn't attach an identifier so Chrome
   // creates its own. The ID is a hash of the data contained in the profile.
   void GenerateServerProfileIdentifier();
+
+  // Logs the number of days since the profile was last used and records its
+  // use.
+  void RecordAndLogUse();
 
   // Returns a standardized representation of the given string for comparison
   // purposes. The resulting string will be lower-cased with all punctuation
@@ -218,7 +224,8 @@ class AutofillProfile : public AutofillDataModel {
   // If |name| has the same full name representation as |name_|,
   // this will keep the one that has more information (i.e.
   // is not reconstructible via a heuristic parse of the full name string).
-  void OverwriteName(const NameInfo& name, const std::string& app_locale);
+  // Returns |true| is |name_| was overwritten.
+  bool OverwriteName(const NameInfo& name, const std::string& app_locale);
 
   // Same as operator==, but ignores differences in GUID.
   bool EqualsSansGuid(const AutofillProfile& profile) const;

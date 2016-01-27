@@ -12,10 +12,17 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import org.chromium.base.annotations.SuppressFBWarnings;
+import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.BookmarksBridge.BookmarkItem;
-import org.chromium.chrome.browser.BookmarksBridge.BookmarkModelObserver;
+import org.chromium.chrome.browser.bookmark.BookmarksBridge.BookmarkItem;
+import org.chromium.chrome.browser.bookmark.BookmarksBridge.BookmarkModelObserver;
+import org.chromium.chrome.browser.enhancedbookmarks.EnhancedBookmarkManager.UIState;
 import org.chromium.chrome.browser.enhancedbookmarks.EnhancedBookmarkPromoHeader.PromoHeaderShowingChangeListener;
+import org.chromium.chrome.browser.offlinepages.OfflinePageBridge;
+import org.chromium.chrome.browser.offlinepages.OfflinePageBridge.OfflinePageModelObserver;
+import org.chromium.chrome.browser.offlinepages.OfflinePageFreeUpSpaceCallback;
+import org.chromium.chrome.browser.offlinepages.OfflinePageFreeUpSpaceDialog;
+import org.chromium.chrome.browser.offlinepages.OfflinePageStorageSpaceHeader;
 import org.chromium.components.bookmarks.BookmarkId;
 
 import java.util.ArrayList;
@@ -31,13 +38,16 @@ class EnhancedBookmarkItemsAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     private static final int FOLDER_VIEW = 1;
     private static final int DIVIDER_VIEW = 2;
     private static final int BOOKMARK_VIEW = 3;
+    private static final int OFFLINE_PAGES_STORAGE_VIEW = 4;
 
     private EnhancedBookmarkDelegate mDelegate;
     private Context mContext;
     private EnhancedBookmarkPromoHeader mPromoHeaderManager;
+    private OfflinePageStorageSpaceHeader mOfflineStorageHeader;
 
     private List<List<? extends Object>> mSections;
     private List<Object> mPromoHeaderSection = new ArrayList<>();
+    private List<Object> mOfflineStorageSection = new ArrayList<>();
     private List<Object> mFolderDividerSection = new ArrayList<>();
     private List<BookmarkId> mFolderSection = new ArrayList<>();
     private List<Object> mBookmarkDividerSection = new ArrayList<>();
@@ -69,11 +79,14 @@ class EnhancedBookmarkItemsAdapter extends RecyclerView.Adapter<RecyclerView.Vie
         }
     };
 
+    private OfflinePageModelObserver mOfflinePageModelObserver;
+
     EnhancedBookmarkItemsAdapter(Context context) {
         mContext = context;
 
         mSections = new ArrayList<>();
         mSections.add(mPromoHeaderSection);
+        mSections.add(mOfflineStorageSection);
         mSections.add(mFolderDividerSection);
         mSections.add(mFolderSection);
         mSections.add(mBookmarkDividerSection);
@@ -86,7 +99,7 @@ class EnhancedBookmarkItemsAdapter extends RecyclerView.Adapter<RecyclerView.Vie
 
     private int toSectionPosition(int globalPosition) {
         int sectionPosition = globalPosition;
-        for (List section : mSections) {
+        for (List<?> section : mSections) {
             if (sectionPosition < section.size()) break;
             sectionPosition -= section.size();
         }
@@ -131,6 +144,7 @@ class EnhancedBookmarkItemsAdapter extends RecyclerView.Adapter<RecyclerView.Vie
         mBookmarkSection.clear();
         mBookmarkSection.addAll(bookmarks);
 
+        updateHeader();
         updateDividerSections();
 
         // TODO(kkimlabs): Animation is disabled due to a performance issue on bookmark undo.
@@ -141,17 +155,20 @@ class EnhancedBookmarkItemsAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     private void updateDividerSections() {
         mFolderDividerSection.clear();
         mBookmarkDividerSection.clear();
-        if (!mPromoHeaderSection.isEmpty() && !mFolderSection.isEmpty()) {
+
+        boolean isHeaderPresent =
+                !mPromoHeaderSection.isEmpty() || !mOfflineStorageSection.isEmpty();
+
+        if (isHeaderPresent && !mFolderSection.isEmpty()) {
             mFolderDividerSection.add(null);
         }
-        if ((!mPromoHeaderSection.isEmpty() || !mFolderSection.isEmpty())
-                && !mBookmarkSection.isEmpty()) {
+        if ((isHeaderPresent || !mFolderSection.isEmpty()) && !mBookmarkSection.isEmpty()) {
             mBookmarkDividerSection.add(null);
         }
     }
 
     private void removeItem(int position) {
-        List section = getSection(position);
+        List<?> section = getSection(position);
         assert section == mFolderSection || section == mBookmarkSection;
         section.remove(toSectionPosition(position));
         notifyItemRemoved(position);
@@ -162,7 +179,7 @@ class EnhancedBookmarkItemsAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     @Override
     public int getItemCount() {
         int count = 0;
-        for (List section : mSections) {
+        for (List<?> section : mSections) {
             count += section.size();
         }
         return count;
@@ -170,10 +187,12 @@ class EnhancedBookmarkItemsAdapter extends RecyclerView.Adapter<RecyclerView.Vie
 
     @Override
     public int getItemViewType(int position) {
-        List section = getSection(position);
+        List<?> section = getSection(position);
 
         if (section == mPromoHeaderSection) {
             return PROMO_HEADER_VIEW;
+        } else if (section == mOfflineStorageSection) {
+            return OFFLINE_PAGES_STORAGE_VIEW;
         } else if (section == mFolderDividerSection
                 || section == mBookmarkDividerSection) {
             return DIVIDER_VIEW;
@@ -192,6 +211,8 @@ class EnhancedBookmarkItemsAdapter extends RecyclerView.Adapter<RecyclerView.Vie
         switch (viewType) {
             case PROMO_HEADER_VIEW:
                 return mPromoHeaderManager.createHolder(parent);
+            case OFFLINE_PAGES_STORAGE_VIEW:
+                return mOfflineStorageHeader.createHolder(parent);
             case DIVIDER_VIEW:
                 return new ViewHolder(LayoutInflater.from(parent.getContext()).inflate(
                         R.layout.eb_divider, parent, false)) {};
@@ -217,6 +238,7 @@ class EnhancedBookmarkItemsAdapter extends RecyclerView.Adapter<RecyclerView.Vie
         BookmarkId id = getItem(position);
         switch (getItemViewType(position)) {
             case PROMO_HEADER_VIEW:
+            case OFFLINE_PAGES_STORAGE_VIEW:
             case DIVIDER_VIEW:
                 break;
             case FOLDER_VIEW:
@@ -234,9 +256,12 @@ class EnhancedBookmarkItemsAdapter extends RecyclerView.Adapter<RecyclerView.Vie
 
     @Override
     public void onPromoHeaderShowingChanged(boolean isShowing) {
-        mPromoHeaderSection.clear();
-        if (isShowing) mPromoHeaderSection.add(null);
+        if (mDelegate.getCurrentState() != UIState.STATE_ALL_BOOKMARKS
+                && mDelegate.getCurrentState() != UIState.STATE_FOLDER) {
+            return;
+        }
 
+        updateHeader();
         updateDividerSections();
         notifyDataSetChanged();
     }
@@ -247,23 +272,66 @@ class EnhancedBookmarkItemsAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     public void onEnhancedBookmarkDelegateInitialized(EnhancedBookmarkDelegate delegate) {
         mDelegate = delegate;
         mDelegate.addUIObserver(this);
-        mDelegate.getModel().addModelObserver(mBookmarkModelObserver);
+        mDelegate.getModel().addObserver(mBookmarkModelObserver);
         mPromoHeaderManager = new EnhancedBookmarkPromoHeader(mContext, this);
-        if (mPromoHeaderManager.shouldShow()) mPromoHeaderSection.add(null);
+        OfflinePageBridge offlinePageBridge = mDelegate.getModel().getOfflinePageBridge();
+        if (offlinePageBridge != null) {
+            mOfflinePageModelObserver = new OfflinePageModelObserver() {
+                @Override
+                public void offlinePageModelChanged() {
+                    mDelegate.notifyStateChange(EnhancedBookmarkItemsAdapter.this);
+                }
 
-        updateDividerSections();
+                @Override
+                public void offlinePageDeleted(BookmarkId bookmarkId) {
+                    if (mDelegate.getCurrentState() == UIState.STATE_FILTER) {
+                        int deletedPosition = getPositionForBookmark(bookmarkId);
+                        if (deletedPosition >= 0) {
+                            removeItem(deletedPosition);
+                        }
+                    }
+                }
+            };
+            offlinePageBridge.addObserver(mOfflinePageModelObserver);
+
+            mOfflineStorageHeader = new OfflinePageStorageSpaceHeader(
+                    mContext, offlinePageBridge, new OfflinePageFreeUpSpaceCallback() {
+                        @Override
+                        public void onFreeUpSpaceDone() {
+                            refreshOfflinePagesFilterView();
+                            mDelegate.getSnackbarManager().showSnackbar(
+                                    OfflinePageFreeUpSpaceDialog.createStorageClearedSnackbar(
+                                            mContext));
+                        }
+
+                        @Override
+                        public void onFreeUpSpaceCancelled() {
+                            // No need to refresh, as result outcome should be the same here.
+                        }
+                    });
+        }
     }
 
     @Override
     public void onDestroy() {
         mDelegate.removeUIObserver(this);
-        mDelegate.getModel().removeModelObserver(mBookmarkModelObserver);
+        mDelegate.getModel().removeObserver(mBookmarkModelObserver);
         mPromoHeaderManager.destroy();
+
+        OfflinePageBridge offlinePageBridge = mDelegate.getModel().getOfflinePageBridge();
+        if (offlinePageBridge != null) {
+            offlinePageBridge.removeObserver(mOfflinePageModelObserver);
+            mOfflineStorageHeader.destroy();
+        }
     }
 
     @Override
     public void onAllBookmarksStateSet() {
-        setBookmarks(null, mDelegate.getModel().getAllBookmarkIDsOrderedByCreationDate());
+        List<BookmarkId> bookmarkIds =
+                mDelegate.getModel().getAllBookmarkIDsOrderedByCreationDate();
+        RecordHistogram.recordCountHistogram("EnhancedBookmarks.AllBookmarksCount",
+                bookmarkIds.size());
+        setBookmarks(null, bookmarkIds);
     }
 
     @Override
@@ -273,11 +341,45 @@ class EnhancedBookmarkItemsAdapter extends RecyclerView.Adapter<RecyclerView.Vie
     }
 
     @Override
+    public void onFilterStateSet(EnhancedBookmarkFilter filter) {
+        assert filter == EnhancedBookmarkFilter.OFFLINE_PAGES;
+        List<BookmarkId> bookmarkIds = mDelegate.getModel().getBookmarkIDsByFilter(filter);
+        RecordHistogram.recordCountHistogram("OfflinePages.OfflinePageCount", bookmarkIds.size());
+        setBookmarks(null, mDelegate.getModel().getBookmarkIDsByFilter(filter));
+        mDelegate.getModel().getOfflinePageBridge().checkOfflinePageMetadata();
+    }
+
+    @Override
     public void onSelectionStateChange(List<BookmarkId> selectedBookmarks) {}
 
     private static class ItemViewHolder extends RecyclerView.ViewHolder {
         private ItemViewHolder(View view) {
             super(view);
         }
+    }
+
+    private void updateHeader() {
+        int currentUIState = mDelegate.getCurrentState();
+        if (currentUIState == UIState.STATE_LOADING) return;
+
+        mPromoHeaderSection.clear();
+        mOfflineStorageSection.clear();
+        if (currentUIState == UIState.STATE_FILTER) {
+            if (mOfflineStorageHeader != null && mOfflineStorageHeader.shouldShow()) {
+                mOfflineStorageSection.add(null);
+            }
+        } else {
+            assert currentUIState == UIState.STATE_ALL_BOOKMARKS
+                    || currentUIState == UIState.STATE_FOLDER : "Unexpected UI state";
+            if (mPromoHeaderManager.shouldShow()) {
+                mPromoHeaderSection.add(null);
+            }
+        }
+    }
+
+    private void refreshOfflinePagesFilterView() {
+        if (mDelegate.getCurrentState() != UIState.STATE_FILTER) return;
+        setBookmarks(null,
+                mDelegate.getModel().getBookmarkIDsByFilter(EnhancedBookmarkFilter.OFFLINE_PAGES));
     }
 }

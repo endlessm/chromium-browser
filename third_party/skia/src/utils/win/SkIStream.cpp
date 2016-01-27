@@ -6,6 +6,8 @@
  * found in the LICENSE file.
  */
 
+#include "SkTypes.h"
+#if defined(SK_BUILD_FOR_WIN32)
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -22,7 +24,7 @@ SkBaseIStream::~SkBaseIStream() { }
 HRESULT STDMETHODCALLTYPE SkBaseIStream::QueryInterface(REFIID iid
                                                       , void ** ppvObject)
 {
-    if (NULL == ppvObject) {
+    if (nullptr == ppvObject) {
         return E_INVALIDARG;
     }
     if (iid == __uuidof(IUnknown)
@@ -33,7 +35,7 @@ HRESULT STDMETHODCALLTYPE SkBaseIStream::QueryInterface(REFIID iid
         AddRef();
         return S_OK;
     } else {
-        *ppvObject = NULL;
+        *ppvObject = nullptr;
         return E_NOINTERFACE;
     }
 }
@@ -122,7 +124,7 @@ HRESULT SkIStream::CreateFromSkStream(SkStream* stream
                                     , bool deleteOnRelease
                                     , IStream ** ppStream)
 {
-    if (NULL == stream) {
+    if (nullptr == stream) {
         return E_INVALIDARG;
     }
     *ppStream = new SkIStream(stream, deleteOnRelease);
@@ -208,7 +210,7 @@ HRESULT STDMETHODCALLTYPE SkIStream::Stat(STATSTG* pStatstg
     if (0 == (grfStatFlag & STATFLAG_NONAME)) {
         return STG_E_INVALIDFLAG;
     }
-    pStatstg->pwcsName = NULL;
+    pStatstg->pwcsName = nullptr;
     // FIXME: Should not depend on getLength
     // See https://code.google.com/p/skia/issues/detail?id=1570
     pStatstg->cbSize.QuadPart = this->fSkStream->getLength();
@@ -268,10 +270,11 @@ HRESULT STDMETHODCALLTYPE SkWIStream::Stat(STATSTG* pStatstg
     if (0 == (grfStatFlag & STATFLAG_NONAME)) {
         return STG_E_INVALIDFLAG;
     }
-    pStatstg->pwcsName = NULL;
+    pStatstg->pwcsName = nullptr;
     pStatstg->cbSize.QuadPart = 0;
     pStatstg->clsid = CLSID_NULL;
     pStatstg->type = STGTY_STREAM;
     pStatstg->grfMode = STGM_WRITE;
     return S_OK;
 }
+#endif//defined(SK_BUILD_FOR_WIN32)

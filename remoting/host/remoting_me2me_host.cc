@@ -17,12 +17,12 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
+#include "base/strings/stringize_macros.h"
 #include "base/strings/utf_string_conversions.h"
 #include "build/build_config.h"
 #include "ipc/ipc_channel.h"
 #include "ipc/ipc_channel_proxy.h"
 #include "ipc/ipc_listener.h"
-#include "media/base/media.h"
 #include "net/base/net_util.h"
 #include "net/base/network_change_notifier.h"
 #include "net/socket/client_socket_factory.h"
@@ -55,7 +55,6 @@
 #include "remoting/host/host_main.h"
 #include "remoting/host/host_status_logger.h"
 #include "remoting/host/input_injector.h"
-#include "remoting/host/ipc_constants.h"
 #include "remoting/host/ipc_desktop_environment.h"
 #include "remoting/host/ipc_host_event_logger.h"
 #include "remoting/host/logging.h"
@@ -67,6 +66,7 @@
 #include "remoting/host/shutdown_watchdog.h"
 #include "remoting/host/signaling_connector.h"
 #include "remoting/host/single_window_desktop_environment.h"
+#include "remoting/host/switches.h"
 #include "remoting/host/third_party_auth_config.h"
 #include "remoting/host/token_validator_factory_impl.h"
 #include "remoting/host/usage_stats_consent.h"
@@ -96,6 +96,7 @@
 #if defined(OS_LINUX)
 #include <gtk/gtk.h>
 #include <X11/Xlib.h>
+#include <base/linux_util.h>
 #include "remoting/host/audio_capturer_linux.h"
 #endif  // defined(OS_LINUX)
 
@@ -312,8 +313,6 @@ class HostProcess : public ConfigWatcher::Delegate,
                const std::string& file_name,
                const int& line_number);
 
-  bool using_gcd() { return !gcd_device_id_.empty(); }
-
   scoped_ptr<ChromotingHostContext> context_;
 
   // Accessed on the UI thread.
@@ -343,7 +342,6 @@ class HostProcess : public ConfigWatcher::Delegate,
   bool use_service_account_;
   bool enable_vp9_;
   int64_t frame_recorder_buffer_size_;
-  std::string gcd_device_id_;
 
   scoped_ptr<PolicyWatcher> policy_watcher_;
   PolicyState policy_state_;
@@ -375,8 +373,10 @@ class HostProcess : public ConfigWatcher::Delegate,
 
   scoped_ptr<SignalingConnector> signaling_connector_;
   scoped_ptr<HeartbeatSender> heartbeat_sender_;
+#if defined(USE_GCD)
   scoped_ptr<GcdStateUpdater> gcd_state_updater_;
   scoped_ptr<PushNotificationSubscriber> gcd_subscriber_;
+#endif  // defined(USE_GCD)
 
   scoped_ptr<HostChangeNotificationListener> host_change_notification_listener_;
   scoped_ptr<HostStatusLogger> host_status_logger_;
@@ -477,9 +477,7 @@ bool HostProcess::InitWithCommandLine(const base::CommandLine* cmd_line) {
       cmd_line->GetSwitchValueASCII(kDaemonPipeSwitchName);
   if (!channel_name.empty()) {
     daemon_channel_ =
-        IPC::ChannelProxy::Create(channel_name,
-                                  IPC::Channel::MODE_CLIENT,
-                                  this,
+        IPC::ChannelProxy::Create(channel_name, IPC::Channel::MODE_CLIENT, this,
                                   context_->network_task_runner().get());
   }
 
@@ -937,15 +935,7 @@ bool HostProcess::ApplyConfig(const base::DictionaryValue& config) {
   DCHECK(context_->network_task_runner()->BelongsToCurrentThread());
 
   if (!config.GetString(kHostIdConfigPath, &host_id_)) {
-    host_id_.clear();
-  }
-
-  if (!config.GetString(kGcdDeviceIdConfigPath, &gcd_device_id_)) {
-    gcd_device_id_.clear();
-  }
-
-  if (host_id_.empty() && gcd_device_id_.empty()) {
-    LOG(ERROR) << "Neither host_id nor gcd_device_id is defined in the config.";
+    LOG(ERROR) << "Config does not define " << kHostIdConfigPath << ".";
     return false;
   }
 
@@ -1075,7 +1065,7 @@ void HostProcess::ReportPolicyErrorAndRestartHost() {
   DCHECK_EQ(policy_state_, POLICY_ERROR_REPORT_PENDING);
   policy_state_ = POLICY_ERROR_REPORTED;
 
-  LOG(INFO) << "Restarting the host due to policy errors.";
+  HOST_LOG << "Restarting the host due to policy errors.";
   RestartHost(kHostOfflineReasonPolicyReadError);
 }
 
@@ -1096,7 +1086,8 @@ void HostProcess::ApplyHostDomainPolicy() {
       ShutdownHost(kInvalidHostDomainExitCode);
     }
 
-    if (!base::EndsWith(host_owner_, std::string("@") + host_domain_, false)) {
+    if (!base::EndsWith(host_owner_, std::string("@") + host_domain_,
+                        base::CompareCase::INSENSITIVE_ASCII)) {
       LOG(ERROR) << "The host domain does not match the policy.";
       ShutdownHost(kInvalidHostDomainExitCode);
     }
@@ -1133,7 +1124,8 @@ void HostProcess::ApplyUsernamePolicy() {
     std::string username = GetUsername();
     bool shutdown =
         username.empty() ||
-        !base::StartsWithASCII(host_owner_, username + std::string("@"), false);
+        !base::StartsWith(host_owner_, username + std::string("@"),
+                          base::CompareCase::INSENSITIVE_ASCII);
 
 #if defined(OS_MACOSX)
     // On Mac, we run as root at the login screen, so the username won't match.
@@ -1334,14 +1326,15 @@ bool HostProcess::OnGnubbyAuthPolicyUpdate(base::DictionaryValue* policies) {
 }
 
 void HostProcess::InitializeSignaling() {
-  // ApplyConfig() should already have been run.
-  DCHECK(!host_id_.empty() || !gcd_device_id_.empty());
+  DCHECK(!host_id_.empty());  // ApplyConfig() should already have been run.
 
   DCHECK(!signal_strategy_);
   DCHECK(!oauth_token_getter_);
   DCHECK(!signaling_connector_);
+#if defined(USE_GCD)
   DCHECK(!gcd_state_updater_);
   DCHECK(!gcd_subscriber_);
+#endif  // defined(USE_GCD)
   DCHECK(!heartbeat_sender_);
 
   // Create SignalStrategy.
@@ -1358,39 +1351,37 @@ void HostProcess::InitializeSignaling() {
                                              oauth_refresh_token_,
                                              use_service_account_));
   oauth_token_getter_.reset(new OAuthTokenGetterImpl(
-      oauth_credentials.Pass(), context_->url_request_context_getter(), false,
-      !using_gcd()));
+      oauth_credentials.Pass(), context_->url_request_context_getter(), false));
   signaling_connector_.reset(new SignalingConnector(
       xmpp_signal_strategy, dns_blackhole_checker.Pass(),
       oauth_token_getter_.get(),
       base::Bind(&HostProcess::OnAuthFailed, base::Unretained(this))));
 
-  if (using_gcd()) {
-    // Create objects to manage GCD state.
-    ServiceUrls* service_urls = ServiceUrls::GetInstance();
-    scoped_ptr<GcdRestClient> gcd_rest_client(new GcdRestClient(
-        service_urls->gcd_base_url(), gcd_device_id_,
-        context_->url_request_context_getter(), oauth_token_getter_.get()));
-    gcd_state_updater_.reset(
-        new GcdStateUpdater(base::Bind(&HostProcess::OnHeartbeatSuccessful,
-                                       base::Unretained(this)),
-                            base::Bind(&HostProcess::OnUnknownHostIdError,
-                                       base::Unretained(this)),
-                            signal_strategy_.get(), gcd_rest_client.Pass()));
+#if defined(USE_GCD)
+  // Create objects to manage GCD state.
+  ServiceUrls* service_urls = ServiceUrls::GetInstance();
+  scoped_ptr<GcdRestClient> gcd_rest_client(new GcdRestClient(
+      service_urls->gcd_base_url(), host_id_,
+      context_->url_request_context_getter(), oauth_token_getter_.get()));
+  gcd_state_updater_.reset(
+      new GcdStateUpdater(base::Bind(&HostProcess::OnHeartbeatSuccessful,
+                                     base::Unretained(this)),
+                          base::Bind(&HostProcess::OnUnknownHostIdError,
+                                     base::Unretained(this)),
+                          signal_strategy_.get(), gcd_rest_client.Pass()));
+  PushNotificationSubscriber::Subscription sub;
+  sub.channel = "cloud_devices";
+  PushNotificationSubscriber::SubscriptionList subs;
+  subs.push_back(sub);
+  gcd_subscriber_.reset(
+      new PushNotificationSubscriber(signal_strategy_.get(), subs));
+#endif  // defined(USE_GCD)
 
-    PushNotificationSubscriber::Subscription sub;
-    sub.channel = "cloud_devices";
-    PushNotificationSubscriber::SubscriptionList subs;
-    subs.push_back(sub);
-    gcd_subscriber_.reset(
-        new PushNotificationSubscriber(signal_strategy_.get(), subs));
-  } else {
-    // Create HeartbeatSender.
-    heartbeat_sender_.reset(new HeartbeatSender(
-        base::Bind(&HostProcess::OnHeartbeatSuccessful, base::Unretained(this)),
-        base::Bind(&HostProcess::OnUnknownHostIdError, base::Unretained(this)),
-        host_id_, signal_strategy_.get(), key_pair_, directory_bot_jid_));
-  }
+  // Create HeartbeatSender.
+  heartbeat_sender_.reset(new HeartbeatSender(
+      base::Bind(&HostProcess::OnHeartbeatSuccessful, base::Unretained(this)),
+      base::Bind(&HostProcess::OnUnknownHostIdError, base::Unretained(this)),
+      host_id_, signal_strategy_.get(), key_pair_, directory_bot_jid_));
 }
 
 void HostProcess::StartHostIfReady() {
@@ -1435,21 +1426,24 @@ void HostProcess::StartHost() {
     network_settings.port_range.max_port = NetworkSettings::kDefaultMaxPort;
   }
 
+  scoped_ptr<protocol::SessionManager> session_manager =
+      CreateHostSessionManager(signal_strategy_.get(), network_settings,
+                               context_->url_request_context_getter());
+
+  scoped_ptr<protocol::CandidateSessionConfig> protocol_config =
+      protocol::CandidateSessionConfig::CreateDefault();
+  if (!desktop_environment_factory_->SupportsAudioCapture())
+    protocol_config->DisableAudioChannel();
+  if (enable_vp9_)
+    protocol_config->set_vp9_experiment_enabled(true);
+  session_manager->set_protocol_config(protocol_config.Pass());
+
   host_.reset(new ChromotingHost(
       signal_strategy_.get(), desktop_environment_factory_.get(),
-      CreateHostSessionManager(signal_strategy_.get(), network_settings,
-                               context_->url_request_context_getter()),
-      context_->audio_task_runner(), context_->input_task_runner(),
-      context_->video_capture_task_runner(),
+      session_manager.Pass(), context_->audio_task_runner(),
+      context_->input_task_runner(), context_->video_capture_task_runner(),
       context_->video_encode_task_runner(), context_->network_task_runner(),
       context_->ui_task_runner()));
-
-  if (enable_vp9_) {
-    scoped_ptr<protocol::CandidateSessionConfig> config =
-        host_->protocol_config()->Clone();
-    config->EnableVideoCodec(protocol::ChannelConfig::CODEC_VP9);
-    host_->set_protocol_config(config.Pass());
-  }
 
   if (frame_recorder_buffer_size_ > 0) {
     scoped_ptr<VideoFrameRecorderHostExtension> frame_recorder_extension(
@@ -1466,14 +1460,9 @@ void HostProcess::StartHost() {
   host_change_notification_listener_.reset(new HostChangeNotificationListener(
       this, host_id_, signal_strategy_.get(), directory_bot_jid_));
 
-  if (using_gcd()) {
-    // TODO(jrw): Implement logging for GCD hosts.
-    HOST_LOG << "Logging not implemented for GCD hosts.";
-  } else {
-    host_status_logger_.reset(new HostStatusLogger(
-        host_->AsWeakPtr(), ServerLogEntry::ME2ME,
-        signal_strategy_.get(), directory_bot_jid_));
-  }
+  host_status_logger_.reset(new HostStatusLogger(
+      host_->AsWeakPtr(), ServerLogEntry::ME2ME,
+      signal_strategy_.get(), directory_bot_jid_));
 
   // Set up reporting the host status notifications.
 #if defined(REMOTING_MULTI_PROCESS)
@@ -1553,12 +1542,14 @@ void HostProcess::GoOffline(const std::string& host_offline_reason) {
           base::TimeDelta::FromSeconds(kHostOfflineReasonTimeoutSeconds),
           base::Bind(&HostProcess::OnHostOfflineReasonAck, this));
     }
+#if defined(USE_GCD)
     if (gcd_state_updater_) {
       gcd_state_updater_->SetHostOfflineReason(
           host_offline_reason,
           base::TimeDelta::FromSeconds(kHostOfflineReasonTimeoutSeconds),
           base::Bind(&HostProcess::OnHostOfflineReasonAck, this));
     }
+#endif  // defined(USE_GCD)
     return;  // Shutdown will resume after OnHostOfflineReasonAck.
   }
 
@@ -1577,8 +1568,10 @@ void HostProcess::OnHostOfflineReasonAck(bool success) {
   oauth_token_getter_.reset();
   signaling_connector_.reset();
   signal_strategy_.reset();
+#if defined(USE_GCD)
   gcd_state_updater_.reset();
   gcd_subscriber_.reset();
+#endif  // defined(USE_GCD)
 
   if (state_ == HOST_GOING_OFFLINE_TO_RESTART) {
     SetState(HOST_STARTING);
@@ -1613,6 +1606,8 @@ void HostProcess::OnCrash(const std::string& function_name,
 }
 
 int HostProcessMain() {
+  HOST_LOG << "Starting host process: version " << STRINGIZE(VERSION);
+
 #if defined(OS_LINUX)
   // Required in order for us to run multiple X11 threads.
   XInitThreads();
@@ -1621,20 +1616,21 @@ int HostProcessMain() {
   // Continue windows, though these should not be used for the Me2Me case
   // (crbug.com/104377).
   gtk_init(nullptr, nullptr);
+
+  // Need to prime the host OS version value for linux to prevent IO on the
+  // network thread. base::GetLinuxDistro() caches the result.
+  base::GetLinuxDistro();
 #endif
 
   // Enable support for SSL server sockets, which must be done while still
   // single-threaded.
   net::EnableSSLServerSockets();
 
-  // Ensures that media library and specific CPU features are initialized.
-  media::InitializeMediaLibrary();
-
   // Create the main message loop and start helper threads.
   base::MessageLoopForUI message_loop;
-  scoped_ptr<ChromotingHostContext> context =
-      ChromotingHostContext::Create(new AutoThreadTaskRunner(
-          message_loop.task_runner(), base::MessageLoop::QuitClosure()));
+  scoped_ptr<ChromotingHostContext> context = ChromotingHostContext::Create(
+      new AutoThreadTaskRunner(message_loop.task_runner(),
+                               base::MessageLoop::QuitWhenIdleClosure()));
   if (!context)
     return kInitializationFailed;
 

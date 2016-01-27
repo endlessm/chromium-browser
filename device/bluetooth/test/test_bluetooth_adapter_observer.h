@@ -29,6 +29,9 @@ class TestBluetoothAdapterObserver : public BluetoothAdapter::Observer {
   void DeviceAdded(BluetoothAdapter* adapter, BluetoothDevice* device) override;
   void DeviceChanged(BluetoothAdapter* adapter,
                      BluetoothDevice* device) override;
+  void DeviceAddressChanged(device::BluetoothAdapter* adapter,
+                            device::BluetoothDevice* device,
+                            const std::string& old_address) override;
   void DeviceRemoved(BluetoothAdapter* adapter,
                      BluetoothDevice* device) override;
   void GattServiceAdded(BluetoothAdapter* adapter,
@@ -37,6 +40,8 @@ class TestBluetoothAdapterObserver : public BluetoothAdapter::Observer {
   void GattServiceRemoved(BluetoothAdapter* adapter,
                           BluetoothDevice* device,
                           BluetoothGattService* service) override;
+  void GattServicesDiscovered(BluetoothAdapter* adapter,
+                              BluetoothDevice* device) override;
   void GattDiscoveryCompleteForService(BluetoothAdapter* adapter,
                                        BluetoothGattService* service) override;
   void GattServiceChanged(BluetoothAdapter* adapter,
@@ -71,6 +76,7 @@ class TestBluetoothAdapterObserver : public BluetoothAdapter::Observer {
   // Device related:
   int device_added_count() { return device_added_count_; }
   int device_changed_count() { return device_changed_count_; }
+  int device_address_changed_count() { return device_address_changed_count_; }
   int device_removed_count() { return device_removed_count_; }
   BluetoothDevice* last_device() { return last_device_; }
   std::string last_device_address() { return last_device_address_; }
@@ -78,6 +84,9 @@ class TestBluetoothAdapterObserver : public BluetoothAdapter::Observer {
   // GATT related:
   int gatt_service_added_count() { return gatt_service_added_count_; }
   int gatt_service_removed_count() { return gatt_service_removed_count_; }
+  int gatt_services_discovered_count() {
+    return gatt_services_discovered_count_;
+  }
   int gatt_service_changed_count() { return gatt_service_changed_count_; }
   int gatt_discovery_complete_count() { return gatt_discovery_complete_count_; }
   int gatt_characteristic_added_count() {
@@ -132,6 +141,7 @@ class TestBluetoothAdapterObserver : public BluetoothAdapter::Observer {
   // Device related:
   int device_added_count_;
   int device_changed_count_;
+  int device_address_changed_count_;
   int device_removed_count_;
   BluetoothDevice* last_device_;
   std::string last_device_address_;
@@ -139,6 +149,7 @@ class TestBluetoothAdapterObserver : public BluetoothAdapter::Observer {
   // GATT related:
   int gatt_service_added_count_;
   int gatt_service_removed_count_;
+  int gatt_services_discovered_count_;
   int gatt_service_changed_count_;
   int gatt_discovery_complete_count_;
   int gatt_characteristic_added_count_;

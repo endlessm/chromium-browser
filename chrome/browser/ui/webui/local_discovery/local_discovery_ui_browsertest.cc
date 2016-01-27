@@ -289,7 +289,7 @@ class TestMessageLoopCondition {
   void Signal() {
     signaled_ = true;
     if (waiting_)
-      base::MessageLoop::current()->Quit();
+      base::MessageLoop::current()->QuitWhenIdle();
   }
 
   // Pause execution and recursively run the message loop until |Signal()| is
@@ -424,6 +424,11 @@ class LocalDiscoveryUITest : public WebUIBrowserTest {
     AddLibrary(base::FilePath(FILE_PATH_LITERAL("local_discovery_ui_test.js")));
   }
 
+  void TearDownOnMainThread() override {
+    test_service_discovery_client_ = nullptr;
+    WebUIBrowserTest::TearDownOnMainThread();
+  }
+
   void SetUpCommandLine(base::CommandLine* command_line) override {
 #if defined(OS_CHROMEOS)
     // On chromeos, don't sign in with the stub-user automatically.  Use the
@@ -437,9 +442,9 @@ class LocalDiscoveryUITest : public WebUIBrowserTest {
   }
 
   void RunFor(base::TimeDelta time_period) {
-    base::CancelableCallback<void()> callback(base::Bind(
-        &base::MessageLoop::Quit, base::Unretained(
-            base::MessageLoop::current())));
+    base::CancelableCallback<void()> callback(
+        base::Bind(&base::MessageLoop::QuitWhenIdle,
+                   base::Unretained(base::MessageLoop::current())));
     base::MessageLoop::current()->task_runner()->PostDelayedTask(
         FROM_HERE, callback.callback(), time_period);
 

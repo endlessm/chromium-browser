@@ -33,6 +33,7 @@
 #include "platform/geometry/FloatRect.h"
 #include "platform/geometry/FloatSize.h"
 #include "third_party/skia/include/core/SkRRect.h"
+#include <iosfwd>
 
 namespace blink {
 
@@ -84,7 +85,7 @@ public:
 
 #ifndef NDEBUG
         // Prints debugging information.
-        void show();
+        void show() const;
 #endif
 
     private:
@@ -150,7 +151,7 @@ public:
 
 #ifndef NDEBUG
     // Prints debugging information.
-    void show();
+    void show() const;
 #endif
 
     // Constrains the radii to be no more than the size of rect(); radii outside of this range are not
@@ -202,6 +203,11 @@ inline bool operator==(const FloatRoundedRect& a, const FloatRoundedRect& b)
 {
     return a.rect() == b.rect() && a.radii() == b.radii();
 }
+
+// Redeclared here to avoid ODR issues.
+// See platform/testing/GeometryPrinters.h.
+void PrintTo(const FloatRoundedRect&, std::ostream*);
+void PrintTo(const FloatRoundedRect::Radii&, std::ostream*);
 
 } // namespace blink
 

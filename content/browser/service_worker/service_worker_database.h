@@ -47,6 +47,7 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
     STATUS_ERROR_IO_ERROR,
     STATUS_ERROR_CORRUPTED,
     STATUS_ERROR_FAILED,
+    STATUS_ERROR_NOT_SUPPORTED,
     STATUS_ERROR_MAX,
   };
   static const char* StatusToString(Status status);
@@ -64,6 +65,7 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
     bool is_active;
     bool has_fetch_handler;
     base::Time last_update_check;
+    std::vector<GURL> foreign_fetch_scopes;
 
     // Not populated until ServiceWorkerStorage::StoreRegistration is called.
     int64_t resources_total_size_bytes;
@@ -106,6 +108,11 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
   // database. Returns OK if they are successfully read or not found.
   // Otherwise, returns an error.
   Status GetOriginsWithRegistrations(std::set<GURL>* origins);
+
+  // Reads origins that have one or more than one registration with at least one
+  // foreign fetch scope registered. Returns OK if they are successfully read or
+  // not found. Otherwise returns an error.
+  Status GetOriginsWithForeignFetchRegistrations(std::set<GURL>* origins);
 
   // Reads registrations for |origin| from the database. Returns OK if they are
   // successfully read or not found. Otherwise, returns an error.
@@ -200,39 +207,34 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
       const std::string& user_data_name,
       std::vector<std::pair<int64, std::string>>* user_data);
 
-  // As new resources are put into the diskcache, they go into an uncommitted
-  // list. When a registration is saved that refers to those ids, they're
-  // removed from that list. When a resource no longer has any registrations or
+  // Resources should belong to one of following resource lists: uncommitted,
+  // committed and purgeable.
+  // As new resources are put into the diskcache, they go into the uncommitted
+  // list. When a registration is saved that refers to those ids, they're moved
+  // to the committed list. When a resource no longer has any registrations or
   // caches referring to it, it's added to the purgeable list. Periodically,
   // the purgeable list can be purged from the diskcache. At system startup, all
   // uncommitted ids are moved to the purgeable list.
 
-  // Reads uncommitted resource ids from the database. Returns OK on success.
+  // Reads resource ids from the uncommitted list. Returns OK on success.
   // Otherwise clears |ids| and returns an error.
   Status GetUncommittedResourceIds(std::set<int64>* ids);
 
-  // Writes |ids| into the database as uncommitted resources. Returns OK on
-  // success. Otherwise writes nothing and returns an error.
+  // Writes resource ids into the uncommitted list. Returns OK on success.
+  // Otherwise writes nothing and returns an error.
   Status WriteUncommittedResourceIds(const std::set<int64>& ids);
 
-  // Deletes uncommitted resource ids specified by |ids| from the database.
-  // Returns OK on success. Otherwise deletes nothing and returns an error.
-  Status ClearUncommittedResourceIds(const std::set<int64>& ids);
-
-  // Reads purgeable resource ids from the database. Returns OK on success.
+  // Reads resource ids from the purgeable list. Returns OK on success.
   // Otherwise clears |ids| and returns an error.
   Status GetPurgeableResourceIds(std::set<int64>* ids);
 
-  // Writes |ids| into the database as purgeable resources. Returns OK on
-  // success. Otherwise writes nothing and returns an error.
-  Status WritePurgeableResourceIds(const std::set<int64>& ids);
-
-  // Deletes purgeable resource ids specified by |ids| from the database.
-  // Returns OK on success. Otherwise deletes nothing and returns an error.
+  // Deletes resource ids from the purgeable list. Returns OK on success.
+  // Otherwise deletes nothing and returns an error.
   Status ClearPurgeableResourceIds(const std::set<int64>& ids);
 
-  // Moves |ids| from the uncommitted list to the purgeable list.
-  // Returns OK on success. Otherwise deletes nothing and returns an error.
+  // Writes resource ids into the purgeable list and removes them from the
+  // uncommitted list. Returns OK on success. Otherwise writes nothing and
+  // returns an error.
   Status PurgeUncommittedResourceIds(const std::set<int64>& ids);
 
   // Deletes all data for |origins|, namely, unique origin, registrations and
@@ -300,9 +302,6 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
 
   // Write resource ids for |id_key_prefix| into the database. Returns OK on
   // success. Otherwise, returns writes nothing and returns an error.
-  Status WriteResourceIds(
-      const char* id_key_prefix,
-      const std::set<int64>& ids);
   Status WriteResourceIdsInBatch(
       const char* id_key_prefix,
       const std::set<int64>& ids,
@@ -311,9 +310,6 @@ class CONTENT_EXPORT ServiceWorkerDatabase {
   // Deletes resource ids for |id_key_prefix| from the database. Returns OK if
   // it's successfully deleted or not found in the database. Otherwise, returns
   // an error.
-  Status DeleteResourceIds(
-      const char* id_key_prefix,
-      const std::set<int64>& ids);
   Status DeleteResourceIdsInBatch(
       const char* id_key_prefix,
       const std::set<int64>& ids,

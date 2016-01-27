@@ -7,22 +7,23 @@
 
 #include "core/CoreExport.h"
 #include "platform/graphics/paint/DisplayItem.h"
+#include "wtf/Allocator.h"
 
 namespace blink {
 
-class DisplayItemList;
 class GraphicsContext;
 class LayoutObject;
+class PaintController;
 
 class CORE_EXPORT ScopeRecorder {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
-    ScopeRecorder(GraphicsContext&, const DisplayItemClientWrapper&);
+    ScopeRecorder(GraphicsContext&);
 
     ~ScopeRecorder();
 
 private:
-    DisplayItemList* m_displayItemList;
-    DisplayItemClientWrapper m_object;
+    PaintController& m_paintController;
 };
 
 } // namespace blink

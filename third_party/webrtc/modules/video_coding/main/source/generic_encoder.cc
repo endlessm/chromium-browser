@@ -13,15 +13,15 @@
 #include "webrtc/modules/video_coding/main/source/encoded_frame.h"
 #include "webrtc/modules/video_coding/main/source/generic_encoder.h"
 #include "webrtc/modules/video_coding/main/source/media_optimization.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
-#include "webrtc/system_wrappers/interface/logging.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/logging.h"
 
 namespace webrtc {
 namespace {
 // Map information from info into rtp. If no relevant information is found
 // in info, rtp is set to NULL.
 void CopyCodecSpecific(const CodecSpecificInfo* info, RTPVideoHeader* rtp) {
-  DCHECK(info);
+  RTC_DCHECK(info);
   switch (info->codecType) {
     case kVideoCodecVP8: {
       rtp->codec = kRtpVideoVp8;
@@ -34,6 +34,45 @@ void CopyCodecSpecific(const CodecSpecificInfo* info, RTPVideoHeader* rtp) {
       rtp->codecHeader.VP8.tl0PicIdx = info->codecSpecific.VP8.tl0PicIdx;
       rtp->codecHeader.VP8.keyIdx = info->codecSpecific.VP8.keyIdx;
       rtp->simulcastIdx = info->codecSpecific.VP8.simulcastIdx;
+      return;
+    }
+    case kVideoCodecVP9: {
+      rtp->codec = kRtpVideoVp9;
+      rtp->codecHeader.VP9.InitRTPVideoHeaderVP9();
+      rtp->codecHeader.VP9.inter_pic_predicted =
+          info->codecSpecific.VP9.inter_pic_predicted;
+      rtp->codecHeader.VP9.flexible_mode =
+          info->codecSpecific.VP9.flexible_mode;
+      rtp->codecHeader.VP9.ss_data_available =
+          info->codecSpecific.VP9.ss_data_available;
+      rtp->codecHeader.VP9.picture_id = info->codecSpecific.VP9.picture_id;
+      rtp->codecHeader.VP9.tl0_pic_idx = info->codecSpecific.VP9.tl0_pic_idx;
+      rtp->codecHeader.VP9.temporal_idx = info->codecSpecific.VP9.temporal_idx;
+      rtp->codecHeader.VP9.spatial_idx = info->codecSpecific.VP9.spatial_idx;
+      rtp->codecHeader.VP9.temporal_up_switch =
+          info->codecSpecific.VP9.temporal_up_switch;
+      rtp->codecHeader.VP9.inter_layer_predicted =
+          info->codecSpecific.VP9.inter_layer_predicted;
+      rtp->codecHeader.VP9.gof_idx = info->codecSpecific.VP9.gof_idx;
+      rtp->codecHeader.VP9.num_spatial_layers =
+          info->codecSpecific.VP9.num_spatial_layers;
+
+      if (info->codecSpecific.VP9.ss_data_available) {
+        rtp->codecHeader.VP9.spatial_layer_resolution_present =
+            info->codecSpecific.VP9.spatial_layer_resolution_present;
+        if (info->codecSpecific.VP9.spatial_layer_resolution_present) {
+          for (size_t i = 0; i < info->codecSpecific.VP9.num_spatial_layers;
+               ++i) {
+            rtp->codecHeader.VP9.width[i] = info->codecSpecific.VP9.width[i];
+            rtp->codecHeader.VP9.height[i] = info->codecSpecific.VP9.height[i];
+          }
+        }
+        rtp->codecHeader.VP9.gof.CopyGofInfoVP9(info->codecSpecific.VP9.gof);
+      }
+
+      rtp->codecHeader.VP9.num_ref_pics = info->codecSpecific.VP9.num_ref_pics;
+      for (int i = 0; i < info->codecSpecific.VP9.num_ref_pics; ++i)
+        rtp->codecHeader.VP9.pid_diff[i] = info->codecSpecific.VP9.p_diff[i];
       return;
     }
     case kVideoCodecH264:
@@ -51,130 +90,98 @@ void CopyCodecSpecific(const CodecSpecificInfo* info, RTPVideoHeader* rtp) {
 
 //#define DEBUG_ENCODER_BIT_STREAM
 
-VCMGenericEncoder::VCMGenericEncoder(VideoEncoder* encoder,
-                                     VideoEncoderRateObserver* rate_observer,
-                                     bool internalSource)
+VCMGenericEncoder::VCMGenericEncoder(
+    VideoEncoder* encoder,
+    VideoEncoderRateObserver* rate_observer,
+    VCMEncodedFrameCallback* encoded_frame_callback,
+    bool internalSource)
     : encoder_(encoder),
       rate_observer_(rate_observer),
-      vcm_encoded_frame_callback_(nullptr),
-      bit_rate_(0),
-      frame_rate_(0),
+      vcm_encoded_frame_callback_(encoded_frame_callback),
       internal_source_(internalSource),
+      encoder_params_({0, 0, 0, 0}),
       rotation_(kVideoRotation_0),
-      is_screenshare_(false) {
+      is_screenshare_(false) {}
+
+VCMGenericEncoder::~VCMGenericEncoder() {}
+
+int32_t VCMGenericEncoder::Release() {
+  return encoder_->Release();
 }
 
-VCMGenericEncoder::~VCMGenericEncoder()
-{
-}
+int32_t VCMGenericEncoder::InitEncode(const VideoCodec* settings,
+                                      int32_t numberOfCores,
+                                      size_t maxPayloadSize) {
+  {
+    rtc::CritScope lock(&params_lock_);
+    encoder_params_.target_bitrate = settings->startBitrate * 1000;
+    encoder_params_.input_frame_rate = settings->maxFramerate;
+  }
 
-int32_t VCMGenericEncoder::Release()
-{
-    {
-      rtc::CritScope lock(&rates_lock_);
-      bit_rate_ = 0;
-      frame_rate_ = 0;
-      vcm_encoded_frame_callback_ = nullptr;
-    }
-
-    return encoder_->Release();
-}
-
-int32_t
-VCMGenericEncoder::InitEncode(const VideoCodec* settings,
-                              int32_t numberOfCores,
-                              size_t maxPayloadSize)
-{
-    {
-      rtc::CritScope lock(&rates_lock_);
-      bit_rate_ = settings->startBitrate * 1000;
-      frame_rate_ = settings->maxFramerate;
-    }
-
-    is_screenshare_ = settings->mode == VideoCodecMode::kScreensharing;
-    if (encoder_->InitEncode(settings, numberOfCores, maxPayloadSize) != 0) {
-      LOG(LS_ERROR) << "Failed to initialize the encoder associated with "
-                       "payload name: " << settings->plName;
-      return -1;
-    }
-    return 0;
+  is_screenshare_ = settings->mode == VideoCodecMode::kScreensharing;
+  if (encoder_->InitEncode(settings, numberOfCores, maxPayloadSize) != 0) {
+    LOG(LS_ERROR) << "Failed to initialize the encoder associated with "
+                     "payload name: "
+                  << settings->plName;
+    return -1;
+  }
+  encoder_->RegisterEncodeCompleteCallback(vcm_encoded_frame_callback_);
+  return 0;
 }
 
 int32_t VCMGenericEncoder::Encode(const VideoFrame& inputFrame,
                                   const CodecSpecificInfo* codecSpecificInfo,
                                   const std::vector<FrameType>& frameTypes) {
-  std::vector<VideoFrameType> video_frame_types(frameTypes.size(),
-                                                kDeltaFrame);
-  VCMEncodedFrame::ConvertFrameTypes(frameTypes, &video_frame_types);
+  for (FrameType frame_type : frameTypes)
+    RTC_DCHECK(frame_type == kVideoFrameKey || frame_type == kVideoFrameDelta);
 
   rotation_ = inputFrame.rotation();
 
-  if (vcm_encoded_frame_callback_) {
-    // Keep track of the current frame rotation and apply to the output of the
-    // encoder. There might not be exact as the encoder could have one frame
-    // delay but it should be close enough.
-    vcm_encoded_frame_callback_->SetRotation(rotation_);
-  }
+  // Keep track of the current frame rotation and apply to the output of the
+  // encoder. There might not be exact as the encoder could have one frame delay
+  // but it should be close enough.
+  // TODO(pbos): Map from timestamp, this is racy (even if rotation_ is locked
+  // properly, which it isn't). More than one frame may be in the pipeline.
+  vcm_encoded_frame_callback_->SetRotation(rotation_);
 
-  int32_t result =
-      encoder_->Encode(inputFrame, codecSpecificInfo, &video_frame_types);
+  int32_t result = encoder_->Encode(inputFrame, codecSpecificInfo, &frameTypes);
   if (is_screenshare_ &&
       result == WEBRTC_VIDEO_CODEC_TARGET_BITRATE_OVERSHOOT) {
     // Target bitrate exceeded, encoder state has been reset - try again.
-    return encoder_->Encode(inputFrame, codecSpecificInfo, &video_frame_types);
+    return encoder_->Encode(inputFrame, codecSpecificInfo, &frameTypes);
   }
 
   return result;
 }
 
-int32_t
-VCMGenericEncoder::SetChannelParameters(int32_t packetLoss, int64_t rtt)
-{
-    return encoder_->SetChannelParameters(packetLoss, rtt);
-}
-
-int32_t
-VCMGenericEncoder::SetRates(uint32_t newBitRate, uint32_t frameRate)
-{
-    uint32_t target_bitrate_kbps = (newBitRate + 500) / 1000;
-    int32_t ret = encoder_->SetRates(target_bitrate_kbps, frameRate);
-    if (ret < 0)
-    {
-        return ret;
+void VCMGenericEncoder::SetEncoderParameters(const EncoderParameters& params) {
+  bool channel_parameters_have_changed;
+  bool rates_have_changed;
+  {
+    rtc::CritScope lock(&params_lock_);
+    channel_parameters_have_changed =
+        params.loss_rate != encoder_params_.loss_rate ||
+        params.rtt != encoder_params_.rtt;
+    rates_have_changed =
+        params.target_bitrate != encoder_params_.target_bitrate ||
+        params.input_frame_rate != encoder_params_.input_frame_rate;
+    encoder_params_ = params;
+  }
+  if (channel_parameters_have_changed)
+    encoder_->SetChannelParameters(params.loss_rate, params.rtt);
+  if (rates_have_changed) {
+    uint32_t target_bitrate_kbps = (params.target_bitrate + 500) / 1000;
+    encoder_->SetRates(target_bitrate_kbps, params.input_frame_rate);
+    if (rate_observer_ != nullptr) {
+      rate_observer_->OnSetRates(params.target_bitrate,
+                                 params.input_frame_rate);
     }
-
-    {
-      rtc::CritScope lock(&rates_lock_);
-      bit_rate_ = newBitRate;
-      frame_rate_ = frameRate;
-    }
-
-    if (rate_observer_ != nullptr)
-      rate_observer_->OnSetRates(newBitRate, frameRate);
-    return VCM_OK;
+  }
 }
 
-int32_t
-VCMGenericEncoder::CodecConfigParameters(uint8_t* buffer, int32_t size)
-{
-    int32_t ret = encoder_->CodecConfigParameters(buffer, size);
-    if (ret < 0)
-    {
-        return ret;
-    }
-    return ret;
-}
-
-uint32_t VCMGenericEncoder::BitRate() const
-{
-    rtc::CritScope lock(&rates_lock_);
-    return bit_rate_;
-}
-
-uint32_t VCMGenericEncoder::FrameRate() const
-{
-    rtc::CritScope lock(&rates_lock_);
-    return frame_rate_;
+EncoderParameters VCMGenericEncoder::GetEncoderParameters() const {
+  rtc::CritScope lock(&params_lock_);
+  return encoder_params_;
 }
 
 int32_t
@@ -186,18 +193,7 @@ VCMGenericEncoder::SetPeriodicKeyFrames(bool enable)
 int32_t VCMGenericEncoder::RequestFrame(
     const std::vector<FrameType>& frame_types) {
   VideoFrame image;
-  std::vector<VideoFrameType> video_frame_types(frame_types.size(),
-                                                kDeltaFrame);
-  VCMEncodedFrame::ConvertFrameTypes(frame_types, &video_frame_types);
-  return encoder_->Encode(image, NULL, &video_frame_types);
-}
-
-int32_t
-VCMGenericEncoder::RegisterEncodeCallback(VCMEncodedFrameCallback* VCMencodedFrameCallback)
-{
-    VCMencodedFrameCallback->SetInternalSource(internal_source_);
-    vcm_encoded_frame_callback_ = VCMencodedFrameCallback;
-    return encoder_->RegisterEncodeCompleteCallback(VCMencodedFrameCallback);
+  return encoder_->Encode(image, NULL, &frame_types);
 }
 
 bool
@@ -212,6 +208,10 @@ void VCMGenericEncoder::OnDroppedFrame() {
 
 bool VCMGenericEncoder::SupportsNativeHandle() const {
   return encoder_->SupportsNativeHandle();
+}
+
+int VCMGenericEncoder::GetTargetFramerate() {
+  return encoder_->GetTargetFramerate();
 }
 
  /***************************
@@ -253,6 +253,8 @@ int32_t VCMEncodedFrameCallback::Encoded(
     const EncodedImage& encodedImage,
     const CodecSpecificInfo* codecSpecificInfo,
     const RTPFragmentationHeader* fragmentationHeader) {
+  RTC_DCHECK(encodedImage._frameType == kVideoFrameKey ||
+             encodedImage._frameType == kVideoFrameDelta);
   post_encode_callback_->Encoded(encodedImage, NULL, NULL);
 
   if (_sendCallback == NULL) {

@@ -88,7 +88,7 @@ class IOSUnitTestPlatformDelegate : public base::UnitTestPlatformDelegate {
     return true;
   }
 
-  bool GetTests(std::vector<base::SplitTestName>* output) override {
+  bool GetTests(std::vector<base::TestIdentifier>* output) override {
     base::ScopedTempDir temp_dir;
     if (!temp_dir.CreateUniqueTempDirUnderPath(writable_path_))
       return false;
@@ -121,7 +121,7 @@ class IOSUnitTestPlatformDelegate : public base::UnitTestPlatformDelegate {
     base::CommandLine cmd_line(dir_exe_.AppendASCII(test_name_ + ".app"));
     cmd_line.AppendSwitchPath(switches::kTestLauncherOutput, output_file);
     cmd_line.AppendSwitchASCII(base::kGTestFilterFlag,
-                               JoinString(test_names, ":"));
+                               base::JoinString(test_names, ":"));
     return cmd_line;
   }
 

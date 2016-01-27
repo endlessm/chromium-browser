@@ -60,6 +60,7 @@ private:
 
 public:
     struct WordBoundaries {
+        DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
         WordBoundaries(int startIndex, int endIndex) : startIndex(startIndex), endIndex(endIndex) { }
         int startIndex;
         int endIndex;

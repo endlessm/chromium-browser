@@ -7,8 +7,10 @@
 #include "base/command_line.h"
 #include "base/memory/singleton.h"
 #include "base/prefs/pref_service.h"
+#include "base/time/time.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
+#include "chrome/browser/browser_process.h"
 #include "chrome/browser/defaults.h"
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
@@ -22,17 +24,21 @@
 #include "chrome/browser/signin/chrome_signin_client_factory.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
+#include "chrome/browser/sync/chrome_sync_client.h"
 #include "chrome/browser/sync/profile_sync_components_factory_impl.h"
-#include "chrome/browser/sync/profile_sync_service.h"
-#include "chrome/browser/sync/startup_controller.h"
 #include "chrome/browser/sync/supervised_user_signin_manager_wrapper.h"
 #include "chrome/browser/themes/theme_service_factory.h"
-#include "chrome/browser/ui/global_error/global_error_service_factory.h"
 #include "chrome/browser/web_data_service_factory.h"
+#include "chrome/common/channel_info.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
+#include "components/network_time/network_time_tracker.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
-#include "components/variations/variations_associated_data.h"
+#include "components/sync_driver/signin_manager_wrapper.h"
+#include "components/sync_driver/startup_controller.h"
+#include "components/sync_driver/sync_util.h"
+#include "content/public/browser/browser_thread.h"
 #include "url/gurl.h"
 
 #if defined(ENABLE_EXTENSIONS)
@@ -40,9 +46,34 @@
 #include "extensions/browser/extensions_browser_client.h"
 #endif
 
+#if !defined(OS_ANDROID)
+#include "chrome/browser/ui/global_error/global_error_service_factory.h"
+#endif
+
+namespace {
+
+void UpdateNetworkTimeOnUIThread(base::Time network_time,
+                                 base::TimeDelta resolution,
+                                 base::TimeDelta latency,
+                                 base::TimeTicks post_time) {
+  g_browser_process->network_time_tracker()->UpdateNetworkTime(
+      network_time, resolution, latency, post_time);
+}
+
+void UpdateNetworkTime(const base::Time& network_time,
+                       const base::TimeDelta& resolution,
+                       const base::TimeDelta& latency) {
+  content::BrowserThread::PostTask(
+      content::BrowserThread::UI, FROM_HERE,
+      base::Bind(&UpdateNetworkTimeOnUIThread, network_time, resolution,
+                 latency, base::TimeTicks::Now()));
+}
+
+}  // anonymous namespace
+
 // static
 ProfileSyncServiceFactory* ProfileSyncServiceFactory::GetInstance() {
-  return Singleton<ProfileSyncServiceFactory>::get();
+  return base::Singleton<ProfileSyncServiceFactory>::get();
 }
 
 // static
@@ -50,15 +81,6 @@ ProfileSyncService* ProfileSyncServiceFactory::GetForProfile(
     Profile* profile) {
   if (!ProfileSyncService::IsSyncAllowedByFlag())
     return NULL;
-
-  // Disable sync experimentally to measure impact on startup time. Supervised
-  // users are unaffected, since supervised users rely completely on sync.
-  // TODO(mlerman): Remove this after the experiment. crbug.com/454788
-  if (!profile->IsSupervised() &&
-      !variations::GetVariationParamValue("LightSpeed", "DisableSync")
-           .empty()) {
-    return NULL;
-  }
 
   return static_cast<ProfileSyncService*>(
       GetInstance()->GetServiceForBrowserContext(profile, true));
@@ -82,7 +104,9 @@ ProfileSyncServiceFactory::ProfileSyncServiceFactory()
   DependsOn(autofill::PersonalDataManagerFactory::GetInstance());
   DependsOn(BookmarkModelFactory::GetInstance());
   DependsOn(ChromeSigninClientFactory::GetInstance());
+#if !defined(OS_ANDROID)
   DependsOn(GlobalErrorServiceFactory::GetInstance());
+#endif
   DependsOn(HistoryServiceFactory::GetInstance());
   DependsOn(invalidation::ProfileInvalidationProviderFactory::GetInstance());
   DependsOn(PasswordStoreFactory::GetInstance());
@@ -124,10 +148,10 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
   // once http://crbug.com/171406 has been fixed.
   AboutSigninInternalsFactory::GetForProfile(profile);
 
-  const GURL sync_service_url = ProfileSyncService::GetSyncServiceURL(
-      *base::CommandLine::ForCurrentProcess());
+  const GURL sync_service_url = GetSyncServiceURL(
+      *base::CommandLine::ForCurrentProcess(), chrome::GetChannel());
 
-  scoped_ptr<SupervisedUserSigninManagerWrapper> signin_wrapper(
+  scoped_ptr<SigninManagerWrapper> signin_wrapper(
       new SupervisedUserSigninManagerWrapper(profile, signin));
   std::string account_id = signin_wrapper->GetAccountIdToUse();
   OAuth2TokenService::ScopeSet scope_set;
@@ -146,14 +170,22 @@ KeyedService* ProfileSyncServiceFactory::BuildServiceInstanceFor(
   browser_sync::ProfileSyncServiceStartBehavior behavior =
       browser_defaults::kSyncAutoStarts ? browser_sync::AUTO_START
                                         : browser_sync::MANUAL_START;
+  scoped_ptr<sync_driver::SyncApiComponentFactory> sync_factory(
+      new ProfileSyncComponentsFactoryImpl(
+          profile, base::CommandLine::ForCurrentProcess(), sync_service_url,
+          token_service, url_request_context_getter));
+  scoped_ptr<browser_sync::ChromeSyncClient> sync_client(
+      new browser_sync::ChromeSyncClient(profile, sync_factory.Pass()));
   ProfileSyncService* pss = new ProfileSyncService(
-      scoped_ptr<ProfileSyncComponentsFactory>(
-          new ProfileSyncComponentsFactoryImpl(
-              profile, base::CommandLine::ForCurrentProcess(), sync_service_url,
-              token_service, url_request_context_getter)),
-      profile, signin_wrapper.Pass(), token_service, behavior);
-
-  pss->factory()->RegisterDataTypes(pss);
+      sync_client.Pass(), signin_wrapper.Pass(), token_service,
+      behavior, base::Bind(&UpdateNetworkTime), profile->GetPath(),
+      profile->GetRequestContext(), profile->GetDebugName(),
+      chrome::GetChannel(),
+      content::BrowserThread::GetMessageLoopProxyForThread(
+          content::BrowserThread::DB),
+      content::BrowserThread::GetMessageLoopProxyForThread(
+          content::BrowserThread::FILE),
+      content::BrowserThread::GetBlockingPool());
   pss->Initialize();
   return pss;
 }

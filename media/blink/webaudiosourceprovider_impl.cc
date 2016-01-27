@@ -47,7 +47,7 @@ class AutoTryLock {
 }  // namespace
 
 WebAudioSourceProviderImpl::WebAudioSourceProviderImpl(
-    const scoped_refptr<AudioRendererSink>& sink)
+    const scoped_refptr<RestartableAudioRendererSink>& sink)
     : channels_(0),
       sample_rate_(0),
       volume_(1.0),
@@ -126,6 +126,7 @@ void WebAudioSourceProviderImpl::provideInput(
 
 void WebAudioSourceProviderImpl::Start() {
   base::AutoLock auto_lock(sink_lock_);
+  DCHECK(renderer_);
   DCHECK_EQ(state_, kStopped);
   state_ = kStarted;
   if (!client_)
@@ -163,23 +164,15 @@ bool WebAudioSourceProviderImpl::SetVolume(double volume) {
   return true;
 }
 
-void WebAudioSourceProviderImpl::SwitchOutputDevice(
-    const std::string& device_id,
-    const GURL& security_origin,
-    const SwitchOutputDeviceCB& callback) {
+OutputDevice* WebAudioSourceProviderImpl::GetOutputDevice() {
   base::AutoLock auto_lock(sink_lock_);
-  if (!client_) {
-    sink_->SwitchOutputDevice(device_id, security_origin, callback);
-  } else {
-    callback.Run(SWITCH_OUTPUT_DEVICE_RESULT_ERROR_NOT_SUPPORTED);
-  }
+  return sink_->GetOutputDevice();
 }
 
 void WebAudioSourceProviderImpl::Initialize(
     const AudioParameters& params,
     RenderCallback* renderer) {
   base::AutoLock auto_lock(sink_lock_);
-  CHECK(!renderer_);
   renderer_ = renderer;
 
   DCHECK_EQ(state_, kStopped);

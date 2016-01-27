@@ -196,7 +196,7 @@ void SupervisedUserTestBase::SetUpInProcessBrowserTestFixture() {
   // ethernet and wifi networks. Ethernet is an active network by
   // default.
   network_portal_detector_ = new NetworkPortalDetectorTestImpl();
-  NetworkPortalDetector::InitializeForTesting(network_portal_detector_);
+  network_portal_detector::InitializeForTesting(network_portal_detector_);
   NetworkPortalDetector::CaptivePortalState online_state;
   online_state.status = NetworkPortalDetector::CAPTIVE_PORTAL_STATUS_ONLINE;
   online_state.response_code = 204;
@@ -214,7 +214,7 @@ void SupervisedUserTestBase::TearDown() {
 }
 
 void SupervisedUserTestBase::TearDownInProcessBrowserTestFixture() {
-  NetworkPortalDetector::Shutdown();
+  network_portal_detector::Shutdown();
 }
 
 void SupervisedUserTestBase::JSEval(const std::string& script) {
@@ -294,7 +294,7 @@ void SupervisedUserTestBase::StartFlowLoginAsManager() {
 
   // Next button is now enabled.
   JSExpect("!$('supervised-user-creation-next-button').disabled");
-  UserContext user_context(kTestManager);
+  UserContext user_context(AccountId::FromUserEmail(kTestManager));
   user_context.SetGaiaID(GetGaiaIDForUserID(kTestManager));
   user_context.SetKey(Key(kTestManagerPassword));
   SetExpectedCredentials(user_context);
@@ -308,7 +308,8 @@ void SupervisedUserTestBase::StartFlowLoginAsManager() {
 
   // OAuth token is valid.
   user_manager::UserManager::Get()->SaveUserOAuthStatus(
-      kTestManager, user_manager::User::OAUTH2_TOKEN_STATUS_VALID);
+      AccountId::FromUserEmail(kTestManager),
+      user_manager::User::OAUTH2_TOKEN_STATUS_VALID);
   base::RunLoop().RunUntilIdle();
 
   // Check the page have changed.

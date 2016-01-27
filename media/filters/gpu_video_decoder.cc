@@ -60,8 +60,7 @@ GpuVideoDecoder::BufferData::BufferData(
 
 GpuVideoDecoder::BufferData::~BufferData() {}
 
-GpuVideoDecoder::GpuVideoDecoder(
-    const scoped_refptr<GpuVideoAcceleratorFactories>& factories)
+GpuVideoDecoder::GpuVideoDecoder(GpuVideoAcceleratorFactories* factories)
     : needs_bitstream_conversion_(false),
       factories_(factories),
       state_(kNormal),
@@ -70,7 +69,7 @@ GpuVideoDecoder::GpuVideoDecoder(
       next_bitstream_buffer_id_(0),
       available_pictures_(0),
       weak_factory_(this) {
-  DCHECK(factories_.get());
+  DCHECK(factories_);
 }
 
 void GpuVideoDecoder::Reset(const base::Closure& closure)  {
@@ -129,11 +128,18 @@ void GpuVideoDecoder::Initialize(const VideoDecoderConfig& config,
   DVLOG(3) << "Initialize()";
   DCheckGpuVideoAcceleratorFactoriesTaskRunnerIsCurrent();
   DCHECK(config.IsValidConfig());
-  DCHECK(!config.is_encrypted());
 
   InitCB bound_init_cb =
       base::Bind(&ReportGpuVideoDecoderInitializeStatusToUMAAndRunCB,
                  BindToCurrentLoop(init_cb));
+
+#if !defined(OS_ANDROID)
+  if (config.is_encrypted()) {
+    DVLOG(1) << "Encrypted stream not supported.";
+    bound_init_cb.Run(false);
+    return;
+  }
+#endif
 
   bool previously_initialized = config_.IsValidConfig();
   DVLOG(1) << "(Re)initializing GVD with config: "
@@ -205,6 +211,8 @@ void GpuVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
   DCheckGpuVideoAcceleratorFactoriesTaskRunnerIsCurrent();
   DCHECK(pending_reset_cb_.is_null());
 
+  DVLOG(3) << __FUNCTION__ << " " << buffer->AsHumanReadableString();
+
   DecodeCB bound_decode_cb = BindToCurrentLoop(decode_cb);
 
   if (state_ == kError || !vda_) {
@@ -241,8 +249,15 @@ void GpuVideoDecoder::Decode(const scoped_refptr<DecoderBuffer>& buffer,
   }
 
   memcpy(shm_buffer->shm->memory(), buffer->data(), size);
-  BitstreamBuffer bitstream_buffer(
-      next_bitstream_buffer_id_, shm_buffer->shm->handle(), size);
+  // AndroidVideoDecodeAccelerator needs the timestamp to output frames in
+  // presentation order.
+  BitstreamBuffer bitstream_buffer(next_bitstream_buffer_id_,
+                                   shm_buffer->shm->handle(), size,
+                                   buffer->timestamp());
+
+  if (buffer->decrypt_config())
+    bitstream_buffer.SetDecryptConfig(*buffer->decrypt_config());
+
   // Mask against 30 bits, to avoid (undefined) wraparound on signed integer.
   next_bitstream_buffer_id_ = (next_bitstream_buffer_id_ + 1) & 0x3FFFFFFF;
   DCHECK(!ContainsKey(bitstream_buffers_in_decoder_, bitstream_buffer.id()));
@@ -372,42 +387,46 @@ void GpuVideoDecoder::PictureReady(const media::Picture& picture) {
   PictureBufferMap::iterator it =
       assigned_picture_buffers_.find(picture.picture_buffer_id());
   if (it == assigned_picture_buffers_.end()) {
-    NOTREACHED() << "Missing picture buffer: " << picture.picture_buffer_id();
+    DLOG(ERROR) << "Missing picture buffer: " << picture.picture_buffer_id();
     NotifyError(VideoDecodeAccelerator::PLATFORM_FAILURE);
     return;
   }
   const PictureBuffer& pb = it->second;
 
-  // Validate picture rectangle from GPU. This is for sanity/security check
-  // even the rectangle is not used in this class.
-  if (picture.visible_rect().IsEmpty() ||
-      !gfx::Rect(pb.size()).Contains(picture.visible_rect())) {
-    NOTREACHED() << "Invalid picture size from VDA: "
-                 << picture.visible_rect().ToString() << " should fit in "
-                 << pb.size().ToString();
-    NotifyError(media::VideoDecodeAccelerator::PLATFORM_FAILURE);
-    return;
-  }
-
   // Update frame's timestamp.
   base::TimeDelta timestamp;
-  // Some of the VDAs don't support and thus don't provide us with visible
-  // size in picture.size, passing coded size instead, so always drop it and
-  // use config information instead.
+  // Some of the VDAs like DXVA, AVDA, and VTVDA don't support and thus don't
+  // provide us with visible size in picture.size, passing (0, 0) instead, so
+  // for those cases drop it and use config information instead.
   gfx::Rect visible_rect;
   gfx::Size natural_size;
   GetBufferData(picture.bitstream_buffer_id(), &timestamp, &visible_rect,
                 &natural_size);
+
+  if (!picture.visible_rect().IsEmpty()) {
+    visible_rect = picture.visible_rect();
+  }
+  if (!gfx::Rect(pb.size()).Contains(visible_rect)) {
+    LOG(WARNING) << "Visible size " << visible_rect.ToString()
+                 << " is larger than coded size " << pb.size().ToString();
+    visible_rect = gfx::Rect(pb.size());
+  }
+
   DCHECK(decoder_texture_target_);
 
   scoped_refptr<VideoFrame> frame(VideoFrame::WrapNativeTexture(
-      VideoFrame::ARGB,
-      gpu::MailboxHolder(pb.texture_mailbox(), decoder_texture_target_,
-                         0 /* sync_point */),
+      PIXEL_FORMAT_ARGB,
+      gpu::MailboxHolder(pb.texture_mailbox(), gpu::SyncToken(),
+                         decoder_texture_target_),
       BindToCurrentLoop(base::Bind(
           &GpuVideoDecoder::ReleaseMailbox, weak_factory_.GetWeakPtr(),
           factories_, picture.picture_buffer_id(), pb.texture_id())),
       pb.size(), visible_rect, natural_size, timestamp));
+  if (!frame) {
+    DLOG(ERROR) << "Create frame failed for: " << picture.picture_buffer_id();
+    NotifyError(VideoDecodeAccelerator::PLATFORM_FAILURE);
+    return;
+  }
   if (picture.allow_overlay())
     frame->metadata()->SetBoolean(VideoFrameMetadata::ALLOW_OVERLAY, true);
   CHECK_GT(available_pictures_, 0);
@@ -436,12 +455,12 @@ void GpuVideoDecoder::DeliverFrame(
 // static
 void GpuVideoDecoder::ReleaseMailbox(
     base::WeakPtr<GpuVideoDecoder> decoder,
-    const scoped_refptr<media::GpuVideoAcceleratorFactories>& factories,
+    media::GpuVideoAcceleratorFactories* factories,
     int64 picture_buffer_id,
     uint32 texture_id,
-    uint32 release_sync_point) {
+    const gpu::SyncToken& release_sync_token) {
   DCHECK(factories->GetTaskRunner()->BelongsToCurrentThread());
-  factories->WaitSyncPoint(release_sync_point);
+  factories->WaitSyncToken(release_sync_token);
 
   if (decoder) {
     decoder->ReusePictureBuffer(picture_buffer_id);

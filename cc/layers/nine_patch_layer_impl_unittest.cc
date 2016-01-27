@@ -8,7 +8,7 @@
 #include "cc/quads/texture_draw_quad.h"
 #include "cc/resources/ui_resource_bitmap.h"
 #include "cc/resources/ui_resource_client.h"
-#include "cc/test/fake_impl_proxy.h"
+#include "cc/test/fake_impl_task_runner_provider.h"
 #include "cc/test/fake_output_surface.h"
 #include "cc/test/fake_ui_resource_layer_tree_host_impl.h"
 #include "cc/test/geometry_test_utils.h"
@@ -43,12 +43,14 @@ void NinePatchLayerLayoutTest(const gfx::Size& bitmap_size,
                                layer_size.width() - border.width(),
                                layer_size.height() - border.height());
 
-  FakeImplProxy proxy;
+  FakeImplTaskRunnerProvider task_runner_provider;
   TestSharedBitmapManager shared_bitmap_manager;
   TestTaskGraphRunner task_graph_runner;
-  FakeUIResourceLayerTreeHostImpl host_impl(&proxy, &shared_bitmap_manager,
-                                            &task_graph_runner);
-  host_impl.InitializeRenderer(FakeOutputSurface::Create3d());
+  scoped_ptr<OutputSurface> output_surface = FakeOutputSurface::Create3d();
+  FakeUIResourceLayerTreeHostImpl host_impl(
+      &task_runner_provider, &shared_bitmap_manager, &task_graph_runner);
+  host_impl.SetVisible(true);
+  host_impl.InitializeRenderer(output_surface.get());
 
   scoped_ptr<NinePatchLayerImpl> layer =
       NinePatchLayerImpl::Create(host_impl.active_tree(), 1);
@@ -84,7 +86,7 @@ void NinePatchLayerLayoutTest(const gfx::Size& bitmap_size,
   // Check if the left-over quad is the same size as the mapped aperture quad in
   // layer space.
   if (!fill_center) {
-    EXPECT_EQ(expected_remaining, gfx::ToEnclosedRect(remaining.bounds()));
+    EXPECT_EQ(expected_remaining, remaining.bounds());
   } else {
     EXPECT_TRUE(remaining.bounds().IsEmpty());
   }

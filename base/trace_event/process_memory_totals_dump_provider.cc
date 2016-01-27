@@ -25,17 +25,6 @@ namespace trace_event {
 // static
 uint64 ProcessMemoryTotalsDumpProvider::rss_bytes_for_testing = 0;
 
-namespace {
-
-ProcessMetrics* CreateProcessMetricsForCurrentProcess() {
-#if !defined(OS_MACOSX) || defined(OS_IOS)
-  return ProcessMetrics::CreateProcessMetrics(GetCurrentProcessHandle());
-#else
-  return ProcessMetrics::CreateProcessMetrics(GetCurrentProcessHandle(), NULL);
-#endif
-}
-}  // namespace
-
 // static
 ProcessMemoryTotalsDumpProvider*
 ProcessMemoryTotalsDumpProvider::GetInstance() {
@@ -45,15 +34,15 @@ ProcessMemoryTotalsDumpProvider::GetInstance() {
 }
 
 ProcessMemoryTotalsDumpProvider::ProcessMemoryTotalsDumpProvider()
-    : process_metrics_(CreateProcessMetricsForCurrentProcess()) {
-}
+    : process_metrics_(ProcessMetrics::CreateCurrentProcessMetrics()) {}
 
 ProcessMemoryTotalsDumpProvider::~ProcessMemoryTotalsDumpProvider() {
 }
 
 // Called at trace dump point time. Creates a snapshot the memory counters for
 // the current process.
-bool ProcessMemoryTotalsDumpProvider::OnMemoryDump(ProcessMemoryDump* pmd) {
+bool ProcessMemoryTotalsDumpProvider::OnMemoryDump(const MemoryDumpArgs& args,
+                                                   ProcessMemoryDump* pmd) {
   const uint64 rss_bytes = rss_bytes_for_testing
                                ? rss_bytes_for_testing
                                : process_metrics_->GetWorkingSetSize();
@@ -75,6 +64,13 @@ bool ProcessMemoryTotalsDumpProvider::OnMemoryDump(ProcessMemoryDump* pmd) {
       kernel_supports_rss_peak_reset = false;
     }
     close(clear_refs_fd);
+  }
+#elif defined(OS_MACOSX)
+  size_t private_bytes;
+  bool res = process_metrics_->GetMemoryBytes(&private_bytes,
+                                              nullptr /* shared_bytes */);
+  if (res) {
+    pmd->process_totals()->SetExtraFieldInBytes("private_bytes", private_bytes);
   }
 #endif  // defined(OS_LINUX) || defined(OS_ANDROID)
 #endif  // !defined(OS_IOS)

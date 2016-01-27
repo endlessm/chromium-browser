@@ -31,7 +31,7 @@ bool ValidateES2TexImageParameters(Context *context, GLenum target, GLint level,
         return false;
     }
 
-    if (!ValidImageSize(context, target, level, width, height, 1))
+    if (!ValidImageSizeParameters(context, target, level, width, height, 1, isSubImage))
     {
         context->recordError(Error(GL_INVALID_VALUE));
         return false;
@@ -110,7 +110,7 @@ bool ValidateES2TexImageParameters(Context *context, GLenum target, GLint level,
     }
     else
     {
-        if (texture->isImmutable())
+        if (texture->getImmutableFormat())
         {
             context->recordError(Error(GL_INVALID_OPERATION));
             return false;
@@ -124,23 +124,10 @@ bool ValidateES2TexImageParameters(Context *context, GLenum target, GLint level,
         return false;
     }
 
-    GLenum actualInternalFormat = isSubImage ? texture->getInternalFormat(target, level) : internalformat;
-    const InternalFormat &actualFormatInfo = GetInternalFormatInfo(actualInternalFormat);
-
-    if (isCompressed != actualFormatInfo.compressed)
-    {
-        context->recordError(Error(GL_INVALID_OPERATION));
-        return false;
-    }
-
     if (isCompressed)
     {
-        if (!ValidCompressedImageSize(context, actualInternalFormat, width, height))
-        {
-            context->recordError(Error(GL_INVALID_OPERATION));
-            return false;
-        }
-
+        GLenum actualInternalFormat =
+            isSubImage ? texture->getInternalFormat(target, level) : internalformat;
         switch (actualInternalFormat)
         {
           case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
@@ -165,8 +152,21 @@ bool ValidateES2TexImageParameters(Context *context, GLenum target, GLint level,
                 return false;
             }
             break;
+          case GL_ETC1_RGB8_OES:
+            if (!context->getExtensions().compressedETC1RGB8Texture)
+            {
+                context->recordError(Error(GL_INVALID_ENUM));
+                return false;
+            }
+            break;
           default:
-            context->recordError(Error(GL_INVALID_ENUM));
+              context->recordError(Error(
+                  GL_INVALID_ENUM, "internalformat is not a supported compressed internal format"));
+              return false;
+        }
+        if (!ValidCompressedImageSize(context, actualInternalFormat, width, height))
+        {
+            context->recordError(Error(GL_INVALID_OPERATION));
             return false;
         }
     }
@@ -350,6 +350,18 @@ bool ValidateES2TexImageParameters(Context *context, GLenum target, GLint level,
                 return false;
             }
             break;
+          case GL_ETC1_RGB8_OES:
+            if (context->getExtensions().compressedETC1RGB8Texture)
+            {
+                context->recordError(Error(GL_INVALID_OPERATION));
+                return false;
+            }
+            else
+            {
+                context->recordError(Error(GL_INVALID_ENUM));
+                return false;
+            }
+            break;
           case GL_DEPTH_COMPONENT:
           case GL_DEPTH_STENCIL_OES:
             if (!context->getExtensions().depthTextures)
@@ -502,6 +514,7 @@ bool ValidateES2CopyTexImageParameters(Context* context, GLenum target, GLint le
           case GL_COMPRESSED_RGBA_S3TC_DXT1_EXT:
           case GL_COMPRESSED_RGBA_S3TC_DXT3_ANGLE:
           case GL_COMPRESSED_RGBA_S3TC_DXT5_ANGLE:
+          case GL_ETC1_RGB8_OES:
             context->recordError(Error(GL_INVALID_OPERATION));
             return false;
           case GL_DEPTH_COMPONENT:
@@ -642,6 +655,18 @@ bool ValidateES2CopyTexImageParameters(Context* context, GLenum target, GLint le
                 return false;
             }
             break;
+          case GL_ETC1_RGB8_OES:
+            if (context->getExtensions().compressedETC1RGB8Texture)
+            {
+                context->recordError(Error(GL_INVALID_OPERATION));
+                return false;
+            }
+            else
+            {
+                context->recordError(Error(GL_INVALID_ENUM));
+                return false;
+            }
+            break;
           case GL_DEPTH_COMPONENT:
           case GL_DEPTH_COMPONENT16:
           case GL_DEPTH_COMPONENT32_OES:
@@ -759,6 +784,13 @@ bool ValidateES2TexStorageParameters(Context *context, GLenum target, GLsizei le
             return false;
         }
         break;
+      case GL_ETC1_RGB8_OES:
+        if (!context->getExtensions().compressedETC1RGB8Texture)
+        {
+            context->recordError(Error(GL_INVALID_ENUM));
+            return false;
+        }
+        break;
       case GL_RGBA32F_EXT:
       case GL_RGB32F_EXT:
       case GL_ALPHA32F_EXT:
@@ -824,7 +856,7 @@ bool ValidateES2TexStorageParameters(Context *context, GLenum target, GLsizei le
         return false;
     }
 
-    if (texture->isImmutable())
+    if (texture->getImmutableFormat())
     {
         context->recordError(Error(GL_INVALID_OPERATION));
         return false;
@@ -897,4 +929,112 @@ bool ValidateDiscardFramebufferEXT(Context *context, GLenum target, GLsizei numA
     return ValidateDiscardFramebufferBase(context, target, numAttachments, attachments, defaultFramebuffer);
 }
 
+bool ValidateDrawBuffers(Context *context, GLsizei n, const GLenum *bufs)
+{
+    // INVALID_VALUE is generated if n is negative or greater than value of MAX_DRAW_BUFFERS
+    if (n < 0 || static_cast<GLuint>(n) > context->getCaps().maxDrawBuffers)
+    {
+        context->recordError(
+            Error(GL_INVALID_VALUE, "n must be non-negative and no greater than MAX_DRAW_BUFFERS"));
+        return false;
+    }
+
+    ASSERT(context->getState().getDrawFramebuffer());
+    GLuint frameBufferId      = context->getState().getDrawFramebuffer()->id();
+    GLuint maxColorAttachment = GL_COLOR_ATTACHMENT0_EXT + context->getCaps().maxColorAttachments;
+
+    // This should come first before the check for the default frame buffer
+    // because when we switch to ES3.1+, invalid enums will return INVALID_ENUM
+    // rather than INVALID_OPERATION
+    for (int colorAttachment = 0; colorAttachment < n; colorAttachment++)
+    {
+        const GLenum attachment = GL_COLOR_ATTACHMENT0_EXT + colorAttachment;
+
+        if (bufs[colorAttachment] != GL_NONE && bufs[colorAttachment] != GL_BACK &&
+            (bufs[colorAttachment] < GL_COLOR_ATTACHMENT0_EXT ||
+             bufs[colorAttachment] >= maxColorAttachment))
+        {
+            // Value in bufs is not NONE, BACK, or GL_COLOR_ATTACHMENTi
+            // In the 3.0 specs, the error should return GL_INVALID_OPERATION.
+            // When we move to 3.1 specs, we should change the error to be GL_INVALID_ENUM
+            context->recordError(Error(GL_INVALID_OPERATION, "Invalid buffer value"));
+            return false;
+        }
+        else if (bufs[colorAttachment] != GL_NONE && bufs[colorAttachment] != attachment &&
+                 frameBufferId != 0)
+        {
+            // INVALID_OPERATION-GL is bound to buffer and ith argument
+            // is not COLOR_ATTACHMENTi or NONE
+            context->recordError(
+                Error(GL_INVALID_OPERATION, "Ith value does not match COLOR_ATTACHMENTi or NONE"));
+            return false;
+        }
+    }
+
+    // INVALID_OPERATION is generated if GL is bound to the default framebuffer
+    // and n is not 1 or bufs is bound to value other than BACK and NONE
+    if (frameBufferId == 0)
+    {
+        if (n != 1)
+        {
+            context->recordError(Error(GL_INVALID_OPERATION,
+                                       "n must be 1 when GL is bound to the default framebuffer"));
+            return false;
+        }
+
+        if (bufs[0] != GL_NONE && bufs[0] != GL_BACK)
+        {
+            context->recordError(Error(
+                GL_INVALID_OPERATION,
+                "Only NONE or BACK are valid values when drawing to the default framebuffer"));
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool ValidateBindVertexArrayOES(Context *context, GLuint array)
+{
+    if (!context->getExtensions().vertexArrayObject)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Extension not enabled"));
+        return false;
+    }
+
+    return ValidateBindVertexArrayBase(context, array);
+}
+
+bool ValidateDeleteVertexArraysOES(Context *context, GLsizei n)
+{
+    if (!context->getExtensions().vertexArrayObject)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Extension not enabled"));
+        return false;
+    }
+
+    return ValidateDeleteVertexArraysBase(context, n);
+}
+
+bool ValidateGenVertexArraysOES(Context *context, GLsizei n)
+{
+    if (!context->getExtensions().vertexArrayObject)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Extension not enabled"));
+        return false;
+    }
+
+    return ValidateGenVertexArraysBase(context, n);
+}
+
+bool ValidateIsVertexArrayOES(Context *context)
+{
+    if (!context->getExtensions().vertexArrayObject)
+    {
+        context->recordError(Error(GL_INVALID_OPERATION, "Extension not enabled"));
+        return false;
+    }
+
+    return true;
+}
 }

@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.infobar;
 
 import android.content.Context;
+import android.support.v7.widget.SwitchCompat;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
@@ -13,7 +14,7 @@ import android.text.style.ClickableSpan;
 import android.view.View;
 import android.widget.CheckBox;
 
-import org.chromium.base.CalledByNative;
+import org.chromium.base.annotations.CalledByNative;
 import org.chromium.chrome.R;
 import org.chromium.ui.base.DeviceFormFactor;
 
@@ -81,7 +82,7 @@ public class TranslateInfoBar extends InfoBar implements SubPanelListener {
         int action = actionFor(isPrimaryButton);
 
         if (getInfoBarType() == BEFORE_TRANSLATE_INFOBAR && mOptionsPanelViewType == NO_PANEL
-                && action == ACTION_TYPE_CANCEL && needsNeverPanel()) {
+                && action == ActionType.CANCEL && needsNeverPanel()) {
             // "Nope" was clicked and instead of dismissing we need to show
             // the extra never panel.
             swapPanel(NEVER_PANEL);
@@ -94,21 +95,21 @@ public class TranslateInfoBar extends InfoBar implements SubPanelListener {
      * Based on the infobar and the button pressed figure out what action needs to happen.
      */
     private int actionFor(boolean isPrimaryButton) {
-        int action = InfoBar.ACTION_TYPE_NONE;
+        int action = ActionType.NONE;
         int infobarType = getInfoBarType();
         switch (infobarType) {
             case TranslateInfoBar.BEFORE_TRANSLATE_INFOBAR:
                 action = isPrimaryButton
-                        ? InfoBar.ACTION_TYPE_TRANSLATE : InfoBar.ACTION_TYPE_CANCEL;
+                        ? ActionType.TRANSLATE : ActionType.CANCEL;
                 break;
             case TranslateInfoBar.AFTER_TRANSLATE_INFOBAR:
                 if (!isPrimaryButton) {
-                    action = InfoBar.ACTION_TYPE_TRANSLATE_SHOW_ORIGINAL;
+                    action = ActionType.TRANSLATE_SHOW_ORIGINAL;
                 }
                 break;
             case TranslateInfoBar.TRANSLATE_ERROR_INFOBAR:
                 // retry
-                action = InfoBar.ACTION_TYPE_TRANSLATE;
+                action = ActionType.TRANSLATE;
                 break;
             default:
                 break;
@@ -189,9 +190,8 @@ public class TranslateInfoBar extends InfoBar implements SubPanelListener {
         if (getInfoBarType() == AFTER_TRANSLATE_INFOBAR
                 && !needsAlwaysPanel()
                 && !mOptions.triggeredFromMenu()) {
-            // Long always translate version
-            TranslateCheckBox checkBox = new TranslateCheckBox(context, mOptions, this);
-            layout.setCustomContent(checkBox);
+            // Fully expanded version of the "Always Translate" InfoBar.
+            layout.setCustomContent(TranslateAlwaysPanel.createAlwaysToggle(context, mOptions));
         }
     }
 
@@ -211,7 +211,7 @@ public class TranslateInfoBar extends InfoBar implements SubPanelListener {
 
     private void onTranslateInfoBarButtonClicked(int action) {
         onOptionsChanged();
-        onButtonClicked(action, "");
+        onButtonClicked(action);
     }
 
     @Override
@@ -229,6 +229,13 @@ public class TranslateInfoBar extends InfoBar implements SubPanelListener {
     @Override
     public void onOptionsChanged() {
         if (mNativeTranslateInfoBarPtr == 0) return;
+
+        // Handle the "Always Translate" checkbox.
+        if (getInfoBarType() == AFTER_TRANSLATE_INFOBAR) {
+            SwitchCompat alwaysSwitch = (SwitchCompat) getContentWrapper().findViewById(
+                    R.id.translate_infobar_always_toggle);
+            mOptions.toggleAlwaysTranslateLanguageState(alwaysSwitch.isChecked());
+        }
 
         if (mOptions.optionsChanged()) {
             nativeApplyTranslateOptions(mNativeTranslateInfoBarPtr, mOptions.sourceLanguageIndex(),

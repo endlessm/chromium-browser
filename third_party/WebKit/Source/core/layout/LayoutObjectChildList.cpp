@@ -31,7 +31,7 @@
 #include "core/layout/LayoutCounter.h"
 #include "core/layout/LayoutObject.h"
 #include "core/layout/LayoutView.h"
-#include "core/paint/DeprecatedPaintLayer.h"
+#include "core/paint/PaintLayer.h"
 #include "core/style/ComputedStyle.h"
 
 namespace blink {
@@ -178,7 +178,7 @@ void LayoutObjectChildList::insertChildNode(LayoutObject* owner, LayoutObject* n
         cache->childrenChanged(owner);
 }
 
-void LayoutObjectChildList::invalidatePaintOnRemoval(const LayoutObject& oldChild)
+void LayoutObjectChildList::invalidatePaintOnRemoval(LayoutObject& oldChild)
 {
     if (!oldChild.isRooted())
         return;
@@ -186,14 +186,7 @@ void LayoutObjectChildList::invalidatePaintOnRemoval(const LayoutObject& oldChil
         oldChild.view()->setShouldDoFullPaintInvalidation();
         return;
     }
-
-    DisableCompositingQueryAsserts disabler;
-    // FIXME: We should not allow paint invalidation out of paint invalidation state. crbug.com/457415
-    DisablePaintInvalidationStateAsserts paintInvalidationAssertDisabler;
-    const LayoutBoxModelObject& paintInvalidationContainer = *oldChild.containerForPaintInvalidation();
-    oldChild.invalidatePaintUsingContainer(paintInvalidationContainer, oldChild.previousPaintInvalidationRect(), PaintInvalidationLayoutObjectRemoval);
-    if (RuntimeEnabledFeatures::slimmingPaintEnabled())
-        oldChild.invalidateDisplayItemClients(paintInvalidationContainer);
+    oldChild.invalidatePaintOfPreviousPaintInvalidationRect(*oldChild.containerForPaintInvalidation(), PaintInvalidationLayoutObjectRemoval);
 }
 
 } // namespace blink

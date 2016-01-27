@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/memory/ref_counted.h"
-#include "base/memory/scoped_vector.h"
 #include "base/strings/string16.h"
 #include "content/common/content_export.h"
 #include "content/public/browser/global_request_id.h"
@@ -43,7 +42,8 @@ class NavigationController {
     NO_RELOAD,                   // Normal load.
     RELOAD,                      // Normal (cache-validating) reload.
     RELOAD_IGNORING_CACHE,       // Reload bypassing the cache (shift-reload).
-    RELOAD_ORIGINAL_REQUEST_URL  // Reload using the original request URL.
+    RELOAD_ORIGINAL_REQUEST_URL, // Reload using the original request URL.
+    RELOAD_DISABLE_LOFI_MODE     // Reload with Lo-Fi mode disabled.
   };
 
   // Load type used in LoadURLParams.
@@ -177,6 +177,17 @@ class NavigationController {
     // navigated. This is currently only used in tests.
     std::string frame_name;
 
+#if defined(OS_ANDROID)
+    // On Android, for a load triggered by an intent, the time Chrome received
+    // the original intent that prompted the load (in milliseconds active time
+    // since boot).
+    int64 intent_received_timestamp;
+
+    // When Chrome launches the intent chooser, user can select Chrome itself to
+    // open the intent. In this case, we should carry over the user gesture.
+    bool has_user_gesture;
+#endif
+
     // Indicates that during this navigation, the session history should be
     // cleared such that the resulting page is the first and only entry of the
     // session history.
@@ -184,13 +195,6 @@ class NavigationController {
     // The clearing is done asynchronously, and completes when this navigation
     // commits.
     bool should_clear_history_list;
-
-#if defined(OS_ANDROID)
-    // On Android, for a load triggered by an intent, the time Chrome received
-    // the original intent that prompted the load (in milliseconds active time
-    // since boot).
-    int64 intent_received_timestamp;
-#endif
 
     explicit LoadURLParams(const GURL& url);
     ~LoadURLParams();
@@ -222,7 +226,7 @@ class NavigationController {
   // restore.
   virtual void Restore(int selected_navigation,
                        RestoreType type,
-                       ScopedVector<NavigationEntry>* entries) = 0;
+                       std::vector<scoped_ptr<NavigationEntry>>* entries) = 0;
 
   // Entries -------------------------------------------------------------------
 
@@ -361,6 +365,9 @@ class NavigationController {
   // user agent after following a redirect.
   virtual void ReloadOriginalRequestURL(bool check_for_repost) = 0;
 
+  // Like Reload(), but disables Lo-Fi.
+  virtual void ReloadDisableLoFi(bool check_for_repost) = 0;
+
   // Removing of entries -------------------------------------------------------
 
   // Removes the entry at the specified |index|.  If the index is the last
@@ -406,9 +413,14 @@ class NavigationController {
   // Continues a repost that brought up a warning.
   virtual void ContinuePendingReload() = 0;
 
-  // Returns true if we are navigating to the URL the tab is opened with.
-  // Returns false after the initial navigation has committed.
+  // Returns true if this is a newly created tab or a cloned tab, which has not
+  // yet committed a real page. Returns false after the initial navigation has
+  // committed.
   virtual bool IsInitialNavigation() const = 0;
+
+  // Returns true if this is a newly created tab (not a clone) that has not yet
+  // committed a real page.
+  virtual bool IsInitialBlankNavigation() const = 0;
 
   // Broadcasts the NOTIFICATION_NAV_ENTRY_CHANGED notification for the given
   // entry. This will keep things in sync like the saved session.

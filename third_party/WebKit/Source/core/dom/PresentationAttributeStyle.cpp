@@ -58,7 +58,7 @@ static bool operator!=(const PresentationAttributeCacheKey& a, const Presentatio
 }
 
 struct PresentationAttributeCacheEntry final : public NoBaseWillBeGarbageCollectedFinalized<PresentationAttributeCacheEntry> {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(PresentationAttributeCacheEntry);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(PresentationAttributeCacheEntry);
 public:
     DEFINE_INLINE_TRACE() { visitor->trace(value); }
 
@@ -74,7 +74,7 @@ static PresentationAttributeCache& presentationAttributeCache()
 }
 
 class PresentationAttributeCacheCleaner {
-    WTF_MAKE_NONCOPYABLE(PresentationAttributeCacheCleaner); WTF_MAKE_FAST_ALLOCATED(PresentationAttributeCacheCleaner);
+    WTF_MAKE_NONCOPYABLE(PresentationAttributeCacheCleaner); USING_FAST_MALLOC(PresentationAttributeCacheCleaner);
 public:
     PresentationAttributeCacheCleaner()
         : m_hitCount(0)
@@ -90,7 +90,7 @@ public:
         m_hitCount++;
 
         if (!m_cleanTimer.isActive())
-            m_cleanTimer.startOneShot(presentationAttributeCacheCleanTimeInSeconds, FROM_HERE);
+            m_cleanTimer.startOneShot(presentationAttributeCacheCleanTimeInSeconds, BLINK_FROM_HERE);
     }
 
 private:
@@ -112,7 +112,7 @@ private:
     Timer<PresentationAttributeCacheCleaner> m_cleanTimer;
 };
 
-static bool attributeNameSort(const pair<StringImpl*, AtomicString>& p1, const pair<StringImpl*, AtomicString>& p2)
+static bool attributeNameSort(const std::pair<StringImpl*, AtomicString>& p1, const std::pair<StringImpl*, AtomicString>& p2)
 {
     // Sort based on the attribute name pointers. It doesn't matter what the order is as long as it is always the same.
     return p1.first < p2.first;

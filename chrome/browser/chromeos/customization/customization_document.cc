@@ -277,8 +277,9 @@ StartupCustomizationDocument::StartupCustomizationDocument(
 StartupCustomizationDocument::~StartupCustomizationDocument() {}
 
 StartupCustomizationDocument* StartupCustomizationDocument::GetInstance() {
-  return Singleton<StartupCustomizationDocument,
-      DefaultSingletonTraits<StartupCustomizationDocument> >::get();
+  return base::Singleton<
+      StartupCustomizationDocument,
+      base::DefaultSingletonTraits<StartupCustomizationDocument>>::get();
 }
 
 void StartupCustomizationDocument::Init(
@@ -323,14 +324,14 @@ void StartupCustomizationDocument::Init(
   }
 
   // If manifest doesn't exist still apply values from VPD.
-  statistics_provider->GetMachineStatistic(kInitialLocaleAttr,
+  statistics_provider->GetMachineStatistic(system::kInitialLocaleKey,
                                            &initial_locale_);
-  statistics_provider->GetMachineStatistic(kInitialTimezoneAttr,
+  statistics_provider->GetMachineStatistic(system::kInitialTimezoneKey,
                                            &initial_timezone_);
-  statistics_provider->GetMachineStatistic(kKeyboardLayoutAttr,
+  statistics_provider->GetMachineStatistic(system::kKeyboardLayoutKey,
                                            &keyboard_layout_);
-  configured_locales_.resize(0);
-  base::SplitString(initial_locale_, ',', &configured_locales_);
+  configured_locales_ = base::SplitString(
+      initial_locale_, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
 
   // Convert ICU locale to chrome ("en_US" to "en-US", etc.).
   std::for_each(configured_locales_.begin(), configured_locales_.end(),
@@ -427,8 +428,9 @@ ServicesCustomizationDocument* ServicesCustomizationDocument::GetInstance() {
   if (g_test_services_customization_document)
     return g_test_services_customization_document;
 
-  return Singleton<ServicesCustomizationDocument,
-      DefaultSingletonTraits<ServicesCustomizationDocument> >::get();
+  return base::Singleton<
+      ServicesCustomizationDocument,
+      base::DefaultSingletonTraits<ServicesCustomizationDocument>>::get();
 }
 
 // static
@@ -514,7 +516,7 @@ void ServicesCustomizationDocument::StartFetching() {
                                       &customization_id) &&
         !customization_id.empty()) {
       url_ = GURL(base::StringPrintf(
-          kManifestUrl, base::StringToLowerASCII(customization_id).c_str()));
+          kManifestUrl, base::ToLowerASCII(customization_id).c_str()));
     } else {
       // Remember that there is no customization ID in VPD.
       OnCustomizationNotFound();

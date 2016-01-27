@@ -28,6 +28,7 @@
 
 #include "core/html/parser/NestingLevelIncrementer.h"
 #include "platform/scheduler/CancellableTaskFactory.h"
+#include "wtf/Allocator.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/RefPtr.h"
 
@@ -35,6 +36,7 @@ namespace blink {
 
 class Document;
 class HTMLDocumentParser;
+class WebTaskRunner;
 
 class ActiveParserSession : public NestingLevelIncrementer {
     STACK_ALLOCATED();
@@ -54,6 +56,7 @@ public:
 };
 
 class SpeculationsPumpSession : public ActiveParserSession {
+    STACK_ALLOCATED();
 public:
     SpeculationsPumpSession(unsigned& nestingLevel, Document*);
     ~SpeculationsPumpSession();
@@ -68,15 +71,15 @@ private:
 };
 
 class HTMLParserScheduler {
-    WTF_MAKE_NONCOPYABLE(HTMLParserScheduler); WTF_MAKE_FAST_ALLOCATED(HTMLParserScheduler);
+    WTF_MAKE_NONCOPYABLE(HTMLParserScheduler); USING_FAST_MALLOC(HTMLParserScheduler);
 public:
-    static PassOwnPtr<HTMLParserScheduler> create(HTMLDocumentParser* parser)
+    static PassOwnPtr<HTMLParserScheduler> create(HTMLDocumentParser* parser, WebTaskRunner* loadingTaskRunner)
     {
-        return adoptPtr(new HTMLParserScheduler(parser));
+        return adoptPtr(new HTMLParserScheduler(parser, loadingTaskRunner));
     }
     ~HTMLParserScheduler();
 
-    bool isScheduledForResume() const { return m_isSuspendedWithActiveTimer || m_cancellableContinueParse.isPending(); }
+    bool isScheduledForResume() const { return m_isSuspendedWithActiveTimer || m_cancellableContinueParse->isPending(); }
 
     void scheduleForResume();
     bool yieldIfNeeded(const SpeculationsPumpSession&, bool startingScript);
@@ -93,15 +96,18 @@ public:
     void suspend();
     void resume();
 
+    void detach(); // Clear active tasks if any.
+
 private:
-    explicit HTMLParserScheduler(HTMLDocumentParser*);
+    HTMLParserScheduler(HTMLDocumentParser*, WebTaskRunner*);
 
     bool shouldYield(const SpeculationsPumpSession&, bool startingScript) const;
     void continueParsing();
 
     HTMLDocumentParser* m_parser;
+    OwnPtr<WebTaskRunner> m_loadingTaskRunner;
 
-    CancellableTaskFactory m_cancellableContinueParse;
+    OwnPtr<CancellableTaskFactory> m_cancellableContinueParse;
     bool m_isSuspendedWithActiveTimer;
 };
 

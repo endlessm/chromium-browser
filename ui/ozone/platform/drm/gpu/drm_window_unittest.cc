@@ -10,15 +10,13 @@
 #include "third_party/skia/include/core/SkCanvas.h"
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkImageInfo.h"
-#include "ui/ozone/platform/drm/gpu/drm_buffer.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_generator.h"
 #include "ui/ozone/platform/drm/gpu/drm_device_manager.h"
-#include "ui/ozone/platform/drm/gpu/drm_surface.h"
-#include "ui/ozone/platform/drm/gpu/drm_surface_factory.h"
 #include "ui/ozone/platform/drm/gpu/drm_window.h"
 #include "ui/ozone/platform/drm/gpu/hardware_display_controller.h"
+#include "ui/ozone/platform/drm/gpu/mock_buffer_generator.h"
+#include "ui/ozone/platform/drm/gpu/mock_drm_device.h"
 #include "ui/ozone/platform/drm/gpu/screen_manager.h"
-#include "ui/ozone/platform/drm/test/mock_drm_device.h"
 #include "ui/ozone/public/surface_ozone_canvas.h"
 
 namespace {
@@ -35,7 +33,7 @@ const int kDefaultCursorSize = 64;
 std::vector<skia::RefPtr<SkSurface>> GetCursorBuffers(
     const scoped_refptr<ui::MockDrmDevice> drm) {
   std::vector<skia::RefPtr<SkSurface>> cursor_buffers;
-  for (const skia::RefPtr<SkSurface>& cursor_buffer : drm->buffers()) {
+  for (const auto& cursor_buffer : drm->buffers()) {
     if (cursor_buffer->width() == kDefaultCursorSize &&
         cursor_buffer->height() == kDefaultCursorSize) {
       cursor_buffers.push_back(cursor_buffer);
@@ -63,21 +61,32 @@ class DrmWindowTest : public testing::Test {
   void SetUp() override;
   void TearDown() override;
 
+  void OnSwapBuffers(gfx::SwapResult result) {
+    on_swap_buffers_count_++;
+    last_swap_buffers_result_ = result;
+  }
+
  protected:
   scoped_ptr<base::MessageLoop> message_loop_;
   scoped_refptr<ui::MockDrmDevice> drm_;
-  scoped_ptr<ui::DrmBufferGenerator> buffer_generator_;
+  scoped_ptr<ui::MockBufferGenerator> buffer_generator_;
   scoped_ptr<ui::ScreenManager> screen_manager_;
   scoped_ptr<ui::DrmDeviceManager> drm_device_manager_;
+
+  int on_swap_buffers_count_;
+  gfx::SwapResult last_swap_buffers_result_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(DrmWindowTest);
 };
 
 void DrmWindowTest::SetUp() {
+  on_swap_buffers_count_ = 0;
+  last_swap_buffers_result_ = gfx::SwapResult::SWAP_FAILED;
+
   message_loop_.reset(new base::MessageLoopForUI);
   drm_ = new ui::MockDrmDevice();
-  buffer_generator_.reset(new ui::DrmBufferGenerator());
+  buffer_generator_.reset(new ui::MockBufferGenerator());
   screen_manager_.reset(new ui::ScreenManager(buffer_generator_.get()));
   screen_manager_->AddDisplayController(drm_, kDefaultCrtc, kDefaultConnector);
   screen_manager_->ConfigureDisplayController(
@@ -88,7 +97,7 @@ void DrmWindowTest::SetUp() {
   scoped_ptr<ui::DrmWindow> window(new ui::DrmWindow(
       kDefaultWidgetHandle, drm_device_manager_.get(), screen_manager_.get()));
   window->Initialize();
-  window->OnBoundsChanged(
+  window->SetBounds(
       gfx::Rect(gfx::Size(kDefaultMode.hdisplay, kDefaultMode.vdisplay)));
   screen_manager_->AddWindow(kDefaultWidgetHandle, window.Pass());
 }
@@ -141,11 +150,34 @@ TEST_F(DrmWindowTest, CheckCursorSurfaceAfterChangingDevice) {
 
   // Move window to the display on the new device.
   screen_manager_->GetWindow(kDefaultWidgetHandle)
-      ->OnBoundsChanged(gfx::Rect(0, kDefaultMode.vdisplay,
-                                  kDefaultMode.hdisplay,
-                                  kDefaultMode.vdisplay));
+      ->SetBounds(gfx::Rect(0, kDefaultMode.vdisplay, kDefaultMode.hdisplay,
+                            kDefaultMode.vdisplay));
 
   EXPECT_EQ(2u, GetCursorBuffers(drm).size());
   // Make sure the cursor is showing on the new display.
   EXPECT_NE(0u, drm->get_cursor_handle_for_crtc(kDefaultCrtc));
+}
+
+TEST_F(DrmWindowTest, CheckCallbackOnFailedSwap) {
+  const gfx::Size window_size(6, 4);
+  ui::MockBufferGenerator buffer_generator;
+  ui::DrmWindow* window = screen_manager_->GetWindow(kDefaultWidgetHandle);
+  ui::OverlayPlane plane(
+      buffer_generator.Create(drm_, gfx::BufferFormat::BGRX_8888, window_size));
+
+  drm_->set_page_flip_expectation(false);
+
+  // Window was re-sized, so the expectation is to re-create the buffers first.
+  window->SchedulePageFlip(
+      std::vector<ui::OverlayPlane>(1, ui::OverlayPlane(plane)),
+      base::Bind(&DrmWindowTest::OnSwapBuffers, base::Unretained(this)));
+  EXPECT_EQ(1, on_swap_buffers_count_);
+  EXPECT_EQ(gfx::SwapResult::SWAP_NAK_RECREATE_BUFFERS,
+            last_swap_buffers_result_);
+
+  window->SchedulePageFlip(
+      std::vector<ui::OverlayPlane>(1, ui::OverlayPlane(plane)),
+      base::Bind(&DrmWindowTest::OnSwapBuffers, base::Unretained(this)));
+  EXPECT_EQ(2, on_swap_buffers_count_);
+  EXPECT_EQ(gfx::SwapResult::SWAP_FAILED, last_swap_buffers_result_);
 }

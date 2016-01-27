@@ -80,6 +80,8 @@ class AwRenderViewHostExt : public content::WebContentsObserver,
   void SetBackgroundColor(SkColor c);
   void SetJsOnlineProperty(bool network_up);
 
+  void SmoothScroll(int target_x, int target_y, long duration_ms);
+
  private:
   // content::WebContentsObserver implementation.
   void RenderViewCreated(content::RenderViewHost* view_host) override;
@@ -87,11 +89,11 @@ class AwRenderViewHostExt : public content::WebContentsObserver,
   void DidNavigateAnyFrame(content::RenderFrameHost* render_frame_host,
                            const content::LoadCommittedDetails& details,
                            const content::FrameNavigateParams& params) override;
+  void OnPageScaleFactorChanged(float page_scale_factor) override;
   bool OnMessageReceived(const IPC::Message& message) override;
 
   void OnDocumentHasImagesResponse(int msg_id, bool has_images);
   void OnUpdateHitTestData(const AwHitTestData& hit_test_data);
-  void OnPageScaleFactorChanged(float page_scale_factor);
   void OnContentsSizeChanged(const gfx::Size& contents_size);
 
   bool IsRenderViewReady() const;

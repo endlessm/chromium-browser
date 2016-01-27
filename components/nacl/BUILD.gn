@@ -3,6 +3,7 @@
 # found in the LICENSE file.
 
 import("//build/config/features.gni")
+import("//build/config/nacl/config.gni")
 import("//build/config/ui.gni")
 import("//testing/test.gni")
 
@@ -38,19 +39,21 @@ if (enable_nacl) {
       "//ppapi/proxy:ipc",
       "//ppapi/shared_impl",
       "//third_party/mojo/src/mojo/edk/embedder",
+
+      # TODO(use_chrome_edk): so that EDK in third_party can choose the EDK in
+      # src/mojo if the command line flag is specified. It has to since we can
+      # only have one definition of the Mojo primitives.
+      "//mojo/edk/embedder",
     ]
 
     if (enable_nacl_untrusted) {
       data_deps = [
-        # TODO(GYP): handle other architectures correctly.
-        "//ppapi/native_client:nacl_irt(//native_client/build/toolchain/nacl:irt_x64)",
+        "//ppapi/native_client:irt",
       ]
     }
     if (enable_pnacl) {
-      data_deps += [
-        # TODO(GYP): handle other architectures correctly.
-        "//ppapi/native_client/src/untrusted/pnacl_support_extension",
-      ]
+      data_deps +=
+          [ "//ppapi/native_client/src/untrusted/pnacl_support_extension" ]
     }
   }
 
@@ -83,7 +86,6 @@ if (enable_nacl) {
     deps = [
       ":nacl_common",
       ":nacl_switches",
-      ":nacl_helper",
       "//base",
       "//base/third_party/dynamic_annotations",
       "//content/public/browser",
@@ -94,7 +96,6 @@ if (enable_nacl) {
       "//ppapi/host",
       "//ppapi/proxy:ipc",
       "//ppapi/shared_impl",
-      "//sandbox/linux:sandbox_services",
     ]
 
     if (is_linux) {
@@ -103,7 +104,11 @@ if (enable_nacl) {
         "zygote/nacl_fork_delegate_linux.h",
       ]
 
-      deps += [ "//sandbox/linux:suid_sandbox_client" ]
+      deps += [
+        ":nacl_helper",
+        "//sandbox/linux:sandbox_services",
+        "//sandbox/linux:suid_sandbox_client",
+      ]
     }
   }
 
@@ -148,7 +153,15 @@ if (enable_nacl) {
       "//ppapi/proxy:ipc",
       "//ppapi/shared_impl",
       "//third_party/WebKit/public:blink",
-      "//third_party/jsoncpp",
+    ]
+  }
+
+  # TODO(GYP): Delete this after we've converted everything to GN.
+  # The _run targets exist only for compatibility w/ GYP.
+  group("nacl_loader_unittests_run") {
+    testonly = true
+    deps = [
+      ":nacl_loader_unittests",
     ]
   }
 
@@ -179,52 +192,23 @@ if (enable_nacl) {
         ":nacl_linux",
         ":nacl_switches",
         "//base",
+        "//build/config/sanitizers:deps",
         "//content/public/common",
         "//crypto",
         "//ipc",
-        "//sandbox/linux:libc_urandom_override",
       ]
 
       cflags = [ "-fPIE" ]
 
       ldflags = [ "-pie" ]
+
+      data_deps = [
+        "//native_client/src/trusted/service_runtime/linux:bootstrap",
+      ]
     }
 
     source_set("nacl_linux") {
       sources = [
-        "//ppapi/nacl_irt/irt_manifest.h",
-        "//ppapi/nacl_irt/manifest_service.cc",
-        "//ppapi/nacl_irt/manifest_service.h",
-        "//ppapi/nacl_irt/plugin_main.cc",
-        "//ppapi/nacl_irt/plugin_main.h",
-        "//ppapi/nacl_irt/plugin_startup.cc",
-        "//ppapi/nacl_irt/plugin_startup.h",
-        "//ppapi/nacl_irt/ppapi_dispatcher.cc",
-        "//ppapi/nacl_irt/ppapi_dispatcher.h",
-        "loader/nonsfi/abi_conversion.cc",
-        "loader/nonsfi/abi_conversion.h",
-        "loader/nonsfi/elf_loader.cc",
-        "loader/nonsfi/elf_loader.h",
-        "loader/nonsfi/irt_basic.cc",
-        "loader/nonsfi/irt_clock.cc",
-        "loader/nonsfi/irt_exception_handling.cc",
-        "loader/nonsfi/irt_fdio.cc",
-        "loader/nonsfi/irt_futex.cc",
-        "loader/nonsfi/irt_icache.cc",
-        "loader/nonsfi/irt_interfaces.cc",
-        "loader/nonsfi/irt_interfaces.h",
-        "loader/nonsfi/irt_memory.cc",
-        "loader/nonsfi/irt_ppapi.cc",
-        "loader/nonsfi/irt_random.cc",
-        "loader/nonsfi/irt_resource_open.cc",
-        "loader/nonsfi/irt_thread.cc",
-        "loader/nonsfi/irt_util.h",
-        "loader/nonsfi/nonsfi_listener.cc",
-        "loader/nonsfi/nonsfi_listener.h",
-        "loader/nonsfi/nonsfi_main.cc",
-        "loader/nonsfi/nonsfi_main.h",
-        "loader/nonsfi/nonsfi_sandbox.cc",
-        "loader/nonsfi/nonsfi_sandbox.h",
         "loader/sandbox_linux/nacl_bpf_sandbox_linux.cc",
         "loader/sandbox_linux/nacl_sandbox_linux.cc",
       ]
@@ -236,15 +220,10 @@ if (enable_nacl) {
         ":nacl_common",
         ":nacl_switches",
         "//base",
-        "//components/tracing",
         "//content/public/common",
         "//crypto",
         "//ipc",
-        "//ppapi/c",
-        "//ppapi/proxy",
-        "//ppapi/shared_impl",
         "//sandbox",
-        "//sandbox/linux:libc_urandom_override",
         "//sandbox/linux:sandbox_services_headers",
       ]
 
@@ -257,8 +236,74 @@ if (enable_nacl) {
       }
     }
   }
-} else {
-  group("nacl") {
+
+  if (is_nacl_nonsfi) {
+    executable("nacl_helper_nonsfi_nexe") {
+      output_name = "nacl_helper_nonsfi"
+      set_sources_assignment_filter([])
+      sources = [
+        "common/nacl_messages.cc",
+        "common/nacl_messages.h",
+        "common/nacl_types.cc",
+        "common/nacl_types.h",
+        "common/nacl_types_param_traits.cc",
+        "common/nacl_types_param_traits.h",
+        "loader/nacl_helper_linux.cc",
+        "loader/nacl_helper_linux.h",
+        "loader/nacl_trusted_listener.cc",
+        "loader/nacl_trusted_listener.h",
+        "loader/nonsfi/nonsfi_listener.cc",
+        "loader/nonsfi/nonsfi_listener.h",
+        "loader/nonsfi/nonsfi_main.cc",
+        "loader/nonsfi/nonsfi_main.h",
+      ]
+      deps = [
+        ":nacl_switches",
+        ":nacl_helper_nonsfi_sandbox",
+        "//base",
+        "//components/tracing",
+        "//content",
+        "//ipc",
+        "//native_client/src/nonsfi/irt:nacl_sys_private",
+        "//native_client/src/nonsfi/loader:elf_loader",
+        "//native_client/src/untrusted/nacl:nacl",
+        "//ppapi/proxy",
+        "//sandbox/linux:sandbox",
+      ]
+    }
+
+    source_set("nacl_helper_nonsfi_sandbox") {
+      set_sources_assignment_filter([])
+      sources = [
+        "loader/nonsfi/nonsfi_sandbox.cc",
+        "loader/nonsfi/nonsfi_sandbox.h",
+        "loader/sandbox_linux/nacl_sandbox_linux.cc",
+        "loader/sandbox_linux/nacl_sandbox_linux.h",
+      ]
+      deps = [
+        "//base",
+        "//content",
+        "//sandbox/linux:sandbox",
+      ]
+    }
+
+    copy("nacl_helper_nonsfi_copy") {
+      sources = [
+        "${root_out_dir}/nacl_helper_nonsfi",
+      ]
+      outputs = [
+        "${root_build_dir}/{{source_file_part}}",
+      ]
+      deps = [
+        ":nacl_helper_nonsfi_nexe",
+      ]
+    }
+  }
+
+  group("helper_nonsfi") {
+    deps = [
+      ":nacl_helper_nonsfi_copy(//build/toolchain/nacl:newlib_pnacl_nonsfi)",
+    ]
   }
 }
 

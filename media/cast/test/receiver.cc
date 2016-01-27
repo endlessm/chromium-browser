@@ -75,7 +75,7 @@ void GetPorts(uint16* tx_port, uint16* rx_port) {
   *rx_port = static_cast<uint16>(rx_input.GetIntInput());
 }
 
-std::string GetIpAddress(const std::string display_text) {
+std::string GetIpAddress(const std::string& display_text) {
   test::InputBuilder input(display_text, DEFAULT_SEND_IP, INT_MIN, INT_MAX);
   std::string ip_address = input.GetStringInput();
   // Ensure IP address is either the default value or in correct form.
@@ -122,8 +122,8 @@ void GetWindowSize(int* width, int* height) {
 void GetAudioPayloadtype(FrameReceiverConfig* audio_config) {
   test::InputBuilder input("Choose audio receiver payload type.",
                            DEFAULT_AUDIO_PAYLOAD_TYPE,
-                           96,
-                           127);
+                           kDefaultRtpVideoPayloadType  /* low_range */,
+                           kDefaultRtpAudioPayloadType  /* high_range */);
   audio_config->rtp_payload_type = input.GetIntInput();
 }
 
@@ -138,8 +138,8 @@ FrameReceiverConfig GetAudioReceiverConfig() {
 void GetVideoPayloadtype(FrameReceiverConfig* video_config) {
   test::InputBuilder input("Choose video receiver payload type.",
                            DEFAULT_VIDEO_PAYLOAD_TYPE,
-                           96,
-                           127);
+                           kDefaultRtpVideoPayloadType  /* low_range */,
+                           kDefaultRtpAudioPayloadType  /* high_range */);
   video_config->rtp_payload_type = input.GetIntInput();
 }
 
@@ -517,7 +517,7 @@ class NaivePlayer : public InProcessReceiver,
   base::TimeTicks last_popped_video_playout_time_;
   int64 num_video_frames_processed_;
 
-  base::OneShotTimer<NaivePlayer> video_playout_timer_;
+  base::OneShotTimer video_playout_timer_;
 
   // Audio playout queue, synchronized by |audio_lock_|.
   base::Lock audio_lock_;

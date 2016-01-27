@@ -30,6 +30,7 @@ static NaClValidationStatus ApplyDfaValidator_x86_64(
     uint8_t *data,
     size_t size,
     int stubout_mode,
+    uint32_t flags,
     int readonly_text,
     const NaClCPUFeatures *f,
     const struct NaClValidationMetadata *metadata,
@@ -37,8 +38,15 @@ static NaClValidationStatus ApplyDfaValidator_x86_64(
   /* TODO(jfb) Use a safe cast here. */
   NaClCPUFeaturesX86 *cpu_features = (NaClCPUFeaturesX86 *) f;
   enum NaClValidationStatus status = NaClValidationFailed;
-  int did_stubout = 0;
   void *query = NULL;
+  struct StubOutCallbackData callback_data;
+  callback_data.flags = flags;
+  callback_data.chunk_begin = data;
+  callback_data.chunk_end = data + size;
+  callback_data.cpu_features = cpu_features;
+  callback_data.validate_chunk_func = ValidateChunkAMD64;
+  callback_data.did_rewrite = 0;
+
   UNREFERENCED_PARAMETER(guest_addr);
 
   if (stubout_mode)
@@ -72,8 +80,8 @@ static NaClValidationStatus ApplyDfaValidator_x86_64(
       status = NaClValidationSucceeded;
   } else {
     if (ValidateChunkAMD64(data, size, 0 /*options*/, cpu_features,
-                           NaClDfaStubOutCPUUnsupportedInstruction,
-                           &did_stubout))
+                           NaClDfaStubOutUnsupportedInstruction,
+                           &callback_data))
       status = NaClValidationSucceeded;
   }
 
@@ -82,7 +90,7 @@ static NaClValidationStatus ApplyDfaValidator_x86_64(
 
   /* Cache the result if validation succeeded and the code was not modified. */
   if (query != NULL) {
-    if (status == NaClValidationSucceeded && did_stubout == 0)
+    if (status == NaClValidationSucceeded && callback_data.did_rewrite == 0)
       cache->SetKnownToValidate(query);
     cache->DestroyQuery(query);
   }
@@ -223,19 +231,72 @@ static NaClValidationStatus ValidatorCodeReplacement_x86_64(
   return NaClValidationFailed;
 }
 
+struct IsOnInstBoundaryCallbackData {
+  int found_addr;
+  const uint8_t* addr;
+};
+
+static Bool IsOnInstBoundaryCallback(const uint8_t *begin,
+                              const uint8_t *end,
+                              uint32_t info,
+                              void *callback_data) {
+  struct IsOnInstBoundaryCallbackData *data = callback_data;
+  UNREFERENCED_PARAMETER(end);
+
+  /*
+   * Superinstructions are only reported when the final instruction
+   * instruction in the sequence is decoded, therefore if a later
+   * address was already marked it must have been inside the superinstruction
+   * and needs to be marked invalid.
+   */
+  if (data->addr > begin && (info & SPECIAL_INSTRUCTION) != 0)
+    data->found_addr = FALSE;
+
+  /*
+   * For chained instructions in x86-64 the RESTRICTED_REGISTER_USED
+   * flag will be set.
+   */
+  if (begin == data->addr && (info & RESTRICTED_REGISTER_USED) == 0)
+    data->found_addr = TRUE;
+
+  /* We should never invalidate the DFA as a whole */
+  return TRUE;
+}
+
 static NaClValidationStatus IsOnInstBoundary_x86_64(
     uintptr_t guest_addr,
     uintptr_t addr,
     const uint8_t *data,
     size_t size,
     const NaClCPUFeatures *f) {
-  /* TODO (leslieb) This still needs to be implemented. */
-  UNREFERENCED_PARAMETER(guest_addr);
-  UNREFERENCED_PARAMETER(addr);
-  UNREFERENCED_PARAMETER(data);
-  UNREFERENCED_PARAMETER(size);
-  UNREFERENCED_PARAMETER(f);
-  return NaClValidationFailedNotImplemented;
+  NaClCPUFeaturesX86 *cpu_features = (NaClCPUFeaturesX86 *) f;
+  struct IsOnInstBoundaryCallbackData callback_data;
+
+  uint32_t guest_bundle_addr = (addr & ~kBundleMask);
+  const uint8_t *local_bundle_addr = data + (guest_bundle_addr - guest_addr);
+  int rc;
+
+  /* Check code range doesn't overflow. */
+  CHECK(guest_addr + size > guest_addr);
+  CHECK(size % kBundleSize == 0 && size != 0);
+  CHECK((uint32_t) (guest_addr & ~kBundleMask) == guest_addr);
+
+  /* Check addr is within code boundary. */
+  if (addr < guest_addr || addr >= guest_addr + size)
+    return NaClValidationFailed;
+
+  callback_data.found_addr = FALSE;
+  callback_data.addr = data + (addr - guest_addr);
+
+  rc = ValidateChunkAMD64(local_bundle_addr, kBundleSize,
+                          CALL_USER_CALLBACK_ON_EACH_INSTRUCTION,
+                          cpu_features, IsOnInstBoundaryCallback,
+                          &callback_data);
+
+  CHECK(rc);
+
+  return callback_data.found_addr ? NaClValidationSucceeded
+                                  : NaClValidationFailed;
 }
 
 static const struct NaClValidatorInterface validator = {

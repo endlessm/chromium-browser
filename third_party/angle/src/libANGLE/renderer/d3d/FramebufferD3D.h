@@ -27,6 +27,7 @@ typedef std::vector<const FramebufferAttachment *> AttachmentList;
 namespace rx
 {
 class RenderTargetD3D;
+struct WorkaroundsD3D;
 
 struct ClearParameters
 {
@@ -80,7 +81,7 @@ class FramebufferD3D : public FramebufferImpl
 
     GLenum checkStatus() const override;
 
-    const gl::AttachmentList &getColorAttachmentsForRender(const Workarounds &workarounds) const;
+    const gl::AttachmentList &getColorAttachmentsForRender(const WorkaroundsD3D &workarounds) const;
 
   protected:
     // Cache variable
@@ -90,8 +91,12 @@ class FramebufferD3D : public FramebufferImpl
   private:
     virtual gl::Error clear(const gl::State &state, const ClearParameters &clearParams) = 0;
 
-    virtual gl::Error readPixels(const gl::Rectangle &area, GLenum format, GLenum type, size_t outputPitch,
-                                 const gl::PixelPackState &pack, uint8_t *pixels) const = 0;
+    virtual gl::Error readPixelsImpl(const gl::Rectangle &area,
+                                     GLenum format,
+                                     GLenum type,
+                                     size_t outputPitch,
+                                     const gl::PixelPackState &pack,
+                                     uint8_t *pixels) const = 0;
 
     virtual gl::Error blit(const gl::Rectangle &sourceArea, const gl::Rectangle &destArea, const gl::Rectangle *scissor,
                            bool blitRenderTarget, bool blitDepth, bool blitStencil, GLenum filter,
@@ -99,8 +104,6 @@ class FramebufferD3D : public FramebufferImpl
 
     virtual GLenum getRenderTargetImplementationFormat(RenderTargetD3D *renderTarget) const = 0;
 };
-
-unsigned int GetAttachmentSerial(const gl::FramebufferAttachment *attachment);
 
 }
 

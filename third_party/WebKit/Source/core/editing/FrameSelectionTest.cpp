@@ -9,56 +9,45 @@
 #include "core/dom/Document.h"
 #include "core/dom/Element.h"
 #include "core/dom/Text.h"
+#include "core/editing/EditingTestBase.h"
 #include "core/frame/FrameView.h"
 #include "core/html/HTMLBodyElement.h"
 #include "core/html/HTMLDocument.h"
+#include "core/layout/LayoutView.h"
+#include "core/paint/PaintInfo.h"
 #include "core/testing/DummyPageHolder.h"
+#include "platform/graphics/paint/DrawingRecorder.h"
+#include "platform/graphics/paint/PaintController.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefPtr.h"
 #include "wtf/StdLibExtras.h"
-#include "wtf/testing/WTFTestHelpers.h"
 #include <gtest/gtest.h>
 
 namespace blink {
 
-class FrameSelectionTest : public ::testing::Test {
+class FrameSelectionTest : public EditingTestBase {
 protected:
-    void SetUp() override;
-
-    DummyPageHolder& dummyPageHolder() const { return *m_dummyPageHolder; }
-    HTMLDocument& document() const;
     void setSelection(const VisibleSelection&);
     FrameSelection& selection() const;
+    const VisibleSelection& visibleSelectionInDOMTree() const { return selection().selection(); }
+    const VisibleSelectionInComposedTree& visibleSelectionInComposedTree() const { return selection().selectionInComposedTree(); }
+
     PassRefPtrWillBeRawPtr<Text> appendTextNode(const String& data);
-    int layoutCount() const { return m_dummyPageHolder->frameView().layoutCount(); }
+    int layoutCount() const { return dummyPageHolder().frameView().layoutCount(); }
 
 private:
-    OwnPtr<DummyPageHolder> m_dummyPageHolder;
-    RawPtrWillBePersistent<HTMLDocument> m_document;
     RefPtrWillBePersistent<Text> m_textNode;
 };
 
-void FrameSelectionTest::SetUp()
-{
-    m_dummyPageHolder = DummyPageHolder::create(IntSize(800, 600));
-    m_document = toHTMLDocument(&m_dummyPageHolder->document());
-    ASSERT(m_document);
-}
-
-HTMLDocument& FrameSelectionTest::document() const
-{
-    return *m_document;
-}
-
 void FrameSelectionTest::setSelection(const VisibleSelection& newSelection)
 {
-    m_dummyPageHolder->frame().selection().setSelection(newSelection);
+    dummyPageHolder().frame().selection().setSelection(newSelection);
 }
 
 FrameSelection& FrameSelectionTest::selection() const
 {
-    return m_dummyPageHolder->frame().selection();
+    return dummyPageHolder().frame().selection();
 }
 
 PassRefPtrWillBeRawPtr<Text> FrameSelectionTest::appendTextNode(const String& data)
@@ -140,7 +129,10 @@ TEST_F(FrameSelectionTest, PaintCaretShouldNotLayout)
         frameRect.setHeight(frameRect.height() + 1);
         dummyPageHolder().frameView().setFrameRect(frameRect);
     }
-    selection().paintCaret(nullptr, LayoutPoint(), LayoutRect());
+    OwnPtr<PaintController> paintController = PaintController::create();
+    GraphicsContext context(*paintController);
+    DrawingRecorder drawingRecorder(context, *dummyPageHolder().frameView().layoutView(), DisplayItem::Caret, LayoutRect::infiniteIntRect());
+    selection().paintCaret(&context, LayoutPoint());
     EXPECT_EQ(startCount, layoutCount());
 }
 
@@ -152,15 +144,15 @@ TEST_F(FrameSelectionTest, SelectWordAroundPosition)
     // "Foo Bar  Baz,"
     RefPtrWillBeRawPtr<Text> text = appendTextNode("Foo Bar&nbsp;&nbsp;Baz,");
     // "Fo|o Bar  Baz,"
-    EXPECT_TRUE(selection().selectWordAroundPosition(VisiblePosition(Position(text, 2))));
+    EXPECT_TRUE(selection().selectWordAroundPosition(createVisiblePosition(Position(text, 2))));
     EXPECT_EQ_SELECTED_TEXT("Foo");
     // "Foo| Bar  Baz,"
-    EXPECT_TRUE(selection().selectWordAroundPosition(VisiblePosition(Position(text, 3))));
+    EXPECT_TRUE(selection().selectWordAroundPosition(createVisiblePosition(Position(text, 3))));
     EXPECT_EQ_SELECTED_TEXT("Foo");
     // "Foo Bar | Baz,"
-    EXPECT_FALSE(selection().selectWordAroundPosition(VisiblePosition(Position(text, 13))));
+    EXPECT_FALSE(selection().selectWordAroundPosition(createVisiblePosition(Position(text, 13))));
     // "Foo Bar  Baz|,"
-    EXPECT_TRUE(selection().selectWordAroundPosition(VisiblePosition(Position(text, 22))));
+    EXPECT_TRUE(selection().selectWordAroundPosition(createVisiblePosition(Position(text, 22))));
     EXPECT_EQ_SELECTED_TEXT("Baz");
 }
 
@@ -173,17 +165,54 @@ TEST_F(FrameSelectionTest, MoveRangeSelectionTest)
     EXPECT_EQ_SELECTED_TEXT("a");
 
     // "Foo B|ar B>az," with the Character granularity.
-    selection().moveRangeSelection(VisiblePosition(Position(text, 5)), VisiblePosition(Position(text, 9)), CharacterGranularity);
+    selection().moveRangeSelection(createVisiblePosition(Position(text, 5)), createVisiblePosition(Position(text, 9)), CharacterGranularity);
     EXPECT_EQ_SELECTED_TEXT("ar B");
     // "Foo B|ar B>az," with the Word granularity.
-    selection().moveRangeSelection(VisiblePosition(Position(text, 5)), VisiblePosition(Position(text, 9)), WordGranularity);
+    selection().moveRangeSelection(createVisiblePosition(Position(text, 5)), createVisiblePosition(Position(text, 9)), WordGranularity);
     EXPECT_EQ_SELECTED_TEXT("Bar Baz");
     // "Fo<o B|ar Baz," with the Character granularity.
-    selection().moveRangeSelection(VisiblePosition(Position(text, 5)), VisiblePosition(Position(text, 2)), CharacterGranularity);
+    selection().moveRangeSelection(createVisiblePosition(Position(text, 5)), createVisiblePosition(Position(text, 2)), CharacterGranularity);
     EXPECT_EQ_SELECTED_TEXT("o B");
     // "Fo<o B|ar Baz," with the Word granularity.
-    selection().moveRangeSelection(VisiblePosition(Position(text, 5)), VisiblePosition(Position(text, 2)), WordGranularity);
+    selection().moveRangeSelection(createVisiblePosition(Position(text, 5)), createVisiblePosition(Position(text, 2)), WordGranularity);
     EXPECT_EQ_SELECTED_TEXT("Foo Bar");
+}
+
+TEST_F(FrameSelectionTest, setNonDirectionalSelectionIfNeeded)
+{
+    const char* bodyContent = "<span id=top>top</span><span id=host></span>";
+    const char* shadowContent = "<span id=bottom>bottom</span>";
+    setBodyContent(bodyContent);
+    RefPtrWillBeRawPtr<ShadowRoot> shadowRoot = setShadowContent(shadowContent, "host");
+    updateLayoutAndStyleForPainting();
+
+    Node* top = document().getElementById("top")->firstChild();
+    Node* bottom = shadowRoot->getElementById("bottom")->firstChild();
+    Node* host = document().getElementById("host");
+
+    // top to bottom
+    selection().setNonDirectionalSelectionIfNeeded(VisibleSelectionInComposedTree(PositionInComposedTree(top, 1), PositionInComposedTree(bottom, 3)), CharacterGranularity);
+    EXPECT_EQ(Position(top, 1), visibleSelectionInDOMTree().base());
+    EXPECT_EQ(Position::beforeNode(host), visibleSelectionInDOMTree().extent());
+    EXPECT_EQ(Position(top, 1), visibleSelectionInDOMTree().start());
+    EXPECT_EQ(Position(top, 3), visibleSelectionInDOMTree().end());
+
+    EXPECT_EQ(PositionInComposedTree(top, 1), visibleSelectionInComposedTree().base());
+    EXPECT_EQ(PositionInComposedTree(bottom, 3), visibleSelectionInComposedTree().extent());
+    EXPECT_EQ(PositionInComposedTree(top, 1), visibleSelectionInComposedTree().start());
+    EXPECT_EQ(PositionInComposedTree(bottom, 3), visibleSelectionInComposedTree().end());
+
+    // bottom to top
+    selection().setNonDirectionalSelectionIfNeeded(VisibleSelectionInComposedTree(PositionInComposedTree(bottom, 3), PositionInComposedTree(top, 1)), CharacterGranularity);
+    EXPECT_EQ(Position(bottom, 3), visibleSelectionInDOMTree().base());
+    EXPECT_EQ(Position::beforeNode(bottom->parentNode()), visibleSelectionInDOMTree().extent());
+    EXPECT_EQ(Position(bottom, 0), visibleSelectionInDOMTree().start());
+    EXPECT_EQ(Position(bottom, 3), visibleSelectionInDOMTree().end());
+
+    EXPECT_EQ(PositionInComposedTree(bottom, 3), visibleSelectionInComposedTree().base());
+    EXPECT_EQ(PositionInComposedTree(top, 1), visibleSelectionInComposedTree().extent());
+    EXPECT_EQ(PositionInComposedTree(top, 1), visibleSelectionInComposedTree().start());
+    EXPECT_EQ(PositionInComposedTree(bottom, 3), visibleSelectionInComposedTree().end());
 }
 
 } // namespace blink

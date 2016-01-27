@@ -75,7 +75,7 @@ bool SocketPermissionEntry::Check(
   if (pattern_.type != request.type)
     return false;
 
-  std::string lhost = base::StringToLowerASCII(request.host);
+  std::string lhost = base::ToLowerASCII(request.host);
   if (pattern_.host != lhost) {
     if (!match_subdomains_)
       return false;
@@ -128,8 +128,9 @@ bool SocketPermissionEntry::ParseHostPattern(
     SocketPermissionRequest::OperationType type,
     const std::string& pattern,
     SocketPermissionEntry* entry) {
-  std::vector<std::string> tokens;
-  base::SplitStringDontTrim(pattern, kColon, &tokens);
+  std::vector<std::string> tokens =
+      base::SplitString(pattern, std::string(1, kColon), base::KEEP_WHITESPACE,
+                        base::SPLIT_WANT_ALL);
   return ParseHostPattern(type, tokens, entry);
 }
 
@@ -165,11 +166,12 @@ bool SocketPermissionEntry::ParseHostPattern(
   if (!result.pattern_.host.empty()) {
     if (StartsOrEndsWithWhitespace(result.pattern_.host))
       return false;
-    result.pattern_.host = base::StringToLowerASCII(result.pattern_.host);
+    result.pattern_.host = base::ToLowerASCII(result.pattern_.host);
 
     // The first component can optionally be '*' to match all subdomains.
-    std::vector<std::string> host_components;
-    base::SplitString(result.pattern_.host, kDot, &host_components);
+    std::vector<std::string> host_components =
+        base::SplitString(result.pattern_.host, std::string(1, kDot),
+                          base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
     DCHECK(!host_components.empty());
 
     if (host_components[0] == kWildcard || host_components[0].empty()) {
@@ -178,7 +180,7 @@ bool SocketPermissionEntry::ParseHostPattern(
     } else {
       result.match_subdomains_ = false;
     }
-    result.pattern_.host = JoinString(host_components, kDot);
+    result.pattern_.host = base::JoinString(host_components, ".");
   }
 
   if (pattern_tokens.size() == 1 || pattern_tokens[1].empty() ||
@@ -216,7 +218,7 @@ std::string SocketPermissionEntry::GetHostPatternAsString() const {
   if (pattern_.port == kWildcardPortNumber)
     result.append(1, kColon).append(kWildcard);
   else
-    result.append(1, kColon).append(base::IntToString(pattern_.port));
+    result.append(1, kColon).append(base::UintToString(pattern_.port));
 
   return result;
 }

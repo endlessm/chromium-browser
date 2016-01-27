@@ -146,6 +146,13 @@ void NavigationControllerAndroid::ReloadIgnoringCache(
   navigation_controller_->ReloadIgnoringCache(check_for_repost);
 }
 
+void NavigationControllerAndroid::ReloadDisableLoFi(
+    JNIEnv* env,
+    jobject obj,
+    jboolean check_for_repost) {
+  navigation_controller_->ReloadDisableLoFi(check_for_repost);
+}
+
 void NavigationControllerAndroid::RequestRestoreLoad(JNIEnv* env, jobject obj) {
   navigation_controller_->SetNeedsReload();
 }
@@ -161,20 +168,22 @@ void NavigationControllerAndroid::GoToNavigationIndex(JNIEnv* env,
   navigation_controller_->GoToIndex(index);
 }
 
-void NavigationControllerAndroid::LoadUrl(JNIEnv* env,
-                                          jobject obj,
-                                          jstring url,
-                                          jint load_url_type,
-                                          jint transition_type,
-                                          jstring j_referrer_url,
-                                          jint referrer_policy,
-                                          jint ua_override_option,
-                                          jstring extra_headers,
-                                          jbyteArray post_data,
-                                          jstring base_url_for_data_url,
-                                          jstring virtual_url_for_data_url,
-                                          jboolean can_load_local_resources,
-                                          jboolean is_renderer_initiated) {
+void NavigationControllerAndroid::LoadUrl(
+    JNIEnv* env,
+    jobject obj,
+    jstring url,
+    jint load_url_type,
+    jint transition_type,
+    jstring j_referrer_url,
+    jint referrer_policy,
+    jint ua_override_option,
+    jstring extra_headers,
+    jbyteArray post_data,
+    jstring base_url_for_data_url,
+    jstring virtual_url_for_data_url,
+    jboolean can_load_local_resources,
+    jboolean is_renderer_initiated,
+    jboolean should_replace_current_entry) {
   DCHECK(url);
   NavigationController::LoadURLParams params(
       GURL(ConvertJavaStringToUTF8(env, url)));
@@ -187,6 +196,7 @@ void NavigationControllerAndroid::LoadUrl(JNIEnv* env,
           ua_override_option);
   params.can_load_local_resources = can_load_local_resources;
   params.is_renderer_initiated = is_renderer_initiated;
+  params.should_replace_current_entry = should_replace_current_entry;
 
   if (extra_headers)
     params.extra_headers = ConvertJavaStringToUTF8(env, extra_headers);

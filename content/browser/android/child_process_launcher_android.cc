@@ -11,7 +11,6 @@
 #include "content/browser/frame_host/render_frame_host_impl.h"
 #include "content/browser/media/android/browser_media_player_manager.h"
 #include "content/browser/media/media_web_contents_observer.h"
-#include "content/browser/renderer_host/compositor_impl_android.h"
 #include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
@@ -37,6 +36,7 @@ static void SetSurfacePeer(
     base::ProcessHandle render_process_handle,
     int render_frame_id,
     int player_id) {
+#if !defined(USE_AURA)
   int render_process_id = 0;
   RenderProcessHost::iterator it = RenderProcessHost::AllHostsIterator();
   while (!it.IsAtEnd()) {
@@ -78,6 +78,9 @@ static void SetSurfacePeer(
     gfx::ScopedJavaSurface scoped_surface(surface);
     player->SetVideoSurface(scoped_surface.Pass());
   }
+#else
+  NOTREACHED();
+#endif
 }
 
 }  // anonymous namespace
@@ -89,7 +92,7 @@ static void SetSurfacePeer(
 // |handle| is the processID of the child process as originated in Java, 0 if
 // the ChildProcess could not be created.
 static void OnChildProcessStarted(JNIEnv*,
-                                  jclass,
+                                  const JavaParamRef<jclass>&,
                                   jlong client_context,
                                   jint handle) {
   StartChildProcessCallback* callback =
@@ -169,9 +172,12 @@ void SetChildProcessInForeground(base::ProcessHandle handle,
       static_cast<jint>(handle), static_cast<jboolean>(in_foreground));
 }
 
-void EstablishSurfacePeer(
-    JNIEnv* env, jclass clazz,
-    jint pid, jobject surface, jint primary_id, jint secondary_id) {
+void EstablishSurfacePeer(JNIEnv* env,
+                          const JavaParamRef<jclass>& clazz,
+                          jint pid,
+                          const JavaParamRef<jobject>& surface,
+                          jint primary_id,
+                          jint secondary_id) {
   ScopedJavaGlobalRef<jobject> jsurface;
   jsurface.Reset(env, surface);
   if (jsurface.is_null())
@@ -222,7 +228,7 @@ gfx::ScopedJavaSurface GetSurfaceTextureSurface(int surface_texture_id,
           env, surface_texture_id, client_id).obj());
 }
 
-jboolean IsSingleProcess(JNIEnv* env, jclass clazz) {
+jboolean IsSingleProcess(JNIEnv* env, const JavaParamRef<jclass>& clazz) {
   return base::CommandLine::ForCurrentProcess()->HasSwitch(
       switches::kSingleProcess);
 }

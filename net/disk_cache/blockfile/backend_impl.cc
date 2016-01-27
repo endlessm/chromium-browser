@@ -294,7 +294,7 @@ int BackendImpl::SyncInit() {
   if (!disabled_ && should_create_timer) {
     // Create a recurrent timer of 30 secs.
     int timer_delay = unit_test_ ? 1000 : 30000;
-    timer_.reset(new base::RepeatingTimer<BackendImpl>());
+    timer_.reset(new base::RepeatingTimer());
     timer_->Start(FROM_HERE, TimeDelta::FromMilliseconds(timer_delay), this,
                   &BackendImpl::OnStatsTimer);
   }
@@ -408,6 +408,14 @@ int BackendImpl::SyncDoomEntriesBetween(const base::Time initial_time,
   }
 
   return net::OK;
+}
+
+int BackendImpl::SyncCalculateSizeOfAllEntries() {
+  DCHECK_NE(net::APP_CACHE, cache_type_);
+  if (disabled_)
+    return net::ERR_FAILED;
+
+  return data_->header.num_bytes;
 }
 
 // We use OpenNextEntryImpl to retrieve elements from the cache, until we get
@@ -1158,7 +1166,7 @@ void BackendImpl::TrimDeletedListForTest(bool empty) {
   eviction_.TrimDeletedList(empty);
 }
 
-base::RepeatingTimer<BackendImpl>* BackendImpl::GetTimerForTest() {
+base::RepeatingTimer* BackendImpl::GetTimerForTest() {
   return timer_.get();
 }
 
@@ -1251,6 +1259,12 @@ int BackendImpl::DoomEntriesSince(const base::Time initial_time,
                                   const CompletionCallback& callback) {
   DCHECK(!callback.is_null());
   background_queue_.DoomEntriesSince(initial_time, callback);
+  return net::ERR_IO_PENDING;
+}
+
+int BackendImpl::CalculateSizeOfAllEntries(const CompletionCallback& callback) {
+  DCHECK(!callback.is_null());
+  background_queue_.CalculateSizeOfAllEntries(callback);
   return net::ERR_IO_PENDING;
 }
 
@@ -1686,7 +1700,11 @@ EntryImpl* BackendImpl::MatchEntry(const std::string& key, uint32 hash,
   if (cache_entry.get() && (find_parent || !found))
     cache_entry = NULL;
 
-  find_parent ? parent_entry.swap(&tmp) : cache_entry.swap(&tmp);
+  if (find_parent)
+    parent_entry.swap(&tmp);
+  else
+    cache_entry.swap(&tmp);
+
   FlushIndex();
   return tmp;
 }

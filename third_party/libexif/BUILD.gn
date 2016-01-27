@@ -19,7 +19,12 @@ if (!is_linux || is_chromeos) {
     }
   }
 
-  static_library("libexif") {
+  loadable_module("libexif") {
+    if (is_mac) {
+      # Matches the output from GYP.
+      output_name = "exif"
+    }
+
     sources = [
       "sources/libexif/canon/exif-mnote-data-canon.c",
       "sources/libexif/canon/mnote-canon-entry.c",
@@ -60,7 +65,7 @@ if (!is_linux || is_chromeos) {
 
       ldflags = [ "/DEF:" + rebase_path("libexif.def") ]
 
-      cflags = [ "/wd4018" ]  # size/unsigned mismatch
+      cflags = [ "/wd4018" ]  # Signed/unsigned mismatch in comparison.
 
       # TODO(GYP): Handle /analyze switch, when it will be used in GN.
     } else if (is_linux) {

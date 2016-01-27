@@ -25,6 +25,7 @@
 #include "content/common/gpu/gpu_config.h"
 #include "content/common/gpu/gpu_memory_buffer_factory.h"
 #include "content/common/gpu/gpu_messages.h"
+#include "content/common/gpu/media/gpu_jpeg_decode_accelerator.h"
 #include "content/common/gpu/media/gpu_video_decode_accelerator.h"
 #include "content/common/gpu/media/gpu_video_encode_accelerator.h"
 #include "content/common/sandbox_linux/sandbox_linux.h"
@@ -35,6 +36,7 @@
 #include "content/public/common/content_switches.h"
 #include "content/public/common/main_function_params.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
+#include "gpu/command_buffer/service/sync_point_manager.h"
 #include "gpu/config/gpu_info_collector.h"
 #include "gpu/config/gpu_switches.h"
 #include "gpu/config/gpu_util.h"
@@ -45,9 +47,15 @@
 #include "ui/gl/gl_switches.h"
 #include "ui/gl/gpu_switching_manager.h"
 
+#if defined(OS_ANDROID)
+#include "base/trace_event/memory_dump_manager.h"
+#include "components/tracing/graphics_memory_dump_provider_android.h"
+#endif
+
 #if defined(OS_WIN)
 #include "base/win/windows_version.h"
 #include "base/win/scoped_com_initializer.h"
+#include "content/common/gpu/media/dxva_video_decode_accelerator.h"
 #include "sandbox/win/src/sandbox.h"
 #endif
 
@@ -73,7 +81,11 @@
 #include <sanitizer/coverage_interface.h>
 #endif
 
+#if defined(CYGPROFILE_INSTRUMENTATION)
+const int kGpuTimeout = 30000;
+#else
 const int kGpuTimeout = 10000;
+#endif
 
 namespace content {
 
@@ -223,6 +235,7 @@ int GpuMain(const MainFunctionParams& parameters) {
   // Get vendor_id, device_id, driver_version from browser process through
   // commandline switches.
   GetGpuInfoFromCommandLine(gpu_info, command_line);
+  gpu_info.in_process_gpu = false;
 
 #if defined(OS_CHROMEOS) && defined(ARCH_CPU_X86_FAMILY)
   VaapiWrapper::PreSandboxInitialization();
@@ -280,9 +293,11 @@ int GpuMain(const MainFunctionParams& parameters) {
       if (!CollectGraphicsInfo(gpu_info))
         dead_on_arrival = true;
 
-#if defined(OS_CHROMEOS) || defined(OS_ANDROID)
-      // Recompute gpu driver bug workarounds - this is specifically useful
-      // on systems where vendor_id/device_id aren't available.
+#if defined(OS_CHROMEOS) || defined(OS_ANDROID) || defined(OS_LINUX)
+      // Recompute gpu driver bug workarounds.
+      // This is necessary on systems where vendor_id/device_id aren't available
+      // (Chrome OS, Android) or where workarounds may be dependent on GL_VENDOR
+      // and GL_RENDERER strings which are lazily computed (Linux).
       if (!command_line.HasSwitch(switches::kDisableGpuDriverBugWorkarounds)) {
         gpu::ApplyGpuDriverBugWorkarounds(
             gpu_info, const_cast<base::CommandLine*>(&command_line));
@@ -346,21 +361,26 @@ int GpuMain(const MainFunctionParams& parameters) {
         content::GpuVideoDecodeAccelerator::GetSupportedProfiles();
     gpu_info.video_encode_accelerator_supported_profiles =
         content::GpuVideoEncodeAccelerator::GetSupportedProfiles();
+    gpu_info.jpeg_decode_accelerator_supported =
+        content::GpuJpegDecodeAccelerator::IsSupported();
   } else {
     dead_on_arrival = true;
   }
 
   logging::SetLogMessageHandler(NULL);
 
-  scoped_ptr<GpuMemoryBufferFactory> gpu_memory_buffer_factory =
-      GpuMemoryBufferFactory::Create(
-          GpuChildThread::GetGpuMemoryBufferFactoryType());
+  scoped_ptr<GpuMemoryBufferFactory> gpu_memory_buffer_factory;
+  if (GpuMemoryBufferFactory::GetNativeType() != gfx::EMPTY_BUFFER)
+    gpu_memory_buffer_factory = GpuMemoryBufferFactory::CreateNativeType();
+
+  gpu::SyncPointManager sync_point_manager(false);
 
   GpuProcess gpu_process;
 
   GpuChildThread* child_thread = new GpuChildThread(
       watchdog_thread.get(), dead_on_arrival, gpu_info, deferred_messages.Get(),
-      gpu_memory_buffer_factory.get());
+      gpu_memory_buffer_factory.get(),
+      &sync_point_manager);
   while (!deferred_messages.Get().empty())
     deferred_messages.Get().pop();
 
@@ -370,6 +390,12 @@ int GpuMain(const MainFunctionParams& parameters) {
 
   if (watchdog_thread.get())
     watchdog_thread->AddPowerObserver();
+
+#if defined(OS_ANDROID)
+  base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
+      tracing::GraphicsMemoryDumpProvider::GetInstance(), "AndroidGraphics",
+      nullptr);
+#endif
 
   {
     TRACE_EVENT0("gpu", "Run Message Loop");
@@ -410,11 +436,17 @@ bool WarmUpSandbox(const base::CommandLine& command_line) {
     // platforms.
     (void) base::RandUint64();
   }
+
+#if defined(OS_WIN)
+  content::DXVAVideoDecodeAccelerator::PreSandboxInitialization();
+#endif
   return true;
 }
 
 #if !defined(OS_MACOSX)
 bool CollectGraphicsInfo(gpu::GPUInfo& gpu_info) {
+  TRACE_EVENT0("gpu,startup", "Collect Graphics Info");
+
   bool res = true;
   gpu::CollectInfoResult result = gpu::CollectContextGraphicsInfo(&gpu_info);
   switch (result) {
@@ -489,7 +521,7 @@ void WarmUpSandboxNvidia(const gpu::GPUInfo& gpu_info,
 bool StartSandboxLinux(const gpu::GPUInfo& gpu_info,
                        GpuWatchdogThread* watchdog_thread,
                        bool should_initialize_gl_context) {
-  TRACE_EVENT0("gpu", "Initialize sandbox");
+  TRACE_EVENT0("gpu,startup", "Initialize sandbox");
 
   bool res = false;
 
@@ -526,20 +558,13 @@ bool StartSandboxLinux(const gpu::GPUInfo& gpu_info,
 
 #if defined(OS_WIN)
 bool StartSandboxWindows(const sandbox::SandboxInterfaceInfo* sandbox_info) {
-  TRACE_EVENT0("gpu", "Lower token");
+  TRACE_EVENT0("gpu,startup", "Lower token");
 
   // For Windows, if the target_services interface is not zero, the process
   // is sandboxed and we must call LowerToken() before rendering untrusted
   // content.
   sandbox::TargetServices* target_services = sandbox_info->target_services;
   if (target_services) {
-#if defined(ADDRESS_SANITIZER)
-    // Bind and leak dbghelp.dll before the token is lowered, otherwise
-    // AddressSanitizer will crash when trying to symbolize a report.
-    if (!LoadLibraryA("dbghelp.dll"))
-      return false;
-#endif
-
     target_services->LowerToken();
     return true;
   }

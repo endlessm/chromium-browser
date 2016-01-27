@@ -361,6 +361,31 @@ int chdir(const char *path) {
   return errno_value_call(linux_syscall1(__NR_chdir, (uintptr_t) path));
 }
 
+int fchdir(int fd) {
+  return errno_value_call(linux_syscall1(__NR_fchdir, fd));
+}
+
+int fchmod(int fd, mode_t mode) {
+  return errno_value_call(linux_syscall2(__NR_fchmod, fd, mode));
+}
+
+int fsync(int fd) {
+  return errno_value_call(linux_syscall1(__NR_fsync, fd));
+}
+
+int fdatasync(int fd) {
+  return errno_value_call(linux_syscall1(__NR_fdatasync, fd));
+}
+
+int ftruncate(int fd, off_t length) {
+  return errno_value_call(linux_syscall2(__NR_ftruncate, fd, length));
+}
+
+int utimes(const char *filename, const struct timeval *times) {
+  return errno_value_call(linux_syscall2(__NR_utimes, (uintptr_t) filename,
+        (uintptr_t) times));
+}
+
 char *__getcwd_without_malloc(char *buffer, size_t len) {
   int rc = errno_value_call(
       linux_syscall2(__NR_getcwd, (uintptr_t) buffer, len));
@@ -610,6 +635,11 @@ int linux_sigprocmask(int how,
                      sizeof(*set)));
 }
 
+int linux_tgkill(int tgid, int tid, int sig) {
+  return errno_value_call(
+      linux_syscall3(__NR_tgkill, tgid, tid, sig));
+}
+
 /*
  * Obtain Linux signal number from portable signal number.
  */
@@ -745,8 +775,7 @@ int linux_clone_wrapper(uintptr_t fn, uintptr_t arg,
    * Here we reserve 6 * 4 bytes for three purposes described below:
    * 1) At the beginning of the child process, we call fn(arg). To pass
    *    the function pointer and arguments, we use |stack| for |arg|,
-   *    |stack - 4| for |fn|. Here, we need 4-byte extra memory on top of
-   *    stack for |arg|.
+   *    |stack + 4| for |fn|.
    * 2) Our syscall() implementation reads six 4-byte arguments regardless
    *    of its actual arguments.
    * 3) Similar to 2), our clone() implementation reads three 4-byte arguments
@@ -758,8 +787,8 @@ int linux_clone_wrapper(uintptr_t fn, uintptr_t arg,
   void *stack = (void *) (((uintptr_t) child_stack - sizeof(uintptr_t) * 6) &
                           kStackAlignmentMask);
   /* Put |fn| and |arg| on child process's stack. */
-  ((uintptr_t *) stack)[-1] = fn;
   ((uintptr_t *) stack)[0] = arg;
+  ((uintptr_t *) stack)[1] = fn;
 
 #if defined(__i386__)
   uint32_t result;
@@ -779,7 +808,7 @@ int linux_clone_wrapper(uintptr_t fn, uintptr_t arg,
                         * Call fn(arg). Note that |arg| is already ready on top
                         * of the stack, here.
                         */
-                       "call *-4(%%esp)\n"
+                       "call *4(%%esp)\n"
                        /* Then call _exit(2) with the return value. */
                        "mov %%eax, %%ebx\n"
                        "mov %[exit_sysno], %%eax\n"
@@ -815,7 +844,7 @@ int linux_clone_wrapper(uintptr_t fn, uintptr_t arg,
                        "mov fp, #0\n"
                        /* Load |arg| to r0 register, then call |fn|. */
                        "ldr r0, [sp]\n"
-                       "ldr r1, [sp, #-4]\n"
+                       "ldr r1, [sp, #4]\n"
                        "blx r1\n"
                        /*
                         * Then, call _exit(2) with the returned value.

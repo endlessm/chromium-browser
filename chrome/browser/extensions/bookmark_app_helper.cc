@@ -5,6 +5,7 @@
 #include "chrome/browser/extensions/bookmark_app_helper.h"
 
 #include <cctype>
+#include <string>
 
 #include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
@@ -26,6 +27,7 @@
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/manifest_handlers/app_launch_info.h"
 #include "chrome/common/url_constants.h"
+#include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/web_contents.h"
@@ -61,6 +63,10 @@
 #include "chrome/browser/web_applications/web_app_mac.h"
 #include "chrome/common/chrome_switches.h"
 #endif
+
+#if defined(OS_WIN)
+#include "base/win/shortcut.h"
+#endif  // defined(OS_WIN)
 
 #if defined(USE_ASH)
 #include "chrome/browser/ui/ash/launcher/chrome_launcher_controller.h"
@@ -166,8 +172,8 @@ void GenerateIcons(
           net::registry_controlled_domains::INCLUDE_PRIVATE_REGISTRIES));
   if (!domain_and_registry.empty()) {
     icon_letter = domain_and_registry[0];
-  } else if (!app_url.host().empty()) {
-    icon_letter = app_url.host()[0];
+  } else if (app_url.has_host()) {
+    icon_letter = app_url.host_piece()[0];
   }
 
   // If no color has been specified, use a dark gray so it will stand out on the
@@ -202,14 +208,15 @@ void ReplaceWebAppIcons(
   }
 }
 
-// Class to handle installing a bookmark app. Handles downloading and decoding
-// the icons.
+// Class to handle installing a bookmark app after it has synced. Handles
+// downloading and decoding the icons.
 class BookmarkAppInstaller : public base::RefCounted<BookmarkAppInstaller>,
-                             public chrome::BitmapFetcherDelegate {
+                             public content::WebContentsObserver {
  public:
   BookmarkAppInstaller(ExtensionService* service,
                        const WebApplicationInfo& web_app_info)
-      : service_(service), web_app_info_(web_app_info) {}
+      : service_(service),
+        web_app_info_(web_app_info) {}
 
   void Run() {
     for (const auto& icon : web_app_info_.icons) {
@@ -218,54 +225,92 @@ class BookmarkAppInstaller : public base::RefCounted<BookmarkAppInstaller>,
     }
 
     if (urls_to_download_.size()) {
-      DownloadNextImage();
-
-      // Matched in OnFetchComplete.
+      // Matched in OnIconsDownloaded.
       AddRef();
+      SetupWebContents();
+
       return;
     }
 
     FinishInstallation();
+  }
+
+  void SetupWebContents() {
+    // Spin up a web contents process so we can use FaviconDownloader.
+    // This is necessary to make sure we pick up all of the images provided
+    // in favicon URLs. Without this, bookmark app sync can fail due to
+    // missing icons which are not correctly extracted from a favicon.
+    // (The eventual error indicates that there are missing files, which
+    // are the not-extracted favicon images).
+    //
+    // TODO(dominickn): refactor bookmark app syncing to reuse one web
+    // contents for all pending synced bookmark apps. This will avoid
+    // pathological cases where n renderers for n bookmark apps are spun up on
+    // first sign-in to a new machine.
+    web_contents_.reset(content::WebContents::Create(
+        content::WebContents::CreateParams(service_->profile())));
+    Observe(web_contents_.get());
+
+    // Load about:blank so that the process actually starts.
+    // Image download continues in DidFinishLoad.
+    content::NavigationController::LoadURLParams load_params(
+        GURL("about:blank"));
+    load_params.transition_type = ui::PAGE_TRANSITION_GENERATED;
+    web_contents_->GetController().LoadURLWithParams(load_params);
+  }
+
+  void DidFinishLoad(content::RenderFrameHost* render_frame_host,
+                     const GURL& validated_url) override {
+    favicon_downloader_.reset(new FaviconDownloader(
+        web_contents_.get(), urls_to_download_,
+        base::Bind(&BookmarkAppInstaller::OnIconsDownloaded,
+                    base::Unretained(this))));
+
+    // Skip downloading the page favicons as everything in is the URL list.
+    favicon_downloader_->SkipPageFavicons();
+    favicon_downloader_->Start();
   }
 
  private:
   friend class base::RefCounted<BookmarkAppInstaller>;
   ~BookmarkAppInstaller() override {}
 
-  // BitmapFetcherDelegate:
-  void OnFetchComplete(const GURL& url, const SkBitmap* bitmap) override {
-    if (bitmap && !bitmap->empty() && bitmap->width() == bitmap->height()) {
-      downloaded_bitmaps_.push_back(
-          BookmarkAppHelper::BitmapAndSource(url, *bitmap));
-    }
+  void OnIconsDownloaded(bool success,
+                         const std::map<GURL, std::vector<SkBitmap>>& bitmaps) {
+    // Ignore the unsuccessful case, as the necessary icons will be generated.
+    if (success) {
+      for (const auto& url_bitmaps : bitmaps) {
+        for (const auto& bitmap : url_bitmaps.second) {
+          // Only accept square icons.
+          if (bitmap.empty() || bitmap.width() != bitmap.height())
+            continue;
 
-    if (urls_to_download_.size()) {
-      DownloadNextImage();
-      return;
+          downloaded_bitmaps_.push_back(
+              BookmarkAppHelper::BitmapAndSource(url_bitmaps.first, bitmap));
+        }
+      }
     }
-
     FinishInstallation();
     Release();
   }
 
-  void DownloadNextImage() {
-    DCHECK(urls_to_download_.size());
-
-    bitmap_fetcher_.reset(
-        new chrome::BitmapFetcher(urls_to_download_.back(), this));
-    urls_to_download_.pop_back();
-    bitmap_fetcher_->Init(
-        service_->profile()->GetRequestContext(), std::string(),
-        net::URLRequest::CLEAR_REFERRER_ON_TRANSITION_FROM_SECURE_TO_INSECURE,
-        net::LOAD_DO_NOT_SAVE_COOKIES | net::LOAD_DO_NOT_SEND_COOKIES);
-    bitmap_fetcher_->Start();
-  }
-
   void FinishInstallation() {
+    // Ensure that all icons that are in web_app_info are present, by generating
+    // icons for any sizes which have failed to download. This ensures that the
+    // created manifest for the bookmark app does not contain links to icons
+    // which are not actually created and linked on disk.
+
+    // Ensure that all icon widths in the web app info icon array are present in
+    // the sizes to generate set. This ensures that we will have all of the
+    // icon sizes from when the app was originally added, even if icon URLs are
+    // no longer accessible.
+    std::set<int> sizes_to_generate = SizesToGenerate();
+    for (const auto& icon : web_app_info_.icons)
+      sizes_to_generate.insert(icon.width);
+
     std::map<int, BookmarkAppHelper::BitmapAndSource> size_map =
-        BookmarkAppHelper::ResizeIconsAndGenerateMissing(downloaded_bitmaps_,
-                                                         SizesToGenerate(),
-                                                         &web_app_info_);
+        BookmarkAppHelper::ResizeIconsAndGenerateMissing(
+            downloaded_bitmaps_, sizes_to_generate, &web_app_info_);
     BookmarkAppHelper::UpdateWebAppIconsWithoutChangingLinks(size_map,
                                                              &web_app_info_);
     scoped_refptr<extensions::CrxInstaller> installer(
@@ -277,7 +322,8 @@ class BookmarkAppInstaller : public base::RefCounted<BookmarkAppInstaller>,
   ExtensionService* service_;
   WebApplicationInfo web_app_info_;
 
-  scoped_ptr<chrome::BitmapFetcher> bitmap_fetcher_;
+  scoped_ptr<content::WebContents> web_contents_;
+  scoped_ptr<FaviconDownloader> favicon_downloader_;
   std::vector<GURL> urls_to_download_;
   std::vector<BookmarkAppHelper::BitmapAndSource> downloaded_bitmaps_;
 };
@@ -327,18 +373,10 @@ BookmarkAppHelper::ConstrainBitmapsToSizes(
     ordered_bitmaps[it->bitmap.width()] = *it;
   }
 
-  std::set<int>::const_iterator sizes_it = sizes.begin();
-  std::map<int, BitmapAndSource>::const_iterator bitmaps_it =
-      ordered_bitmaps.begin();
-  while (sizes_it != sizes.end() && bitmaps_it != ordered_bitmaps.end()) {
-    int size = *sizes_it;
+  for (const auto& size : sizes) {
     // Find the closest not-smaller bitmap.
-    bitmaps_it = ordered_bitmaps.lower_bound(size);
-    ++sizes_it;
-    // Ensure the bitmap is valid and smaller than the next allowed size.
-    if (bitmaps_it != ordered_bitmaps.end() &&
-        (sizes_it == sizes.end() ||
-         bitmaps_it->second.bitmap.width() < *sizes_it)) {
+    auto bitmaps_it = ordered_bitmaps.lower_bound(size);
+    if (bitmaps_it != ordered_bitmaps.end()) {
       output_bitmaps[size] = bitmaps_it->second;
       // Resize the bitmap if it does not exactly match the desired size.
       if (output_bitmaps[size].bitmap.width() != size) {
@@ -348,6 +386,7 @@ BookmarkAppHelper::ConstrainBitmapsToSizes(
       }
     }
   }
+
   return output_bitmaps;
 }
 
@@ -404,8 +443,7 @@ BookmarkAppHelper::ResizeIconsAndGenerateMissing(
                                   extension_misc::kNumExtensionIconSizes);
 
   // If there are icons that don't match the accepted icon sizes, find the
-  // closest bigger icon to the accepted sizes and resize the icon to it. An
-  // icon will be resized and used for at most one size.
+  // closest bigger icon to the accepted sizes and resize the icon to it.
   std::map<int, BitmapAndSource> resized_bitmaps(
       ConstrainBitmapsToSizes(icons, allowed_sizes));
 
@@ -418,13 +456,11 @@ BookmarkAppHelper::ResizeIconsAndGenerateMissing(
             resized_bitmaps.begin()->second.bitmap);
   }
 
-  // Work out what icons we need to generate here. Icons are only generated if:
-  // a. there is no icon in the required size, AND
-  // b. there is no icon LARGER than the required size.
-  // Larger icons will be scaled down and used at display time.
+  // Work out what icons we need to generate here. Icons are only generated if
+  // there is no icon in the required size.
   std::set<int> generate_sizes;
   for (int size : sizes_to_generate) {
-    if (resized_bitmaps.lower_bound(size) == resized_bitmaps.end())
+    if (resized_bitmaps.find(size) == resized_bitmaps.end())
       generate_sizes.insert(size);
   }
   GenerateIcons(generate_sizes, web_app_info->app_url,
@@ -477,8 +513,10 @@ BookmarkAppHelper::BookmarkAppHelper(Profile* profile,
     : profile_(profile),
       contents_(contents),
       web_app_info_(web_app_info),
-      crx_installer_(extensions::CrxInstaller::CreateSilent(
-          ExtensionSystem::Get(profile)->extension_service())) {
+      crx_installer_(
+          extensions::CrxInstaller::CreateSilent(ExtensionSystem::Get(profile)
+                                                     ->extension_service())),
+      weak_factory_(this) {
   web_app_info_.open_as_window =
       profile_->GetPrefs()->GetInteger(
           extensions::pref_names::kBookmarkAppCreationLaunchType) ==
@@ -508,11 +546,13 @@ BookmarkAppHelper::~BookmarkAppHelper() {}
 void BookmarkAppHelper::Create(const CreateBookmarkAppCallback& callback) {
   callback_ = callback;
 
-  if (contents_) {
+  // Do not fetch the manifest for extension URLs.
+  if (contents_ &&
+      !contents_->GetVisibleURL().SchemeIs(extensions::kExtensionScheme)) {
     contents_->GetManifest(base::Bind(&BookmarkAppHelper::OnDidGetManifest,
-                                     base::Unretained(this)));
+                                      weak_factory_.GetWeakPtr()));
   } else {
-    OnIconsDownloaded(true, std::map<GURL, std::vector<SkBitmap> >());
+    OnIconsDownloaded(true, std::map<GURL, std::vector<SkBitmap>>());
   }
 }
 
@@ -543,16 +583,15 @@ void BookmarkAppHelper::OnDidGetManifest(const content::Manifest& manifest) {
   }
 
   favicon_downloader_.reset(
-      new FaviconDownloader(contents_,
-                            web_app_info_icon_urls,
+      new FaviconDownloader(contents_, web_app_info_icon_urls,
                             base::Bind(&BookmarkAppHelper::OnIconsDownloaded,
-                                       base::Unretained(this))));
+                                       weak_factory_.GetWeakPtr())));
   favicon_downloader_->Start();
 }
 
 void BookmarkAppHelper::OnIconsDownloaded(
     bool success,
-    const std::map<GURL, std::vector<SkBitmap> >& bitmaps) {
+    const std::map<GURL, std::vector<SkBitmap>>& bitmaps) {
   // The tab has navigated away during the icon download. Cancel the bookmark
   // app creation.
   if (!success) {
@@ -587,10 +626,12 @@ void BookmarkAppHelper::OnIconsDownloaded(
     }
   }
 
+  // Ensure that the necessary-sized icons are available by resizing larger
+  // icons down to smaller sizes, and generating icons for sizes where resizing
+  // is not possible.
   web_app_info_.generated_icon_color = SK_ColorTRANSPARENT;
-  std::map<int, BitmapAndSource> size_to_icons =
-      ResizeIconsAndGenerateMissing(downloaded_icons, SizesToGenerate(),
-                                    &web_app_info_);
+  std::map<int, BitmapAndSource> size_to_icons = ResizeIconsAndGenerateMissing(
+      downloaded_icons, SizesToGenerate(), &web_app_info_);
   ReplaceWebAppIcons(size_to_icons, &web_app_info_);
   favicon_downloader_.reset();
 
@@ -608,7 +649,7 @@ void BookmarkAppHelper::OnIconsDownloaded(
   }
   browser->window()->ShowBookmarkAppBubble(
       web_app_info_, base::Bind(&BookmarkAppHelper::OnBubbleCompleted,
-                                base::Unretained(this)));
+                                weak_factory_.GetWeakPtr()));
 }
 
 void BookmarkAppHelper::OnBubbleCompleted(
@@ -658,21 +699,15 @@ void BookmarkAppHelper::FinishInstallation(const Extension* extension) {
     web_app::ShortcutLocations creation_locations;
 #if defined(OS_LINUX)
     creation_locations.on_desktop = true;
+#elif defined(OS_WIN)
+    // Create the shortcut on the desktop if it's not possible to pin to the
+    // taskbar.
+    creation_locations.on_desktop = !base::win::CanPinShortcutToTaskbar();
 #else
     creation_locations.on_desktop = false;
 #endif
     creation_locations.applications_menu_location =
         web_app::APP_MENU_LOCATION_SUBDIR_CHROMEAPPS;
-    web_app::CreateShortcuts(web_app::SHORTCUT_CREATION_BY_USER,
-                             creation_locations, current_profile, extension);
-    // Creating shortcuts in the start menu fails when the language is set
-    // to certain languages (e.g. Hindi). To work around this, the taskbar /
-    // quick launch icon is created separately to ensure it doesn't fail
-    // due to the start menu shortcut creation failing.
-    // See http://crbug.com/477297 and http://crbug.com/484577.
-    creation_locations.on_desktop = false;
-    creation_locations.applications_menu_location =
-        web_app::APP_MENU_LOCATION_NONE;
     creation_locations.in_quick_launch_bar = true;
     web_app::CreateShortcuts(web_app::SHORTCUT_CREATION_BY_USER,
                              creation_locations, current_profile, extension);
@@ -681,7 +716,7 @@ void BookmarkAppHelper::FinishInstallation(const Extension* extension) {
     ChromeLauncherController::instance()->PinAppWithID(extension->id());
 #endif
   }
-#endif
+#endif  // !defined(OS_MACOSX)
 
 #if defined(OS_MACOSX)
   if (!base::CommandLine::ForCurrentProcess()->HasSwitch(
@@ -696,14 +731,20 @@ void BookmarkAppHelper::FinishInstallation(const Extension* extension) {
 void BookmarkAppHelper::Observe(int type,
                                 const content::NotificationSource& source,
                                 const content::NotificationDetails& details) {
+  // TODO(dominickn): bookmark app creation fails when extensions cannot be
+  // created (e.g. due to management policies). Add to shelf visibility should
+  // be gated on whether extensions can be created - see crbug.com/545541.
   switch (type) {
     case extensions::NOTIFICATION_CRX_INSTALLER_DONE: {
       const Extension* extension =
           content::Details<const Extension>(details).ptr();
-      DCHECK(extension);
-      DCHECK_EQ(AppLaunchInfo::GetLaunchWebURL(extension),
-                web_app_info_.app_url);
-      FinishInstallation(extension);
+      if (extension) {
+        DCHECK_EQ(AppLaunchInfo::GetLaunchWebURL(extension),
+                  web_app_info_.app_url);
+        FinishInstallation(extension);
+      } else {
+        callback_.Run(nullptr, web_app_info_);
+      }
       break;
     }
     case extensions::NOTIFICATION_EXTENSION_INSTALL_ERROR:
@@ -756,7 +797,7 @@ void GetWebApplicationInfoFromApp(
 }
 
 bool IsValidBookmarkAppUrl(const GURL& url) {
-  URLPattern origin_only_pattern(Extension::kValidWebExtentSchemes);
+  URLPattern origin_only_pattern(Extension::kValidBookmarkAppSchemes);
   origin_only_pattern.SetMatchAllURLs(true);
   return url.is_valid() && origin_only_pattern.MatchesURL(url);
 }

@@ -29,8 +29,8 @@
 
 #include "platform/transforms/TransformationMatrix.h"
 
+#include "wtf/Allocator.h"
 #include <string.h> // for memcpy
-#include "wtf/FastAllocBase.h"
 
 namespace blink {
 
@@ -42,7 +42,7 @@ class IntRect;
 class TransformationMatrix;
 
 class PLATFORM_EXPORT AffineTransform {
-    WTF_MAKE_FAST_ALLOCATED(AffineTransform);
+    USING_FAST_MALLOC(AffineTransform);
 public:
     typedef double Transform[6];
 
@@ -88,7 +88,11 @@ public:
 
     void makeIdentity();
 
+    // this' = this * other
     AffineTransform& multiply(const AffineTransform& other);
+    // this' = other * this
+    AffineTransform& preMultiply(const AffineTransform& other);
+
     AffineTransform& scale(double);
     AffineTransform& scale(double sx, double sy);
     AffineTransform& scaleNonUniform(double sx, double sy);
@@ -178,6 +182,10 @@ private:
 
     Transform m_transform;
 };
+
+// Redeclared here to avoid ODR issues.
+// See platform/testing/TransformPrinters.h.
+void PrintTo(const AffineTransform&, std::ostream*);
 
 }
 

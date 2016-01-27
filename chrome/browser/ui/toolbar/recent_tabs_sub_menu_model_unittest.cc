@@ -11,24 +11,28 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/run_loop.h"
 #include "chrome/app/chrome_command_ids.h"
-#include "chrome/browser/sessions/persistent_tab_restore_service.h"
+#include "chrome/browser/sessions/chrome_tab_restore_service_client.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_service_factory.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/sync/profile_sync_service_mock.h"
-#include "chrome/browser/sync/sessions/sessions_sync_manager.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
+#include "chrome/browser/ui/sync/browser_synced_window_delegates_getter.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/browser/ui/toolbar/recent_tabs_builder_test_helper.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/browser_with_test_window_test.h"
 #include "chrome/test/base/menu_model_test.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/sessions/serialized_navigation_entry_test_helper.h"
-#include "components/sessions/session_types.h"
+#include "components/sessions/core/persistent_tab_restore_service.h"
+#include "components/sessions/core/serialized_navigation_entry_test_helper.h"
+#include "components/sessions/core/session_types.h"
 #include "components/sync_driver/glue/synced_session.h"
 #include "components/sync_driver/local_device_info_provider_mock.h"
+#include "components/sync_driver/sync_client.h"
+#include "components/sync_driver/sync_prefs.h"
+#include "components/sync_sessions/sessions_sync_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_utils.h"
 #include "grit/generated_resources.h"
@@ -122,11 +126,12 @@ class RecentTabsSubMenuModelTest
                       "Chrome 10k",
                       sync_pb::SyncEnums_DeviceType_TYPE_LINUX,
                       "device_id")) {
+    sync_prefs_.reset(new sync_driver::SyncPrefs(testing_profile_.GetPrefs()));
     manager_.reset(new browser_sync::SessionsSyncManager(
-        &testing_profile_,
-        local_device_.get(),
-        scoped_ptr<browser_sync::LocalSessionEventRouter>(
-            new DummyRouter())));
+        sync_service_.GetSyncClient()->GetSyncSessionsClient(),
+        sync_prefs_.get(), local_device_.get(),
+        scoped_ptr<browser_sync::LocalSessionEventRouter>(new DummyRouter()),
+        base::Closure(), base::Closure()));
     manager_->MergeDataAndStartSyncing(
         syncer::SESSIONS,
         syncer::SyncDataList(),
@@ -142,8 +147,10 @@ class RecentTabsSubMenuModelTest
 
   static scoped_ptr<KeyedService> GetTabRestoreService(
       content::BrowserContext* browser_context) {
-    return make_scoped_ptr(new PersistentTabRestoreService(
-        Profile::FromBrowserContext(browser_context), NULL));
+    return make_scoped_ptr(new sessions::PersistentTabRestoreService(
+        make_scoped_ptr(new ChromeTabRestoreServiceClient(
+            Profile::FromBrowserContext(browser_context))),
+        nullptr));
   }
 
   sync_driver::OpenTabsUIDelegate* GetOpenTabsDelegate() {
@@ -157,7 +164,7 @@ class RecentTabsSubMenuModelTest
  private:
   TestingProfile testing_profile_;
   testing::NiceMock<ProfileSyncServiceMock> sync_service_;
-
+  scoped_ptr<sync_driver::SyncPrefs> sync_prefs_;
   scoped_ptr<browser_sync::SessionsSyncManager> manager_;
   scoped_ptr<sync_driver::LocalDeviceInfoProviderMock> local_device_;
 };

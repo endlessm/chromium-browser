@@ -20,6 +20,7 @@ class FloatSize;
 // to completion is still handled by compositor and kicks in when scrolling is
 // complete (i.e, upon ScrollEnd or FlingEnd).
 class CORE_EXPORT TopControls final : public NoBaseWillBeGarbageCollectedFinalized<TopControls> {
+    USING_FAST_MALLOC_WILL_BE_REMOVED(TopControls);
 public:
     static PassOwnPtrWillBeRawPtr<TopControls> create(const FrameHost& host)
     {

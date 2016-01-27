@@ -88,7 +88,7 @@ WebInspector.NavigatorView.appendAddFolderItem = function(contextMenu)
 {
     function addFolder()
     {
-        WebInspector.isolatedFileSystemManager.addFileSystem();
+        WebInspector.isolatedFileSystemManager.addFileSystem("");
     }
 
     var addFolderLabel = WebInspector.UIString.capitalize("Add ^folder to ^workspace");
@@ -669,7 +669,7 @@ WebInspector.BaseNavigatorTreeElement.prototype = {
                 this.listItemElement.classList.add(this._iconClasses[i]);
         }
 
-        this.listItemElement.createChild("div", "selection");
+        this.listItemElement.createChild("div", "selection fill");
 
         if (!this._noIcon)
             this.imageElement = this.listItemElement.createChild("img", "icon");

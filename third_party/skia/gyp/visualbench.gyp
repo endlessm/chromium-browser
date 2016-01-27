@@ -17,18 +17,15 @@
       'include_dirs' : [
         '../bench',
         '../include/gpu',
+        '../include/private',
         '../src/core',
         '../src/effects',
         '../src/images',
       ],
       'sources': [
         '../gm/gm.cpp',
-        '../tools/VisualBench/VisualBench.h',
-        '../tools/VisualBench/VisualBench.cpp',
-        '../tools/VisualBench/VisualBenchmarkStream.h',
-        '../tools/VisualBench/VisualBenchmarkStream.cpp',
-        '../tools/VisualBench/VisualSKPBench.h',
-        '../tools/VisualBench/VisualSKPBench.cpp',
+        '<!@(python find.py ../tools/VisualBench "*.cpp")',
+        '<!@(python find.py ../tools/VisualBench "*.h")',
         '<!@(python find.py ../bench "*.cpp")',
       ],
       'sources!': [
@@ -38,15 +35,17 @@
       'dependencies': [
         'etc1.gyp:libetc1',
         'flags.gyp:flags',
-        'gputest.gyp:skgputest', 
+        'jsoncpp.gyp:jsoncpp',
+        'gputest.gyp:skgputest',
         'skia_lib.gyp:skia_lib',
+        'tools.gyp:bitmap_region_decoder',
         'tools.gyp:proc_stats',
         'tools.gyp:sk_tool_utils',
         'tools.gyp:timer',
         'views.gyp:views',
       ],
       'conditions' : [
-        [ 'skia_os == "android"', {
+        [ 'skia_os == "android" and skia_use_sdl == 0', {
           'dependencies': [
             'android_deps.gyp:Android_VisualBench',
             'android_deps.gyp:native_app_glue',
@@ -57,7 +56,12 @@
               '-lGLESv2',
               '-lEGL',
             ],
-          },        
+          },
+        }],
+        [ 'skia_os == "android" and skia_use_sdl == 1', {
+          'dependencies': [
+            'android_deps.gyp:Android_VisualBenchSDL',
+          ],
         }],
       ],
     },

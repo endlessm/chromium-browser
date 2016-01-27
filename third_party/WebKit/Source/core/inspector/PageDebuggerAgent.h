@@ -33,7 +33,6 @@
 
 #include "core/CoreExport.h"
 #include "core/inspector/InspectorDebuggerAgent.h"
-#include "core/inspector/InspectorOverlay.h"
 
 using blink::TypeBuilder::Debugger::ExceptionDetails;
 using blink::TypeBuilder::Debugger::ScriptId;
@@ -42,51 +41,37 @@ using blink::TypeBuilder::Runtime::RemoteObject;
 namespace blink {
 
 class DocumentLoader;
-class InspectorPageAgent;
+class InspectedFrames;
 class MainThreadDebugger;
 
 class CORE_EXPORT PageDebuggerAgent final
-    : public InspectorDebuggerAgent
-    , public InspectorOverlay::Listener {
+    : public InspectorDebuggerAgent {
     WTF_MAKE_NONCOPYABLE(PageDebuggerAgent);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(PageDebuggerAgent);
-    WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(PageDebuggerAgent);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(PageDebuggerAgent);
 public:
-    static PassOwnPtrWillBeRawPtr<PageDebuggerAgent> create(MainThreadDebugger*, InspectorPageAgent*, InjectedScriptManager*, InspectorOverlay*);
+    static PassOwnPtrWillBeRawPtr<PageDebuggerAgent> create(MainThreadDebugger*, InspectedFrames*, InjectedScriptManager*);
     ~PageDebuggerAgent() override;
     DECLARE_VIRTUAL_TRACE();
 
     void enable(ErrorString*) final;
+    void disable(ErrorString*) final;
     void restore() final;
-    void compileScript(ErrorString*, const String& expression, const String& sourceURL, bool persistScript, const int* executionContextId, TypeBuilder::OptOutput<TypeBuilder::Debugger::ScriptId>*, RefPtr<TypeBuilder::Debugger::ExceptionDetails>&) override;
-    void runScript(ErrorString*, const TypeBuilder::Debugger::ScriptId&, const int* executionContextId, const String* objectGroup, const bool* doNotPauseOnExceptionsAndMuteConsole, RefPtr<TypeBuilder::Runtime::RemoteObject>& result, RefPtr<TypeBuilder::Debugger::ExceptionDetails>&) override;
+    void compileScript(ErrorString*, const String& expression, const String& sourceURL, bool persistScript, int executionContextId, TypeBuilder::OptOutput<TypeBuilder::Debugger::ScriptId>*, RefPtr<TypeBuilder::Debugger::ExceptionDetails>&) override;
+    void runScript(ErrorString*, const TypeBuilder::Debugger::ScriptId&, int executionContextId, const String* objectGroup, const bool* doNotPauseOnExceptionsAndMuteConsole, RefPtr<TypeBuilder::Runtime::RemoteObject>& result, RefPtr<TypeBuilder::Debugger::ExceptionDetails>&) override;
 
     void didStartProvisionalLoad(LocalFrame*);
     void didClearDocumentOfWindowObject(LocalFrame*);
-    void didCommitLoadForLocalFrame(LocalFrame*) override;
-
-protected:
-    void enable() override;
-    void disable() override;
 
 private:
-    void startListeningV8Debugger() override;
-    void stopListeningV8Debugger() override;
-    V8Debugger& debugger() override;
+    PageDebuggerAgent(MainThreadDebugger*, InspectedFrames*, InjectedScriptManager*);
     void muteConsole() override;
     void unmuteConsole() override;
 
-    // InspectorOverlay::Listener implementation.
-    void overlayResumed() override;
-    void overlaySteppedOver() override;
-
-    InjectedScript injectedScriptForEval(ErrorString*, const int* executionContextId) override;
+    // V8DebuggerAgent::Client implemntation.
     bool canExecuteScripts() const;
 
-    PageDebuggerAgent(MainThreadDebugger*, InspectorPageAgent*, InjectedScriptManager*, InspectorOverlay*);
-    RawPtrWillBeMember<MainThreadDebugger> m_mainThreadDebugger;
-    RawPtrWillBeMember<InspectorPageAgent> m_pageAgent;
-    RawPtrWillBeMember<InspectorOverlay> m_overlay;
+    InspectedFrames* m_inspectedFrames;
+    RawPtrWillBeMember<InjectedScriptManager> m_injectedScriptManager;
     HashMap<String, String> m_compiledScriptURLs;
 };
 

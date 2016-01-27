@@ -195,9 +195,10 @@ gl::Error Framebuffer11::invalidateBase(size_t count, const GLenum *attachments,
                     colorAttachmentID = attachments[i] - GL_COLOR_ATTACHMENT0;
                 }
 
-                if (mData.getColorAttachment(colorAttachmentID))
+                if (mData.getColorAttachment(static_cast<unsigned int>(colorAttachmentID)))
                 {
-                    error = mData.getColorAttachment(colorAttachmentID)->getRenderTarget(&renderTarget);
+                    error = mData.getColorAttachment(static_cast<unsigned int>(colorAttachmentID))
+                                ->getRenderTarget(&renderTarget);
                     if (error.isError())
                     {
                         return error;
@@ -288,7 +289,12 @@ gl::Error Framebuffer11::invalidateSub(size_t, const GLenum *, const gl::Rectang
     return gl::Error(GL_NO_ERROR);
 }
 
-gl::Error Framebuffer11::readPixels(const gl::Rectangle &area, GLenum format, GLenum type, size_t outputPitch, const gl::PixelPackState &pack, uint8_t *pixels) const
+gl::Error Framebuffer11::readPixelsImpl(const gl::Rectangle &area,
+                                        GLenum format,
+                                        GLenum type,
+                                        size_t outputPitch,
+                                        const gl::PixelPackState &pack,
+                                        uint8_t *pixels) const
 {
     ID3D11Texture2D *colorBufferTexture = nullptr;
     unsigned int subresourceIndex = 0;
@@ -305,8 +311,16 @@ gl::Error Framebuffer11::readPixels(const gl::Rectangle &area, GLenum format, GL
     gl::Buffer *packBuffer = pack.pixelBuffer.get();
     if (packBuffer != nullptr)
     {
+        if (pack.rowLength != 0 || pack.skipRows != 0 || pack.skipPixels != 0)
+        {
+            UNIMPLEMENTED();
+            return gl::Error(GL_INVALID_OPERATION,
+                             "Unimplemented pixel store parameters in readPixelsImpl");
+        }
+
         Buffer11 *packBufferStorage = GetImplAs<Buffer11>(packBuffer);
-        PackPixelsParams packParams(area, format, type, outputPitch, pack, reinterpret_cast<ptrdiff_t>(pixels));
+        PackPixelsParams packParams(area, format, type, static_cast<GLuint>(outputPitch), pack,
+                                    reinterpret_cast<ptrdiff_t>(pixels));
 
         error = packBufferStorage->packPixels(colorBufferTexture, subresourceIndex, packParams);
         if (error.isError())
@@ -317,7 +331,8 @@ gl::Error Framebuffer11::readPixels(const gl::Rectangle &area, GLenum format, GL
     }
     else
     {
-        error = mRenderer->readTextureData(colorBufferTexture, subresourceIndex, area, format, type, outputPitch, pack, pixels);
+        error = mRenderer->readTextureData(colorBufferTexture, subresourceIndex, area, format, type,
+                                           static_cast<GLuint>(outputPitch), pack, pixels);
         if (error.isError())
         {
             SafeRelease(colorBufferTexture);

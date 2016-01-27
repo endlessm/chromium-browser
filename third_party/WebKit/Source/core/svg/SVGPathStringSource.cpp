@@ -32,7 +32,7 @@ SVGPathStringSource::SVGPathStringSource(const String& string)
     , m_seenError(false)
     , m_previousCommand(PathSegUnknown)
 {
-    ASSERT(!string.isEmpty());
+    ASSERT(!string.isNull());
 
     if (m_is8BitSource) {
         m_current.m_character8 = string.characters8();
@@ -217,9 +217,9 @@ PathSegmentData SVGPathStringSource::parseSegment()
         break;
     case PathSegArcRel:
     case PathSegArcAbs:
-        segment.point1.setX(parseNumberWithError()); // rx
-        segment.point1.setY(parseNumberWithError()); // ry
-        segment.point2.setX(parseNumberWithError()); // angle
+        segment.arcRadii().setX(parseNumberWithError());
+        segment.arcRadii().setY(parseNumberWithError());
+        segment.setArcAngle(parseNumberWithError());
         segment.arcLarge = parseArcFlagWithError();
         segment.arcSweep = parseArcFlagWithError();
         segment.targetPoint.setX(parseNumberWithError());

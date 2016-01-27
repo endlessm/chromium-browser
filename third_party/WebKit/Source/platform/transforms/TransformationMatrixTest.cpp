@@ -17,11 +17,11 @@ TEST(TransformationMatrixTest, NonInvertableBlendTest)
 
     result = to;
     result.blend(from, 0.25);
-    EXPECT_TRUE(result == from);
+    EXPECT_EQ(result, from);
 
     result = to;
     result.blend(from, 0.75);
-    EXPECT_TRUE(result == to);
+    EXPECT_EQ(result, to);
 }
 
 TEST(TransformationMatrixTest, IsIdentityOr2DTranslation)
@@ -56,6 +56,23 @@ TEST(TransformationMatrixTest, To2DTranslation)
     EXPECT_EQ(FloatSize(), matrix.to2DTranslation());
     matrix.translate(30, -40);
     EXPECT_EQ(FloatSize(30, -40), matrix.to2DTranslation());
+}
+
+TEST(TransformationMatrixTest, ApplyTransformOrigin)
+{
+    TransformationMatrix matrix;
+
+    // (0,0,0) is a fixed point of this scale.
+    // (1,1,1) should be scaled appropriately.
+    matrix.scale3d(2, 3, 4);
+    EXPECT_EQ(FloatPoint3D(0, 0, 0), matrix.mapPoint(FloatPoint3D(0, 0, 0)));
+    EXPECT_EQ(FloatPoint3D(2, 3, -4), matrix.mapPoint(FloatPoint3D(1, 1, -1)));
+
+    // With the transform origin applied, (1,2,3) is the fixed point.
+    // (0,0,0) should be scaled according to its distance from (1,2,3).
+    matrix.applyTransformOrigin(1, 2, 3);
+    EXPECT_EQ(FloatPoint3D(1, 2, 3), matrix.mapPoint(FloatPoint3D(1, 2, 3)));
+    EXPECT_EQ(FloatPoint3D(-1, -4, -9), matrix.mapPoint(FloatPoint3D(0, 0, 0)));
 }
 
 } // namespace blink

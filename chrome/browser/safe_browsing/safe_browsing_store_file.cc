@@ -9,6 +9,9 @@
 #include "base/md5.h"
 #include "base/metrics/histogram.h"
 #include "base/metrics/sparse_histogram.h"
+#include "components/safe_browsing_db/prefix_set.h"
+
+namespace safe_browsing {
 
 namespace {
 
@@ -819,7 +822,7 @@ bool SafeBrowsingStoreFile::FinishChunk() {
 }
 
 bool SafeBrowsingStoreFile::DoUpdate(
-    safe_browsing::PrefixSetBuilder* builder,
+    PrefixSetBuilder* builder,
     std::vector<SBAddFullHash>* add_full_hashes_result) {
   DCHECK(CalledOnValidThread());
   DCHECK(file_.get() || empty_);
@@ -1067,7 +1070,7 @@ bool SafeBrowsingStoreFile::DoUpdate(
 }
 
 bool SafeBrowsingStoreFile::FinishUpdate(
-    safe_browsing::PrefixSetBuilder* builder,
+    PrefixSetBuilder* builder,
     std::vector<SBAddFullHash>* add_full_hashes_result) {
   DCHECK(CalledOnValidThread());
   DCHECK(builder);
@@ -1162,3 +1165,5 @@ bool SafeBrowsingStoreFile::DeleteStore(const base::FilePath& basename) {
 
   return true;
 }
+
+}  // namespace safe_browsing

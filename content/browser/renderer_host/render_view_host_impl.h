@@ -11,10 +11,12 @@
 
 #include "base/callback.h"
 #include "base/compiler_specific.h"
+#include "base/gtest_prod_util.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/process/kill.h"
 #include "content/browser/renderer_host/render_widget_host_impl.h"
+#include "content/browser/renderer_host/render_widget_host_owner_delegate.h"
 #include "content/browser/site_instance_impl.h"
 #include "content/common/drag_event_source_info.h"
 #include "content/public/browser/notification_observer.h"
@@ -48,8 +50,8 @@ class AXTree;
 
 namespace content {
 
-class MediaWebContentsObserver;
 class ChildProcessSecurityPolicyImpl;
+class MediaWebContentsObserver;
 class PageState;
 class RenderWidgetHostDelegate;
 class SessionStorageNamespace;
@@ -92,16 +94,18 @@ struct FrameReplicationState;
 //
 // For context, please see https://crbug.com/467770 and
 // http://www.chromium.org/developers/design-documents/site-isolation.
-class CONTENT_EXPORT RenderViewHostImpl
-    : public RenderViewHost,
-      public RenderWidgetHostImpl,
-      public RenderProcessHostObserver {
+class CONTENT_EXPORT RenderViewHostImpl : public RenderViewHost,
+                                          RenderWidgetHostImpl,
+                                          public RenderWidgetHostOwnerDelegate,
+                                          public RenderProcessHostObserver {
  public:
   // Convenience function, just like RenderViewHost::FromID.
   static RenderViewHostImpl* FromID(int render_process_id, int render_view_id);
 
-  // |routing_id| could be a valid route id, or it could be MSG_ROUTING_NONE, in
-  // which case RenderWidgetHost will create a new one.  |swapped_out| indicates
+  // Convenience function, just like RenderViewHost::From.
+  static RenderViewHostImpl* From(RenderWidgetHost* rwh);
+
+  // |routing_id| must be a valid route id.  |swapped_out| indicates
   // whether the view should initially be swapped out (e.g., for an opener
   // frame being rendered by another process). |hidden| indicates whether the
   // view is initially hidden or visible.
@@ -114,14 +118,18 @@ class CONTENT_EXPORT RenderViewHostImpl
   RenderViewHostImpl(SiteInstance* instance,
                      RenderViewHostDelegate* delegate,
                      RenderWidgetHostDelegate* widget_delegate,
-                     int routing_id,
-                     int main_frame_routing_id,
+                     int32 routing_id,
+                     int32 main_frame_routing_id,
                      bool swapped_out,
                      bool hidden,
                      bool has_initialized_audio_host);
   ~RenderViewHostImpl() override;
 
   // RenderViewHost implementation.
+  bool Send(IPC::Message* msg) override;
+  RenderWidgetHostImpl* GetWidget() const override;
+  RenderProcessHost* GetProcess() const override;
+  int GetRoutingID() const override;
   RenderFrameHost* GetMainFrame() override;
   void AllowBindings(int binding_flags) override;
   void ClearFocusedElement() override;
@@ -184,6 +192,7 @@ class CONTENT_EXPORT RenderViewHostImpl
 #endif
 
   // RenderProcessHostObserver implementation
+  void RenderProcessReady(RenderProcessHost* host) override;
   void RenderProcessExited(RenderProcessHost* host,
                            base::TerminationStatus status,
                            int exit_code) override;
@@ -220,6 +229,16 @@ class CONTENT_EXPORT RenderViewHostImpl
   bool is_active() const { return is_active_; }
   void set_is_active(bool is_active) { is_active_ = is_active; }
 
+  // Tracks whether this RenderViewHost is pending deletion.  This is tracked
+  // separately from the main frame pending deletion state, because the
+  // RenderViewHost's main frame is cleared when the main frame's
+  // RenderFrameHost is marked for deletion.
+  //
+  // TODO(nasko,alexmos): This should not be necessary once swapped-out is
+  // removed.
+  bool is_pending_deletion() const { return is_pending_deletion_; }
+  void set_pending_deletion() { is_pending_deletion_ = true; }
+
   // Tracks whether this RenderViewHost is swapped out, according to its main
   // frame RenderFrameHost.
   void set_is_swapped_out(bool is_swapped_out) {
@@ -247,18 +266,6 @@ class CONTENT_EXPORT RenderViewHostImpl
   // Tells the renderer view to focus the first (last if reverse is true) node.
   void SetInitialFocus(bool reverse);
 
-  // Get html data by serializing all frames of current page with lists
-  // which contain all resource links that have local copy.
-  // The parameter links contain original URLs of all saved links.
-  // The parameter local_paths contain corresponding local file paths of
-  // all saved links, which matched with vector:links one by one.
-  // The parameter local_directory_name is relative path of directory which
-  // contain all saved auxiliary files included all sub frames and resouces.
-  void GetSerializedHtmlDataForCurrentPageWithLocalLinks(
-      const std::vector<GURL>& links,
-      const std::vector<base::FilePath>& local_paths,
-      const base::FilePath& local_directory_name);
-
   // Notifies the RenderViewHost that its load state changed.
   void LoadStateChanged(const GURL& url,
                         const net::LoadStateWithParam& load_state,
@@ -275,33 +282,27 @@ class CONTENT_EXPORT RenderViewHostImpl
   void Shutdown() override;
   void WasHidden() override;
   void WasShown(const ui::LatencyInfo& latency_info) override;
-  bool IsRenderView() const override;
   bool OnMessageReceived(const IPC::Message& msg) override;
   void GotFocus() override;
-  void LostCapture() override;
-  void LostMouseLock() override;
   void SetIsLoading(bool is_loading) override;
   void ForwardMouseEvent(const blink::WebMouseEvent& mouse_event) override;
   void ForwardKeyboardEvent(const NativeWebKeyboardEvent& key_event) override;
-  gfx::Rect GetRootWindowResizerRect() const override;
 
   // Creates a new RenderView with the given route id.
-  void CreateNewWindow(
-      int route_id,
-      int main_frame_route_id,
-      const ViewHostMsg_CreateWindow_Params& params,
-      SessionStorageNamespace* session_storage_namespace);
+  void CreateNewWindow(int32_t route_id,
+                       int32_t main_frame_route_id,
+                       int32_t main_frame_widget_route_id,
+                       const ViewHostMsg_CreateWindow_Params& params,
+                       SessionStorageNamespace* session_storage_namespace);
 
   // Creates a new RenderWidget with the given route id.  |popup_type| indicates
   // if this widget is a popup and what kind of popup it is (select, autofill).
-  void CreateNewWidget(int route_id, blink::WebPopupType popup_type);
+  void CreateNewWidget(int32 route_id,
+                       blink::WebPopupType popup_type);
 
   // Creates a full screen RenderWidget.
-  void CreateNewFullscreenWidget(int route_id);
+  void CreateNewFullscreenWidget(int32 route_id);
 
-  int main_frame_routing_id() const {
-    return main_frame_routing_id_;
-  }
   void set_main_frame_routing_id(int routing_id) {
     main_frame_routing_id_ = routing_id;
   }
@@ -329,16 +330,7 @@ class CONTENT_EXPORT RenderViewHostImpl
 
  protected:
   // RenderWidgetHost protected overrides.
-  void OnUserGesture() override;
-  void NotifyRendererUnresponsive() override;
-  void NotifyRendererResponsive() override;
-  void OnRenderAutoResized(const gfx::Size& size) override;
-  void RequestToLockMouse(bool user_gesture,
-                          bool last_unlocked_by_target) override;
-  bool IsFullscreenGranted() const override;
-  blink::WebDisplayMode GetDisplayMode() const override;
   void OnFocus() override;
-  void OnBlur() override;
 
   // IPC message handlers.
   void OnShowView(int route_id,
@@ -347,7 +339,6 @@ class CONTENT_EXPORT RenderViewHostImpl
                   bool user_gesture);
   void OnShowWidget(int route_id, const gfx::Rect& initial_rect);
   void OnShowFullscreenWidget(int route_id);
-  void OnRenderViewReady();
   void OnRenderProcessGone(int status, int error_code);
   void OnUpdateState(int32 page_id, const PageState& state);
   void OnUpdateTargetURL(const GURL& url);
@@ -363,13 +354,11 @@ class CONTENT_EXPORT RenderViewHostImpl
                        const gfx::Vector2d& bitmap_offset_in_dip,
                        const DragEventSourceInfo& event_info);
   void OnUpdateDragCursor(blink::WebDragOperation drag_operation);
-  void OnTargetDropACK();
   void OnTakeFocus(bool reverse);
   void OnFocusedNodeChanged(bool is_editable_node,
                             const gfx::Rect& node_bounds_in_viewport);
   void OnClosePageACK();
   void OnDidZoomURL(double zoom_level, const GURL& url);
-  void OnPageScaleFactorIsOneChanged(bool is_one);
   void OnRunFileChooser(const FileChooserParams& params);
   void OnFocusedNodeTouched(bool editable);
 
@@ -383,6 +372,10 @@ class CONTENT_EXPORT RenderViewHostImpl
   FRIEND_TEST_ALL_PREFIXES(RenderViewHostTest, RoutingIdSane);
   FRIEND_TEST_ALL_PREFIXES(RenderFrameHostManagerTest,
                            CleanUpSwappedOutRVHOnProcessCrash);
+  // Send RenderViewReady to observers once the process is launched, but not
+  // re-entrantly.
+  void PostRenderViewReady();
+  void RenderViewReady();
 
   // TODO(creis): Move to a private namespace on RenderFrameHostImpl.
   // Delay to wait on closing the WebContents for a beforeunload/unload handler
@@ -434,6 +427,9 @@ class CONTENT_EXPORT RenderViewHostImpl
   // it is not visible to the user in any of these cases.
   bool is_active_;
 
+  // True if this RenderViewHost is pending deletion.
+  bool is_pending_deletion_;
+
   // Tracks whether the main frame RenderFrameHost is swapped out.  Unlike
   // is_active_, this is false when the frame is pending swap out or deletion.
   // TODO(creis): Remove this when we no longer use swappedout://.
@@ -466,6 +462,8 @@ class CONTENT_EXPORT RenderViewHostImpl
   scoped_ptr<WebPreferences> web_preferences_;
 
   bool updating_web_preferences_;
+
+  bool render_view_ready_on_process_launch_;
 
   base::WeakPtrFactory<RenderViewHostImpl> weak_factory_;
 

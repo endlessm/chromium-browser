@@ -109,7 +109,7 @@ static bool TestGetASN1() {
   static const uint8_t kData2[] = {0x30, 3, 1, 2};
   static const uint8_t kData3[] = {0x30, 0x80};
   static const uint8_t kData4[] = {0x30, 0x81, 1, 1};
-  static const uint8_t kData5[] = {0x30, 0x82, 0, 1, 1};
+  static const uint8_t kData5[4 + 0x80] = {0x30, 0x82, 0, 0x80};
   static const uint8_t kData6[] = {0xa1, 3, 0x4, 1, 1};
   static const uint8_t kData7[] = {0xa1, 3, 0x4, 2, 1};
   static const uint8_t kData8[] = {0xa1, 3, 0x2, 1, 1};
@@ -365,6 +365,55 @@ static bool TestCBBPrefixed() {
   return buf_len == sizeof(kExpected) && memcmp(buf, kExpected, buf_len) == 0;
 }
 
+static bool TestCBBDiscardChild() {
+  ScopedCBB cbb;
+  CBB contents, inner_contents, inner_inner_contents;
+
+  if (!CBB_init(cbb.get(), 0) ||
+      !CBB_add_u8(cbb.get(), 0xaa)) {
+    return false;
+  }
+
+  // Discarding |cbb|'s children preserves the byte written.
+  CBB_discard_child(cbb.get());
+
+  if (!CBB_add_u8_length_prefixed(cbb.get(), &contents) ||
+      !CBB_add_u8_length_prefixed(cbb.get(), &contents) ||
+      !CBB_add_u8(&contents, 0xbb) ||
+      !CBB_add_u16_length_prefixed(cbb.get(), &contents) ||
+      !CBB_add_u16(&contents, 0xcccc) ||
+      !CBB_add_u24_length_prefixed(cbb.get(), &contents) ||
+      !CBB_add_u24(&contents, 0xdddddd) ||
+      !CBB_add_u8_length_prefixed(cbb.get(), &contents) ||
+      !CBB_add_u8(&contents, 0xff) ||
+      !CBB_add_u8_length_prefixed(&contents, &inner_contents) ||
+      !CBB_add_u8(&inner_contents, 0x42) ||
+      !CBB_add_u16_length_prefixed(&inner_contents, &inner_inner_contents) ||
+      !CBB_add_u8(&inner_inner_contents, 0x99)) {
+    return false;
+  }
+
+  // Discard everything from |inner_contents| down.
+  CBB_discard_child(&contents);
+
+  uint8_t *buf;
+  size_t buf_len;
+  if (!CBB_finish(cbb.get(), &buf, &buf_len)) {
+    return false;
+  }
+  ScopedOpenSSLBytes scoper(buf);
+
+  static const uint8_t kExpected[] = {
+        0xaa,
+        0,
+        1, 0xbb,
+        0, 2, 0xcc, 0xcc,
+        0, 0, 3, 0xdd, 0xdd, 0xdd,
+        1, 0xff,
+  };
+  return buf_len == sizeof(kExpected) && memcmp(buf, kExpected, buf_len) == 0;
+}
+
 static bool TestCBBMisuse() {
   CBB cbb, child, contents;
   uint8_t *buf;
@@ -434,7 +483,7 @@ static bool TestCBBASN1() {
     return false;
   }
   if (!CBB_add_asn1(&cbb, &contents, 0x30) ||
-      !CBB_add_bytes(&contents, bssl::vector_data(&test_data), 130) ||
+      !CBB_add_bytes(&contents, test_data.data(), 130) ||
       !CBB_finish(&cbb, &buf, &buf_len)) {
     CBB_cleanup(&cbb);
     return false;
@@ -443,7 +492,7 @@ static bool TestCBBASN1() {
 
   if (buf_len != 3 + 130 ||
       memcmp(buf, "\x30\x81\x82", 3) != 0 ||
-      memcmp(buf + 3, bssl::vector_data(&test_data), 130) != 0) {
+      memcmp(buf + 3, test_data.data(), 130) != 0) {
     return false;
   }
 
@@ -451,7 +500,7 @@ static bool TestCBBASN1() {
     return false;
   }
   if (!CBB_add_asn1(&cbb, &contents, 0x30) ||
-      !CBB_add_bytes(&contents, bssl::vector_data(&test_data), 1000) ||
+      !CBB_add_bytes(&contents, test_data.data(), 1000) ||
       !CBB_finish(&cbb, &buf, &buf_len)) {
     CBB_cleanup(&cbb);
     return false;
@@ -460,7 +509,7 @@ static bool TestCBBASN1() {
 
   if (buf_len != 4 + 1000 ||
       memcmp(buf, "\x30\x82\x03\xe8", 4) != 0 ||
-      memcmp(buf + 4, bssl::vector_data(&test_data), 1000)) {
+      memcmp(buf + 4, test_data.data(), 1000)) {
     return false;
   }
 
@@ -469,7 +518,7 @@ static bool TestCBBASN1() {
   }
   if (!CBB_add_asn1(&cbb, &contents, 0x30) ||
       !CBB_add_asn1(&contents, &inner_contents, 0x30) ||
-      !CBB_add_bytes(&inner_contents, bssl::vector_data(&test_data), 100000) ||
+      !CBB_add_bytes(&inner_contents, test_data.data(), 100000) ||
       !CBB_finish(&cbb, &buf, &buf_len)) {
     CBB_cleanup(&cbb);
     return false;
@@ -478,7 +527,7 @@ static bool TestCBBASN1() {
 
   if (buf_len != 5 + 5 + 100000 ||
       memcmp(buf, "\x30\x83\x01\x86\xa5\x30\x83\x01\x86\xa0", 10) != 0 ||
-      memcmp(buf + 10, bssl::vector_data(&test_data), 100000)) {
+      memcmp(buf + 10, test_data.data(), 100000)) {
     return false;
   }
 
@@ -649,6 +698,14 @@ static bool TestASN1Uint64() {
   return true;
 }
 
+static int TestZero() {
+  CBB cbb;
+  CBB_zero(&cbb);
+  // Calling |CBB_cleanup| on a zero-state |CBB| must not crash.
+  CBB_cleanup(&cbb);
+  return 1;
+}
+
 int main(void) {
   CRYPTO_library_init();
 
@@ -662,10 +719,12 @@ int main(void) {
       !TestCBBFinishChild() ||
       !TestCBBMisuse() ||
       !TestCBBPrefixed() ||
+      !TestCBBDiscardChild() ||
       !TestCBBASN1() ||
       !TestBerConvert() ||
       !TestASN1Uint64() ||
-      !TestGetOptionalASN1Bool()) {
+      !TestGetOptionalASN1Bool() ||
+      !TestZero()) {
     return 1;
   }
 

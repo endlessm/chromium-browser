@@ -10,9 +10,7 @@ group("desktop") {
 
 executable("mandoline") {
   sources = [
-    "../core_services_initialization.cc",
-    "launcher_process.cc",
-    "launcher_process.h",
+    "../register_local_aliases.cc",
     "main.cc",
   ]
 
@@ -22,11 +20,19 @@ executable("mandoline") {
     "//components/tracing:startup_tracing",
     "//mojo/common",
     "//mojo/environment:chromium",
+    "//mojo/package_manager",
     "//mojo/runner:lib",
+    "//mojo/runner:register_local_aliases_fwd",
+    "//mojo/runner/host:lib",
+    "//mojo/runner/host:switches",
+    "//mojo/shell",
   ]
 
   data_deps = [
     "//components/html_viewer",
-    "//mandoline/services/core_services/",
+    "//components/pdf_viewer",
+    "//mandoline/services/core_services",
+    "//mandoline/services/updater",
+    "//mandoline/ui",
   ]
 }

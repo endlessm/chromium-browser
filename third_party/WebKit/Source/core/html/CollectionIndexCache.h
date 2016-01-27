@@ -36,7 +36,7 @@ namespace blink {
 
 template <typename Collection, typename NodeType>
 class CollectionIndexCache {
-    DISALLOW_ALLOCATION();
+    DISALLOW_NEW();
 public:
     CollectionIndexCache();
 
@@ -62,7 +62,7 @@ public:
 
     void invalidate();
 
-    DEFINE_INLINE_TRACE()
+    DEFINE_INLINE_VIRTUAL_TRACE()
     {
         visitor->trace(m_currentNode);
     }

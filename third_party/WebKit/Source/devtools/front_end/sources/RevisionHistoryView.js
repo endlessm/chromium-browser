@@ -54,7 +54,7 @@ WebInspector.RevisionHistoryView = function()
     }
 
     WebInspector.workspace.uiSourceCodes().forEach(populateRevisions.bind(this));
-    WebInspector.workspace.addEventListener(WebInspector.Workspace.Events.UISourceCodeContentCommitted, this._revisionAdded, this);
+    WebInspector.workspace.addEventListener(WebInspector.Workspace.Events.WorkingCopyCommittedByUser, this._revisionAdded, this);
     WebInspector.workspace.addEventListener(WebInspector.Workspace.Events.UISourceCodeRemoved, this._uiSourceCodeRemoved, this);
     WebInspector.workspace.addEventListener(WebInspector.Workspace.Events.ProjectRemoved, this._projectRemoved, this);
 }
@@ -64,11 +64,17 @@ WebInspector.RevisionHistoryView = function()
  */
 WebInspector.RevisionHistoryView.showHistory = function(uiSourceCode)
 {
-    if (!WebInspector.RevisionHistoryView._view)
-        WebInspector.RevisionHistoryView._view = new WebInspector.RevisionHistoryView();
-    var view = WebInspector.RevisionHistoryView._view;
-    WebInspector.inspectorView.showCloseableViewInDrawer("history", WebInspector.UIString("History"), view);
-    view._revealUISourceCode(uiSourceCode);
+    /**
+     * @param {?WebInspector.Widget} view
+     */
+    function revealSource(view)
+    {
+        console.assert(view && view instanceof WebInspector.RevisionHistoryView);
+        var historyView = /** @type {!WebInspector.RevisionHistoryView} */(view);
+        historyView._revealUISourceCode(uiSourceCode);
+    }
+
+    WebInspector.inspectorView.showViewInDrawer("sources.history").then(revealSource);
 }
 
 WebInspector.RevisionHistoryView.prototype = {
@@ -240,40 +246,32 @@ WebInspector.RevisionHistoryTreeElement.prototype = {
          */
         function step2(baseContent, newContent)
         {
-            var baseLines = difflib.stringAsLines(baseContent);
-            var newLines = difflib.stringAsLines(newContent);
-            var sm = new difflib.SequenceMatcher(baseLines, newLines);
-            var opcodes = sm.get_opcodes();
+            var baseLines = baseContent.split("\n");
+            var newLines = newContent.split("\n");
+            var opcodes = WebInspector.Diff.lineDiff(baseLines, newLines);
             var lastWasSeparator = false;
 
+            var baseLineNumber = 0;
+            var newLineNumber = 0;
             for (var idx = 0; idx < opcodes.length; idx++) {
-                var code = opcodes[idx];
-                var change = code[0];
-                var b = code[1];
-                var be = code[2];
-                var n = code[3];
-                var ne = code[4];
-                var rowCount = Math.max(be - b, ne - n);
-                for (var i = 0; i < rowCount; i++) {
-                    if (change === "delete" || (change === "replace" && b < be)) {
-                        var lineNumber = b++;
-                        this._createLine(lineNumber, null, baseLines[lineNumber], "removed");
-                        lastWasSeparator = false;
-                    }
-
-                    if (change === "insert" || (change === "replace" && n < ne)) {
-                        var lineNumber = n++;
-                        this._createLine(null, lineNumber, newLines[lineNumber], "added");
-                        lastWasSeparator = false;
-                    }
-
-                    if (change === "equal") {
-                        b++;
-                        n++;
-                        if (!lastWasSeparator)
-                            this._createLine(null, null, "    \u2026", "separator");
-                        lastWasSeparator = true;
-                    }
+                var code = opcodes[idx][0];
+                var rowCount = opcodes[idx][1].length;
+                if (code === WebInspector.Diff.Operation.Equal) {
+                    baseLineNumber += rowCount;
+                    newLineNumber += rowCount;
+                    if (!lastWasSeparator)
+                        this._createLine(null, null, "    \u2026", "separator");
+                    lastWasSeparator = true;
+                } else if (code === WebInspector.Diff.Operation.Delete) {
+                    lastWasSeparator = false;
+                    for (var i = 0; i < rowCount; ++i)
+                        this._createLine(baseLineNumber + i, null, baseLines[baseLineNumber + i], "removed");
+                    baseLineNumber += rowCount;
+                } else if (code === WebInspector.Diff.Operation.Insert) {
+                    lastWasSeparator = false;
+                    for (var i = 0; i < rowCount; ++i)
+                        this._createLine(null, newLineNumber + i, newLines[newLineNumber + i], "added");
+                    newLineNumber += rowCount;
                 }
             }
         }

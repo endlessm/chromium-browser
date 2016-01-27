@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "base/basictypes.h"
+#include "base/macros.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/process/process.h"
 #include "base/test/multiprocess_test.h"
@@ -18,6 +18,10 @@
 
 namespace base {
 class MessageLoop;
+}
+
+namespace IPC {
+class AttachmentBroker;
 }
 
 // A test fixture for multiprocess IPC tests. Such tests include a "client" side

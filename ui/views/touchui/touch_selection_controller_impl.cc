@@ -182,7 +182,7 @@ ui::SelectionBound ConvertFromScreen(ui::TouchEditable* client,
   gfx::Point edge_top = bound.edge_top_rounded();
   client->ConvertPointFromScreen(&edge_bottom);
   client->ConvertPointFromScreen(&edge_top);
-  result.SetEdge(edge_top, edge_bottom);
+  result.SetEdge(gfx::PointF(edge_top), gfx::PointF(edge_bottom));
   return result;
 }
 
@@ -193,7 +193,7 @@ ui::SelectionBound ConvertToScreen(ui::TouchEditable* client,
   gfx::Point edge_top = bound.edge_top_rounded();
   client->ConvertPointToScreen(&edge_bottom);
   client->ConvertPointToScreen(&edge_top);
-  result.SetEdge(edge_top, edge_bottom);
+  result.SetEdge(gfx::PointF(edge_top), gfx::PointF(edge_bottom));
   return result;
 }
 
@@ -234,7 +234,8 @@ class TouchSelectionControllerImpl::EditingHandleView
       : controller_(controller),
         image_(GetCenterHandleImage()),
         is_cursor_handle_(is_cursor_handle),
-        draw_invisible_(false) {
+        draw_invisible_(false),
+        weak_ptr_factory_(this) {
     widget_.reset(CreateTouchSelectionPopupWidget(context, this));
     widget_->SetContentsView(this);
 
@@ -298,10 +299,18 @@ class TouchSelectionControllerImpl::EditingHandleView
         break;
       }
       case ui::ET_GESTURE_SCROLL_END:
-      case ui::ET_SCROLL_FLING_START:
+      case ui::ET_SCROLL_FLING_START: {
+        // Use a weak pointer to the handle to make sure the handle and its
+        // owning selection controller is not destroyed by the capture release
+        // to diagnose a crash on Windows (see crbug.com/459423)
+        // TODO(mohsen): Delete the diagnostics code when the crash is fixed.
+        base::WeakPtr<EditingHandleView> weak_ptr =
+            weak_ptr_factory_.GetWeakPtr();
         widget_->ReleaseCapture();
+        CHECK(weak_ptr);
         controller_->SetDraggingHandle(nullptr);
         break;
+      }
       default:
         break;
     }
@@ -355,7 +364,7 @@ class TouchSelectionControllerImpl::EditingHandleView
     gfx::Point edge_bottom = selection_bound_.edge_bottom_rounded();
     wm::ConvertPointFromScreen(window, &edge_top);
     wm::ConvertPointFromScreen(window, &edge_bottom);
-    selection_bound_.SetEdge(edge_top, edge_bottom);
+    selection_bound_.SetEdge(gfx::PointF(edge_top), gfx::PointF(edge_bottom));
   }
 
   void SetDrawInvisible(bool draw_invisible) {
@@ -387,6 +396,8 @@ class TouchSelectionControllerImpl::EditingHandleView
   // it is being dragged. Since it is being dragged, we cannot destroy the
   // handle.
   bool draw_invisible_;
+
+  base::WeakPtrFactory<EditingHandleView> weak_ptr_factory_;
 
   DISALLOW_COPY_AND_ASSIGN(EditingHandleView);
 };
@@ -446,12 +457,12 @@ void TouchSelectionControllerImpl::SelectionChanged() {
   ui::SelectionBound screen_bound_focus = ConvertToScreen(client_view_, focus);
   gfx::Rect client_bounds = client_view_->GetBounds();
   if (anchor.edge_top().y() < client_bounds.y()) {
-    gfx::Point anchor_edge_top = anchor.edge_top_rounded();
+    auto anchor_edge_top = gfx::PointF(anchor.edge_top_rounded());
     anchor_edge_top.set_y(client_bounds.y());
     anchor.SetEdgeTop(anchor_edge_top);
   }
   if (focus.edge_top().y() < client_bounds.y()) {
-    gfx::Point focus_edge_top = focus.edge_top_rounded();
+    auto focus_edge_top = gfx::PointF(focus.edge_top_rounded());
     focus_edge_top.set_y(client_bounds.y());
     focus.SetEdgeTop(focus_edge_top);
   }
@@ -645,8 +656,17 @@ void TouchSelectionControllerImpl::OnKeyEvent(ui::KeyEvent* event) {
 void TouchSelectionControllerImpl::OnMouseEvent(ui::MouseEvent* event) {
   aura::client::CursorClient* cursor_client = aura::client::GetCursorClient(
       client_view_->GetNativeView()->GetRootWindow());
-  if (!cursor_client || cursor_client->IsMouseEventsEnabled())
-    client_view_->DestroyTouchSelection();
+  if (cursor_client && !cursor_client->IsMouseEventsEnabled())
+    return;
+
+  // Do not hide handles on mouse-capture-changed event which might occur when a
+  // selection handle is released. Normally, cursor client should report mouse
+  // events as disabled (the above check), but there are crashes on Windows
+  // devices suggesting it is not always the case (see crbug.com/459423).
+  if (event->type() == ui::ET_MOUSE_CAPTURE_CHANGED)
+    return;
+
+  client_view_->DestroyTouchSelection();
 }
 
 void TouchSelectionControllerImpl::OnScrollEvent(ui::ScrollEvent* event) {

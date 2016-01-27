@@ -93,7 +93,8 @@ void ApppendEventDetails(const WebGestureEvent& event, std::string* result) {
 void ApppendTouchPointDetails(const WebTouchPoint& point, std::string* result) {
   StringAppendF(result,
                  "  (ID: %d, State: %d, ScreenPos: (%f, %f), Pos: (%f, %f),"
-                     " Radius: (%f, %f), Rot: %f, Force: %f),\n",
+                     " Radius: (%f, %f), Rot: %f, Force: %f,"
+                     " Tilt: (%d, %d)),\n",
   point.id,
   point.state,
   point.screenPosition.x,
@@ -103,7 +104,9 @@ void ApppendTouchPointDetails(const WebTouchPoint& point, std::string* result) {
   point.radiusX,
   point.radiusY,
   point.rotationAngle,
-  point.force);
+  point.force,
+  point.tiltX,
+  point.tiltY);
 }
 
 void ApppendEventDetails(const WebTouchEvent& event, std::string* result) {
@@ -185,8 +188,6 @@ void Coalesce(const WebMouseWheelEvent& event_to_coalesce,
       GetAccelerationRatio(event->deltaX, unaccelerated_x);
   event->accelerationRatioY =
       GetAccelerationRatio(event->deltaY, unaccelerated_y);
-  DCHECK_GE(event_to_coalesce.timeStampSeconds, event->timeStampSeconds);
-  event->timeStampSeconds = event_to_coalesce.timeStampSeconds;
 }
 
 // Returns |kInvalidTouchIndex| iff |event| lacks a touch with an ID of |id|.
@@ -344,8 +345,12 @@ struct WebInputEventCoalesce {
   template <class EventType>
   bool Execute(const WebInputEvent& event_to_coalesce,
                WebInputEvent* event) const {
+    // New events get coalesced into older events, and the newer timestamp
+    // should always be preserved.
+    const double time_stamp_seconds = event_to_coalesce.timeStampSeconds;
     Coalesce(static_cast<const EventType&>(event_to_coalesce),
              static_cast<EventType*>(event));
+    event->timeStampSeconds = time_stamp_seconds;
     return true;
   }
 };

@@ -32,6 +32,7 @@ class DomainReliabilityMonitor;
 namespace net {
 class CookieCryptoDelegate;
 class FtpTransactionFactory;
+class HttpNetworkSession;
 class HttpServerProperties;
 class HttpServerPropertiesManager;
 class HttpTransactionFactory;
@@ -98,8 +99,8 @@ class ProfileImplIOData : public ProfileIOData {
             const base::FilePath& partition_path,
             bool in_memory) const;
 
-    // Returns the DevToolsNetworkController attached to ProfileIOData.
-    DevToolsNetworkController* GetDevToolsNetworkController() const;
+    // Returns the DevToolsNetworkControllerHandle attached to ProfileIOData.
+    DevToolsNetworkControllerHandle* GetDevToolsNetworkControllerHandle() const;
 
     // Deletes all network related data since |time|. It deletes transport
     // security state since |time| and also deletes HttpServerProperties data.
@@ -215,6 +216,7 @@ class ProfileImplIOData : public ProfileIOData {
 
   mutable scoped_refptr<JsonPrefStore> network_json_store_;
 
+  mutable scoped_ptr<net::HttpNetworkSession> http_network_session_;
   mutable scoped_ptr<net::HttpTransactionFactory> main_http_factory_;
   mutable scoped_ptr<net::FtpTransactionFactory> ftp_factory_;
 

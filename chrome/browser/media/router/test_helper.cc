@@ -6,6 +6,10 @@
 
 namespace media_router {
 
+MockIssuesObserver::MockIssuesObserver(MediaRouter* router)
+    : IssuesObserver(router) {}
+MockIssuesObserver::~MockIssuesObserver() {}
+
 MockMediaSinksObserver::MockMediaSinksObserver(MediaRouter* router,
                                                const MediaSource& source)
     : MediaSinksObserver(router, source) {
@@ -23,5 +27,13 @@ MockEventPageTracker::MockEventPageTracker() {
 }
 MockEventPageTracker::~MockEventPageTracker() {
 }
+
+MockPresentationConnectionStateObserver::
+    MockPresentationConnectionStateObserver(MediaRouter* router,
+                                            const MediaRoute::Id& route_id)
+    : PresentationConnectionStateObserver(router, route_id) {}
+
+MockPresentationConnectionStateObserver::
+    ~MockPresentationConnectionStateObserver() = default;
 
 }  // namespace media_router

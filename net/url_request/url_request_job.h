@@ -5,6 +5,8 @@
 #ifndef NET_URL_REQUEST_URL_REQUEST_JOB_H_
 #define NET_URL_REQUEST_URL_REQUEST_JOB_H_
 
+#include <stdint.h>
+
 #include <string>
 #include <vector>
 
@@ -109,8 +111,13 @@ class NET_EXPORT URLRequestJob
 
   virtual bool GetFullRequestHeaders(HttpRequestHeaders* headers) const;
 
-  // Get the number of bytes received from network.
-  virtual int64 GetTotalReceivedBytes() const;
+  // Get the number of bytes received from network. The values returned by this
+  // will never decrease over the lifetime of the URLRequestJob.
+  virtual int64_t GetTotalReceivedBytes() const;
+
+  // Get the number of bytes sent over the network. The values returned by this
+  // will never decrease over the lifetime of the URLRequestJob.
+  virtual int64_t GetTotalSentBytes() const;
 
   // Called to fetch the current load state for the job.
   virtual LoadState GetLoadState() const;
@@ -130,6 +137,11 @@ class NET_EXPORT URLRequestJob
   // each event blocked the request.  See FixupLoadTimingInfo in url_request.h
   // for more information on the difference.
   virtual void GetLoadTimingInfo(LoadTimingInfo* load_timing_info) const;
+
+  // Gets the remote endpoint that the network stack is currently fetching the
+  // URL from. Returns true and fills in |endpoint| if it is available; returns
+  // false and leaves |endpoint| unchanged if it is unavailable.
+  virtual bool GetRemoteEndpoint(IPEndPoint* endpoint) const;
 
   // Returns the cookie values included in the response, if applicable.
   // Returns true if applicable.
@@ -303,7 +315,7 @@ class NET_EXPORT URLRequestJob
   // URLRequestStatus::IO_PENDING, and buf must remain available until the
   // operation is completed.  See comments on URLRequest::Read for more
   // info.
-  virtual bool ReadRawData(IOBuffer* buf, int buf_size, int *bytes_read);
+  virtual bool ReadRawData(IOBuffer* buf, int buf_size, int* bytes_read);
 
   // Called to tell the job that a filter has successfully reached the end of
   // the stream.
@@ -321,7 +333,7 @@ class NET_EXPORT URLRequestJob
   // false otherwise.  Note, if there is not enough data received to
   // return data, this call can issue a new async IO request under
   // the hood.
-  bool ReadFilteredData(int *bytes_read);
+  bool ReadFilteredData(int* bytes_read);
 
   // Whether the response is being filtered in this job.
   // Only valid after NotifyHeadersComplete() has been called.
@@ -361,7 +373,7 @@ class NET_EXPORT URLRequestJob
   // When data filtering is enabled, this function is used to read data
   // for the filter.  Returns true if raw data was read.  Returns false if
   // an error occurred (or we are waiting for IO to complete).
-  bool ReadRawDataForFilter(int *bytes_read);
+  bool ReadRawDataForFilter(int* bytes_read);
 
   // Invokes ReadRawData and records bytes read if the read completes
   // synchronously.
@@ -394,6 +406,11 @@ class NET_EXPORT URLRequestJob
   // Computes a new RedirectInfo based on receiving a redirect response of
   // |location| and |http_status_code|.
   RedirectInfo ComputeRedirectInfo(const GURL& location, int http_status_code);
+
+  // Notify the network delegate that more bytes have been received or sent over
+  // the network, if bytes have been received or sent since the previous
+  // notification.
+  void MaybeNotifyNetworkBytes();
 
   // Indicates that the job is done producing data, either it has completed
   // all the data or an error has been encountered. Set exclusively by
@@ -433,6 +450,16 @@ class NET_EXPORT URLRequestJob
 
   // The network delegate to use with this request, if any.
   NetworkDelegate* network_delegate_;
+
+  // The value from GetTotalReceivedBytes() the last time
+  // MaybeNotifyNetworkBytes() was called. Used to calculate how bytes have been
+  // newly received since the last notification.
+  int64_t last_notified_total_received_bytes_;
+
+  // The value from GetTotalSentBytes() the last time MaybeNotifyNetworkBytes()
+  // was called. Used to calculate how bytes have been newly sent since the last
+  // notification.
+  int64_t last_notified_total_sent_bytes_;
 
   base::WeakPtrFactory<URLRequestJob> weak_factory_;
 

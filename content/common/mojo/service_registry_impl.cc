@@ -10,7 +10,9 @@ namespace content {
 
 ServiceRegistryImpl::ServiceRegistryImpl()
     : binding_(this), weak_factory_(this) {
-  binding_.set_error_handler(this);
+  binding_.set_connection_error_handler(
+      base::Bind(&ServiceRegistryImpl::OnConnectionError,
+                 base::Unretained(this)));
 }
 
 ServiceRegistryImpl::~ServiceRegistryImpl() {
@@ -55,8 +57,8 @@ void ServiceRegistryImpl::ConnectToRemoteService(
         std::make_pair(service_name.as_string(), handle.release()));
     return;
   }
-  remote_provider_->ConnectToService(mojo::String::From(service_name),
-                                     handle.Pass());
+  remote_provider_->ConnectToService(
+      mojo::String::From(service_name.as_string()), handle.Pass());
 }
 
 bool ServiceRegistryImpl::IsBound() const {
@@ -75,6 +77,13 @@ void ServiceRegistryImpl::ConnectToService(
       service_factories_.find(name);
   if (it == service_factories_.end())
     return;
+
+  // It's possible and effectively unavoidable that under certain conditions
+  // an invalid handle may be received. Don't invoke the factory in that case.
+  if (!client_handle.is_valid()) {
+    DVLOG(2) << "Invalid pipe handle for " << name << " interface request.";
+    return;
+  }
 
   it->second.Run(client_handle.Pass());
 }

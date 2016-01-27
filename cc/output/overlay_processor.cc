@@ -17,26 +17,23 @@ OverlayProcessor::OverlayProcessor(OutputSurface* surface) : surface_(surface) {
 
 void OverlayProcessor::Initialize() {
   DCHECK(surface_);
-
-  OverlayCandidateValidator* candidates =
+  OverlayCandidateValidator* validator =
       surface_->GetOverlayCandidateValidator();
-  if (candidates) {
-    strategies_.push_back(
-        scoped_ptr<Strategy>(new OverlayStrategySingleOnTop(candidates)));
-    strategies_.push_back(
-        scoped_ptr<Strategy>(new OverlayStrategyUnderlay(candidates)));
-  }
+  if (validator)
+    validator->GetStrategies(&strategies_);
 }
 
 OverlayProcessor::~OverlayProcessor() {}
 
-void OverlayProcessor::ProcessForOverlays(
-    RenderPassList* render_passes_in_draw_order,
-    OverlayCandidateList* candidate_list) {
-  for (StrategyList::iterator it = strategies_.begin(); it != strategies_.end();
-       ++it) {
-    if ((*it)->Attempt(render_passes_in_draw_order, candidate_list))
+void OverlayProcessor::ProcessForOverlays(ResourceProvider* resource_provider,
+                                          RenderPassList* render_passes,
+                                          OverlayCandidateList* candidates,
+                                          gfx::Rect* damage_rect) {
+  for (auto strategy : strategies_) {
+    if (strategy->Attempt(resource_provider, render_passes, candidates,
+                          damage_rect)) {
       return;
+    }
   }
 }
 

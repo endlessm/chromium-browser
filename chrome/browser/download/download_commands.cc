@@ -38,7 +38,7 @@ int DownloadCommands::GetCommandIconId(Command command) const {
     case PAUSE:
       return IDR_DOWNLOAD_NOTIFICATION_MENU_PAUSE;
     case RESUME:
-      return IDR_DOWNLOAD_NOTIFICATION_MENU_RESUME;
+      return IDR_DOWNLOAD_NOTIFICATION_MENU_DOWNLOAD;
     case SHOW_IN_FOLDER:
       return IDR_DOWNLOAD_NOTIFICATION_MENU_FOLDER;
     case KEEP:
@@ -46,14 +46,12 @@ int DownloadCommands::GetCommandIconId(Command command) const {
     case DISCARD:
       return IDR_DOWNLOAD_NOTIFICATION_MENU_DELETE;
     case CANCEL:
-      // TODO(yoshiki): This is a temporary image for Download Notification
-      // feature behind the flag. We have to replace the image with proper one
-      // before the feature launch. http://crbug.com/468559
-      return IDR_DOWNLOAD_NOTIFICATION_MENU_DELETE;
+      return IDR_DOWNLOAD_NOTIFICATION_MENU_CANCEL;
+    case LEARN_MORE_SCANNING:
+      return IDR_NOTIFICATION_WELCOME_LEARN_MORE;
     case OPEN_WHEN_COMPLETE:
     case ALWAYS_OPEN_TYPE:
     case PLATFORM_OPEN:
-    case LEARN_MORE_SCANNING:
     case LEARN_MORE_INTERRUPTED:
       return -1;
   }
@@ -191,7 +189,7 @@ void DownloadCommands::ExecuteCommand(Command command) {
 #if defined(FULL_SAFE_BROWSING)
       using safe_browsing::DownloadProtectionService;
 
-      SafeBrowsingService* sb_service =
+      safe_browsing::SafeBrowsingService* sb_service =
           g_browser_process->safe_browsing_service();
       DownloadProtectionService* protection_service =
           (sb_service ? sb_service->download_protection_service() : nullptr);

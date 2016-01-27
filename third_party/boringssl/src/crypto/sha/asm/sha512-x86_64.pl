@@ -109,25 +109,15 @@ $0 =~ m/(.*[\/\\])[^\/\\]+$/; $dir=$1;
 ( $xlate="${dir}../../perlasm/x86_64-xlate.pl" and -f $xlate) or
 die "can't locate x86_64-xlate.pl";
 
-if (`$ENV{CC} -Wa,-v -c -o /dev/null -x assembler /dev/null 2>&1`
-		=~ /GNU assembler version ([2-9]\.[0-9]+)/) {
-	$avx = ($1>=2.19) + ($1>=2.22);
-}
+# In upstream, this is controlled by shelling out to the compiler to check
+# versions, but BoringSSL is intended to be used with pre-generated perlasm
+# output, so this isn't useful anyway.
+#
+# TODO(davidben): Enable this after testing. $avx goes up to 2.
+$avx = 0;
 
-if (!$avx && $win64 && ($flavour =~ /nasm/ || $ENV{ASM} =~ /nasm/) &&
-	   `nasm -v 2>&1` =~ /NASM version ([2-9]\.[0-9]+)/) {
-	$avx = ($1>=2.09) + ($1>=2.10);
-}
-
-if (!$avx && $win64 && ($flavour =~ /masm/ || $ENV{ASM} =~ /ml64/) &&
-	   `ml64 2>&1` =~ /Version ([0-9]+)\./) {
-	$avx = ($1>=10) + ($1>=11);
-}
-
-if (!$avx && `$ENV{CC} -v 2>&1` =~ /(^clang version|based on LLVM) ([3-9]\.[0-9]+)/) {
-	$avx = ($2>=3.0) + ($2>3.0);
-}
-
+# TODO(davidben): Consider enabling the Intel SHA Extensions code once it's
+# been tested.
 $shaext=0;	### set to zero if compiling for 1.0.1
 $avx=1		if (!$shaext && $avx);
 
@@ -2264,7 +2254,8 @@ $code.=<<___;
 	ret
 .size	se_handler,.-se_handler
 ___
-$code.=<<___ if ($SZ == 4 && $shaext);
+
+$code.=<<___ if ($SZ==4 && $shaext);
 .type	shaext_handler,\@abi-omnipotent
 .align	16
 shaext_handler:
@@ -2298,6 +2289,7 @@ shaext_handler:
 	jmp	.Lin_prologue
 .size	shaext_handler,.-shaext_handler
 ___
+
 $code.=<<___;
 .section	.pdata
 .align	4
@@ -2305,7 +2297,7 @@ $code.=<<___;
 	.rva	.LSEH_end_$func
 	.rva	.LSEH_info_$func
 ___
-$code.=<<___ if ($SZ==4 && $shext);
+$code.=<<___ if ($SZ==4 && $shaext);
 	.rva	.LSEH_begin_${func}_shaext
 	.rva	.LSEH_end_${func}_shaext
 	.rva	.LSEH_info_${func}_shaext

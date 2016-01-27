@@ -35,8 +35,8 @@ namespace blink {
 FEMorphology::FEMorphology(Filter* filter, MorphologyOperatorType type, float radiusX, float radiusY)
     : FilterEffect(filter)
     , m_type(type)
-    , m_radiusX(radiusX)
-    , m_radiusY(radiusY)
+    , m_radiusX(std::max(0.0f, radiusX))
+    , m_radiusY(std::max(0.0f, radiusY))
 {
 }
 
@@ -65,6 +65,7 @@ float FEMorphology::radiusX() const
 
 bool FEMorphology::setRadiusX(float radiusX)
 {
+    radiusX = std::max(0.0f, radiusX);
     if (m_radiusX == radiusX)
         return false;
     m_radiusX = radiusX;
@@ -76,6 +77,15 @@ float FEMorphology::radiusY() const
     return m_radiusY;
 }
 
+bool FEMorphology::setRadiusY(float radiusY)
+{
+    radiusY = std::max(0.0f, radiusY);
+    if (m_radiusY == radiusY)
+        return false;
+    m_radiusY = radiusY;
+    return true;
+}
+
 FloatRect FEMorphology::mapRect(const FloatRect& rect, bool)
 {
     FloatRect result = rect;
@@ -84,20 +94,12 @@ FloatRect FEMorphology::mapRect(const FloatRect& rect, bool)
     return result;
 }
 
-bool FEMorphology::setRadiusY(float radiusY)
+PassRefPtr<SkImageFilter> FEMorphology::createImageFilter(SkiaImageFilterBuilder& builder)
 {
-    if (m_radiusY == radiusY)
-        return false;
-    m_radiusY = radiusY;
-    return true;
-}
-
-PassRefPtr<SkImageFilter> FEMorphology::createImageFilter(SkiaImageFilterBuilder* builder)
-{
-    RefPtr<SkImageFilter> input(builder->build(inputEffect(0), operatingColorSpace()));
+    RefPtr<SkImageFilter> input(builder.build(inputEffect(0), operatingColorSpace()));
     SkScalar radiusX = SkFloatToScalar(filter()->applyHorizontalScale(m_radiusX));
     SkScalar radiusY = SkFloatToScalar(filter()->applyVerticalScale(m_radiusY));
-    SkImageFilter::CropRect rect = getCropRect(builder->cropOffset());
+    SkImageFilter::CropRect rect = getCropRect(builder.cropOffset());
     if (m_type == FEMORPHOLOGY_OPERATOR_DILATE)
         return adoptRef(SkDilateImageFilter::Create(radiusX, radiusY, input.get(), &rect));
     return adoptRef(SkErodeImageFilter::Create(radiusX, radiusY, input.get(), &rect));

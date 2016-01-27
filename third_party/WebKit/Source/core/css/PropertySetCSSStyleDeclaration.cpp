@@ -30,6 +30,7 @@
 #include "core/dom/Element.h"
 #include "core/dom/MutationObserverInterestGroup.h"
 #include "core/dom/MutationRecord.h"
+#include "core/dom/StyleEngine.h"
 #include "core/inspector/InspectorInstrumentation.h"
 #include "platform/RuntimeEnabledFeatures.h"
 
@@ -255,14 +256,19 @@ void AbstractPropertySetCSSStyleDeclaration::setPropertyInternal(CSSPropertyID u
 
     didMutate(changed ? PropertyChanged : NoChanges);
 
-    if (changed)
-        mutationScope.enqueueMutationRecord();
+    if (!changed)
+        return;
+
+    Element* parent = parentElement();
+    if (parent && parent->inActiveDocument() && parent->document().styleResolver())
+        parent->document().styleEngine().attributeChangedForElement(HTMLNames::styleAttr, *parent);
+    mutationScope.enqueueMutationRecord();
 }
 
 StyleSheetContents* AbstractPropertySetCSSStyleDeclaration::contextStyleSheet() const
 {
     CSSStyleSheet* cssStyleSheet = parentStyleSheet();
-    return cssStyleSheet ? cssStyleSheet->contents() : 0;
+    return cssStyleSheet ? cssStyleSheet->contents() : nullptr;
 }
 
 bool AbstractPropertySetCSSStyleDeclaration::cssPropertyMatches(CSSPropertyID propertyID, const CSSValue* propertyValue) const
@@ -323,7 +329,7 @@ void StyleRuleCSSStyleDeclaration::didMutate(MutationType type)
 
 CSSStyleSheet* StyleRuleCSSStyleDeclaration::parentStyleSheet() const
 {
-    return m_parentRule ? m_parentRule->parentStyleSheet() : 0;
+    return m_parentRule ? m_parentRule->parentStyleSheet() : nullptr;
 }
 
 void StyleRuleCSSStyleDeclaration::reattach(MutableStylePropertySet& propertySet)
@@ -364,7 +370,7 @@ void InlineCSSStyleDeclaration::didMutate(MutationType type)
 
 CSSStyleSheet* InlineCSSStyleDeclaration::parentStyleSheet() const
 {
-    return m_parentElement ? &m_parentElement->document().elementSheet() : 0;
+    return m_parentElement ? &m_parentElement->document().elementSheet() : nullptr;
 }
 
 #if !ENABLE(OILPAN)

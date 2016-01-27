@@ -11,7 +11,7 @@
 #include "webrtc/base/checks.h"
 #include "webrtc/base/safe_conversions.h"
 #include "webrtc/base/scoped_ptr.h"
-#include "webrtc/modules/audio_coding/codecs/ilbc/interface/audio_encoder_ilbc.h"
+#include "webrtc/modules/audio_coding/codecs/ilbc/include/audio_encoder_ilbc.h"
 #include "webrtc/modules/audio_coding/neteq/tools/neteq_quality_test.h"
 #include "webrtc/test/testsupport/fileutils.h"
 
@@ -47,8 +47,7 @@ class NetEqIlbcQualityTest : public NetEqQualityTest {
       : NetEqQualityTest(FLAGS_frame_size_ms,
                          kInputSampleRateKhz,
                          kOutputSampleRateKhz,
-                         kDecoderILBC) {
-  }
+                         NetEqDecoder::kDecoderILBC) {}
 
   void SetUp() override {
     ASSERT_EQ(1, channels_) << "iLBC supports only mono audio.";
@@ -59,16 +58,18 @@ class NetEqIlbcQualityTest : public NetEqQualityTest {
   }
 
   int EncodeBlock(int16_t* in_data,
-                  int block_size_samples,
+                  size_t block_size_samples,
                   uint8_t* payload,
-                  int max_bytes) override {
-    const int kFrameSizeSamples = 80;  // Samples per 10 ms.
-    int encoded_samples = 0;
+                  size_t max_bytes) override {
+    const size_t kFrameSizeSamples = 80;  // Samples per 10 ms.
+    size_t encoded_samples = 0;
     uint32_t dummy_timestamp = 0;
     AudioEncoder::EncodedInfo info;
     do {
-      info = encoder_->Encode(dummy_timestamp, &in_data[encoded_samples],
-                              kFrameSizeSamples, max_bytes, payload);
+      info = encoder_->Encode(dummy_timestamp,
+                              rtc::ArrayView<const int16_t>(
+                                  in_data + encoded_samples, kFrameSizeSamples),
+                              max_bytes, payload);
       encoded_samples += kFrameSizeSamples;
     } while (info.encoded_bytes == 0);
     return rtc::checked_cast<int>(info.encoded_bytes);

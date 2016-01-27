@@ -13,10 +13,13 @@
 
 #include "native_client/src/include/portability.h"
 #include "native_client/src/include/portability_sockets.h"
+#include "native_client/src/shared/imc/nacl_imc_c.h"
 
 struct NaClApp;
 
 namespace port {
+
+class SocketBinding;
 
 class ITransport {
  public:
@@ -37,6 +40,9 @@ class ITransport {
 
   // Disconnect the transport, R/W and Select will now throw an exception
   virtual void Disconnect() = 0;
+
+  // Accept a connection on an already-bound TCP port.
+  virtual bool AcceptConnection() = 0;
 };
 
 class SocketBinding {
@@ -46,8 +52,8 @@ class SocketBinding {
   // Bind to the specified TCP port.
   static SocketBinding *Bind(const char *addr);
 
-  // Accept a connection on an already-bound TCP port.
-  ITransport *AcceptConnection();
+  // Create a transport object from this socket binding
+  ITransport *CreateTransport();
 
   // Get port the socket is bound to.
   uint16_t GetBoundPort();
@@ -55,6 +61,9 @@ class SocketBinding {
  private:
   NaClSocketHandle socket_handle_;
 };
+
+// Creates a transport from a socket pair or named pipe.
+ITransport *CreateTransportIPC(NaClHandle fd);
 
 }  // namespace port
 

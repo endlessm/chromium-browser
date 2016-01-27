@@ -18,8 +18,8 @@
 #include "webrtc/modules/video_coding/main/source/internal_defines.h"
 #include "webrtc/modules/video_coding/main/source/timing.h"
 #include "webrtc/modules/video_coding/main/test/test_util.h"
-#include "webrtc/system_wrappers/interface/clock.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/clock.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/test/testsupport/fileutils.h"
 
 namespace webrtc {
@@ -85,8 +85,10 @@ TEST(ReceiverTiming, Tests) {
   for (int i = 0; i < 10; i++) {
     int64_t startTimeMs = clock.TimeInMilliseconds();
     clock.AdvanceTimeMilliseconds(10);
-    timing.StopDecodeTimer(timeStamp, startTimeMs,
-                           clock.TimeInMilliseconds(), timing.RenderTimeMs(
+    timing.StopDecodeTimer(timeStamp,
+                           clock.TimeInMilliseconds() - startTimeMs,
+                           clock.TimeInMilliseconds(),
+                           timing.RenderTimeMs(
                                timeStamp, clock.TimeInMilliseconds()));
     timeStamp += 90000 / 25;
     clock.AdvanceTimeMilliseconds(1000 / 25 - 10);

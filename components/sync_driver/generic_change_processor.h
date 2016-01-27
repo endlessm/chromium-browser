@@ -5,13 +5,13 @@
 #ifndef COMPONENTS_SYNC_DRIVER_GENERIC_CHANGE_PROCESSOR_H_
 #define COMPONENTS_SYNC_DRIVER_GENERIC_CHANGE_PROCESSOR_H_
 
+#include <string>
 #include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/non_thread_safe.h"
 #include "components/sync_driver/change_processor.h"
-#include "components/sync_driver/data_type_controller.h"
 #include "components/sync_driver/data_type_error_handler.h"
 #include "sync/api/attachments/attachment_store.h"
 #include "sync/api/sync_change_processor.h"
@@ -29,7 +29,9 @@ typedef std::vector<syncer::SyncData> SyncDataList;
 }  // namespace syncer
 
 namespace sync_driver {
+
 class SyncApiComponentFactory;
+class SyncClient;
 
 // Datatype agnostic change processor. One instance of GenericChangeProcessor
 // is created for each datatype and lives on the datatype's thread. It then
@@ -53,7 +55,7 @@ class GenericChangeProcessor : public ChangeProcessor,
       const base::WeakPtr<syncer::SyncableService>& local_service,
       const base::WeakPtr<syncer::SyncMergeResult>& merge_result,
       syncer::UserShare* user_share,
-      SyncApiComponentFactory* sync_factory,
+      SyncClient* sync_client,
       scoped_ptr<syncer::AttachmentStoreForSync> attachment_store);
   ~GenericChangeProcessor() override;
 

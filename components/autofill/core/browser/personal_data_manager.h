@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "base/basictypes.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/observer_list.h"
@@ -23,10 +24,16 @@
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/webdata/common/web_data_service_consumer.h"
 
+class AccountTrackerService;
 class Browser;
 class PrefService;
 class RemoveAutofillTester;
-class AccountTrackerService;
+class SigninManagerBase;
+
+#if defined(OS_IOS)
+// TODO(crbug.com/513344): Remove this once Chrome on iOS is unforked.
+class PersonalDataManagerFactory;
+#endif
 
 namespace autofill {
 class AutofillInteractiveTest;
@@ -42,6 +49,10 @@ void SetCreditCards(int, std::vector<autofill::CreditCard>*);
 }  // namespace autofill_helper
 
 namespace autofill {
+
+extern const char kFrecencyFieldTrialName[];
+extern const char kFrecencyFieldTrialStateEnabled[];
+extern const char kFrecencyFieldTrialLimitParam[];
 
 // Handles loading and saving Autofill profile information to the web database.
 // This class also stores the profiles loaded from the database for use during
@@ -60,6 +71,7 @@ class PersonalDataManager : public KeyedService,
   void Init(scoped_refptr<AutofillWebDataService> database,
             PrefService* pref_service,
             AccountTrackerService* account_tracker,
+            SigninManagerBase* signin_manager,
             bool is_off_the_record);
 
   // WebDataServiceConsumer:
@@ -213,29 +225,6 @@ class PersonalDataManager : public KeyedService,
   // will only update when Chrome is restarted.
   virtual const std::string& GetDefaultCountryCodeForNewAddress() const;
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
-  // If Chrome has not prompted for access to the user's address book, the
-  // method prompts the user for permission and blocks the process. Otherwise,
-  // this method has no effect. The return value reflects whether the user was
-  // prompted with a modal dialog.
-  bool AccessAddressBook();
-
-  // Whether an autofill suggestion should be displayed to prompt the user to
-  // grant Chrome access to the user's address book.
-  bool ShouldShowAccessAddressBookSuggestion(AutofillType type);
-
-  // The access Address Book prompt was shown for a form.
-  void ShowedAccessAddressBookPrompt();
-
-  // The number of times that the access address book prompt was shown.
-  int AccessAddressBookPromptCount();
-
-  // The Chrome binary is in the process of being changed, or has been changed.
-  // Future attempts to access the Address Book might incorrectly present a
-  // blocking dialog.
-  void BinaryChanging();
-#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
-
   // Returns true if the wallet integration feature is enabled. Note that the
   // feature can still disabled by a user pref.
   bool IsExperimentalWalletIntegrationEnabled() const;
@@ -245,12 +234,14 @@ class PersonalDataManager : public KeyedService,
   // PersonalDataManager.
   FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, FirstMiddleLast);
   FRIEND_TEST_ALL_PREFIXES(AutofillMetricsTest, AutofillIsEnabledAtStartup);
-  FRIEND_TEST_ALL_PREFIXES(PersonalDataManagerTest,
-                           AggregateExistingAuxiliaryProfile);
   friend class autofill::AutofillInteractiveTest;
   friend class autofill::AutofillTest;
   friend class autofill::PersonalDataManagerFactory;
   friend class PersonalDataManagerTest;
+#if defined(OS_IOS)
+  // TODO(crbug.com/513344): Remove this once Chrome on iOS is unforked.
+  friend class ::PersonalDataManagerFactory;
+#endif
   friend class ProfileSyncServiceAutofillTest;
   friend class ::RemoveAutofillTester;
   friend struct base::DefaultDeleter<PersonalDataManager>;
@@ -271,7 +262,7 @@ class PersonalDataManager : public KeyedService,
   // updates in |profiles| make it to the DB.  This is why SetProfiles will
   // invoke Refresh after finishing, to ensure we get into a
   // consistent state.  See Refresh for details.
-  void SetProfiles(std::vector<AutofillProfile>* profiles);
+  virtual void SetProfiles(std::vector<AutofillProfile>* profiles);
 
   // Sets |credit_cards_| to the contents of |credit_cards| and updates the web
   // database by adding, updating and removing credit cards.
@@ -279,9 +270,6 @@ class PersonalDataManager : public KeyedService,
 
   // Loads the saved profiles from the web database.
   virtual void LoadProfiles();
-
-  // Loads the auxiliary profiles.  Currently Mac and Android only.
-  virtual void LoadAuxiliaryProfiles(bool record_metrics) const;
 
   // Loads the saved credit cards from the web database.
   virtual void LoadCreditCards();
@@ -315,6 +303,10 @@ class PersonalDataManager : public KeyedService,
     account_tracker_ = account_tracker;
   }
 
+  void set_signin_manager(SigninManagerBase* signin_manager) {
+    signin_manager_ = signin_manager;
+  }
+
   // The backing database that this PersonalDataManager uses.
   scoped_refptr<AutofillWebDataService> database_;
 
@@ -325,15 +317,11 @@ class PersonalDataManager : public KeyedService,
   // and from manually editing in the settings.
   ScopedVector<AutofillProfile> web_profiles_;
 
-  // Auxiliary profiles. On some systems, these are loaded from the system
-  // address book.
-  mutable ScopedVector<AutofillProfile> auxiliary_profiles_;
-
   // Profiles read from the user's account stored on the server.
   mutable ScopedVector<AutofillProfile> server_profiles_;
 
-  // Storage for combined web and auxiliary profiles.  Contents are weak
-  // references.  Lifetime managed by |web_profiles_| and |auxiliary_profiles_|.
+  // Storage for web profiles.  Contents are weak references.  Lifetime managed
+  // by |web_profiles_|.
   mutable std::vector<AutofillProfile*> profiles_;
 
   // Cached versions of the local and server credit cards.
@@ -381,6 +369,9 @@ class PersonalDataManager : public KeyedService,
   // The AccountTrackerService that this instance uses. Must outlive this
   // instance.
   AccountTrackerService* account_tracker_;
+
+  // The signin manager that this instance uses. Must outlive this instance.
+  SigninManagerBase* signin_manager_;
 
   // Whether the user is currently operating in an off-the-record context.
   // Default value is false.

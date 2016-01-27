@@ -412,7 +412,9 @@ embed
 fixed
 hand
 hide
-invert
+isolate
+isolate-override
+plaintext
 -webkit-isolate
 -webkit-isolate-override
 -webkit-plaintext
@@ -530,21 +532,15 @@ read-write-plaintext-only
 element
 
 //
-// width/min-width/max-width
-//
-intrinsic
-min-intrinsic
-
-//
 // CSS3 intrinsic dimension keywords
 //
 -webkit-min-content
 -webkit-max-content
 -webkit-fill-available
 -webkit-fit-content
-// Unprefixed for CSS Grid Layout.
 min-content
 max-content
+fit-content
 
 //
 // text-overflow
@@ -783,7 +779,6 @@ tb-rl
 horizontal-tb
 vertical-rl
 vertical-lr
-horizontal-bt
 
 // -webkit-ruby-position
 after
@@ -812,17 +807,12 @@ farthest-corner
 // contain
 // cover
 
-// -webkit-text-orientation
+// text-orientation/-webkit-text-orientation
+mixed
 sideways
 sideways-right
 upright
 vertical-right
-
-// -webkit-line-box-contain
-font
-glyphs
-inline-box
-replaced
 
 // -webkit-font-feature-settings
 on
@@ -849,6 +839,9 @@ fullscreen
 standalone
 minimal-ui
 browser
+
+// position
+sticky
 
 // (pointer:) media feature
 // none
@@ -923,12 +916,6 @@ markers
 // auto
 isolate
 
-// scroll-blocks-on
-// none
-start-touch
-wheel-event
-scroll-event
-
 // touch-action
 pan-x
 pan-y
@@ -975,7 +962,6 @@ linear-gradient
 radial-gradient
 repeating-linear-gradient
 repeating-radial-gradient
--webkit-canvas
 -webkit-cross-fade
 -webkit-gradient
 -webkit-linear-gradient
@@ -1005,6 +991,7 @@ polygon
 format
 
 // (-webkit-)filter
+invert
 grayscale
 sepia
 saturate
@@ -1055,3 +1042,7 @@ calc
 // none
 mandatory
 proximity
+from-image
+
+var
+-internal-variable-value

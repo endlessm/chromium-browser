@@ -12,17 +12,18 @@
 #define WEBRTC_MODULES_AUDIO_CODING_MAIN_ACM2_CODEC_MANAGER_H_
 
 #include "webrtc/base/constructormagic.h"
+#include "webrtc/base/optional.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/thread_checker.h"
 #include "webrtc/modules/audio_coding/main/acm2/codec_owner.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module_typedefs.h"
+#include "webrtc/modules/audio_coding/main/acm2/rent_a_codec.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module_typedefs.h"
 #include "webrtc/common_types.h"
 
 namespace webrtc {
 
 class AudioDecoder;
 class AudioEncoder;
-class AudioEncoderMutable;
 
 namespace acm2 {
 
@@ -33,9 +34,9 @@ class CodecManager final {
 
   int RegisterEncoder(const CodecInst& send_codec);
 
-  void RegisterEncoder(AudioEncoderMutable* external_speech_encoder);
+  void RegisterEncoder(AudioEncoder* external_speech_encoder);
 
-  int GetCodecInst(CodecInst* current_codec) const;
+  rtc::Optional<CodecInst> GetCodecInst() const;
 
   bool SetCopyRed(bool enable);
 
@@ -52,17 +53,14 @@ class CodecManager final {
   // null.
   AudioDecoder* GetAudioDecoder(const CodecInst& codec);
 
-  bool stereo_send() const { return stereo_send_; }
-
   bool red_enabled() const { return red_enabled_; }
 
   bool codec_fec_enabled() const { return codec_fec_enabled_; }
 
-  AudioEncoderMutable* CurrentSpeechEncoder() {
-    return codec_owner_.SpeechEncoder();
-  }
   AudioEncoder* CurrentEncoder() { return codec_owner_.Encoder(); }
   const AudioEncoder* CurrentEncoder() const { return codec_owner_.Encoder(); }
+
+  bool CurrentEncoderIsOpus() const { return encoder_is_opus_; }
 
  private:
   int CngPayloadType(int sample_rate_hz) const;
@@ -75,15 +73,16 @@ class CodecManager final {
   uint8_t cng_swb_pltype_;
   uint8_t cng_fb_pltype_;
   uint8_t red_nb_pltype_;
-  bool stereo_send_;
   bool dtx_enabled_;
   ACMVADMode vad_mode_;
   CodecInst send_codec_inst_;
   bool red_enabled_;
   bool codec_fec_enabled_;
   CodecOwner codec_owner_;
+  RentACodec rent_a_codec_;
+  bool encoder_is_opus_;
 
-  DISALLOW_COPY_AND_ASSIGN(CodecManager);
+  RTC_DISALLOW_COPY_AND_ASSIGN(CodecManager);
 };
 
 }  // namespace acm2

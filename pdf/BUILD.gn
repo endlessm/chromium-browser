@@ -50,9 +50,11 @@ static_library("pdf") {
 
   deps = [
     "//base",
-    "//components/ui/zoom:ui_zoom",
+    "//components/ui/zoom",
     "//content/public/common",
+    "//gin",
     "//net",
+    "//ppapi/cpp:objects",
     "//ppapi/cpp/private:internal_module",
     "//third_party/pdfium",
   ]

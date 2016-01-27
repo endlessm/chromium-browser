@@ -60,6 +60,7 @@ struct RtpExtension {
   static const char* kAbsSendTime;
   static const char* kVideoRotation;
   static const char* kAudioLevel;
+  static const char* kTransportSequenceNumber;
   std::string name;
   int id;
 };
@@ -103,6 +104,7 @@ struct VideoEncoderConfig {
   std::string ToString() const;
 
   std::vector<VideoStream> streams;
+  std::vector<SpatialLayer> spatial_layers;
   ContentType content_type;
   void* encoder_specific_settings;
 

@@ -85,11 +85,11 @@ function FileManagerUI(providersModel, element, launchParam) {
 
   /**
    * Default task picker.
-   * @type {!cr.filebrowser.DefaultActionDialog}
+   * @type {!cr.filebrowser.DefaultTaskDialog}
    * @const
    */
   this.defaultTaskPicker =
-      new cr.filebrowser.DefaultActionDialog(this.element);
+      new cr.filebrowser.DefaultTaskDialog(this.element);
 
   /**
    * Suggest apps dialog.
@@ -112,7 +112,7 @@ function FileManagerUI(providersModel, element, launchParam) {
    * @private
    */
   this.dialogContainer =
-      queryRequiredElement(this.element, '.dialog-container');
+      queryRequiredElement('.dialog-container', this.element);
 
   /**
    * Context menu for texts.
@@ -133,7 +133,7 @@ function FileManagerUI(providersModel, element, launchParam) {
    * @type {!HTMLElement}
    * @const
    */
-  this.toolbar = queryRequiredElement(this.element, '.dialog-header');
+  this.toolbar = queryRequiredElement('.dialog-header', this.element);
 
   /**
    * The navigation list.
@@ -141,7 +141,7 @@ function FileManagerUI(providersModel, element, launchParam) {
    * @const
    */
   this.dialogNavigationList =
-      queryRequiredElement(this.element, '.dialog-navigation-list');
+      queryRequiredElement('.dialog-navigation-list', this.element);
 
   /**
    * Search box.
@@ -149,9 +149,9 @@ function FileManagerUI(providersModel, element, launchParam) {
    * @const
    */
   this.searchBox = new SearchBox(
-      queryRequiredElement(this.element, '#search-box'),
-      queryRequiredElement(this.element, '#search-button'),
-      queryRequiredElement(this.element, '#no-search-results'));
+      queryRequiredElement('#search-box', this.element),
+      queryRequiredElement('#search-button', this.element),
+      queryRequiredElement('#no-search-results', this.element));
 
   /**
    * Empty folder UI.
@@ -159,14 +159,14 @@ function FileManagerUI(providersModel, element, launchParam) {
    * @const
    */
   this.emptyFolder = new EmptyFolder(
-      queryRequiredElement(this.element, '#empty-folder'));
+      queryRequiredElement('#empty-folder', this.element));
 
   /**
    * Toggle-view button.
    * @type {!Element}
    * @const
    */
-  this.toggleViewButton = queryRequiredElement(this.element, '#view-button');
+  this.toggleViewButton = queryRequiredElement('#view-button', this.element);
 
   /**
    * The button to sort the file list.
@@ -183,7 +183,7 @@ function FileManagerUI(providersModel, element, launchParam) {
    */
   this.sortButtonToggleRipple =
       /** @type {!FilesToggleRipple} */ (queryRequiredElement(
-          this.sortButton, 'files-toggle-ripple'));
+          'files-toggle-ripple', this.sortButton));
 
   /**
    * The button to open gear menu.
@@ -200,7 +200,7 @@ function FileManagerUI(providersModel, element, launchParam) {
    */
   this.gearButtonToggleRipple =
       /** @type {!FilesToggleRipple} */ (queryRequiredElement(
-          this.gearButton, 'files-toggle-ripple'));
+          'files-toggle-ripple', this.gearButton));
 
   /**
    * @type {!GearMenu}
@@ -220,7 +220,7 @@ function FileManagerUI(providersModel, element, launchParam) {
    * @const
    */
   this.progressCenterPanel = new ProgressCenterPanel(
-      queryRequiredElement(this.element, '#progress-center'));
+      queryRequiredElement('#progress-center', this.element));
 
   /**
    * List container.
@@ -232,7 +232,7 @@ function FileManagerUI(providersModel, element, launchParam) {
    * @type {!HTMLElement}
    */
   this.formatPanelError =
-      queryRequiredElement(this.element, '#format-panel > .error');
+      queryRequiredElement('#format-panel > .error', this.element);
 
   /**
    * @type {!cr.ui.Menu}
@@ -245,16 +245,15 @@ function FileManagerUI(providersModel, element, launchParam) {
    * @type {!HTMLMenuItemElement}
    * @const
    */
-  this.fileContextMenu.defaultActionMenuItem =
+  this.fileContextMenu.defaultTaskMenuItem =
       /** @type {!HTMLMenuItemElement} */
-      (queryRequiredElement(this.fileContextMenu, '#default-action'));
+      (queryRequiredElement('#default-task-menu-item', this.fileContextMenu));
 
   /**
-   * @type {!HTMLElement}
-   * @const
+   * @const {!cr.ui.MenuItem}
    */
-  this.fileContextMenu.defaultActionSeparator =
-      queryRequiredElement(this.fileContextMenu, '#default-action-separator');
+  this.fileContextMenu.tasksSeparator = /** @type {!cr.ui.MenuItem} */
+      (queryRequiredElement('#tasks-separator', this.fileContextMenu));
 
   /**
    * The combo button to specify the task.
@@ -289,6 +288,12 @@ function FileManagerUI(providersModel, element, launchParam) {
    */
   this.providersMenu = new ProvidersMenu(providersModel,
       util.queryDecoratedElement('#add-new-services-menu', cr.ui.Menu));
+
+  /**
+   * @public {!ActionsSubmenu}
+   * @const
+   */
+  this.actionsSubmenu = new ActionsSubmenu(this.fileContextMenu);
 
   // Initialize attributes.
   this.element.setAttribute('type', this.dialogType_);
@@ -330,11 +335,11 @@ FileManagerUI.prototype.initAdditionalUI = function(
     table, grid, locationLine) {
   // List container.
   this.listContainer = new ListContainer(
-      queryRequiredElement(this.element, '#list-container'), table, grid);
+      queryRequiredElement('#list-container', this.element), table, grid);
 
   // Splitter.
   this.decorateSplitter_(
-      queryRequiredElement(this.element, '#navigation-list-splitter'));
+      queryRequiredElement('#navigation-list-splitter', this.element));
 
   // Location line.
   this.locationLine = locationLine;
@@ -343,7 +348,7 @@ FileManagerUI.prototype.initAdditionalUI = function(
   cr.ui.contextMenuHandler.setContextMenu(grid, this.fileContextMenu);
   cr.ui.contextMenuHandler.setContextMenu(table.list, this.fileContextMenu);
   cr.ui.contextMenuHandler.setContextMenu(
-      queryRequiredElement(document, '.drive-welcome.page'),
+      queryRequiredElement('.drive-welcome.page'),
       this.fileContextMenu);
 
   // Add handlers.
@@ -400,6 +405,29 @@ FileManagerUI.prototype.initDirectoryTree = function(directoryTree) {
 FileManagerUI.prototype.initBanners = function(banners) {
   this.banners = banners;
   this.banners.addEventListener('relayout', this.relayout.bind(this));
+};
+
+/**
+ * Attaches files tooltip.
+ */
+FileManagerUI.prototype.attachFilesTooltip = function() {
+  assertInstanceof(document.querySelector('files-tooltip'), FilesTooltip)
+      .addTargets(document.querySelectorAll('[has-tooltip]'));
+};
+
+/**
+ * Initialize files menu items. This method must be called after all files menu
+ * items are decorated as cr.ui.MenuItem.
+ */
+FileManagerUI.prototype.decorateFilesMenuItems = function() {
+  var filesMenuItems = document.querySelectorAll(
+      'cr-menu.files-menu > cr-menu-item');
+
+  for (var i = 0; i < filesMenuItems.length; i++) {
+    var filesMenuItem = filesMenuItems[i];
+    assertInstanceof(filesMenuItem, cr.ui.MenuItem);
+    cr.ui.decorate(filesMenuItem, cr.ui.FilesMenuItem);
+  }
 };
 
 /**

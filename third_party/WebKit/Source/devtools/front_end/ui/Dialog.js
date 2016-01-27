@@ -30,160 +30,206 @@
 
 /**
  * @constructor
- * @param {!Element} relativeToElement
- * @param {!WebInspector.DialogDelegate} delegate
+ * @extends {WebInspector.Widget}
  */
-WebInspector.Dialog = function(relativeToElement, delegate)
+WebInspector.Dialog = function()
 {
-    this._delegate = delegate;
-    this._relativeToElement = relativeToElement;
+    WebInspector.Widget.call(this, true);
+    this.markAsRoot();
+    this.registerRequiredCSS("ui/dialog.css");
 
-    this._glassPane = new WebInspector.GlassPane(/** @type {!Document} */ (relativeToElement.ownerDocument));
-    WebInspector.GlassPane.DefaultFocusedViewStack.push(this);
+    this.contentElement.createChild("content");
+    this.contentElement.tabIndex = 0;
+    this.contentElement.addEventListener("focus", this._onFocus.bind(this), false);
+    this.contentElement.addEventListener("keydown", this._onKeyDown.bind(this), false);
 
-    // Install glass pane capturing events.
-    this._glassPane.element.tabIndex = 0;
-    this._glassPane.element.addEventListener("focus", this._onGlassPaneFocus.bind(this), false);
-
-    this._element = this._glassPane.element.createChild("div");
-    this._element.tabIndex = 0;
-    this._element.addEventListener("focus", this._onFocus.bind(this), false);
-    this._element.addEventListener("keydown", this._onKeyDown.bind(this), false);
-    this._closeKeys = [
-        WebInspector.KeyboardShortcut.Keys.Enter.code,
-        WebInspector.KeyboardShortcut.Keys.Esc.code,
-    ];
-
-    delegate.show(this._element);
-
-    this._position();
-    this._delegate.focus();
+    this._wrapsContent = false;
+    this._dimmed = false;
+    /** @type {!Map<!HTMLElement, number>} */
+    this._tabIndexMap = new Map();
 }
 
 /**
- * @return {?WebInspector.Dialog}
+ * TODO(dgozman): remove this method (it's only used for shortcuts handling).
+ * @return {boolean}
  */
-WebInspector.Dialog.currentInstance = function()
+WebInspector.Dialog.hasInstance = function()
 {
-    return WebInspector.Dialog._instance;
-}
-
-/**
- * @param {?Element} relativeToElement
- * @param {!WebInspector.DialogDelegate} delegate
- */
-WebInspector.Dialog.show = function(relativeToElement, delegate)
-{
-    if (WebInspector.Dialog._instance)
-        return;
-    WebInspector.Dialog._instance = new WebInspector.Dialog(relativeToElement || WebInspector.Dialog.modalHostView().element, delegate);
-}
-
-WebInspector.Dialog.hide = function()
-{
-    if (!WebInspector.Dialog._instance)
-        return;
-    WebInspector.Dialog._instance._hide();
+    return !!WebInspector.Dialog._instance;
 }
 
 WebInspector.Dialog.prototype = {
-    focus: function()
+    /**
+     * @override
+     */
+    show: function()
     {
-        this._element.focus();
+        if (WebInspector.Dialog._instance)
+            WebInspector.Dialog._instance.detach();
+        WebInspector.Dialog._instance = this;
+
+        var document = /** @type {!Document} */ (WebInspector.Dialog._modalHostView.element.ownerDocument);
+        this._disableTabIndexOnElements(document);
+
+        this._glassPane = new WebInspector.GlassPane(document, this._dimmed);
+        this._glassPane.element.addEventListener("click", this._onGlassPaneClick.bind(this), false);
+        WebInspector.GlassPane.DefaultFocusedViewStack.push(this);
+
+        WebInspector.Widget.prototype.show.call(this, this._glassPane.element);
+
+        this._position();
+        this.focus();
     },
 
-    _hide: function()
+    /**
+     * @override
+     */
+    detach: function()
     {
-        if (this._isHiding)
-            return;
-        this._isHiding = true;
+        WebInspector.Widget.prototype.detach.call(this);
 
-        this._delegate.willHide();
-
-        delete WebInspector.Dialog._instance;
         WebInspector.GlassPane.DefaultFocusedViewStack.pop();
         this._glassPane.dispose();
+        delete this._glassPane;
+
+        this._restoreTabIndexOnElements();
+
+        delete WebInspector.Dialog._instance;
     },
 
-    _onGlassPaneFocus: function(event)
+    addCloseButton: function()
     {
-        this._hide();
+        var closeButton = this.contentElement.createChild("div", "dialog-close-button", "dt-close-button");
+        closeButton.gray = true;
+        closeButton.addEventListener("click", this.detach.bind(this, false), false);
     },
 
+    /**
+     * @param {!Size} size
+     */
+    setMaxSize: function(size)
+    {
+        this._maxSize = size;
+    },
+
+    /**
+     * @param {boolean} wraps
+     */
+    setWrapsContent: function(wraps)
+    {
+        this.element.classList.toggle("wraps-content", wraps);
+        this._wrapsContent = wraps;
+    },
+
+    /**
+     * @param {boolean} dimmed
+     */
+    setDimmed: function(dimmed)
+    {
+        this._dimmed = dimmed;
+    },
+
+    contentResized: function()
+    {
+        if (this._wrapsContent)
+            this._position();
+    },
+
+    /**
+     * @param {!Document} document
+     */
+    _disableTabIndexOnElements: function(document)
+    {
+        this._tabIndexMap.clear();
+        for (var node = document; node; node = node.traverseNextNode(document)) {
+            if (node instanceof HTMLElement) {
+                var element = /** @type {!HTMLElement} */  (node);
+                var tabIndex = element.tabIndex;
+                if (tabIndex >= 0) {
+                    this._tabIndexMap.set(element, tabIndex);
+                    element.tabIndex = -1;
+                }
+            }
+        }
+    },
+
+    _restoreTabIndexOnElements: function()
+    {
+        for (var element of this._tabIndexMap.keys())
+            element.tabIndex = this._tabIndexMap.get(element);
+        this._tabIndexMap.clear();
+    },
+
+    /**
+     * @param {!Event} event
+     */
     _onFocus: function(event)
     {
-        this._delegate.focus();
+        this.focus();
+    },
+
+    /**
+     * @param {!Event} event
+     */
+    _onGlassPaneClick: function(event)
+    {
+        if (!this.element.isSelfOrAncestor(/** @type {?Node} */ (event.target)))
+            this.detach();
     },
 
     _position: function()
     {
-        this._delegate.position(this._element, this._relativeToElement);
+        var container = WebInspector.Dialog._modalHostView.element;
+
+        var width = container.offsetWidth - 10;
+        var height = container.offsetHeight- 10;
+
+        if (this._wrapsContent) {
+            width = Math.min(width, this.contentElement.offsetWidth);
+            height = Math.min(height, this.contentElement.offsetHeight);
+        }
+
+        if (this._maxSize) {
+            width = Math.min(width, this._maxSize.width);
+            height = Math.min(height, this._maxSize.height);
+        }
+
+        var positionX = (container.offsetWidth - width) / 2;
+        positionX = Number.constrain(positionX, 0, container.offsetWidth - width);
+
+        var positionY = (container.offsetHeight - height) / 2;
+        positionY = Number.constrain(positionY, 0, container.offsetHeight - height);
+
+        this.element.style.width = width + "px";
+        this.element.style.height = height + "px";
+        this.element.positionAt(positionX, positionY, container);
     },
 
+    /**
+     * @param {!Event} event
+     */
     _onKeyDown: function(event)
     {
-        if (event.keyCode === WebInspector.KeyboardShortcut.Keys.Tab.code) {
-            event.preventDefault();
-            return;
-        }
-
-        if (event.keyCode === WebInspector.KeyboardShortcut.Keys.Enter.code)
-            this._delegate.onEnter(event);
-
-        if (!event.handled && this._closeKeys.indexOf(event.keyCode) >= 0) {
-            this._hide();
+        if (event.keyCode === WebInspector.KeyboardShortcut.Keys.Esc.code) {
             event.consume(true);
+            this.detach();
         }
-    }
+    },
+
+    /**
+     * @override
+     * @return {!Element}
+     */
+    defaultFocusedElement: function()
+    {
+        var children = this.children();
+        if (children.length)
+            return children[0].defaultFocusedElement();
+        return this.element;
+    },
+
+    __proto__: WebInspector.Widget.prototype
 };
-
-/**
- * @constructor
- * @extends {WebInspector.Object}
- */
-WebInspector.DialogDelegate = function()
-{
-    this.element = createElement("div");
-}
-
-WebInspector.DialogDelegate.prototype = {
-    /**
-     * @param {!Element} element
-     */
-    show: function(element)
-    {
-        element.appendChild(this.element);
-        this.element.classList.add("dialog-contents");
-        element.classList.add("dialog");
-    },
-
-    /**
-     * @param {!Element} element
-     * @param {!Element} relativeToElement
-     */
-    position: function(element, relativeToElement)
-    {
-        var container = WebInspector.Dialog._modalHostView.element;
-        var box = relativeToElement.boxInWindow(window).relativeToElement(container);
-
-        var positionX = box.x + (relativeToElement.offsetWidth - element.offsetWidth) / 2;
-        positionX = Number.constrain(positionX, 0, container.offsetWidth - element.offsetWidth);
-
-        var positionY = box.y + (relativeToElement.offsetHeight - element.offsetHeight) / 2;
-        positionY = Number.constrain(positionY, 0, container.offsetHeight - element.offsetHeight);
-
-        element.style.position = "absolute";
-        element.positionAt(positionX, positionY, container);
-    },
-
-    focus: function() { },
-
-    onEnter: function(event) { },
-
-    willHide: function() { },
-
-    __proto__: WebInspector.Object.prototype
-}
 
 /** @type {?WebInspector.Widget} */
 WebInspector.Dialog._modalHostView = null;

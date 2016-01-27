@@ -152,15 +152,19 @@ BASE_EXPORT bool ResolveShortcut(const FilePath& shortcut_path,
                                  FilePath* target_path,
                                  string16* args);
 
-// Pins a shortcut to the Windows 7 taskbar. The shortcut file must already
-// exist and be a shortcut that points to an executable. The app id of the
-// shortcut is used to group windows and must be set correctly.
-BASE_EXPORT bool TaskbarPinShortcutLink(const FilePath& shortcut);
+// Pin to taskbar is only supported on Windows 7 and Windows 8. Returns true on
+// those platforms.
+BASE_EXPORT bool CanPinShortcutToTaskbar();
 
-// Unpins a shortcut from the Windows 7 taskbar. The shortcut must exist and
+// Pins a shortcut to the taskbar on Windows 7 and 8. The |shortcut| file must
+// already exist and be a shortcut that points to an executable. The app id of
+// the shortcut is used to group windows and must be set correctly.
+BASE_EXPORT bool PinShortcutToTaskbar(const FilePath& shortcut);
+
+// Unpins a shortcut from the Windows 7+ taskbar. The |shortcut| must exist and
 // already be pinned to the taskbar. The app id of the shortcut is used as the
 // identifier for the taskbar item to remove and must be set correctly.
-BASE_EXPORT bool TaskbarUnpinShortcutLink(const FilePath& shortcut);
+BASE_EXPORT bool UnpinShortcutFromTaskbar(const FilePath& shortcut);
 
 }  // namespace win
 }  // namespace base

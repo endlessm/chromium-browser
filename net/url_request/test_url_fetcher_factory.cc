@@ -10,6 +10,7 @@
 #include "base/compiler_specific.h"
 #include "base/files/file_util.h"
 #include "base/location.h"
+#include "base/logging.h"
 #include "base/memory/weak_ptr.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
@@ -37,9 +38,7 @@ ScopedURLFetcherFactory::~ScopedURLFetcherFactory() {
   URLFetcherImpl::set_factory(NULL);
 }
 
-TestURLFetcher::TestURLFetcher(int id,
-                               const GURL& url,
-                               URLFetcherDelegate* d)
+TestURLFetcher::TestURLFetcher(int id, const GURL& url, URLFetcherDelegate* d)
     : owner_(NULL),
       id_(id),
       original_url_(url),
@@ -49,7 +48,10 @@ TestURLFetcher::TestURLFetcher(int id,
       fake_load_flags_(0),
       fake_response_code_(-1),
       fake_response_destination_(STRING),
+      write_response_file_(false),
       fake_was_fetched_via_proxy_(false),
+      fake_was_cached_(false),
+      fake_response_bytes_(0),
       fake_max_retries_(0) {
   CHECK(original_url_.is_valid());
 }
@@ -155,16 +157,17 @@ void TestURLFetcher::SetAutomaticallyRetryOnNetworkChanges(int max_retries) {
 void TestURLFetcher::SaveResponseToFileAtPath(
     const base::FilePath& file_path,
     scoped_refptr<base::SequencedTaskRunner> file_task_runner) {
+  write_response_file_ = true;
   SetResponseFilePath(file_path);
   // Asynchronous IO is not supported, so file_task_runner is ignored.
-  base::ThreadRestrictions::ScopedAllowIO allow_io;
-  const size_t written_bytes = base::WriteFile(
-      file_path, fake_response_string_.c_str(), fake_response_string_.size());
-  DCHECK_EQ(written_bytes, fake_response_string_.size());
 }
 
 void TestURLFetcher::SaveResponseToTemporaryFile(
     scoped_refptr<base::SequencedTaskRunner> file_task_runner) {
+  base::FilePath path;
+  if (!base::CreateTemporaryFile(&path))
+    DLOG(ERROR) << "SaveResponseToTemporaryFile failed creating temp file";
+  SaveResponseToFileAtPath(path, file_task_runner);
 }
 
 void TestURLFetcher::SaveResponseWithWriter(
@@ -211,10 +214,32 @@ bool TestURLFetcher::WasFetchedViaProxy() const {
   return fake_was_fetched_via_proxy_;
 }
 
+bool TestURLFetcher::WasCached() const {
+  return fake_was_cached_;
+}
+
+int64_t TestURLFetcher::GetReceivedResponseContentLength() const {
+  return fake_response_bytes_;
+}
+
+int64_t TestURLFetcher::GetTotalReceivedBytes() const {
+  return fake_was_cached_ ? 0 : fake_response_bytes_;
+}
+
 void TestURLFetcher::Start() {
   // Overriden to do nothing. It is assumed the caller will notify the delegate.
   if (delegate_for_tests_)
     delegate_for_tests_->OnRequestStart(id_);
+
+  // If the response should go into a file, write it out now.
+  if (fake_status_.is_success() && fake_response_code_ == net::HTTP_OK &&
+      write_response_file_ && !fake_response_file_path_.empty()) {
+    base::ThreadRestrictions::ScopedAllowIO allow_io;
+    size_t written_bytes =
+        base::WriteFile(fake_response_file_path_, fake_response_string_.c_str(),
+                        fake_response_string_.size());
+    DCHECK_EQ(fake_response_string_.size(), written_bytes);
+  }
 }
 
 const GURL& TestURLFetcher::GetOriginalURL() const {
@@ -271,6 +296,10 @@ void TestURLFetcher::set_was_fetched_via_proxy(bool flag) {
   fake_was_fetched_via_proxy_ = flag;
 }
 
+void TestURLFetcher::set_was_cached(bool flag) {
+  fake_was_cached_ = flag;
+}
+
 void TestURLFetcher::set_response_headers(
     scoped_refptr<HttpResponseHeaders> headers) {
   fake_response_headers_ = headers;
@@ -287,6 +316,7 @@ void TestURLFetcher::SetDelegateForTests(DelegateForTests* delegate_for_tests) {
 void TestURLFetcher::SetResponseString(const std::string& response) {
   fake_response_destination_ = STRING;
   fake_response_string_ = response;
+  fake_response_bytes_ = response.size();
 }
 
 void TestURLFetcher::SetResponseFilePath(const base::FilePath& path) {
@@ -362,6 +392,7 @@ FakeURLFetcher::FakeURLFetcher(const GURL& url,
 FakeURLFetcher::~FakeURLFetcher() {}
 
 void FakeURLFetcher::Start() {
+  TestURLFetcher::Start();
   base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(&FakeURLFetcher::RunDelegate, weak_factory_.GetWeakPtr()));

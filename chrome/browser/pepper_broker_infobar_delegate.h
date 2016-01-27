@@ -42,13 +42,13 @@ class PepperBrokerInfoBarDelegate : public ConfirmInfoBarDelegate {
   ~PepperBrokerInfoBarDelegate() override;
 
   // ConfirmInfoBarDelegate:
-  int GetIconID() const override;
+  int GetIconId() const override;
   base::string16 GetMessageText() const override;
   base::string16 GetButtonLabel(InfoBarButton button) const override;
   bool Accept() override;
   bool Cancel() override;
   base::string16 GetLinkText() const override;
-  bool LinkClicked(WindowOpenDisposition disposition) override;
+  GURL GetLinkURL() const override;
 
   void DispatchCallback(bool result);
 

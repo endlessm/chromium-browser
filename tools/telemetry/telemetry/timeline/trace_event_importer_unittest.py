@@ -940,6 +940,39 @@ class TraceEventTimelineImporterTest(unittest.TestCase):
     self.assertTrue(slice_event.did_not_finish)
     self.assertEqual(0, len(slice_event.sub_slices))
 
+  def testImportMarkEvent(self):
+    events = [
+      {'name': 'a', 'pid': 52, 'ts': 629, 'cat': 'baz', 'tid': 53, 'ph': 'R'},
+      {'name': 'b', 'pid': 52, 'ts': 730, 'cat': 'foo', 'tid': 53, 'ph': 'R'},
+      {'name': 'c', 'pid': 52, 'ts': 740, 'cat': 'baz', 'tid': 53, 'ph': 'R'},
+    ]
+    trace_data = trace_data_module.TraceData(events)
+    m = timeline_model.TimelineModel(trace_data)
+    p = m.GetAllProcesses()[0]
+    t = p.threads[53]
+    self.assertEqual(3, len(t.all_slices))
+
+    slice_event = t.all_slices[0]
+    self.assertEqual('a', slice_event.name)
+    self.assertEqual('baz', slice_event.category)
+    self.assertAlmostEqual(0.0, slice_event.start)
+    self.assertFalse(slice_event.did_not_finish)
+    self.assertEqual(0, len(slice_event.sub_slices))
+
+    slice_event = t.all_slices[1]
+    self.assertEqual('b', slice_event.name)
+    self.assertEqual('foo', slice_event.category)
+    self.assertAlmostEqual((730 - 629) / 1000.0, slice_event.start)
+    self.assertFalse(slice_event.did_not_finish)
+    self.assertEqual(0, len(slice_event.sub_slices))
+
+    slice_event = t.all_slices[2]
+    self.assertEqual('c', slice_event.name)
+    self.assertEqual('baz', slice_event.category)
+    self.assertAlmostEqual((740 - 629) / 1000.0, slice_event.start)
+    self.assertFalse(slice_event.did_not_finish)
+    self.assertEqual(0, len(slice_event.sub_slices))
+
   def testImportFlowEvent(self):
     events = [
       {'name': 'a', 'cat': 'foo', 'id': 72, 'pid': 52, 'tid': 53, 'ts': 548,
@@ -1033,13 +1066,13 @@ class TraceEventTimelineImporterTest(unittest.TestCase):
     expected = [['1234ABCD', 0, 11], ['1234ABDF', 122, 11]]
     trace_data = trace_data_module.TraceData(events)
     m = timeline_model.TimelineModel(trace_data)
-    memory_dump_events = list(m.IterMemoryDumpEvents())
-    self.assertEqual(len(expected), len(memory_dump_events))
-    for event, test_values in zip(memory_dump_events, expected):
+    memory_dumps = list(m.IterGlobalMemoryDumps())
+    self.assertEqual(len(expected), len(memory_dumps))
+    for memory_dump, test_values in zip(memory_dumps, expected):
       dump_id, start, duration = test_values
-      self.assertEquals(dump_id, event.dump_id)
-      self.assertAlmostEqual(start / 1000.0, event.start)
-      self.assertAlmostEqual(duration / 1000.0, event.duration)
+      self.assertEquals(dump_id, memory_dump.dump_id)
+      self.assertAlmostEqual(start / 1000.0, memory_dump.start)
+      self.assertAlmostEqual(duration / 1000.0, memory_dump.duration)
 
   def testImportOutOfOrderMemoryDumpEvents(self):
     events = [
@@ -1056,10 +1089,33 @@ class TraceEventTimelineImporterTest(unittest.TestCase):
     expected = [['1234ABCD', 0, 11], ['1234ABDF', 122, 11]]
     trace_data = trace_data_module.TraceData(events)
     m = timeline_model.TimelineModel(trace_data)
-    memory_dump_events = list(m.IterMemoryDumpEvents())
-    self.assertEqual(len(expected), len(memory_dump_events))
-    for event, test_values in zip(memory_dump_events, expected):
+    memory_dumps = list(m.IterGlobalMemoryDumps())
+    self.assertEqual(len(expected), len(memory_dumps))
+    for memory_dump, test_values in zip(memory_dumps, expected):
       dump_id, start, duration = test_values
-      self.assertEquals(dump_id, event.dump_id)
-      self.assertAlmostEqual(start / 1000.0, event.start)
-      self.assertAlmostEqual(duration / 1000.0, event.duration)
+      self.assertEquals(dump_id, memory_dump.dump_id)
+      self.assertAlmostEqual(start / 1000.0, memory_dump.start)
+      self.assertAlmostEqual(duration / 1000.0, memory_dump.duration)
+
+  def testMetadataImport(self):
+    events = [
+      {'cat': '__metadata', 'pid': 14689, 'tid': 14740, 'ts': 245,
+       'ph': 'M', 'name': 'process_name', 'args': {'name': 'Browser'}},
+      {'cat': '__metadata', 'pid': 23828, 'tid': 23828, 'ts': 0,
+       'ph': 'M', 'name': 'process_labels',
+       'args': {'labels': 'huge image - Google Search'}}
+    ]
+
+    expected = [
+      [None, 'Browser'],
+      ['huge image - Google Search', 'process 23828']
+    ]
+    trace_data = trace_data_module.TraceData(events)
+    m = timeline_model.TimelineModel(trace_data)
+    processes = m.GetAllProcesses()
+
+    self.assertEqual(len(processes), len(expected))
+    for process, test_values in zip(processes, expected):
+      process_labels, process_name = test_values
+      self.assertEquals(process_labels, process.labels)
+      self.assertEquals(process_name, process.name)

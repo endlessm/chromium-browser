@@ -6,8 +6,8 @@
 
 import os
 
+from devil.android import apk_helper
 from pylib.instrumentation import test_jar
-from pylib.utils import apk_helper
 
 
 class TestPackage(test_jar.TestJar):
@@ -39,4 +39,3 @@ class TestPackage(test_jar.TestJar):
     if (self._test_support_apk_path and
         os.path.exists(self._test_support_apk_path)):
       device.Install(self._test_support_apk_path)
-

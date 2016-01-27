@@ -46,41 +46,6 @@
 
 using base::UserMetricsAction;
 
-
-// PluginInfoBarDelegate ------------------------------------------------------
-
-PluginInfoBarDelegate::PluginInfoBarDelegate(const std::string& identifier)
-    : ConfirmInfoBarDelegate(),
-      identifier_(identifier) {
-}
-
-PluginInfoBarDelegate::~PluginInfoBarDelegate() {
-}
-
-bool PluginInfoBarDelegate::LinkClicked(WindowOpenDisposition disposition) {
-  InfoBarService::WebContentsFromInfoBar(infobar())->OpenURL(
-      content::OpenURLParams(
-          GURL(GetLearnMoreURL()), content::Referrer(),
-          (disposition == CURRENT_TAB) ? NEW_FOREGROUND_TAB : disposition,
-          ui::PAGE_TRANSITION_LINK, false));
-  return false;
-}
-
-void PluginInfoBarDelegate::LoadBlockedPlugins() {
-  content::WebContents* web_contents =
-      InfoBarService::WebContentsFromInfoBar(infobar());
-  ChromePluginServiceFilter::GetInstance()->AuthorizeAllPlugins(
-      web_contents, true, identifier_);
-}
-
-int PluginInfoBarDelegate::GetIconID() const {
-  return IDR_INFOBAR_PLUGIN_INSTALL;
-}
-
-base::string16 PluginInfoBarDelegate::GetLinkText() const {
-  return l10n_util::GetStringUTF16(IDS_LEARN_MORE);
-}
-
 #if defined(ENABLE_PLUGIN_INSTALLATION)
 
 // OutdatedPluginInfoBarDelegate ----------------------------------------------
@@ -105,8 +70,9 @@ OutdatedPluginInfoBarDelegate::OutdatedPluginInfoBarDelegate(
     PluginInstaller* installer,
     scoped_ptr<PluginMetadata> plugin_metadata,
     const base::string16& message)
-    : PluginInfoBarDelegate(plugin_metadata->identifier()),
+    : ConfirmInfoBarDelegate(),
       WeakPluginInstallerObserver(installer),
+      identifier_(plugin_metadata->identifier()),
       plugin_metadata_(plugin_metadata.Pass()),
       message_(message) {
   content::RecordAction(UserMetricsAction("OutdatedPluginInfobar.Shown"));
@@ -140,6 +106,10 @@ void OutdatedPluginInfoBarDelegate::InfoBarDismissed() {
   content::RecordAction(UserMetricsAction("OutdatedPluginInfobar.Dismissed"));
 }
 
+int OutdatedPluginInfoBarDelegate::GetIconId() const {
+  return IDR_INFOBAR_PLUGIN_INSTALL;
+}
+
 base::string16 OutdatedPluginInfoBarDelegate::GetMessageText() const {
   return message_;
 }
@@ -159,28 +129,35 @@ bool OutdatedPluginInfoBarDelegate::Accept() {
   GURL plugin_url(plugin_metadata_->plugin_url());
   content::WebContents* web_contents =
       InfoBarService::WebContentsFromInfoBar(infobar());
-  if (plugin_metadata_->url_for_display())
-    installer()->OpenDownloadURL(plugin_url, web_contents);
-  else
-    installer()->StartInstalling(plugin_url, web_contents);
+  if (web_contents) {
+    if (plugin_metadata_->url_for_display())
+      installer()->OpenDownloadURL(plugin_url, web_contents);
+    else
+      installer()->StartInstalling(plugin_url, web_contents);
+  }
   return false;
 }
 
 bool OutdatedPluginInfoBarDelegate::Cancel() {
   content::RecordAction(
       UserMetricsAction("OutdatedPluginInfobar.AllowThisTime"));
-  LoadBlockedPlugins();
+
+  content::WebContents* web_contents =
+      InfoBarService::WebContentsFromInfoBar(infobar());
+  if (web_contents) {
+    ChromePluginServiceFilter::GetInstance()->AuthorizeAllPlugins(
+        web_contents, true, identifier_);
+  }
+
   return true;
 }
 
-bool OutdatedPluginInfoBarDelegate::LinkClicked(
-    WindowOpenDisposition disposition) {
-  content::RecordAction(UserMetricsAction("OutdatedPluginInfobar.LearnMore"));
-  return PluginInfoBarDelegate::LinkClicked(disposition);
+base::string16 OutdatedPluginInfoBarDelegate::GetLinkText() const {
+  return l10n_util::GetStringUTF16(IDS_LEARN_MORE);
 }
 
-std::string OutdatedPluginInfoBarDelegate::GetLearnMoreURL() const {
-  return chrome::kOutdatedPluginLearnMoreURL;
+GURL OutdatedPluginInfoBarDelegate::GetLinkURL() const {
+  return GURL(chrome::kOutdatedPluginLearnMoreURL);
 }
 
 void OutdatedPluginInfoBarDelegate::DownloadStarted() {
@@ -256,7 +233,7 @@ PluginMetroModeInfoBarDelegate::PluginMetroModeInfoBarDelegate(
 PluginMetroModeInfoBarDelegate::~PluginMetroModeInfoBarDelegate() {
 }
 
-int PluginMetroModeInfoBarDelegate::GetIconID() const {
+int PluginMetroModeInfoBarDelegate::GetIconId() const {
   return IDR_INFOBAR_PLUGIN_INSTALL;
 }
 
@@ -297,20 +274,11 @@ base::string16 PluginMetroModeInfoBarDelegate::GetLinkText() const {
   return l10n_util::GetStringUTF16(IDS_LEARN_MORE);
 }
 
-bool PluginMetroModeInfoBarDelegate::LinkClicked(
-    WindowOpenDisposition disposition) {
-  // TODO(shrikant): We may need to change language a little at following
-  // support URLs. With new approach we will just restart for both missing
-  // and not missing mode.
-  InfoBarService::WebContentsFromInfoBar(infobar())->OpenURL(
-      content::OpenURLParams(
-          GURL((mode_ == MISSING_PLUGIN) ?
-              "https://support.google.com/chrome/?p=ib_display_in_desktop" :
-              "https://support.google.com/chrome/?p=ib_redirect_to_desktop"),
-          content::Referrer(),
-          (disposition == CURRENT_TAB) ? NEW_FOREGROUND_TAB : disposition,
-          ui::PAGE_TRANSITION_LINK, false));
-  return false;
+GURL PluginMetroModeInfoBarDelegate::GetLinkURL() const {
+  return GURL(
+      (mode_ == MISSING_PLUGIN)
+          ? "https://support.google.com/chrome/?p=ib_display_in_desktop"
+          : "https://support.google.com/chrome/?p=ib_redirect_to_desktop");
 }
 
 #endif  // defined(OS_WIN)

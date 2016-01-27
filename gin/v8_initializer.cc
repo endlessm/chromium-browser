@@ -53,8 +53,19 @@ base::PlatformFile g_snapshot_pf = kInvalidPlatformFile;
 base::MemoryMappedFile::Region g_natives_region;
 base::MemoryMappedFile::Region g_snapshot_region;
 
+#if defined(OS_ANDROID)
+#ifdef __LP64__
+const char kNativesFileName[] = "natives_blob_64.bin";
+const char kSnapshotFileName[] = "snapshot_blob_64.bin";
+#else
+const char kNativesFileName[] = "natives_blob_32.bin";
+const char kSnapshotFileName[] = "snapshot_blob_32.bin";
+#endif // __LP64__
+
+#else  // defined(OS_ANDROID)
 const char kNativesFileName[] = "natives_blob.bin";
 const char kSnapshotFileName[] = "snapshot_blob.bin";
+#endif  // defined(OS_ANDROID)
 
 void GetV8FilePath(const char* file_name, base::FilePath* path_out) {
 #if !defined(OS_MACOSX)
@@ -297,6 +308,10 @@ void V8Initializer::LoadV8SnapshotFromFD(base::PlatformFile snapshot_pf,
   if (!VerifyV8StartupFile(&g_mapped_snapshot, g_snapshot_fingerprint))
     result = V8_LOAD_FAILED_VERIFY;
 #endif  // V8_VERIFY_EXTERNAL_STARTUP_DATA
+  if (result == V8_LOAD_SUCCESS) {
+    g_snapshot_pf = snapshot_pf;
+    g_snapshot_region = snapshot_region;
+  }
   UMA_HISTOGRAM_ENUMERATION("V8.Initializer.LoadV8Snapshot.Result", result,
                             V8_LOAD_MAX_VALUE);
 }
@@ -325,6 +340,8 @@ void V8Initializer::LoadV8NativesFromFD(base::PlatformFile natives_pf,
     LOG(FATAL) << "Couldn't verify contents of v8 natives data file";
   }
 #endif  // V8_VERIFY_EXTERNAL_STARTUP_DATA
+  g_natives_pf = natives_pf;
+  g_natives_region = natives_region;
 }
 
 // static

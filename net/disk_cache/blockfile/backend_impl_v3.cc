@@ -1026,7 +1026,7 @@ int BackendImplV3::SyncInit() {
     trace_object_ = TraceObject::GetTraceObject();
     // Create a recurrent timer of 30 secs.
     int timer_delay = unit_test_ ? 1000 : 30000;
-    timer_.reset(new base::RepeatingTimer<BackendImplV3>());
+    timer_.reset(new base::RepeatingTimer());
     timer_->Start(FROM_HERE, TimeDelta::FromMilliseconds(timer_delay), this,
                   &BackendImplV3::OnStatsTimer);
   }
@@ -1508,6 +1508,10 @@ int BackendImplV3::DoomEntriesSince(base::Time initial_time,
   return net::ERR_FAILED;
 }
 
+int BackendImplV3::CalculateSizeOfAllEntries(
+    const CompletionCallback& callback) {
+  return net::ERR_FAILED;
+}
 
 class BackendImplV3::NotImplementedIterator : public Backend::Iterator {
  public:

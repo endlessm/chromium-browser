@@ -56,10 +56,13 @@ const char kGrammar_Help[] =
     "  A string literal represents a string value consisting of the quoted\n"
     "  characters with possible escape sequences and variable expansions.\n"
     "\n"
-    "      string    = `\"` { char | escape | expansion } `\"` .\n"
-    "      escape    = `\\` ( \"$\" | `\"` | char ) .\n"
-    "      expansion = \"$\" ( identifier | \"{\" identifier \"}\" ) .\n"
-    "      char      = /* any character except \"$\", `\"`, or newline */ .\n"
+    "      string           = `\"` { char | escape | expansion } `\"` .\n"
+    "      escape           = `\\` ( \"$\" | `\"` | char ) .\n"
+    "      BracketExpansion = \"{\" ( identifier | ArrayAccess | ScopeAccess "
+                              ") \"}\" .\n"
+    "      expansion        = \"$\" ( identifier | BracketExpansion ) .\n"
+    "      char             = /* any character except \"$\", `\"`, or newline "
+                             "*/ .\n"
     "\n"
     "  After a backslash, certain sequences represent special characters:\n"
     "\n"
@@ -92,11 +95,12 @@ const char kGrammar_Help[] =
     "      Block         = \"{\" StatementList \"}\" .\n"
     "      StatementList = { Statement } .\n"
     "\n"
+    "      ArrayAccess = identifier \"[\" { identifier | integer } \"]\" .\n"
+    "      ScopeAccess = identifier \".\" identifier .\n"
     "      Expr        = UnaryExpr | Expr BinaryOp Expr .\n"
     "      UnaryExpr   = PrimaryExpr | UnaryOp UnaryExpr .\n"
     "      PrimaryExpr = identifier | integer | string | Call\n"
-    "                  | identifier \"[\" Expr \"]\"\n"
-    "                  | identifier \".\" identifier\n"
+    "                  | ArrayAccess | ScopeAccess\n"
     "                  | \"(\" Expr \")\"\n"
     "                  | \"[\" [ ExprList [ \",\" ] ] \"]\" .\n"
     "      ExprList    = Expr { \",\" Expr } .\n"
@@ -370,6 +374,11 @@ scoped_ptr<ParseNode> Parser::Not(Token token) {
   scoped_ptr<ParseNode> expr = ParseExpression(PRECEDENCE_PREFIX + 1);
   if (has_error())
     return scoped_ptr<ParseNode>();
+  if (!expr) {
+    if (!has_error())
+      *err_ = Err(token, "Expected right-hand side for '!'.");
+    return scoped_ptr<ParseNode>();
+  }
   scoped_ptr<UnaryOpNode> unary_op(new UnaryOpNode);
   unary_op->set_op(token);
   unary_op->set_operand(expr.Pass());
@@ -389,7 +398,7 @@ scoped_ptr<ParseNode> Parser::BinaryOperator(scoped_ptr<ParseNode> left,
       ParseExpression(expressions_[token.type()].precedence + 1);
   if (!right) {
     if (!has_error()) {
-      *err_ = Err(token, "Expected right hand side for '" +
+      *err_ = Err(token, "Expected right-hand side for '" +
                              token.value().as_string() + "'");
     }
     return scoped_ptr<ParseNode>();
@@ -447,6 +456,11 @@ scoped_ptr<ParseNode> Parser::Assignment(scoped_ptr<ParseNode> left,
     return scoped_ptr<ParseNode>();
   }
   scoped_ptr<ParseNode> value = ParseExpression(PRECEDENCE_ASSIGNMENT);
+  if (!value) {
+    if (!has_error())
+      *err_ = Err(token, "Expected right-hand side for assignment.");
+    return scoped_ptr<ParseNode>();
+  }
   scoped_ptr<BinaryOpNode> assign(new BinaryOpNode);
   assign->set_op(token);
   assign->set_left(left.Pass());

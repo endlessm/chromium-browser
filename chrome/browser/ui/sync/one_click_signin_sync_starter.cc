@@ -22,12 +22,10 @@
 #include "chrome/browser/profiles/profile_window.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/signin_tracker_factory.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
-#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
@@ -38,6 +36,7 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/browser/signin_metrics.h"
 #include "components/sync_driver/sync_prefs.h"
@@ -270,7 +269,7 @@ void OneClickSigninSyncStarter::CreateNewSignedInProfile() {
       GetProfileInfoCache().ChooseAvatarIconIndexForNewProfile();
   ProfileManager::CreateMultiProfileAsync(
       base::UTF8ToUTF16(signin->GetUsernameForAuthInProgress()),
-      base::UTF8ToUTF16(profiles::GetDefaultAvatarIconUrl(icon_index)),
+      profiles::GetDefaultAvatarIconUrl(icon_index),
       base::Bind(&OneClickSigninSyncStarter::CompleteInitForNewProfile,
                  weak_pointer_factory_.GetWeakPtr(), desktop_type_),
       std::string());

@@ -182,6 +182,11 @@ int MemBackendImpl::DoomEntriesSince(const base::Time initial_time,
   return net::ERR_FAILED;
 }
 
+int MemBackendImpl::CalculateSizeOfAllEntries(
+    const CompletionCallback& callback) {
+  return current_size_;
+}
+
 class MemBackendImpl::MemIterator : public Backend::Iterator {
  public:
   explicit MemIterator(base::WeakPtr<MemBackendImpl> backend)

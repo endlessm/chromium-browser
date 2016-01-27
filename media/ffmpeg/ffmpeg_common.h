@@ -13,19 +13,23 @@
 #include "media/base/audio_decoder_config.h"
 #include "media/base/channel_layout.h"
 #include "media/base/media_export.h"
-#include "media/base/video_decoder_config.h"
+#include "media/base/video_codecs.h"
 #include "media/base/video_frame.h"
 #include "media/ffmpeg/ffmpeg_deleters.h"
 
 // Include FFmpeg header files.
 extern "C" {
 // Disable deprecated features which result in spammy compile warnings.  This
-// list of defines must mirror those in the 'defines' section of the ffmpeg.gyp
-// file or the headers below will generate different structures.
-#define FF_API_PIX_FMT_DESC 0
-#define FF_API_OLD_DECODE_AUDIO 0
-#define FF_API_DESTRUCT_PACKET 0
-#define FF_API_GET_BUFFER 0
+// list of defines must mirror those in the 'defines' section of BUILD.gn file &
+// ffmpeg.gyp file or the headers below will generate different structures!
+#define FF_API_CONVERGENCE_DURATION 0
+// Upstream libavcodec/utils.c still uses the deprecated
+// av_dup_packet(), causing deprecation warnings.
+// The normal fix for such things is to disable the feature as below,
+// but the upstream code does not yet compile with it disabled.
+// (In this case, the fix is replacing the call with a new function.)
+// In the meantime, we directly disable those warnings in the C file.
+//#define FF_API_AVPACKET_OLD_API 0
 
 // Temporarily disable possible loss of data warning.
 // TODO(scherkus): fix and upstream the compiler warnings.
@@ -57,7 +61,7 @@ inline void ScopedPtrAVFree::operator()(void* x) const {
 
 inline void ScopedPtrAVFreePacket::operator()(void* x) const {
   AVPacket* packet = static_cast<AVPacket*>(x);
-  av_free_packet(packet);
+  av_packet_unref(packet);
   delete packet;
 }
 
@@ -85,27 +89,29 @@ MEDIA_EXPORT base::TimeDelta ConvertFromTimeBase(const AVRational& time_base,
 MEDIA_EXPORT int64 ConvertToTimeBase(const AVRational& time_base,
                                      const base::TimeDelta& timestamp);
 
-void AVStreamToAudioDecoderConfig(
-    const AVStream* stream,
-    AudioDecoderConfig* config,
-    bool record_stats);
+// Returns true if AVStream is successfully converted to a AudioDecoderConfig.
+// Returns false if conversion fails, in which case |config| is not modified.
+MEDIA_EXPORT bool AVStreamToAudioDecoderConfig(const AVStream* stream,
+                                               AudioDecoderConfig* config);
 void AudioDecoderConfigToAVCodecContext(
     const AudioDecoderConfig& config,
     AVCodecContext* codec_context);
 
-void AVStreamToVideoDecoderConfig(
-    const AVStream* stream,
-    VideoDecoderConfig* config,
-    bool record_stats);
+// Returns true if AVStream is successfully converted to a VideoDecoderConfig.
+// Returns false if conversion fails, in which case |config| is not modified.
+MEDIA_EXPORT bool AVStreamToVideoDecoderConfig(const AVStream* stream,
+                                               VideoDecoderConfig* config);
 void VideoDecoderConfigToAVCodecContext(
     const VideoDecoderConfig& config,
     AVCodecContext* codec_context);
 
-MEDIA_EXPORT void AVCodecContextToAudioDecoderConfig(
+// Returns true if AVCodecContext is successfully converted to an
+// AudioDecoderConfig. Returns false if conversion fails, in which case |config|
+// is not modified.
+MEDIA_EXPORT bool AVCodecContextToAudioDecoderConfig(
     const AVCodecContext* codec_context,
     bool is_encrypted,
-    AudioDecoderConfig* config,
-    bool record_stats);
+    AudioDecoderConfig* config);
 
 // Converts FFmpeg's channel layout to chrome's ChannelLayout.  |channels| can
 // be used when FFmpeg's channel layout is not informative in order to make a
@@ -113,21 +119,30 @@ MEDIA_EXPORT void AVCodecContextToAudioDecoderConfig(
 MEDIA_EXPORT ChannelLayout ChannelLayoutToChromeChannelLayout(int64_t layout,
                                                               int channels);
 
+MEDIA_EXPORT AVCodecID VideoCodecToCodecID(VideoCodec video_codec);
+
 // Converts FFmpeg's audio sample format to Chrome's SampleFormat.
 MEDIA_EXPORT SampleFormat
-    AVSampleFormatToSampleFormat(AVSampleFormat sample_format);
+AVSampleFormatToSampleFormat(AVSampleFormat sample_format);
 
 // Converts FFmpeg's pixel formats to its corresponding supported video format.
-MEDIA_EXPORT VideoFrame::Format PixelFormatToVideoFormat(
-    PixelFormat pixel_format);
+MEDIA_EXPORT VideoPixelFormat
+AVPixelFormatToVideoPixelFormat(AVPixelFormat pixel_format);
 
 // Converts video formats to its corresponding FFmpeg's pixel formats.
-PixelFormat VideoFormatToPixelFormat(VideoFrame::Format video_format);
+AVPixelFormat VideoPixelFormatToAVPixelFormat(VideoPixelFormat video_format);
+
+ColorSpace AVColorSpaceToColorSpace(AVColorSpace color_space,
+                                    AVColorRange color_range);
 
 // Convert FFmpeg UTC representation (YYYY-MM-DD HH:MM:SS) to base::Time.
 // Returns true and sets |*out| if |date_utc| contains a valid
 // date string. Otherwise returns fals and timeline_offset is unmodified.
 MEDIA_EXPORT bool FFmpegUTCDateToTime(const char* date_utc, base::Time* out);
+
+// Returns a 32-bit hash for the given codec name.  See the VerifyUmaCodecHashes
+// unit test for more information and code for generating the histogram XML.
+MEDIA_EXPORT int32_t HashCodecName(const char* codec_name);
 
 }  // namespace media
 

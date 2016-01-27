@@ -6,6 +6,7 @@
 #define InspectorTaskRunner_h
 
 #include "core/CoreExport.h"
+#include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/OwnPtr.h"
@@ -16,11 +17,13 @@ namespace blink {
 
 class CORE_EXPORT InspectorTaskRunner final {
     WTF_MAKE_NONCOPYABLE(InspectorTaskRunner);
+    USING_FAST_MALLOC(InspectorTaskRunner);
 public:
     explicit InspectorTaskRunner(v8::Isolate*);
     ~InspectorTaskRunner();
 
     class Task {
+        USING_FAST_MALLOC(Task);
     public:
         virtual ~Task() { }
         virtual void run() = 0;
@@ -31,6 +34,7 @@ public:
     void runPendingTasks();
 
     class CORE_EXPORT IgnoreInterruptsScope final {
+        USING_FAST_MALLOC(IgnoreInterruptsScope);
     public:
         explicit IgnoreInterruptsScope(InspectorTaskRunner*);
         ~IgnoreInterruptsScope();

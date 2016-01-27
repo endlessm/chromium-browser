@@ -7,27 +7,26 @@
 
 #include "platform/geometry/LayoutSize.h"
 #include "platform/graphics/paint/DisplayItem.h"
-#include "wtf/FastAllocBase.h"
 #include "wtf/PassOwnPtr.h"
 
 namespace blink {
 
-class PLATFORM_EXPORT BeginFixedPositionDisplayItem : public PairedBeginDisplayItem {
+class PLATFORM_EXPORT BeginFixedPositionDisplayItem final : public PairedBeginDisplayItem {
 public:
     BeginFixedPositionDisplayItem(const DisplayItemClientWrapper& client)
-        : PairedBeginDisplayItem(client, BeginFixedPosition) { }
+        : PairedBeginDisplayItem(client, BeginFixedPosition, sizeof(*this)) { }
 
-    void replay(GraphicsContext&) final { }
-    void appendToWebDisplayItemList(WebDisplayItemList*) const final;
+    void replay(GraphicsContext&) const final { }
+    void appendToWebDisplayItemList(const IntRect&, WebDisplayItemList*) const final;
 };
 
-class PLATFORM_EXPORT EndFixedPositionDisplayItem : public PairedEndDisplayItem {
+class PLATFORM_EXPORT EndFixedPositionDisplayItem final : public PairedEndDisplayItem {
 public:
     EndFixedPositionDisplayItem(const DisplayItemClientWrapper& client)
-        : PairedEndDisplayItem(client, EndFixedPosition) { }
+        : PairedEndDisplayItem(client, EndFixedPosition, sizeof(*this)) { }
 
-    void replay(GraphicsContext&) final { }
-    void appendToWebDisplayItemList(WebDisplayItemList*) const final;
+    void replay(GraphicsContext&) const final { }
+    void appendToWebDisplayItemList(const IntRect&, WebDisplayItemList*) const final;
 
 private:
 #if ENABLE(ASSERT)

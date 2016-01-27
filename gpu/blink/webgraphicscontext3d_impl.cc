@@ -11,7 +11,7 @@
 #include "gpu/command_buffer/client/gles2_implementation.h"
 #include "gpu/command_buffer/client/gles2_lib.h"
 #include "gpu/command_buffer/common/gles2_cmd_utils.h"
-#include "gpu/skia_bindings/gl_bindings_skia_cmd_buffer.h"
+#include "gpu/command_buffer/common/sync_token.h"
 
 #include "third_party/khronos/GLES2/gl2.h"
 #ifndef GL_GLEXT_PROTOTYPES
@@ -213,7 +213,15 @@ uint32_t WebGraphicsContext3DImpl::lastFlushID() {
   return flush_id_;
 }
 
-DELEGATE_TO_GL_R(insertSyncPoint, InsertSyncPointCHROMIUM, unsigned int)
+bool WebGraphicsContext3DImpl::insertSyncPoint(WGC3Dbyte* sync_token) {
+  const uint32_t sync_point = gl_->InsertSyncPointCHROMIUM();
+  if (!sync_point)
+    return false;
+
+  gpu::SyncToken sync_token_data(sync_point);
+  memcpy(sync_token, &sync_token_data, sizeof(sync_token_data));
+  return true;
+}
 
 DELEGATE_TO_GL_3(reshapeWithScaleFactor, ResizeCHROMIUM, int, int, float)
 
@@ -257,6 +265,9 @@ DELEGATE_TO_GL_5(renderbufferStorageMultisampleCHROMIUM,
                  WGC3Denum, WGC3Dsizei, WGC3Dsizei)
 
 DELEGATE_TO_GL_1(activeTexture, ActiveTexture, WGC3Denum)
+
+DELEGATE_TO_GL(applyScreenSpaceAntialiasingCHROMIUM,
+               ApplyScreenSpaceAntialiasingCHROMIUM);
 
 DELEGATE_TO_GL_2(attachShader, AttachShader, WebGLId, WebGLId)
 
@@ -463,6 +474,11 @@ DELEGATE_TO_GL_4(getFramebufferAttachmentParameteriv,
 DELEGATE_TO_GL_2(getIntegerv, GetIntegerv, WGC3Denum, WGC3Dint*)
 
 DELEGATE_TO_GL_2(getInteger64v, GetInteger64v, WGC3Denum, WGC3Dint64*)
+
+DELEGATE_TO_GL_3(getIntegeri_v, GetIntegeri_v, WGC3Denum, WGC3Duint, WGC3Dint*)
+
+DELEGATE_TO_GL_3(getInteger64i_v, GetInteger64i_v,
+                 WGC3Denum, WGC3Duint, WGC3Dint64*)
 
 DELEGATE_TO_GL_3(getProgramiv, GetProgramiv, WebGLId, WGC3Denum, WGC3Dint*)
 
@@ -826,6 +842,13 @@ DELEGATE_TO_GL_3(getQueryivEXT, GetQueryivEXT, WGC3Denum, WGC3Denum, WGC3Dint*)
 DELEGATE_TO_GL_3(getQueryObjectuivEXT, GetQueryObjectuivEXT,
                  WebGLId, WGC3Denum, WGC3Duint*)
 
+DELEGATE_TO_GL_2(queryCounterEXT, QueryCounterEXT, WebGLId, WGC3Denum)
+DELEGATE_TO_GL_3(getQueryObjectui64vEXT,
+                 GetQueryObjectui64vEXT,
+                 WebGLId,
+                 WGC3Denum,
+                 WGC3Duint64*)
+
 DELEGATE_TO_GL_8(copyTextureCHROMIUM,
                  CopyTextureCHROMIUM,
                  WGC3Denum,
@@ -865,7 +888,7 @@ void WebGraphicsContext3DImpl::shallowFinishCHROMIUM() {
   gl_->ShallowFinishCHROMIUM();
 }
 
-DELEGATE_TO_GL_1(waitSyncPoint, WaitSyncPointCHROMIUM, GLuint)
+DELEGATE_TO_GL_1(waitSyncToken, WaitSyncTokenCHROMIUM, const WGC3Dbyte*)
 
 void WebGraphicsContext3DImpl::loseContextCHROMIUM(
     WGC3Denum current, WGC3Denum other) {
@@ -965,16 +988,6 @@ DELEGATE_TO_GL_2R(mapBufferCHROMIUM, MapBufferCHROMIUM, WGC3Denum, WGC3Denum,
                   void*)
 DELEGATE_TO_GL_1R(unmapBufferCHROMIUM, UnmapBufferCHROMIUM, WGC3Denum,
                   WGC3Dboolean)
-
-DELEGATE_TO_GL_9(asyncTexImage2DCHROMIUM, AsyncTexImage2DCHROMIUM, WGC3Denum,
-                 WGC3Dint, WGC3Denum, WGC3Dsizei, WGC3Dsizei, WGC3Dint,
-                 WGC3Denum, WGC3Denum, const void*)
-DELEGATE_TO_GL_9(asyncTexSubImage2DCHROMIUM, AsyncTexSubImage2DCHROMIUM,
-                 WGC3Denum, WGC3Dint, WGC3Dint, WGC3Dint, WGC3Dsizei,
-                 WGC3Dsizei, WGC3Denum, WGC3Denum, const void*)
-
-DELEGATE_TO_GL_1(waitAsyncTexImage2DCHROMIUM, WaitAsyncTexImage2DCHROMIUM,
-                 WGC3Denum)
 
 DELEGATE_TO_GL_2(drawBuffersEXT, DrawBuffersEXT, WGC3Dsizei, const WGC3Denum*)
 
@@ -1198,10 +1211,6 @@ blink::WGC3Denum WebGraphicsContext3DImpl::getGraphicsResetStatusARB() {
   return gl_->GetGraphicsResetStatusKHR();
 }
 
-GrGLInterface* WebGraphicsContext3DImpl::createGrGLInterface() {
-  return skia_bindings::CreateCommandBufferSkiaGLBinding();
-}
-
 ::gpu::gles2::GLES2ImplementationErrorMessageCallback*
     WebGraphicsContext3DImpl::getErrorMessageCallback() {
   if (!client_error_message_callback_) {
@@ -1254,7 +1263,21 @@ void WebGraphicsContext3DImpl::ConvertAttributes(
   output_attribs->fail_if_major_perf_caveat =
       attributes.failIfMajorPerformanceCaveat;
   output_attribs->bind_generates_resource = false;
-  output_attribs->webgl_version = attributes.webGLVersion;
+  switch (attributes.webGLVersion) {
+    case 0:
+      output_attribs->context_type = ::gpu::gles2::CONTEXT_TYPE_OPENGLES2;
+      break;
+    case 1:
+      output_attribs->context_type = ::gpu::gles2::CONTEXT_TYPE_WEBGL1;
+      break;
+    case 2:
+      output_attribs->context_type = ::gpu::gles2::CONTEXT_TYPE_WEBGL2;
+      break;
+    default:
+      NOTREACHED();
+      output_attribs->context_type = ::gpu::gles2::CONTEXT_TYPE_OPENGLES2;
+      break;
+  }
 }
 
 }  // namespace gpu_blink

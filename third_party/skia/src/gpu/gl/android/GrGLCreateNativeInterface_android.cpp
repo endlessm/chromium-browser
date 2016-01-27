@@ -5,6 +5,9 @@
  * Use of this source code is governed by a BSD-style license that can be
  * found in the LICENSE file.
  */
+#include "SkTypes.h"
+#if defined(SK_BUILD_FOR_ANDROID)
+
 #include "gl/GrGLInterface.h"
 #include "gl/GrGLAssembleInterface.h"
 #include "gl/GrGLUtil.h"
@@ -13,7 +16,7 @@
 #include <GLES2/gl2.h>
 
 static GrGLFuncPtr android_get_gl_proc(void* ctx, const char name[]) {
-    SkASSERT(NULL == ctx);
+    SkASSERT(nullptr == ctx);
     // Some older drivers on Android have busted eglGetProcAdddress Functions that
     // will return the wrong pointer for built in GLES2 functions. This set of functions
     // was generated on a Xoom by finding mismatches between the function pulled in via gl2.h and
@@ -225,5 +228,7 @@ static GrGLFuncPtr android_get_gl_proc(void* ctx, const char name[]) {
 }
 
 const GrGLInterface* GrGLCreateNativeInterface() {
-    return GrGLAssembleInterface(NULL, android_get_gl_proc);
+    return GrGLAssembleInterface(nullptr, android_get_gl_proc);
 }
+
+#endif//defined(SK_BUILD_FOR_ANDROID)

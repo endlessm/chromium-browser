@@ -60,11 +60,14 @@ void av_register_all(void)
 
     /* (de)muxers */
     REGISTER_MUXER   (A64,              a64);
+    REGISTER_DEMUXER (AA,               aa);
     REGISTER_DEMUXER (AAC,              aac);
     REGISTER_MUXDEMUX(AC3,              ac3);
+    REGISTER_DEMUXER (ACM,              acm);
     REGISTER_DEMUXER (ACT,              act);
     REGISTER_DEMUXER (ADF,              adf);
     REGISTER_DEMUXER (ADP,              adp);
+    REGISTER_DEMUXER (ADS,              ads);
     REGISTER_MUXER   (ADTS,             adts);
     REGISTER_MUXDEMUX(ADX,              adx);
     REGISTER_DEMUXER (AEA,              aea);
@@ -77,6 +80,7 @@ void av_register_all(void)
     REGISTER_MUXDEMUX(APNG,             apng);
     REGISTER_DEMUXER (AQTITLE,          aqtitle);
     REGISTER_MUXDEMUX(ASF,              asf);
+    REGISTER_DEMUXER (ASF_O,            asf_o);
     REGISTER_MUXDEMUX(ASS,              ass);
     REGISTER_MUXDEMUX(AST,              ast);
     REGISTER_MUXER   (ASF_STREAM,       asf_stream);
@@ -106,6 +110,7 @@ void av_register_all(void)
     REGISTER_MUXER   (DASH,             dash);
     REGISTER_MUXDEMUX(DATA,             data);
     REGISTER_MUXDEMUX(DAUD,             daud);
+    REGISTER_DEMUXER (DCSTR,            dcstr);
     REGISTER_DEMUXER (DFA,              dfa);
     REGISTER_MUXDEMUX(DIRAC,            dirac);
     REGISTER_MUXDEMUX(DNXHD,            dnxhd);
@@ -136,6 +141,7 @@ void av_register_all(void)
     REGISTER_MUXDEMUX(G722,             g722);
     REGISTER_MUXDEMUX(G723_1,           g723_1);
     REGISTER_DEMUXER (G729,             g729);
+    REGISTER_DEMUXER (GENH,             genh);
     REGISTER_MUXDEMUX(GIF,              gif);
     REGISTER_DEMUXER (GSM,              gsm);
     REGISTER_MUXDEMUX(GXF,              gxf);
@@ -165,7 +171,7 @@ void av_register_all(void)
     REGISTER_MUXDEMUX(IVF,              ivf);
     REGISTER_MUXDEMUX(JACOSUB,          jacosub);
     REGISTER_DEMUXER (JV,               jv);
-    REGISTER_MUXDEMUX(LATM,             latm);
+    REGISTER_MUXER   (LATM,             latm);
     REGISTER_DEMUXER (LMLM4,            lmlm4);
     REGISTER_DEMUXER (LOAS,             loas);
     REGISTER_MUXDEMUX(LRC,              lrc);
@@ -202,6 +208,7 @@ void av_register_all(void)
     REGISTER_MUXDEMUX(MPJPEG,           mpjpeg);
     REGISTER_DEMUXER (MPL2,             mpl2);
     REGISTER_DEMUXER (MPSUB,            mpsub);
+    REGISTER_DEMUXER (MSF,              msf);
     REGISTER_DEMUXER (MSNWC_TCP,        msnwc_tcp);
     REGISTER_DEMUXER (MTV,              mtv);
     REGISTER_DEMUXER (MV,               mv);
@@ -290,6 +297,7 @@ void av_register_all(void)
     REGISTER_DEMUXER (SUBVIEWER1,       subviewer1);
     REGISTER_DEMUXER (SUBVIEWER,        subviewer);
     REGISTER_DEMUXER (SUP,              sup);
+    REGISTER_DEMUXER (SVAG,             svag);
     REGISTER_MUXDEMUX(SWF,              swf);
     REGISTER_DEMUXER (TAK,              tak);
     REGISTER_MUXER   (TEE,              tee);
@@ -297,6 +305,7 @@ void av_register_all(void)
     REGISTER_MUXER   (TG2,              tg2);
     REGISTER_MUXER   (TGP,              tgp);
     REGISTER_DEMUXER (THP,              thp);
+    REGISTER_DEMUXER (THREEDOSTR,       threedostr);
     REGISTER_DEMUXER (TIERTEXSEQ,       tiertexseq);
     REGISTER_MUXER   (MKVTIMESTAMP_V2,  mkvtimestamp_v2);
     REGISTER_DEMUXER (TMV,              tmv);
@@ -305,6 +314,7 @@ void av_register_all(void)
     REGISTER_DEMUXER (TXD,              txd);
     REGISTER_DEMUXER (TTY,              tty);
     REGISTER_MUXER   (UNCODEDFRAMECRC,  uncodedframecrc);
+    REGISTER_DEMUXER (VAG,              vag);
     REGISTER_MUXDEMUX(VC1,              vc1);
     REGISTER_MUXDEMUX(VC1T,             vc1t);
     REGISTER_DEMUXER (VIVO,             vivo);
@@ -324,16 +334,19 @@ void av_register_all(void)
     REGISTER_DEMUXER (WSAUD,            wsaud);
     REGISTER_DEMUXER (WSVQA,            wsvqa);
     REGISTER_MUXDEMUX(WTV,              wtv);
+    REGISTER_DEMUXER (WVE,              wve);
     REGISTER_MUXDEMUX(WV,               wv);
     REGISTER_DEMUXER (XA,               xa);
     REGISTER_DEMUXER (XBIN,             xbin);
     REGISTER_DEMUXER (XMV,              xmv);
+    REGISTER_DEMUXER (XVAG,             xvag);
     REGISTER_DEMUXER (XWMA,             xwma);
     REGISTER_DEMUXER (YOP,              yop);
     REGISTER_MUXDEMUX(YUV4MPEGPIPE,     yuv4mpegpipe);
 
     /* image demuxers */
     REGISTER_DEMUXER (IMAGE_BMP_PIPE,        image_bmp_pipe);
+    REGISTER_DEMUXER (IMAGE_DDS_PIPE,        image_dds_pipe);
     REGISTER_DEMUXER (IMAGE_DPX_PIPE,        image_dpx_pipe);
     REGISTER_DEMUXER (IMAGE_EXR_PIPE,        image_exr_pipe);
     REGISTER_DEMUXER (IMAGE_J2K_PIPE,        image_j2k_pipe);
@@ -349,6 +362,7 @@ void av_register_all(void)
 
 
     /* protocols */
+    REGISTER_PROTOCOL(ASYNC,            async);
     REGISTER_PROTOCOL(BLURAY,           bluray);
     REGISTER_PROTOCOL(CACHE,            cache);
     REGISTER_PROTOCOL(CONCAT,           concat);
@@ -387,6 +401,7 @@ void av_register_all(void)
     REGISTER_PROTOCOL(UNIX,             unix);
 
     /* external libraries */
+    REGISTER_MUXER   (CHROMAPRINT,      chromaprint);
     REGISTER_DEMUXER (LIBGME,           libgme);
     REGISTER_DEMUXER (LIBMODPLUG,       libmodplug);
     REGISTER_MUXDEMUX(LIBNUT,           libnut);

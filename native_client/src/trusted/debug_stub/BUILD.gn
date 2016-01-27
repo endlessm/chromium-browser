@@ -12,6 +12,7 @@ static_library("debug_stub") {
     "target.cc",
     "thread_common.cc",
     "transport_common.cc",
+    "transport_ipc.cc",
     "util.cc",
   ]
   if (current_os != "win") {
@@ -29,7 +30,7 @@ static_library("debug_stub") {
     ]
   }
   deps = [
-    "//native_client/build/config/nacl:nacl_base",
+    "//build/config/nacl:nacl_base",
     "//native_client/src/shared/platform:platform",
   ]
 }
@@ -44,7 +45,7 @@ executable("gdb_rsp_unittest") {
   ]
 
   deps = [
-    "//native_client/build/config/nacl:nacl_base",
+    "//build/config/nacl:nacl_base",
     ":debug_stub",
   ]
 }

@@ -10,7 +10,6 @@
 #include <vector>
 
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "base/observer_list.h"
 #include "base/time/time.h"
@@ -158,7 +157,6 @@ class PrerenderContents : public content::NotificationObserver,
   PrerenderManager* prerender_manager() { return prerender_manager_; }
 
   base::string16 title() const { return title_; }
-  int32 page_id() const { return page_id_; }
   const GURL& prerender_url() const { return prerender_url_; }
   const content::Referrer& referrer() const { return referrer_; }
   bool has_stopped_loading() const { return has_stopped_loading_; }
@@ -350,7 +348,6 @@ class PrerenderContents : public content::NotificationObserver,
   // own the contained RenderViewHost when the prerendered page is shown
   // in a WebContents.
   base::string16 title_;
-  int32 page_id_;
   GURL url_;
   content::NotificationRegistrar notification_registrar_;
 

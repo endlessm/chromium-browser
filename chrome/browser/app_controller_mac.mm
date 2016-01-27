@@ -40,12 +40,10 @@
 #include "chrome/browser/sessions/session_restore.h"
 #include "chrome/browser/sessions/session_service.h"
 #include "chrome/browser/sessions/session_service_factory.h"
-#include "chrome/browser/sessions/tab_restore_service.h"
 #include "chrome/browser/sessions/tab_restore_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/signin_promo.h"
 #include "chrome/browser/signin/signin_ui_util.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/sync_ui_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_command_controller.h"
@@ -82,8 +80,10 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/handoff/handoff_manager.h"
 #include "components/handoff/handoff_utility.h"
+#include "components/sessions/core/tab_restore_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "content/public/browser/browser_thread.h"
@@ -175,7 +175,7 @@ void RecordLastRunAppBundlePath() {
   // real, user-visible app bundle directory. (The alternatives give either the
   // framework's path or the initial app's path, which may be an app mode shim
   // or a unit test.)
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   base::FilePath app_bundle_path =
       chrome::GetVersionedDirectory().DirName().DirName().DirName();
@@ -212,7 +212,6 @@ bool IsProfileSignedOut(Profile* profile) {
 - (void)initMenuState;
 - (void)initProfileMenu;
 - (void)updateConfirmToQuitPrefMenuItem:(NSMenuItem*)item;
-- (void)updateDisplayMessageCenterPrefMenuItem:(NSMenuItem*)item;
 - (void)registerServicesMenuTypesTo:(NSApplication*)app;
 - (void)getUrl:(NSAppleEventDescriptor*)event
      withReply:(NSAppleEventDescriptor*)reply;
@@ -878,7 +877,7 @@ class AppControllerProfileObserver : public ProfileInfoCacheObserver {
 // Checks with the TabRestoreService to see if there's anything there to
 // restore and returns YES if so.
 - (BOOL)canRestoreTab {
-  TabRestoreService* service =
+  sessions::TabRestoreService* service =
       TabRestoreServiceFactory::GetForProfile([self lastProfile]);
   return service && !service->entries().empty();
 }
@@ -998,10 +997,6 @@ class AppControllerProfileObserver : public ProfileInfoCacheObserver {
     enable = YES;
   } else if (action == @selector(toggleConfirmToQuit:)) {
     [self updateConfirmToQuitPrefMenuItem:static_cast<NSMenuItem*>(item)];
-    enable = YES;
-  } else if (action == @selector(toggleDisplayMessageCenter:)) {
-    NSMenuItem* menuItem = static_cast<NSMenuItem*>(item);
-    [self updateDisplayMessageCenterPrefMenuItem:menuItem];
     enable = YES;
   } else if (action == @selector(executeApplication:)) {
     enable = YES;
@@ -1326,14 +1321,6 @@ class AppControllerProfileObserver : public ProfileInfoCacheObserver {
   [item setState:enabled ? NSOnState : NSOffState];
 }
 
-- (void)updateDisplayMessageCenterPrefMenuItem:(NSMenuItem*)item {
-  const PrefService* prefService = g_browser_process->local_state();
-  bool enabled = prefService->GetBoolean(prefs::kMessageCenterShowIcon);
-  // The item should be checked if "show icon" is false, since the text reads
-  // "Hide notification center icon."
-  [item setState:enabled ? NSOffState : NSOnState];
-}
-
 - (void)registerServicesMenuTypesTo:(NSApplication*)app {
   // Note that RenderWidgetHostViewCocoa implements NSServicesRequests which
   // handles requests from services.
@@ -1466,12 +1453,6 @@ class AppControllerProfileObserver : public ProfileInfoCacheObserver {
   prefService->SetBoolean(prefs::kConfirmToQuitEnabled, !enabled);
 }
 
-- (IBAction)toggleDisplayMessageCenter:(id)sender {
-  PrefService* prefService = g_browser_process->local_state();
-  bool enabled = prefService->GetBoolean(prefs::kMessageCenterShowIcon);
-  prefService->SetBoolean(prefs::kMessageCenterShowIcon, !enabled);
-}
-
 // Explicitly bring to the foreground when creating new windows from the dock.
 - (void)commandFromDock:(id)sender {
   [NSApp activateIgnoringOtherApps:YES];
@@ -1580,22 +1561,30 @@ class AppControllerProfileObserver : public ProfileInfoCacheObserver {
   if (historyMenuBridge_)
     historyMenuBridge_->ResetMenu();
 
-  // Rebuild the menus with the new profile.
+  // Rebuild the menus with the new profile. The bookmarks submenu is cached to
+  // avoid slowdowns when switching between profiles with large numbers of
+  // bookmarks. Before caching, store whether it is hidden, make the menu item
+  // visible, and restore its original hidden state after resetting the submenu.
+  // This works around an apparent AppKit bug where setting a *different* NSMenu
+  // submenu on a *hidden* menu item forces the item to become visible.
+  // See https://crbug.com/497813 for more details.
+  NSMenuItem* bookmarkItem = [[NSApp mainMenu] itemWithTag:IDC_BOOKMARKS_MENU];
+  BOOL hidden = [bookmarkItem isHidden];
+  [bookmarkItem setHidden:NO];
   lastProfile_ = profile;
 
   auto it = profileBookmarkMenuBridgeMap_.find(profile->GetPath());
   if (it == profileBookmarkMenuBridgeMap_.end()) {
-    base::scoped_nsobject<NSMenu> submenu(
-        [[[[NSApp mainMenu] itemWithTag:IDC_BOOKMARKS_MENU] submenu] copy]);
+    base::scoped_nsobject<NSMenu> submenu([[bookmarkItem submenu] copy]);
     bookmarkMenuBridge_ = new BookmarkMenuBridge(profile, submenu);
     profileBookmarkMenuBridgeMap_[profile->GetPath()] = bookmarkMenuBridge_;
   } else {
     bookmarkMenuBridge_ = it->second;
   }
 
-  [[[NSApp mainMenu] itemWithTag:IDC_BOOKMARKS_MENU] setSubmenu:
-      bookmarkMenuBridge_->BookmarkMenu()];
   // No need to |BuildMenu| here.  It is done lazily upon menu access.
+  [bookmarkItem setSubmenu:bookmarkMenuBridge_->BookmarkMenu()];
+  [bookmarkItem setHidden:hidden];
 
   historyMenuBridge_.reset(new HistoryMenuBridge(lastProfile_));
   historyMenuBridge_->BuildMenu();

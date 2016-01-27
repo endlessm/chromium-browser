@@ -13,7 +13,7 @@ class WebInputEvent;
 }
 
 namespace ui {
-struct LatencyInfo;
+class LatencyInfo;
 }
 
 namespace content {
@@ -30,8 +30,7 @@ class IdleUserDetector : public RenderViewObserver {
   bool OnMessageReceived(const IPC::Message& message) override;
 
   void OnHandleInputEvent(const blink::WebInputEvent* event,
-                          const ui::LatencyInfo& latency_info,
-                          bool is_keyboard_shortcut);
+                          const ui::LatencyInfo& latency_info);
 
   DISALLOW_COPY_AND_ASSIGN(IdleUserDetector);
 };

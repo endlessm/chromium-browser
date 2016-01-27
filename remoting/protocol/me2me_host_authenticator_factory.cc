@@ -47,6 +47,11 @@ class RejectingAuthenticator : public Authenticator {
     return nullptr;
   }
 
+  const std::string& GetAuthKey() const override {
+    NOTREACHED();
+    return auth_key_;
+  };
+
   scoped_ptr<ChannelAuthenticator> CreateChannelAuthenticator() const override {
     NOTREACHED();
     return nullptr;
@@ -54,6 +59,7 @@ class RejectingAuthenticator : public Authenticator {
 
  protected:
   State state_;
+  std::string auth_key_;
 };
 
 }  // namespace
@@ -129,7 +135,8 @@ scoped_ptr<Authenticator> Me2MeHostAuthenticatorFactory::CreateAuthenticator(
   // Verify that the client's jid is an ASCII string, and then check that the
   // client JID has the expected prefix. Comparison is case insensitive.
   if (!base::IsStringASCII(remote_jid) ||
-      !base::StartsWithASCII(remote_jid, remote_jid_prefix + '/', false)) {
+      !base::StartsWith(remote_jid, remote_jid_prefix + '/',
+                        base::CompareCase::INSENSITIVE_ASCII)) {
     LOG(ERROR) << "Rejecting incoming connection from " << remote_jid;
     return make_scoped_ptr(new RejectingAuthenticator());
   }

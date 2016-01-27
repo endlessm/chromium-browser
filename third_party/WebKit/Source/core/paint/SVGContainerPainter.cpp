@@ -25,7 +25,7 @@ void SVGContainerPainter::paint(const PaintInfo& paintInfo)
         return;
 
     FloatRect boundingBox = m_layoutSVGContainer.paintInvalidationRectInLocalCoordinates();
-    if (!paintInfo.intersectsCullRect(m_layoutSVGContainer.localToParentTransform(), boundingBox))
+    if (!paintInfo.cullRect().intersectsCullRect(m_layoutSVGContainer.localToParentTransform(), boundingBox))
         return;
 
     // Spec: An empty viewBox on the <svg> element disables rendering.
@@ -34,7 +34,7 @@ void SVGContainerPainter::paint(const PaintInfo& paintInfo)
         return;
 
     PaintInfo paintInfoBeforeFiltering(paintInfo);
-    paintInfoBeforeFiltering.updateCullRectForSVGTransform(m_layoutSVGContainer.localToParentTransform());
+    paintInfoBeforeFiltering.updateCullRect(m_layoutSVGContainer.localToParentTransform());
     TransformRecorder transformRecorder(*paintInfoBeforeFiltering.context, m_layoutSVGContainer, m_layoutSVGContainer.localToParentTransform());
     {
         Optional<FloatClipRecorder> clipRecorder;
@@ -59,12 +59,12 @@ void SVGContainerPainter::paint(const PaintInfo& paintInfo)
         return;
 
     if (m_layoutSVGContainer.style()->outlineWidth() && m_layoutSVGContainer.style()->visibility() == VISIBLE) {
-        LayoutRect layoutBoundingBox(boundingBox);
-        LayoutRect visualOverflowRect = ObjectPainter::outlineBounds(layoutBoundingBox, m_layoutSVGContainer.styleRef());
-        ObjectPainter(m_layoutSVGContainer).paintOutline(paintInfoBeforeFiltering, layoutBoundingBox, visualOverflowRect);
+        PaintInfo outlinePaintInfo(paintInfoBeforeFiltering);
+        outlinePaintInfo.phase = PaintPhaseSelfOutline;
+        ObjectPainter(m_layoutSVGContainer).paintOutline(outlinePaintInfo, LayoutPoint(boundingBox.location()));
     }
 
-    if (paintInfoBeforeFiltering.context->printing())
+    if (paintInfoBeforeFiltering.isPrinting())
         ObjectPainter(m_layoutSVGContainer).addPDFURLRectIfNeeded(paintInfoBeforeFiltering, LayoutPoint());
 }
 

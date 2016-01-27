@@ -31,10 +31,16 @@ class DownloadNotification {
   virtual void OnDownloadUpdated(content::DownloadItem* item) = 0;
   virtual void OnDownloadRemoved(content::DownloadItem* item) = 0;
 
+  virtual bool HasNotificationClickedListener();
   virtual void OnNotificationClose() {}
   virtual void OnNotificationClick() {}
   virtual void OnNotificationButtonClick(int button_index) {}
   virtual std::string GetNotificationId() const = 0;
+
+  // This method may break a layout of notification center. See the comment in
+  // message_center::MessageCenter::ForceNotificationFlush() for detail.
+  void InvokeUnsafeForceNotificationFlush(
+      message_center::MessageCenter* message_center, const std::string& id);
 
  protected:
   NotificationDelegate* watcher() const;

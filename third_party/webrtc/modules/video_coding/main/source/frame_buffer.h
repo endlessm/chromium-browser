@@ -11,7 +11,7 @@
 #ifndef WEBRTC_MODULES_VIDEO_CODING_MAIN_SOURCE_FRAME_BUFFER_H_
 #define WEBRTC_MODULES_VIDEO_CODING_MAIN_SOURCE_FRAME_BUFFER_H_
 
-#include "webrtc/modules/interface/module_common_types.h"
+#include "webrtc/modules/include/module_common_types.h"
 #include "webrtc/modules/video_coding/main/interface/video_coding.h"
 #include "webrtc/modules/video_coding/main/source/encoded_frame.h"
 #include "webrtc/modules/video_coding/main/source/jitter_buffer_common.h"
@@ -61,6 +61,8 @@ class VCMFrameBuffer : public VCMEncodedFrame {
   int Tl0PicId() const;
   bool NonReference() const;
 
+  void SetGofInfo(const GofInfoVP9& gof_info, size_t idx);
+
   // Increments a counter to keep track of the number of packets of this frame
   // which were NACKed before they arrived.
   void IncrementNackCount();
@@ -73,17 +75,16 @@ class VCMFrameBuffer : public VCMEncodedFrame {
   webrtc::FrameType FrameType() const;
   void SetPreviousFrameLoss();
 
-  // The number of packets discarded because the decoder can't make use of
-  // them.
+  // The number of packets discarded because the decoder can't make use of them.
   int NotDecodablePackets() const;
 
  private:
   void SetState(VCMFrameBufferStateEnum state);  // Set state of frame
 
-  VCMFrameBufferStateEnum    _state;         // Current state of the frame
-  VCMSessionInfo             _sessionInfo;
-  uint16_t             _nackCount;
-  int64_t              _latestPacketTimeMs;
+  VCMFrameBufferStateEnum _state;  // Current state of the frame
+  VCMSessionInfo _sessionInfo;
+  uint16_t _nackCount;
+  int64_t _latestPacketTimeMs;
 };
 
 }  // namespace webrtc

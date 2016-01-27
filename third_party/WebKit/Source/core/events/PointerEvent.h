@@ -7,6 +7,7 @@
 
 #include "core/events/MouseEvent.h"
 #include "core/events/PointerEventInit.h"
+#include "platform/PlatformTouchPoint.h"
 
 namespace blink {
 
@@ -24,6 +25,16 @@ public:
         return adoptRefWillBeNoop(new PointerEvent(type, initializer));
     }
 
+    static PassRefPtrWillBeRawPtr<PointerEvent> create(const AtomicString& type,
+        const bool isPrimary, const PlatformMouseEvent&, PassRefPtrWillBeRawPtr<Node> relatedTarget,
+        PassRefPtrWillBeRawPtr<AbstractView>);
+
+    static PassRefPtrWillBeRawPtr<PointerEvent> create(const AtomicString& type,
+        const bool isPrimary, const PlatformTouchPoint&,
+        PlatformEvent::Modifiers,
+        const double width, const double height,
+        const double clientX, const double clientY);
+
     long pointerId() const { return m_pointerId; }
     double width() const { return m_width; }
     double height() const { return m_height; }
@@ -33,8 +44,10 @@ public:
     const String& pointerType() const { return m_pointerType; }
     bool isPrimary() const { return m_isPrimary; }
 
-    virtual bool isMouseEvent() const override;
-    virtual bool isPointerEvent() const override;
+    bool isMouseEvent() const override;
+    bool isPointerEvent() const override;
+
+    PassRefPtrWillBeRawPtr<EventDispatchMediator> createMediator() override;
 
     DECLARE_VIRTUAL_TRACE();
 
@@ -60,7 +73,7 @@ public:
 private:
     explicit PointerEventDispatchMediator(PassRefPtrWillBeRawPtr<PointerEvent>);
     PointerEvent& event() const;
-    virtual bool dispatchEvent(EventDispatcher&) const override;
+    bool dispatchEvent(EventDispatcher&) const override;
 };
 
 DEFINE_EVENT_TYPE_CASTS(PointerEvent);

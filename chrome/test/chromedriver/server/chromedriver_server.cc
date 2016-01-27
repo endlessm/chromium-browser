@@ -51,7 +51,7 @@ class HttpServer : public net::HttpServer::Delegate {
       : handle_request_func_(handle_request_func),
         weak_factory_(this) {}
 
-  virtual ~HttpServer() {}
+  ~HttpServer() override {}
 
   bool Start(uint16 port, bool allow_remote) {
     std::string binding_ip = kLocalHostAddress;
@@ -287,7 +287,8 @@ int main(int argc, char *argv[]) {
   if (cmd_line->HasSwitch("whitelisted-ips")) {
     allow_remote = true;
     std::string whitelist = cmd_line->GetSwitchValueASCII("whitelisted-ips");
-    base::SplitString(whitelist, ',', &whitelisted_ips);
+    whitelisted_ips = base::SplitString(
+        whitelist, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   }
   if (!cmd_line->HasSwitch("silent")) {
     printf("Starting ChromeDriver %s on port %u\n", kChromeDriverVersion, port);

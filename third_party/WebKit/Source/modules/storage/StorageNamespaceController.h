@@ -18,6 +18,7 @@ class StorageNamespace;
 
 class MODULES_EXPORT StorageNamespaceController final : public NoBaseWillBeGarbageCollectedFinalized<StorageNamespaceController>, public WillBeHeapSupplement<Page> {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(StorageNamespaceController);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(StorageNamespaceController);
 public:
     StorageNamespace* sessionStorage(bool optionalCreate = true);
     StorageClient* storageClient() { return m_client; }

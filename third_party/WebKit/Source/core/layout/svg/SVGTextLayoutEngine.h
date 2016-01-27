@@ -20,11 +20,13 @@
 #ifndef SVGTextLayoutEngine_h
 #define SVGTextLayoutEngine_h
 
+#include "core/layout/api/LineLayoutSVGInlineText.h"
 #include "core/layout/svg/LayoutSVGInlineText.h"
 #include "core/layout/svg/SVGTextFragment.h"
 #include "core/layout/svg/SVGTextLayoutAttributes.h"
 #include "core/layout/svg/SVGTextMetrics.h"
 #include "platform/graphics/Path.h"
+#include "wtf/Allocator.h"
 #include "wtf/Vector.h"
 
 namespace blink {
@@ -44,6 +46,7 @@ class SVGInlineTextBox;
 // which are stored in the SVGInlineTextBox objects.
 
 class SVGTextLayoutEngine {
+    STACK_ALLOCATED();
     WTF_MAKE_NONCOPYABLE(SVGTextLayoutEngine);
 public:
     SVGTextLayoutEngine(Vector<SVGTextLayoutAttributes*>&);
@@ -64,7 +67,7 @@ private:
     void endTextPathLayout();
 
     void layoutInlineTextBox(SVGInlineTextBox*);
-    void layoutTextOnLineOrPath(SVGInlineTextBox*, const LayoutSVGInlineText&, const ComputedStyle&);
+    void layoutTextOnLineOrPath(SVGInlineTextBox*, LineLayoutSVGInlineText, const ComputedStyle&);
 
     bool currentLogicalCharacterAttributes(SVGTextLayoutAttributes*&);
     bool currentLogicalCharacterMetrics(SVGTextLayoutAttributes*&, SVGTextMetrics&);

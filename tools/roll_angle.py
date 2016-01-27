@@ -12,9 +12,13 @@ import subprocess
 import sys
 import time
 
+extra_trybots = [
+  'win_clang_dbg',
+]
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 SRC_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, os.pardir))
+sys.path.insert(0, os.path.join(SRC_DIR, 'build'))
 import find_depot_tools
 find_depot_tools.add_depot_tools_to_path()
 import roll_dep_svn
@@ -253,7 +257,18 @@ class AutoRoller(object):
       logging.debug('Uploading changes...')
       self._RunCommand(['git', 'cl', 'upload'],
                        extra_env={'EDITOR': 'true'})
-      self._RunCommand(['git', 'cl', 'try'])
+
+      # Run the default trybots
+      base_try_cmd = ['git', 'cl', 'try']
+      self._RunCommand(base_try_cmd)
+
+      if extra_trybots:
+        # Run additional tryjobs
+        extra_try_args = []
+        for extra_trybot in extra_trybots:
+          extra_try_args += ['-b', extra_trybot]
+        self._RunCommand(base_try_cmd + extra_try_args)
+
       cl_info = self._GetCLInfo()
       print 'Issue: %d URL: %s' % (cl_info.issue, cl_info.url)
 

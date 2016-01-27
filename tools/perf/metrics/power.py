@@ -1,14 +1,19 @@
 # Copyright 2014 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
-
+import logging
 import time
 
-from telemetry.core.platform import process_statistic_timeline_data
+from telemetry.util import process_statistic_timeline_data
 from telemetry.value import scalar
 
 from metrics import Metric
 
+
+MONSOON_POWER_LABEL = 'monsoon_energy_consumption_mwh'
+FUELGAUGE_POWER_LABEL = 'fuel_gauge_energy_consumption_mwh'
+APP_POWER_LABEL = 'application_energy_consumption_mwh'
+TOTAL_POWER_LABEL = 'energy_consumption_mwh'
 
 class PowerMetric(Metric):
   """A metric for measuring power usage."""
@@ -30,14 +35,6 @@ class PowerMetric(Metric):
     self._starting_cpu_stats = None
     self._results = None
     self._MeasureQuiescentPower(quiescent_measurement_time_s)
-
-  def __del__(self):
-    # TODO(jeremy): Remove once crbug.com/350841 is fixed.
-    # Don't leave power monitoring processes running on the system.
-    self._StopInternal()
-    parent = super(PowerMetric, self)
-    if hasattr(parent, '__del__'):
-      parent.__del__()
 
   def _StopInternal(self):
     """Stop monitoring power if measurement is running. This function is
@@ -65,12 +62,16 @@ class PowerMetric(Metric):
     time.sleep(measurement_time_s)
     power_results = self._platform.StopMonitoringPower()
     PowerMetric._quiescent_power_draw_mwh = (
-        power_results.get('energy_consumption_mwh', 0))
+        power_results.get(TOTAL_POWER_LABEL, 0))
 
   def Start(self, _, tab):
     self._browser = tab.browser
 
     if not self._platform.CanMonitorPower():
+      return
+
+    if not self._browser.supports_power_metrics:
+      logging.warning('Power metrics not supported.')
       return
 
     self._results = None
@@ -79,13 +80,21 @@ class PowerMetric(Metric):
     # This line invokes top a few times, call before starting power measurement.
     self._starting_cpu_stats = self._browser.cpu_stats
     self._platform.StartMonitoringPower(self._browser)
+
     self._running = True
 
   def Stop(self, _, tab):
-    if not self._platform.CanMonitorPower():
+    if (not self._platform.CanMonitorPower() or
+        not self._browser.supports_power_metrics):
       return
 
     self._StopInternal()
+
+  def Close(self):
+    # TODO(rnephew): Remove when crbug.com/553601 is solved.
+    logging.info('Closing power monitors')
+    if self._platform.IsMonitoringPower():
+      self._platform.StopMonitoringPower()
 
   def AddResults(self, _, results):
     """Add the collected power data into the results object.
@@ -99,11 +108,10 @@ class PowerMetric(Metric):
     if not self._results:
       return
 
-    application_energy_consumption_mwh = (
-        self._results.get('application_energy_consumption_mwh'))
-    total_energy_consumption_mwh = self._results.get('energy_consumption_mwh')
-    fuel_gauge_energy_consumption_mwh = (
-        self._results.get('fuel_gauge_energy_consumption_mwh'))
+    application_energy_consumption_mwh = self._results.get(APP_POWER_LABEL)
+    total_energy_consumption_mwh = self._results.get(TOTAL_POWER_LABEL)
+    fuel_gauge_energy_consumption_mwh = self._results.get(FUELGAUGE_POWER_LABEL)
+    monsoon_energy_consumption_mwh = self._results.get(MONSOON_POWER_LABEL)
 
     if (PowerMetric._quiescent_power_draw_mwh and
         application_energy_consumption_mwh is None and
@@ -114,17 +122,22 @@ class PowerMetric(Metric):
 
     if fuel_gauge_energy_consumption_mwh is not None:
       results.AddValue(scalar.ScalarValue(
-          results.current_page, 'fuel_gauge_energy_consumption_mwh', 'mWh',
+          results.current_page, FUELGAUGE_POWER_LABEL, 'mWh',
           fuel_gauge_energy_consumption_mwh))
+
+    if monsoon_energy_consumption_mwh is not None:
+      results.AddValue(scalar.ScalarValue(
+          results.current_page, MONSOON_POWER_LABEL, 'mWh',
+          monsoon_energy_consumption_mwh))
 
     if total_energy_consumption_mwh is not None:
       results.AddValue(scalar.ScalarValue(
-          results.current_page, 'energy_consumption_mwh', 'mWh',
+          results.current_page, TOTAL_POWER_LABEL, 'mWh',
           total_energy_consumption_mwh))
 
     if application_energy_consumption_mwh is not None:
       results.AddValue(scalar.ScalarValue(
-          results.current_page, 'application_energy_consumption_mwh', 'mWh',
+          results.current_page, APP_POWER_LABEL, 'mWh',
           application_energy_consumption_mwh))
 
     component_utilization = self._results.get('component_utilization', {})
@@ -144,15 +157,15 @@ class PowerMetric(Metric):
           important=False))
 
     # Add temperature measurements.
-    whole_package_utilization = component_utilization.get('whole_package', {})
-    board_temperature_c = whole_package_utilization.get('average_temperature_c')
+    platform_info_utilization = self._results.get('platform_info', {})
+    board_temperature_c = platform_info_utilization.get('average_temperature_c')
     if board_temperature_c is not None:
       results.AddValue(scalar.ScalarValue(
           results.current_page, 'board_temperature', 'celsius',
           board_temperature_c, important=False))
 
     # Add CPU frequency measurements.
-    frequency_hz = whole_package_utilization.get('frequency_percent')
+    frequency_hz = platform_info_utilization.get('frequency_percent')
     if frequency_hz is not None:
       frequency_sum = 0.0
       for freq, percent in frequency_hz.iteritems():
@@ -162,7 +175,7 @@ class PowerMetric(Metric):
           frequency_sum, important=False))
 
     # Add CPU c-state residency measurements.
-    cstate_percent = whole_package_utilization.get('cstate_residency_percent')
+    cstate_percent = platform_info_utilization.get('cstate_residency_percent')
     if cstate_percent is not None:
       for state, percent in cstate_percent.iteritems():
         results.AddValue(scalar.ScalarValue(

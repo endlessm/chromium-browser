@@ -9,33 +9,28 @@
 
 #include "base/basictypes.h"
 #include "base/callback.h"
-#include "base/containers/scoped_ptr_map.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread_checker.h"
 #include "chrome/browser/metrics/metrics_memory_details.h"
 #include "components/metrics/metrics_service_client.h"
 #include "components/metrics/profiler/tracking_synchronizer_observer.h"
+#include "components/omnibox/browser/omnibox_event_global_tracker.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
 
 class ChromeOSMetricsProvider;
-class DriveMetricsProvider;
 class GoogleUpdateMetricsProviderWin;
 class PluginMetricsProvider;
 class PrefRegistrySimple;
 class PrefService;
-class ProcessResourceUsage;
 
 #if !defined(OS_CHROMEOS) && !defined(OS_IOS)
 class SigninStatusMetricsProvider;
 #endif
 
-namespace base {
-class FilePath;
-}  // namespace base
-
 namespace metrics {
+class DriveMetricsProvider;
 class MetricsService;
 class MetricsStateManager;
 class ProfilerMetricsProvider;
@@ -59,6 +54,7 @@ class ChromeMetricsServiceClient
   static void RegisterPrefs(PrefRegistrySimple* registry);
 
   // metrics::MetricsServiceClient:
+  metrics::MetricsService* GetMetricsService() override;
   void SetMetricsClientId(const std::string& client_id) override;
   void OnRecordingDisabled() override;
   bool IsOffTheRecordSessionActive() override;
@@ -68,16 +64,14 @@ class ChromeMetricsServiceClient
   metrics::SystemProfileProto::Channel GetChannel() override;
   std::string GetVersionString() override;
   void OnLogUploadComplete() override;
-  void StartGatheringMetrics(const base::Closure& done_callback) override;
-  void CollectFinalMetrics(const base::Closure& done_callback) override;
+  void InitializeSystemProfileMetrics(
+      const base::Closure& done_callback) override;
+  void CollectFinalMetricsForLog(const base::Closure& done_callback) override;
   scoped_ptr<metrics::MetricsLogUploader> CreateUploader(
       const base::Callback<void(int)>& on_upload_complete) override;
   base::TimeDelta GetStandardUploadInterval() override;
   base::string16 GetRegistryBackupKey() override;
-
-  metrics::MetricsService* metrics_service() { return metrics_service_.get(); }
-
-  void LogPluginLoadingError(const base::FilePath& plugin_path);
+  void OnPluginLoadingError(const base::FilePath& plugin_path) override;
 
  private:
   explicit ChromeMetricsServiceClient(
@@ -94,12 +88,17 @@ class ChromeMetricsServiceClient
   void OnInitTaskGotPluginInfo();
 
   // Called after GoogleUpdate init task has been completed that continues the
-  // init task by loading profiler data.
+  // init task by loading drive metrics.
   void OnInitTaskGotGoogleUpdateData();
 
-  // Called after WebCache statistics have been received from a renderer
-  // process.
-  void OnWebCacheStatsRefresh(int host_id);
+  // Called after the drive metrics init task has been completed that continues
+  // the init task by loading profiler data.
+  void OnInitTaskGotDriveMetrics();
+
+  // Returns true iff profiler data should be included in the next metrics log.
+  // NOTE: This method is probabilistic and also updates internal state as a
+  // side-effect when called, so it should only be called once per log.
+  bool ShouldIncludeProfilerDataInLog();
 
   // TrackingSynchronizerObserver:
   void ReceivedProfilerData(
@@ -110,6 +109,7 @@ class ChromeMetricsServiceClient
 
   // Callbacks for various stages of final log info collection. Do not call
   // these directly.
+  void CollectFinalHistograms();
   void OnMemoryDetailCollectionDone();
   void OnHistogramSynchronizationDone();
 
@@ -126,6 +126,9 @@ class ChromeMetricsServiceClient
   void Observe(int type,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
+
+  // Called when a URL is opened from the Omnibox.
+  void OnURLOpenedFromOmnibox(OmniboxLog* log);
 
 #if defined(OS_WIN)
   // Counts (and removes) the browser crash dump attempt signals left behind by
@@ -147,7 +150,7 @@ class ChromeMetricsServiceClient
   // that has been registered with MetricsService. On other platforms, is NULL.
   ChromeOSMetricsProvider* chromeos_metrics_provider_;
 
-  // Saved callback received from CollectFinalMetrics().
+  // Saved callback received from CollectFinalMetricsForLog().
   base::Closure collect_final_metrics_done_callback_;
 
   // Indicates that collect final metrics step is running.
@@ -174,10 +177,10 @@ class ChromeMetricsServiceClient
 
   // The DriveMetricsProvider instance that was registered with MetricsService.
   // Has the same lifetime as |metrics_service_|.
-  DriveMetricsProvider* drive_metrics_provider_;
+  metrics::DriveMetricsProvider* drive_metrics_provider_;
 
   // Callback that is called when initial metrics gathering is complete.
-  base::Closure finished_gathering_initial_metrics_callback_;
+  base::Closure finished_init_task_callback_;
 
   // The MemoryGrowthTracker instance that tracks memory usage growth in
   // MemoryDetails.
@@ -190,9 +193,14 @@ class ChromeMetricsServiceClient
   // Time of this object's creation.
   const base::TimeTicks start_time_;
 
-  // Map of ProcessResourceUsage from render process host IDs.
-  base::ScopedPtrMap<int, scoped_ptr<ProcessResourceUsage>>
-      host_resource_usage_map_;
+  // Subscription for receiving callbacks that a URL was opened from the
+  // omnibox.
+  scoped_ptr<base::CallbackList<void(OmniboxLog*)>::Subscription>
+      omnibox_url_opened_subscription_;
+
+  // Whether this client has already uploaded profiler data during this session.
+  // Profiler data is uploaded at most once per session.
+  bool has_uploaded_profiler_data_;
 
   base::WeakPtrFactory<ChromeMetricsServiceClient> weak_ptr_factory_;
 

@@ -10,6 +10,7 @@
 #include "base/location.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
+#include "base/process/process_metrics.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
@@ -32,6 +33,7 @@
 #include "chrome/browser/task_manager/tab_contents_information.h"
 #include "chrome/browser/task_manager/web_contents_resource_provider.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/user_manager.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -480,14 +482,14 @@ base::string16 TaskManagerModel::GetResourceGDIHandles(int index) const {
   size_t current, peak;
   GetGDIHandles(index, &current, &peak);
   return l10n_util::GetStringFUTF16(IDS_TASK_MANAGER_HANDLES_CELL_TEXT,
-      base::IntToString16(current), base::IntToString16(peak));
+      base::SizeTToString16(current), base::SizeTToString16(peak));
 }
 
 base::string16 TaskManagerModel::GetResourceUSERHandles(int index) const {
   size_t current, peak;
   GetUSERHandles(index, &current, &peak);
   return l10n_util::GetStringFUTF16(IDS_TASK_MANAGER_HANDLES_CELL_TEXT,
-      base::IntToString16(current), base::IntToString16(peak));
+      base::SizeTToString16(current), base::SizeTToString16(peak));
 }
 
 base::string16 TaskManagerModel::GetResourceWebCoreImageCacheSize(
@@ -1249,8 +1251,8 @@ void TaskManagerModel::NotifyVideoMemoryUsageStats(
 }
 
 void TaskManagerModel::NotifyBytesRead(const net::URLRequest& request,
-                                       int byte_count) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+                                       int64_t byte_count) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   if (!is_updating_byte_count_)
     return;
 
@@ -1282,7 +1284,7 @@ void TaskManagerModel::NotifyBytesRead(const net::URLRequest& request,
 
 // This is called on the UI thread.
 void TaskManagerModel::NotifyDataReady() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   for (size_t i = 0; i < on_data_ready_callbacks_.size(); ++i) {
     if (!on_data_ready_callbacks_[i].is_null())
         on_data_ready_callbacks_[i].Run();
@@ -1380,7 +1382,7 @@ void TaskManagerModel::BytesRead(BytesReadParam param) {
 
 void TaskManagerModel::MultipleBytesRead(
     const std::vector<BytesReadParam>* params) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
   for (std::vector<BytesReadParam>::const_iterator it = params->begin();
        it != params->end(); ++it) {
     BytesRead(*it);
@@ -1388,7 +1390,7 @@ void TaskManagerModel::MultipleBytesRead(
 }
 
 void TaskManagerModel::NotifyMultipleBytesRead() {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   DCHECK(!bytes_read_buffer_.empty());
 
   std::vector<BytesReadParam>* bytes_read_buffer =
@@ -1401,7 +1403,7 @@ void TaskManagerModel::NotifyMultipleBytesRead() {
 }
 
 void TaskManagerModel::SetUpdatingByteCount(bool is_updating) {
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::IO));
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
   is_updating_byte_count_ = is_updating;
 }
 
@@ -1500,6 +1502,7 @@ Resource* TaskManagerModel::GetResource(int index) const {
 // static
 void TaskManager::RegisterPrefs(PrefRegistrySimple* registry) {
   registry->RegisterDictionaryPref(prefs::kTaskManagerWindowPlacement);
+  registry->RegisterDictionaryPref(prefs::kTaskManagerColumnVisibility);
 }
 
 bool TaskManager::IsBrowserProcess(int index) const {
@@ -1547,7 +1550,7 @@ void TaskManager::ModelChanged() {
 
 // static
 TaskManager* TaskManager::GetInstance() {
-  return Singleton<TaskManager>::get();
+  return base::Singleton<TaskManager>::get();
 }
 
 void TaskManager::OpenAboutMemory(chrome::HostDesktopType desktop_type) {

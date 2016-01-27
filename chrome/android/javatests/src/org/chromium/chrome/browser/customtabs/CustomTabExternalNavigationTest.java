@@ -6,16 +6,18 @@ package org.chromium.chrome.browser.customtabs;
 
 import android.app.Activity;
 import android.os.Bundle;
+import android.test.FlakyTest;
 import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ThreadUtils;
-import org.chromium.chrome.browser.EmptyTabObserver;
-import org.chromium.chrome.browser.Tab;
-import org.chromium.chrome.browser.customtabs.CustomTab.CustomTabNavigationDelegate;
+import org.chromium.chrome.browser.customtabs.CustomTabDelegateFactory.CustomTabNavigationDelegate;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationHandler;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationHandler.OverrideUrlLoadingResult;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationParams;
+import org.chromium.chrome.browser.tab.EmptyTabObserver;
+import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabDelegateFactory;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.test.util.TestHttpServerClient;
@@ -51,19 +53,22 @@ public class CustomTabExternalNavigationTest extends CustomTabActivityTestBase {
         }
     }
 
-    private static final String TEST_URL = "about:blank";
+    private static final String TEST_URL = TestHttpServerClient.getUrl(
+            "chrome/test/data/android/google.html");
     private ExternalNavigationHandler mUrlHandler;
     private CustomTabNavigationDelegate mNavigationDelegate;
 
     @Override
     public void startMainActivity() throws InterruptedException {
         super.startMainActivity();
-        startCustomTabActivityWithIntent(createMinimalCustomTabIntent(TEST_URL));
+        startCustomTabActivityWithIntent(CustomTabsTestUtils.createMinimalCustomTabIntent(
+                getInstrumentation().getTargetContext(), TEST_URL, null));
         Tab tab = getActivity().getActivityTab();
-        assertTrue("A custom tab is not present in the activity.", tab instanceof CustomTab);
-        CustomTab customTab = (CustomTab) tab;
-        mUrlHandler = customTab.getExternalNavigationHandler();
-        mNavigationDelegate = customTab.getExternalNavigationDelegate();
+        TabDelegateFactory delegateFactory = tab.getDelegateFactoryForTest();
+        assert delegateFactory instanceof CustomTabDelegateFactory;
+        mUrlHandler = ((CustomTabDelegateFactory) delegateFactory).getExternalNavigationHandler();
+        mNavigationDelegate = ((CustomTabDelegateFactory) delegateFactory)
+                .getExternalNavigationDelegate();
     }
 
     /**
@@ -85,8 +90,11 @@ public class CustomTabExternalNavigationTest extends CustomTabActivityTestBase {
     /**
      * When loading a normal http url that chrome is able to handle, an intent picker should never
      * be shown, even if other activities such as {@link DummyActivityForHttp} claim to handle it.
+     *
+     * crbug.com/519613
+     * @SmallTest
      */
-    @SmallTest
+    @FlakyTest
     public void testIntentPickerNotShownForNormalUrl() {
         final String testUrl = "http://customtabtest.com";
         ExternalNavigationParams params = new ExternalNavigationParams.Builder(testUrl, false)
@@ -99,8 +107,11 @@ public class CustomTabExternalNavigationTest extends CustomTabActivityTestBase {
 
     /**
      * Tests whether a new tab can be created from a {@link CustomTab}.
+     *
+     * crbug.com/519613
+     * @SmallTest
      */
-    @SmallTest
+    @FlakyTest
     public void testNotCreateNewTab() throws InterruptedException, TimeoutException {
         final String testUrl = TestHttpServerClient.getUrl("chrome/test/data/android/google.html");
         final TabModelSelector tabSelector = getActivity().getTabModelSelector();

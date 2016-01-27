@@ -5,51 +5,45 @@
 #ifndef InterpolationValue_h
 #define InterpolationValue_h
 
-#include "core/animation/InterpolableValue.h"
-#include "core/animation/NonInterpolableValue.h"
-#include "platform/heap/Handle.h"
+#include "core/animation/InterpolationComponent.h"
 
 namespace blink {
 
 class InterpolationType;
 
-class InterpolationValue : public NoBaseWillBeGarbageCollectedFinalized<InterpolationValue> {
+class InterpolationValue {
 public:
-    static PassOwnPtrWillBeRawPtr<InterpolationValue> create(const InterpolationType& type, PassOwnPtrWillBeRawPtr<InterpolableValue> interpolableValue, PassRefPtrWillBeRawPtr<NonInterpolableValue> nonInterpolableValue = nullptr)
+    static PassOwnPtr<InterpolationValue> create(const InterpolationType& type, InterpolationComponent& component)
     {
-        return adoptPtrWillBeNoop(new InterpolationValue(type, interpolableValue, nonInterpolableValue));
+        return adoptPtr(new InterpolationValue(type, component.interpolableValue.release(), component.nonInterpolableValue.release()));
+    }
+    static PassOwnPtr<InterpolationValue> create(const InterpolationType& type, PassOwnPtr<InterpolableValue> interpolableValue, PassRefPtr<NonInterpolableValue> nonInterpolableValue = nullptr)
+    {
+        return adoptPtr(new InterpolationValue(type, interpolableValue, nonInterpolableValue));
     }
 
-    PassOwnPtrWillBeRawPtr<InterpolationValue> clone() const
+    PassOwnPtr<InterpolationValue> clone() const
     {
-        return create(m_type, m_interpolableValue->clone(), m_nonInterpolableValue);
+        return create(m_type, m_component.interpolableValue->clone(), m_component.nonInterpolableValue);
     }
 
     const InterpolationType& type() const { return m_type; }
-    const InterpolableValue& interpolableValue() const { return *m_interpolableValue; }
-    InterpolableValue& interpolableValue() { return *m_interpolableValue; }
-    const NonInterpolableValue* nonInterpolableValue() const { return m_nonInterpolableValue.get(); }
+    const InterpolableValue& interpolableValue() const { return *m_component.interpolableValue; }
+    const NonInterpolableValue* nonInterpolableValue() const { return m_component.nonInterpolableValue.get(); }
+    const InterpolationComponent& component() const { return m_component; }
 
-    DEFINE_INLINE_TRACE()
-    {
-        visitor->trace(m_interpolableValue);
-        visitor->trace(m_nonInterpolableValue);
-    }
+    InterpolationComponent& mutableComponent() { return m_component; }
 
 private:
-    InterpolationValue(const InterpolationType& type, PassOwnPtrWillBeRawPtr<InterpolableValue> interpolableValue, PassRefPtrWillBeRawPtr<NonInterpolableValue> nonInterpolableValue = nullptr)
+    InterpolationValue(const InterpolationType& type, PassOwnPtr<InterpolableValue> interpolableValue, PassRefPtr<NonInterpolableValue> nonInterpolableValue)
         : m_type(type)
-        , m_interpolableValue(interpolableValue)
-        , m_nonInterpolableValue(nonInterpolableValue)
+        , m_component(interpolableValue, nonInterpolableValue)
     {
-        ASSERT(this->m_interpolableValue);
+        ASSERT(m_component.interpolableValue);
     }
 
     const InterpolationType& m_type;
-    OwnPtrWillBeMember<InterpolableValue> m_interpolableValue;
-    RefPtrWillBeMember<NonInterpolableValue> m_nonInterpolableValue;
-
-    friend class InterpolationType;
+    InterpolationComponent m_component;
 };
 
 } // namespace blink

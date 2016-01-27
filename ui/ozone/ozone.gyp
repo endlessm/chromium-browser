@@ -16,6 +16,13 @@
     'internal_ozone_platforms': [],
     'internal_ozone_platform_deps': [],
     'internal_ozone_platform_unittest_deps': [],
+
+    # This enables memory-mapped access to accelerated graphics buffers via
+    # the VGEM ("virtual GEM") driver. This is currently only available on
+    # Chrome OS kernels and affects code in the GBM ozone platform.
+    # TODO(dshwang): remove this flag when all gbm hardware supports vgem map.
+    # crbug.com/519587
+    'use_vgem_map%': 0,
   },
   'targets': [
     {
@@ -104,10 +111,15 @@
         'common/gpu/ozone_gpu_messages.h',
         'common/native_display_delegate_ozone.cc',
         'common/native_display_delegate_ozone.h',
+        'common/stub_client_native_pixmap_factory.cc',
+        'common/stub_client_native_pixmap_factory.h',
         'common/stub_overlay_manager.cc',
         'common/stub_overlay_manager.h',
         'platform_selection.cc',
         'platform_selection.h',
+        'public/client_native_pixmap.h',
+        'public/client_native_pixmap_factory.cc',
+        'public/client_native_pixmap_factory.h',
         'public/input_controller.cc',
         'public/input_controller.h',
         'public/ozone_gpu_test_helper.cc',
@@ -163,7 +175,9 @@
             '--output_cc=<(constructor_list_cc_file)',
             '--namespace=ui',
             '--typename=OzonePlatform',
-            '--include="ui/ozone/public/ozone_platform.h"'
+            '--typename=ClientNativePixmapFactory',
+            '--include="ui/ozone/public/ozone_platform.h"',
+            '--include="ui/ozone/public/client_native_pixmap_factory.h"'
           ],
         },
       ],
@@ -191,6 +205,19 @@
         '<@(internal_ozone_platform_unittest_deps)',
       ],
     },
+    {
+      'target_name': 'vgem_map',
+      'type': 'none',
+      'conditions': [
+        ['use_vgem_map==1', {
+          'direct_dependent_settings': {
+            'defines': [
+              'USE_VGEM_MAP',
+            ],
+          },
+        }],
+      ],
+    },
   ],
   'conditions': [
     ['<(ozone_platform_caca) == 1', {
@@ -203,11 +230,6 @@
         'platform/cast/cast.gypi',
       ],
     }],
-    ['<(ozone_platform_dri) == 1 or <(ozone_platform_drm) == 1 or <(ozone_platform_gbm) == 1', {
-      'includes': [
-        'platform/drm/drm.gypi',
-      ],
-    }],
     ['<(ozone_platform_egltest) == 1', {
       'includes': [
         'platform/egltest/egltest.gypi',
@@ -218,9 +240,9 @@
         'platform/drm/gbm.gypi',
       ],
     }],
-    ['<(ozone_platform_test) == 1', {
+    ['<(ozone_platform_headless) == 1', {
       'includes': [
-        'platform/test/test.gypi',
+        'platform/headless/headless.gypi',
       ],
     }],
   ],

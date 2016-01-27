@@ -191,6 +191,7 @@ void XmppSignalStrategy::Core::Disconnect() {
     writer_.reset();
     socket_.reset();
     tls_state_ = TlsState::NOT_REQUESTED;
+    read_pending_ = false;
 
     FOR_EACH_OBSERVER(Listener, listeners_,
                       OnSignalStrategyStateChange(DISCONNECTED));
@@ -234,13 +235,15 @@ bool XmppSignalStrategy::Core::SendStanza(scoped_ptr<buzz::XmlElement> stanza) {
   DCHECK(thread_checker_.CalledOnValidThread());
 
   if (!stream_parser_) {
-    VLOG(0) << "Dropping signalling message because XMPP "
-               "connection has been terminated.";
+    VLOG(0) << "Dropping signalling message because XMPP is not connected.";
     return false;
   }
 
   SendMessage(stanza->Str());
-  return true;
+
+  // Return false if the SendMessage() call above resulted in the SignalStrategy
+  // being disconnected.
+  return stream_parser_ != nullptr;
 }
 
 void XmppSignalStrategy::Core::SetAuthInfo(const std::string& username,
@@ -284,7 +287,7 @@ void XmppSignalStrategy::Core::StartTls() {
       new net::ClientSocketHandle());
   socket_handle->SetSocket(socket_.Pass());
 
-  cert_verifier_.reset(net::CertVerifier::CreateDefault());
+  cert_verifier_ = net::CertVerifier::CreateDefault();
   transport_security_state_.reset(new net::TransportSecurityState());
   net::SSLClientSocketContext context;
   context.cert_verifier = cert_verifier_.get();
@@ -362,9 +365,8 @@ void XmppSignalStrategy::Core::OnSocketConnected(int result) {
     return;
   }
 
-  writer_.reset(new BufferedSocketWriter());
-  writer_->Init(socket_.get(), base::Bind(&Core::OnNetworkError,
-                                          base::Unretained(this)));
+  writer_ = BufferedSocketWriter::CreateForSocket(
+      socket_.get(), base::Bind(&Core::OnNetworkError, base::Unretained(this)));
 
   XmppLoginHandler::TlsMode tls_mode;
   if (xmpp_server_config_.use_tls) {
@@ -406,9 +408,8 @@ void XmppSignalStrategy::Core::OnTlsConnected(int result) {
     return;
   }
 
-  writer_.reset(new BufferedSocketWriter());
-  writer_->Init(socket_.get(), base::Bind(&Core::OnNetworkError,
-                                          base::Unretained(this)));
+  writer_ = BufferedSocketWriter::CreateForSocket(
+      socket_.get(), base::Bind(&Core::OnNetworkError, base::Unretained(this)));
 
   login_handler_->OnTlsStarted();
 

@@ -18,8 +18,8 @@
 #include "webrtc/modules/audio_device/android/audio_manager.h"
 #include "webrtc/modules/audio_device/include/audio_device_defines.h"
 #include "webrtc/modules/audio_device/audio_device_generic.h"
-#include "webrtc/modules/utility/interface/helpers_android.h"
-#include "webrtc/modules/utility/interface/jvm_android.h"
+#include "webrtc/modules/utility/include/helpers_android.h"
+#include "webrtc/modules/utility/include/jvm_android.h"
 
 namespace webrtc {
 
@@ -31,7 +31,7 @@ namespace webrtc {
 //
 // An instance must be created and destroyed on one and the same thread.
 // All public methods must also be called on the same thread. A thread checker
-// will DCHECK if any method is called on an invalid thread.
+// will RTC_DCHECK if any method is called on an invalid thread.
 //
 // This class uses AttachCurrentThreadIfNeeded to attach to a Java VM if needed
 // and detach when the object goes out of scope. Additional thread checking
@@ -99,7 +99,7 @@ class AudioTrackJni {
   // the thread is 'AudioTrackThread'.
   static void JNICALL GetPlayoutData(
     JNIEnv* env, jobject obj, jint length, jlong nativeAudioTrack);
-  void OnGetPlayoutData(int length);
+  void OnGetPlayoutData(size_t length);
 
   // Stores thread ID in constructor.
   rtc::ThreadChecker thread_checker_;
@@ -129,13 +129,13 @@ class AudioTrackJni {
   void* direct_buffer_address_;
 
   // Number of bytes in the direct audio buffer owned by |j_audio_track_|.
-  int direct_buffer_capacity_in_bytes_;
+  size_t direct_buffer_capacity_in_bytes_;
 
   // Number of audio frames per audio buffer. Each audio frame corresponds to
   // one sample of PCM mono data at 16 bits per sample. Hence, each audio
   // frame contains 2 bytes (given that the Java layer only supports mono).
   // Example: 480 for 48000 Hz or 441 for 44100 Hz.
-  int frames_per_buffer_;
+  size_t frames_per_buffer_;
 
   bool initialized_;
 

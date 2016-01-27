@@ -23,7 +23,9 @@ source_set("lib") {
     "//components/filesystem/public/interfaces",
     "//mojo/application/public/cpp",
     "//mojo/common",
+    "//mojo/common:common_base",
     "//mojo/platform_handle",
+    "//url",
   ]
 }
 
@@ -34,11 +36,13 @@ mojo_native_application("filesystem") {
 
   deps = [
     ":lib",
+    "//base",
+    "//mojo/application/public/cpp",
     "//mojo/common",
     "//mojo/environment:chromium",
-    "//mojo/platform_handle",
-    "//third_party/mojo/src/mojo/public/cpp/bindings",
-    "//third_party/mojo/src/mojo/public/cpp/system",
+    "//mojo/platform_handle:for_shared_library",
+    "//mojo/public/cpp/bindings",
+    "//mojo/public/cpp/system",
   ]
 }
 
@@ -58,9 +62,11 @@ mojo_native_application("apptests") {
     "//base",
     "//components/filesystem/public/interfaces",
     "//mojo/application/public/cpp:test_support",
-    "//mojo/platform_handle",
-    "//third_party/mojo/src/mojo/public/cpp/bindings",
+    "//mojo/platform_handle:for_shared_library",
+    "//mojo/public/cpp/bindings",
   ]
 
-  data_deps = [ ":filesystem" ]
+  data_deps = [
+    ":filesystem",
+  ]
 }

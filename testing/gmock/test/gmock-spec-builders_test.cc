@@ -81,6 +81,7 @@ using testing::Gt;
 using testing::InSequence;
 using testing::Invoke;
 using testing::InvokeWithoutArgs;
+using testing::IsNotSubstring;
 using testing::IsSubstring;
 using testing::Lt;
 using testing::Message;
@@ -134,14 +135,21 @@ void PrintTo(const Incomplete& /* x */, ::std::ostream* os) {
 
 class Result {};
 
+// A type that's not default constructible.
+class NonDefaultConstructible {
+ public:
+  explicit NonDefaultConstructible(int /* dummy */) {}
+};
+
 class MockA {
  public:
   MockA() {}
 
-  MOCK_METHOD1(DoA, void(int n));  // NOLINT
-  MOCK_METHOD1(ReturnResult, Result(int n));  // NOLINT
-  MOCK_METHOD2(Binary, bool(int x, int y));  // NOLINT
-  MOCK_METHOD2(ReturnInt, int(int x, int y));  // NOLINT
+  MOCK_METHOD1(DoA, void(int n));
+  MOCK_METHOD1(ReturnResult, Result(int n));
+  MOCK_METHOD0(ReturnNonDefaultConstructible, NonDefaultConstructible());
+  MOCK_METHOD2(Binary, bool(int x, int y));
+  MOCK_METHOD2(ReturnInt, int(int x, int y));
 
  private:
   GTEST_DISALLOW_COPY_AND_ASSIGN_(MockA);
@@ -1108,15 +1116,16 @@ TEST(UnexpectedCallTest, UnsatisifiedPrerequisites) {
   b.DoB(4);
 }
 
-TEST(UndefinedReturnValueTest, ReturnValueIsMandatory) {
+TEST(UndefinedReturnValueTest,
+     ReturnValueIsMandatoryWhenNotDefaultConstructible) {
   MockA a;
   // TODO(wan@google.com): We should really verify the output message,
   // but we cannot yet due to that EXPECT_DEATH only captures stderr
   // while Google Mock logs to stdout.
 #if GTEST_HAS_EXCEPTIONS
-  EXPECT_ANY_THROW(a.ReturnResult(1));
+  EXPECT_ANY_THROW(a.ReturnNonDefaultConstructible());
 #else
-  EXPECT_DEATH_IF_SUPPORTED(a.ReturnResult(1), "");
+  EXPECT_DEATH_IF_SUPPORTED(a.ReturnNonDefaultConstructible(), "");
 #endif
 }
 
@@ -1969,9 +1978,25 @@ class VerboseFlagPreservingFixture : public testing::Test {
 #if GTEST_HAS_STREAM_REDIRECTION
 
 // Tests that an uninteresting mock function call on a naggy mock
-// generates a warning containing the stack trace.
+// generates a warning without the stack trace when
+// --gmock_verbose=warning is specified.
 TEST(FunctionCallMessageTest,
-     UninterestingCallOnNaggyMockGeneratesFyiWithStackTrace) {
+     UninterestingCallOnNaggyMockGeneratesNoStackTraceWhenVerboseWarning) {
+  GMOCK_FLAG(verbose) = kWarningVerbosity;
+  NaggyMock<MockC> c;
+  CaptureStdout();
+  c.VoidMethod(false, 5, "Hi", NULL, Printable(), Unprintable());
+  const std::string output = GetCapturedStdout();
+  EXPECT_PRED_FORMAT2(IsSubstring, "GMOCK WARNING", output);
+  EXPECT_PRED_FORMAT2(IsNotSubstring, "Stack trace:", output);
+}
+
+// Tests that an uninteresting mock function call on a naggy mock
+// generates a warning containing the stack trace when
+// --gmock_verbose=info is specified.
+TEST(FunctionCallMessageTest,
+     UninterestingCallOnNaggyMockGeneratesFyiWithStackTraceWhenVerboseInfo) {
+  GMOCK_FLAG(verbose) = kInfoVerbosity;
   NaggyMock<MockC> c;
   CaptureStdout();
   c.VoidMethod(false, 5, "Hi", NULL, Printable(), Unprintable());
@@ -2104,8 +2129,7 @@ class GMockVerboseFlagTest : public VerboseFlagPreservingFixture {
         "\nGMOCK WARNING:\n"
         "Uninteresting mock function call - returning directly.\n"
         "    Function call: DoA(5)\n" +
-        note +
-        "\nStack trace:\n",
+        note,
         "DoA");
 
     // A non-void-returning function.
@@ -2118,8 +2142,7 @@ class GMockVerboseFlagTest : public VerboseFlagPreservingFixture {
         "Uninteresting mock function call - returning default value.\n"
         "    Function call: Binary(2, 1)\n"
         "          Returns: false\n" +
-        note +
-        "\nStack trace:\n",
+        note,
         "Binary");
   }
 };

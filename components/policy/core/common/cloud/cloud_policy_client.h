@@ -85,7 +85,6 @@ class POLICY_EXPORT CloudPolicyClient {
       const std::string& machine_id,
       const std::string& machine_model,
       const std::string& verification_key_hash,
-      UserAffiliation user_affiliation,
       DeviceManagementService* service,
       scoped_refptr<net::URLRequestContextGetter> request_context);
   virtual ~CloudPolicyClient();
@@ -172,6 +171,12 @@ class POLICY_EXPORT CloudPolicyClient {
                               const std::string& asset_id,
                               const std::string& location,
                               const StatusCallback& callback);
+
+  // Sends a GCM id update request to the DM server. The server will
+  // associate the DM token in authorization header with |gcm_id|, and
+  // |callback| will be called when the operation completes.
+  virtual void UpdateGcmId(const std::string& gcm_id,
+                           const StatusCallback& callback);
 
   // Adds an observer to be called back upon policy and state changes.
   void AddObserver(Observer* observer);
@@ -326,6 +331,14 @@ class POLICY_EXPORT CloudPolicyClient {
       int net_error,
       const enterprise_management::DeviceManagementResponse& response);
 
+  // Callback for gcm id update requests.
+  void OnGcmIdUpdated(
+      const DeviceManagementRequestJob* job,
+      const StatusCallback& callback,
+      DeviceManagementStatus status,
+      int net_error,
+      const enterprise_management::DeviceManagementResponse& response);
+
   // Helper to remove a job from request_jobs_.
   void RemoveJob(const DeviceManagementRequestJob* job);
 
@@ -339,7 +352,6 @@ class POLICY_EXPORT CloudPolicyClient {
   const std::string machine_id_;
   const std::string machine_model_;
   const std::string verification_key_hash_;
-  const UserAffiliation user_affiliation_;
   PolicyTypeSet types_to_fetch_;
   std::vector<std::string> state_keys_to_upload_;
 

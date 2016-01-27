@@ -42,7 +42,7 @@ namespace blink {
 
 static size_t sizeForImmutableStylePropertySetWithPropertyCount(unsigned count)
 {
-    return sizeof(ImmutableStylePropertySet) - sizeof(void*) + sizeof(CSSValue*) * count + sizeof(StylePropertyMetadata) * count;
+    return sizeof(ImmutableStylePropertySet) - sizeof(void*) + sizeof(RawPtrWillBeMember<CSSValue>) * count + sizeof(StylePropertyMetadata) * count;
 }
 
 PassRefPtrWillBeRawPtr<ImmutableStylePropertySet> ImmutableStylePropertySet::create(const CSSProperty* properties, unsigned count, CSSParserMode cssParserMode)
@@ -51,7 +51,7 @@ PassRefPtrWillBeRawPtr<ImmutableStylePropertySet> ImmutableStylePropertySet::cre
 #if ENABLE(OILPAN)
     void* slot = Heap::allocate<StylePropertySet>(sizeForImmutableStylePropertySetWithPropertyCount(count));
 #else
-    void* slot = WTF::fastMalloc(sizeForImmutableStylePropertySetWithPropertyCount(count));
+    void* slot = WTF::Partitions::fastMalloc(sizeForImmutableStylePropertySetWithPropertyCount(count));
 #endif // ENABLE(OILPAN)
     return adoptRefWillBeNoop(new (slot) ImmutableStylePropertySet(properties, count, cssParserMode));
 }
@@ -251,7 +251,7 @@ bool MutableStylePropertySet::setProperty(CSSPropertyID unresolvedProperty, cons
 
     // When replacing an existing property value, this moves the property to the end of the list.
     // Firefox preserves the position, and MSIE moves the property to the beginning.
-    return CSSParser::parseValue(this, unresolvedProperty, value, important, cssParserMode(), contextStyleSheet);
+    return CSSParser::parseValue(this, unresolvedProperty, value, important, contextStyleSheet);
 }
 
 void MutableStylePropertySet::setProperty(CSSPropertyID propertyID, PassRefPtrWillBeRawPtr<CSSValue> prpValue, bool important)
@@ -388,7 +388,7 @@ CSSProperty* MutableStylePropertySet::findCSSPropertyWithID(CSSPropertyID proper
 {
     int foundPropertyIndex = findPropertyIndex(propertyID);
     if (foundPropertyIndex == -1)
-        return 0;
+        return nullptr;
     return &m_propertyVector.at(foundPropertyIndex);
 }
 

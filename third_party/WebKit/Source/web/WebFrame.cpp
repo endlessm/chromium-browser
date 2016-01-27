@@ -16,6 +16,7 @@
 #include "platform/UserGestureIndicator.h"
 #include "platform/heap/Handle.h"
 #include "public/web/WebElement.h"
+#include "public/web/WebFrameOwnerProperties.h"
 #include "public/web/WebSandboxFlags.h"
 #include "web/OpenedFrameTracker.h"
 #include "web/RemoteBridgeFrameOwner.h"
@@ -74,21 +75,29 @@ bool WebFrame::swap(WebFrame* frame)
     }
 
     if (m_opener) {
-        m_opener->m_openedFrameTracker->remove(this);
-        m_opener->m_openedFrameTracker->add(frame);
-        swap(m_opener, frame->m_opener);
+        frame->setOpener(m_opener);
+        setOpener(nullptr);
     }
-    if (!m_openedFrameTracker->isEmpty()) {
-        m_openedFrameTracker->updateOpener(frame);
-        frame->m_openedFrameTracker.reset(m_openedFrameTracker.release());
-    }
+    m_openedFrameTracker->transferTo(frame);
+
+    FrameHost* host = oldFrame->host();
+    AtomicString name = oldFrame->tree().name();
+    FrameOwner* owner = oldFrame->owner();
+    oldFrame->disconnectOwnerElement();
+
+    v8::HandleScope handleScope(v8::Isolate::GetCurrent());
+    HashMap<DOMWrapperWorld*, v8::Local<v8::Object>> globals;
+    oldFrame->windowProxyManager()->clearForNavigation();
+    oldFrame->windowProxyManager()->releaseGlobals(globals);
+
+    // Although the Document in this frame is now unloaded, many resources
+    // associated with the frame itself have not yet been freed yet.
+    oldFrame->detach(FrameDetachType::Swap);
 
     // Finally, clone the state of the current Frame into one matching
     // the type of the passed in WebFrame.
     // FIXME: This is a bit clunky; this results in pointless decrements and
     // increments of connected subframes.
-    FrameOwner* owner = oldFrame->owner();
-    oldFrame->disconnectOwnerElement();
     if (frame->isWebLocalFrame()) {
         LocalFrame& localFrame = *toWebLocalFrameImpl(frame)->frame();
         ASSERT(owner == localFrame.owner());
@@ -104,13 +113,11 @@ bool WebFrame::swap(WebFrame* frame)
             localFrame.page()->setMainFrame(&localFrame);
         }
     } else {
-        toWebRemoteFrameImpl(frame)->initializeCoreFrame(oldFrame->host(), owner, oldFrame->tree().name());
+        toWebRemoteFrameImpl(frame)->initializeCoreFrame(host, owner, name);
     }
-    toCoreFrame(frame)->finishSwapFrom(oldFrame.get());
 
-    // Although the Document in this frame is now unloaded, many resources
-    // associated with the frame itself have not yet been freed yet.
-    oldFrame->detach(FrameDetachType::Swap);
+    toCoreFrame(frame)->windowProxyManager()->setGlobals(globals);
+
     m_parent = nullptr;
 
     return true;
@@ -273,6 +280,13 @@ WebFrame* WebFrame::fromFrameOwnerElement(const WebElement& webElement)
     if (!isHTMLFrameElementBase(element))
         return nullptr;
     return fromFrame(toHTMLFrameElementBase(element)->contentFrame());
+}
+
+bool WebFrame::isLoading() const
+{
+    if (Frame* frame = toCoreFrame(this))
+        return frame->isLoading();
+    return false;
 }
 
 WebFrame* WebFrame::fromFrame(Frame* frame)

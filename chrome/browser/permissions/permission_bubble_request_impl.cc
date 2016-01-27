@@ -5,11 +5,13 @@
 #include "chrome/browser/permissions/permission_bubble_request_impl.h"
 
 #include "chrome/browser/permissions/permission_context_base.h"
-#include "chrome/browser/permissions/permission_context_uma_util.h"
+#include "chrome/browser/permissions/permission_uma_util.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/url_formatter/elide_url.h"
 #include "grit/theme_resources.h"
-#include "net/base/net_util.h"
+#include "net/base/escape.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/vector_icons_public.h"
 
 PermissionBubbleRequestImpl::PermissionBubbleRequestImpl(
     const GURL& request_origin,
@@ -31,11 +33,37 @@ PermissionBubbleRequestImpl::PermissionBubbleRequestImpl(
 PermissionBubbleRequestImpl::~PermissionBubbleRequestImpl() {
   DCHECK(is_finished_);
   if (!action_taken_)
-    PermissionContextUmaUtil::PermissionIgnored(type_, request_origin_);
+    PermissionUmaUtil::PermissionIgnored(type_, request_origin_);
 }
 
-int PermissionBubbleRequestImpl::GetIconID() const {
-  int icon_id;
+gfx::VectorIconId PermissionBubbleRequestImpl::GetVectorIconId() const {
+#if !defined(OS_MACOSX)
+  switch (type_) {
+    case CONTENT_SETTINGS_TYPE_GEOLOCATION:
+      return gfx::VectorIconId::LOCATION_ON;
+#if defined(ENABLE_NOTIFICATIONS)
+    case CONTENT_SETTINGS_TYPE_NOTIFICATIONS:
+      return gfx::VectorIconId::NOTIFICATIONS;
+#endif
+#if defined(OS_CHROMEOS)
+    // TODO(xhwang): fix this icon, see crrev.com/863263007
+    case CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER:
+      return gfx::VectorIconId::CHROME_PRODUCT;
+#endif
+    case CONTENT_SETTINGS_TYPE_MIDI_SYSEX:
+      return gfx::VectorIconId::MIDI;
+    default:
+      NOTREACHED();
+      return gfx::VectorIconId::VECTOR_ICON_NONE;
+  }
+#else  // !defined(OS_MACOSX)
+  return gfx::VectorIconId::VECTOR_ICON_NONE;
+#endif
+}
+
+int PermissionBubbleRequestImpl::GetIconId() const {
+  int icon_id = IDR_INFOBAR_WARNING;
+#if defined(OS_MACOSX)
   switch (type_) {
     case CONTENT_SETTINGS_TYPE_GEOLOCATION:
       icon_id = IDR_INFOBAR_GEOLOCATION;
@@ -48,18 +76,10 @@ int PermissionBubbleRequestImpl::GetIconID() const {
     case CONTENT_SETTINGS_TYPE_MIDI_SYSEX:
       icon_id = IDR_ALLOWED_MIDI_SYSEX;
       break;
-    case CONTENT_SETTINGS_TYPE_PUSH_MESSAGING:
-      icon_id = IDR_INFOBAR_WARNING;
-      break;
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
-    case CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER:
-      icon_id = IDR_INFOBAR_PROTECTED_MEDIA_IDENTIFIER;
-      break;
-#endif
     default:
       NOTREACHED();
-      return IDR_INFOBAR_WARNING;
   }
+#endif
   return icon_id;
 }
 
@@ -80,7 +100,7 @@ base::string16 PermissionBubbleRequestImpl::GetMessageText() const {
     case CONTENT_SETTINGS_TYPE_PUSH_MESSAGING:
       message_id = IDS_PUSH_MESSAGES_PERMISSION_QUESTION;
       break;
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS)
     case CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER:
       message_id = IDS_PROTECTED_MEDIA_IDENTIFIER_INFOBAR_QUESTION;
       break;
@@ -89,12 +109,9 @@ base::string16 PermissionBubbleRequestImpl::GetMessageText() const {
       NOTREACHED();
       return base::string16();
   }
-  return l10n_util::GetStringFUTF16(
-      message_id,
-      net::FormatUrl(request_origin_, display_languages_,
-                     net::kFormatUrlOmitUsernamePassword |
-                     net::kFormatUrlOmitTrailingSlashOnBareHostname,
-                     net::UnescapeRule::SPACES, NULL, NULL, NULL));
+  return l10n_util::GetStringFUTF16(message_id,
+                                    url_formatter::FormatUrlForSecurityDisplay(
+                                        request_origin_, display_languages_));
 }
 
 base::string16 PermissionBubbleRequestImpl::GetMessageTextFragment() const {
@@ -114,11 +131,14 @@ base::string16 PermissionBubbleRequestImpl::GetMessageTextFragment() const {
     case CONTENT_SETTINGS_TYPE_PUSH_MESSAGING:
       message_id = IDS_PUSH_MESSAGES_BUBBLE_FRAGMENT;
       break;
-#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS)
     case CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER:
       message_id = IDS_PROTECTED_MEDIA_IDENTIFIER_PERMISSION_FRAGMENT;
       break;
 #endif
+    case CONTENT_SETTINGS_TYPE_DURABLE_STORAGE:
+      message_id = IDS_DURABLE_STORAGE_BUBBLE_FRAGMENT;
+      break;
     default:
       NOTREACHED();
       return base::string16();

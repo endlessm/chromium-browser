@@ -44,14 +44,9 @@ class AwRenderThreadContextProvider : public cc::ContextProvider {
   void InvalidateGrContext(uint32_t state) override;
   void SetupLock() override;
   base::Lock* GetLock() override;
-  void VerifyContexts() override;
   void DeleteCachedResources() override;
-  bool DestroyedOnMainThread() override;
   void SetLostContextCallback(
       const LostContextCallback& lost_context_callback) override;
-  void SetMemoryPolicyChangedCallback(
-      const MemoryPolicyChangedCallback& memory_policy_changed_callback)
-      override;
 
   void OnLostContext();
 
@@ -63,8 +58,6 @@ class AwRenderThreadContextProvider : public cc::ContextProvider {
   cc::ContextProvider::Capabilities capabilities_;
 
   LostContextCallback lost_context_callback_;
-
-  bool destroyed_;
 
   base::Lock context_lock_;
 

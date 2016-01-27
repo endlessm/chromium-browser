@@ -17,12 +17,11 @@
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
 #include "chrome/browser/autofill/personal_data_manager_factory.h"
-#include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
-#include "chrome/common/render_messages.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/test_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -34,15 +33,13 @@
 #include "components/autofill/core/browser/personal_data_manager.h"
 #include "components/autofill/core/browser/personal_data_manager_observer.h"
 #include "components/autofill/core/browser/validation.h"
-#include "components/infobars/core/confirm_infobar_delegate.h"
-#include "components/infobars/core/infobar.h"
-#include "components/infobars/core/infobar_manager.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_renderer_host.h"
 #include "content/public/test/test_utils.h"
+#include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/url_request/test_url_fetcher_factory.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -62,28 +59,15 @@ const char kDocumentClickHandlerSubmitJS[] =
 
 // TODO(bondd): PdmChangeWaiter in autofill_uitest_util.cc is a replacement for
 // this class. Remove this class and use helper functions in that file instead.
-class WindowedPersonalDataManagerObserver
-    : public PersonalDataManagerObserver,
-      public infobars::InfoBarManager::Observer {
+class WindowedPersonalDataManagerObserver : public PersonalDataManagerObserver {
  public:
   explicit WindowedPersonalDataManagerObserver(Browser* browser)
-      : alerted_(false),
-        has_run_message_loop_(false),
-        browser_(browser),
-        infobar_service_(InfoBarService::FromWebContents(
-            browser_->tab_strip_model()->GetActiveWebContents())) {
+      : alerted_(false), has_run_message_loop_(false), browser_(browser) {
     PersonalDataManagerFactory::GetForProfile(browser_->profile())->
         AddObserver(this);
-    infobar_service_->AddObserver(this);
   }
 
-  ~WindowedPersonalDataManagerObserver() override {
-    infobar_service_->RemoveObserver(this);
-
-    if (infobar_service_->infobar_count() > 0) {
-      infobar_service_->RemoveInfoBar(infobar_service_->infobar_at(0));
-    }
-  }
+  ~WindowedPersonalDataManagerObserver() override {}
 
   void Wait() {
     if (!alerted_) {
@@ -97,7 +81,7 @@ class WindowedPersonalDataManagerObserver
   // PersonalDataManagerObserver:
   void OnPersonalDataChanged() override {
     if (has_run_message_loop_) {
-      base::MessageLoopForUI::current()->Quit();
+      base::MessageLoopForUI::current()->QuitWhenIdle();
       has_run_message_loop_ = false;
     }
     alerted_ = true;
@@ -105,19 +89,10 @@ class WindowedPersonalDataManagerObserver
 
   void OnInsufficientFormData() override { OnPersonalDataChanged(); }
 
-  // infobars::InfoBarManager::Observer:
-  void OnInfoBarAdded(infobars::InfoBar* infobar) override {
-    ConfirmInfoBarDelegate* infobar_delegate =
-        infobar_service_->infobar_at(0)->delegate()->AsConfirmInfoBarDelegate();
-    ASSERT_TRUE(infobar_delegate);
-    infobar_delegate->Accept();
-  }
-
  private:
   bool alerted_;
   bool has_run_message_loop_;
   Browser* browser_;
-  InfoBarService* infobar_service_;
 };
 
 class AutofillTest : public InProcessBrowserTest {
@@ -127,6 +102,9 @@ class AutofillTest : public InProcessBrowserTest {
   void SetUpOnMainThread() override {
     // Don't want Keychain coming up on Mac.
     test::DisableSystemServices(browser()->profile()->GetPrefs());
+
+    ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+    InProcessBrowserTest::SetUpOnMainThread();
   }
 
   void TearDownOnMainThread() override {
@@ -194,7 +172,7 @@ class AutofillTest : public InProcessBrowserTest {
                                     const std::string& submit_js,
                                     bool simulate_click,
                                     bool expect_personal_data_change) {
-    GURL url = test_server()->GetURL("files/autofill/" + filename);
+    GURL url = embedded_test_server()->GetURL("/autofill/" + filename);
     chrome::NavigateParams params(browser(), url,
                                   ui::PAGE_TRANSITION_LINK);
     params.disposition = NEW_FOREGROUND_TAB;
@@ -235,15 +213,13 @@ class AutofillTest : public InProcessBrowserTest {
   // Aggregate profiles from forms into Autofill preferences. Returns the number
   // of parsed profiles.
   int AggregateProfilesIntoAutofillPrefs(const std::string& filename) {
-    CHECK(test_server()->Start());
-
     std::string data;
     base::FilePath data_file =
         ui_test_utils::GetTestFilePath(base::FilePath().AppendASCII("autofill"),
                                        base::FilePath().AppendASCII(filename));
     CHECK(base::ReadFileToString(data_file, &data));
-    std::vector<std::string> lines;
-    base::SplitString(data, '\n', &lines);
+    std::vector<std::string> lines = base::SplitString(
+        data, "\n", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
     int parsed_profiles = 0;
     for (size_t i = 0; i < lines.size(); ++i) {
       if (base::StartsWith(lines[i], "#", base::CompareCase::SENSITIVE))
@@ -512,57 +488,10 @@ IN_PROC_BROWSER_TEST_F(AutofillTest, PrefsStringSavedAsIs) {
   ASSERT_EQ(card, *personal_data_manager()->GetCreditCards()[0]);
 }
 
-// Test credit card info with an invalid number is not aggregated.
-// When filling out a form with an invalid credit card number (one that does not
-// pass the Luhn test) the credit card info should not be saved into Autofill
-// preferences.
-IN_PROC_BROWSER_TEST_F(AutofillTest, InvalidCreditCardNumberIsNotAggregated) {
-#if defined(OS_WIN) && defined(USE_ASH)
-  // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kAshBrowserTests))
-    return;
-#endif
-
-  ASSERT_TRUE(test_server()->Start());
-  std::string card("4408 0412 3456 7890");
-  ASSERT_FALSE(autofill::IsValidCreditCardNumber(ASCIIToUTF16(card)));
-  SubmitCreditCard("Bob Smith", card.c_str(), "12", "2014");
-  InfoBarService* infobar_service = InfoBarService::FromWebContents(
-      browser()->tab_strip_model()->GetActiveWebContents());
-  ASSERT_EQ(0u, infobar_service->infobar_count());
-}
-
-// Test whitespaces and separator chars are stripped for valid CC numbers.
-// The credit card numbers used in this test pass the Luhn test. For reference:
-// http://www.merriampark.com/anatomycc.htm
-IN_PROC_BROWSER_TEST_F(AutofillTest,
-                       WhitespacesAndSeparatorCharsStrippedForValidCCNums) {
-#if defined(OS_WIN) && defined(USE_ASH)
-  // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kAshBrowserTests))
-    return;
-#endif
-
-  ASSERT_TRUE(test_server()->Start());
-  SubmitCreditCard("Bob Smith", "4408 0412 3456 7893", "12", "2014");
-  SubmitCreditCard("Jane Doe", "4417-1234-5678-9113", "10", "2013");
-
-  ASSERT_EQ(2u, personal_data_manager()->GetCreditCards().size());
-  base::string16 cc1 = personal_data_manager()->GetCreditCards()[0]->GetRawInfo(
-      CREDIT_CARD_NUMBER);
-  ASSERT_TRUE(autofill::IsValidCreditCardNumber(cc1));
-  base::string16 cc2 = personal_data_manager()->GetCreditCards()[1]->GetRawInfo(
-      CREDIT_CARD_NUMBER);
-  ASSERT_TRUE(autofill::IsValidCreditCardNumber(cc2));
-}
-
 // Test that Autofill aggregates a minimum valid profile.
 // The minimum required address fields must be specified: First Name, Last Name,
 // Address Line 1, City, Zip Code, and State.
 IN_PROC_BROWSER_TEST_F(AutofillTest, AggregatesMinValidProfile) {
-  ASSERT_TRUE(test_server()->Start());
   FormMap data;
   data["NAME_FIRST"] = "Bob";
   data["NAME_LAST"] = "Smith";
@@ -577,7 +506,6 @@ IN_PROC_BROWSER_TEST_F(AutofillTest, AggregatesMinValidProfile) {
 
 // Different Javascript to submit the form.
 IN_PROC_BROWSER_TEST_F(AutofillTest, AggregatesMinValidProfileDifferentJS) {
-  ASSERT_TRUE(test_server()->Start());
   FormMap data;
   data["NAME_FIRST"] = "Bob";
   data["NAME_LAST"] = "Smith";
@@ -597,7 +525,6 @@ IN_PROC_BROWSER_TEST_F(AutofillTest, AggregatesMinValidProfileDifferentJS) {
 // which prevents submission of the form. Will not update the user's personal
 // data.
 IN_PROC_BROWSER_TEST_F(AutofillTest, ProfilesNotAggregatedWithSubmitHandler) {
-  ASSERT_TRUE(test_server()->Start());
   FormMap data;
   data["NAME_FIRST"] = "Bob";
   data["NAME_LAST"] = "Smith";
@@ -642,7 +569,6 @@ IN_PROC_BROWSER_TEST_F(AutofillTest, ProfilesNotAggregatedWithSubmitHandler) {
 // The minimum required address fields must be specified: First Name, Last Name,
 // Address Line 1, City, Zip Code, and State.
 IN_PROC_BROWSER_TEST_F(AutofillTest, ProfilesNotAggregatedWithNoAddress) {
-  ASSERT_TRUE(test_server()->Start());
   FormMap data;
   data["NAME_FIRST"] = "Bob";
   data["NAME_LAST"] = "Smith";
@@ -657,7 +583,6 @@ IN_PROC_BROWSER_TEST_F(AutofillTest, ProfilesNotAggregatedWithNoAddress) {
 
 // Test Autofill does not aggregate profiles with an invalid email.
 IN_PROC_BROWSER_TEST_F(AutofillTest, ProfilesNotAggregatedWithInvalidEmail) {
-  ASSERT_TRUE(test_server()->Start());
   FormMap data;
   data["NAME_FIRST"] = "Bob";
   data["NAME_LAST"] = "Smith";
@@ -677,7 +602,6 @@ IN_PROC_BROWSER_TEST_F(AutofillTest, ProfilesNotAggregatedWithInvalidEmail) {
 // The data file contains two profiles with valid phone numbers and two
 // profiles with invalid phone numbers from their respective country.
 IN_PROC_BROWSER_TEST_F(AutofillTest, ProfileSavedWithValidCountryPhone) {
-  ASSERT_TRUE(test_server()->Start());
   std::vector<FormMap> profiles;
 
   FormMap data1;
@@ -747,7 +671,6 @@ IN_PROC_BROWSER_TEST_F(AutofillTest, ProfileSavedWithValidCountryPhone) {
 // Prepend country codes when formatting phone numbers, but only if the user
 // provided one in the first place.
 IN_PROC_BROWSER_TEST_F(AutofillTest, AppendCountryCodeForAggregatedPhones) {
-  ASSERT_TRUE(test_server()->Start());
   FormMap data;
   data["NAME_FIRST"] = "Bob";
   data["NAME_LAST"] = "Smith";
@@ -798,7 +721,6 @@ IN_PROC_BROWSER_TEST_F(AutofillTest, AppendCountryCodeForAggregatedPhones) {
 #endif
 
 IN_PROC_BROWSER_TEST_F(AutofillTest, MAYBE_UsePlusSignForInternationalNumber) {
-  ASSERT_TRUE(test_server()->Start());
   std::vector<FormMap> profiles;
 
   FormMap data1;
@@ -869,35 +791,8 @@ IN_PROC_BROWSER_TEST_F(AutofillTest, MAYBE_UsePlusSignForInternationalNumber) {
   }
 }
 
-// Test CC info not offered to be saved when autocomplete=off for CC field.
-// If the credit card number field has autocomplete turned off, then the credit
-// card infobar should not offer to save the credit card info. The credit card
-// number must be a valid Luhn number.
-IN_PROC_BROWSER_TEST_F(AutofillTest, CCInfoNotStoredWhenAutocompleteOff) {
-#if defined(OS_WIN) && defined(USE_ASH)
-  // Disable this test in Metro+Ash for now (http://crbug.com/262796).
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kAshBrowserTests))
-    return;
-#endif
-
-  ASSERT_TRUE(test_server()->Start());
-  FormMap data;
-  data["CREDIT_CARD_NAME"] = "Bob Smith";
-  data["CREDIT_CARD_NUMBER"] = "4408041234567893";
-  data["CREDIT_CARD_EXP_MONTH"] = "12";
-  data["CREDIT_CARD_EXP_4_DIGIT_YEAR"] = "2014";
-  FillFormAndSubmit("cc_autocomplete_off_test.html", data);
-
-  InfoBarService* infobar_service = InfoBarService::FromWebContents(
-      browser()->tab_strip_model()->GetActiveWebContents());
-  ASSERT_EQ(0u, infobar_service->infobar_count());
-}
-
 // Test profile not aggregated if email found in non-email field.
 IN_PROC_BROWSER_TEST_F(AutofillTest, ProfileWithEmailInOtherFieldNotSaved) {
-  ASSERT_TRUE(test_server()->Start());
-
   FormMap data;
   data["NAME_FIRST"] = "Bob";
   data["NAME_LAST"] = "Smith";

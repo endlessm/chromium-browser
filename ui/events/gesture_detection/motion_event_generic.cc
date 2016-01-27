@@ -29,6 +29,7 @@ PointerProperties::PointerProperties(float x, float y, float touch_major)
       touch_major(touch_major),
       touch_minor(0),
       orientation(0),
+      tilt(0),
       source_device_id(0) {
 }
 
@@ -44,6 +45,7 @@ PointerProperties::PointerProperties(const MotionEvent& event,
       touch_major(event.GetTouchMajor(pointer_index)),
       touch_minor(event.GetTouchMinor(pointer_index)),
       orientation(event.GetOrientation(pointer_index)),
+      tilt(event.GetTilt(pointer_index)),
       source_device_id(0) {
 }
 
@@ -170,6 +172,11 @@ float MotionEventGeneric::GetPressure(size_t pointer_index) const {
   return pointers_[pointer_index].pressure;
 }
 
+float MotionEventGeneric::GetTilt(size_t pointer_index) const {
+  DCHECK_LT(pointer_index, pointers_->size());
+  return pointers_[pointer_index].tilt;
+}
+
 MotionEvent::ToolType MotionEventGeneric::GetToolType(
     size_t pointer_index) const {
   DCHECK_LT(pointer_index, pointers_->size());
@@ -257,9 +264,9 @@ void MotionEventGeneric::PushHistoricalEvent(scoped_ptr<MotionEvent> event) {
 }
 
 MotionEventGeneric::MotionEventGeneric()
-    : action_(ACTION_CANCEL),
+    : action_(ACTION_NONE),
       unique_event_id_(ui::GetNextTouchEventId()),
-      action_index_(0),
+      action_index_(-1),
       button_state_(0) {
 }
 

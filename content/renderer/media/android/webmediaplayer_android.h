@@ -5,7 +5,6 @@
 #ifndef CONTENT_RENDERER_MEDIA_ANDROID_WEBMEDIAPLAYER_ANDROID_H_
 #define CONTENT_RENDERER_MEDIA_ANDROID_WEBMEDIAPLAYER_ANDROID_H_
 
-#include <jni.h>
 #include <string>
 #include <vector>
 
@@ -28,10 +27,11 @@
 #include "media/base/demuxer_stream.h"
 #include "media/base/media_keys.h"
 #include "media/base/time_delta_interpolator.h"
-#include "media/blink/webmediaplayer_util.h"
+#include "media/blink/webmediaplayer_params.h"
 #include "media/cdm/proxy_decryptor.h"
 #include "third_party/WebKit/public/platform/WebGraphicsContext3D.h"
 #include "third_party/WebKit/public/platform/WebMediaPlayer.h"
+#include "third_party/WebKit/public/platform/WebSetSinkIdCallbacks.h"
 #include "third_party/WebKit/public/platform/WebSize.h"
 #include "third_party/WebKit/public/platform/WebURL.h"
 #include "third_party/skia/include/core/SkBitmap.h"
@@ -46,6 +46,7 @@ class WebContentDecryptionModule;
 class WebContentDecryptionModuleResult;
 class WebFrame;
 class WebMediaPlayerClient;
+class WebMediaPlayerEncryptedMediaClient;
 class WebURL;
 }
 
@@ -89,17 +90,16 @@ class WebMediaPlayerAndroid : public blink::WebMediaPlayer,
   WebMediaPlayerAndroid(
       blink::WebFrame* frame,
       blink::WebMediaPlayerClient* client,
+      blink::WebMediaPlayerEncryptedMediaClient* encrypted_client,
       base::WeakPtr<media::WebMediaPlayerDelegate> delegate,
       RendererMediaPlayerManager* player_manager,
       media::CdmFactory* cdm_factory,
-      media::MediaPermission* media_permission,
-      blink::WebContentDecryptionModule* initial_cdm,
       scoped_refptr<StreamTextureFactory> factory,
-      const scoped_refptr<base::SingleThreadTaskRunner>& task_runner,
-      media::MediaLog* media_log);
+      const media::WebMediaPlayerParams& params);
   virtual ~WebMediaPlayerAndroid();
 
   // blink::WebMediaPlayer implementation.
+  virtual bool supportsOverlayFullscreenVideo();
   virtual void enterFullscreen();
 
   // Resource loading.
@@ -114,8 +114,9 @@ class WebMediaPlayerAndroid : public blink::WebMediaPlayer,
   virtual bool supportsSave() const;
   virtual void setRate(double rate);
   virtual void setVolume(double volume);
-  virtual void setSinkId(const blink::WebString& device_id,
-                         media::WebSetSinkIdCB* raw_web_callbacks);
+  virtual void setSinkId(const blink::WebString& sink_id,
+                         const blink::WebSecurityOrigin& security_origin,
+                         blink::WebSetSinkIdCallbacks* web_callback);
   virtual void requestRemotePlayback();
   virtual void requestRemotePlaybackControl();
   virtual blink::WebTimeRanges buffered() const;
@@ -319,15 +320,18 @@ class WebMediaPlayerAndroid : public blink::WebMediaPlayer,
   void OnCdmContextReady(media::CdmContext* cdm_context);
 
   // Sets the CDM. Should only be called when |is_player_initialized_| is true
-  // and a new non-null |cdm_context_| is available. Fires |cdm_attached_cb_|
-  // with the result after the CDM is attached.
+  // and a new non-null |cdm_context_| is available. Fires |cdm_attached_cb_| on
+  // the main thread with the result after the CDM is attached.
   void SetCdmInternal(const media::CdmAttachedCB& cdm_attached_cb);
 
-  // Requests that this object notifies when a decryptor is ready through the
-  // |decryptor_ready_cb| provided.
-  // If |decryptor_ready_cb| is null, the existing callback will be fired with
+  // Called when the CDM is attached.
+  void OnCdmAttached(const media::CdmAttachedCB& cdm_attached_cb, bool success);
+
+  // Requests that this object notifies when a CDM is ready through the
+  // |cdm_ready_cb| provided.
+  // If |cdm_ready_cb| is null, the existing callback will be fired with
   // NULL immediately and reset.
-  void SetDecryptorReadyCB(const media::DecryptorReadyCB& decryptor_ready_cb);
+  void SetCdmReadyCB(const media::CdmReadyCB& cdm_ready_cb);
 
   // Called when the ContentDecryptionModule has been attached to the
   // pipeline/decoders.
@@ -336,10 +340,18 @@ class WebMediaPlayerAndroid : public blink::WebMediaPlayer,
       bool success);
 
   bool IsHLSStream() const;
+  // Report whether the loaded url, after following redirects, points to a HLS
+  // playlist, and record the origin of the player.
+  void ReportHLSMetrics() const;
+
+  // Called after |defer_load_cb_| has decided to allow the load. If
+  // |defer_load_cb_| is null this is called immediately.
+  void DoLoad(LoadType load_type, const blink::WebURL& url, CORSMode cors_mode);
 
   blink::WebFrame* const frame_;
 
   blink::WebMediaPlayerClient* const client_;
+  blink::WebMediaPlayerEncryptedMediaClient* const encrypted_client_;
 
   // |delegate_| is used to notify the browser process of the player status, so
   // that the browser process can control screen locks.
@@ -347,6 +359,10 @@ class WebMediaPlayerAndroid : public blink::WebMediaPlayer,
   // lock. So this is only used for media source. Will apply this to regular
   // media tag once http://crbug.com/247892 is fixed.
   base::WeakPtr<media::WebMediaPlayerDelegate> delegate_;
+
+  // Callback responsible for determining if loading of media should be deferred
+  // for external reasons; called during load().
+  media::WebMediaPlayerParams::DeferLoadCB defer_load_cb_;
 
   // Save the list of buffered time ranges.
   blink::WebTimeRanges buffered_;
@@ -432,7 +448,7 @@ class WebMediaPlayerAndroid : public blink::WebMediaPlayer,
   // Whether the video size info is available.
   bool has_size_info_;
 
-  const scoped_refptr<base::SingleThreadTaskRunner> compositor_loop_;
+  const scoped_refptr<base::SingleThreadTaskRunner> compositor_task_runner_;
 
   // Object for allocating stream textures.
   scoped_refptr<StreamTextureFactory> stream_texture_factory_;
@@ -496,7 +512,7 @@ class WebMediaPlayerAndroid : public blink::WebMediaPlayer,
   // side CDM will be used. This is similar to WebMediaPlayerImpl. For other key
   // systems, a browser side CDM will be used and we set CDM by calling
   // player_manager_->SetCdm() directly.
-  media::DecryptorReadyCB decryptor_ready_cb_;
+  media::CdmReadyCB cdm_ready_cb_;
 
   SkBitmap bitmap_;
 
@@ -514,6 +530,9 @@ class WebMediaPlayerAndroid : public blink::WebMediaPlayer,
   media::TimeDeltaInterpolator interpolator_;
 
   scoped_ptr<MediaSourceDelegate> media_source_delegate_;
+
+  // Whether to delete the existing texture and re-create it.
+  bool suppress_deleting_texture_;
 
   // NOTE: Weak pointers must be invalidated before all other member variables.
   base::WeakPtrFactory<WebMediaPlayerAndroid> weak_factory_;

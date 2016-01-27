@@ -25,34 +25,36 @@ namespace content {
 ServiceWorkerReadFromCacheJob::ServiceWorkerReadFromCacheJob(
     net::URLRequest* request,
     net::NetworkDelegate* network_delegate,
+    ResourceType resource_type,
     base::WeakPtr<ServiceWorkerContextCore> context,
     const scoped_refptr<ServiceWorkerVersion>& version,
-    int64 response_id)
+    int64 resource_id)
     : net::URLRequestJob(request, network_delegate),
+      resource_type_(resource_type),
       context_(context),
       version_(version),
-      response_id_(response_id),
+      resource_id_(resource_id),
       has_been_killed_(false),
-      weak_factory_(this) {
-}
+      weak_factory_(this) {}
 
 ServiceWorkerReadFromCacheJob::~ServiceWorkerReadFromCacheJob() {
 }
 
 void ServiceWorkerReadFromCacheJob::Start() {
   TRACE_EVENT_ASYNC_BEGIN1("ServiceWorker",
-                           "ServiceWorkerReadFromCacheJob::ReadInfo",
-                           this,
+                           "ServiceWorkerReadFromCacheJob::ReadInfo", this,
                            "URL", request_->url().spec());
   if (!context_) {
-    NotifyStartError(net::URLRequestStatus(
-        net::URLRequestStatus::FAILED, net::ERR_FAILED));
+    NotifyStartError(
+        net::URLRequestStatus(net::URLRequestStatus::FAILED, net::ERR_FAILED));
     return;
   }
 
   // Create a response reader and start reading the headers,
   // we'll continue when thats done.
-  reader_ = context_->storage()->CreateResponseReader(response_id_);
+  if (is_main_script())
+    version_->embedded_worker()->OnScriptReadStarted();
+  reader_ = context_->storage()->CreateResponseReader(resource_id_);
   http_info_io_buffer_ = new HttpResponseInfoIOBuffer;
   reader_->ReadInfo(
       http_info_io_buffer_.get(),
@@ -120,10 +122,9 @@ void ServiceWorkerReadFromCacheJob::SetExtraRequestHeaders(
     range_requested_ = ranges[0];
 }
 
-bool ServiceWorkerReadFromCacheJob::ReadRawData(
-    net::IOBuffer* buf,
-    int buf_size,
-    int *bytes_read) {
+bool ServiceWorkerReadFromCacheJob::ReadRawData(net::IOBuffer* buf,
+                                                int buf_size,
+                                                int* bytes_read) {
   DCHECK_NE(buf_size, 0);
   DCHECK(bytes_read);
   DCHECK(!reader_->IsReadPending());
@@ -131,9 +132,9 @@ bool ServiceWorkerReadFromCacheJob::ReadRawData(
                            "ServiceWorkerReadFromCacheJob::ReadRawData",
                            this,
                            "URL", request_->url().spec());
-  reader_->ReadData(
-      buf, buf_size, base::Bind(&ServiceWorkerReadFromCacheJob::OnReadComplete,
-                                weak_factory_.GetWeakPtr()));
+  reader_->ReadData(buf, buf_size,
+                    base::Bind(&ServiceWorkerReadFromCacheJob::OnReadComplete,
+                               weak_factory_.GetWeakPtr()));
   SetStatus(net::URLRequestStatus(net::URLRequestStatus::IO_PENDING, 0));
   return false;
 }
@@ -204,6 +205,8 @@ void ServiceWorkerReadFromCacheJob::Done(const net::URLRequestStatus& status) {
       registration->DeleteVersion(version_);
     }
   }
+  if (is_main_script())
+    version_->embedded_worker()->OnScriptReadFinished();
   NotifyDone(status);
 }
 

@@ -4,6 +4,7 @@
 
 #include "chrome/browser/push_messaging/push_messaging_permission_context.h"
 
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/permissions/permission_request_id.h"
 #include "chrome/test/base/testing_profile.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
@@ -14,6 +15,7 @@
 
 const char kOriginA[] = "https://origina.org";
 const char kOriginB[] = "https://originb.org";
+const char kInsecureOrigin[] = "http://insecureorigin.org";
 
 class TestPushMessagingPermissionContext
     : public PushMessagingPermissionContext {
@@ -50,12 +52,16 @@ class PushMessagingPermissionContextTest : public testing::Test {
   void SetContentSetting(Profile* profile,
                          ContentSettingsType setting,
                          ContentSetting value) {
-    ContentSettingsPattern pattern =
+    ContentSettingsPattern pattern_a =
         ContentSettingsPattern::FromString(kOriginA);
+    ContentSettingsPattern insecure_pattern =
+        ContentSettingsPattern::FromString(kInsecureOrigin);
     HostContentSettingsMap* host_content_settings_map =
-        profile->GetHostContentSettingsMap();
-    host_content_settings_map->SetContentSetting(pattern, pattern, setting,
+        HostContentSettingsMapFactory::GetForProfile(profile);
+    host_content_settings_map->SetContentSetting(pattern_a, pattern_a, setting,
                                                  std::string(), value);
+    host_content_settings_map->SetContentSetting(insecure_pattern,
+        insecure_pattern, setting, std::string(), value);
   }
 
   content::TestBrowserThreadBundle thread_bundle_;
@@ -132,7 +138,7 @@ TEST_F(PushMessagingPermissionContextTest, HasPermissionAccept) {
 TEST_F(PushMessagingPermissionContextTest, DecidePushPermission) {
   TestingProfile profile;
   TestPushMessagingPermissionContext context(&profile);
-  PermissionRequestID request_id(-1, -1, -1, GURL(kOriginA));
+  PermissionRequestID request_id(-1, -1, -1);
   BrowserPermissionCallback callback;
 
   context.DecidePushPermission(request_id, GURL(kOriginA), GURL(kOriginA),
@@ -160,4 +166,57 @@ TEST_F(PushMessagingPermissionContextTest, DecidePushPermission) {
                                callback, CONTENT_SETTING_ALLOW);
   EXPECT_TRUE(context.was_persisted());
   EXPECT_TRUE(context.was_granted());
+}
+
+TEST_F(PushMessagingPermissionContextTest, DecidePermission) {
+  TestingProfile profile;
+  TestPushMessagingPermissionContext context(&profile);
+  PermissionRequestID request_id(-1, -1, -1);
+  BrowserPermissionCallback callback;
+
+  // Requesting and embedding origin are different.
+  context.DecidePermission(NULL, request_id,
+                           GURL(kOriginA), GURL(kOriginB),
+                           true, callback);
+  EXPECT_FALSE(context.was_persisted());
+  EXPECT_FALSE(context.was_granted());
+
+  // Insecure origin
+  context.DecidePermission(NULL, request_id,
+                           GURL(kInsecureOrigin), GURL(kInsecureOrigin),
+                           true, callback);
+  EXPECT_FALSE(context.was_persisted());
+  EXPECT_FALSE(context.was_granted());
+
+}
+
+TEST_F(PushMessagingPermissionContextTest, GetPermissionStatusInsecureOrigin) {
+  TestingProfile profile;
+  TestPushMessagingPermissionContext context(&profile);
+
+  // The status should be blocked for an insecure origin, regardless of the
+  // content setting value.
+  EXPECT_EQ(CONTENT_SETTING_BLOCK,
+      context.GetPermissionStatus(GURL(kInsecureOrigin),
+                                  GURL(kInsecureOrigin)));
+
+  SetContentSetting(&profile, CONTENT_SETTINGS_TYPE_PUSH_MESSAGING,
+                    CONTENT_SETTING_ALLOW);
+  SetContentSetting(&profile, CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
+                    CONTENT_SETTING_ALLOW);
+  EXPECT_EQ(CONTENT_SETTING_BLOCK,
+      context.GetPermissionStatus(GURL(kInsecureOrigin),
+                                  GURL(kInsecureOrigin)));
+
+  SetContentSetting(&profile, CONTENT_SETTINGS_TYPE_PUSH_MESSAGING,
+                    CONTENT_SETTING_BLOCK);
+  EXPECT_EQ(CONTENT_SETTING_BLOCK,
+      context.GetPermissionStatus(GURL(kInsecureOrigin),
+                                  GURL(kInsecureOrigin)));
+
+  SetContentSetting(&profile, CONTENT_SETTINGS_TYPE_PUSH_MESSAGING,
+                    CONTENT_SETTING_ASK);
+  EXPECT_EQ(CONTENT_SETTING_BLOCK,
+      context.GetPermissionStatus(GURL(kInsecureOrigin),
+                                  GURL(kInsecureOrigin)));
 }

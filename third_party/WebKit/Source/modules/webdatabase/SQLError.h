@@ -35,6 +35,7 @@
 namespace blink {
 
 class SQLErrorData {
+    USING_FAST_MALLOC(SQLErrorData);
 public:
     static PassOwnPtr<SQLErrorData> create(unsigned code, const String& message)
     {

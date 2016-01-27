@@ -169,8 +169,6 @@ class OutOfProcessInstance : public pp::Instance,
 
   void FormDidOpen(int32_t result);
 
-  std::string GetLocalizedString(PP_ResourceString id);
-
   void UserMetricsRecordAction(const std::string& action);
 
   enum DocumentLoadState {
@@ -257,6 +255,10 @@ class OutOfProcessInstance : public pp::Instance,
 
   scoped_ptr<PDFEngine> engine_;
 
+  // The PreviewModeClient used for print preview. Will be passed to
+  // |preview_engine_|.
+  scoped_ptr<PreviewModeClient> preview_client_;
+
   // This engine is used to render the individual preview page data. This is
   // used only in print preview mode. This will use |PreviewModeClient|
   // interface which has very limited access to the pp::Instance.
@@ -332,6 +334,10 @@ class OutOfProcessInstance : public pp::Instance,
 
   // The background color of the PDF viewer.
   uint32 background_color_;
+
+  // The blank space above the first page of the document reserved for the
+  // toolbar.
+  int top_toolbar_height_;
 
   DISALLOW_COPY_AND_ASSIGN(OutOfProcessInstance);
 };

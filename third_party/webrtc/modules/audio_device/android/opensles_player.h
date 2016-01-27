@@ -22,7 +22,7 @@
 #include "webrtc/modules/audio_device/android/opensles_common.h"
 #include "webrtc/modules/audio_device/include/audio_device_defines.h"
 #include "webrtc/modules/audio_device/audio_device_generic.h"
-#include "webrtc/modules/utility/interface/helpers_android.h"
+#include "webrtc/modules/utility/include/helpers_android.h"
 
 namespace webrtc {
 
@@ -33,7 +33,7 @@ class FineAudioBuffer;
 //
 // An instance must be created and destroyed on one and the same thread.
 // All public methods must also be called on the same thread. A thread checker
-// will DCHECK if any method is called on an invalid thread. Decoded audio
+// will RTC_DCHECK if any method is called on an invalid thread. Decoded audio
 // buffers are requested on a dedicated internal thread managed by the OpenSL
 // ES layer.
 //
@@ -52,7 +52,7 @@ class OpenSLESPlayer {
   // buffer count of 2 or more, and a buffer size and sample rate that are
   // compatible with the device's native output configuration provided via the
   // audio manager at construction.
-  static const int kNumOfOpenSLESBuffers = 2;
+  static const int kNumOfOpenSLESBuffers = 4;
 
   // There is no need for this class to use JNI.
   static int32_t SetAndroidAudioDeviceObjects(void* javaVM, void* context) {
@@ -96,7 +96,7 @@ class OpenSLESPlayer {
   // Configures the SL_DATAFORMAT_PCM structure.
   SLDataFormat_PCM CreatePCMConfiguration(int channels,
                                           int sample_rate,
-                                          int bits_per_sample);
+                                          size_t bits_per_sample);
 
   // Allocate memory for audio buffers which will be used to render audio
   // via the SLAndroidSimpleBufferQueueItf interface.
@@ -145,7 +145,7 @@ class OpenSLESPlayer {
   // Number of bytes per audio buffer in each |audio_buffers_[i]|.
   // Typical sizes are 480 or 512 bytes corresponding to native output buffer
   // sizes of 240 or 256 audio frames respectively.
-  int bytes_per_buffer_;
+  size_t bytes_per_buffer_;
 
   // Queue of audio buffers to be used by the player object for rendering
   // audio. They will be used in a Round-robin way and the size of each buffer
@@ -195,6 +195,9 @@ class OpenSLESPlayer {
   // This interface exposes controls for manipulating the object’s audio volume
   // properties. This interface is supported on the Audio Player object.
   SLVolumeItf volume_;
+
+  // Last time the OpenSL ES layer asked for audio data to play out.
+  uint32_t last_play_time_;
 };
 
 }  // namespace webrtc

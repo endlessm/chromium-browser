@@ -11,12 +11,12 @@
 #include "chrome/browser/password_manager/password_store_mac.h"
 #include "chrome/browser/password_manager/password_store_mac_internal.h"
 #include "chrome/browser/prefs/browser_prefs.h"
-#include "chrome/test/base/testing_pref_service_syncable.h"
 #include "components/os_crypt/os_crypt.h"
 #include "components/password_manager/core/browser/login_database.h"
 #include "components/password_manager/core/browser/password_manager_test_utils.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
 #include "components/password_manager/core/common/password_manager_pref_names.h"
+#include "components/syncable_prefs/testing_pref_service_syncable.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "crypto/mock_apple_keychain.h"
@@ -37,7 +37,7 @@ using testing::Pointee;
 
 ACTION(QuitUIMessageLoop) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  base::MessageLoop::current()->Quit();
+  base::MessageLoop::current()->QuitWhenIdle();
 }
 
 // Returns a change list corresponding to |form| being added.
@@ -125,7 +125,7 @@ class PasswordStoreProxyMacTest
 
   base::ScopedTempDir db_dir_;
   scoped_refptr<PasswordStoreProxyMac> store_;
-  TestingPrefServiceSyncable testing_prefs_;
+  syncable_prefs::TestingPrefServiceSyncable testing_prefs_;
 };
 
 PasswordStoreProxyMacTest::PasswordStoreProxyMacTest() {

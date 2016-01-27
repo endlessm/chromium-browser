@@ -43,6 +43,7 @@ WebInspector.NetworkProjectDelegate = function(target, workspace, projectId, pro
     this._target = target;
     this._id = projectId;
     WebInspector.ContentProviderBasedProjectDelegate.call(this, workspace, projectId, projectType);
+    this.project()[WebInspector.NetworkProject._targetSymbol] = target;
 }
 
 WebInspector.NetworkProjectDelegate.prototype = {
@@ -100,7 +101,7 @@ WebInspector.NetworkProjectDelegate.prototype = {
      */
     addFile: function(parentPath, name, url, contentProvider)
     {
-        return this.addContentProvider(parentPath, name, url, url, contentProvider);
+        return this.addContentProvider(parentPath, name, url, contentProvider);
     },
 
     __proto__: WebInspector.ContentProviderBasedProjectDelegate.prototype
@@ -153,7 +154,6 @@ WebInspector.NetworkProject = function(target, workspace, networkMapping)
     this._workspace = workspace;
     this._networkMapping = networkMapping;
     this._projectDelegates = {};
-    this._processedURLs = {};
     target[WebInspector.NetworkProject._networkProjectSymbol] = this;
 
     target.resourceTreeModel.addEventListener(WebInspector.ResourceTreeModel.EventTypes.ResourceAdded, this._resourceAdded, this);
@@ -169,9 +169,11 @@ WebInspector.NetworkProject = function(target, workspace, networkMapping)
         cssModel.addEventListener(WebInspector.CSSStyleModel.Events.StyleSheetAdded, this._styleSheetAdded, this);
         cssModel.addEventListener(WebInspector.CSSStyleModel.Events.StyleSheetRemoved, this._styleSheetRemoved, this);
     }
+    target.targetManager().addEventListener(WebInspector.TargetManager.Events.SuspendStateChanged, this._suspendStateChanged, this);
 }
 
 WebInspector.NetworkProject._networkProjectSymbol = Symbol("networkProject");
+WebInspector.NetworkProject._targetSymbol = Symbol("target");
 WebInspector.NetworkProject._contentTypeSymbol = Symbol("networkContentType");
 
 /**
@@ -191,8 +193,7 @@ WebInspector.NetworkProject.projectId = function(target, projectURL, isContentSc
  */
 WebInspector.NetworkProject._targetForProject = function(project)
 {
-    var targetId = parseInt(project.id(), 10);
-    return WebInspector.targetManager.targetById(targetId);
+    return project[WebInspector.NetworkProject._targetSymbol];
 }
 
 /**
@@ -271,6 +272,8 @@ WebInspector.NetworkProject.prototype = {
         var projectURL = splitURL[0];
         var path = splitURL.slice(1).join("/");
         var projectDelegate = this._projectDelegates[WebInspector.NetworkProject.projectId(this.target(), projectURL, false)];
+        if (!projectDelegate)
+            return;
         projectDelegate.removeFile(path);
     },
 
@@ -287,7 +290,7 @@ WebInspector.NetworkProject.prototype = {
 
             var resources = frame.resources();
             for (var i = 0; i < resources.length; ++i)
-                this._addFile(resources[i].url, new WebInspector.NetworkProject.FallbackResource(resources[i]));
+                this._addResource(resources[i]);
         }
 
         var mainFrame = this.target().resourceTreeModel.mainFrame;
@@ -301,7 +304,7 @@ WebInspector.NetworkProject.prototype = {
     _parsedScriptSource: function(event)
     {
         var script = /** @type {!WebInspector.Script} */ (event.data);
-        if (!script.sourceURL || (script.isInlineScript() && !script.hasSourceURL))
+        if (!script.sourceURL || script.isLiveEdit() || (script.isInlineScript() && !script.hasSourceURL))
             return;
         // Filter out embedder injected content scripts.
         if (script.isContentScript() && !script.hasSourceURL) {
@@ -333,7 +336,7 @@ WebInspector.NetworkProject.prototype = {
         if (header.isInline && !header.hasSourceURL && header.origin !== "inspector")
             return;
 
-        this._removeFile(header.resourceURL());
+        this._removeFileForURL(header.resourceURL());
     },
 
     /**
@@ -342,7 +345,22 @@ WebInspector.NetworkProject.prototype = {
     _resourceAdded: function(event)
     {
         var resource = /** @type {!WebInspector.Resource} */ (event.data);
-        this._addFile(resource.url, new WebInspector.NetworkProject.FallbackResource(resource));
+        this._addResource(resource);
+    },
+
+    /**
+     * @param {!WebInspector.Resource} resource
+     */
+    _addResource: function(resource)
+    {
+        // Only load documents from resources.
+        if (resource.resourceType() !== WebInspector.resourceTypes.Document)
+            return;
+
+        // Never load document twice.
+        if (this._workspace.uiSourceCodeForOriginURL(resource.url))
+            return;
+        this._addFile(resource.url, resource);
     },
 
     /**
@@ -352,6 +370,14 @@ WebInspector.NetworkProject.prototype = {
     {
         this._reset();
         this._populate();
+    },
+
+    _suspendStateChanged: function()
+    {
+        if (this.target().targetManager().allTargetsSuspended())
+            this._reset();
+        else
+            this._populate();
     },
 
     /**
@@ -367,22 +393,8 @@ WebInspector.NetworkProject.prototype = {
         var type = contentProvider.contentType();
         if (type !== WebInspector.resourceTypes.Stylesheet && type !== WebInspector.resourceTypes.Document && type !== WebInspector.resourceTypes.Script)
             return;
-        if (this._processedURLs[url])
-            return;
-        this._processedURLs[url] = true;
         var uiSourceCode = this.addFileForURL(url, contentProvider, isContentScript);
         uiSourceCode[WebInspector.NetworkProject._contentTypeSymbol] = type;
-    },
-
-    /**
-     * @param {string} url
-     */
-    _removeFile: function(url)
-    {
-        if (!this._processedURLs[url])
-            return;
-        delete this._processedURLs[url];
-        this._removeFileForURL(url);
     },
 
     _dispose: function()
@@ -401,126 +413,15 @@ WebInspector.NetworkProject.prototype = {
             cssModel.removeEventListener(WebInspector.CSSStyleModel.Events.StyleSheetAdded, this._styleSheetAdded, this);
             cssModel.removeEventListener(WebInspector.CSSStyleModel.Events.StyleSheetRemoved, this._styleSheetRemoved, this);
         }
+        delete target[WebInspector.NetworkProject._networkProjectSymbol];
     },
 
     _reset: function()
     {
-        this._processedURLs = {};
         for (var projectId in this._projectDelegates)
             this._projectDelegates[projectId].reset();
         this._projectDelegates = {};
     },
 
     __proto__: WebInspector.SDKObject.prototype
-}
-
-/**
- * @constructor
- * @implements {WebInspector.ContentProvider}
- * @param {!WebInspector.Resource} resource
- */
-WebInspector.NetworkProject.FallbackResource = function(resource)
-{
-    this._resource = resource;
-}
-
-WebInspector.NetworkProject.FallbackResource.prototype = {
-
-    /**
-     * @override
-     * @return {string}
-     */
-    contentURL: function()
-    {
-        return this._resource.contentURL();
-    },
-
-    /**
-     * @override
-     * @return {!WebInspector.ResourceType}
-     */
-    contentType: function()
-    {
-        return this._resource.resourceType();
-    },
-
-    /**
-     * @override
-     * @param {function(?string)} callback
-     */
-    requestContent: function(callback)
-    {
-        /**
-         * @this {WebInspector.NetworkProject.FallbackResource}
-         */
-        function loadFallbackContent()
-        {
-            var debuggerModel = WebInspector.DebuggerModel.fromTarget(this._resource.target());
-            if (!debuggerModel) {
-                callback(null);
-                return;
-            }
-            var scripts = debuggerModel.scriptsForSourceURL(this._resource.url);
-            if (!scripts.length) {
-                callback(null);
-                return;
-            }
-
-            var contentProvider;
-            var type = this._resource.resourceType();
-            if (type === WebInspector.resourceTypes.Document)
-                contentProvider = new WebInspector.ConcatenatedScriptsContentProvider(scripts);
-            else if (type === WebInspector.resourceTypes.Script)
-                contentProvider = scripts[0];
-
-            console.assert(contentProvider, "Resource content request failed. " + this._resource.url);
-
-            contentProvider.requestContent(callback);
-        }
-
-        /**
-         * @param {?string} content
-         * @this {WebInspector.NetworkProject.FallbackResource}
-         */
-        function requestContentLoaded(content)
-        {
-            if (content)
-                callback(content)
-            else
-                loadFallbackContent.call(this);
-        }
-
-        this._resource.requestContent(requestContentLoaded.bind(this));
-    },
-
-    /**
-     * @override
-     * @param {string} query
-     * @param {boolean} caseSensitive
-     * @param {boolean} isRegex
-     * @param {function(!Array.<!WebInspector.ContentProvider.SearchMatch>)} callback
-     */
-    searchInContent: function(query, caseSensitive, isRegex, callback)
-    {
-        /**
-         * @param {?string} content
-         */
-        function documentContentLoaded(content)
-        {
-            if (content === null) {
-                callback([]);
-                return;
-            }
-
-            var result = WebInspector.ContentProvider.performSearchInContent(content, query, caseSensitive, isRegex);
-            callback(result);
-        }
-
-        if (this.contentType() === WebInspector.resourceTypes.Document) {
-            this.requestContent(documentContentLoaded);
-            return;
-        }
-
-        this._resource.searchInContent(query, caseSensitive, isRegex, callback);
-    }
 }

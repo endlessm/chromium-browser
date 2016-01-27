@@ -17,8 +17,11 @@
 #include "ui/views/controls/combobox/combobox_listener.h"
 #include "url/gurl.h"
 
-class BookmarkBubbleViewObserver;
 class Profile;
+
+namespace bookmarks {
+class BookmarkBubbleObserver;
+}
 
 namespace views {
 class LabelButton;
@@ -33,12 +36,16 @@ class BookmarkBubbleView : public views::BubbleDelegateView,
                            public views::ButtonListener,
                            public views::ComboboxListener {
  public:
+  // If |anchor_view| is null, |anchor_rect| is used to anchor the bubble and
+  // |parent_window| is used to ensure the bubble closes if the parent closes.
   static void ShowBubble(views::View* anchor_view,
-                         BookmarkBubbleViewObserver* observer,
+                         const gfx::Rect& anchor_rect,
+                         gfx::NativeView parent_window,
+                         bookmarks::BookmarkBubbleObserver* observer,
                          scoped_ptr<BookmarkBubbleDelegate> delegate,
                          Profile* profile,
                          const GURL& url,
-                         bool newly_bookmarked);
+                         bool already_bookmarked);
 
   static void Hide();
 
@@ -65,7 +72,7 @@ class BookmarkBubbleView : public views::BubbleDelegateView,
 
   // Creates a BookmarkBubbleView.
   BookmarkBubbleView(views::View* anchor_view,
-                     BookmarkBubbleViewObserver* observer,
+                     bookmarks::BookmarkBubbleObserver* observer,
                      scoped_ptr<BookmarkBubbleDelegate> delegate,
                      Profile* profile,
                      const GURL& url,
@@ -97,7 +104,7 @@ class BookmarkBubbleView : public views::BubbleDelegateView,
   static BookmarkBubbleView* bookmark_bubble_;
 
   // Our observer, to notify when the bubble shows or hides.
-  BookmarkBubbleViewObserver* observer_;
+  bookmarks::BookmarkBubbleObserver* observer_;
 
   // Delegate, to handle clicks on the sign in link.
   scoped_ptr<BookmarkBubbleDelegate> delegate_;

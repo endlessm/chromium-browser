@@ -5,13 +5,13 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_controller.h"
 
 #include "base/mac/bundle_locations.h"
+#include "base/mac/sdk_forward_declarations.h"
 #include "base/metrics/histogram.h"
 #include "base/prefs/pref_service.h"
 #include "base/strings/sys_string_conversions.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/bookmarks/bookmark_stats.h"
-#include "chrome/browser/bookmarks/chrome_bookmark_client.h"
-#include "chrome/browser/bookmarks/chrome_bookmark_client_factory.h"
+#include "chrome/browser/bookmarks/managed_bookmark_service_factory.h"
 #include "chrome/browser/prefs/incognito_mode_prefs.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/theme_properties.h"
@@ -19,6 +19,7 @@
 #import "chrome/browser/themes/theme_service_factory.h"
 #include "chrome/browser/ui/bookmarks/bookmark_editor.h"
 #include "chrome/browser/ui/bookmarks/bookmark_utils.h"
+#include "chrome/browser/ui/bookmarks/bookmark_utils_desktop.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_list.h"
 #include "chrome/browser/ui/chrome_pages.h"
@@ -34,6 +35,7 @@
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_editor_controller.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_folder_target.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_menu_cocoa_controller.h"
+#import "chrome/browser/ui/cocoa/bookmarks/bookmark_model_observer_for_cocoa.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_name_folder_controller.h"
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #import "chrome/browser/ui/cocoa/menu_button.h"
@@ -45,12 +47,13 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/extensions/extension_metrics.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node_data.h"
 #include "components/bookmarks/browser/bookmark_utils.h"
+#include "components/bookmarks/common/bookmark_pref_names.h"
+#include "components/bookmarks/managed/managed_bookmark_service.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_registry.h"
@@ -150,7 +153,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
 
 }  // namespace
 
-@interface BookmarkBarController(Private)
+@interface BookmarkBarController ()
 
 // Moves to the given next state (from the current state), possibly animating.
 // If |animate| is NO, it will stop any running animation and jump to the given
@@ -172,6 +175,9 @@ void RecordAppLaunch(Profile* profile, GURL url) {
 // bar. Update |xOffset| with the offset appropriate for the subsequent button.
 - (BookmarkButton*)buttonForNode:(const BookmarkNode*)node
                          xOffset:(int*)xOffset;
+
+// Find a parent whose button is visible on the bookmark bar.
+- (BookmarkButton*)bookmarkButtonToPulseForNode:(const BookmarkNode*)node;
 
 // Puts stuff into the final state without animating, stopping a running
 // animation if necessary.
@@ -220,7 +226,6 @@ void RecordAppLaunch(Profile* profile, GURL url) {
 - (void)clearMenuTagMap;
 - (int)preferredHeight;
 - (void)addButtonsToView;
-- (BOOL)setBookmarkButtonVisibility;
 - (BOOL)setManagedBookmarksButtonVisibility;
 - (BOOL)setSupervisedBookmarksButtonVisibility;
 - (BOOL)setOtherBookmarksButtonVisibility;
@@ -259,8 +264,8 @@ void RecordAppLaunch(Profile* profile, GURL url) {
     browser_ = browser;
     initialWidth_ = initialWidth;
     bookmarkModel_ = BookmarkModelFactory::GetForProfile(browser_->profile());
-    bookmarkClient_ =
-        ChromeBookmarkClientFactory::GetForProfile(browser_->profile());
+    managedBookmarkService_ =
+        ManagedBookmarkServiceFactory::GetForProfile(browser_->profile());
     buttons_.reset([[NSMutableArray alloc] init]);
     delegate_ = delegate;
     resizeDelegate_ = resizeDelegate;
@@ -283,10 +288,6 @@ void RecordAppLaunch(Profile* profile, GURL url) {
                       selector:@selector(themeDidChangeNotification:)
                           name:kBrowserThemeDidChangeNotification
                         object:nil];
-    [defaultCenter addObserver:self
-                      selector:@selector(pulseBookmarkNotification:)
-                          name:bookmark_button::kPulseBookmarkButtonNotification
-                        object:nil];
 
     contextMenuController_.reset(
         [[BookmarkContextMenuCocoaController alloc]
@@ -308,45 +309,61 @@ void RecordAppLaunch(Profile* profile, GURL url) {
   return contextMenuController_.get();
 }
 
-- (void)pulseBookmarkNotification:(NSNotification*)notification {
-  NSDictionary* dict = [notification userInfo];
-  const BookmarkNode* node = NULL;
-  NSValue *value = [dict objectForKey:bookmark_button::kBookmarkKey];
-  DCHECK(value);
-  if (value)
-    node = static_cast<const BookmarkNode*>([value pointerValue]);
-  NSNumber* number = [dict objectForKey:bookmark_button::kBookmarkPulseFlagKey];
-  DCHECK(number);
-  BOOL doPulse = number ? [number boolValue] : NO;
+- (BookmarkButton*)bookmarkButtonToPulseForNode:(const BookmarkNode*)node {
+  // Find the closest parent that is visible on the bar.
+  while (node) {
+    // Check if we've reached one of the special buttons. Otherwise, if the next
+    // parent is the boomark bar, find the corresponding button.
+    if ([managedBookmarksButton_ bookmarkNode] == node)
+      return managedBookmarksButton_;
 
-  // 3 cases:
-  // button on the bar: flash it
-  // button in "other bookmarks" folder: flash other bookmarks
-  // button in "off the side" folder: flash the chevron
-  for (BookmarkButton* button in [self buttons]) {
-    if ([button bookmarkNode] == node) {
-      [button setIsContinuousPulsing:doPulse];
-      return;
+    if ([supervisedBookmarksButton_ bookmarkNode] == node)
+      return supervisedBookmarksButton_;
+
+    if ([otherBookmarksButton_ bookmarkNode] == node)
+      return otherBookmarksButton_;
+
+    if ([offTheSideButton_ bookmarkNode] == node)
+      return offTheSideButton_;
+
+    if (node->parent() == bookmarkModel_->bookmark_bar_node()) {
+      for (BookmarkButton* button in [self buttons]) {
+        if ([button bookmarkNode] == node) {
+          [button setIsContinuousPulsing:YES];
+          return button;
+        }
+      }
     }
-  }
-  if ([managedBookmarksButton_ bookmarkNode] == node) {
-    [managedBookmarksButton_ setIsContinuousPulsing:doPulse];
-    return;
-  }
-  if ([supervisedBookmarksButton_ bookmarkNode] == node) {
-    [supervisedBookmarksButton_ setIsContinuousPulsing:doPulse];
-    return;
-  }
-  if ([otherBookmarksButton_ bookmarkNode] == node) {
-    [otherBookmarksButton_ setIsContinuousPulsing:doPulse];
-    return;
-  }
-  if (node->parent() == bookmarkModel_->bookmark_bar_node()) {
-    [offTheSideButton_ setIsContinuousPulsing:doPulse];
-    return;
-  }
 
-  NOTREACHED() << "no bookmark button found to pulse!";
+    node = node->parent();
+  }
+  NOTREACHED();
+  return nil;
+}
+
+- (void)startPulsingBookmarkNode:(const BookmarkNode*)node {
+  [self stopPulsingBookmarkNode];
+
+  pulsingButton_ = [self bookmarkButtonToPulseForNode:node];
+  if (!pulsingButton_)
+    return;
+
+  [pulsingButton_ setIsContinuousPulsing:YES];
+  pulsingBookmarkObserver_.reset(
+      new BookmarkModelObserverForCocoa(bookmarkModel_, ^() {
+        // Stop pulsing if anything happened to the node.
+        [self stopPulsingBookmarkNode];
+      }));
+  pulsingBookmarkObserver_->StartObservingNode(node);
+}
+
+- (void)stopPulsingBookmarkNode {
+  if (!pulsingButton_)
+    return;
+
+  [pulsingButton_ setIsContinuousPulsing:NO];
+  pulsingButton_ = nil;
+  pulsingBookmarkObserver_.reset();
 }
 
 - (void)dealloc {
@@ -384,6 +401,17 @@ void RecordAppLaunch(Profile* profile, GURL url) {
 }
 
 - (void)awakeFromNib {
+  [self viewDidLoad];
+}
+
+- (void)viewDidLoad {
+  if (bridge_) {
+    // When running on 10.10, expect both -awakeFromNib and -viewDidLoad to be
+    // called, but only initialize once.
+    DCHECK(base::mac::IsOSYosemiteOrLater());
+    return;
+  }
+
   // We default to NOT open, which means height=0.
   DCHECK([[self view] isHidden]);  // Hidden so it's OK to change.
 
@@ -600,13 +628,13 @@ void RecordAppLaunch(Profile* profile, GURL url) {
   if (!node)
     return defaultImage_;
 
-  if (node == bookmarkClient_->managed_node()) {
+  if (node == managedBookmarkService_->managed_node()) {
     // Most users never see this node, so the image is only loaded if needed.
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();
     return rb.GetNativeImageNamed(IDR_BOOKMARK_BAR_FOLDER_MANAGED).ToNSImage();
   }
 
-  if (node == bookmarkClient_->supervised_node()) {
+  if (node == managedBookmarkService_->supervised_node()) {
     // Most users never see this node, so the image is only loaded if needed.
     ResourceBundle& rb = ResourceBundle::GetSharedInstance();
     return rb.GetNativeImageNamed(
@@ -636,7 +664,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
 - (BOOL)canEditBookmark:(const BookmarkNode*)node {
   // Don't allow edit/delete of the permanent nodes.
   if (node == nil || bookmarkModel_->is_permanent_node(node) ||
-      !bookmarkClient_->CanBeEditedByUser(node)) {
+      !managedBookmarkService_->CanBeEditedByUser(node)) {
     return NO;
   }
   return YES;
@@ -1297,7 +1325,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
   if (managedBookmarksButton_.get()) {
     // The node's title might have changed if the user signed in or out.
     // Make sure it's up to date now.
-    const BookmarkNode* node = bookmarkClient_->managed_node();
+    const BookmarkNode* node = managedBookmarkService_->managed_node();
     NSString* title = base::SysUTF16ToNSString(node->GetTitle());
     NSCell* cell = [managedBookmarksButton_ cell];
     [cell setTitle:title];
@@ -1308,7 +1336,8 @@ void RecordAppLaunch(Profile* profile, GURL url) {
     return;
   }
 
-  NSCell* cell = [self cellForBookmarkNode:bookmarkClient_->managed_node()];
+  NSCell* cell =
+      [self cellForBookmarkNode:managedBookmarkService_->managed_node()];
   managedBookmarksButton_.reset([self createCustomBookmarkButtonForCell:cell]);
   [managedBookmarksButton_ setAction:@selector(openBookmarkFolderFromButton:)];
   view_id_util::SetID(managedBookmarksButton_.get(), VIEW_ID_MANAGED_BOOKMARKS);
@@ -1325,7 +1354,8 @@ void RecordAppLaunch(Profile* profile, GURL url) {
     return;
   }
 
-  NSCell* cell = [self cellForBookmarkNode:bookmarkClient_->supervised_node()];
+  NSCell* cell =
+      [self cellForBookmarkNode:managedBookmarkService_->supervised_node()];
   supervisedBookmarksButton_.reset(
       [self createCustomBookmarkButtonForCell:cell]);
   [supervisedBookmarksButton_
@@ -1761,6 +1791,7 @@ void RecordAppLaunch(Profile* profile, GURL url) {
 // Delete all buttons (bookmarks, chevron, "other bookmarks") from the
 // bookmark bar; reset knowledge of bookmarks.
 - (void)clearBookmarkBar {
+  [self stopPulsingBookmarkNode];
   for (BookmarkButton* button in buttons_.get()) {
     [button setDelegate:nil];
     [button removeFromSuperview];
@@ -2089,9 +2120,9 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
     destIndex = [self indexForDragToPoint:point];
   }
 
-  if (!bookmarkClient_->CanBeEditedByUser(destParent))
+  if (!managedBookmarkService_->CanBeEditedByUser(destParent))
     return NO;
-  if (!bookmarkClient_->CanBeEditedByUser(sourceNode))
+  if (!managedBookmarkService_->CanBeEditedByUser(sourceNode))
     copy = YES;
 
   // Be sure we don't try and drop a folder into itself.
@@ -2808,7 +2839,7 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
     destIndex = [self indexForDragToPoint:point];
   }
 
-  if (!bookmarkClient_->CanBeEditedByUser(destParent))
+  if (!managedBookmarkService_->CanBeEditedByUser(destParent))
     return NO;
 
   // Don't add the bookmarks if the destination index shows an error.

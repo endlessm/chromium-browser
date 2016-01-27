@@ -9,6 +9,8 @@
 
 #include "base/memory/ref_counted.h"
 #include "base/memory/singleton.h"
+#include "base/synchronization/lock.h"
+#include "components/tracing/tracing_export.h"
 
 namespace base {
 class SingleThreadTaskRunner;
@@ -24,7 +26,7 @@ class ChildTraceMessageFilter;
 // and long lived. CTMF, instead, can be torn down during browser shutdown.
 // This class is registered as MDM delegate in child processes and handles
 // gracefully (and thread-safely) failures in the case of a lack of the CTMF.
-class ChildMemoryDumpManagerDelegateImpl
+class TRACING_EXPORT ChildMemoryDumpManagerDelegateImpl
     : public base::trace_event::MemoryDumpManagerDelegate {
  public:
   static ChildMemoryDumpManagerDelegateImpl* GetInstance();
@@ -33,16 +35,27 @@ class ChildMemoryDumpManagerDelegateImpl
   void RequestGlobalMemoryDump(
       const base::trace_event::MemoryDumpRequestArgs& args,
       const base::trace_event::MemoryDumpCallback& callback) override;
-  bool IsCoordinatorProcess() const override;
+  uint64 GetTracingProcessId() const override;
 
   void SetChildTraceMessageFilter(ChildTraceMessageFilter* ctmf);
+
+  // Pass kInvalidTracingProcessId to invalidate the id.
+  void set_tracing_process_id(uint64 id) {
+    DCHECK(tracing_process_id_ ==
+               base::trace_event::MemoryDumpManager::kInvalidTracingProcessId ||
+           id ==
+               base::trace_event::MemoryDumpManager::kInvalidTracingProcessId ||
+           id == tracing_process_id_);
+    tracing_process_id_ = id;
+  }
 
  protected:
   // Make CreateProcessDump() visible to ChildTraceMessageFilter.
   friend class ChildTraceMessageFilter;
 
  private:
-  friend struct DefaultSingletonTraits<ChildMemoryDumpManagerDelegateImpl>;
+  friend struct base::DefaultSingletonTraits<
+      ChildMemoryDumpManagerDelegateImpl>;
 
   ChildMemoryDumpManagerDelegateImpl();
   ~ChildMemoryDumpManagerDelegateImpl() override;
@@ -52,6 +65,14 @@ class ChildMemoryDumpManagerDelegateImpl
   // The SingleThreadTaskRunner where the |ctmf_| lives.
   // It is NULL iff |cmtf_| is NULL.
   scoped_refptr<base::SingleThreadTaskRunner> ctmf_task_runner_;
+
+  // Protects from concurrent access to |ctmf_task_runner_| to allow
+  // RequestGlobalMemoryDump to be called from arbitrary threads.
+  base::Lock lock_;
+
+  // The unique id of the child process, created for tracing and is expected to
+  // be valid only when tracing is enabled.
+  uint64 tracing_process_id_;
 
   DISALLOW_COPY_AND_ASSIGN(ChildMemoryDumpManagerDelegateImpl);
 };

@@ -13,7 +13,7 @@
 
 #include "webrtc/modules/audio_device/include/audio_device.h"
 #include "webrtc/modules/audio_device/linux/pulseaudiosymboltable_linux.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 #include "webrtc/typedefs.h"
 #include "webrtc/base/thread_checker.h"
 
@@ -111,7 +111,7 @@ private:
     // Stores thread ID in constructor.
     // We can then use ThreadChecker::CalledOnValidThread() to ensure that
     // other methods are called from the same thread.
-    // Currently only does DCHECK(thread_checker_.CalledOnValidThread()).
+    // Currently only does RTC_DCHECK(thread_checker_.CalledOnValidThread()).
     rtc::ThreadChecker thread_checker_;
 };
 

@@ -38,6 +38,13 @@ WindowAndroid::~WindowAndroid() {
   DCHECK(!compositor_);
 }
 
+WindowAndroid* WindowAndroid::createForTesting() {
+  JNIEnv* env = AttachCurrentThread();
+  jobject context = base::android::GetApplicationContext();
+  return new WindowAndroid(
+      env, Java_WindowAndroid_createForTesting(env, context).obj());
+}
+
 void WindowAndroid::OnCompositingDidCommit() {
   FOR_EACH_OBSERVER(WindowAndroidObserver,
                     observer_list_,
@@ -136,7 +143,7 @@ bool WindowAndroid::CanRequestPermission(const std::string& permission) {
 // Native JNI methods
 // ----------------------------------------------------------------------------
 
-jlong Init(JNIEnv* env, jobject obj) {
+jlong Init(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   WindowAndroid* window = new WindowAndroid(env, obj);
   return reinterpret_cast<intptr_t>(window);
 }

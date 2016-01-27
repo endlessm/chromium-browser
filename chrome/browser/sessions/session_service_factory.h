@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_SESSIONS_SESSION_SERVICE_FACTORY_H_
 #define CHROME_BROWSER_SESSIONS_SESSION_SERVICE_FACTORY_H_
 
+#include "base/gtest_prod_util.h"
 #include "base/memory/singleton.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/sessions/session_service.h"
@@ -55,7 +56,7 @@ class SessionServiceFactory : public BrowserContextKeyedServiceFactory {
   static SessionServiceFactory* GetInstance();
 
  private:
-  friend struct DefaultSingletonTraits<SessionServiceFactory>;
+  friend struct base::DefaultSingletonTraits<SessionServiceFactory>;
   FRIEND_TEST_ALL_PREFIXES(SessionCrashedInfoBarDelegateUnitTest,
                            DetachingTabWithCrashedInfoBar);
 

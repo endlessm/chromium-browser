@@ -19,7 +19,6 @@
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "chrome/browser/ui/views/theme_image_mapper.h"
 #include "chrome/common/chrome_constants.h"
-#include "components/browser_watcher/exit_funnel_win.h"
 #include "ui/base/theme_provider.h"
 #include "ui/gfx/win/dpi.h"
 #include "ui/views/controls/menu/native_menu_win.h"
@@ -29,9 +28,6 @@
 namespace {
 
 const int kClientEdgeThickness = 3;
-// We need to offset the DWMFrame into the toolbar so that the blackness
-// doesn't show up on our rounded corners.
-const int kDWMFrameTopOffset = 3;
 
 // DesktopThemeProvider maps resource ids using MapThemeImage(). This is
 // necessary for BrowserDesktopWindowTreeHostWin so that it uses the windows
@@ -73,31 +69,6 @@ class DesktopThemeProvider : public ui::ThemeProvider {
 
   DISALLOW_COPY_AND_ASSIGN(DesktopThemeProvider);
 };
-
-// See http://crbug.com/412384.
-void TraceSessionEnding(LPARAM lparam) {
-  browser_watcher::ExitFunnel funnel;
-  if (!funnel.Init(chrome::kBrowserExitCodesRegistryPath,
-                   base::GetCurrentProcessHandle())) {
-    return;
-  }
-
-  // This exit path is the prime suspect for most our unclean shutdowns.
-  // Trace all the possible options to WM_ENDSESSION. This may result in
-  // multiple events for a single shutdown, but that's fine.
-  funnel.RecordEvent(L"WM_ENDSESSION");
-
-  if (lparam & ENDSESSION_CLOSEAPP)
-    funnel.RecordEvent(L"ES_CloseApp");
-  if (lparam & ENDSESSION_CRITICAL)
-    funnel.RecordEvent(L"ES_Critical");
-  if (lparam & ENDSESSION_LOGOFF)
-    funnel.RecordEvent(L"ES_Logoff");
-  const LPARAM kKnownBits =
-      ENDSESSION_CLOSEAPP | ENDSESSION_CRITICAL | ENDSESSION_LOGOFF;
-  if (lparam & ~kKnownBits)
-    funnel.RecordEvent(L"ES_Other");
-}
 
 }  // namespace
 
@@ -175,7 +146,7 @@ bool BrowserDesktopWindowTreeHostWin::GetClientAreaInsets(
   // client edge over part of the default frame.
   if (GetWidget()->IsFullscreen())
     border_thickness = 0;
-  else if (!IsMaximized())
+  else if (!IsMaximized() && base::win::GetVersion() < base::win::VERSION_WIN10)
     border_thickness -= kClientEdgeThickness;
   insets->Set(0, border_thickness, border_thickness, border_thickness);
   return true;
@@ -185,9 +156,12 @@ void BrowserDesktopWindowTreeHostWin::HandleCreate() {
   DesktopWindowTreeHostWin::HandleCreate();
   browser_window_property_manager_ =
       BrowserWindowPropertyManager::CreateBrowserWindowPropertyManager(
-          browser_view_);
-  if (browser_window_property_manager_)
-    browser_window_property_manager_->UpdateWindowProperties(GetHWND());
+          browser_view_, GetHWND());
+}
+
+void BrowserDesktopWindowTreeHostWin::HandleDestroying() {
+  browser_window_property_manager_.reset();
+  DesktopWindowTreeHostWin::HandleDestroying();
 }
 
 void BrowserDesktopWindowTreeHostWin::HandleFrameChanged() {
@@ -211,7 +185,6 @@ bool BrowserDesktopWindowTreeHostWin::PreHandleMSG(UINT message,
         minimize_button_metrics_.OnHWNDActivated();
       return false;
     case WM_ENDSESSION:
-      TraceSessionEnding(l_param);
       chrome::SessionEnding();
       return true;
     case WM_INITMENUPOPUP:
@@ -351,7 +324,14 @@ MARGINS BrowserDesktopWindowTreeHostWin::GetDWMFrameMargins() const {
       gfx::Rect tabstrip_bounds(
           browser_frame_->GetBoundsForTabStrip(browser_view_->tabstrip()));
       tabstrip_bounds = gfx::win::DIPToScreenRect(tabstrip_bounds);
-      margins.cyTopHeight = tabstrip_bounds.bottom() + kDWMFrameTopOffset;
+      margins.cyTopHeight = tabstrip_bounds.bottom();
+
+      // On pre-Win 10, we need to offset the DWM frame into the toolbar so that
+      // the blackness doesn't show up on our rounded toolbar corners.  In Win
+      // 10 and above there are no rounded corners, so this is unnecessary.
+      const int kDWMFrameTopOffset = 3;
+      if (base::win::GetVersion() < base::win::VERSION_WIN10)
+        margins.cyTopHeight += kDWMFrameTopOffset;
     }
   }
   return margins;

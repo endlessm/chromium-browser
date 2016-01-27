@@ -103,7 +103,6 @@ ADDITIONAL_PATHS = (
     os.path.join('sdch', 'open-vcdiff'),
     os.path.join('testing', 'gmock'),
     os.path.join('testing', 'gtest'),
-    os.path.join('tools', 'grit'),
     os.path.join('tools', 'gyp'),
     os.path.join('tools', 'page_cycler', 'acid3'),
     os.path.join('url', 'third_party', 'mozilla'),
@@ -125,7 +124,7 @@ SPECIAL_CASES = {
     },
     os.path.join('sdch', 'open-vcdiff'): {
         "Name": "open-vcdiff",
-        "URL": "http://code.google.com/p/open-vcdiff",
+        "URL": "https://github.com/google/open-vcdiff",
         "License": "Apache 2.0, MIT, GPL v2 and custom licenses",
         "License Android Compatible": "yes",
     },
@@ -159,11 +158,6 @@ SPECIAL_CASES = {
         "License": "BSD",
         "License File": "/LICENSE",
     },
-    os.path.join('third_party', 'ots'): {
-        "Name": "OTS (OpenType Sanitizer)",
-        "URL": "http://code.google.com/p/ots/",
-        "License": "BSD",
-    },
     os.path.join('third_party', 'pdfium'): {
         "Name": "PDFium",
         "URL": "http://code.google.com/p/pdfium/",
@@ -185,9 +179,9 @@ SPECIAL_CASES = {
         "License": "MIT",
         "License File": "NOT_SHIPPED",
     },
-    os.path.join('third_party', 'trace-viewer'): {
-        "Name": "trace-viewer",
-        "URL": "http://code.google.com/p/trace-viewer",
+    os.path.join('third_party', 'catapult'): {
+        "Name": "catapult",
+        "URL": "https://github.com/catapult-project/catapult",
         "License": "BSD",
         "License File": "NOT_SHIPPED",
     },
@@ -207,12 +201,6 @@ SPECIAL_CASES = {
         "Name": "webpagereplay",
         "URL": "http://code.google.com/p/web-page-replay",
         "License": "Apache 2.0",
-        "License File": "NOT_SHIPPED",
-    },
-    os.path.join('tools', 'grit'): {
-        "Name": "grit",
-        "URL": "http://code.google.com/p/grit-i18n",
-        "License": "BSD",
         "License File": "NOT_SHIPPED",
     },
     os.path.join('tools', 'gyp'): {
@@ -314,11 +302,12 @@ def ParseDir(path, root, require_license_file=True, optional_keys=None):
                     metadata[key] = line[len(field):]
 
     # Check that all expected metadata is present.
+    errors = []
     for key, value in metadata.iteritems():
         if not value:
-            raise LicenseError("couldn't find '" + key + "' line "
-                               "in README.chromium or licences.py "
-                               "SPECIAL_CASES")
+            errors.append("couldn't find '" + key + "' line "
+                          "in README.chromium or licences.py "
+                          "SPECIAL_CASES")
 
     # Special-case modules that aren't in the shipping product, so don't need
     # their license in about:credits.
@@ -330,13 +319,15 @@ def ParseDir(path, root, require_license_file=True, optional_keys=None):
                 break
 
         if require_license_file and not license_path:
-            raise LicenseError("License file not found. "
-                               "Either add a file named LICENSE, "
-                               "import upstream's COPYING if available, "
-                               "or add a 'License File:' line to "
-                               "README.chromium with the appropriate path.")
+            errors.append("License file not found. "
+                          "Either add a file named LICENSE, "
+                          "import upstream's COPYING if available, "
+                          "or add a 'License File:' line to "
+                          "README.chromium with the appropriate path.")
         metadata["License File"] = license_path
 
+    if errors:
+        raise LicenseError(";\n".join(errors))
     return metadata
 
 
@@ -439,10 +430,10 @@ def GenerateCredits(file_template_file, entry_template_file, output_file):
     third_party_dirs = FindThirdPartyDirs(PRUNE_PATHS, root)
 
     if not file_template_file:
-        file_template_file = os.path.join(root, 'chrome', 'browser',
+        file_template_file = os.path.join(root, 'components', 'about_ui',
                                           'resources', 'about_credits.tmpl')
     if not entry_template_file:
-        entry_template_file = os.path.join(root, 'chrome', 'browser',
+        entry_template_file = os.path.join(root, 'components', 'about_ui',
                                            'resources',
                                            'about_credits_entry.tmpl')
 

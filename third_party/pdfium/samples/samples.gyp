@@ -3,6 +3,9 @@
 # found in the LICENSE file.
 
 {
+  'variables': {
+    'pdf_enable_v8%': 1,
+  },
   'target_defaults': {
     'defines' : [
       'PNG_PREFIX',
@@ -10,9 +13,20 @@
       'PNG_USE_READ_MACROS',
     ],
     'include_dirs': [
+      # This is implicit in GN.
       '<(DEPTH)',
-      '<(DEPTH)/v8',
-      '<(DEPTH)/v8/include',
+      '..',
+    ],
+    'conditions': [
+      ['pdf_enable_v8==1', {
+        'defines': [
+          'PDF_ENABLE_V8',
+        ],
+        'include_dirs': [
+          '<(DEPTH)/v8',
+          '<(DEPTH)/v8/include',
+        ],
+      }],
     ],
   },
   'targets': [
@@ -22,11 +36,27 @@
       'dependencies': [
         'fx_lpng',
         '../pdfium.gyp:pdfium',
-        '<(DEPTH)/v8/tools/gyp/v8.gyp:v8_libplatform',
+        '../pdfium.gyp:test_support',
+        # Regardless of whether the library ships against system freetype,
+        # always link this binary against the bundled one for consistency
+        # of results across platforms.
+        '../third_party/third_party.gyp:fx_freetype',
       ],
       'sources': [
         'pdfium_test.cc',
         'image_diff_png.cc',
+      ],
+      'link_settings': {
+        'libraries!': [
+          '-lfreetype',
+        ],
+      },
+      'conditions': [
+        ['pdf_enable_v8==1', {
+          'dependencies': [
+            '<(DEPTH)/v8/tools/gyp/v8.gyp:v8_libplatform',
+          ],
+        }],
       ],
     },
     {
@@ -37,9 +67,6 @@
         'fx_lpng',
         '../pdfium.gyp:pdfium',
         '../third_party/third_party.gyp:pdfium_base',
-      ],
-      'include_dirs': [
-        '../../',
       ],
       'sources': [
         'image_diff.cc',

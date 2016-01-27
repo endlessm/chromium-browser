@@ -42,7 +42,8 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
                       RenderWidgetHostDelegate* rwh_delegate,
                       FrameTree* frame_tree,
                       FrameTreeNode* frame_tree_node,
-                      int routing_id,
+                      int32 routing_id,
+                      int32 widget_routing_id,
                       int flags);
   ~TestRenderFrameHost() override;
 
@@ -53,6 +54,12 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   // RenderFrameHostTester implementation.
   void InitializeRenderFrameIfNeeded() override;
   TestRenderFrameHost* AppendChild(const std::string& frame_name) override;
+  void SimulateNavigationStart(const GURL& url) override;
+  void SimulateRedirect(const GURL& new_url) override;
+  void SimulateNavigationCommit(const GURL& url) override;
+  void SimulateNavigationError(const GURL& url, int error_code) override;
+  void SimulateNavigationErrorPageCommit() override;
+  void SimulateNavigationStop() override;
   void SendNavigate(int page_id,
                     int nav_entry_id,
                     bool did_create_new_entry,
@@ -92,7 +99,7 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
   void SendRendererInitiatedNavigationRequest(const GURL& url,
                                               bool has_user_gesture);
 
-  void DidDisownOpener();
+  void DidChangeOpener(int opener_routing_id);
 
   // If set, navigations will appear to have cleared the history list in the
   // RenderFrame
@@ -127,6 +134,9 @@ class TestRenderFrameHost : public RenderFrameHostImpl,
                                   ui::PageTransition transition,
                                   int response_code,
                                   const ModificationCallback& callback);
+
+  // Computes the page ID for a pending navigation in this RenderFrameHost;
+  int32 ComputeNextPageID();
 
   TestRenderFrameHostCreationObserver child_creation_observer_;
 

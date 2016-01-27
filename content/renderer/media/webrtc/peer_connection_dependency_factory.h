@@ -13,7 +13,6 @@
 #include "base/threading/thread.h"
 #include "content/common/content_export.h"
 #include "content/public/renderer/render_process_observer.h"
-#include "content/renderer/media/aec_dump_message_filter.h"
 #include "content/renderer/media/webrtc/stun_field_trial.h"
 #include "content/renderer/p2p/socket_dispatcher.h"
 #include "ipc/ipc_platform_file.h"
@@ -23,6 +22,10 @@
 
 namespace base {
 class WaitableEvent;
+}
+
+namespace media {
+class GpuVideoAcceleratorFactories;
 }
 
 namespace rtc {
@@ -126,6 +129,7 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
 
   WebRtcAudioDeviceImpl* GetWebRtcAudioDevice();
 
+  void EnsureInitialized();
   scoped_refptr<base::SingleThreadTaskRunner> GetWebRtcWorkerThread() const;
   scoped_refptr<base::SingleThreadTaskRunner> GetWebRtcSignalingThread() const;
 
@@ -182,7 +186,7 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
   void CreatePeerConnectionFactory();
 
   void InitializeSignalingThread(
-      const scoped_refptr<media::GpuVideoAcceleratorFactories>& gpu_factories,
+      media::GpuVideoAcceleratorFactories* gpu_factories,
       base::WaitableEvent* event);
 
   void InitializeWorkerThread(rtc::Thread** thread,
@@ -205,7 +209,7 @@ class CONTENT_EXPORT PeerConnectionDependencyFactory
   scoped_refptr<P2PSocketDispatcher> p2p_socket_dispatcher_;
   scoped_refptr<WebRtcAudioDeviceImpl> audio_device_;
 
-  scoped_ptr<stunprober::StunProber> stun_prober_;
+  scoped_ptr<StunProberTrial> stun_trial_;
 
   // PeerConnection threads. signaling_thread_ is created from the
   // "current" chrome thread.

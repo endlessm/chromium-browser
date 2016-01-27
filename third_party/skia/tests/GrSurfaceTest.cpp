@@ -11,6 +11,7 @@
 
 #include "GrContext.h"
 #include "GrContextFactory.h"
+#include "GrGpu.h"
 #include "GrRenderTarget.h"
 #include "GrTexture.h"
 #include "GrSurfacePriv.h"
@@ -27,7 +28,7 @@ DEF_GPUTEST(GrSurface, reporter, factory) {
         desc.fWidth = 256;
         desc.fHeight = 256;
         desc.fSampleCnt = 0;
-        GrSurface* texRT1 = context->textureProvider()->createTexture(desc, false, NULL, 0);
+        GrSurface* texRT1 = context->textureProvider()->createTexture(desc, false, nullptr, 0);
 
         REPORTER_ASSERT(reporter, texRT1 == texRT1->asRenderTarget());
         REPORTER_ASSERT(reporter, texRT1 == texRT1->asTexture());
@@ -39,10 +40,13 @@ DEF_GPUTEST(GrSurface, reporter, factory) {
                                   static_cast<GrSurface*>(texRT1->asTexture()));
 
         desc.fFlags = kNone_GrSurfaceFlags;
-        GrSurface* tex1 = context->textureProvider()->createTexture(desc, false, NULL, 0);
-        REPORTER_ASSERT(reporter, NULL == tex1->asRenderTarget());
+        GrSurface* tex1 = context->textureProvider()->createTexture(desc, false, nullptr, 0);
+        REPORTER_ASSERT(reporter, nullptr == tex1->asRenderTarget());
         REPORTER_ASSERT(reporter, tex1 == tex1->asTexture());
         REPORTER_ASSERT(reporter, static_cast<GrSurface*>(tex1) == tex1->asTexture());
+
+        GrBackendObject backendTex = context->getGpu()->createTestingOnlyBackendTexture(
+            nullptr, 256, 256, kSkia8888_GrPixelConfig);
 
         GrBackendTextureDesc backendDesc;
         backendDesc.fConfig = kSkia8888_GrPixelConfig;
@@ -50,7 +54,7 @@ DEF_GPUTEST(GrSurface, reporter, factory) {
         backendDesc.fWidth = 256;
         backendDesc.fHeight = 256;
         backendDesc.fSampleCnt = 0;
-        backendDesc.fTextureHandle = 5;
+        backendDesc.fTextureHandle = backendTex;
         GrSurface* texRT2 = context->textureProvider()->wrapBackendTexture(
             backendDesc, kBorrow_GrWrapOwnership);
         REPORTER_ASSERT(reporter, texRT2 == texRT2->asRenderTarget());
@@ -60,11 +64,12 @@ DEF_GPUTEST(GrSurface, reporter, factory) {
         REPORTER_ASSERT(reporter, texRT2->asRenderTarget() ==
                                   static_cast<GrSurface*>(texRT2->asTexture()));
         REPORTER_ASSERT(reporter, static_cast<GrSurface*>(texRT2->asRenderTarget()) ==
-                                   static_cast<GrSurface*>(texRT2->asTexture()));
+                                  static_cast<GrSurface*>(texRT2->asTexture()));
 
         texRT1->unref();
         texRT2->unref();
         tex1->unref();
+        context->getGpu()->deleteTestingOnlyBackendTexture(backendTex);
     }
 }
 

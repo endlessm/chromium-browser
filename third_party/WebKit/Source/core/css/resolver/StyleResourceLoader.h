@@ -41,7 +41,7 @@ class StylePendingImage;
 // it expects Document to never change.
 class StyleResourceLoader final {
     WTF_MAKE_NONCOPYABLE(StyleResourceLoader);
-    DISALLOW_ALLOCATION();
+    DISALLOW_NEW();
 public:
     explicit StyleResourceLoader(Document*);
 
@@ -52,7 +52,7 @@ public:
 private:
     void loadPendingSVGDocuments(ComputedStyle*, ElementStyleResources&);
 
-    PassRefPtr<StyleImage> loadPendingImage(StylePendingImage*, float deviceScaleFactor);
+    PassRefPtrWillBeRawPtr<StyleImage> loadPendingImage(StylePendingImage*, float deviceScaleFactor);
     void loadPendingImages(ComputedStyle*, ElementStyleResources&);
     void loadPendingShapeImage(ComputedStyle*, ShapeValue*, float deviceScaleFactor);
 

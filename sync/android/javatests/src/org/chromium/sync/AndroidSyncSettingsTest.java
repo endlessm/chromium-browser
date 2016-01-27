@@ -7,10 +7,12 @@ package org.chromium.sync;
 import android.accounts.Account;
 import android.content.Context;
 import android.os.Bundle;
+import android.test.FlakyTest;
 import android.test.InstrumentationTestCase;
 import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.ThreadUtils;
+import org.chromium.base.test.util.DisabledTest;
 import org.chromium.base.test.util.Feature;
 import org.chromium.sync.AndroidSyncSettings.AndroidSyncSettingsObserver;
 import org.chromium.sync.signin.AccountManagerHelper;
@@ -143,13 +145,18 @@ public class AndroidSyncSettingsTest extends InstrumentationTestCase {
         });
     }
 
-    @SmallTest
-    @Feature({"Sync"})
+    @FlakyTest
+    /*
+     * http://crbug.com/554154
+     * @SmallTest
+     * @Feature({"Sync"})
+     */
     public void testAccountInitialization() throws InterruptedException {
         // mAccount was set to be syncable and not have periodic syncs.
         assertEquals(1, mSyncContentResolverDelegate.mSetIsSyncableCalls);
         assertEquals(1, mSyncContentResolverDelegate.mRemovePeriodicSyncCalls);
         AndroidSyncSettings.updateAccount(mContext, null);
+        getInstrumentation().waitForIdleSync();
         // mAccount was set to be not syncable.
         assertEquals(2, mSyncContentResolverDelegate.mSetIsSyncableCalls);
         assertEquals(1, mSyncContentResolverDelegate.mRemovePeriodicSyncCalls);
@@ -310,8 +317,10 @@ public class AndroidSyncSettingsTest extends InstrumentationTestCase {
                 AndroidSyncSettings.getContractAuthority(mContext));
     }
 
-    @SmallTest
-    @Feature({"Sync"})
+    /*@SmallTest
+    @Feature({"Sync"})*/
+    // http://crbug.com/527856
+    @DisabledTest
     public void testAndroidSyncSettingsPostsNotifications() throws InterruptedException {
         // Turn on syncability.
         mSyncContentResolverDelegate.setMasterSyncAutomatically(true);
@@ -348,11 +357,14 @@ public class AndroidSyncSettingsTest extends InstrumentationTestCase {
                 mSyncSettingsObserver.receivedNotification());
     }
 
-    @SmallTest
-    @Feature({"Sync"})
+    /*@SmallTest
+    @Feature({"Sync"})*/
+    // http://crbug.com/527856
+    @DisabledTest
     public void testIsSyncableOnSigninAndNotOnSignout() throws InterruptedException {
         assertTrue(mSyncContentResolverDelegate.getIsSyncable(mAccount, mAuthority) == 1);
         AndroidSyncSettings.updateAccount(mContext, null);
+        getInstrumentation().waitForIdleSync();
         assertTrue(mSyncContentResolverDelegate.getIsSyncable(mAccount, mAuthority) == 0);
         AndroidSyncSettings.updateAccount(mContext, mAccount);
         assertTrue(mSyncContentResolverDelegate.getIsSyncable(mAccount, mAuthority) == 1);

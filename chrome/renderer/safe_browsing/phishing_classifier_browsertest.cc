@@ -11,6 +11,8 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/browser/ui/browser.h"
+#include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/safe_browsing/client_model.pb.h"
 #include "chrome/common/safe_browsing/csd.pb.h"
@@ -20,7 +22,10 @@
 #include "chrome/renderer/safe_browsing/scorer.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "content/public/renderer/render_view.h"
+#include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/web_contents.h"
+#include "content/public/common/content_switches.h"
+#include "content/public/renderer/render_frame.h"
 #include "crypto/sha2.h"
 #include "net/dns/mock_host_resolver.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -32,13 +37,6 @@ using ::testing::AllOf;
 using ::testing::Contains;
 using ::testing::Not;
 using ::testing::Pair;
-
-namespace {
-
-// The first RenderFrame is routing ID 1, and the first RenderView is 2.
-const int kRenderViewRoutingId = 2;
-
-}
 
 namespace safe_browsing {
 
@@ -100,9 +98,11 @@ class PhishingClassifierTest : public InProcessBrowserTest {
     scorer_.reset(Scorer::Create(model.SerializeAsString()));
     ASSERT_TRUE(scorer_.get());
 
-    classifier_.reset(new PhishingClassifier(
-        content::RenderView::FromRoutingID(kRenderViewRoutingId),
-        clock_));
+    content::WebContents* web_contents =
+        browser()->tab_strip_model()->GetActiveWebContents();
+    content::RenderFrame* render_frame = content::RenderFrame::FromRoutingID(
+        web_contents->GetMainFrame()->GetRoutingID());
+    classifier_.reset(new PhishingClassifier(render_frame, clock_));
   }
 
   void TearDownOnMainThread() override {
@@ -116,7 +116,7 @@ class PhishingClassifierTest : public InProcessBrowserTest {
                              float* phishy_score,
                              FeatureMap* features) {
     ClientPhishingRequest verdict;
-    // The classifier accesses the RenderView and must run in the RenderThread.
+    // The classifier accesses the RenderFrame and must run in the RenderThread.
     PostTaskToInProcessRendererAndWait(
         base::Bind(&PhishingClassifierTest::DoRunPhishingClassifier,
                    base::Unretained(this),
@@ -208,7 +208,9 @@ class PhishingClassifierTest : public InProcessBrowserTest {
 
 // This test flakes on Mac with force compositing mode.
 // http://crbug.com/316709
-#if defined(OS_MACOSX)
+// Flaky on Chrome OS, running into a memory allocation error.
+// http://crbug.com/544085
+#if defined(OS_MACOSX) || defined(OS_CHROMEOS)
 #define MAYBE_TestClassification DISABLED_TestClassification
 #else
 #define MAYBE_TestClassification TestClassification

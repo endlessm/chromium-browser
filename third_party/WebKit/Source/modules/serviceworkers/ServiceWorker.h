@@ -35,12 +35,11 @@
 #include "bindings/core/v8/SerializedScriptValue.h"
 #include "core/workers/AbstractWorker.h"
 #include "modules/ModulesExport.h"
-#include "public/platform/WebServiceWorker.h"
-#include "public/platform/WebServiceWorkerProxy.h"
+#include "public/platform/modules/serviceworker/WebServiceWorker.h"
+#include "public/platform/modules/serviceworker/WebServiceWorkerProxy.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/PassRefPtr.h"
-#include "wtf/RefCounted.h"
 
 namespace blink {
 
@@ -49,17 +48,15 @@ class ScriptPromiseResolver;
 class MODULES_EXPORT ServiceWorker final : public AbstractWorker, public WebServiceWorkerProxy {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    typedef WebServiceWorker WebType;
-    static PassRefPtrWillBeRawPtr<ServiceWorker> from(ExecutionContext*, WebType*);
+    static ServiceWorker* from(ExecutionContext*, PassOwnPtr<WebServiceWorker::Handle>);
 
     ~ServiceWorker() override;
 
     // Eager finalization needed to promptly release owned WebServiceWorker.
     EAGERLY_FINALIZE();
-#if ENABLE(OILPAN)
+
     // Override 'operator new' to enforce allocation of eagerly finalized object.
     DECLARE_EAGER_FINALIZATION_OPERATOR_NEW();
-#endif
 
     void postMessage(ExecutionContext*, PassRefPtr<SerializedScriptValue> message, const MessagePortArray*, ExceptionState&);
 
@@ -75,14 +72,15 @@ public:
 
     void internalsTerminate();
 private:
-    static PassRefPtrWillBeRawPtr<ServiceWorker> getOrCreate(ExecutionContext*, WebType*);
-    ServiceWorker(ExecutionContext*, PassOwnPtr<WebServiceWorker>);
+    static ServiceWorker* getOrCreate(ExecutionContext*, PassOwnPtr<WebServiceWorker::Handle>);
+    ServiceWorker(ExecutionContext*, PassOwnPtr<WebServiceWorker::Handle>);
 
     // ActiveDOMObject overrides.
     bool hasPendingActivity() const override;
     void stop() override;
 
-    OwnPtr<WebServiceWorker> m_outerWorker;
+    // A handle to the service worker representation in the embedder.
+    OwnPtr<WebServiceWorker::Handle> m_handle;
     bool m_wasStopped;
 };
 

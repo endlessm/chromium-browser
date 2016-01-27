@@ -15,6 +15,10 @@ ifdef TSAN
 CLANG = 1
 endif
 
+ifdef MSAN
+CLANG = 1
+endif
+
 #
 # Macros for TOOLS
 #
@@ -31,8 +35,14 @@ CC = $(NACL_COMPILER_PREFIX) $(CC)
 CXX = $(NACL_COMPILER_PREFIX) $(CXX)
 endif
 
+ifeq ($(OSNAME),mac)
+LINK ?= $(NACL_SDK_ROOT)/tools/mac_ld_wrapper.py $(CXX)
+#AR = libtool -static -no_warning_for_no_symbols
+#ARFLAGS = -o
+else
 LINK ?= $(CXX)
-AR ?= ar
+endif
+AR = ar
 ARFLAGS = -crs
 STRIP ?= strip
 
@@ -67,6 +77,11 @@ endif
 ifdef TSAN
 HOST_CFLAGS += -fsanitize=thread
 HOST_LDFLAGS += -pie -fsanitize=thread
+endif
+
+ifdef MSAN
+HOST_CFLAGS += -fsanitize=memory
+HOST_LDFLAGS += -pie -fsanitize=memory
 endif
 
 #
@@ -172,6 +187,31 @@ endif
 define LINK_RULE
 $(call LINKER_RULE,$(OUTDIR)/$(1)$(HOST_EXT),$(foreach src,$(2),$(call SRC_TO_OBJ,$(src))),$(filter-out pthread,$(3)),$(4),$(LIB_PATHS),$(5))
 endef
+
+
+#
+# Macro to generate linker scripts
+#
+# $1 = Target Name
+# $2 = Static Linker Script
+# $3 = Shared Linker Script
+#
+define LINKER_SCRIPT_RULE
+$(STAMPDIR)/$(1).stamp:
+	@echo "  STAMP $$@"
+	@echo "TOUCHED $$@" > $(STAMPDIR)/$(1).stamp
+
+install: $(LIBDIR)/$(OSNAME)_host/$(CONFIG)/lib$(1).a
+$(LIBDIR)/$(OSNAME)_host/$(CONFIG)/lib$(1).a: $(2)
+	$(MKDIR) -p $$(dir $$@)
+	$(call LOG,CP  ,$$@,$(OSHELPERS) cp $$^ $$@)
+
+install: $(LIBDIR)/$(OSNAME)_host/$(CONFIG)/lib$(1).so
+$(LIBDIR)/$(OSNAME)_host/$(CONFIG)/lib$(1).so: $(3)
+	$(MKDIR) -p $$(dir $$@)
+	$(call LOG,CP  ,$$@,$(OSHELPERS) cp $$^ $$@)
+endef
+
 
 all: $(LIB_LIST) $(DEPS_LIST)
 

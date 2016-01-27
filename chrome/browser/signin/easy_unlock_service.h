@@ -19,7 +19,6 @@
 #include "chrome/browser/signin/easy_unlock_screenlock_state_handler.h"
 #include "components/keyed_service/core/keyed_service.h"
 #include "components/proximity_auth/screenlock_state.h"
-#include "components/proximity_auth/webui/proximity_auth_ui_delegate.h"
 
 #if defined(OS_CHROMEOS)
 #include "chrome/browser/chromeos/login/easy_unlock/easy_unlock_types.h"
@@ -40,6 +39,8 @@ class PrefRegistrySyncable;
 
 namespace proximity_auth {
 class ProximityAuthBleSystem;
+class ProximityAuthSystem;
+struct RemoteDevice;
 }
 
 class EasyUnlockAppManager;
@@ -47,8 +48,7 @@ class EasyUnlockServiceObserver;
 class Profile;
 class PrefRegistrySimple;
 
-class EasyUnlockService : public KeyedService,
-                          public proximity_auth::ProximityAuthUIDelegate {
+class EasyUnlockService : public KeyedService {
  public:
   enum TurnOffFlowStatus {
     IDLE,
@@ -93,9 +93,6 @@ class EasyUnlockService : public KeyedService,
   // Returns the identifier for the device.
   static std::string GetDeviceId();
 
-  // Returns true if Easy sign-in is enabled.
-  static bool IsSignInEnabled();
-
   // Returns the EasyUnlockService type.
   virtual Type GetType() const = 0;
 
@@ -113,6 +110,7 @@ class EasyUnlockService : public KeyedService,
   // Gets/Sets the remote devices list.
   virtual const base::ListValue* GetRemoteDevices() const = 0;
   virtual void SetRemoteDevices(const base::ListValue& devices) = 0;
+  virtual void SetRemoteBleDevices(const base::ListValue& devices) = 0;
 
   // Runs the flow for turning Easy unlock off.
   virtual void RunTurnOffFlow() = 0;
@@ -221,14 +219,6 @@ class EasyUnlockService : public KeyedService,
   void AddObserver(EasyUnlockServiceObserver* observer);
   void RemoveObserver(EasyUnlockServiceObserver* observer);
 
-  // ProximityAuthUIDelegate:
-  PrefService* GetPrefService() override;
-  scoped_ptr<proximity_auth::SecureMessageDelegate>
-  CreateSecureMessageDelegate() override;
-  scoped_ptr<proximity_auth::CryptAuthClientFactory>
-  CreateCryptAuthClientFactory() override;
-  cryptauth::DeviceClassifier GetDeviceClassifier() override;
-
   ChromeProximityAuthClient* proximity_auth_client() {
     return &proximity_auth_client_;
   }
@@ -253,7 +243,7 @@ class EasyUnlockService : public KeyedService,
   virtual void OnWillFinalizeUnlock(bool success) = 0;
 
   // Called when the local device resumes after a suspend.
-  virtual void OnSuspendDone() = 0;
+  virtual void OnSuspendDoneInternal() = 0;
 
   // KeyedService override:
   void Shutdown() override;
@@ -306,6 +296,12 @@ class EasyUnlockService : public KeyedService,
   // according to the current state of the service.
   EasyUnlockAuthEvent GetPasswordAuthEvent() const;
 
+  // Called by subclasses when the remote device allowed to unlock the screen
+  // changes. If |remote_device| is not null, then |proximity_auth_system_| will
+  // be recreated with the new remote device. Otherwise,
+  // |proximity_auth_system_| will be destroyed if no |remote_device| is set.
+  void OnRemoteDeviceChanged(const proximity_auth::RemoteDevice* remote_device);
+
  private:
   // A class to detect whether a bluetooth adapter is present.
   class BluetoothDetector;
@@ -334,6 +330,9 @@ class EasyUnlockService : public KeyedService,
   // Updates the service to state for handling system suspend.
   void PrepareForSuspend();
 
+  // Called when the system resumes from a suspended state.
+  void OnSuspendDone();
+
   void EnsureTpmKeyPresentIfNeeded();
 
   Profile* const profile_;
@@ -349,12 +348,16 @@ class EasyUnlockService : public KeyedService,
   // progress.
   scoped_ptr<EasyUnlockAuthAttempt> auth_attempt_;
 
+  // Detects when the system Bluetooth adapter status changes.
   scoped_ptr<BluetoothDetector> bluetooth_detector_;
 
-  // The proximity auth over Bluetooth Low Energy system. This is main entry
-  // point to bootstap Smart Lock to discover phones over Bluetooth Low
-  // Energy.
-  scoped_ptr<proximity_auth::ProximityAuthBleSystem> proximity_auth_ble_system_;
+  // Handles connecting, authenticating, and updating the UI on the lock/sign-in
+  // screen. After a |RemoteDevice| instance is provided, this object will
+  // handle the rest.
+  // TODO(tengs): This object is intended as a replacement of the background
+  // page of the easy_unlock Chrome app. We are in the process of removing the
+  // app in favor of |proximity_auth_system_|.
+  scoped_ptr<proximity_auth::ProximityAuthSystem> proximity_auth_system_;
 
 #if defined(OS_CHROMEOS)
   // Monitors suspend and wake state of ChromeOS.

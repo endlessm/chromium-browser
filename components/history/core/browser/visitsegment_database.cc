@@ -105,10 +105,9 @@ std::string VisitSegmentDatabase::ComputeSegmentName(const GURL& url) {
   const int kWWWDotLen = arraysize(kWWWDot) - 1;
 
   std::string host = url.host();
-  const char* host_c = host.c_str();
   // Remove www. to avoid some dups.
   if (static_cast<int>(host.size()) > kWWWDotLen &&
-      base::LowerCaseEqualsASCII(host_c, host_c + kWWWDotLen, kWWWDot)) {
+      base::StartsWith(host, kWWWDot, base::CompareCase::INSENSITIVE_ASCII)) {
     r.SetHost(host.c_str(),
               url::Component(kWWWDotLen,
                              static_cast<int>(host.size()) - kWWWDotLen));
@@ -259,7 +258,8 @@ void VisitSegmentDatabase::QuerySegmentUsage(
 
   // Limit to the top kResultCount results.
   std::sort(results->begin(), results->end(), PageUsageData::Predicate);
-  if (static_cast<int>(results->size()) > max_result_count) {
+  DCHECK_GE(max_result_count, 0);
+  if (results->size() > static_cast<size_t>(max_result_count)) {
     STLDeleteContainerPointers(results->begin() + max_result_count,
                                results->end());
     results->resize(max_result_count);

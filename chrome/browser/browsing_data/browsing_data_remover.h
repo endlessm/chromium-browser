@@ -22,6 +22,7 @@
 #endif
 #include "storage/common/quota/quota_types.h"
 #include "url/gurl.h"
+#include "url/origin.h"
 
 class IOThread;
 class Profile;
@@ -65,7 +66,8 @@ class BrowsingDataRemover
     REMOVE_DOWNLOADS = 1 << 3,
     REMOVE_FILE_SYSTEMS = 1 << 4,
     REMOVE_FORM_DATA = 1 << 5,
-    // In addition to visits, REMOVE_HISTORY removes keywords and last session.
+    // In addition to visits, REMOVE_HISTORY removes keywords, last session and
+    // passwords UI statistics.
     REMOVE_HISTORY = 1 << 6,
     REMOVE_INDEXEDDB = 1 << 7,
     REMOVE_LOCAL_STORAGE = 1 << 8,
@@ -80,21 +82,32 @@ class BrowsingDataRemover
     // from deleting history or downloads.
     REMOVE_NOCHECKS = 1 << 16,
     REMOVE_WEBRTC_IDENTITY = 1 << 17,
+    REMOVE_CACHE_STORAGE = 1 << 18,
+#if defined(OS_ANDROID)
+    REMOVE_WEBAPP_DATA = 1 << 19,
+    REMOVE_OFFLINE_PAGE_DATA = 1 << 20,
+#endif
     // The following flag is used only in tests. In normal usage, hosted app
     // data is controlled by the REMOVE_COOKIES flag, applied to the
     // protected-web origin.
     REMOVE_HOSTED_APP_DATA_TESTONLY = 1 << 31,
 
     // "Site data" includes cookies, appcache, file systems, indexedDBs, local
-    // storage, webSQL, service workers, and plugin data.
+    // storage, webSQL, service workers, cache storage, plugin data, web app
+    // data (on Android) and statistics about passwords.
     REMOVE_SITE_DATA = REMOVE_APPCACHE | REMOVE_COOKIES | REMOVE_FILE_SYSTEMS |
                        REMOVE_INDEXEDDB |
                        REMOVE_LOCAL_STORAGE |
                        REMOVE_PLUGIN_DATA |
                        REMOVE_SERVICE_WORKERS |
+                       REMOVE_CACHE_STORAGE |
                        REMOVE_WEBSQL |
                        REMOVE_CHANNEL_IDS |
                        REMOVE_SITE_USAGE_DATA |
+#if defined(OS_ANDROID)
+                       REMOVE_WEBAPP_DATA |
+                       REMOVE_OFFLINE_PAGE_DATA |
+#endif
                        REMOVE_WEBRTC_IDENTITY,
 
     // Includes all the available remove options. Meant to be used by clients
@@ -110,6 +123,16 @@ class BrowsingDataRemover
     // is scheduled to be deleted, and all possible data should be wiped from
     // disk as soon as possible.
     REMOVE_WIPE_PROFILE = REMOVE_ALL | REMOVE_NOCHECKS,
+  };
+
+  // A helper enum to report the deletion of cookies and/or cache. Do not
+  // reorder the entries, as this enum is passed to UMA.
+  enum CookieOrCacheDeletionChoice {
+    NEITHER_COOKIES_NOR_CACHE,
+    ONLY_COOKIES,
+    ONLY_CACHE,
+    BOTH_COOKIES_AND_CACHE,
+    MAX_CHOICE_VALUE
   };
 
   // When BrowsingDataRemover successfully removes data, a notification of type
@@ -271,11 +294,14 @@ class BrowsingDataRemover
 #endif
 
   // Removes the specified items related to browsing for a specific host. If the
-  // provided |origin| is empty, data is removed for all origins. The
+  // provided |remove_url| is empty, data is removed for all origins. The
   // |origin_type_mask| parameter defines the set of origins from which data
   // should be removed (protected, unprotected, or both).
+  // TODO(mkwst): The current implementation relies on unique (empty) origins to
+  // signal removal of all origins. Reconsider this behavior if/when we build
+  // a "forget this site" feature.
   void RemoveImpl(int remove_mask,
-                  const GURL& origin,
+                  const GURL& remove_url,
                   int origin_type_mask);
 
   // Notifies observers and deletes this object.
@@ -333,6 +359,10 @@ class BrowsingDataRemover
   // Callback for when passwords for the requested time range have been cleared.
   void OnClearedPasswords();
 
+  // Callback for when passwords stats for the requested time range have been
+  // cleared.
+  void OnClearedPasswordsStats();
+
   // Callback for when Cookies has been deleted. Invokes NotifyAndDeleteIfDone.
   void OnClearedCookies(int num_deleted);
 
@@ -370,6 +400,12 @@ class BrowsingDataRemover
 #if defined(OS_ANDROID)
   // Callback on UI thread when the precache history has been cleared.
   void OnClearedPrecacheHistory();
+
+  // Callback on UI thread when the webapp data has been cleared.
+  void OnClearedWebappData();
+
+  // Callback on UI thread when the offline page data has been cleared.
+  void OnClearedOfflinePageData();
 #endif
 
   void OnClearedDomainReliabilityMonitor();
@@ -407,43 +443,43 @@ class BrowsingDataRemover
   scoped_ptr<PepperFlashSettingsManager> pepper_flash_settings_manager_;
 #endif
 
-  uint32 deauthorize_content_licenses_request_id_;
+  uint32 deauthorize_content_licenses_request_id_ = 0;
   // True if we're waiting for various data to be deleted.
   // These may only be accessed from UI thread in order to avoid races!
-  bool waiting_for_clear_autofill_origin_urls_;
-  bool waiting_for_clear_cache_;
-  bool waiting_for_clear_channel_ids_;
-  bool waiting_for_clear_content_licenses_;
+  bool waiting_for_clear_autofill_origin_urls_ = false;
+  bool waiting_for_clear_cache_ = false;
+  bool waiting_for_clear_channel_ids_ = false;
+  bool waiting_for_clear_content_licenses_ = false;
   // Non-zero if waiting for cookies to be cleared.
-  int waiting_for_clear_cookies_count_;
-  bool waiting_for_clear_domain_reliability_monitor_;
-  bool waiting_for_clear_form_;
-  bool waiting_for_clear_history_;
-  bool waiting_for_clear_hostname_resolution_cache_;
-  bool waiting_for_clear_keyword_data_;
-  bool waiting_for_clear_nacl_cache_;
-  bool waiting_for_clear_network_predictor_;
-  bool waiting_for_clear_networking_history_;
-  bool waiting_for_clear_passwords_;
-  bool waiting_for_clear_platform_keys_;
-  bool waiting_for_clear_plugin_data_;
-  bool waiting_for_clear_pnacl_cache_;
+  int waiting_for_clear_cookies_count_ = 0;
+  bool waiting_for_clear_domain_reliability_monitor_ = false;
+  bool waiting_for_clear_form_ = false;
+  bool waiting_for_clear_history_ = false;
+  bool waiting_for_clear_hostname_resolution_cache_ = false;
+  bool waiting_for_clear_keyword_data_ = false;
+  bool waiting_for_clear_nacl_cache_ = false;
+  bool waiting_for_clear_network_predictor_ = false;
+  bool waiting_for_clear_networking_history_ = false;
+  bool waiting_for_clear_passwords_ = false;
+  bool waiting_for_clear_passwords_stats_ = false;
+  bool waiting_for_clear_platform_keys_ = false;
+  bool waiting_for_clear_plugin_data_ = false;
+  bool waiting_for_clear_pnacl_cache_ = false;
 #if defined(OS_ANDROID)
-  bool waiting_for_clear_precache_history_;
+  bool waiting_for_clear_precache_history_ = false;
+  bool waiting_for_clear_webapp_data_ = false;
+  bool waiting_for_clear_offline_page_data_ = false;
 #endif
-  bool waiting_for_clear_storage_partition_data_;
+  bool waiting_for_clear_storage_partition_data_ = false;
 #if defined(ENABLE_WEBRTC)
-  bool waiting_for_clear_webrtc_logs_;
+  bool waiting_for_clear_webrtc_logs_ = false;
 #endif
 
   // The removal mask for the current removal operation.
-  int remove_mask_;
-
-  // The origin for the current removal operation.
-  GURL remove_origin_;
+  int remove_mask_ = 0;
 
   // From which types of origins should we remove data?
-  int origin_type_mask_;
+  int origin_type_mask_ = 0;
 
   base::ObserverList<Observer> observer_list_;
 
@@ -453,7 +489,7 @@ class BrowsingDataRemover
   scoped_ptr<TemplateURLService::Subscription> template_url_sub_;
 
   // We do not own this.
-  content::StoragePartition* storage_partition_for_testing_;
+  content::StoragePartition* storage_partition_for_testing_ = nullptr;
 
   DISALLOW_COPY_AND_ASSIGN(BrowsingDataRemover);
 };

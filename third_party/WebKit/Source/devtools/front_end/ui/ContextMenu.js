@@ -44,7 +44,7 @@ WebInspector.ContextMenuItem = function(topLevelMenu, type, label, disabled, che
     this._checked = checked;
     this._contextMenu = topLevelMenu;
     if (type === "item" || type === "checkbox")
-        this._id = topLevelMenu.nextId();
+        this._id = topLevelMenu._nextId();
 }
 
 WebInspector.ContextMenuItem.prototype = {
@@ -87,13 +87,26 @@ WebInspector.ContextMenuItem.prototype = {
     {
         switch (this._type) {
         case "item":
-            return { type: "item", id: this._id, label: this._label, enabled: !this._disabled };
+            var result = { type: "item", id: this._id, label: this._label, enabled: !this._disabled };
+            if (this._customElement)
+                result.element = this._customElement;
+            if (this._shortcut)
+                result.shortcut = this._shortcut;
+            return result;
         case "separator":
             return { type: "separator" };
         case "checkbox":
             return { type: "checkbox", id: this._id, label: this._label, checked: !!this._checked, enabled: !this._disabled };
         }
         throw new Error("Invalid item type:"  + this._type);
+    },
+
+    /**
+     * @param {string} shortcut
+     */
+    setShortcut: function(shortcut)
+    {
+        this._shortcut = shortcut;
     }
 }
 
@@ -124,6 +137,35 @@ WebInspector.ContextSubMenuItem.prototype = {
         this._pushItem(item);
         this._contextMenu._setHandler(item.id(), handler);
         return item;
+    },
+
+    /**
+     * @param {!Element} element
+     * @return {!WebInspector.ContextMenuItem}
+     */
+    appendCustomItem: function(element)
+    {
+        var item = new WebInspector.ContextMenuItem(this._contextMenu, "item", "<custom>");
+        item._customElement = element;
+        this._pushItem(item);
+        return item;
+    },
+
+    /**
+     * @param {string} actionId
+     * @param {string=} label
+     * @return {!WebInspector.ContextMenuItem}
+     */
+    appendAction: function(actionId, label)
+    {
+        var action = WebInspector.actionRegistry.action(actionId);
+        if (!label)
+            label = action.title();
+        var result = this.appendItem(label, action.execute.bind(action));
+        var shortcut = WebInspector.shortcutRegistry.shortcutTitleForAction(actionId);
+        if (shortcut)
+            result.setShortcut(shortcut);
+        return result;
     },
 
     /**
@@ -191,6 +233,58 @@ WebInspector.ContextSubMenuItem.prototype = {
         return result;
     },
 
+    /**
+     * @param {string} location
+     */
+    appendItemsAtLocation: function(location)
+    {
+        /**
+         * @param {!WebInspector.ContextSubMenuItem} menu
+         * @param {!Runtime.Extension} extension
+         */
+        function appendExtension(menu, extension)
+        {
+            var subMenuId = extension.descriptor()["subMenuId"];
+            if (subMenuId) {
+                var subMenuItem = menu.appendSubMenuItem(extension.title(WebInspector.platform()));
+                subMenuItem.appendItemsAtLocation(subMenuId);
+            } else {
+                menu.appendAction(extension.descriptor()["actionId"]);
+            }
+        }
+
+        // Hard-coded named groups for elements to maintain generic order.
+        var groupWeights = ["new", "open", "clipboard", "navigate", "footer"];
+
+        /** @type {!Map.<string, !Array.<!Runtime.Extension>>} */
+        var groups = new Map();
+        var extensions = self.runtime.extensions("context-menu-item");
+        for (var extension of extensions) {
+            var itemLocation = extension.descriptor()["location"] || "";
+            if (!itemLocation.startsWith(location + "/"))
+                continue;
+
+            var itemGroup = itemLocation.substr(location.length + 1);
+            if (!itemGroup || itemGroup.includes("/"))
+                continue;
+            var group = groups.get(itemGroup);
+            if (!group) {
+                group = [];
+                groups.set(itemGroup, group);
+                if (groupWeights.indexOf(itemGroup) === -1)
+                    groupWeights.splice(4, 0, itemGroup);
+            }
+            group.push(extension);
+        }
+        for (var groupName of groupWeights) {
+            var group = groups.get(groupName);
+            if (!group)
+                continue;
+            group.forEach(appendExtension.bind(null, this));
+            this.appendSeparator();
+        }
+    },
+
     __proto__: WebInspector.ContextMenuItem.prototype
 }
 
@@ -198,8 +292,11 @@ WebInspector.ContextSubMenuItem.prototype = {
  * @constructor
  * @extends {WebInspector.ContextSubMenuItem}
  * @param {!Event} event
+ * @param {boolean=} useSoftMenu
+ * @param {number=} x
+ * @param {number=} y
  */
-WebInspector.ContextMenu = function(event)
+WebInspector.ContextMenu = function(event, useSoftMenu, x, y)
 {
     WebInspector.ContextSubMenuItem.call(this, this, "");
     /** @type {!Array.<!Promise.<!Array.<!WebInspector.ContextMenu.Provider>>>} */
@@ -207,8 +304,9 @@ WebInspector.ContextMenu = function(event)
     /** @type {!Array.<!Promise.<!Object>>} */
     this._pendingTargets = [];
     this._event = event;
-    this._x = event.x;
-    this._y = event.y;
+    this._useSoftMenu = !!useSoftMenu;
+    this._x = x === undefined ? event.x : x;
+    this._y = y === undefined ? event.y : y;
     this._handlers = {};
     this._id = 0;
 }
@@ -247,7 +345,7 @@ WebInspector.ContextMenu.prototype = {
     /**
      * @return {number}
      */
-    nextId: function()
+    _nextId: function()
     {
         return this._id++;
     },
@@ -287,18 +385,35 @@ WebInspector.ContextMenu.prototype = {
         this._event.consume(true);
     },
 
+    discard: function()
+    {
+        if (this._softMenu)
+            this._softMenu.discard();
+    },
+
     _innerShow: function()
     {
         var menuObject = this._buildDescriptors();
 
         WebInspector._contextMenu = this;
-        if (WebInspector.ContextMenu._useSoftMenu || InspectorFrontendHost.isHostedMode()) {
-            var softMenu = new WebInspector.SoftContextMenu(menuObject, this._itemSelected.bind(this));
-            softMenu.show(this._event.target.ownerDocument, this._x, this._y);
+        if (this._useSoftMenu || WebInspector.ContextMenu._useSoftMenu || InspectorFrontendHost.isHostedMode()) {
+            this._softMenu = new WebInspector.SoftContextMenu(menuObject, this._itemSelected.bind(this));
+            this._softMenu.show(this._event.target.ownerDocument, this._x, this._y);
         } else {
             InspectorFrontendHost.showContextMenuAtPoint(this._x, this._y, menuObject, this._event.target.ownerDocument);
-            InspectorFrontendHost.events.addEventListener(InspectorFrontendHostAPI.Events.ContextMenuCleared, this._menuCleared, this);
-            InspectorFrontendHost.events.addEventListener(InspectorFrontendHostAPI.Events.ContextMenuItemSelected, this._onItemSelected, this);
+
+            /**
+             * @this {WebInspector.ContextMenu}
+             */
+            function listenToEvents()
+            {
+                InspectorFrontendHost.events.addEventListener(InspectorFrontendHostAPI.Events.ContextMenuCleared, this._menuCleared, this);
+                InspectorFrontendHost.events.addEventListener(InspectorFrontendHostAPI.Events.ContextMenuItemSelected, this._onItemSelected, this);
+            }
+
+            // showContextMenuAtPoint call above synchronously issues a clear event for previous context menu (if any),
+            // so we skip it before subscribing to the clear event.
+            setImmediate(listenToEvents.bind(this));
         }
     },
 

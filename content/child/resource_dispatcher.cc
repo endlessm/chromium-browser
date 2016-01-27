@@ -18,11 +18,13 @@
 #include "base/strings/string_util.h"
 #include "content/child/request_extra_data.h"
 #include "content/child/request_info.h"
+#include "content/child/resource_scheduling_filter.h"
 #include "content/child/shared_memory_received_data_factory.h"
 #include "content/child/site_isolation_stats_gatherer.h"
 #include "content/child/sync_load_response.h"
 #include "content/child/threaded_data_provider.h"
 #include "content/common/inter_process_time_ticks_converter.h"
+#include "content/common/navigation_params.h"
 #include "content/common/resource_messages.h"
 #include "content/public/child/fixed_received_data.h"
 #include "content/public/child/request_peer.h"
@@ -106,10 +108,8 @@ bool ResourceDispatcher::OnMessageReceived(const IPC::Message& message) {
   // Make sure any deferred messages are dispatched before we dispatch more.
   if (!request_info->deferred_message_queue.empty()) {
     FlushDeferredMessages(request_id);
-    // The request could have been deferred now. If yes then the current
-    // message has to be queued up. The request_info instance should remain
-    // valid here as there are pending messages for it.
-    DCHECK(pending_requests_.find(request_id) != pending_requests_.end());
+    request_info = GetPendingRequestInfo(request_id);
+    DCHECK(request_info);
     if (request_info->is_deferred) {
       request_info->deferred_message_queue.push_back(new IPC::Message(message));
       return true;
@@ -405,6 +405,9 @@ bool ResourceDispatcher::RemovePendingRequest(int request_id) {
         new ResourceHostMsg_ReleaseDownloadedFile(request_id));
   }
 
+  if (resource_scheduling_filter_.get())
+    resource_scheduling_filter_->ClearRequestIdTaskRunner(request_id);
+
   return true;
 }
 
@@ -590,6 +593,13 @@ int ResourceDispatcher::StartAsync(const RequestInfo& request_info,
                          request->url,
                          request_info.download_to_file);
 
+  if (resource_scheduling_filter_.get() &&
+      request_info.loading_web_task_runner) {
+    resource_scheduling_filter_->SetRequestIdTaskRunner(
+        request_id,
+        make_scoped_ptr(request_info.loading_web_task_runner->clone()));
+  }
+
   message_sender_->Send(new ResourceHostMsg_RequestResource(
       request_info.routing_id, request_id, *request));
 
@@ -750,11 +760,13 @@ scoped_ptr<ResourceHostMsg_Request> ResourceDispatcher::CreateRequest(
   request->should_reset_appcache = request_info.should_reset_appcache;
   request->fetch_request_mode = request_info.fetch_request_mode;
   request->fetch_credentials_mode = request_info.fetch_credentials_mode;
+  request->fetch_redirect_mode = request_info.fetch_redirect_mode;
   request->fetch_request_context_type = request_info.fetch_request_context_type;
   request->fetch_frame_type = request_info.fetch_frame_type;
   request->enable_load_timing = request_info.enable_load_timing;
   request->enable_upload_progress = request_info.enable_upload_progress;
   request->do_not_prompt_for_login = request_info.do_not_prompt_for_login;
+  request->report_raw_headers = request_info.report_raw_headers;
 
   if ((request_info.referrer.policy == blink::WebReferrerPolicyDefault ||
        request_info.referrer.policy ==
@@ -788,10 +800,16 @@ scoped_ptr<ResourceHostMsg_Request> ResourceDispatcher::CreateRequest(
       extra_data->transferred_request_request_id();
   request->service_worker_provider_id =
       extra_data->service_worker_provider_id();
+  request->lofi_state = extra_data->lofi_state();
   request->request_body = request_body;
   if (frame_origin)
     *frame_origin = extra_data->frame_origin();
   return request.Pass();
+}
+
+void ResourceDispatcher::SetResourceSchedulingFilter(
+    scoped_refptr<ResourceSchedulingFilter> resource_scheduling_filter) {
+  resource_scheduling_filter_ = resource_scheduling_filter;
 }
 
 }  // namespace content

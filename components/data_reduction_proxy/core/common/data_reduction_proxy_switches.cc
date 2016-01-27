@@ -43,11 +43,13 @@ const char kDataReductionProxyWarmupURL[] = "data-reduction-proxy-warmup-url";
 const char kDataReductionSSLProxy[] = "data-reduction-ssl-proxy";
 
 // The mode for Data Reduction Proxy Lo-Fi. The various modes are always-on,
-// cellular-only, and disabled.
+// cellular-only, slow connections only and disabled.
 const char kDataReductionProxyLoFi[] = "data-reduction-proxy-lo-fi";
 const char kDataReductionProxyLoFiValueAlwaysOn[] = "always-on";
 const char kDataReductionProxyLoFiValueCellularOnly[] = "cellular-only";
 const char kDataReductionProxyLoFiValueDisabled[] = "disabled";
+const char kDataReductionProxyLoFiValueSlowConnectionsOnly[] =
+    "slow-connections-only";
 
 // Disables the origin of the data reduction proxy dev.
 const char kDisableDataReductionProxyDev[] =
@@ -78,6 +80,16 @@ const char kEnableDataReductionProxyConfigClient[] =
 
 // The URL from which to retrieve the Data Reduction Proxy configuration.
 const char kDataReductionProxyConfigURL[] = "data-reduction-proxy-config-url";
+
+// The semicolon-separated list of proxy server URIs to override the list of
+// HTTP proxies returned by the Data Saver API. If set, the value of this flag
+// overrides any proxies specified by other flags like --spdy-proxy-auth-origin
+// or --spdy-proxy-auth-fallback. If the URI omits a scheme, then the proxy
+// server scheme defaults to HTTP, and if the port is omitted then the default
+// port for that scheme is used. E.g. "http://foo.net:80", "http://foo.net",
+// "foo.net:80", and "foo.net" are all equivalent.
+const char kDataReductionProxyHttpProxies[] =
+    "data-reduction-proxy-http-proxies";
 
 }  // namespace switches
 }  // namespace data_reduction_proxy

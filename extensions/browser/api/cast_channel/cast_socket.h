@@ -36,7 +36,7 @@ class TransportSecurityState;
 }
 
 namespace extensions {
-namespace core_api {
+namespace api {
 namespace cast_channel {
 class CastMessage;
 class Logger;
@@ -100,6 +100,10 @@ class CastSocket : public ApiResource {
   // True when keep-alive signaling is handled for this socket.
   virtual bool keep_alive() const = 0;
 
+  // Whether the channel is audio only as identified by the device
+  // certificate during channel authentication.
+  virtual bool audio_only() const = 0;
+
   // Marks a socket as invalid due to an error, and sends an OnError
   // event to |delegate_|.
   // The OnError event receipient is responsible for closing the socket in the
@@ -161,6 +165,7 @@ class CastSocketImpl : public CastSocket {
   ReadyState ready_state() const override;
   ChannelError error_state() const override;
   bool keep_alive() const override;
+  bool audio_only() const override;
 
   // Required by ApiResourceManager.
   static const char* service_name() { return "CastSocketManager"; }
@@ -329,6 +334,10 @@ class CastSocketImpl : public CastSocket {
   // Capabilities declared by the cast device.
   uint64 device_capabilities_;
 
+  // Whether the channel is audio only as identified by the device
+  // certificate during channel authentication.
+  bool audio_only_;
+
   // Connection flow state machine state.
   proto::ConnectionState connect_state_;
 
@@ -365,7 +374,7 @@ class CastSocketImpl : public CastSocket {
   DISALLOW_COPY_AND_ASSIGN(CastSocketImpl);
 };
 }  // namespace cast_channel
-}  // namespace core_api
+}  // namespace api
 }  // namespace extensions
 
 #endif  // EXTENSIONS_BROWSER_API_CAST_CHANNEL_CAST_SOCKET_H_

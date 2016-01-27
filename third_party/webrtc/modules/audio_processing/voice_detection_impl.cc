@@ -14,7 +14,7 @@
 
 #include "webrtc/common_audio/vad/include/webrtc_vad.h"
 #include "webrtc/modules/audio_processing/audio_buffer.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 
 namespace webrtc {
 
@@ -140,8 +140,8 @@ int VoiceDetectionImpl::Initialize() {
   }
 
   using_external_vad_ = false;
-  frame_size_samples_ = frame_size_ms_ *
-      apm_->proc_split_sample_rate_hz() / 1000;
+  frame_size_samples_ = static_cast<size_t>(
+      frame_size_ms_ * apm_->proc_split_sample_rate_hz() / 1000);
   // TODO(ajm): intialize frame buffer here.
 
   return apm_->kNoError;

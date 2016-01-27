@@ -31,12 +31,14 @@
 #include "core/fetch/ResourceLoader.h"
 
 #include "core/fetch/CSSStyleSheetResource.h"
+#include "core/fetch/InspectorFetchTraceEvents.h"
 #include "core/fetch/Resource.h"
 #include "core/fetch/ResourceFetcher.h"
 #include "core/fetch/ResourcePtr.h"
 #include "platform/Logging.h"
 #include "platform/SharedBuffer.h"
 #include "platform/ThreadedDataReceiver.h"
+#include "platform/TraceEvent.h"
 #include "platform/exported/WrappedResourceRequest.h"
 #include "platform/exported/WrappedResourceResponse.h"
 #include "platform/network/ResourceError.h"
@@ -122,11 +124,6 @@ void ResourceLoader::start()
     ASSERT(!m_request.isNull());
     ASSERT(m_deferredRequest.isNull());
 
-    if (responseNeedsAccessControlCheck() && m_fetcher->isControlledByServiceWorker()) {
-        m_fallbackRequestForServiceWorker = adoptPtr(new ResourceRequest(m_request));
-        m_fallbackRequestForServiceWorker->setSkipServiceWorker(true);
-    }
-
     m_fetcher->willStartLoadingResource(m_resource, m_request);
 
     if (m_options.synchronousPolicy == RequestSynchronously) {
@@ -147,6 +144,7 @@ void ResourceLoader::start()
 
     m_loader = adoptPtr(Platform::current()->createURLLoader());
     ASSERT(m_loader);
+    m_loader->setLoadingTaskRunner(m_fetcher->loadingTaskRunner());
     WrappedResourceRequest wrappedRequest(m_request);
     m_loader->loadAsynchronously(wrappedRequest, this);
 }
@@ -211,11 +209,9 @@ void ResourceLoader::didFinishLoadingOnePart(double finishTime, int64_t encodedD
 
 void ResourceLoader::didChangePriority(ResourceLoadPriority loadPriority, int intraPriorityValue)
 {
-    if (m_loader) {
-        m_fetcher->didChangeLoadingPriority(m_resource, loadPriority, intraPriorityValue);
-        ASSERT(m_state != Terminated);
+    ASSERT(m_state != Terminated);
+    if (m_loader)
         m_loader->didChangePriority(static_cast<WebURLRequest::Priority>(loadPriority), intraPriorityValue);
-    }
 }
 
 void ResourceLoader::cancelIfNotFinishing()
@@ -264,7 +260,7 @@ void ResourceLoader::cancel(const ResourceError& error)
         releaseResources();
 }
 
-void ResourceLoader::willSendRequest(WebURLLoader*, WebURLRequest& passedNewRequest, const WebURLResponse& passedRedirectResponse)
+void ResourceLoader::willFollowRedirect(WebURLLoader*, WebURLRequest& passedNewRequest, const WebURLResponse& passedRedirectResponse)
 {
     ASSERT(m_state != Terminated);
 
@@ -327,17 +323,18 @@ void ResourceLoader::didReceiveResponse(WebURLLoader*, const WebURLResponse& res
     m_connectionState = ConnectionStateReceivedResponse;
 
     const ResourceResponse& resourceResponse = response.toResourceResponse();
+    TRACE_EVENT1("devtools.timeline", "ResourceReceiveResponse", "data", InspectorReceiveResponseEvent::data(m_resource->identifier(), resourceResponse));
 
     if (responseNeedsAccessControlCheck()) {
         if (response.wasFetchedViaServiceWorker()) {
             if (response.wasFallbackRequiredByServiceWorker()) {
-                ASSERT(m_fallbackRequestForServiceWorker);
                 m_loader->cancel();
                 m_loader.clear();
                 m_connectionState = ConnectionStateStarted;
-                m_request = *m_fallbackRequestForServiceWorker;
                 m_loader = adoptPtr(Platform::current()->createURLLoader());
                 ASSERT(m_loader);
+                ASSERT(!m_request.skipServiceWorker());
+                m_request.setSkipServiceWorker(true);
                 WrappedResourceRequest wrappedRequest(m_request);
                 m_loader->loadAsynchronously(wrappedRequest, this);
                 return;
@@ -347,9 +344,7 @@ void ResourceLoader::didReceiveResponse(WebURLLoader*, const WebURLResponse& res
             // the access control with respect to it. Need to do this right here
             // before the resource switches clients over to that validated resource.
             Resource* resource = m_resource;
-            if (resource->isCacheValidator() && resourceResponse.httpStatusCode() == 304)
-                resource = m_resource->resourceToRevalidate();
-            else
+            if (!resource->isCacheValidator() || resourceResponse.httpStatusCode() != 304)
                 m_resource->setResponse(resourceResponse);
             if (!m_fetcher->canAccessResource(resource, m_options.securityOrigin.get(), response.url(), ResourceFetcher::ShouldLogAccessControlErrors)) {
                 m_fetcher->didReceiveResponse(m_resource, resourceResponse);
@@ -407,6 +402,7 @@ void ResourceLoader::didReceiveData(WebURLLoader*, const char* data, int length,
 {
     ASSERT(m_state != Terminated);
     RELEASE_ASSERT(m_connectionState == ConnectionStateReceivedResponse || m_connectionState == ConnectionStateReceivingData);
+    TRACE_EVENT1("devtools.timeline", "ResourceReceivedData", "data", InspectorReceiveDataEvent::data(m_resource->identifier(), encodedDataLength));
     m_connectionState = ConnectionStateReceivingData;
 
     // It is possible to receive data on uninitialized resources if it had an error status code, and we are running a nested message
@@ -428,6 +424,7 @@ void ResourceLoader::didReceiveData(WebURLLoader*, const char* data, int length,
 void ResourceLoader::didFinishLoading(WebURLLoader*, double finishTime, int64_t encodedDataLength)
 {
     RELEASE_ASSERT(m_connectionState == ConnectionStateReceivedResponse || m_connectionState == ConnectionStateReceivingData);
+    TRACE_EVENT1("devtools.timeline", "ResourceFinish", "data", InspectorResourceFinishEvent::data(m_resource->identifier(), finishTime, false));
     m_connectionState = ConnectionStateFinishedLoading;
     if (m_state != Initialized)
         return;
@@ -451,6 +448,7 @@ void ResourceLoader::didFinishLoading(WebURLLoader*, double finishTime, int64_t 
 
 void ResourceLoader::didFail(WebURLLoader*, const WebURLError& error)
 {
+    TRACE_EVENT1("devtools.timeline", "ResourceFinish", "data", InspectorResourceFinishEvent::data(m_resource->identifier(), 0, true));
     m_connectionState = ConnectionStateFailed;
     ASSERT(m_state != Terminated);
     WTF_LOG(ResourceLoading, "Failed to load '%s'.\n", m_resource->url().string().latin1().data());

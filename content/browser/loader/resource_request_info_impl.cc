@@ -32,7 +32,8 @@ void ResourceRequestInfo::AllocateForTesting(net::URLRequest* request,
                                              bool is_main_frame,
                                              bool parent_is_main_frame,
                                              bool allow_download,
-                                             bool is_async) {
+                                             bool is_async,
+                                             bool is_using_lofi) {
   // Make sure both |is_main_frame| and |parent_is_main_frame| aren't set at the
   // same time.
   DCHECK(!(is_main_frame && parent_is_main_frame));
@@ -67,7 +68,9 @@ void ResourceRequestInfo::AllocateForTesting(net::URLRequest* request,
           blink::WebPageVisibilityStateVisible,  // visibility_state
           context,                           // context
           base::WeakPtr<ResourceMessageFilter>(),  // filter
-          is_async);                         // is_async
+          false,                             // report_raw_headers
+          is_async,                          // is_async
+          is_using_lofi);                    // is_using_lofi
   info->AssociateWithRequest(request);
 }
 
@@ -125,7 +128,9 @@ ResourceRequestInfoImpl::ResourceRequestInfoImpl(
     blink::WebPageVisibilityState visibility_state,
     ResourceContext* context,
     base::WeakPtr<ResourceMessageFilter> filter,
-    bool is_async)
+    bool report_raw_headers,
+    bool is_async,
+    bool is_using_lofi)
     : cross_site_handler_(NULL),
       detachable_handler_(NULL),
       process_type_(process_type),
@@ -155,7 +160,9 @@ ResourceRequestInfoImpl::ResourceRequestInfoImpl(
       visibility_state_(visibility_state),
       context_(context),
       filter_(filter),
-      is_async_(is_async) {
+      report_raw_headers_(report_raw_headers),
+      is_async_(is_async),
+      is_using_lofi_(is_using_lofi) {
 }
 
 ResourceRequestInfoImpl::~ResourceRequestInfoImpl() {
@@ -245,6 +252,14 @@ bool ResourceRequestInfoImpl::IsAsync() const {
 
 bool ResourceRequestInfoImpl::IsDownload() const {
   return is_download_;
+}
+
+bool ResourceRequestInfoImpl::IsUsingLoFi() const {
+  return is_using_lofi_;
+}
+
+bool ResourceRequestInfoImpl::ShouldReportRawHeaders() const {
+  return report_raw_headers_;
 }
 
 void ResourceRequestInfoImpl::AssociateWithRequest(net::URLRequest* request) {

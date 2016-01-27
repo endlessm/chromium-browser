@@ -76,9 +76,6 @@ struct CONTENT_EXPORT RendererPreferences {
   SkColor inactive_selection_bg_color;
   SkColor inactive_selection_fg_color;
 
-  // Browser wants a look at all non-local top level navigation requests.
-  bool browser_handles_non_local_top_level_requests;
-
   // Browser wants a look at all top-level navigation requests.
   bool browser_handles_all_top_level_requests;
 
@@ -96,8 +93,10 @@ struct CONTENT_EXPORT RendererPreferences {
   // Set to true to indicate that the preference to set DNT to 1 is enabled.
   bool enable_do_not_track;
 
-  // Set to false to indicate that WebRTC should use the OS default routing.
-  bool enable_webrtc_multiple_routes;
+  // This is the IP handling policy override for WebRTC. The value must be one
+  // of the strings defined in privacy.json. The allowed values are specified
+  // in webrtc_ip_handling_policy.h.
+  std::string webrtc_ip_handling_policy;
 
   // Default page zoom level.
   double default_zoom_level;
@@ -169,6 +168,8 @@ struct CONTENT_EXPORT RendererPreferences {
   int32 arrow_bitmap_width_horizontal_scroll_bar_in_dips;
 #endif
 
+  // The default font size used for rendering on Linux.
+  int default_font_size;
 };
 
 }  // namespace content

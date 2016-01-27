@@ -22,17 +22,19 @@ cr.define('media_router', function() {
     container = $('media-router-container');
     media_router.ui.setContainer(container);
 
-    container.addEventListener('close-button-click', onCloseDialogClick);
+    container.addEventListener('close-button-click', onCloseDialogEvent);
+    container.addEventListener('close-dialog', onCloseDialogEvent);
     container.addEventListener('close-route-click', onCloseRouteClick);
     container.addEventListener('create-route', onCreateRoute);
     container.addEventListener('issue-action-click', onIssueActionClick);
+    container.addEventListener('report-sink-count', onSinkCountReported);
   }
 
   /**
    * Closes the dialog.
    * Called when the user clicks the close button on the dialog.
    */
-  function onCloseDialogClick() {
+  function onCloseDialogEvent() {
     media_router.browserApi.closeDialog();
   }
 
@@ -78,6 +80,18 @@ cr.define('media_router', function() {
    */
   function onCloseRouteClick(data) {
     media_router.browserApi.closeRoute(data.detail.route);
+  }
+
+  /**
+   * Reports the current sink count.
+   * Called 3 seconds after the dialog is initially opened.
+   *
+   * @param {{detail: {sinkCount: number}}} data
+   * Parameters in |data|.detail:
+   *   sinkCount - the number of sinks.
+   */
+  function onSinkCountReported(data) {
+    media_router.browserApi.reportSinkCount(data.detail.sinkCount);
   }
 
   return {

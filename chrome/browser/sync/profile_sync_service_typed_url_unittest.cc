@@ -22,38 +22,38 @@
 #include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/invalidation/fake_invalidation_service.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
-#include "chrome/browser/prefs/pref_service_syncable.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
-#include "chrome/browser/signin/fake_profile_oauth2_token_service.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service_builder.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/sync/abstract_profile_sync_service_test.h"
-#include "chrome/browser/sync/glue/sync_backend_host.h"
-#include "chrome/browser/sync/glue/typed_url_change_processor.h"
-#include "chrome/browser/sync/glue/typed_url_data_type_controller.h"
-#include "chrome/browser/sync/glue/typed_url_model_associator.h"
-#include "chrome/browser/sync/profile_sync_components_factory.h"
-#include "chrome/browser/sync/profile_sync_components_factory_mock.h"
-#include "chrome/browser/sync/profile_sync_service.h"
+#include "chrome/browser/sync/chrome_sync_client.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/profile_sync_test_util.h"
 #include "chrome/browser/sync/test_profile_sync_service.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/history/core/browser/history_backend.h"
 #include "components/history/core/browser/history_backend_client.h"
 #include "components/history/core/browser/history_backend_notifier.h"
 #include "components/history/core/browser/history_db_task.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/history/core/browser/history_types.h"
+#include "components/history/core/browser/typed_url_change_processor.h"
+#include "components/history/core/browser/typed_url_data_type_controller.h"
+#include "components/history/core/browser/typed_url_model_associator.h"
 #include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/invalidation/public/invalidation_service.h"
 #include "components/keyed_service/core/refcounted_keyed_service.h"
 #include "components/signin/core/browser/account_tracker_service.h"
+#include "components/signin/core/browser/fake_profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/sync_driver/data_type_error_handler_mock.h"
+#include "components/sync_driver/sync_api_component_factory_mock.h"
+#include "components/syncable_prefs/pref_service_syncable.h"
 #include "content/public/browser/notification_service.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "sync/internal_api/public/read_node.h"
@@ -198,10 +198,15 @@ ACTION_P6(MakeTypedUrlSyncComponents,
               model_associator) {
   *model_associator =
       new TestTypedUrlModelAssociator(service, hb, error_handler);
+
+  const scoped_refptr<base::SingleThreadTaskRunner> ui_thread =
+      content::BrowserThread::GetMessageLoopProxyForThread(
+          content::BrowserThread::UI);
   TypedUrlChangeProcessor* change_processor =
-      new TypedUrlChangeProcessor(profile, *model_associator, hb, dtc);
-  return ProfileSyncComponentsFactory::SyncComponents(*model_associator,
-                                                      change_processor);
+      new TypedUrlChangeProcessor(*model_associator, hb, dtc, ui_thread);
+
+  return sync_driver::SyncApiComponentFactory::SyncComponents(*model_associator,
+                                                              change_processor);
 }
 
 class ProfileSyncServiceTypedUrlTest : public AbstractProfileSyncServiceTest {
@@ -209,14 +214,11 @@ class ProfileSyncServiceTypedUrlTest : public AbstractProfileSyncServiceTest {
   void AddTypedUrlSyncNode(const history::URLRow& url,
                            const history::VisitVector& visits) {
     syncer::WriteTransaction trans(FROM_HERE, sync_service_->GetUserShare());
-    syncer::ReadNode typed_url_root(&trans);
-    ASSERT_EQ(syncer::BaseNode::INIT_OK,
-              typed_url_root.InitTypeRoot(syncer::TYPED_URLS));
 
     syncer::WriteNode node(&trans);
     std::string tag = url.url().spec();
     syncer::WriteNode::InitUniqueByCreationResult result =
-        node.InitUniqueByCreation(syncer::TYPED_URLS, typed_url_root, tag);
+        node.InitUniqueByCreation(syncer::TYPED_URLS, tag);
     ASSERT_EQ(syncer::WriteNode::INIT_SUCCESS, result);
     TypedUrlModelAssociator::WriteToSyncNode(url, visits, &node);
   }
@@ -236,7 +238,7 @@ class ProfileSyncServiceTypedUrlTest : public AbstractProfileSyncServiceTest {
         BuildAutoIssuingFakeProfileOAuth2TokenService));
     profile_ = profile_manager_.CreateTestingProfile(
         kTestProfileName,
-        scoped_ptr<PrefServiceSyncable>(),
+        scoped_ptr<syncable_prefs::PrefServiceSyncable>(),
         base::UTF8ToUTF16(kTestProfileName),
         0,
         std::string(),
@@ -271,11 +273,13 @@ class ProfileSyncServiceTypedUrlTest : public AbstractProfileSyncServiceTest {
       signin->SetAuthenticatedAccountInfo("gaia_id", "test");
       sync_service_ = TestProfileSyncService::BuildAutoStartAsyncInit(profile_,
                                                                       callback);
-      ProfileSyncComponentsFactoryMock* components =
-          sync_service_->components_factory_mock();
       TypedUrlDataTypeController* data_type_controller =
-          new TypedUrlDataTypeController(components, profile_, sync_service_);
-
+          new TypedUrlDataTypeController(base::ThreadTaskRunnerHandle::Get(),
+                                         base::Bind(&base::DoNothing),
+                                         sync_service_->GetSyncClient(),
+                                         prefs::kSavingBrowserHistoryDisabled);
+      SyncApiComponentFactoryMock* components =
+          sync_service_->GetSyncApiComponentFactoryMock();
       EXPECT_CALL(*components, CreateTypedUrlSyncComponents(_, _, _)).
           WillOnce(MakeTypedUrlSyncComponents(profile_,
                                               sync_service_,

@@ -63,6 +63,8 @@ void TestHostClient::SetMutatorsNeedCommit() {
   mutators_need_commit_ = true;
 }
 
+void TestHostClient::SetMutatorsNeedRebuildPropertyTrees() {}
+
 void TestHostClient::SetLayerFilterMutated(int layer_id,
                                            LayerTreeType tree_type,
                                            const FilterOperations& filters) {
@@ -160,15 +162,6 @@ void TestHostClient::ExpectTransformPropertyMutated(int layer_id,
   EXPECT_EQ(transform_y, layer->transform_y());
 }
 
-void TestHostClient::ExpectScrollOffsetPropertyMutated(
-    int layer_id,
-    LayerTreeType tree_type,
-    const gfx::ScrollOffset& scroll_offset) const {
-  TestLayer* layer = FindTestLayer(layer_id, tree_type);
-  EXPECT_TRUE(layer->is_property_mutated(Animation::OPACITY));
-  EXPECT_EQ(scroll_offset, layer->scroll_offset());
-}
-
 TestLayer* TestHostClient::FindTestLayer(int layer_id,
                                          LayerTreeType tree_type) const {
   const LayerIdToTestLayer& layers_in_tree = tree_type == LayerTreeType::ACTIVE
@@ -215,6 +208,11 @@ AnimationTimelinesTest::~AnimationTimelinesTest() {
 void AnimationTimelinesTest::SetUp() {
   timeline_ = AnimationTimeline::Create(timeline_id_);
   player_ = AnimationPlayer::Create(player_id_);
+}
+
+void AnimationTimelinesTest::TearDown() {
+  host_impl_->ClearTimelines();
+  host_->ClearTimelines();
 }
 
 void AnimationTimelinesTest::GetImplTimelineAndPlayerByID() {

@@ -28,11 +28,13 @@
 #include "core/fetch/ScriptResource.h"
 
 #include "core/fetch/FetchRequest.h"
+#include "core/fetch/IntegrityMetadata.h"
 #include "core/fetch/ResourceClientWalker.h"
 #include "core/fetch/ResourceFetcher.h"
 #include "platform/MIMETypeRegistry.h"
 #include "platform/SharedBuffer.h"
 #include "platform/network/HTTPParsers.h"
+#include "public/platform/WebProcessMemoryDump.h"
 
 namespace blink {
 
@@ -40,11 +42,14 @@ ResourcePtr<ScriptResource> ScriptResource::fetch(FetchRequest& request, Resourc
 {
     ASSERT(request.resourceRequest().frameType() == WebURLRequest::FrameTypeNone);
     request.mutableResourceRequest().setRequestContext(WebURLRequest::RequestContextScript);
-    return toScriptResource(fetcher->requestResource(request, ScriptResourceFactory()));
+    ResourcePtr<ScriptResource> resource = toScriptResource(fetcher->requestResource(request, ScriptResourceFactory()));
+    if (resource && !request.integrityMetadata().isEmpty())
+        resource->setIntegrityMetadata(request.integrityMetadata());
+    return resource;
 }
 
 ScriptResource::ScriptResource(const ResourceRequest& resourceRequest, const String& charset)
-    : TextResource(resourceRequest, Script, "application/javascript", charset)
+    : TextResource(resourceRequest, Script, "application/javascript", charset), m_integrityChecked(false)
 {
     DEFINE_STATIC_LOCAL(const AtomicString, acceptScript, ("*/*", AtomicString::ConstructFromLiteral));
 
@@ -72,6 +77,15 @@ void ScriptResource::appendData(const char* data, unsigned length)
         client->notifyAppendData(this);
 }
 
+void ScriptResource::onMemoryDump(WebMemoryDumpLevelOfDetail levelOfDetail, WebProcessMemoryDump* memoryDump) const
+{
+    Resource::onMemoryDump(levelOfDetail, memoryDump);
+    const String name = getMemoryDumpName() + "/decoded_script";
+    auto dump = memoryDump->createMemoryAllocatorDump(name);
+    dump->addScalar("size", "bytes", m_script.string().sizeInBytes());
+    memoryDump->addSuballocation(dump->guid(), String(WTF::Partitions::kAllocatedObjectPoolName));
+}
+
 AtomicString ScriptResource::mimeType() const
 {
     return extractMIMETypeFromMediaType(m_response.httpHeaderField("Content-Type")).lower();
@@ -95,9 +109,22 @@ const String& ScriptResource::script()
     return m_script.string();
 }
 
+void ScriptResource::destroyDecodedDataForFailedRevalidation()
+{
+    m_script = AtomicString();
+}
+
 bool ScriptResource::mimeTypeAllowedByNosniff() const
 {
     return parseContentTypeOptionsHeader(m_response.httpHeaderField("X-Content-Type-Options")) != ContentTypeOptionsNosniff || MIMETypeRegistry::isSupportedJavaScriptMIMEType(mimeType());
+}
+
+bool ScriptResource::mustRefetchDueToIntegrityMetadata(const FetchRequest& request) const
+{
+    if (request.integrityMetadata().isEmpty())
+        return false;
+
+    return !IntegrityMetadata::setsEqual(m_integrityMetadata, request.integrityMetadata());
 }
 
 } // namespace blink

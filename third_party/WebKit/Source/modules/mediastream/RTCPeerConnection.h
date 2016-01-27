@@ -32,8 +32,10 @@
 #define RTCPeerConnection_h
 
 #include "bindings/core/v8/Dictionary.h"
+#include "bindings/core/v8/ScriptPromise.h"
 #include "core/dom/ActiveDOMObject.h"
 #include "modules/EventTargetModules.h"
+#include "modules/crypto/NormalizeAlgorithm.h"
 #include "modules/mediastream/MediaStream.h"
 #include "modules/mediastream/RTCIceCandidate.h"
 #include "platform/AsyncMethodRunner.h"
@@ -71,14 +73,18 @@ public:
     void createAnswer(RTCSessionDescriptionCallback*, RTCErrorCallback*, const Dictionary&, ExceptionState&);
 
     void setLocalDescription(RTCSessionDescription*, VoidCallback*, RTCErrorCallback*, ExceptionState&);
-    RTCSessionDescription* localDescription(ExceptionState&);
+    RTCSessionDescription* localDescription();
 
     void setRemoteDescription(RTCSessionDescription*, VoidCallback*, RTCErrorCallback*, ExceptionState&);
-    RTCSessionDescription* remoteDescription(ExceptionState&);
+    RTCSessionDescription* remoteDescription();
 
     String signalingState() const;
 
     void updateIce(const Dictionary& rtcConfiguration, const Dictionary& mediaConstraints, ExceptionState&);
+
+    // Certificate management
+    // http://w3c.github.io/webrtc-pc/#sec.cert-mgmt
+    static ScriptPromise generateCertificate(ScriptState*, const AlgorithmIdentifier& keygenAlgorithm, ExceptionState&);
 
     // DEPRECATED
     void addIceCandidate(RTCIceCandidate*, ExceptionState&);

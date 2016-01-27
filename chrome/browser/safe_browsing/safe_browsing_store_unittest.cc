@@ -3,8 +3,11 @@
 // found in the LICENSE file.
 
 #include "chrome/browser/safe_browsing/safe_browsing_store.h"
+#include "components/safe_browsing_db/util.h"
 
 #include "testing/gtest/include/gtest/gtest.h"
+
+namespace safe_browsing {
 
 namespace {
 
@@ -52,6 +55,8 @@ void ProcessHelper(SBAddPrefixes* add_prefixes,
   SBProcessSubs(add_prefixes, sub_prefixes, add_full_hashes, sub_full_hashes,
                 add_chunks_deleted, sub_chunks_deleted);
 }
+
+}  // namespace
 
 TEST(SafeBrowsingStoreTest, SBAddPrefixLess) {
   // prefix dominates.
@@ -300,4 +305,4 @@ TEST(SafeBrowsingStoreTest, Y2K38) {
     << " (int32)time_t is running out.";
 }
 
-}  // namespace
+}  // namespace safe_browsing

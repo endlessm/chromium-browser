@@ -44,6 +44,7 @@ irt_support_sources = [
     'irt_dev_list_mappings.c',
     'irt_random.c',
     'irt_core_resource.c',
+    'irt_pnacl_translator_common.c',
     'irt_pnacl_translator_compile.c',
     'irt_pnacl_translator_link.c',
     ]
@@ -71,10 +72,8 @@ irt_support_objs += [
 # cover IRT-internal code.
 env.ComponentLibrary('libirt_support_private', irt_support_objs)
 
-irt_libs = ['srpc', 'imc_syscalls', 'platform', 'gio', 'm']
-
 irt_core_raw = blob_env.ComponentProgram(
-    'irt_core_raw', irt_support_objs, EXTRA_LIBS=irt_libs)
+    'irt_core_raw', irt_support_objs, EXTRA_LIBS=['srpc'])
 
 irt_core_nexe = blob_env.ApplyTLSEdit(
     'irt_core.nexe',

@@ -5,6 +5,7 @@
 package org.chromium.chrome.browser.signin;
 
 import android.accounts.Account;
+import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -19,7 +20,9 @@ import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.UserManager;
 import android.preference.Preference;
 import android.preference.Preference.OnPreferenceChangeListener;
 import android.preference.Preference.OnPreferenceClickListener;
@@ -144,7 +147,7 @@ public class AccountManagementFragment extends PreferenceFragment
         super.onResume();
         SigninManager.get(getActivity()).addSignInStateObserver(this);
         ProfileDownloader.addObserver(this);
-        ProfileSyncService.get(getActivity()).addSyncStateChangedListener(this);
+        ProfileSyncService.get().addSyncStateChangedListener(this);
 
         update();
     }
@@ -154,7 +157,7 @@ public class AccountManagementFragment extends PreferenceFragment
         super.onPause();
         SigninManager.get(getActivity()).removeSignInStateObserver(this);
         ProfileDownloader.removeObserver(this);
-        ProfileSyncService.get(getActivity()).removeSyncStateChangedListener(this);
+        ProfileSyncService.get().removeSyncStateChangedListener(this);
     }
 
     /**
@@ -203,16 +206,28 @@ public class AccountManagementFragment extends PreferenceFragment
         updateAccountsList();
     }
 
+    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+    private boolean canAddAccounts() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return true;
+
+        UserManager userManager = (UserManager) getActivity()
+                .getSystemService(Context.USER_SERVICE);
+        return !userManager.hasUserRestriction(UserManager.DISALLOW_MODIFY_ACCOUNTS);
+    }
+
     private void configureSignOutSwitch() {
-        boolean hasChildAccount = ChildAccountService.getInstance(getActivity()).hasChildAccount();
+        boolean isChildAccount = ChildAccountService.isChildAccount();
 
         ChromeSwitchPreference signOutSwitch =
                 (ChromeSwitchPreference) findPreference(PREF_SIGN_OUT_SWITCH);
-        if (hasChildAccount) {
+        if (isChildAccount) {
             getPreferenceScreen().removePreference(signOutSwitch);
         } else {
             getPreferenceScreen().removePreference(findPreference(PREF_SIGN_IN_CHILD_MESSAGE));
             signOutSwitch.setChecked(true);
+            signOutSwitch.setEnabled(getSignOutAllowedPreferenceValue(getActivity()));
+            signOutSwitch.setSummary(canAddAccounts() ? R.string.sign_in_accounts_message
+                    : R.string.sign_in_accounts_message_managed);
             signOutSwitch.setOnPreferenceChangeListener(new OnPreferenceChangeListener() {
                 @Override
                 public boolean onPreferenceChange(Preference preference, Object newValue) {
@@ -242,7 +257,7 @@ public class AccountManagementFragment extends PreferenceFragment
     private void configureAddAccountPreference(String fullName) {
         ChromeBasePreference addAccount = (ChromeBasePreference) findPreference(PREF_ADD_ACCOUNT);
 
-        if (ChildAccountService.getInstance(getActivity()).hasChildAccount()) {
+        if (ChildAccountService.isChildAccount()) {
             getPreferenceScreen().removePreference(addAccount);
         } else {
             String addAccountString = getResources().getString(
@@ -268,15 +283,21 @@ public class AccountManagementFragment extends PreferenceFragment
                     return true;
                 }
             });
+            addAccount.setManagedPreferenceDelegate(new ManagedPreferenceDelegate() {
+                @Override
+                public boolean isPreferenceControlledByPolicy(Preference preference) {
+                    return !canAddAccounts();
+                }
+            });
         }
     }
 
     private void configureGoIncognitoPreferences(String fullName) {
-        boolean hasChildAccount = ChildAccountService.getInstance(getActivity()).hasChildAccount();
+        boolean isChildAccount = ChildAccountService.isChildAccount();
         Preference notYouPref = findPreference(PREF_NOT_YOU);
         ChromeBasePreference goIncognito = (ChromeBasePreference) findPreference(PREF_GO_INCOGNITO);
 
-        if (hasChildAccount) {
+        if (isChildAccount) {
             getPreferenceScreen().removePreference(notYouPref);
             getPreferenceScreen().removePreference(goIncognito);
         } else {
@@ -328,7 +349,7 @@ public class AccountManagementFragment extends PreferenceFragment
         Preference parentAccounts = findPreference(PREF_PARENT_ACCOUNTS);
         Preference childContent = findPreference(PREF_CHILD_CONTENT);
         Preference childSafeSearch = findPreference(PREF_CHILD_SAFE_SEARCH);
-        if (ChildAccountService.getInstance(getActivity()).hasChildAccount()) {
+        if (ChildAccountService.isChildAccount()) {
             Resources res = getActivity().getResources();
             PrefServiceBridge prefService = PrefServiceBridge.getInstance();
 
@@ -391,8 +412,7 @@ public class AccountManagementFragment extends PreferenceFragment
             String signedInAccountName =
                     ChromeSigninController.get(getActivity()).getSignedInAccountName();
             boolean isPrimaryAccount = TextUtils.equals(account.name, signedInAccountName);
-            boolean isChildAccount =
-                    ChildAccountService.getInstance(getActivity()).hasChildAccount();
+            boolean isChildAccount = ChildAccountService.isChildAccount();
 
             pref.setIcon(new BitmapDrawable(getResources(), isChildAccount
                     ? getBadgedUserPicture(account.name) : getUserPicture(account.name)));
@@ -492,10 +512,10 @@ public class AccountManagementFragment extends PreferenceFragment
     private static String getSyncStatusSummary(Activity activity) {
         if (!ChromeSigninController.get(activity).isSignedIn()) return "";
 
-        ProfileSyncService profileSyncService = ProfileSyncService.get(activity);
+        ProfileSyncService profileSyncService = ProfileSyncService.get();
         Resources res = activity.getResources();
 
-        if (ChildAccountService.getInstance(activity).hasChildAccount()) {
+        if (ChildAccountService.isChildAccount()) {
             return res.getString(R.string.kids_account);
         }
 
@@ -508,7 +528,7 @@ public class AccountManagementFragment extends PreferenceFragment
         }
 
         if (AndroidSyncSettings.isSyncEnabled(activity)) {
-            if (!profileSyncService.isSyncInitialized()) {
+            if (!profileSyncService.isBackendInitialized()) {
                 return res.getString(R.string.sync_setup_progress);
             }
 
@@ -676,7 +696,8 @@ public class AccountManagementFragment extends PreferenceFragment
 
         final int imageSidePixels =
                 context.getResources().getDimensionPixelOffset(R.dimen.user_picture_size);
-        ProfileDownloader.startFetchingAccountInfoFor(profile, accountName, imageSidePixels, false);
+        ProfileDownloader.startFetchingAccountInfoFor(
+                context, profile, accountName, imageSidePixels, false);
     }
 
     /**

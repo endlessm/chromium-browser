@@ -11,6 +11,7 @@
 #include "base/logging.h"
 #include "base/single_thread_task_runner.h"
 #include "base/thread_task_runner_handle.h"
+#include "base/trace_event/trace_event.h"
 #include "content/renderer/pepper/content_decryptor_delegate.h"
 #include "content/renderer/pepper/pepper_plugin_instance_impl.h"
 #include "media/base/audio_decoder_config.h"
@@ -38,8 +39,13 @@ void PpapiDecryptor::Create(
     const media::CdmCreatedCB& cdm_created_cb) {
   std::string plugin_type = media::GetPepperType(key_system);
   DCHECK(!plugin_type.empty());
-  scoped_ptr<PepperCdmWrapper> pepper_cdm_wrapper =
-      create_pepper_cdm_cb.Run(plugin_type, security_origin);
+
+  scoped_ptr<PepperCdmWrapper> pepper_cdm_wrapper;
+  {
+    TRACE_EVENT0("media", "PpapiDecryptor::CreatePepperCDM");
+    pepper_cdm_wrapper = create_pepper_cdm_cb.Run(plugin_type, security_origin);
+  }
+
   if (!pepper_cdm_wrapper) {
     std::string message =
         "Unable to create the CDM for the key system " + key_system + ".";
@@ -49,18 +55,17 @@ void PpapiDecryptor::Create(
     return;
   }
 
-  scoped_ptr<PpapiDecryptor> ppapi_decryptor(
+  scoped_refptr<PpapiDecryptor> ppapi_decryptor(
       new PpapiDecryptor(pepper_cdm_wrapper.Pass(), session_message_cb,
                          session_closed_cb, legacy_session_error_cb,
                          session_keys_change_cb, session_expiration_update_cb));
 
-  // PpapiDecryptor ownership passed to the promise, but keep a copy in order
-  // to call InitializeCdm().
-  PpapiDecryptor* ppapi_decryptor_copy = ppapi_decryptor.get();
+  // |ppapi_decryptor| ownership is passed to the promise.
   scoped_ptr<media::CdmInitializedPromise> promise(
-      new media::CdmInitializedPromise(cdm_created_cb, ppapi_decryptor.Pass()));
-  ppapi_decryptor_copy->InitializeCdm(key_system, allow_distinctive_identifier,
-                                      allow_persistent_state, promise.Pass());
+      new media::CdmInitializedPromise(cdm_created_cb, ppapi_decryptor));
+
+  ppapi_decryptor->InitializeCdm(key_system, allow_distinctive_identifier,
+                                 allow_persistent_state, promise.Pass());
 }
 
 PpapiDecryptor::PpapiDecryptor(

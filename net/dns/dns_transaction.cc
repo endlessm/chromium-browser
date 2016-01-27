@@ -26,7 +26,6 @@
 #include "base/timer/timer.h"
 #include "base/values.h"
 #include "net/base/completion_callback.h"
-#include "net/base/dns_util.h"
 #include "net/base/io_buffer.h"
 #include "net/base/ip_endpoint.h"
 #include "net/base/net_errors.h"
@@ -34,6 +33,7 @@
 #include "net/dns/dns_query.h"
 #include "net/dns/dns_response.h"
 #include "net/dns/dns_session.h"
+#include "net/dns/dns_util.h"
 #include "net/log/net_log.h"
 #include "net/socket/stream_socket.h"
 #include "net/udp/datagram_client_socket.h"
@@ -708,7 +708,7 @@ class DnsTransactionImpl : public DnsTransaction,
     if (attempts_.empty()) {
       query.reset(new DnsQuery(id, qnames_.front(), qtype_));
     } else {
-      query.reset(attempts_[0]->GetQuery()->CloneWithNewId(id));
+      query = attempts_[0]->GetQuery()->CloneWithNewId(id);
     }
 
     const DnsConfig& config = session_->config();
@@ -759,8 +759,8 @@ class DnsTransactionImpl : public DnsTransaction,
 
     // TODO(szym): Reuse the same id to help the server?
     uint16 id = session_->NextQueryId();
-    scoped_ptr<DnsQuery> query(
-        previous_attempt->GetQuery()->CloneWithNewId(id));
+    scoped_ptr<DnsQuery> query =
+        previous_attempt->GetQuery()->CloneWithNewId(id);
 
     RecordLostPacketsIfAny();
     // Cancel all other attempts, no point waiting on them.
@@ -961,7 +961,7 @@ class DnsTransactionImpl : public DnsTransaction,
   // Index of the first server to try on each search query.
   int first_server_index_;
 
-  base::OneShotTimer<DnsTransactionImpl> timer_;
+  base::OneShotTimer timer_;
 
   DISALLOW_COPY_AND_ASSIGN(DnsTransactionImpl);
 };

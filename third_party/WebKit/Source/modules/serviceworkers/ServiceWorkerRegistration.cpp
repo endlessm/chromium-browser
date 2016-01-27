@@ -7,7 +7,6 @@
 
 #include "bindings/core/v8/CallbackPromiseAdapter.h"
 #include "bindings/core/v8/ScriptPromise.h"
-#include "bindings/core/v8/ScriptPromiseResolver.h"
 #include "bindings/core/v8/ScriptState.h"
 #include "core/dom/DOMException.h"
 #include "core/dom/ExceptionCode.h"
@@ -16,15 +15,9 @@
 #include "modules/EventTargetModules.h"
 #include "modules/serviceworkers/ServiceWorkerContainerClient.h"
 #include "modules/serviceworkers/ServiceWorkerError.h"
-#include "public/platform/WebServiceWorkerProvider.h"
+#include "public/platform/modules/serviceworker/WebServiceWorkerProvider.h"
 
 namespace blink {
-
-static void deleteIfNoExistingOwner(WebServiceWorker* serviceWorker)
-{
-    if (serviceWorker && !serviceWorker->proxy())
-        delete serviceWorker;
-}
 
 const AtomicString& ServiceWorkerRegistration::interfaceName() const
 {
@@ -36,68 +29,64 @@ void ServiceWorkerRegistration::dispatchUpdateFoundEvent()
     dispatchEvent(Event::create(EventTypeNames::updatefound));
 }
 
-void ServiceWorkerRegistration::setInstalling(WebServiceWorker* serviceWorker)
+void ServiceWorkerRegistration::setInstalling(WebPassOwnPtr<WebServiceWorker::Handle> handle)
 {
-    if (!executionContext()) {
-        deleteIfNoExistingOwner(serviceWorker);
+    if (!executionContext())
         return;
-    }
-    m_installing = ServiceWorker::from(executionContext(), serviceWorker);
+    m_installing = ServiceWorker::from(executionContext(), handle.release());
 }
 
-void ServiceWorkerRegistration::setWaiting(WebServiceWorker* serviceWorker)
+void ServiceWorkerRegistration::setWaiting(WebPassOwnPtr<WebServiceWorker::Handle> handle)
 {
-    if (!executionContext()) {
-        deleteIfNoExistingOwner(serviceWorker);
+    if (!executionContext())
         return;
-    }
-    m_waiting = ServiceWorker::from(executionContext(), serviceWorker);
+    m_waiting = ServiceWorker::from(executionContext(), handle.release());
 }
 
-void ServiceWorkerRegistration::setActive(WebServiceWorker* serviceWorker)
+void ServiceWorkerRegistration::setActive(WebPassOwnPtr<WebServiceWorker::Handle> handle)
 {
-    if (!executionContext()) {
-        deleteIfNoExistingOwner(serviceWorker);
+    if (!executionContext())
         return;
+    m_active = ServiceWorker::from(executionContext(), handle.release());
+}
+
+ServiceWorkerRegistration* ServiceWorkerRegistration::getOrCreate(ExecutionContext* executionContext, PassOwnPtr<WebServiceWorkerRegistration::Handle> handle)
+{
+    ASSERT(handle);
+
+    ServiceWorkerRegistration* existingRegistration = static_cast<ServiceWorkerRegistration*>(handle->registration()->proxy());
+    if (existingRegistration) {
+        ASSERT(existingRegistration->executionContext() == executionContext);
+        return existingRegistration;
     }
-    m_active = ServiceWorker::from(executionContext(), serviceWorker);
-}
 
-ServiceWorkerRegistration* ServiceWorkerRegistration::from(ExecutionContext* executionContext, WebType* registration)
-{
-    if (!registration)
-        return 0;
-    return getOrCreate(executionContext, registration);
-}
-
-ServiceWorkerRegistration* ServiceWorkerRegistration::take(ScriptPromiseResolver* resolver, WebType* registration)
-{
-    return from(resolver->scriptState()->executionContext(), registration);
-}
-
-void ServiceWorkerRegistration::dispose(WebType* registration)
-{
-    if (registration && !registration->proxy())
-        delete registration;
+    ServiceWorkerRegistration* newRegistration = new ServiceWorkerRegistration(executionContext, handle);
+    newRegistration->suspendIfNeeded();
+    return newRegistration;
 }
 
 String ServiceWorkerRegistration::scope() const
 {
-    return m_outerRegistration->scope().string();
+    return m_handle->registration()->scope().string();
 }
 
-void ServiceWorkerRegistration::update(ScriptState* scriptState, ExceptionState& exceptionState)
+ScriptPromise ServiceWorkerRegistration::update(ScriptState* scriptState)
 {
+    ScriptPromiseResolver* resolver = ScriptPromiseResolver::create(scriptState);
+    ScriptPromise promise = resolver->promise();
+
     if (!m_provider) {
-        exceptionState.throwDOMException(InvalidStateError, "Failed to update a ServiceWorkerRegistration: No associated provider is available.");
-        return;
+        resolver->reject(DOMException::create(InvalidStateError, "Failed to update a ServiceWorkerRegistration: No associated provider is available."));
+        return promise;
     }
-    m_outerRegistration->update(m_provider);
+
+    m_handle->registration()->update(m_provider, new CallbackPromiseAdapter<void, ServiceWorkerError>(resolver));
+    return promise;
 }
 
 ScriptPromise ServiceWorkerRegistration::unregister(ScriptState* scriptState)
 {
-    RefPtrWillBeRawPtr<ScriptPromiseResolver> resolver = ScriptPromiseResolver::create(scriptState);
+    ScriptPromiseResolver* resolver = ScriptPromiseResolver::create(scriptState);
     ScriptPromise promise = resolver->promise();
 
     if (!m_provider) {
@@ -105,39 +94,24 @@ ScriptPromise ServiceWorkerRegistration::unregister(ScriptState* scriptState)
         return promise;
     }
 
-    m_outerRegistration->unregister(m_provider, new CallbackPromiseAdapter<bool, ServiceWorkerError>(resolver));
+    m_handle->registration()->unregister(m_provider, new CallbackPromiseAdapter<bool, ServiceWorkerError>(resolver));
     return promise;
 }
 
-ServiceWorkerRegistration* ServiceWorkerRegistration::getOrCreate(ExecutionContext* executionContext, WebServiceWorkerRegistration* outerRegistration)
-{
-    if (!outerRegistration)
-        return 0;
-
-    ServiceWorkerRegistration* existingRegistration = static_cast<ServiceWorkerRegistration*>(outerRegistration->proxy());
-    if (existingRegistration) {
-        ASSERT(existingRegistration->executionContext() == executionContext);
-        return existingRegistration;
-    }
-
-    ServiceWorkerRegistration* registration = new ServiceWorkerRegistration(executionContext, adoptPtr(outerRegistration));
-    registration->suspendIfNeeded();
-    return registration;
-}
-
-ServiceWorkerRegistration::ServiceWorkerRegistration(ExecutionContext* executionContext, PassOwnPtr<WebServiceWorkerRegistration> outerRegistration)
+ServiceWorkerRegistration::ServiceWorkerRegistration(ExecutionContext* executionContext, PassOwnPtr<WebServiceWorkerRegistration::Handle> handle)
     : ActiveDOMObject(executionContext)
-    , m_outerRegistration(outerRegistration)
-    , m_provider(0)
+    , m_handle(handle)
+    , m_provider(nullptr)
     , m_stopped(false)
 {
-    ASSERT(m_outerRegistration);
+    ASSERT(m_handle);
+    ASSERT(!m_handle->registration()->proxy());
 
     if (!executionContext)
         return;
     if (ServiceWorkerContainerClient* client = ServiceWorkerContainerClient::from(executionContext))
         m_provider = client->provider();
-    m_outerRegistration->setProxy(this);
+    m_handle->registration()->setProxy(this);
 }
 
 ServiceWorkerRegistration::~ServiceWorkerRegistration()
@@ -164,7 +138,7 @@ void ServiceWorkerRegistration::stop()
     if (m_stopped)
         return;
     m_stopped = true;
-    m_outerRegistration->proxyStopped();
+    m_handle->registration()->proxyStopped();
 }
 
 } // namespace blink

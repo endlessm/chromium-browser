@@ -37,7 +37,7 @@
 #include "extensions/common/manifest_handlers/offline_enabled_info.h"
 #include "extensions/common/manifest_handlers/options_page_info.h"
 #include "extensions/common/manifest_url_handlers.h"
-#include "extensions/common/permissions/permission_set.h"
+#include "extensions/common/permissions/permission_message.h"
 #include "extensions/common/permissions/permissions_data.h"
 #include "extensions/common/url_pattern.h"
 
@@ -48,7 +48,7 @@ namespace keys = extension_management_api_constants;
 
 namespace extensions {
 
-namespace management = core_api::management;
+namespace management = api::management;
 
 namespace {
 
@@ -61,9 +61,9 @@ AutoConfirmForTest auto_confirm_for_test = DO_NOT_SKIP;
 
 std::vector<std::string> CreateWarningsList(const Extension* extension) {
   std::vector<std::string> warnings_list;
-  for (const extensions::PermissionMessageString& str :
-       extension->permissions_data()->GetPermissionMessageStrings()) {
-    warnings_list.push_back(base::UTF16ToUTF8(str.message));
+  for (const PermissionMessage& msg :
+       extension->permissions_data()->GetPermissionMessages()) {
+    warnings_list.push_back(base::UTF16ToUTF8(msg.message()));
   }
 
   return warnings_list;
@@ -79,7 +79,10 @@ std::vector<management::LaunchType> GetAvailableLaunchTypes(
   }
 
   launch_type_list.push_back(management::LAUNCH_TYPE_OPEN_AS_REGULAR_TAB);
-  launch_type_list.push_back(management::LAUNCH_TYPE_OPEN_AS_WINDOW);
+
+  // TODO(dominickn): remove check when hosted apps can open in windows on Mac.
+  if (delegate->CanHostedAppsOpenInWindows())
+    launch_type_list.push_back(management::LAUNCH_TYPE_OPEN_AS_WINDOW);
 
   if (!delegate->IsNewBookmarkAppsEnabled()) {
     launch_type_list.push_back(management::LAUNCH_TYPE_OPEN_AS_PINNED_TAB);
@@ -163,7 +166,7 @@ scoped_ptr<management::ExtensionInfo> CreateExtensionInfo(
   }
 
   const std::set<std::string> perms =
-      extension.permissions_data()->active_permissions()->GetAPIsAsStrings();
+      extension.permissions_data()->active_permissions().GetAPIsAsStrings();
   if (!perms.empty()) {
     std::set<std::string>::const_iterator perms_iter;
     for (perms_iter = perms.begin(); perms_iter != perms.end(); ++perms_iter)
@@ -173,7 +176,7 @@ scoped_ptr<management::ExtensionInfo> CreateExtensionInfo(
   if (!extension.is_hosted_app()) {
     // Skip host permissions for hosted apps.
     const URLPatternSet host_perms =
-        extension.permissions_data()->active_permissions()->explicit_hosts();
+        extension.permissions_data()->active_permissions().explicit_hosts();
     if (!host_perms.is_empty()) {
       for (URLPatternSet::const_iterator iter = host_perms.begin();
            iter != host_perms.end(); ++iter) {
@@ -499,7 +502,7 @@ void ManagementSetEnabledFunction::OnRequirementsChecked(
   } else {
     // TODO(devlin): Should we really be noisy here all the time?
     Respond(Error(keys::kMissingRequirementsError,
-                  JoinString(requirements_errors, ' ')));
+                  base::JoinString(requirements_errors, " ")));
   }
 }
 
@@ -832,32 +835,38 @@ ManagementEventRouter::~ManagementEventRouter() {
 void ManagementEventRouter::OnExtensionLoaded(
     content::BrowserContext* browser_context,
     const Extension* extension) {
-  BroadcastEvent(extension, management::OnEnabled::kEventName);
+  BroadcastEvent(extension, events::MANAGEMENT_ON_ENABLED,
+                 management::OnEnabled::kEventName);
 }
 
 void ManagementEventRouter::OnExtensionUnloaded(
     content::BrowserContext* browser_context,
     const Extension* extension,
     UnloadedExtensionInfo::Reason reason) {
-  BroadcastEvent(extension, management::OnDisabled::kEventName);
+  BroadcastEvent(extension, events::MANAGEMENT_ON_DISABLED,
+                 management::OnDisabled::kEventName);
 }
 
 void ManagementEventRouter::OnExtensionInstalled(
     content::BrowserContext* browser_context,
     const Extension* extension,
     bool is_update) {
-  BroadcastEvent(extension, management::OnInstalled::kEventName);
+  BroadcastEvent(extension, events::MANAGEMENT_ON_INSTALLED,
+                 management::OnInstalled::kEventName);
 }
 
 void ManagementEventRouter::OnExtensionUninstalled(
     content::BrowserContext* browser_context,
     const Extension* extension,
     extensions::UninstallReason reason) {
-  BroadcastEvent(extension, management::OnUninstalled::kEventName);
+  BroadcastEvent(extension, events::MANAGEMENT_ON_UNINSTALLED,
+                 management::OnUninstalled::kEventName);
 }
 
-void ManagementEventRouter::BroadcastEvent(const Extension* extension,
-                                           const char* event_name) {
+void ManagementEventRouter::BroadcastEvent(
+    const Extension* extension,
+    events::HistogramValue histogram_value,
+    const char* event_name) {
   if (ShouldNotBeVisible(extension, browser_context_))
     return;  // Don't dispatch events for built-in extenions.
   scoped_ptr<base::ListValue> args(new base::ListValue());
@@ -871,7 +880,7 @@ void ManagementEventRouter::BroadcastEvent(const Extension* extension,
 
   EventRouter::Get(browser_context_)
       ->BroadcastEvent(scoped_ptr<Event>(
-          new Event(events::UNKNOWN, event_name, args.Pass())));
+          new Event(histogram_value, event_name, args.Pass())));
 }
 
 ManagementAPI::ManagementAPI(content::BrowserContext* context)

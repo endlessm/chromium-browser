@@ -9,6 +9,8 @@
 #include "chrome/browser/chromeos/settings/scoped_cros_settings_test_helper.h"
 #include "chromeos/settings/cros_settings_names.h"
 #include "components/gcm_driver/fake_gcm_driver.h"
+#include "components/policy/core/common/cloud/cloud_policy_client.h"
+#include "components/policy/core/common/cloud/mock_cloud_policy_client.h"
 #include "content/public/test/test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -20,6 +22,8 @@ namespace {
 const char* const kFakeEnrollmentDomain = "example.com";
 const char* const kFakeDeviceId = "fake_device_id";
 const char* const kHeartbeatGCMAppID = "com.google.chromeos.monitoring";
+const char* const kRegistrationId = "registration_id";
+const char* const kDMToken = "fake_dm_token";
 
 class MockGCMDriver : public testing::StrictMock<gcm::FakeGCMDriver> {
  public:
@@ -32,15 +36,15 @@ class MockGCMDriver : public testing::StrictMock<gcm::FakeGCMDriver> {
   MOCK_METHOD2(RegisterImpl,
                void(const std::string&, const std::vector<std::string>&));
   MOCK_METHOD3(SendImpl,
-               void(const std::string&, const std::string&,
-                    const gcm::GCMClient::OutgoingMessage& message));
-
+               void(const std::string&,
+                    const std::string&,
+                    const gcm::OutgoingMessage& message));
 
   // Helper function to complete a registration previously started by
   // Register().
   void CompleteRegistration(const std::string& app_id,
                             gcm::GCMClient::Result result) {
-    RegisterFinished(app_id, "registration_id", result);
+    RegisterFinished(app_id, kRegistrationId, result);
   }
 
   // Helper function to complete a send operation previously started by
@@ -56,9 +60,11 @@ class HeartbeatSchedulerTest : public testing::Test {
  public:
   HeartbeatSchedulerTest()
       : task_runner_(new base::TestSimpleTaskRunner()),
-        scheduler_(
-            &gcm_driver_, kFakeEnrollmentDomain, kFakeDeviceId, task_runner_) {
-  }
+        scheduler_(&gcm_driver_,
+                   &cloud_policy_client_,
+                   kFakeEnrollmentDomain,
+                   kFakeDeviceId,
+                   task_runner_) {}
 
   void SetUp() override {
     settings_helper_.ReplaceProvider(chromeos::kHeartbeatEnabled);
@@ -93,6 +99,7 @@ class HeartbeatSchedulerTest : public testing::Test {
   base::MessageLoop loop_;
   MockGCMDriver gcm_driver_;
   chromeos::ScopedCrosSettingsTestHelper settings_helper_;
+  testing::NiceMock<policy::MockCloudPolicyClient> cloud_policy_client_;
 
   // TaskRunner used to run individual tests.
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
@@ -153,7 +160,7 @@ TEST_F(HeartbeatSchedulerTest, ChangeHeartbeatFrequency) {
   const int new_delay = 1234*1000;  // 1234 seconds.
   settings_helper_.SetInteger(chromeos::kHeartbeatFrequency, new_delay);
   // Now run pending heartbeat task, should send a heartbeat.
-  gcm::GCMClient::OutgoingMessage message;
+  gcm::OutgoingMessage message;
   EXPECT_CALL(gcm_driver_, SendImpl(kHeartbeatGCMAppID, _, _))
       .WillOnce(SaveArg<2>(&message));
   task_runner_->RunPendingTasks();
@@ -172,7 +179,7 @@ TEST_F(HeartbeatSchedulerTest, DisableHeartbeats) {
   // Makes sure that we can disable heartbeats on the fly.
   EXPECT_CALL(gcm_driver_, RegisterImpl(kHeartbeatGCMAppID, _));
   settings_helper_.SetBoolean(chromeos::kHeartbeatEnabled, true);
-  gcm::GCMClient::OutgoingMessage message;
+  gcm::OutgoingMessage message;
   EXPECT_CALL(gcm_driver_, SendImpl(kHeartbeatGCMAppID, _, _))
       .WillOnce(SaveArg<2>(&message));
   gcm_driver_.CompleteRegistration(
@@ -200,7 +207,7 @@ TEST_F(HeartbeatSchedulerTest, DisableHeartbeats) {
 }
 
 TEST_F(HeartbeatSchedulerTest, CheckMessageContents) {
-  gcm::GCMClient::OutgoingMessage message;
+  gcm::OutgoingMessage message;
   EXPECT_CALL(gcm_driver_, RegisterImpl(kHeartbeatGCMAppID, _));
   EXPECT_CALL(gcm_driver_, SendImpl(kHeartbeatGCMAppID, _, _))
       .WillOnce(SaveArg<2>(&message));
@@ -220,6 +227,27 @@ TEST_F(HeartbeatSchedulerTest, CheckMessageContents) {
   EXPECT_TRUE(base::StringToInt64(message.data["timestamp"], &timestamp));
   EXPECT_EQ(kFakeEnrollmentDomain, message.data["domain_name"]);
   EXPECT_EQ(kFakeDeviceId, message.data["device_id"]);
+}
+
+TEST_F(HeartbeatSchedulerTest, SendGcmIdUpdate) {
+  // Verifies that GCM id update request was sent after GCM registration.
+  cloud_policy_client_.SetDMToken(kDMToken);
+  policy::CloudPolicyClient::StatusCallback callback;
+  EXPECT_CALL(cloud_policy_client_, UpdateGcmId(kRegistrationId, _))
+      .WillOnce(SaveArg<1>(&callback));
+
+  // Enable heartbeats.
+  EXPECT_CALL(gcm_driver_, RegisterImpl(kHeartbeatGCMAppID, _));
+  EXPECT_CALL(gcm_driver_, SendImpl(kHeartbeatGCMAppID, _, _));
+  settings_helper_.SetBoolean(chromeos::kHeartbeatEnabled, true);
+  gcm_driver_.CompleteRegistration(kHeartbeatGCMAppID, gcm::GCMClient::SUCCESS);
+  task_runner_->RunPendingTasks();
+
+  // Verifies that CloudPolicyClient got the update request, with a valid
+  // callback.
+  testing::Mock::VerifyAndClearExpectations(&cloud_policy_client_);
+  EXPECT_FALSE(callback.is_null());
+  callback.Run(true);
 }
 
 }  // namespace

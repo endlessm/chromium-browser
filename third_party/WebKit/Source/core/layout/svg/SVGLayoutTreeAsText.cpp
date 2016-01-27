@@ -31,10 +31,10 @@
 #include "core/layout/svg/SVGLayoutTreeAsText.h"
 
 #include "core/layout/LayoutTreeAsText.h"
+#include "core/layout/api/LineLayoutSVGInlineText.h"
 #include "core/layout/line/InlineTextBox.h"
 #include "core/layout/svg/LayoutSVGGradientStop.h"
 #include "core/layout/svg/LayoutSVGImage.h"
-#include "core/layout/svg/LayoutSVGInlineText.h"
 #include "core/layout/svg/LayoutSVGResourceClipper.h"
 #include "core/layout/svg/LayoutSVGResourceFilter.h"
 #include "core/layout/svg/LayoutSVGResourceLinearGradient.h"
@@ -63,8 +63,10 @@
 #include "core/svg/SVGRadialGradientElement.h"
 #include "core/svg/SVGRectElement.h"
 #include "core/svg/SVGStopElement.h"
+#include "core/svg/graphics/filters/SVGFilterBuilder.h"
 #include "platform/graphics/DashArray.h"
 #include "platform/graphics/GraphicsTypes.h"
+#include "platform/graphics/filters/SourceGraphic.h"
 
 #include <math.h>
 #include <memory>
@@ -366,7 +368,7 @@ static TextStream& operator<<(TextStream& ts, const LayoutSVGShape& shape)
     } else if (isSVGPathElement(*svgElement)) {
         String pathString;
         // FIXME: We should switch to UnalteredParsing here - this will affect the path dumping output of dozens of tests.
-        buildStringFromByteStream(*toSVGPathElement(*svgElement).pathByteStream(), pathString, NormalizedParsing);
+        buildStringFromByteStream(toSVGPathElement(*svgElement).pathByteStream(), pathString, NormalizedParsing);
         writeNameAndQuotedValue(ts, "data", pathString);
     } else {
         ASSERT_NOT_REACHED();
@@ -400,10 +402,10 @@ static inline void writeSVGInlineTextBox(TextStream& ts, SVGInlineTextBox* textB
     if (fragments.isEmpty())
         return;
 
-    LayoutSVGInlineText& textLayoutObject = toLayoutSVGInlineText(textBox->layoutObject());
+    LineLayoutSVGInlineText textLineLayout = LineLayoutSVGInlineText(textBox->lineLayoutItem());
 
-    const SVGComputedStyle& svgStyle = textLayoutObject.style()->svgStyle();
-    String text = textBox->layoutObject().text();
+    const SVGComputedStyle& svgStyle = textLineLayout.style()->svgStyle();
+    String text = textBox->lineLayoutItem().text();
 
     unsigned fragmentsSize = fragments.size();
     for (unsigned i = 0; i < fragmentsSize; ++i) {
@@ -416,7 +418,7 @@ static inline void writeSVGInlineTextBox(TextStream& ts, SVGInlineTextBox* textB
         // FIXME: Remove this hack, once the new text layout engine is completly landed. We want to preserve the old layout test results for now.
         ts << "chunk 1 ";
         ETextAnchor anchor = svgStyle.textAnchor();
-        bool isVerticalText = svgStyle.isVerticalWritingMode();
+        bool isVerticalText = !textLineLayout.style()->isHorizontalWritingMode();
         if (anchor == TA_MIDDLE) {
             ts << "(middle anchor";
             if (isVerticalText)
@@ -510,12 +512,11 @@ void writeSVGResourceContainer(TextStream& ts, const LayoutObject& object, int i
         ts << "\n";
         // Creating a placeholder filter which is passed to the builder.
         FloatRect dummyRect;
-        IntRect dummyIntRect;
-        RefPtrWillBeRawPtr<SVGFilter> dummyFilter = SVGFilter::create(dummyIntRect, dummyRect, dummyRect, true);
-        if (RefPtrWillBeRawPtr<SVGFilterBuilder> builder = filter->buildPrimitives(dummyFilter.get())) {
-            if (FilterEffect* lastEffect = builder->lastEffect())
-                lastEffect->externalRepresentation(ts, indent + 1);
-        }
+        RefPtrWillBeRawPtr<Filter> dummyFilter = Filter::create(dummyRect, dummyRect, 1, Filter::BoundingBox);
+        SVGFilterBuilder builder(dummyFilter->sourceGraphic());
+        builder.buildGraph(dummyFilter.get(), toSVGFilterElement(*filter->element()), dummyRect);
+        if (FilterEffect* lastEffect = builder.lastEffect())
+            lastEffect->externalRepresentation(ts, indent + 1);
     } else if (resource->resourceType() == ClipperResourceType) {
         writeNameValuePair(ts, "clipPathUnits", toLayoutSVGResourceClipper(resource)->clipPathUnits());
         ts << "\n";

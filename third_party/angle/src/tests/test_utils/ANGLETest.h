@@ -64,8 +64,8 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
   public:
     static bool InitTestWindow();
     static bool DestroyTestWindow();
-    static bool ResizeWindow(int width, int height);
     static void SetWindowVisible(bool isVisible);
+    static bool eglDisplayExtensionEnabled(EGLDisplay display, const std::string &extName);
 
   protected:
     virtual void SetUp();
@@ -76,6 +76,7 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     static void drawQuad(GLuint program, const std::string& positionAttribName, GLfloat quadDepth, GLfloat quadScale = 1.0f);
     static GLuint compileShader(GLenum type, const std::string &source);
     static bool extensionEnabled(const std::string &extName);
+    static bool eglClientExtensionEnabled(const std::string &extName);
 
     void setWindowWidth(int width);
     void setWindowHeight(int height);
@@ -97,6 +98,8 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     bool isIntel() const;
     bool isAMD() const;
     bool isNVidia() const;
+    // Note: FL9_3 is explicitly *not* considered D3D11.
+    bool isD3D11() const;
     EGLint getPlatformRenderer() const;
 
   private:
@@ -104,6 +107,8 @@ class ANGLETest : public ::testing::TestWithParam<angle::PlatformParameters>
     bool destroyEGLContext();
 
     EGLWindow *mEGLWindow;
+    int mWidth;
+    int mHeight;
 
     static OSWindow *mOSWindow;
 };

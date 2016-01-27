@@ -6,6 +6,7 @@
 #define CSSPropertyPriority_h
 
 #include "core/CSSPropertyNames.h"
+#include "wtf/Allocator.h"
 
 namespace blink {
 
@@ -14,12 +15,14 @@ namespace blink {
 // decides the pixel value of low priority properties with 'em' units.
 
 enum CSSPropertyPriority {
+    ResolveVariables,
     HighPropertyPriority,
     LowPropertyPriority
 };
 
 template <CSSPropertyPriority priority>
 class CSSPropertyPriorityData {
+    STATIC_ONLY(CSSPropertyPriorityData);
 public:
     static inline CSSPropertyID first();
     static inline CSSPropertyID last();
@@ -28,6 +31,19 @@ public:
         return first() <= prop && prop <= last();
     }
 };
+
+template<>
+inline CSSPropertyID CSSPropertyPriorityData<ResolveVariables>::first()
+{
+    static_assert(CSSPropertyVariable == firstCSSProperty - 1, "CSSPropertyVariable should be directly before the first CSS property.");
+    return CSSPropertyVariable;
+}
+
+template<>
+inline CSSPropertyID CSSPropertyPriorityData<ResolveVariables>::last()
+{
+    return CSSPropertyVariable;
+}
 
 template<>
 inline CSSPropertyID CSSPropertyPriorityData<HighPropertyPriority>::first()
@@ -39,7 +55,7 @@ inline CSSPropertyID CSSPropertyPriorityData<HighPropertyPriority>::first()
 template<>
 inline CSSPropertyID CSSPropertyPriorityData<HighPropertyPriority>::last()
 {
-    static_assert(CSSPropertyZoom == CSSPropertyColor + 17, "CSSPropertyZoom should be the end of the high priority property range");
+    static_assert(CSSPropertyZoom == CSSPropertyColor + 19, "CSSPropertyZoom should be the end of the high priority property range");
     static_assert(CSSPropertyTextRendering == CSSPropertyZoom - 1, "CSSPropertyTextRendering should be immediately before CSSPropertyZoom");
     return CSSPropertyZoom;
 }

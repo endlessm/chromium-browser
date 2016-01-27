@@ -12,8 +12,6 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/stringprintf.h"
 #include "base/thread_task_runner_handle.h"
-#include "chrome/browser/drive/drive_uploader.h"
-#include "chrome/browser/drive/fake_drive_service.h"
 #include "chrome/browser/sync_file_system/drive_backend/drive_backend_constants.h"
 #include "chrome/browser/sync_file_system/drive_backend/drive_backend_util.h"
 #include "chrome/browser/sync_file_system/drive_backend/fake_drive_service_helper.h"
@@ -22,6 +20,8 @@
 #include "chrome/browser/sync_file_system/drive_backend/metadata_database.pb.h"
 #include "chrome/browser/sync_file_system/drive_backend/sync_engine_context.h"
 #include "chrome/browser/sync_file_system/sync_file_system_test_util.h"
+#include "components/drive/drive_uploader.h"
+#include "components/drive/service/fake_drive_service.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "google_apis/drive/drive_api_parser.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -208,7 +208,8 @@ class RegisterAppTaskTest : public testing::Test {
     return files.size();
   }
 
-  bool HasRemoteAppRoot(const std::string& app_id) {
+  bool GetAppRootFolderID(const std::string& app_id,
+                          std::string* app_root_folder_id) {
     TrackerIDSet files;
     if (!context_->GetMetadataDatabase()->FindTrackersByParentAndTitle(
             kSyncRootTrackerID, app_id, &files) ||
@@ -218,13 +219,37 @@ class RegisterAppTaskTest : public testing::Test {
     FileTracker app_root_tracker;
     EXPECT_TRUE(context_->GetMetadataDatabase()->FindTrackerByTrackerID(
         files.active_tracker(), &app_root_tracker));
-    std::string app_root_folder_id = app_root_tracker.file_id();
+    *app_root_folder_id = app_root_tracker.file_id();
+    return true;
+  }
+
+  bool HasRemoteAppRoot(const std::string& app_id) {
+    std::string app_root_folder_id;
+    if (!GetAppRootFolderID(app_id, &app_root_folder_id))
+      return false;
+
     scoped_ptr<google_apis::FileResource> entry;
     if (google_apis::HTTP_SUCCESS !=
         fake_drive_service_helper_->GetFileResource(app_root_folder_id, &entry))
       return false;
 
     return !entry->labels().is_trashed();
+  }
+
+  bool VerifyRemoteAppRootVisibility(const std::string& app_id) {
+    std::string app_root_folder_id;
+    if (!GetAppRootFolderID(app_id, &app_root_folder_id))
+      return false;
+
+    google_apis::drive::FileVisibility visibility;
+    if (google_apis::HTTP_SUCCESS !=
+        fake_drive_service_helper_->GetFileVisibility(
+            app_root_folder_id, &visibility))
+      return false;
+    if (visibility != google_apis::drive::FILE_VISIBILITY_PRIVATE)
+      return false;
+
+    return true;
   }
 
  private:
@@ -277,6 +302,7 @@ TEST_F(RegisterAppTaskTest, CreateAppFolder) {
 
   EXPECT_EQ(1u, CountRemoteFileInSyncRoot());
   EXPECT_TRUE(HasRemoteAppRoot(kAppID));
+  EXPECT_TRUE(VerifyRemoteAppRootVisibility(kAppID));
 }
 
 TEST_F(RegisterAppTaskTest, RegisterExistingFolder) {

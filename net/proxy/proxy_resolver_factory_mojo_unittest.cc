@@ -16,6 +16,7 @@
 #include "base/stl_util.h"
 #include "base/values.h"
 #include "mojo/common/common_type_converters.h"
+#include "mojo/public/cpp/bindings/binding.h"
 #include "net/base/load_states.h"
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
@@ -29,7 +30,6 @@
 #include "net/proxy/proxy_resolver_script_data.h"
 #include "net/test/event_waiter.h"
 #include "testing/gtest/include/gtest/gtest.h"
-#include "third_party/mojo/src/mojo/public/cpp/bindings/binding.h"
 #include "url/gurl.h"
 
 namespace net {
@@ -291,7 +291,6 @@ class Request {
   void Cancel();
   int WaitForResult();
 
-  int error() const { return error_; }
   const ProxyInfo& results() const { return results_; }
   LoadState load_state() { return resolver_->GetLoadState(handle_); }
   BoundTestNetLog& net_log() { return net_log_; }
@@ -566,8 +565,8 @@ class ProxyResolverFactoryMojoTest : public testing::Test,
   scoped_ptr<ProxyResolverFactory> proxy_resolver_factory_mojo_;
 
   MockMojoProxyResolver mock_proxy_resolver_;
-  scoped_ptr<ProxyResolver> proxy_resolver_mojo_;
   TestClosure on_delete_callback_;
+  scoped_ptr<ProxyResolver> proxy_resolver_mojo_;
 };
 
 TEST_F(ProxyResolverFactoryMojoTest, CreateProxyResolver) {

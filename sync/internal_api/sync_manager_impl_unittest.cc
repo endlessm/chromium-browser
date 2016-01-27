@@ -209,6 +209,13 @@ int64 MakeServerNode(UserShare* share, ModelType model_type,
   return entry.GetMetahandle();
 }
 
+int GetTotalNodeCount(UserShare* share, int64 root) {
+  ReadTransaction trans(FROM_HERE, share);
+  ReadNode node(&trans);
+  EXPECT_EQ(BaseNode::INIT_OK, node.InitByIdLookup(root));
+  return node.GetTotalNodeCount();
+}
+
 }  // namespace
 
 class SyncApiTest : public testing::Test {
@@ -517,8 +524,6 @@ TEST_F(SyncApiTest, WriteAndReadPassword) {
   }
   {
     ReadTransaction trans(FROM_HERE, user_share());
-    ReadNode root_node(&trans);
-    root_node.InitByRootLookup();
 
     ReadNode password_node(&trans);
     EXPECT_EQ(BaseNode::INIT_OK,
@@ -555,8 +560,6 @@ TEST_F(SyncApiTest, WriteEncryptedTitle) {
   }
   {
     ReadTransaction trans(FROM_HERE, user_share());
-    ReadNode root_node(&trans);
-    root_node.InitByRootLookup();
 
     ReadNode bookmark_node(&trans);
     ASSERT_EQ(BaseNode::INIT_OK, bookmark_node.InitByIdLookup(bookmark_id));
@@ -590,8 +593,6 @@ TEST_F(SyncApiTest, WriteEmptyBookmarkTitle) {
   }
   {
     ReadTransaction trans(FROM_HERE, user_share());
-    ReadNode root_node(&trans);
-    root_node.InitByRootLookup();
 
     ReadNode bookmark_node(&trans);
     ASSERT_EQ(BaseNode::INIT_OK, bookmark_node.InitByIdLookup(bookmark_id));
@@ -651,30 +652,15 @@ TEST_F(SyncApiTest, EmptyTags) {
 // Test counting nodes when the type's root node has no children.
 TEST_F(SyncApiTest, GetTotalNodeCountEmpty) {
   int64 type_root = MakeTypeRoot(user_share(), BOOKMARKS);
-  {
-    ReadTransaction trans(FROM_HERE, user_share());
-    ReadNode type_root_node(&trans);
-    EXPECT_EQ(BaseNode::INIT_OK,
-              type_root_node.InitByIdLookup(type_root));
-    EXPECT_EQ(1, type_root_node.GetTotalNodeCount());
-  }
+  EXPECT_EQ(1, GetTotalNodeCount(user_share(), type_root));
 }
 
 // Test counting nodes when there is one child beneath the type's root.
 TEST_F(SyncApiTest, GetTotalNodeCountOneChild) {
   int64 type_root = MakeTypeRoot(user_share(), BOOKMARKS);
   int64 parent = MakeFolderWithParent(user_share(), BOOKMARKS, type_root, NULL);
-  {
-    ReadTransaction trans(FROM_HERE, user_share());
-    ReadNode type_root_node(&trans);
-    EXPECT_EQ(BaseNode::INIT_OK,
-              type_root_node.InitByIdLookup(type_root));
-    EXPECT_EQ(2, type_root_node.GetTotalNodeCount());
-    ReadNode parent_node(&trans);
-    EXPECT_EQ(BaseNode::INIT_OK,
-              parent_node.InitByIdLookup(parent));
-    EXPECT_EQ(1, parent_node.GetTotalNodeCount());
-  }
+  EXPECT_EQ(2, GetTotalNodeCount(user_share(), type_root));
+  EXPECT_EQ(1, GetTotalNodeCount(user_share(), parent));
 }
 
 // Test counting nodes when there are multiple children beneath the type root,
@@ -686,18 +672,8 @@ TEST_F(SyncApiTest, GetTotalNodeCountMultipleChildren) {
   int64 child1 = MakeFolderWithParent(user_share(), BOOKMARKS, parent, NULL);
   ignore_result(MakeBookmarkWithParent(user_share(), parent, NULL));
   ignore_result(MakeBookmarkWithParent(user_share(), child1, NULL));
-
-  {
-    ReadTransaction trans(FROM_HERE, user_share());
-    ReadNode type_root_node(&trans);
-    EXPECT_EQ(BaseNode::INIT_OK,
-              type_root_node.InitByIdLookup(type_root));
-    EXPECT_EQ(6, type_root_node.GetTotalNodeCount());
-    ReadNode node(&trans);
-    EXPECT_EQ(BaseNode::INIT_OK,
-              node.InitByIdLookup(parent));
-    EXPECT_EQ(4, node.GetTotalNodeCount());
-  }
+  EXPECT_EQ(6, GetTotalNodeCount(user_share(), type_root));
+  EXPECT_EQ(4, GetTotalNodeCount(user_share(), parent));
 }
 
 // Verify that Directory keeps track of which attachments are referenced by
@@ -751,6 +727,54 @@ TEST_F(SyncApiTest, AttachmentLinking) {
   ASSERT_FALSE(dir()->IsAttachmentLinked(attachment_id.GetProto()));
 }
 
+// This tests directory integrity in the case of creating a new unique node
+// with client tag matching that of an existing unapplied node with server only
+// data. See crbug.com/505761.
+TEST_F(SyncApiTest, WriteNode_UniqueByCreation_UndeleteCase) {
+  int64 preferences_root = MakeTypeRoot(user_share(), PREFERENCES);
+
+  // Create a node with server only data.
+  int64 item1 = 0;
+  {
+    syncable::WriteTransaction trans(FROM_HERE, syncable::UNITTEST,
+                                     user_share()->directory.get());
+    syncable::MutableEntry entry(&trans, syncable::CREATE_NEW_UPDATE_ITEM,
+                                 syncable::Id::CreateFromServerId("foo1"));
+    DCHECK(entry.good());
+    entry.PutServerVersion(10);
+    entry.PutIsUnappliedUpdate(true);
+    sync_pb::EntitySpecifics specifics;
+    AddDefaultFieldValue(PREFERENCES, &specifics);
+    entry.PutServerSpecifics(specifics);
+    const std::string hash = syncable::GenerateSyncableHash(PREFERENCES, "foo");
+    entry.PutUniqueClientTag(hash);
+    item1 = entry.GetMetahandle();
+  }
+
+  // Verify that the server-only item is invisible as a child of
+  // of |preferences_root| because at this point it should have the
+  // "deleted" flag set.
+  EXPECT_EQ(1, GetTotalNodeCount(user_share(), preferences_root));
+
+  // Create a client node with the same tag as the node above.
+  int64 item2 = MakeNode(user_share(), PREFERENCES, "foo");
+  // Expect this to be the same directory entry as |item1|.
+  EXPECT_EQ(item1, item2);
+  // Expect it to be visible as a child of |preferences_root|.
+  EXPECT_EQ(2, GetTotalNodeCount(user_share(), preferences_root));
+
+  // Tombstone the new item
+  {
+    WriteTransaction trans(FROM_HERE, user_share());
+    WriteNode node(&trans);
+    EXPECT_EQ(BaseNode::INIT_OK, node.InitByIdLookup(item1));
+    node.Tombstone();
+  }
+
+  // Verify that it is gone from the index.
+  EXPECT_EQ(1, GetTotalNodeCount(user_share(), preferences_root));
+}
+
 namespace {
 
 class TestHttpPostProviderInterface : public HttpPostProviderInterface {
@@ -777,7 +801,8 @@ class TestHttpPostProviderInterface : public HttpPostProviderInterface {
 class TestHttpPostProviderFactory : public HttpPostProviderFactory {
  public:
   ~TestHttpPostProviderFactory() override {}
-  void Init(const std::string& user_agent) override {}
+  void Init(const std::string& user_agent,
+            const BindToTrackerCallback& bind_to_tracker_callback) override {}
   HttpPostProviderInterface* Create() override {
     return new TestHttpPostProviderInterface();
   }
@@ -838,8 +863,7 @@ class SyncManagerTest : public testing::Test,
   };
 
   SyncManagerTest()
-      : sync_manager_("Test sync manager"),
-        mock_unrecoverable_error_handler_(NULL) {
+      : sync_manager_("Test sync manager") {
     switches_.encryption_method =
         InternalComponentsFactory::ENCRYPTION_KEYSTORE;
   }
@@ -889,8 +913,8 @@ class SyncManagerTest : public testing::Test,
     args.invalidator_client_id = "fake_invalidator_client_id";
     args.internal_components_factory.reset(GetFactory());
     args.encryptor = &encryptor_;
-    mock_unrecoverable_error_handler_ = new MockUnrecoverableErrorHandler();
-    args.unrecoverable_error_handler.reset(mock_unrecoverable_error_handler_);
+    args.unrecoverable_error_handler =
+        MakeWeakHandle(mock_unrecoverable_error_handler_.GetWeakPtr());
     args.cancelation_signal = &cancelation_signal_;
     sync_manager_.Init(&args);
 
@@ -1023,8 +1047,8 @@ class SyncManagerTest : public testing::Test,
 
   // Returns true if we are currently encrypting all sync data.  May
   // be called on any thread.
-  bool EncryptEverythingEnabledForTest() {
-    return sync_manager_.GetEncryptionHandler()->EncryptEverythingEnabled();
+  bool IsEncryptEverythingEnabledForTest() {
+    return sync_manager_.GetEncryptionHandler()->IsEncryptEverythingEnabled();
   }
 
   // Gets the set of encrypted types from the cryptographer
@@ -1085,9 +1109,7 @@ class SyncManagerTest : public testing::Test,
   }
 
   bool HasUnrecoverableError() {
-    if (mock_unrecoverable_error_handler_)
-      return mock_unrecoverable_error_handler_->invocation_count() > 0;
-    return false;
+    return mock_unrecoverable_error_handler_.invocation_count() > 0;
   }
 
  private:
@@ -1109,9 +1131,7 @@ class SyncManagerTest : public testing::Test,
   StrictMock<SyncEncryptionHandlerObserverMock> encryption_observer_;
   InternalComponentsFactory::Switches switches_;
   InternalComponentsFactory::StorageOption storage_used_;
-
-  // Not owned (ownership is passed to the SyncManager).
-  MockUnrecoverableErrorHandler* mock_unrecoverable_error_handler_;
+  MockUnrecoverableErrorHandler mock_unrecoverable_error_handler_;
 };
 
 TEST_F(SyncManagerTest, GetAllNodesForTypeTest) {
@@ -1142,7 +1162,7 @@ TEST_F(SyncManagerTest, RefreshEncryptionReady) {
 
   const ModelTypeSet encrypted_types = GetEncryptedTypes();
   EXPECT_TRUE(encrypted_types.Has(PASSWORDS));
-  EXPECT_FALSE(EncryptEverythingEnabledForTest());
+  EXPECT_FALSE(IsEncryptEverythingEnabledForTest());
 
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
@@ -1171,7 +1191,7 @@ TEST_F(SyncManagerTest, RefreshEncryptionNotReady) {
 
   const ModelTypeSet encrypted_types = GetEncryptedTypes();
   EXPECT_TRUE(encrypted_types.Has(PASSWORDS));  // Hardcoded.
-  EXPECT_FALSE(EncryptEverythingEnabledForTest());
+  EXPECT_FALSE(IsEncryptEverythingEnabledForTest());
 }
 
 // Attempt to refresh encryption when nigori is empty.
@@ -1187,7 +1207,7 @@ TEST_F(SyncManagerTest, RefreshEncryptionEmptyNigori) {
 
   const ModelTypeSet encrypted_types = GetEncryptedTypes();
   EXPECT_TRUE(encrypted_types.Has(PASSWORDS));  // Hardcoded.
-  EXPECT_FALSE(EncryptEverythingEnabledForTest());
+  EXPECT_FALSE(IsEncryptEverythingEnabledForTest());
 
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
@@ -1209,7 +1229,7 @@ TEST_F(SyncManagerTest, EncryptDataTypesWithNoData) {
                   HasModelTypes(EncryptableUserTypes()), true));
   EXPECT_CALL(encryption_observer_, OnEncryptionComplete());
   sync_manager_.GetEncryptionHandler()->EnableEncryptEverything();
-  EXPECT_TRUE(EncryptEverythingEnabledForTest());
+  EXPECT_TRUE(IsEncryptEverythingEnabledForTest());
 }
 
 TEST_F(SyncManagerTest, EncryptDataTypesWithData) {
@@ -1260,7 +1280,7 @@ TEST_F(SyncManagerTest, EncryptDataTypesWithData) {
                   HasModelTypes(EncryptableUserTypes()), true));
   EXPECT_CALL(encryption_observer_, OnEncryptionComplete());
   sync_manager_.GetEncryptionHandler()->EnableEncryptEverything();
-  EXPECT_TRUE(EncryptEverythingEnabledForTest());
+  EXPECT_TRUE(IsEncryptEverythingEnabledForTest());
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
     EXPECT_TRUE(GetEncryptedTypesWithTrans(&trans).Equals(
@@ -1285,7 +1305,7 @@ TEST_F(SyncManagerTest, EncryptDataTypesWithData) {
               OnBootstrapTokenUpdated(_, PASSPHRASE_BOOTSTRAP_TOKEN));
   ExpectPassphraseAcceptance();
   SetCustomPassphraseAndCheck("new_passphrase");
-  EXPECT_TRUE(EncryptEverythingEnabledForTest());
+  EXPECT_TRUE(IsEncryptEverythingEnabledForTest());
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
     EXPECT_TRUE(GetEncryptedTypesWithTrans(&trans).Equals(
@@ -1322,7 +1342,7 @@ TEST_F(SyncManagerTest, SetInitialGaiaPass) {
               OnBootstrapTokenUpdated(_, PASSPHRASE_BOOTSTRAP_TOKEN));
   ExpectPassphraseAcceptance();
   SetImplicitPassphraseAndCheck("new_passphrase");
-  EXPECT_FALSE(EncryptEverythingEnabledForTest());
+  EXPECT_FALSE(IsEncryptEverythingEnabledForTest());
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
     ReadNode node(&trans);
@@ -1351,7 +1371,7 @@ TEST_F(SyncManagerTest, UpdateGaiaPass) {
               OnBootstrapTokenUpdated(_, PASSPHRASE_BOOTSTRAP_TOKEN));
   ExpectPassphraseAcceptance();
   SetImplicitPassphraseAndCheck("new_passphrase");
-  EXPECT_FALSE(EncryptEverythingEnabledForTest());
+  EXPECT_FALSE(IsEncryptEverythingEnabledForTest());
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
     Cryptographer* cryptographer = trans.GetCryptographer();
@@ -1393,7 +1413,7 @@ TEST_F(SyncManagerTest, SetPassphraseWithPassword) {
               OnBootstrapTokenUpdated(_, PASSPHRASE_BOOTSTRAP_TOKEN));
   ExpectPassphraseAcceptance();
   SetCustomPassphraseAndCheck("new_passphrase");
-  EXPECT_FALSE(EncryptEverythingEnabledForTest());
+  EXPECT_FALSE(IsEncryptEverythingEnabledForTest());
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
     Cryptographer* cryptographer = trans.GetCryptographer();
@@ -1445,7 +1465,7 @@ TEST_F(SyncManagerTest, SupplyPendingGAIAPass) {
   sync_manager_.GetEncryptionHandler()->SetDecryptionPassphrase("passphrase2");
   EXPECT_EQ(IMPLICIT_PASSPHRASE,
             sync_manager_.GetEncryptionHandler()->GetPassphraseType());
-  EXPECT_FALSE(EncryptEverythingEnabledForTest());
+  EXPECT_FALSE(IsEncryptEverythingEnabledForTest());
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
     Cryptographer* cryptographer = trans.GetCryptographer();
@@ -1498,7 +1518,7 @@ TEST_F(SyncManagerTest, SupplyPendingOldGAIAPass) {
   EXPECT_CALL(encryption_observer_, OnPassphraseRequired(_,_));
   EXPECT_CALL(encryption_observer_, OnCryptographerStateChanged(_));
   SetImplicitPassphraseAndCheck("new_gaia");
-  EXPECT_FALSE(EncryptEverythingEnabledForTest());
+  EXPECT_FALSE(IsEncryptEverythingEnabledForTest());
   testing::Mock::VerifyAndClearExpectations(&encryption_observer_);
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
@@ -1571,7 +1591,7 @@ TEST_F(SyncManagerTest, SupplyPendingExplicitPass) {
   sync_manager_.GetEncryptionHandler()->SetDecryptionPassphrase("explicit");
   EXPECT_EQ(CUSTOM_PASSPHRASE,
             sync_manager_.GetEncryptionHandler()->GetPassphraseType());
-  EXPECT_FALSE(EncryptEverythingEnabledForTest());
+  EXPECT_FALSE(IsEncryptEverythingEnabledForTest());
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
     Cryptographer* cryptographer = trans.GetCryptographer();
@@ -1609,7 +1629,7 @@ TEST_F(SyncManagerTest, SupplyPendingGAIAPassUserProvided) {
               OnBootstrapTokenUpdated(_, PASSPHRASE_BOOTSTRAP_TOKEN));
   ExpectPassphraseAcceptance();
   SetImplicitPassphraseAndCheck("passphrase");
-  EXPECT_FALSE(EncryptEverythingEnabledForTest());
+  EXPECT_FALSE(IsEncryptEverythingEnabledForTest());
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
     Cryptographer* cryptographer = trans.GetCryptographer();
@@ -1636,7 +1656,7 @@ TEST_F(SyncManagerTest, SetPassphraseWithEmptyPasswordNode) {
               OnBootstrapTokenUpdated(_, PASSPHRASE_BOOTSTRAP_TOKEN));
   ExpectPassphraseAcceptance();
   SetCustomPassphraseAndCheck("new_passphrase");
-  EXPECT_FALSE(EncryptEverythingEnabledForTest());
+  EXPECT_FALSE(IsEncryptEverythingEnabledForTest());
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
     ReadNode password_node(&trans);
@@ -1725,7 +1745,7 @@ TEST_F(SyncManagerTest, EncryptBookmarksWithLegacyData) {
                   HasModelTypes(EncryptableUserTypes()), true));
   EXPECT_CALL(encryption_observer_, OnEncryptionComplete());
   sync_manager_.GetEncryptionHandler()->EnableEncryptEverything();
-  EXPECT_TRUE(EncryptEverythingEnabledForTest());
+  EXPECT_TRUE(IsEncryptEverythingEnabledForTest());
 
   {
     ReadTransaction trans(FROM_HERE, sync_manager_.GetUserShare());
@@ -2659,6 +2679,16 @@ TEST_F(SyncManagerTestWithMockScheduler, ReConfiguration) {
   // Verify only the recently disabled types were purged.
   EXPECT_TRUE(sync_manager_.GetTypesWithEmptyProgressMarkerToken(
       ProtocolTypes()).Equals(disabled_types));
+}
+
+// Test that SyncManager::ClearServerData invokes the scheduler.
+TEST_F(SyncManagerTestWithMockScheduler, ClearServerData) {
+  EXPECT_CALL(*scheduler(), Start(SyncScheduler::CLEAR_SERVER_DATA_MODE, _));
+  CallbackCounter callback_counter;
+  sync_manager_.ClearServerData(base::Bind(
+      &CallbackCounter::Callback, base::Unretained(&callback_counter)));
+  PumpLoop();
+  EXPECT_EQ(1, callback_counter.times_called());
 }
 
 // Test that PurgePartiallySyncedTypes purges only those types that have not

@@ -146,27 +146,27 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
                    callback));
   }
 
-  void GetPerfData(uint32_t duration,
-                   const GetPerfDataCallback& callback) override {
-    dbus::MethodCall method_call(debugd::kDebugdInterface,
-                                 debugd::kGetRichPerfData);
-    dbus::MessageWriter writer(&method_call);
-    writer.AppendUint32(duration);
-
-    debugdaemon_proxy_->CallMethod(
-        &method_call,
-        dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
-        base::Bind(&DebugDaemonClientImpl::OnGetPerfData,
-                   weak_ptr_factory_.GetWeakPtr(),
-                   callback));
-  }
-
   void GetPerfOutput(uint32_t duration,
                      const GetPerfOutputCallback& callback) override {
     dbus::MethodCall method_call(debugd::kDebugdInterface,
                                  debugd::kGetRandomPerfOutput);
     dbus::MessageWriter writer(&method_call);
     writer.AppendUint32(duration);
+
+    debugdaemon_proxy_->CallMethod(
+        &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
+        base::Bind(&DebugDaemonClientImpl::OnGetPerfOutput,
+                   weak_ptr_factory_.GetWeakPtr(), callback));
+  }
+
+  void GetPerfOutput(uint32_t duration,
+                     const std::vector<std::string>& perf_args,
+                     const GetPerfOutputCallback& callback) override {
+    dbus::MethodCall method_call(debugd::kDebugdInterface,
+                                 debugd::kGetPerfOutput);
+    dbus::MessageWriter writer(&method_call);
+    writer.AppendUint32(duration);
+    writer.AppendArrayOfStrings(perf_args);
 
     debugdaemon_proxy_->CallMethod(
         &method_call, dbus::ObjectProxy::TIMEOUT_USE_DEFAULT,
@@ -452,26 +452,6 @@ class DebugDaemonClientImpl : public DebugDaemonClient {
       callback.Run(true, status);
     else
       callback.Run(false, "");
-  }
-
-  void OnGetPerfData(const GetPerfDataCallback& callback,
-                     dbus::Response* response) {
-    std::vector<uint8> data;
-
-    if (!response) {
-      return;
-    }
-
-    dbus::MessageReader reader(response);
-    const uint8* buffer = NULL;
-    size_t buf_size = 0;
-    if (!reader.PopArrayOfBytes(&buffer, &buf_size))
-      return;
-
-    // TODO(asharif): Figure out a way to avoid this copy.
-    data.insert(data.end(), buffer, buffer + buf_size);
-
-    callback.Run(data);
   }
 
   void OnGetPerfOutput(const GetPerfOutputCallback& callback,

@@ -10,7 +10,7 @@
 #include "base/trace_event/trace_event.h"
 #include "base/trace_event/trace_event_argument.h"
 #include "cc/debug/traced_value.h"
-#include "cc/playback/raster_source.h"
+#include "cc/playback/display_list_raster_source.h"
 #include "cc/raster/raster_buffer.h"
 #include "cc/resources/platform_color.h"
 #include "cc/resources/resource.h"
@@ -31,11 +31,12 @@ class RasterBufferImpl : public RasterBuffer {
   }
 
   // Overridden from RasterBuffer:
-  void Playback(const RasterSource* raster_source,
+  void Playback(const DisplayListRasterSource* raster_source,
                 const gfx::Rect& raster_full_rect,
                 const gfx::Rect& raster_dirty_rect,
                 uint64_t new_content_id,
-                float scale) override {
+                float scale,
+                bool include_images) override {
     gfx::Rect playback_rect = raster_full_rect;
     if (resource_has_previous_content_) {
       playback_rect.Intersect(raster_dirty_rect);
@@ -46,7 +47,8 @@ class RasterBufferImpl : public RasterBuffer {
     size_t stride = 0u;
     TileTaskWorkerPool::PlaybackToMemory(
         lock_.sk_bitmap().getPixels(), resource_->format(), resource_->size(),
-        stride, raster_source, raster_full_rect, playback_rect, scale);
+        stride, raster_source, raster_full_rect, playback_rect, scale,
+        include_images);
   }
 
  private:
@@ -173,18 +175,19 @@ void BitmapTileTaskWorkerPool::CheckForCompletedTasks() {
     task->WillComplete();
     task->CompleteOnOriginThread(this);
     task->DidComplete();
-
-    task->RunReplyOnOriginThread();
   }
   completed_tasks_.clear();
 }
 
-ResourceFormat BitmapTileTaskWorkerPool::GetResourceFormat() const {
+ResourceFormat BitmapTileTaskWorkerPool::GetResourceFormat(
+    bool must_support_alpha) const {
   return resource_provider_->best_texture_format();
 }
 
-bool BitmapTileTaskWorkerPool::GetResourceRequiresSwizzle() const {
-  return !PlatformColor::SameComponentOrder(GetResourceFormat());
+bool BitmapTileTaskWorkerPool::GetResourceRequiresSwizzle(
+    bool must_support_alpha) const {
+  return !PlatformColor::SameComponentOrder(
+      GetResourceFormat(must_support_alpha));
 }
 
 scoped_ptr<RasterBuffer> BitmapTileTaskWorkerPool::AcquireBufferForRaster(

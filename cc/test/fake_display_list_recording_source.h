@@ -10,6 +10,10 @@
 #include "cc/test/fake_content_layer_client.h"
 #include "cc/trees/layer_tree_settings.h"
 
+namespace base {
+class WaitableEvent;
+}  // namespace base
+
 namespace cc {
 
 // This class provides method for test to add bitmap and draw rect to content
@@ -17,16 +21,16 @@ namespace cc {
 // display list.
 class FakeDisplayListRecordingSource : public DisplayListRecordingSource {
  public:
-  explicit FakeDisplayListRecordingSource(const gfx::Size& grid_cell_size)
-      : DisplayListRecordingSource(grid_cell_size) {}
+  FakeDisplayListRecordingSource()
+      : force_unsuitable_for_gpu_rasterization_(false),
+        playback_allowed_event_(nullptr) {}
   ~FakeDisplayListRecordingSource() override {}
 
   static scoped_ptr<FakeDisplayListRecordingSource> CreateRecordingSource(
       const gfx::Rect& recorded_viewport,
       const gfx::Size& layer_bounds) {
     scoped_ptr<FakeDisplayListRecordingSource> recording_source(
-        new FakeDisplayListRecordingSource(
-            LayerTreeSettings().default_tile_grid_size));
+        new FakeDisplayListRecordingSource);
     recording_source->SetRecordedViewport(recorded_viewport);
     recording_source->SetLayerBounds(layer_bounds);
     return recording_source;
@@ -35,22 +39,22 @@ class FakeDisplayListRecordingSource : public DisplayListRecordingSource {
   static scoped_ptr<FakeDisplayListRecordingSource> CreateFilledRecordingSource(
       const gfx::Size& layer_bounds) {
     scoped_ptr<FakeDisplayListRecordingSource> recording_source(
-        new FakeDisplayListRecordingSource(
-            LayerTreeSettings().default_tile_grid_size));
+        new FakeDisplayListRecordingSource);
     recording_source->SetRecordedViewport(gfx::Rect(layer_bounds));
     recording_source->SetLayerBounds(layer_bounds);
     return recording_source;
   }
+
+  // DisplayListRecordingSource overrides.
+  scoped_refptr<DisplayListRasterSource> CreateRasterSource(
+      bool can_use_lcd) const override;
+  bool IsSuitableForGpuRasterization() const override;
 
   void SetRecordedViewport(const gfx::Rect& recorded_viewport) {
     recorded_viewport_ = recorded_viewport;
   }
 
   void SetLayerBounds(const gfx::Size& layer_bounds) { size_ = layer_bounds; }
-
-  void SetGridCellSize(const gfx::Size& grid_cell_size) {
-    grid_cell_size_ = grid_cell_size;
-  }
 
   void SetClearCanvasWithDebugColor(bool clear) {
     clear_canvas_with_debug_color_ = clear;
@@ -62,40 +66,63 @@ class FakeDisplayListRecordingSource : public DisplayListRecordingSource {
                                 recorded_viewport_, 0, RECORD_NORMALLY);
   }
 
-  void add_draw_rect(const gfx::RectF& rect) {
+  void add_draw_rect(const gfx::Rect& rect) {
     client_.add_draw_rect(rect, default_paint_);
   }
 
-  void add_draw_rect_with_paint(const gfx::RectF& rect, const SkPaint& paint) {
+  void add_draw_rect_with_paint(const gfx::Rect& rect, const SkPaint& paint) {
     client_.add_draw_rect(rect, paint);
   }
 
-  void add_draw_bitmap(const SkBitmap& bitmap, const gfx::Point& point) {
-    client_.add_draw_bitmap(bitmap, point, default_paint_);
+  void add_draw_rectf(const gfx::RectF& rect) {
+    client_.add_draw_rectf(rect, default_paint_);
   }
 
-  void add_draw_bitmap_with_transform(const SkBitmap& bitmap,
-                                      const gfx::Transform& transform) {
-    client_.add_draw_bitmap_with_transform(bitmap, transform, default_paint_);
+  void add_draw_rectf_with_paint(const gfx::RectF& rect, const SkPaint& paint) {
+    client_.add_draw_rectf(rect, paint);
   }
 
-  void add_draw_bitmap_with_paint(const SkBitmap& bitmap,
-                                  const gfx::Point& point,
-                                  const SkPaint& paint) {
-    client_.add_draw_bitmap(bitmap, point, paint);
+  void add_draw_image(const SkImage* image, const gfx::Point& point) {
+    client_.add_draw_image(image, point, default_paint_);
   }
 
-  void add_draw_bitmap_with_paint_and_transform(const SkBitmap& bitmap,
-                                                const gfx::Transform& transform,
-                                                const SkPaint& paint) {
-    client_.add_draw_bitmap_with_transform(bitmap, transform, paint);
+  void add_draw_image_with_transform(const SkImage* image,
+                                     const gfx::Transform& transform) {
+    client_.add_draw_image_with_transform(image, transform, default_paint_);
+  }
+
+  void add_draw_image_with_paint(const SkImage* image,
+                                 const gfx::Point& point,
+                                 const SkPaint& paint) {
+    client_.add_draw_image(image, point, paint);
   }
 
   void set_default_paint(const SkPaint& paint) { default_paint_ = paint; }
 
+  void set_reported_memory_usage(size_t reported_memory_usage) {
+    client_.set_reported_memory_usage(reported_memory_usage);
+  }
+
+  void reset_draws() { client_ = FakeContentLayerClient(); }
+
+  void SetUnsuitableForGpuRasterization() {
+    force_unsuitable_for_gpu_rasterization_ = true;
+  }
+
+  void SetPlaybackAllowedEvent(base::WaitableEvent* event) {
+    playback_allowed_event_ = event;
+  }
+
+  DisplayItemList* display_list() const { return display_list_.get(); }
+  void set_pixel_record_distance(int distance) {
+    pixel_record_distance_ = distance;
+  }
+
  private:
   FakeContentLayerClient client_;
   SkPaint default_paint_;
+  bool force_unsuitable_for_gpu_rasterization_;
+  base::WaitableEvent* playback_allowed_event_;
 };
 
 }  // namespace cc

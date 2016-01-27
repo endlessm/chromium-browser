@@ -38,6 +38,7 @@
 namespace blink {
 
 class ShadowRootRareData : public NoBaseWillBeGarbageCollected<ShadowRootRareData> {
+    USING_FAST_MALLOC_WILL_BE_REMOVED(ShadowRootRareData);
 public:
     ShadowRootRareData()
         : m_descendantShadowElementCount(0)

@@ -267,6 +267,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
   nacl_off64_t                file_bytes;
   nacl_off64_t                host_rounded_file_bytes;
   size_t                      alloc_rounded_file_bytes;
+  uint32_t                    val_flags;
 
   holding_app_lock = 0;
   ndp = NULL;
@@ -291,7 +292,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
   } else {
     ndp = NaClAppGetDesc(nap, d);
     if (NULL == ndp) {
-      map_result = -NACL_ABI_EBADF;
+      map_result = (uintptr_t) -NACL_ABI_EBADF;
       goto cleanup;
     }
   }
@@ -308,18 +309,18 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
     if (!nap->enable_dyncode_syscalls) {
       NaClLog(LOG_WARNING,
               "NaClSysMmap: PROT_EXEC when dyncode syscalls are disabled.\n");
-      map_result = -NACL_ABI_EINVAL;
+      map_result = (uintptr_t) -NACL_ABI_EINVAL;
       goto cleanup;
     }
     if (0 != (NACL_ABI_PROT_WRITE & prot)) {
       NaClLog(3,
               "NaClSysMmap: asked for writable and executable code pages?!?\n");
-      map_result = -NACL_ABI_EINVAL;
+      map_result = (uintptr_t) -NACL_ABI_EINVAL;
       goto cleanup;
     }
     mapping_code = 1;
   } else if (0 != (prot & NACL_ABI_PROT_EXEC)) {
-    map_result = -NACL_ABI_EINVAL;
+    map_result = (uintptr_t) -NACL_ABI_EINVAL;
     goto cleanup;
   }
 
@@ -328,9 +329,14 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
    * granularity.  (Windows.)
    */
   if (!NaClIsAllocPageMultiple(usraddr)) {
-    NaClLog(2, "NaClSysMmap: address not allocation granularity aligned\n");
-    map_result = -NACL_ABI_EINVAL;
-    goto cleanup;
+    if ((NACL_ABI_MAP_FIXED & flags) != 0) {
+      NaClLog(2, "NaClSysMmap: address not allocation granularity aligned\n");
+      map_result = (uintptr_t) -NACL_ABI_EINVAL;
+      goto cleanup;
+    } else {
+      NaClLog(2, "NaClSysMmap: Force alignment of misaligned hint address\n");
+      usraddr = NaClTruncAllocPage(usraddr);
+    }
   }
   /*
    * Offset should be non-negative (nacl_abi_off_t is signed).  This
@@ -341,7 +347,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
     NaClLog(1,  /* application bug */
             "NaClSysMmap: negative file offset: %"NACL_PRId64"\n",
             (int64_t) offset);
-    map_result = -NACL_ABI_EINVAL;
+    map_result = (uintptr_t) -NACL_ABI_EINVAL;
     goto cleanup;
   }
   /*
@@ -352,7 +358,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
             ("NaClSysMmap: file offset 0x%08"NACL_PRIxPTR" not multiple"
              " of allocation size\n"),
             (uintptr_t) offset);
-    map_result = -NACL_ABI_EINVAL;
+    map_result = (uintptr_t) -NACL_ABI_EINVAL;
     goto cleanup;
   }
 
@@ -368,7 +374,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
   if (alloc_rounded_length != length) {
     if (mapping_code) {
       NaClLog(3, "NaClSysMmap: length not a multiple of allocation size\n");
-      map_result = -NACL_ABI_EINVAL;
+      map_result = (uintptr_t) -NACL_ABI_EINVAL;
       goto cleanup;
     }
     NaClLog(1,
@@ -376,7 +382,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
             alloc_rounded_length);
   }
   if (0 == (uint32_t) alloc_rounded_length) {
-    map_result = -NACL_ABI_EINVAL;
+    map_result = (uintptr_t) -NACL_ABI_EINVAL;
     goto cleanup;
   }
   /*
@@ -423,7 +429,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
      */
     if (!NACL_ABI_S_ISREG(stbuf.nacl_abi_st_mode) &&
         !NACL_ABI_S_ISSHM(stbuf.nacl_abi_st_mode)) {
-      map_result = -NACL_ABI_ENODEV;
+      map_result = (uintptr_t) -NACL_ABI_ENODEV;
       goto cleanup;
     }
 
@@ -437,7 +443,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
     file_size = stbuf.nacl_abi_st_size;
 
     if (file_size < offset) {
-      map_result = -NACL_ABI_EINVAL;
+      map_result = (uintptr_t) -NACL_ABI_EINVAL;
       goto cleanup;
     }
 
@@ -461,7 +467,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
       NaClRoundAllocPage((size_t) host_rounded_file_bytes);
 
     if (0 == alloc_rounded_file_bytes && 0 != host_rounded_file_bytes) {
-      map_result = -NACL_ABI_ENOMEM;
+      map_result = (uintptr_t) -NACL_ABI_ENOMEM;
       goto cleanup;
     }
 
@@ -483,7 +489,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
     NaClLog(3,
             "NaClSysMmap: disallowing partial allocation page extension for"
             " short files\n");
-    map_result = -NACL_ABI_EINVAL;
+    map_result = (uintptr_t) -NACL_ABI_EINVAL;
     goto cleanup;
   }
   length = size_min(alloc_rounded_length, (size_t) host_rounded_file_bytes);
@@ -511,7 +517,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
       NaClLog(4, "NaClSysMmap: FindMapSpace: page 0x%05"NACL_PRIxPTR"\n",
               usrpage);
       if (0 == usrpage) {
-        map_result = -NACL_ABI_ENOMEM;
+        map_result = (uintptr_t) -NACL_ABI_ENOMEM;
         goto cleanup;
       }
       usraddr = usrpage << NACL_PAGESHIFT;
@@ -535,7 +541,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
                                         alloc_rounded_length >> NACL_PAGESHIFT);
       }
       if (0 == usrpage) {
-        map_result = -NACL_ABI_ENOMEM;
+        map_result = (uintptr_t) -NACL_ABI_ENOMEM;
         goto cleanup;
       }
       usraddr = usrpage << NACL_PAGESHIFT;
@@ -552,7 +558,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
             ("NaClSysMmap: start address (0x%08"NACL_PRIxPTR") outside address"
              " space\n"),
             usraddr);
-    map_result = -NACL_ABI_EINVAL;
+    map_result = (uintptr_t) -NACL_ABI_EINVAL;
     goto cleanup;
   }
   endaddr = usraddr + alloc_rounded_length;
@@ -562,7 +568,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
              "NaClSysMmap(0x%08"NACL_PRIxPTR",0x%"NACL_PRIxS",0x%x,0x%x,%d,"
              "0x%08"NACL_PRIxPTR"\n"),
             usraddr, length, prot, flags, d, (uintptr_t) offset);
-    map_result = -NACL_ABI_EINVAL;
+    map_result = (uintptr_t) -NACL_ABI_EINVAL;
     goto cleanup;
   }
   /*
@@ -577,7 +583,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
             ("NaClSysMmap: end address (0x%08"NACL_PRIxPTR") is beyond"
              " the end of the address space\n"),
             endaddr);
-    map_result = -NACL_ABI_EINVAL;
+    map_result = (uintptr_t) -NACL_ABI_EINVAL;
     goto cleanup;
   }
 
@@ -588,9 +594,10 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
             usraddr, length);
     if (!NACL_FI("MMAP_BYPASS_DESCRIPTOR_SAFETY_CHECK",
                  NaClDescIsSafeForMmap(ndp),
-                 1)) {
+                 1) ||
+        NACL_FI("MMAP_FORCE_DESCRIPTOR_SAFETY_CHECK_FAIL", 0, 1)) {
       NaClLog(4, "NaClSysMmap: descriptor not blessed\n");
-      map_result = -NACL_ABI_EINVAL;
+      map_result = (uintptr_t) -NACL_ABI_EINVAL;
       goto cleanup;
     }
     NaClLog(4, "NaClSysMmap: allowed\n");
@@ -598,7 +605,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
                                                            usraddr,
                                                            length)) {
     NaClLog(2, "NaClSysMmap: region contains executable pages\n");
-    map_result = -NACL_ABI_EINVAL;
+    map_result = (uintptr_t) -NACL_ABI_EINVAL;
     goto cleanup;
   }
 
@@ -630,7 +637,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
    */
   if ((0 == (flags & NACL_ABI_MAP_SHARED)) ==
       (0 == (flags & NACL_ABI_MAP_PRIVATE))) {
-    map_result = -NACL_ABI_EINVAL;
+    map_result = (uintptr_t) -NACL_ABI_EINVAL;
     goto cleanup;
   }
 
@@ -692,7 +699,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
       if (NACL_VTBL(NaClDesc, ndp)->typeTag != NACL_DESC_HOST_IO) {
         NaClLog(4, "NaClSysMmap: not supported type, got %d\n",
                 NACL_VTBL(NaClDesc, ndp)->typeTag);
-        map_result = -NACL_ABI_EINVAL;
+        map_result = (uintptr_t) -NACL_ABI_EINVAL;
         goto cleanup;
       }
 
@@ -721,6 +728,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
         goto cleanup;
       }
 
+      val_flags = nap->pnacl_mode ? NACL_DISABLE_NONTEMPORALS_X86 : 0;
       /* Ask validator / validation cache */
       NaClMetadataFromNaClDescCtor(&metadata, ndp);
       validator_status = NACL_FI("MMAP_FORCE_MMAP_VALIDATION_FAIL",
@@ -729,6 +737,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
                                             (uint8_t *) image_sys_addr,
                                             length,
                                             0,  /* stubout_mode: no */
+                                            val_flags,
                                             1,  /* readonly_text: yes */
                                             nap->cpu_features,
                                             &metadata,
@@ -757,7 +766,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
         if (!ret) {
           NaClLog(3, "NaClSysMmap: PROT_EXEC region"
                   " overlaps other dynamic code\n");
-          map_result = -NACL_ABI_EINVAL;
+          map_result = (uintptr_t) -NACL_ABI_EINVAL;
           goto cleanup;
         }
         /*
@@ -819,18 +828,7 @@ int32_t NaClSysMmapIntern(struct NaClApp        *nap,
         map_result = (int32_t) usraddr;
       }
 
-#if NACL_WINDOWS
-      sys_ret = (*NACL_VTBL(NaClDesc, ndp)->
-                 UnmapUnsafe)(ndp, (void *) image_sys_addr, length);
-#else
-      sys_ret = munmap((void *) image_sys_addr, length);
-#endif
-      if (0 != sys_ret) {
-        NaClLog(LOG_FATAL,
-                "NaClSysMmap: could not unmap text at 0x%"NACL_PRIxPTR","
-                " length 0x%"NACL_PRIxS", NaCl errno %d\n",
-                image_sys_addr, length, -sys_ret);
-      }
+      NaClDescUnmapUnsafe(ndp, (void *) image_sys_addr, length);
       goto cleanup_no_locks;
     } else {
       /*

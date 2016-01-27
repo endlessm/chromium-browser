@@ -10,6 +10,30 @@
 
 #include "base/logging.h"
 
+namespace safe_browsing {
+
+bool TestSafeBrowsingDatabaseManager::IsSupported() const {
+  NOTIMPLEMENTED();
+  return false;
+}
+
+safe_browsing::ThreatSource TestSafeBrowsingDatabaseManager::GetThreatSource()
+    const {
+  NOTIMPLEMENTED();
+  return safe_browsing::ThreatSource::UNKNOWN;
+}
+
+bool TestSafeBrowsingDatabaseManager::ChecksAreAlwaysAsync() const {
+  NOTIMPLEMENTED();
+  return false;
+}
+
+bool TestSafeBrowsingDatabaseManager::CanCheckResourceType(
+    content::ResourceType resource_type) const {
+  NOTIMPLEMENTED();
+  return false;
+}
+
 bool TestSafeBrowsingDatabaseManager::CanCheckUrl(const GURL& url) const {
   NOTIMPLEMENTED();
   return false;
@@ -88,3 +112,5 @@ void TestSafeBrowsingDatabaseManager::StartOnIOThread() {
 
 void TestSafeBrowsingDatabaseManager::StopOnIOThread(bool shutdown) {
 }
+
+}  // namespace safe_browsing

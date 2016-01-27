@@ -27,22 +27,16 @@ CustomTabsVisibilityHistogram GetCustomTabsVisibleValue() {
 } // namespace android
 } // namespace chrome
 
-
 static void SetDocumentModeEnabled(JNIEnv* env,
-                                   jclass clazz,
+                                   const JavaParamRef<jclass>& clazz,
                                    jboolean enabled) {
   document_mode_enabled = enabled;
 }
 
 static void SetCustomTabVisible(JNIEnv* env,
-                                jclass clazz,
+                                const JavaParamRef<jclass>& clazz,
                                 jboolean visible) {
   custom_tab_visible = visible;
-}
-
-static jboolean GetCustomTabVisible(JNIEnv* env,
-                                jclass clazz) {
-  return custom_tab_visible;
 }
 
 bool RegisterFeatureUtilities(JNIEnv* env) {

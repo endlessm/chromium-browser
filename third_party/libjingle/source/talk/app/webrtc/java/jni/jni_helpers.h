@@ -41,14 +41,14 @@
 // This macros uses the comma operator to execute ExceptionDescribe
 // and ExceptionClear ignoring their return values and sending ""
 // to the error stream.
-#define CHECK_EXCEPTION(jni)    \
-  CHECK(!jni->ExceptionCheck()) \
+#define CHECK_EXCEPTION(jni)        \
+  RTC_CHECK(!jni->ExceptionCheck()) \
       << (jni->ExceptionDescribe(), jni->ExceptionClear(), "")
 
 // Helper that calls ptr->Release() and aborts the process with a useful
 // message if that didn't actually delete *ptr because of extra refcounts.
 #define CHECK_RELEASE(ptr) \
-  CHECK_EQ(0, (ptr)->Release()) << "Unexpected refcount."
+  RTC_CHECK_EQ(0, (ptr)->Release()) << "Unexpected refcount."
 
 namespace webrtc_jni {
 
@@ -67,8 +67,8 @@ JNIEnv* AttachCurrentThreadIfNeeded();
 // function expecting a 64-bit param) picks up garbage in the high 32 bits.
 jlong jlongFromPointer(void* ptr);
 
-// JNIEnv-helper methods that CHECK success: no Java exception thrown and found
-// object/class/method/field is non-null.
+// JNIEnv-helper methods that RTC_CHECK success: no Java exception thrown and
+// found object/class/method/field is non-null.
 jmethodID GetMethodID(
     JNIEnv* jni, jclass c, const std::string& name, const char* signature);
 
@@ -107,20 +107,6 @@ jobject JavaEnumFromIndex(JNIEnv* jni, jclass state_class,
 jobject NewGlobalRef(JNIEnv* jni, jobject o);
 
 void DeleteGlobalRef(JNIEnv* jni, jobject o);
-
-// Given a jweak reference, allocate a (strong) local reference scoped to the
-// lifetime of this object if the weak reference is still valid, or NULL
-// otherwise.
-class WeakRef {
- public:
-  WeakRef(JNIEnv* jni, jweak ref);
-  ~WeakRef();
-  jobject obj() { return obj_; }
-
- private:
-  JNIEnv* const jni_;
-  jobject const obj_;
-};
 
 // Scope Java local references to the lifetime of this object.  Use in all C++
 // callbacks (i.e. entry points that don't originate in a Java callstack

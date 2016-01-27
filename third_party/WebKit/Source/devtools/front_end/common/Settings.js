@@ -333,7 +333,7 @@ WebInspector.VersionController = function()
 }
 
 WebInspector.VersionController._currentVersionName = "inspectorVersion";
-WebInspector.VersionController.currentVersion = 14;
+WebInspector.VersionController.currentVersion = 16;
 
 WebInspector.VersionController.prototype = {
     updateVersion: function()
@@ -578,6 +578,28 @@ WebInspector.VersionController.prototype = {
     {
         var defaultValue = { "throughput": -1, "latency": 0 };
         WebInspector.settings.createSetting("networkConditions", defaultValue).set(defaultValue);
+    },
+
+    _updateVersionFrom14To15: function()
+    {
+        var setting = WebInspector.settings.createLocalSetting("workspaceExcludedFolders", {});
+        var oldValue = setting.get();
+        var newValue = {};
+        for (var fileSystemPath in oldValue) {
+            newValue[fileSystemPath] = [];
+            for (var entry of oldValue[fileSystemPath])
+                newValue[fileSystemPath].push(entry.path);
+        }
+        setting.set(newValue);
+    },
+
+    _updateVersionFrom15To16: function()
+    {
+        var setting = WebInspector.settings.createSetting("InspectorView.panelOrder", {});
+        var tabOrders = setting.get();
+        for (var key of Object.keys(tabOrders))
+            tabOrders[key] = (tabOrders[key] + 1) * 10;
+        setting.set(tabOrders);
     },
 
     _migrateSettingsFromLocalStorage: function()

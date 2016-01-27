@@ -176,11 +176,10 @@ public:
 
     void setPackAlignment(GLint param);
 
-    void paintRenderingResultsToCanvas(ImageBuffer*);
     bool paintRenderingResultsToImageData(int&, int&, SourceDrawingBuffer, WTF::ArrayBufferContents&);
 
     int sampleCount() const { return m_sampleCount; }
-    bool explicitResolveOfMultisampleData() const { return m_multisampleMode == ExplicitResolve; }
+    bool explicitResolveOfMultisampleData() const { return m_antiAliasingMode == MSAAExplicitResolve; }
 
     // Bind to m_drawFramebufferBinding or m_readFramebufferBinding if it's not 0.
     // Otherwise, bind to the default FBO.
@@ -217,8 +216,6 @@ private:
 
     // Updates the current size of the buffer, ensuring that s_currentResourceUsePixels is updated.
     void setSize(const IntSize& size);
-
-    void paintFramebufferToCanvas(int framebuffer, int width, int height, bool premultiplyAlpha, ImageBuffer*);
 
     // This is the order of bytes to use when doing a readback.
     enum ReadbackOrder {
@@ -281,13 +278,14 @@ private:
     bool m_contentsChangeCommitted;
     bool m_bufferClearNeeded;
 
-    enum MultisampleMode {
+    enum AntialiasingMode {
         None,
-        ImplicitResolve,
-        ExplicitResolve,
+        MSAAImplicitResolve,
+        MSAAExplicitResolve,
+        ScreenSpaceAntialiasing,
     };
 
-    MultisampleMode m_multisampleMode;
+    AntialiasingMode m_antiAliasingMode;
 
     WebGraphicsContext3D::Attributes m_actualAttributes;
     unsigned m_internalColorFormat;

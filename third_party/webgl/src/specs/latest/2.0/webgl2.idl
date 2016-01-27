@@ -7,7 +7,6 @@
 // https://www.khronos.org/registry/typedarray/specs/latest/typedarrays.idl
 
 typedef long long GLint64;
-typedef unsigned long long GLuint64;
 
 
 interface WebGLQuery : WebGLObject {
@@ -300,10 +299,9 @@ interface WebGL2RenderingContextBase
   const GLenum COMPRESSED_SRGB8_ALPHA8_ETC2_EAC              = 0x9279;
   const GLenum TEXTURE_IMMUTABLE_FORMAT                      = 0x912F;
   const GLenum MAX_ELEMENT_INDEX                             = 0x8D6B;
-  const GLenum NUM_SAMPLE_COUNTS                             = 0x9380;
   const GLenum TEXTURE_IMMUTABLE_LEVELS                      = 0x82DF;
 
-  const GLuint64 TIMEOUT_IGNORED                             = 0xFFFFFFFFFFFFFFFF;
+  const GLint64 TIMEOUT_IGNORED                              = -1;
 
   /* WebGL-specific enums */
   const GLenum MAX_CLIENT_WAIT_TIMEOUT_WEBGL                 = 0x9247;
@@ -319,15 +317,15 @@ interface WebGL2RenderingContextBase
   /* Framebuffer objects */
   void blitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
                        GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter);
-  void framebufferTextureLayer(GLenum target, GLenum attachment, GLuint texture, GLint level,
+  void framebufferTextureLayer(GLenum target, GLenum attachment, WebGLTexture? texture, GLint level,
                                GLint layer);
-  any getInternalformatParameter(GLenum target, GLenum internalformat, GLenum pname);
   void invalidateFramebuffer(GLenum target, sequence<GLenum> attachments);
   void invalidateSubFramebuffer(GLenum target, sequence<GLenum> attachments,
                                 GLint x, GLint y, GLsizei width, GLsizei height);
   void readBuffer(GLenum src);
 
   /* Renderbuffer objects */
+  any getInternalformatParameter(GLenum target, GLenum internalformat, GLenum pname);
   void renderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat,
                                       GLsizei width, GLsizei height);
 
@@ -373,9 +371,11 @@ interface WebGL2RenderingContextBase
   void uniformMatrix3x4fv(WebGLUniformLocation? location, GLboolean transpose, UniformMatrixFVSource value);
   void uniformMatrix4x3fv(WebGLUniformLocation? location, GLboolean transpose, UniformMatrixFVSource value);
   void vertexAttribI4i(GLuint index, GLint x, GLint y, GLint z, GLint w);
-  void vertexAttribI4iv(GLuint index, sequence<GLint> v);
+  typedef (Int32Array or sequence<GLint>) VertexAttribIVSource;
+  void vertexAttribI4iv(GLuint index, VertexAttribIVSource values);
   void vertexAttribI4ui(GLuint index, GLuint x, GLuint y, GLuint z, GLuint w);
-  void vertexAttribI4uiv(GLuint index, sequence<GLuint> v);
+  typedef (Uint32Array or sequence<GLuint>) VertexAttribUIVSource;
+  void vertexAttribI4uiv(GLuint index, VertexAttribUIVSource values);
   void vertexAttribIPointer(GLuint index, GLint size, GLenum type, GLsizei stride, GLintptr offset);
 
   /* Writing to the drawing buffer */
@@ -418,8 +418,8 @@ interface WebGL2RenderingContextBase
   WebGLSync? fenceSync(GLenum condition, GLbitfield flags);
   [WebGLHandlesContextLoss] GLboolean isSync(WebGLSync? sync);
   void deleteSync(WebGLSync? sync);
-  GLenum clientWaitSync(WebGLSync? sync, GLbitfield flags, GLuint64 timeout);
-  void waitSync(WebGLSync? sync, GLbitfield flags, GLuint64 timeout);
+  GLenum clientWaitSync(WebGLSync? sync, GLbitfield flags, GLint64 timeout);
+  void waitSync(WebGLSync? sync, GLbitfield flags, GLint64 timeout);
   any getSyncParameter(WebGLSync? sync, GLenum pname);
 
   /* Transform Feedback */
@@ -439,7 +439,7 @@ interface WebGL2RenderingContextBase
   void bindBufferRange(GLenum target, GLuint index, WebGLBuffer? buffer, GLintptr offset, GLsizeiptr size);
   any getIndexedParameter(GLenum target, GLuint index);
   sequence<GLuint>? getUniformIndices(WebGLProgram? program, sequence<DOMString> uniformNames);
-  sequence<GLint>? getActiveUniforms(WebGLProgram? program, sequence<GLuint> uniformIndices, GLenum pname);
+  any getActiveUniforms(WebGLProgram? program, sequence<GLuint> uniformIndices, GLenum pname);
   GLuint getUniformBlockIndex(WebGLProgram? program, DOMString uniformBlockName);
   any getActiveUniformBlockParameter(WebGLProgram? program, GLuint uniformBlockIndex, GLenum pname);
   /* TODO: if there were a fake enum for GL_UNIFORM_BLOCK_NAME, then this could be folded into getActiveUniformBlockParameter */

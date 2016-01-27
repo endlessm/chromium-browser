@@ -9,13 +9,9 @@ import logging
 import os
 import psutil
 
-from pylib import cmd_helper
+from devil.utils import cmd_helper
 from pylib import constants
 from pylib import valgrind_tools
-
-# TODO(jbudorick) Remove once telemetry gets switched over.
-import pylib.android_commands
-import pylib.device.device_utils
 
 
 def _GetProcessStartTime(pid):
@@ -73,9 +69,6 @@ class Forwarder(object):
     Raises:
       Exception on failure to forward the port.
     """
-    # TODO(jbudorick) Remove once telemetry gets switched over.
-    if isinstance(device, pylib.android_commands.AndroidCommands):
-      device = pylib.device.device_utils.DeviceUtils(device)
     if not tool:
       tool = valgrind_tools.CreateTool(None, device)
     with _FileLock(Forwarder._LOCK_PATH):
@@ -101,6 +94,12 @@ class Forwarder(object):
           else: raise
         if exit_code != 0:
           Forwarder._KillDeviceLocked(device, tool)
+          # Log alive forwarders
+          ps_out = device.RunShellCommand(['ps'])
+          logging.info('Currently running device_forwarders:')
+          for line in ps_out:
+            if 'device_forwarder' in line:
+              logging.info('    %s', line)
           raise Exception('%s exited with %d:\n%s' % (
               instance._host_forwarder_path, exit_code, '\n'.join(output)))
         tokens = output.split(':')
@@ -123,9 +122,6 @@ class Forwarder(object):
       device: A DeviceUtils instance.
       device_port: A previously forwarded port (through Map()).
     """
-    # TODO(jbudorick) Remove once telemetry gets switched over.
-    if isinstance(device, pylib.android_commands.AndroidCommands):
-      device = pylib.device.device_utils.DeviceUtils(device)
     with _FileLock(Forwarder._LOCK_PATH):
       Forwarder._UnmapDevicePortLocked(device_port, device)
 
@@ -137,9 +133,6 @@ class Forwarder(object):
       device: A DeviceUtils instance.
       port_pairs: A list of tuples (device_port, host_port) to unmap.
     """
-    # TODO(jbudorick) Remove once telemetry gets switched over.
-    if isinstance(device, pylib.android_commands.AndroidCommands):
-      device = pylib.device.device_utils.DeviceUtils(device)
     with _FileLock(Forwarder._LOCK_PATH):
       if not Forwarder._instance:
         return
@@ -159,7 +152,7 @@ class Forwarder(object):
   def DevicePortForHostPort(host_port):
     """Returns the device port that corresponds to a given host port."""
     with _FileLock(Forwarder._LOCK_PATH):
-      (_device_serial, device_port) = Forwarder._GetInstanceLocked(
+      _, device_port = Forwarder._GetInstanceLocked(
           None)._host_to_device_port_map.get(host_port)
       return device_port
 
@@ -221,16 +214,18 @@ class Forwarder(object):
     serial = str(device)
     serial_with_port = (serial, device_port)
     if not serial_with_port in instance._device_to_host_port_map:
-      logging.error('Trying to unmap non-forwarded port %d' % device_port)
+      logging.error('Trying to unmap non-forwarded port %d', device_port)
       return
     redirection_command = ['--adb=' + constants.GetAdbPath(),
                            '--serial-id=' + serial,
                            '--unmap', str(device_port)]
+    logging.info('Undo forwarding using command: %s', redirection_command)
     (exit_code, output) = cmd_helper.GetCmdStatusAndOutput(
         [instance._host_forwarder_path] + redirection_command)
     if exit_code != 0:
-      logging.error('%s exited with %d:\n%s' % (
-          instance._host_forwarder_path, exit_code, '\n'.join(output)))
+      logging.error(
+          '%s exited with %d:\n%s',
+          instance._host_forwarder_path, exit_code, '\n'.join(output))
     host_port = instance._device_to_host_port_map[serial_with_port]
     del instance._device_to_host_port_map[serial_with_port]
     del instance._host_to_device_port_map[host_port]

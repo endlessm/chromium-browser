@@ -18,12 +18,12 @@
 #include "components/devtools_service/devtools_registry_impl.h"
 #include "components/devtools_service/devtools_service.h"
 #include "mojo/application/public/cpp/application_impl.h"
+#include "mojo/public/cpp/system/data_pipe.h"
 #include "mojo/services/network/public/cpp/web_socket_read_queue.h"
 #include "mojo/services/network/public/cpp/web_socket_write_queue.h"
 #include "mojo/services/network/public/interfaces/net_address.mojom.h"
 #include "mojo/services/network/public/interfaces/network_service.mojom.h"
 #include "mojo/services/network/public/interfaces/web_socket.mojom.h"
-#include "third_party/mojo/src/mojo/public/cpp/system/data_pipe.h"
 
 namespace devtools_service {
 
@@ -46,6 +46,16 @@ const char kTargetDescriptionField[] = "description";
 const char kTargetUrlField[] = "url";
 const char kTargetWebSocketDebuggerUrlField[] = "webSocketDebuggerUrl";
 const char kTargetDevtoolsFrontendUrlField[] = "devtoolsFrontendUrl";
+
+std::string GetHeaderValue(const mojo::HttpRequest& request,
+                           const std::string& name) {
+  for (size_t i = 0; i < request.headers.size(); ++i) {
+    if (name == request.headers[i]->name)
+      return request.headers[i]->value;
+  }
+
+  return std::string();
+}
 
 bool ParseJsonPath(const std::string& path,
                    std::string* command,
@@ -115,8 +125,7 @@ mojo::HttpResponsePtr MakeJsonResponse(uint32_t status_code,
 }
 
 class WebSocketRelayer : public DevToolsAgentHost::Delegate,
-                         public mojo::WebSocketClient,
-                         public mojo::ErrorHandler {
+                         public mojo::WebSocketClient {
  public:
   // Creates a WebSocketRelayer instance and sets it as the delegate of
   // |agent_host|.
@@ -152,7 +161,7 @@ class WebSocketRelayer : public DevToolsAgentHost::Delegate,
         write_send_stream_(new mojo::WebSocketWriteQueue(send_stream_.get())),
         pending_send_count_(0),
         pending_receive_count_(0) {
-    web_socket_.set_error_handler(this);
+    web_socket_.set_connection_error_handler([this]() { OnConnectionError(); });
     agent_host->SetDelegate(this);
   }
 
@@ -227,8 +236,7 @@ class WebSocketRelayer : public DevToolsAgentHost::Delegate,
                 uint16_t code,
                 const mojo::String& reason) override {}
 
-  // mojo::ErrorHandler implementation.
-  void OnConnectionError() override {
+  void OnConnectionError() {
     web_socket_ = nullptr;
     binding_.Close();
 
@@ -281,8 +289,7 @@ class WebSocketRelayer : public DevToolsAgentHost::Delegate,
 }  // namespace
 
 class DevToolsHttpServer::HttpConnectionDelegateImpl
-    : public mojo::HttpConnectionDelegate,
-      public mojo::ErrorHandler {
+    : public mojo::HttpConnectionDelegate {
  public:
   HttpConnectionDelegateImpl(
       DevToolsHttpServer* owner,
@@ -295,8 +302,9 @@ class DevToolsHttpServer::HttpConnectionDelegateImpl
     DCHECK(connection_);
     DCHECK(binding_.is_bound());
 
-    connection_.set_error_handler(this);
-    binding_.set_error_handler(this);
+    auto error_handler = [this]() { owner_->OnConnectionClosed(this); };
+    connection_.set_connection_error_handler(error_handler);
+    binding_.set_connection_error_handler(error_handler);
   }
 
   mojo::HttpConnection* connection() { return connection_.get(); }
@@ -313,9 +321,6 @@ class DevToolsHttpServer::HttpConnectionDelegateImpl
       const OnReceivedWebSocketRequestCallback& callback) override {
     owner_->OnReceivedWebSocketRequest(this, request.Pass(), callback);
   }
-
-  // mojo::ErrorHandler implementation.
-  void OnConnectionError() override { owner_->OnConnectionClosed(this); }
 
   DevToolsHttpServer* const owner_;
   mojo::HttpConnectionPtr connection_;
@@ -464,6 +469,12 @@ mojo::HttpResponsePtr DevToolsHttpServer::ProcessJsonRequest(
       return nullptr;
     }
 
+    std::string host = GetHeaderValue(*request, "host");
+    if (host.empty()) {
+      host = base::StringPrintf("127.0.0.1:%u",
+                                static_cast<unsigned>(remote_debugging_port_));
+    }
+
     base::ListValue list_value;
     for (; !iter.IsAtEnd(); iter.Advance()) {
       scoped_ptr<base::DictionaryValue> dict_value(new base::DictionaryValue());
@@ -477,9 +488,8 @@ mojo::HttpResponsePtr DevToolsHttpServer::ProcessJsonRequest(
       dict_value->SetString(kTargetUrlField, std::string());
       dict_value->SetString(
           kTargetWebSocketDebuggerUrlField,
-          base::StringPrintf("ws://127.0.0.1:%u%s%s",
-                             static_cast<unsigned>(remote_debugging_port_),
-                             kPageUrlPrefix, iter.value()->id().c_str()));
+          base::StringPrintf("ws://%s%s%s", host.c_str(), kPageUrlPrefix,
+                             iter.value()->id().c_str()));
       list_value.Append(dict_value.Pass());
     }
     return MakeJsonResponse(200, &list_value, std::string());

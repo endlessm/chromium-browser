@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/sync/glue/sync_backend_host_impl.h"
+#include "components/sync_driver/glue/sync_backend_host_impl.h"
 
 #include <cstddef>
 
@@ -12,26 +12,31 @@
 #include "base/message_loop/message_loop.h"
 #include "base/synchronization/waitable_event.h"
 #include "base/test/test_timeouts.h"
-#include "chrome/browser/chrome_notification_types.h"
+#include "base/time/time.h"
 #include "chrome/browser/invalidation/profile_invalidation_provider_factory.h"
-#include "chrome/browser/prefs/pref_service_syncable.h"
+#include "chrome/browser/sync/profile_sync_test_util.h"
 #include "chrome/test/base/testing_browser_process.h"
 #include "chrome/test/base/testing_profile.h"
 #include "chrome/test/base/testing_profile_manager.h"
 #include "components/invalidation/impl/invalidator_storage.h"
 #include "components/invalidation/impl/profile_invalidation_provider.h"
 #include "components/invalidation/public/invalidator_state.h"
+#include "components/invalidation/public/object_id_invalidation_map.h"
 #include "components/sync_driver/device_info.h"
+#include "components/sync_driver/fake_sync_client.h"
 #include "components/sync_driver/sync_frontend.h"
 #include "components/sync_driver/sync_prefs.h"
+#include "components/syncable_prefs/pref_service_syncable.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "content/public/test/test_utils.h"
 #include "google/cacheinvalidation/include/types.h"
 #include "google_apis/gaia/gaia_constants.h"
 #include "net/url_request/test_url_fetcher_factory.h"
+#include "net/url_request/url_request_context_getter.h"
 #include "sync/internal_api/public/base/model_type.h"
 #include "sync/internal_api/public/engine/model_safe_worker.h"
+#include "sync/internal_api/public/engine/passive_model_worker.h"
 #include "sync/internal_api/public/http_bridge_network_resources.h"
 #include "sync/internal_api/public/network_resources.h"
 #include "sync/internal_api/public/sessions/commit_counters.h"
@@ -42,6 +47,7 @@
 #include "sync/internal_api/public/util/experiments.h"
 #include "sync/protocol/encryption.pb.h"
 #include "sync/protocol/sync_protocol_error.h"
+#include "sync/test/callback_counter.h"
 #include "sync/util/test_unrecoverable_error_handler.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -68,7 +74,7 @@ ACTION_P(Signal, event) {
 }
 
 void QuitMessageLoop() {
-  base::MessageLoop::current()->Quit();
+  base::MessageLoop::current()->QuitWhenIdle();
 }
 
 class MockSyncFrontend : public sync_driver::SyncFrontend {
@@ -121,7 +127,8 @@ class FakeSyncManagerFactory : public syncer::SyncManagerFactory {
   ~FakeSyncManagerFactory() override {}
 
   // SyncManagerFactory implementation.  Called on the sync thread.
-  scoped_ptr<SyncManager> CreateSyncManager(std::string name) override {
+  scoped_ptr<SyncManager> CreateSyncManager(
+      const std::string& /* name */) override {
     *fake_manager_ = new FakeSyncManager(initial_sync_ended_types_,
                                          progress_marker_types_,
                                          configure_fail_types_);
@@ -147,6 +154,20 @@ class FakeSyncManagerFactory : public syncer::SyncManagerFactory {
   FakeSyncManager** fake_manager_;
 };
 
+class BackendSyncClient : public sync_driver::FakeSyncClient {
+ public:
+  scoped_refptr<syncer::ModelSafeWorker> CreateModelWorkerForGroup(
+      syncer::ModelSafeGroup group,
+      syncer::WorkerLoopDestructionObserver* observer) override {
+    switch (group) {
+      case syncer::GROUP_PASSIVE:
+        return new syncer::PassiveModelWorker(observer);
+      default:
+        return nullptr;
+    }
+  }
+};
+
 class SyncBackendHostTest : public testing::Test {
  protected:
   SyncBackendHostTest()
@@ -161,12 +182,13 @@ class SyncBackendHostTest : public testing::Test {
     profile_ = profile_manager_.CreateTestingProfile(kTestProfileName);
     sync_prefs_.reset(new sync_driver::SyncPrefs(profile_->GetPrefs()));
     backend_.reset(new SyncBackendHostImpl(
-        profile_->GetDebugName(),
-        profile_,
+        profile_->GetDebugName(), &sync_client_,
+        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::UI),
         invalidation::ProfileInvalidationProviderFactory::GetForProfile(
-            profile_)->GetInvalidationService(),
+            profile_)
+            ->GetInvalidationService(),
         sync_prefs_->AsWeakPtr(),
-        base::FilePath(kTestSyncDir)));
+        profile_->GetPath().Append(base::FilePath(kTestSyncDir))));
     credentials_.email = "user@example.com";
     credentials_.sync_token = "sync_token";
     credentials_.scope_set.insert(GaiaConstants::kChromeSyncOAuth2Scope);
@@ -208,17 +230,20 @@ class SyncBackendHostTest : public testing::Test {
   void InitializeBackend(bool expect_success) {
     EXPECT_CALL(mock_frontend_, OnBackendInitialized(_, _, _, expect_success)).
         WillOnce(InvokeWithoutArgs(QuitMessageLoop));
+    SyncBackendHost::HttpPostProviderFactoryGetter
+        http_post_provider_factory_getter =
+            base::Bind(&syncer::NetworkResources::GetHttpPostProviderFactory,
+                       base::Unretained(network_resources_.get()),
+                       make_scoped_refptr(profile_->GetRequestContext()),
+                       base::Bind(&EmptyNetworkTimeUpdate));
     backend_->Initialize(
-        &mock_frontend_,
-        scoped_ptr<base::Thread>(),
-        syncer::WeakHandle<syncer::JsEventHandler>(),
-        GURL(std::string()),
-        credentials_,
-        true,
-        fake_manager_factory_.Pass(),
-        make_scoped_ptr(new syncer::TestUnrecoverableErrorHandler),
-        base::Closure(),
-        network_resources_.get(),
+        &mock_frontend_, scoped_ptr<base::Thread>(),
+        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::DB),
+        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE),
+        syncer::WeakHandle<syncer::JsEventHandler>(), GURL(std::string()),
+        std::string(), credentials_, true, fake_manager_factory_.Pass(),
+        MakeWeakHandle(test_unrecoverable_error_handler_.GetWeakPtr()),
+        base::Closure(), http_post_provider_factory_getter,
         saved_nigori_state_.Pass());
     base::RunLoop run_loop;
     BrowserThread::PostDelayedTask(BrowserThread::UI, FROM_HERE,
@@ -263,19 +288,10 @@ class SyncBackendHostTest : public testing::Test {
     return ready_types;
   }
 
-  void IssueRefreshRequest(syncer::ModelTypeSet types) {
-    DCHECK_CURRENTLY_ON(BrowserThread::UI);
-
-    content::NotificationService::current()->Notify(
-        chrome::NOTIFICATION_SYNC_REFRESH_LOCAL,
-        content::Source<Profile>(profile_),
-        content::Details<syncer::ModelTypeSet>(&types));
-  }
-
  protected:
   void DownloadReady(syncer::ModelTypeSet succeeded_types,
                      syncer::ModelTypeSet failed_types) {
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
   }
 
   void OnDownloadRetry() {
@@ -287,8 +303,10 @@ class SyncBackendHostTest : public testing::Test {
   syncer::SyncCredentials credentials_;
   TestingProfileManager profile_manager_;
   TestingProfile* profile_;
+  BackendSyncClient sync_client_;
+  syncer::TestUnrecoverableErrorHandler test_unrecoverable_error_handler_;
   scoped_ptr<sync_driver::SyncPrefs> sync_prefs_;
-  scoped_ptr<SyncBackendHost> backend_;
+  scoped_ptr<SyncBackendHostImpl> backend_;
   scoped_ptr<FakeSyncManagerFactory> fake_manager_factory_;
   FakeSyncManager* fake_manager_;
   syncer::ModelTypeSet enabled_types_;
@@ -690,40 +708,14 @@ TEST_F(SyncBackendHostTest, ForwardLocalRefreshRequest) {
   InitializeBackend(true);
 
   syncer::ModelTypeSet set1 = syncer::ModelTypeSet::All();
-  IssueRefreshRequest(set1);
+  backend_->TriggerRefresh(set1);
   fake_manager_->WaitForSyncThread();
   EXPECT_TRUE(set1.Equals(fake_manager_->GetLastRefreshRequestTypes()));
 
   syncer::ModelTypeSet set2 = syncer::ModelTypeSet(syncer::SESSIONS);
-  IssueRefreshRequest(set2);
+  backend_->TriggerRefresh(set2);
   fake_manager_->WaitForSyncThread();
   EXPECT_TRUE(set2.Equals(fake_manager_->GetLastRefreshRequestTypes()));
-}
-
-// Test that local invalidations issued before sync is initialized are ignored.
-TEST_F(SyncBackendHostTest, AttemptForwardLocalRefreshRequestEarly) {
-  syncer::ModelTypeSet set1 = syncer::ModelTypeSet::All();
-  IssueRefreshRequest(set1);
-
-  InitializeBackend(true);
-
-  fake_manager_->WaitForSyncThread();
-  EXPECT_FALSE(set1.Equals(fake_manager_->GetLastRefreshRequestTypes()));
-}
-
-// Test that local invalidations issued while sync is shutting down are ignored.
-TEST_F(SyncBackendHostTest, AttemptForwardLocalRefreshRequestLate) {
-  InitializeBackend(true);
-
-  backend_->StopSyncingForShutdown();
-
-  syncer::ModelTypeSet types = syncer::ModelTypeSet::All();
-  IssueRefreshRequest(types);
-  fake_manager_->WaitForSyncThread();
-  EXPECT_FALSE(types.Equals(fake_manager_->GetLastRefreshRequestTypes()));
-
-  backend_->Shutdown(syncer::STOP_SYNC);
-  backend_.reset();
 }
 
 // Test that configuration on signin sends the proper GU source.
@@ -795,6 +787,78 @@ TEST_F(SyncBackendHostTest, DisableThenPurgeType) {
       ready_types.Equals(syncer::Difference(enabled_types_, error_types)));
   EXPECT_FALSE(fake_manager_->GetTypesWithEmptyProgressMarkerToken(
       error_types).Empty());
+}
+
+// Test that a call to ClearServerData is forwarded to the underlying
+// SyncManager.
+TEST_F(SyncBackendHostTest, ClearServerDataCallsAreForwarded) {
+  InitializeBackend(true);
+  syncer::CallbackCounter callback_counter;
+  backend_->ClearServerData(base::Bind(&syncer::CallbackCounter::Callback,
+                                       base::Unretained(&callback_counter)));
+  fake_manager_->WaitForSyncThread();
+  EXPECT_EQ(1, callback_counter.times_called());
+}
+
+// Ensure that redundant invalidations are ignored and that the most recent
+// set of invalidation version is persisted across restarts.
+TEST_F(SyncBackendHostTest, IgnoreOldInvalidations) {
+  // Set up some old persisted invalidations.
+  std::map<syncer::ModelType, int64> invalidation_versions;
+  invalidation_versions[syncer::BOOKMARKS] = 20;
+  sync_prefs_->UpdateInvalidationVersions(invalidation_versions);
+  InitializeBackend(true);
+  EXPECT_EQ(0, fake_manager_->GetInvalidationCount());
+
+  // Receiving an invalidation with an old version should do nothing.
+  syncer::ObjectIdInvalidationMap invalidation_map;
+  std::string notification_type;
+  syncer::RealModelTypeToNotificationType(syncer::BOOKMARKS,
+                                          &notification_type);
+  invalidation_map.Insert(syncer::Invalidation::Init(
+      invalidation::ObjectId(0, notification_type), 10, "payload"));
+  backend_->OnIncomingInvalidation(invalidation_map);
+  fake_manager_->WaitForSyncThread();
+  EXPECT_EQ(0, fake_manager_->GetInvalidationCount());
+
+  // Invalidations with new versions should be acted upon.
+  invalidation_map.Insert(syncer::Invalidation::Init(
+      invalidation::ObjectId(0, notification_type), 30, "payload"));
+  backend_->OnIncomingInvalidation(invalidation_map);
+  fake_manager_->WaitForSyncThread();
+  EXPECT_EQ(1, fake_manager_->GetInvalidationCount());
+
+  // Invalidation for new data types should be acted on.
+  syncer::RealModelTypeToNotificationType(syncer::SESSIONS, &notification_type);
+  invalidation_map.Insert(syncer::Invalidation::Init(
+      invalidation::ObjectId(0, notification_type), 10, "payload"));
+  backend_->OnIncomingInvalidation(invalidation_map);
+  fake_manager_->WaitForSyncThread();
+  EXPECT_EQ(2, fake_manager_->GetInvalidationCount());
+
+  // But redelivering that same invalidation should be ignored.
+  backend_->OnIncomingInvalidation(invalidation_map);
+  fake_manager_->WaitForSyncThread();
+  EXPECT_EQ(2, fake_manager_->GetInvalidationCount());
+
+  // If an invalidation with an unknown version is received, it should be
+  // acted on, but should not affect the persisted versions.
+  invalidation_map.Insert(syncer::Invalidation::InitUnknownVersion(
+      invalidation::ObjectId(0, notification_type)));
+  backend_->OnIncomingInvalidation(invalidation_map);
+  fake_manager_->WaitForSyncThread();
+  EXPECT_EQ(3, fake_manager_->GetInvalidationCount());
+
+  // Verify that the invalidation versions were updated in the prefs.
+  invalidation_versions[syncer::BOOKMARKS] = 30;
+  invalidation_versions[syncer::SESSIONS] = 10;
+  std::map<syncer::ModelType, int64> persisted_invalidation_versions;
+  sync_prefs_->GetInvalidationVersions(&persisted_invalidation_versions);
+  EXPECT_EQ(invalidation_versions.size(),
+            persisted_invalidation_versions.size());
+  for (auto iter : persisted_invalidation_versions) {
+    EXPECT_EQ(invalidation_versions[iter.first], iter.second);
+  }
 }
 
 }  // namespace

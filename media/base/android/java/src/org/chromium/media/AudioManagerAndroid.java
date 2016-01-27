@@ -25,16 +25,17 @@ import android.os.HandlerThread;
 import android.os.Process;
 import android.provider.Settings;
 
-import org.chromium.base.CalledByNative;
-import org.chromium.base.JNINamespace;
 import org.chromium.base.Log;
+import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.JNINamespace;
+import org.chromium.base.annotations.SuppressFBWarnings;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 @JNINamespace("media")
-class AudioManagerAndroid {
+class AudioManagerAndroid implements AudioManager.OnAudioFocusChangeListener{
     private static final String TAG = "cr.media";
 
     // Set to true to enable debug logs. Avoid in production builds.
@@ -277,14 +278,15 @@ class AudioManagerAndroid {
     }
 
     /**
-     * Saves current audio mode and sets audio mode to MODE_IN_COMMUNICATION
-     * if input parameter is true. Restores saved audio mode if input parameter
-     * is false.
+     * Requests audio focus for voice call and sets audio mode as COMMUNICATION if input parameter
+     * is true. Abandon audio focus and restore saved audio mode if input parameter is false.
      * Required permission: android.Manifest.permission.MODIFY_AUDIO_SETTINGS.
      */
     @CalledByNative
     private void setCommunicationAudioModeOn(boolean on) {
-        if (DEBUG) logd("setCommunicationAudioModeOn(" + on + ")");
+        checkIfCalledOnValidThread();
+        if (DEBUG) logd("setCommunicationAudioModeOn" + on + ")");
+        if (!mIsInitialized) return;
 
         // The MODIFY_AUDIO_SETTINGS permission is required to allow an
         // application to modify global audio settings.
@@ -295,8 +297,49 @@ class AudioManagerAndroid {
         }
 
         if (on) {
+            // Request audio focus for a voice call of unknown duration.
+            mAudioManager.requestAudioFocus(this, AudioManager.STREAM_VOICE_CALL,
+                    AudioManager.AUDIOFOCUS_GAIN);
+
+            // Store microphone mute state and speakerphone state so it can
+            // be restored when closing.
+            mSavedIsSpeakerphoneOn = mAudioManager.isSpeakerphoneOn();
+            mSavedIsMicrophoneMute = mAudioManager.isMicrophoneMute();
+
+            // Start observing volume changes to detect when the
+            // voice/communication stream volume is at its lowest level.
+            // It is only possible to pull down the volume slider to about 20%
+            // of the absolute minimum (slider at far left) in communication
+            // mode but we want to be able to mute it completely.
+            startObservingVolumeChanges();
+        } else {
+            mAudioManager.abandonAudioFocus(this);
+
+            stopObservingVolumeChanges();
+            stopBluetoothSco();
+            synchronized (mLock) {
+                mRequestedAudioDevice = DEVICE_INVALID;
+            }
+
+            // Restore previously stored audio states.
+            setMicrophoneMute(mSavedIsMicrophoneMute);
+            setSpeakerphoneOn(mSavedIsSpeakerphoneOn);
+        }
+
+        setCommunicationAudioModeOnInternal(on);
+    }
+
+    /**
+     * Sets audio mode to MODE_IN_COMMUNICATION if input parameter is true.
+     * Restores saved audio mode if input parameter is false.
+     */
+    private void setCommunicationAudioModeOnInternal(boolean on) {
+        if (DEBUG) logd("setCommunicationAudioModeOn(" + on + ")");
+
+        if (on) {
             if (mSavedAudioMode != AudioManager.MODE_INVALID) {
-                throw new IllegalStateException("Audio mode has already been set");
+                Log.w(TAG, "Audio mode has already been set");
+                return;
             }
 
             // Store the current audio mode the first time we try to
@@ -309,11 +352,6 @@ class AudioManagerAndroid {
 
             }
 
-            // Store microphone mute state and speakerphone state so it can
-            // be restored when closing.
-            mSavedIsSpeakerphoneOn = mAudioManager.isSpeakerphoneOn();
-            mSavedIsMicrophoneMute = mAudioManager.isMicrophoneMute();
-
             try {
                 mAudioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
             } catch (SecurityException e) {
@@ -321,23 +359,11 @@ class AudioManagerAndroid {
                 throw e;
             }
 
-            // Start observing volume changes to detect when the
-            // voice/communication stream volume is at its lowest level.
-            // It is only possible to pull down the volume slider to about 20%
-            // of the absolute minimum (slider at far left) in communication
-            // mode but we want to be able to mute it completely.
-            startObservingVolumeChanges();
-
         } else {
             if (mSavedAudioMode == AudioManager.MODE_INVALID) {
-                throw new IllegalStateException("Audio mode has not yet been set");
+                Log.w(TAG, "Audio mode has not yet been set");
+                return;
             }
-
-            stopObservingVolumeChanges();
-
-            // Restore previously stored audio states.
-            setMicrophoneMute(mSavedIsMicrophoneMute);
-            setSpeakerphoneOn(mSavedIsSpeakerphoneOn);
 
             // Restore the mode that was used before we switched to
             // communication mode.
@@ -348,6 +374,25 @@ class AudioManagerAndroid {
                 throw e;
             }
             mSavedAudioMode = AudioManager.MODE_INVALID;
+        }
+    }
+
+    /**
+     * Restores saved audio mode when we lose audio focus.
+     * Sets communication audio mode when we gain audio focus again.
+     * See https://crbug.com/525597 for more details.
+     */
+    @Override
+    public void onAudioFocusChange(int focusChange) {
+        if (DEBUG) logd("onAudioFocusChange: " + focusChange);
+
+        switch (focusChange) {
+            case AudioManager.AUDIOFOCUS_GAIN:
+                setCommunicationAudioModeOnInternal(true);
+                break;
+            default:
+                setCommunicationAudioModeOnInternal(false);
+                break;
         }
     }
 
@@ -405,6 +450,7 @@ class AudioManagerAndroid {
      * Required permissions: android.Manifest.permission.MODIFY_AUDIO_SETTINGS
      * and android.Manifest.permission.RECORD_AUDIO.
      */
+    @SuppressFBWarnings("UC_USELESS_OBJECT")
     @CalledByNative
     private AudioDeviceName[] getAudioInputDeviceNames() {
         if (DEBUG) logd("getAudioInputDeviceNames");
@@ -790,11 +836,7 @@ class AudioManagerAndroid {
                         break;
                 }
 
-                // Update the existing device selection, but only if a specific
-                // device has already been selected explicitly.
-                if (deviceHasBeenRequested()) {
-                    updateDeviceActivation();
-                } else if (DEBUG) {
+                if (DEBUG) {
                     reportUpdate();
                 }
             }
@@ -834,6 +876,14 @@ class AudioManagerAndroid {
                         mBluetoothScoState = STATE_BLUETOOTH_SCO_ON;
                         break;
                     case AudioManager.SCO_AUDIO_STATE_DISCONNECTED:
+                        if (mBluetoothScoState != STATE_BLUETOOTH_SCO_TURNING_OFF) {
+                            // Bluetooth is probably powered off during the call.
+                            // Update the existing device selection, but only if a specific
+                            // device has already been selected explicitly.
+                            if (deviceHasBeenRequested()) {
+                                updateDeviceActivation();
+                            }
+                        }
                         mBluetoothScoState = STATE_BLUETOOTH_SCO_OFF;
                         break;
                     case AudioManager.SCO_AUDIO_STATE_CONNECTING:
@@ -892,6 +942,7 @@ class AudioManagerAndroid {
         if (!mAudioManager.isBluetoothScoOn()) {
             // TODO(henrika): can we do anything else than logging here?
             loge("Unable to stop BT SCO since it is already disabled");
+            mBluetoothScoState = STATE_BLUETOOTH_SCO_OFF;
             return;
         }
 
@@ -1004,12 +1055,12 @@ class AudioManagerAndroid {
      * TODO(henrika): add support for state change listener.
      */
     private void reportUpdate() {
-        synchronized (mLock) {
-            List<String> devices = new ArrayList<String>();
-            for (int i = 0; i < DEVICE_COUNT; ++i) {
-                if (mAudioDevices[i]) devices.add(DEVICE_NAMES[i]);
-            }
-            if (DEBUG) {
+        if (DEBUG) {
+            synchronized (mLock) {
+                List<String> devices = new ArrayList<String>();
+                for (int i = 0; i < DEVICE_COUNT; ++i) {
+                    if (mAudioDevices[i]) devices.add(DEVICE_NAMES[i]);
+                }
                 logd("reportUpdate: requested=" + mRequestedAudioDevice
                         + ", btSco=" + mBluetoothScoState
                         + ", devices=" + devices);
@@ -1055,11 +1106,15 @@ class AudioManagerAndroid {
                     if (DEBUG) logd("SettingsObserver.onChange: " + selfChange);
                     super.onChange(selfChange);
 
+                    /**
+                     * According to https://crbug.com/488332, on some Samsung devices we may
+                     * fail to verify the mode is MODE_IN_COMMUNICATION as we set previously.
+                     * Disable the check as a temporary fix until we understand what's going on.
                     // Ensure that the observer is activated during communication mode.
                     if (mAudioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) {
                         throw new IllegalStateException(
                                 "Only enable SettingsObserver in COMM mode");
-                    }
+                    }*/
 
                     // Get stream volume for the voice stream and deliver callback if
                     // the volume index is zero. It is not possible to move the volume

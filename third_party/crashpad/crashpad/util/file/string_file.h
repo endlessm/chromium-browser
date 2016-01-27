@@ -21,6 +21,7 @@
 
 #include "base/basictypes.h"
 #include "base/numerics/safe_math.h"
+#include "util/file/file_io.h"
 #include "util/file/file_reader.h"
 #include "util/file/file_writer.h"
 
@@ -36,7 +37,7 @@ namespace crashpad {
 class StringFile : public FileReaderInterface, public FileWriterInterface {
  public:
   StringFile();
-  ~StringFile();
+  ~StringFile() override;
 
   //! \brief Returns a string containing the virtual file’s contents.
   const std::string& string() const { return string_; }
@@ -50,7 +51,7 @@ class StringFile : public FileReaderInterface, public FileWriterInterface {
   void Reset();
 
   // FileReaderInterface:
-  ssize_t Read(void* data, size_t size) override;
+  FileOperationResult Read(void* data, size_t size) override;
 
   // FileWriterInterface:
   bool Write(const void* data, size_t size) override;

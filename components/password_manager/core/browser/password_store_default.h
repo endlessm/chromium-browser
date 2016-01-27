@@ -46,12 +46,18 @@ class PasswordStoreDefault : public PasswordStore {
       const autofill::PasswordForm& form) override;
   PasswordStoreChangeList RemoveLoginImpl(
       const autofill::PasswordForm& form) override;
+  PasswordStoreChangeList RemoveLoginsByOriginAndTimeImpl(
+      const url::Origin& origin,
+      base::Time delete_begin,
+      base::Time delete_end) override;
   PasswordStoreChangeList RemoveLoginsCreatedBetweenImpl(
       base::Time delete_begin,
       base::Time delete_end) override;
   PasswordStoreChangeList RemoveLoginsSyncedBetweenImpl(
       base::Time delete_begin,
       base::Time delete_end) override;
+  bool RemoveStatisticsCreatedBetweenImpl(base::Time delete_begin,
+                                          base::Time delete_end) override;
   ScopedVector<autofill::PasswordForm> FillMatchingLogins(
       const autofill::PasswordForm& form,
       AuthorizationPromptPolicy prompt_policy) override;
@@ -61,7 +67,7 @@ class PasswordStoreDefault : public PasswordStore {
       ScopedVector<autofill::PasswordForm>* forms) override;
   void AddSiteStatsImpl(const InteractionsStats& stats) override;
   void RemoveSiteStatsImpl(const GURL& origin_domain) override;
-  scoped_ptr<InteractionsStats> GetSiteStatsImpl(
+  ScopedVector<InteractionsStats> GetSiteStatsImpl(
       const GURL& origin_domain) override;
 
   inline bool DeleteAndRecreateDatabaseFile() {

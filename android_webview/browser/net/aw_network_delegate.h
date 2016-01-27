@@ -13,6 +13,10 @@ class ProxyInfo;
 class URLRequest;
 }
 
+namespace policy {
+class URLBlacklistManager;
+}
+
 namespace android_webview {
 
 // WebView's implementation of the NetworkDelegate.
@@ -40,7 +44,6 @@ class AwNetworkDelegate : public net::NetworkDelegateImpl {
   void OnBeforeRedirect(net::URLRequest* request,
                         const GURL& new_location) override;
   void OnResponseStarted(net::URLRequest* request) override;
-  void OnRawBytesRead(const net::URLRequest& request, int bytes_read) override;
   void OnCompleted(net::URLRequest* request, bool started) override;
   void OnURLRequestDestroyed(net::URLRequest* request) override;
   void OnPACScriptError(int line_number, const base::string16& error) override;
@@ -56,6 +59,9 @@ class AwNetworkDelegate : public net::NetworkDelegateImpl {
                       net::CookieOptions* options) override;
   bool OnCanAccessFile(const net::URLRequest& request,
                        const base::FilePath& path) const override;
+
+  // Used to filter URL requests. Owned by AwBrowserContext.
+  const policy::URLBlacklistManager* url_blacklist_manager_;
 
   DISALLOW_COPY_AND_ASSIGN(AwNetworkDelegate);
 };

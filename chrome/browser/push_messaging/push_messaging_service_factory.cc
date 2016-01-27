@@ -4,6 +4,8 @@
 
 #include "chrome/browser/push_messaging/push_messaging_service_factory.h"
 
+#include "base/memory/scoped_ptr.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/push_messaging/push_messaging_service_impl.h"
@@ -25,7 +27,7 @@ PushMessagingServiceImpl* PushMessagingServiceFactory::GetForProfile(
 
 // static
 PushMessagingServiceFactory* PushMessagingServiceFactory::GetInstance() {
-  return Singleton<PushMessagingServiceFactory>::get();
+  return base::Singleton<PushMessagingServiceFactory>::get();
 }
 
 PushMessagingServiceFactory::PushMessagingServiceFactory()
@@ -33,9 +35,18 @@ PushMessagingServiceFactory::PushMessagingServiceFactory()
           "PushMessagingProfileService",
           BrowserContextDependencyManager::GetInstance()) {
   DependsOn(gcm::GCMProfileServiceFactory::GetInstance());
+  DependsOn(HostContentSettingsMapFactory::GetInstance());
 }
 
 PushMessagingServiceFactory::~PushMessagingServiceFactory() {
+}
+
+void PushMessagingServiceFactory::RestoreFactoryForTests(
+    content::BrowserContext* context) {
+  SetTestingFactory(context, [](content::BrowserContext* context) {
+    return scoped_ptr<KeyedService>(
+        GetInstance()->BuildServiceInstanceFor(context));
+  });
 }
 
 KeyedService* PushMessagingServiceFactory::BuildServiceInstanceFor(

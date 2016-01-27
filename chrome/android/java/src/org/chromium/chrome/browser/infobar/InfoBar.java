@@ -8,8 +8,8 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.view.View;
 
-import org.chromium.base.CalledByNative;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.base.annotations.CalledByNative;
 import org.chromium.chrome.R;
 
 /**
@@ -19,26 +19,6 @@ import org.chromium.chrome.R;
  */
 public abstract class InfoBar implements InfoBarView {
     private static final String TAG = "InfoBar";
-
-    /**
-     * Possible labels of all the infobar buttons.
-     *
-     * Make sure this set of values is aligned with the C++ correspondent in
-     * infobar_android.h
-     */
-    public static final int ACTION_TYPE_NONE = 0;
-
-    // Confirm infobar
-    public static final int ACTION_TYPE_OK = 1;
-    public static final int ACTION_TYPE_CANCEL = 2;
-
-    // Translate infobar
-    public static final int ACTION_TYPE_TRANSLATE = 3;
-    public static final int ACTION_TYPE_TRANSLATE_SHOW_ORIGINAL = 4;
-
-    // Download Overwrite InfoBar
-    public static final int ACTION_TYPE_OVERWRITE = 5;
-    public static final int ACTION_TYPE_CREATE_NEW_FILE = 6;
 
     private final int mIconDrawableId;
     private final Bitmap mIconBitmap;
@@ -225,12 +205,10 @@ public abstract class InfoBar implements InfoBarView {
 
     /**
      * Performs some action related to the button being clicked.
-     *
      * @param action The type of action defined as ACTION_* in this class.
-     * @param actionValue An additional string associated with the action if any. "" if none.
      */
-    protected void onButtonClicked(int action, String actionValue) {
-        if (mNativeInfoBarPtr != 0) nativeOnButtonClicked(mNativeInfoBarPtr, action, actionValue);
+    protected void onButtonClicked(int action) {
+        if (mNativeInfoBarPtr != 0) nativeOnButtonClicked(mNativeInfoBarPtr, action);
     }
 
     @Override
@@ -264,7 +242,6 @@ public abstract class InfoBar implements InfoBarView {
     }
 
     private native void nativeOnLinkClicked(long nativeInfoBarAndroid);
-    private native void nativeOnButtonClicked(
-            long nativeInfoBarAndroid, int action, String actionValue);
+    private native void nativeOnButtonClicked(long nativeInfoBarAndroid, int action);
     private native void nativeOnCloseButtonClicked(long nativeInfoBarAndroid);
 }

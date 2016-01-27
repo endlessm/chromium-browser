@@ -14,12 +14,11 @@
 
 #include "handler/mac/crash_report_exception_handler.h"
 
-#include <servers/bootstrap.h>
-
 #include <vector>
 
 #include "base/logging.h"
 #include "base/mac/mach_logging.h"
+#include "base/mac/scoped_mach_port.h"
 #include "base/strings/stringprintf.h"
 #include "client/settings.h"
 #include "minidump/minidump_file_writer.h"
@@ -111,27 +110,14 @@ kern_return_t CrashReportExceptionHandler::CatchMachException(
     }
   }
 
-  if (IsExceptionNonfatalResource(exception, code[0], pid)) {
-    // Swallow non-fatal resource exceptions.
-    //
-    // Normally, all EXC_RESOURCE exceptions go to the host-level EXC_RESOURCE
-    // handler, com.apple.ReportCrash.root, which invokes spindump to handle
-    // them. These non-fatal exceptions are never user-visible and are not
-    // currently of interest to Crashpad. Returning success here gets the
-    // process going again quickly, without generating a crash report.
-    //
-    // Alternatively, this could return KERN_FAILURE to let the exception go to
-    // the host-level handler, but there doesn’t seem to be much value in doing
-    // so.
-    ExcServerCopyState(
-        behavior, old_state, old_state_count, new_state, new_state_count);
-    return ExcServerSuccessfulReturnValue(behavior, false);
-  }
-
   CrashpadInfoClientOptions client_options;
   process_snapshot.GetCrashpadOptions(&client_options);
 
-  if (client_options.crashpad_handler_behavior != TriState::kDisabled) {
+  if (client_options.crashpad_handler_behavior != TriState::kDisabled &&
+      !IsExceptionNonfatalResource(exception, code[0], pid)) {
+    // Non-fatal resource exceptions are never user-visible and are not
+    // currently of interest to Crashpad.
+
     if (!process_snapshot.InitializeException(behavior,
                                               thread,
                                               exception,
@@ -186,7 +172,6 @@ kern_return_t CrashReportExceptionHandler::CatchMachException(
     upload_thread_->ReportPending();
   }
 
-  bool forwarded = false;
   if (client_options.system_crash_reporter_forwarding != TriState::kDisabled &&
       (exception == EXC_CRASH ||
        exception == EXC_RESOURCE ||
@@ -199,19 +184,9 @@ kern_return_t CrashReportExceptionHandler::CatchMachException(
     // processes that haven’t actually crashed, and could result in reports not
     // actually associated with crashes being sent to the operating system
     // vendor.
-    //
-    // Note that normally, EXC_RESOURCE and EXC_GUARD exceptions are sent to the
-    // system-level com.apple.ReportCrash.Root job, and not to the user-level
-    // job that they are forwarded to here.
-    mach_port_t system_crash_reporter_port;
-    const char kSystemCrashReporterServiceName[] = "com.apple.ReportCrash";
-    kern_return_t kr = bootstrap_look_up(bootstrap_port,
-                                         kSystemCrashReporterServiceName,
-                                         &system_crash_reporter_port);
-    if (kr != BOOTSTRAP_SUCCESS) {
-      BOOTSTRAP_LOG(ERROR, kr) << "bootstrap_look_up "
-                               << kSystemCrashReporterServiceName;
-    } else {
+    base::mac::ScopedMachSendRight
+        system_crash_reporter_handler(SystemCrashReporterHandler());
+    if (system_crash_reporter_handler.get()) {
       // Make copies of mutable out parameters so that the system crash reporter
       // can’t influence the state returned by this method.
       thread_state_flavor_t flavor_forward = *flavor;
@@ -228,9 +203,9 @@ kern_return_t CrashReportExceptionHandler::CatchMachException(
       // problems may arise if the state wasn’t available and the system crash
       // reporter changes in the future to use it. However, normally, the state
       // will be available.
-      kr = UniversalExceptionRaise(
+      kern_return_t kr = UniversalExceptionRaise(
           EXCEPTION_STATE_IDENTITY | MACH_EXCEPTION_CODES,
-          system_crash_reporter_port,
+          system_crash_reporter_handler.get(),
           thread,
           task,
           exception,
@@ -241,21 +216,14 @@ kern_return_t CrashReportExceptionHandler::CatchMachException(
           old_state_count,
           new_state_forward_count ? &new_state_forward[0] : nullptr,
           &new_state_forward_count);
-      if (kr == KERN_SUCCESS) {
-        forwarded = true;
-      } else {
-        MACH_LOG(WARNING, kr)
-            << "UniversalExceptionRaise " << kSystemCrashReporterServiceName;
-      }
+      MACH_LOG_IF(WARNING, kr != KERN_SUCCESS, kr) << "UniversalExceptionRaise";
     }
   }
 
-  if (!forwarded) {
-    ExcServerCopyState(
-        behavior, old_state, old_state_count, new_state, new_state_count);
-  }
+  ExcServerCopyState(
+      behavior, old_state, old_state_count, new_state, new_state_count);
 
-  return ExcServerSuccessfulReturnValue(behavior, false);
+  return ExcServerSuccessfulReturnValue(exception, behavior, false);
 }
 
 }  // namespace crashpad

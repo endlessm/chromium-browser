@@ -16,17 +16,17 @@
 #include "base/thread_task_runner_handle.h"
 #include "base/time/time.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/sync/sessions/notification_service_sessions_router.h"
-#include "chrome/browser/sync/sessions/sessions_sync_manager.h"
 #include "chrome/browser/sync/test/integration/multi_client_status_change_checker.h"
 #include "chrome/browser/sync/test/integration/profile_sync_service_harness.h"
 #include "chrome/browser/sync/test/integration/sync_datatype_helper.h"
 #include "chrome/browser/sync/test/integration/sync_test.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/common/chrome_switches.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/sync_driver/open_tabs_ui_delegate.h"
+#include "components/sync_driver/sync_client.h"
 #include "content/public/test/test_utils.h"
 #include "url/gurl.h"
 
@@ -156,9 +156,7 @@ class TabEventHandler : public browser_sync::LocalSessionEventHandler {
   }
 
  private:
-  void QuitLoop() {
-    base::MessageLoop::current()->Quit();
-  }
+  void QuitLoop() { base::MessageLoop::current()->QuitWhenIdle(); }
 
   base::WeakPtrFactory<TabEventHandler> weak_factory_;
 };
@@ -185,6 +183,10 @@ bool WaitForTabsToLoad(int index, const std::vector<GURL>& urls) {
         TabEventHandler handler;
         browser_sync::NotificationServiceSessionsRouter router(
             test()->GetProfile(index),
+            ProfileSyncServiceFactory::GetInstance()
+                ->GetForProfile(test()->GetProfile(index))
+                ->GetSyncClient()
+                ->GetSyncSessionsClient(),
             syncer::SyncableService::StartSyncFlare());
         router.StartRoutingTo(&handler);
         content::RunMessageLoop();

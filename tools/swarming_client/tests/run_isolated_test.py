@@ -10,7 +10,6 @@ import functools
 import json
 import logging
 import os
-import shutil
 import sys
 import tempfile
 import unittest
@@ -23,7 +22,9 @@ import isolated_format
 import isolateserver
 import run_isolated
 from depot_tools import auto_stub
+from depot_tools import fix_encoding
 from utils import file_path
+from utils import logging_utils
 from utils import on_error
 from utils import subprocess42
 from utils import tools
@@ -43,6 +44,8 @@ def json_dumps(data):
 class StorageFake(object):
   def __init__(self, files):
     self._files = files.copy()
+    self.namespace = 'default-gzip'
+    self.location = 'http://localhost:1'
 
   def __enter__(self, *_):
     return self
@@ -58,6 +61,9 @@ class StorageFake(object):
     sink([self._files[digest]])
     channel.send_result(digest)
 
+  def upload_items(self, *args, **kwargs):
+    pass
+
 
 class RunIsolatedTestBase(auto_stub.TestCase):
   def setUp(self):
@@ -66,6 +72,9 @@ class RunIsolatedTestBase(auto_stub.TestCase):
     logging.debug(self.tempdir)
     self.mock(run_isolated, 'make_temp_dir', self.fake_make_temp_dir)
     self.mock(run_isolated.auth, 'ensure_logged_in', lambda _: None)
+    self.mock(
+        logging_utils.OptionParserWithLogging, 'logger_root',
+        logging.Logger('unittest'))
 
   def tearDown(self):
     for dirpath, dirnames, filenames in os.walk(self.tempdir, topdown=True):
@@ -73,17 +82,17 @@ class RunIsolatedTestBase(auto_stub.TestCase):
         file_path.set_read_only(os.path.join(dirpath, filename), False)
       for dirname in dirnames:
         file_path.set_read_only(os.path.join(dirpath, dirname), False)
-    shutil.rmtree(self.tempdir)
+    file_path.rmtree(self.tempdir)
     super(RunIsolatedTestBase, self).tearDown()
 
   @property
   def run_test_temp_dir(self):
     """Where to map all files in run_isolated.run_tha_test."""
-    return os.path.join(self.tempdir, 'run_tha_test')
+    return os.path.join(self.tempdir, 'isolated_run')
 
   def fake_make_temp_dir(self, prefix, _root_dir=None):
     """Predictably returns directory for run_tha_test (one per test case)."""
-    self.assertIn(prefix, ('run_tha_test', 'isolated_out'))
+    self.assertIn(prefix, ('isolated_out', 'isolated_run', 'isolated_tmp'))
     temp_dir = os.path.join(self.tempdir, prefix)
     self.assertFalse(os.path.isdir(temp_dir))
     os.makedirs(temp_dir)
@@ -106,9 +115,9 @@ class RunIsolatedTest(RunIsolatedTestBase):
         self.popen_calls.append((args, kwargs))
         self2.returncode = None
 
-      def communicate(self):
+      def wait(self, timeout=None):  # pylint: disable=unused-argument
         self.returncode = 0
-        return ('', None)
+        return self.returncode
 
       def kill(self):
         pass
@@ -177,6 +186,10 @@ class RunIsolatedTest(RunIsolatedTestBase):
         StorageFake(files),
         isolateserver.MemoryCache(),
         False,
+        None,
+        None,
+        None,
+        None,
         [])
     self.assertEqual(0, ret)
     return make_tree_call
@@ -187,7 +200,10 @@ class RunIsolatedTest(RunIsolatedTestBase):
     files = {isolated_hash:isolated}
     make_tree_call = self._run_tha_test(isolated_hash, files)
     self.assertEqual(
-        ['make_tree_writeable', 'make_tree_deleteable', 'make_tree_deleteable'],
+        [
+          'make_tree_writeable', 'make_tree_deleteable', 'make_tree_deleteable',
+          'make_tree_deleteable',
+        ],
         make_tree_call)
     self.assertEqual(1, len(self.popen_calls))
     self.assertEqual(
@@ -204,7 +220,10 @@ class RunIsolatedTest(RunIsolatedTestBase):
     files = {isolated_hash:isolated}
     make_tree_call = self._run_tha_test(isolated_hash, files)
     self.assertEqual(
-        ['make_tree_writeable', 'make_tree_deleteable', 'make_tree_deleteable'],
+        [
+          'make_tree_writeable', 'make_tree_deleteable', 'make_tree_deleteable',
+          'make_tree_deleteable',
+        ],
         make_tree_call)
     self.assertEqual(1, len(self.popen_calls))
     self.assertEqual(
@@ -223,7 +242,7 @@ class RunIsolatedTest(RunIsolatedTestBase):
     self.assertEqual(
         [
           'make_tree_files_read_only', 'make_tree_deleteable',
-          'make_tree_deleteable',
+          'make_tree_deleteable', 'make_tree_deleteable',
         ],
         make_tree_call)
     self.assertEqual(1, len(self.popen_calls))
@@ -241,7 +260,10 @@ class RunIsolatedTest(RunIsolatedTestBase):
     files = {isolated_hash:isolated}
     make_tree_call = self._run_tha_test(isolated_hash, files)
     self.assertEqual(
-        ['make_tree_read_only', 'make_tree_deleteable', 'make_tree_deleteable'],
+        [
+          'make_tree_read_only', 'make_tree_deleteable', 'make_tree_deleteable',
+          'make_tree_deleteable',
+        ],
         make_tree_call)
     self.assertEqual(1, len(self.popen_calls))
     self.assertEqual(
@@ -343,6 +365,10 @@ class RunIsolatedTestRun(RunIsolatedTestBase):
           store,
           isolateserver.MemoryCache(),
           False,
+          None,
+          None,
+          None,
+          None,
           [])
       self.assertEqual(0, ret)
 
@@ -380,7 +406,78 @@ class RunIsolatedTestRun(RunIsolatedTestBase):
       server.close()
 
 
+class RunIsolatedJsonTest(RunIsolatedTestBase):
+  # Similar to RunIsolatedTest but adds the hacks to process ISOLATED_OUTDIR to
+  # generate a json result file.
+  def setUp(self):
+    super(RunIsolatedJsonTest, self).setUp()
+    self.popen_calls = []
+
+    # pylint: disable=no-self-argument
+    class Popen(object):
+      def __init__(self2, args, **kwargs):
+        kwargs.pop('cwd', None)
+        kwargs.pop('env', None)
+        self.popen_calls.append((args, kwargs))
+        # Assume ${ISOLATED_OUTDIR} is the last one for testing purpose.
+        self2._path = args[-1]
+        self2.returncode = None
+
+      def wait(self, timeout=None):  # pylint: disable=unused-argument
+        self.returncode = 0
+        with open(self._path, 'wb') as f:
+          f.write('generated data\n')
+        return self.returncode
+
+      def kill(self):
+        pass
+
+    self.mock(subprocess42, 'Popen', Popen)
+
+  def test_main_json(self):
+    # Instruct the Popen mock to write a file in ISOLATED_OUTDIR so it will be
+    # archived back on termination.
+    self.mock(tools, 'disable_buffering', lambda: None)
+    sub_cmd = [
+      self.temp_join(u'foo.exe'), u'cmd with space',
+      '${ISOLATED_OUTDIR}/out.txt',
+    ]
+    isolated = json_dumps({'command': sub_cmd})
+    isolated_hash = isolateserver_mock.hash_content(isolated)
+    def get_storage(_isolate_server, _namespace):
+      return StorageFake({isolated_hash:isolated})
+    self.mock(isolateserver, 'get_storage', get_storage)
+
+    out = os.path.join(self.tempdir, 'res.json')
+    cmd = [
+        '--no-log',
+        '--isolated', isolated_hash,
+        '--cache', self.tempdir,
+        '--isolate-server', 'https://localhost:1',
+        '--json', out,
+    ]
+    ret = run_isolated.main(cmd)
+    self.assertEqual(0, ret)
+    # Replace ${ISOLATED_OUTDIR} with the temporary directory.
+    sub_cmd[2] = self.popen_calls[0][0][2]
+    self.assertNotIn('ISOLATED_OUTDIR', sub_cmd[2])
+    self.assertEqual([(sub_cmd, {'detached': True})], self.popen_calls)
+    expected = {
+      u'exit_code': 0,
+      u'had_hard_timeout': False,
+      u'internal_failure': None,
+      u'outputs_ref': {
+        u'isolated': u'e0a0fffa0910dd09e7ef4c89496116f60317e6c4',
+        u'isolatedserver': u'http://localhost:1',
+        u'namespace': u'default-gzip',
+      },
+      u'version': 2,
+    }
+    self.assertEqual(expected, tools.read_json(out))
+
+
 if __name__ == '__main__':
+  fix_encoding.fix_encoding()
   logging.basicConfig(
       level=logging.DEBUG if '-v' in sys.argv else logging.ERROR)
   unittest.main()

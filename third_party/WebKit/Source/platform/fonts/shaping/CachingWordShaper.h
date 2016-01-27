@@ -29,6 +29,7 @@
 
 #include "platform/geometry/FloatRect.h"
 #include "platform/text/TextRun.h"
+#include "wtf/OwnPtr.h"
 #include "wtf/PassRefPtr.h"
 
 namespace blink {
@@ -40,14 +41,15 @@ class ShapeCache;
 struct GlyphData;
 
 class PLATFORM_EXPORT CachingWordShaper final {
+    WTF_MAKE_NONCOPYABLE(CachingWordShaper);
 public:
-    CachingWordShaper();
-    ~CachingWordShaper();
-    void clear();
+    CachingWordShaper(ShapeCache* cache) : m_shapeCache(cache) { }
+    ~CachingWordShaper() { }
 
     float width(const Font*, const TextRun&,
         HashSet<const SimpleFontData*>* fallbackFonts,
         FloatRect* glyphBounds);
+    int offsetForPosition(const Font*, const TextRun&, float targetX);
     float fillGlyphBuffer(const Font*, const TextRun&,
         HashSet<const SimpleFontData*>*, GlyphBuffer*,
         unsigned from, unsigned to);

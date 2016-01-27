@@ -4,6 +4,7 @@
 
 #include "sync/syncable/directory_unittest.h"
 
+#include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "base/test/values_test_util.h"
 #include "sync/internal_api/public/base/attachment_id_proto.h"
@@ -73,9 +74,9 @@ DirOpenResult SyncableDirectoryTest::ReopenDirectory() {
   // Use a TestDirectoryBackingStore and sql::Connection so we can have test
   // data persist across Directory object lifetimes while getting the
   // performance benefits of not writing to disk.
-  dir_.reset(
-      new Directory(new TestDirectoryBackingStore(kDirectoryName, &connection_),
-                    &handler_, base::Closure(), NULL, NULL));
+  dir_.reset(new Directory(
+      new TestDirectoryBackingStore(kDirectoryName, &connection_),
+      MakeWeakHandle(handler_.GetWeakPtr()), base::Closure(), NULL, NULL));
 
   DirOpenResult open_result =
       dir_->Open(kDirectoryName, &delegate_, NullTransactionObserver());
@@ -204,7 +205,8 @@ Encryptor* SyncableDirectoryTest::encryptor() {
   return &encryptor_;
 }
 
-UnrecoverableErrorHandler*
+
+TestUnrecoverableErrorHandler*
 SyncableDirectoryTest::unrecoverable_error_handler() {
   return &handler_;
 }
@@ -2037,8 +2039,8 @@ TEST_F(SyncableDirectoryTest, SaveChangesSnapshot_HasUnsavedMetahandleChanges) {
 TEST_F(SyncableDirectoryTest, CatastrophicError) {
   MockUnrecoverableErrorHandler unrecoverable_error_handler;
   Directory dir(new InMemoryDirectoryBackingStore("catastrophic_error"),
-                &unrecoverable_error_handler, base::Closure(), nullptr,
-                nullptr);
+                MakeWeakHandle(unrecoverable_error_handler.GetWeakPtr()),
+                base::Closure(), nullptr, nullptr);
   ASSERT_EQ(OPENED, dir.Open(kDirectoryName, directory_change_delegate(),
                              NullTransactionObserver()));
   ASSERT_EQ(0, unrecoverable_error_handler.invocation_count());
@@ -2047,6 +2049,8 @@ TEST_F(SyncableDirectoryTest, CatastrophicError) {
   // tolerant of multiple invocations since that may happen in the real world.
   dir.OnCatastrophicError();
   dir.OnCatastrophicError();
+
+  base::RunLoop().RunUntilIdle();
 
   // See that the unrecoverable error handler has been invoked twice.
   ASSERT_EQ(2, unrecoverable_error_handler.invocation_count());
@@ -2104,6 +2108,28 @@ TEST_F(SyncableDirectoryTest, SharingOfClientAndServerSpecifics) {
   item.PutBaseServerSpecifics(specifics3);
   EXPECT_TRUE(EntitySpecificsValuesAreSame(item.GetServerSpecifics(),
                                            item.GetBaseServerSpecifics()));
+}
+
+// Tests checking and marking a type as having its initial sync completed.
+TEST_F(SyncableDirectoryTest, InitialSyncEndedForType) {
+  // Not completed if there is no root node.
+  EXPECT_FALSE(dir()->InitialSyncEndedForType(PREFERENCES));
+
+  WriteTransaction trans(FROM_HERE, UNITTEST, dir().get());
+  // Create the root node.
+  ModelNeutralMutableEntry entry(&trans, syncable::CREATE_NEW_TYPE_ROOT,
+                                 PREFERENCES);
+  DCHECK(entry.good());
+
+  entry.PutServerIsDir(true);
+  entry.PutUniqueServerTag(ModelTypeToRootTag(PREFERENCES));
+
+  // Should still be marked as incomplete.
+  EXPECT_FALSE(dir()->InitialSyncEndedForType(&trans, PREFERENCES));
+
+  // Mark as complete and verify.
+  dir()->MarkInitialSyncEndedForType(&trans, PREFERENCES);
+  EXPECT_TRUE(dir()->InitialSyncEndedForType(&trans, PREFERENCES));
 }
 
 }  // namespace syncable

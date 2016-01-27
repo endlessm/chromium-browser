@@ -50,6 +50,7 @@
 #include "core/svg/SVGScriptElement.h"
 #include "platform/MIMETypeRegistry.h"
 #include "platform/weborigin/SecurityOrigin.h"
+#include "public/platform/WebFrameScheduler.h"
 #include "wtf/StdLibExtras.h"
 #include "wtf/text/StringBuilder.h"
 #include "wtf/text/StringHash.h"
@@ -229,7 +230,7 @@ bool ScriptLoader::prepareScript(const TextPosition& scriptStartPosition, Legacy
     if (!client->charsetAttributeValue().isEmpty())
         m_characterEncoding = client->charsetAttributeValue();
     else
-        m_characterEncoding = elementDocument.charset();
+        m_characterEncoding = elementDocument.characterSet();
 
     if (client->hasSourceAttribute()) {
         FetchRequest::DeferOption defer = FetchRequest::NoDefer;
@@ -259,7 +260,7 @@ bool ScriptLoader::prepareScript(const TextPosition& scriptStartPosition, Legacy
         if (frame) {
             ScriptState* scriptState = ScriptState::forMainWorld(frame);
             if (scriptState->contextIsValid())
-                ScriptStreamer::startStreaming(m_pendingScript, PendingScript::Async, frame->settings(), scriptState);
+                ScriptStreamer::startStreaming(m_pendingScript, PendingScript::Async, frame->settings(), scriptState, frame->frameScheduler()->loadingTaskRunner());
         }
         contextDocument->scriptRunner()->queueScriptForExecution(this, ScriptRunner::ASYNC_EXECUTION);
         // Note that watchForLoad can immediately call notifyFinished.
@@ -299,7 +300,15 @@ bool ScriptLoader::fetchScript(const String& sourceUrl, FetchRequest::DeferOptio
             request.setContentSecurityCheck(DoNotCheckContentSecurityPolicy);
         request.setDefer(defer);
 
+        String integrityAttr = m_element->fastGetAttribute(HTMLNames::integrityAttr);
+        IntegrityMetadataSet metadataSet;
+        if (!integrityAttr.isEmpty()) {
+            SubresourceIntegrity::parseIntegrityAttribute(integrityAttr, metadataSet, elementDocument.get());
+            request.setIntegrityMetadata(metadataSet);
+        }
+
         m_resource = ScriptResource::fetch(request, elementDocument->fetcher());
+
         m_isExternalScript = true;
     }
 
@@ -378,13 +387,6 @@ bool ScriptLoader::executeScript(const ScriptSourceCode& sourceCode, double* com
         }
     }
 
-    if (m_isExternalScript) {
-        const KURL resourceUrl = sourceCode.resource()->resourceRequest().url();
-        if (!SubresourceIntegrity::CheckSubresourceIntegrity(*m_element, sourceCode.source(), sourceCode.resource()->url(), *sourceCode.resource())) {
-            return false;
-        }
-    }
-
     const bool isImportedScript = contextDocument != elementDocument;
     // http://www.whatwg.org/specs/web-apps/current-work/#execute-the-script-block step 2.3
     // with additional support for HTML imports.
@@ -436,6 +438,7 @@ void ScriptLoader::notifyFinished(Resource* resource)
 
     ASSERT_UNUSED(resource, resource == m_resource);
 
+    ScriptRunner::ExecutionType runOrder = m_willExecuteInOrder ? ScriptRunner::IN_ORDER_EXECUTION : ScriptRunner::ASYNC_EXECUTION;
     if (m_resource->errorOccurred()) {
         dispatchErrorEvent();
         // dispatchErrorEvent might move the HTMLScriptElement to a new
@@ -444,14 +447,10 @@ void ScriptLoader::notifyFinished(Resource* resource)
         contextDocument = m_element->document().contextDocument().get();
         if (!contextDocument)
             return;
-        contextDocument->scriptRunner()->notifyScriptLoadError(this, m_willExecuteInOrder ? ScriptRunner::IN_ORDER_EXECUTION : ScriptRunner::ASYNC_EXECUTION);
+        contextDocument->scriptRunner()->notifyScriptLoadError(this, runOrder);
         return;
     }
-    if (m_willExecuteInOrder)
-        contextDocument->scriptRunner()->notifyScriptReady(this, ScriptRunner::IN_ORDER_EXECUTION);
-    else
-        contextDocument->scriptRunner()->notifyScriptReady(this, ScriptRunner::ASYNC_EXECUTION);
-
+    contextDocument->scriptRunner()->notifyScriptReady(this, runOrder);
     m_pendingScript.stopWatchingForLoad(this);
 }
 
@@ -464,16 +463,14 @@ bool ScriptLoader::isScriptForEventSupported() const
 {
     String eventAttribute = client()->eventAttributeValue();
     String forAttribute = client()->forAttributeValue();
-    if (!eventAttribute.isEmpty() && !forAttribute.isEmpty()) {
-        forAttribute = forAttribute.stripWhiteSpace();
-        if (!equalIgnoringCase(forAttribute, "window"))
-            return false;
+    if (eventAttribute.isNull() || forAttribute.isNull())
+        return true;
 
-        eventAttribute = eventAttribute.stripWhiteSpace();
-        if (!equalIgnoringCase(eventAttribute, "onload") && !equalIgnoringCase(eventAttribute, "onload()"))
-            return false;
-    }
-    return true;
+    forAttribute = forAttribute.stripWhiteSpace();
+    if (!equalIgnoringCase(forAttribute, "window"))
+        return false;
+    eventAttribute = eventAttribute.stripWhiteSpace();
+    return equalIgnoringCase(eventAttribute, "onload") || equalIgnoringCase(eventAttribute, "onload()");
 }
 
 String ScriptLoader::scriptContent() const

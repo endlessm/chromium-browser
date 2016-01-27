@@ -50,6 +50,10 @@ class GPU_EXPORT TransferBufferInterface {
   virtual void DiscardBlock(void* p) = 0;
 
   virtual void FreePendingToken(void* p, unsigned int token) = 0;
+
+  virtual unsigned int GetSize() const = 0;
+
+  virtual unsigned int GetFreeSize() const = 0;
 };
 
 // Class that manages the transfer buffer.
@@ -75,6 +79,8 @@ class GPU_EXPORT TransferBuffer : public TransferBufferInterface {
   RingBuffer::Offset GetOffset(void* pointer) const override;
   void DiscardBlock(void* p) override;
   void FreePendingToken(void* p, unsigned int token) override;
+  unsigned int GetSize() const override;
+  unsigned int GetFreeSize() const override;
 
   // These are for testing.
   unsigned int GetCurrentMaxAllocationWithoutRealloc() const;
@@ -139,6 +145,14 @@ class GPU_EXPORT ScopedTransferBufferPtr {
         transfer_buffer_(transfer_buffer) {
     Reset(size);
   }
+
+  // Constructs an empty and invalid allocation that should be Reset() later.
+  ScopedTransferBufferPtr(CommandBufferHelper* helper,
+                          TransferBufferInterface* transfer_buffer)
+      : buffer_(NULL),
+        size_(0),
+        helper_(helper),
+        transfer_buffer_(transfer_buffer) {}
 
   ~ScopedTransferBufferPtr() {
     Release();

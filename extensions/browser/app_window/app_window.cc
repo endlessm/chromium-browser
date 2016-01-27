@@ -8,15 +8,19 @@
 #include <string>
 #include <vector>
 
+#include "base/callback_helpers.h"
 #include "base/command_line.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/task_runner.h"
+#include "base/thread_task_runner_handle.h"
 #include "base/values.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/invalidate_type.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/content_switches.h"
@@ -237,6 +241,7 @@ AppWindow::AppWindow(BrowserContext* context,
       has_been_shown_(false),
       can_send_events_(false),
       is_hidden_(false),
+      delayed_show_type_(SHOW_ACTIVE),
       cached_always_on_top_(false),
       requested_alpha_enabled_(false),
       is_ime_window_(false),
@@ -288,10 +293,6 @@ void AppWindow::Init(const GURL& url,
 
   helper_.reset(new AppWebContentsHelper(
       browser_context_, extension_id_, web_contents(), app_delegate_.get()));
-
-  popup_manager_.reset(
-      new web_modal::PopupManager(GetWebContentsModalDialogHost()));
-  popup_manager_->RegisterWith(web_contents());
 
   UpdateExtensionAppIcon();
   AppWindowRegistry::Get(browser_context_)->AddAppWindow(this);
@@ -443,6 +444,26 @@ void AppWindow::DidFirstVisuallyNonEmptyPaint() {
            delayed_show_type_ == SHOW_INACTIVE);
     Show(delayed_show_type_);
   }
+}
+
+void AppWindow::SetOnFirstCommitCallback(const base::Closure& callback) {
+  DCHECK(on_first_commit_callback_.is_null());
+  on_first_commit_callback_ = callback;
+}
+
+void AppWindow::OnReadyToCommitFirstNavigation() {
+  CHECK(base::CommandLine::ForCurrentProcess()->HasSwitch(
+      ::switches::kEnableBrowserSideNavigation));
+  WindowEventsReady();
+  if (on_first_commit_callback_.is_null())
+    return;
+  // It is important that the callback executes after the calls to
+  // WebContentsObserver::ReadyToCommitNavigation have been processed. The
+  // CommitNavigation IPC that will properly set up the renderer will only be
+  // sent after these, and it must be sent before the callback gets to run,
+  // hence the use of PostTask.
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
+      FROM_HERE, base::ResetAndReturn(&on_first_commit_callback_));
 }
 
 void AppWindow::OnNativeClose() {
@@ -708,13 +729,14 @@ void AppWindow::RestoreAlwaysOnTop() {
     UpdateNativeAlwaysOnTop();
 }
 
-void AppWindow::SetInterceptAllKeys(bool want_all_keys) {
-  native_app_window_->SetInterceptAllKeys(want_all_keys);
-}
-
 void AppWindow::WindowEventsReady() {
   can_send_events_ = true;
   SendOnWindowShownIfShown();
+}
+
+void AppWindow::NotifyRenderViewReady() {
+  if (app_window_contents_)
+    app_window_contents_->OnWindowReady();
 }
 
 void AppWindow::GetSerializedState(base::DictionaryValue* properties) const {
@@ -963,15 +985,6 @@ void AppWindow::OnExtensionUnloaded(BrowserContext* browser_context,
     native_app_window_->Close();
 }
 
-void AppWindow::OnExtensionWillBeInstalled(
-    BrowserContext* browser_context,
-    const Extension* extension,
-    bool is_update,
-    bool from_ephemeral,
-    const std::string& old_name) {
-  if (extension->id() == extension_id())
-    native_app_window_->UpdateShelfMenu();
-}
 void AppWindow::SetWebContentsBlocked(content::WebContents* web_contents,
                                       bool blocked) {
   app_delegate_->SetWebContentsBlocked(web_contents, blocked);

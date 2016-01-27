@@ -6,19 +6,19 @@
 #define CHROME_BROWSER_MEDIA_MIDI_PERMISSION_CONTEXT_FACTORY_H_
 
 #include "base/memory/singleton.h"
-#include "components/keyed_service/content/browser_context_keyed_service_factory.h"
+#include "chrome/browser/permissions/permission_context_factory_base.h"
 
 class MidiPermissionContext;
 class Profile;
 
 class MidiPermissionContextFactory
-    : public BrowserContextKeyedServiceFactory {
+    : public PermissionContextFactoryBase {
  public:
   static MidiPermissionContext* GetForProfile(Profile* profile);
   static MidiPermissionContextFactory* GetInstance();
 
  private:
-  friend struct DefaultSingletonTraits<MidiPermissionContextFactory>;
+  friend struct base::DefaultSingletonTraits<MidiPermissionContextFactory>;
 
   MidiPermissionContextFactory();
   ~MidiPermissionContextFactory() override;
@@ -26,8 +26,6 @@ class MidiPermissionContextFactory
   // BrowserContextKeyedBaseFactory methods:
   KeyedService* BuildServiceInstanceFor(
       content::BrowserContext* profile) const override;
-  content::BrowserContext* GetBrowserContextToUse(
-      content::BrowserContext* context) const override;
 
   DISALLOW_COPY_AND_ASSIGN(MidiPermissionContextFactory);
 };

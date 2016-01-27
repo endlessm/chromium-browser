@@ -31,7 +31,8 @@
 
 namespace blink {
 
-// These button numbers match the ones used in the DOM API, 0 through 2, except for NoButton which isn't specified.
+// These button numbers match the ones used in the DOM API, 0 through 2, except for NoButton which is specified in PointerEvent
+// spec but not in MouseEvent spec.
 enum MouseButton { NoButton = -1, LeftButton, MiddleButton, RightButton };
 
 class PlatformMouseEvent : public PlatformEvent {
@@ -39,8 +40,11 @@ public:
     enum SyntheticEventType {
         // Real mouse input events or synthetic events that behave just like real events
         RealOrIndistinguishable,
-        // Mouse events derived from touch input
+        // Synthetic mouse events derived from touch input
         FromTouch,
+        // Synthetic mouse events generated without a position, for example those generated
+        // from keyboard input.
+        Positionless,
     };
 
     PlatformMouseEvent()
@@ -63,16 +67,6 @@ public:
 
     PlatformMouseEvent(const IntPoint& position, const IntPoint& globalPosition, MouseButton button, PlatformEvent::Type type, int clickCount, Modifiers modifiers, SyntheticEventType synthesized, double timestamp)
         : PlatformEvent(type, modifiers, timestamp)
-        , m_position(position)
-        , m_globalPosition(globalPosition)
-        , m_button(button)
-        , m_clickCount(clickCount)
-        , m_synthesized(synthesized)
-    {
-    }
-
-    PlatformMouseEvent(const IntPoint& position, const IntPoint& globalPosition, MouseButton button, PlatformEvent::Type type, int clickCount, bool shiftKey, bool ctrlKey, bool altKey, bool metaKey, SyntheticEventType synthesized, double timestamp)
-        : PlatformEvent(type, shiftKey, ctrlKey, altKey, metaKey, timestamp)
         , m_position(position)
         , m_globalPosition(globalPosition)
         , m_button(button)

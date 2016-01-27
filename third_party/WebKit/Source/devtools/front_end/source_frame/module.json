@@ -30,6 +30,7 @@
         "../cm/codemirror.js",
         "../cm/css.js",
         "../cm/javascript.js",
+        "../cm/simple.js",
         "../cm/xml.js",
         "../cm/htmlmixed.js",
         "../cm/htmlembedded.js",
@@ -48,13 +49,13 @@
         "FontView.js",
         "ImageView.js",
         "SourceFrame.js",
-        "GoToLineDialog.js",
         "ResourceSourceFrame.js"
     ],
     "skip_compilation": [
         "../cm/codemirror.js",
         "../cm/css.js",
         "../cm/javascript.js",
+        "../cm/simple.js",
         "../cm/xml.js",
         "../cm/htmlmixed.js",
         "../cm/htmlembedded.js",
@@ -70,7 +71,6 @@
         "../cm/codemirror.css",
         "cmdevtools.css",
         "fontView.css",
-        "imageView.css",
-        "resourceSourceFrame.css"
+        "imageView.css"
     ]
 }

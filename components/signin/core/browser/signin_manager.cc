@@ -15,10 +15,8 @@
 #include "base/time/time.h"
 #include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/gaia_cookie_manager_service.h"
-#include "components/signin/core/browser/profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_client.h"
 #include "components/signin/core/browser/signin_internals_util.h"
-#include "components/signin/core/browser/signin_manager_cookie_helper.h"
 #include "components/signin/core/browser/signin_metrics.h"
 #include "components/signin/core/common/signin_pref_names.h"
 #include "google_apis/gaia/gaia_auth_util.h"
@@ -46,7 +44,7 @@ SigninManager::SigninManager(SigninClient* client,
 SigninManager::~SigninManager() {}
 
 void SigninManager::InitTokenService() {
-  if (token_service_ && IsAuthenticated())
+  if (token_service_)
     token_service_->LoadCredentials(GetAuthenticatedAccountId());
 }
 
@@ -177,7 +175,7 @@ void SigninManager::SignOut(
   ClearTransientSigninData();
 
   const std::string account_id = GetAuthenticatedAccountId();
-  const std::string username = GetAuthenticatedUsername();
+  const std::string username = GetAuthenticatedAccountInfo().email;
   const base::Time signin_time =
       base::Time::FromInternalValue(
           client_->GetPrefs()->GetInt64(prefs::kSignedInTime));
@@ -186,7 +184,7 @@ void SigninManager::SignOut(
   client_->GetPrefs()->ClearPref(prefs::kGoogleServicesAccountId);
   client_->GetPrefs()->ClearPref(prefs::kGoogleServicesUserAccountId);
   client_->GetPrefs()->ClearPref(prefs::kSignedInTime);
-  client_->OnSignedOut();
+  client_->SignOut();
 
   // Determine the duration the user was logged in and log that to UMA.
   if (!signin_time.is_null()) {
@@ -233,6 +231,10 @@ void SigninManager::Initialize(PrefService* local_state) {
     SignOut(signin_metrics::SIGNIN_PREF_CHANGED_DURING_SIGNIN);
   }
 
+  if (account_tracker_service()->GetMigrationState() ==
+      AccountTrackerService::MIGRATION_IN_PROGRESS) {
+    token_service_->AddObserver(this);
+  }
   InitTokenService();
   account_tracker_service()->AddObserver(this);
 }
@@ -244,7 +246,8 @@ void SigninManager::Shutdown() {
 }
 
 void SigninManager::OnGoogleServicesUsernamePatternChanged() {
-  if (IsAuthenticated() && !IsAllowedUsername(GetAuthenticatedUsername())) {
+  if (IsAuthenticated() &&
+      !IsAllowedUsername(GetAuthenticatedAccountInfo().email)) {
     // Signed in user is invalid according to the current policy so sign
     // the user out.
     SignOut(signin_metrics::GOOGLE_SERVICE_NAME_PATTERN_CHANGED);
@@ -345,7 +348,7 @@ void SigninManager::CompletePendingSignin() {
 }
 
 void SigninManager::OnExternalSigninCompleted(const std::string& username) {
-  AccountTrackerService::AccountInfo info =
+  AccountInfo info =
       account_tracker_service()->FindAccountInfoByEmail(username);
   DCHECK(!info.gaia.empty());
   DCHECK(!info.email.empty());
@@ -368,16 +371,12 @@ void SigninManager::OnSignedIn() {
   signin_manager_signed_in_ = true;
 
   FOR_EACH_OBSERVER(
-      SigninManagerBase::Observer,
-      observer_list_,
+      SigninManagerBase::Observer, observer_list_,
       GoogleSigninSucceeded(GetAuthenticatedAccountId(),
-                            GetAuthenticatedUsername(),
-                            password_));
+                            GetAuthenticatedAccountInfo().email, password_));
 
-  client_->OnSignedIn(GetAuthenticatedAccountId(),
-                      gaia_id,
-                      GetAuthenticatedUsername(),
-                      password_);
+  client_->OnSignedIn(GetAuthenticatedAccountId(), gaia_id,
+                      GetAuthenticatedAccountInfo().email, password_);
 
   signin_metrics::LogSigninProfile(client_->IsFirstRun(),
                                    client_->GetInstallDate());
@@ -392,13 +391,11 @@ void SigninManager::PostSignedIn() {
     return;
 
   client_->PostSignedIn(GetAuthenticatedAccountId(),
-                        GetAuthenticatedUsername(),
-                        password_);
+                        GetAuthenticatedAccountInfo().email, password_);
   password_.clear();
 }
 
-void SigninManager::OnAccountUpdated(
-    const AccountTrackerService::AccountInfo& info) {
+void SigninManager::OnAccountUpdated(const AccountInfo& info) {
   user_info_fetched_by_account_tracker_ = true;
   PostSignedIn();
 }
@@ -406,6 +403,14 @@ void SigninManager::OnAccountUpdated(
 void SigninManager::OnAccountUpdateFailed(const std::string& account_id) {
   user_info_fetched_by_account_tracker_ = true;
   PostSignedIn();
+}
+
+void SigninManager::OnRefreshTokensLoaded() {
+  if (account_tracker_service()->GetMigrationState() ==
+      AccountTrackerService::MIGRATION_IN_PROGRESS) {
+    account_tracker_service()->SetMigrationDone();
+    token_service_->RemoveObserver(this);
+  }
 }
 
 void SigninManager::ProhibitSignout(bool prohibit_signout) {

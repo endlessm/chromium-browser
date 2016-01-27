@@ -43,9 +43,11 @@
         '<(webrtc_root)',
       ],
       'sources': [
+        'audio_decoder_opus.cc',
         'audio_encoder_opus.cc',
-        'interface/audio_encoder_opus.h',
-        'interface/opus_interface.h',
+        'include/audio_decoder_opus.h',
+        'include/audio_encoder_opus.h',
+        'include/opus_interface.h',
         'opus_inst.h',
         'opus_interface.c',
       ],

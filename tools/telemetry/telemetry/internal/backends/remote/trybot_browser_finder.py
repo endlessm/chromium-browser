@@ -13,20 +13,21 @@ import sys
 import urllib2
 
 from telemetry.core import platform
-from telemetry.core.platform import trybot_device
 from telemetry import decorators
 from telemetry.internal.browser import possible_browser
+from telemetry.internal.platform import trybot_device
 
 CHROMIUM_CONFIG_FILENAME = 'tools/run-perf-test.cfg'
 BLINK_CONFIG_FILENAME = 'Tools/run-perf-test.cfg'
 SUCCESS, NO_CHANGES, ERROR = range(3)
 # Unsupported Perf bisect bots.
 EXCLUDED_BOTS = {
-    'win_xp_perf_bisect',
+    'win_xp_perf_bisect',  # Goma issues: crbug.com/330900
     'linux_perf_tester',
     'linux_perf_bisector',
     'win_perf_bisect_builder',
-    'win_x64_perf_bisect_builder',
+    'win64_nv_tester',
+    'winx64_bisect_builder',
     'linux_perf_bisect_builder',
     'mac_perf_bisect_builder',
     'android_perf_bisect_builder',
@@ -60,7 +61,6 @@ class PossibleTrybotBrowser(possible_browser.PossibleBrowser):
 
   def SupportsOptions(self, finder_options):
     if ((finder_options.device and finder_options.device != 'trybot') or
-        finder_options.chrome_root or
         finder_options.cros_remote or
         finder_options.extensions_to_load or
         finder_options.profile_dir):
@@ -144,6 +144,12 @@ class PossibleTrybotBrowser(possible_browser.PossibleBrowser):
     # Generate the command line for the perf trybots
     target_arch = 'ia32'
     arguments = sys.argv
+    if any(arg == '--chrome-root' or arg.startswith('--chrome-root=') for arg
+           in arguments):
+      raise ValueError(
+          'Trybot does not suport --chrome-root option set directly '
+          'through command line since it may contain references to your local '
+          'directory')
     if bot_platform in ['win', 'win-x64']:
       arguments[0] = 'python tools\\perf\\run_benchmark'
     else:
@@ -151,7 +157,7 @@ class PossibleTrybotBrowser(possible_browser.PossibleBrowser):
     for index, arg in enumerate(arguments):
       if arg.startswith('--browser='):
         if bot_platform == 'android':
-          arguments[index] = '--browser=android-chrome-shell'
+          arguments[index] = '--browser=android-chromium'
         elif any('x64' in bot for bot in self._builder_names[bot_platform]):
           arguments[index] = '--browser=release_x64'
           target_arch = 'x64'

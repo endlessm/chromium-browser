@@ -7,6 +7,7 @@
 
 #include <vector>
 
+#include "base/gtest_prod_util.h"
 #include "chrome/browser/ui/views/apps/app_info_dialog/app_info_panel.h"
 #include "extensions/common/permissions/permission_message_provider.h"
 
@@ -50,10 +51,7 @@ class AppInfoPermissionsPanel : public AppInfoPanel {
   void LayoutPermissionsList();
 
   bool HasActivePermissionMessages() const;
-  // Returns a list of active permission messages. The first entry is the title
-  // of the permission; the second is any sub-messages (such as host
-  // permissions) to be listed underneath that permission.
-  extensions::PermissionMessageStrings GetActivePermissionMessages() const;
+  extensions::PermissionMessages GetActivePermissionMessages() const;
 
   int GetRetainedFileCount() const;
   base::string16 GetRetainedFileHeading() const;

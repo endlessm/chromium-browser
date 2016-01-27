@@ -29,8 +29,7 @@ class OAuthTokenGetterImpl : public OAuthTokenGetter,
   OAuthTokenGetterImpl(scoped_ptr<OAuthCredentials> oauth_credentials,
                        const scoped_refptr<net::URLRequestContextGetter>&
                            url_request_context_getter,
-                       bool auto_refresh,
-                       bool verify_email);
+                       bool auto_refresh);
   ~OAuthTokenGetterImpl() override;
 
   // OAuthTokenGetter interface.
@@ -56,14 +55,13 @@ class OAuthTokenGetterImpl : public OAuthTokenGetter,
   scoped_ptr<OAuthCredentials> oauth_credentials_;
   scoped_ptr<gaia::GaiaOAuthClient> gaia_oauth_client_;
   scoped_refptr<net::URLRequestContextGetter> url_request_context_getter_;
-  const bool verify_email_;
 
   bool refreshing_oauth_token_ = false;
   bool email_verified_ = false;
   std::string oauth_access_token_;
   base::Time auth_token_expiry_time_;
   std::queue<OAuthTokenGetter::TokenCallback> pending_callbacks_;
-  scoped_ptr<base::OneShotTimer<OAuthTokenGetterImpl>> refresh_timer_;
+  scoped_ptr<base::OneShotTimer> refresh_timer_;
 };
 
 }  // namespace remoting

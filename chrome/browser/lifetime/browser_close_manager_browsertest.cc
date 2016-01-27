@@ -291,7 +291,14 @@ IN_PROC_BROWSER_TEST_P(BrowserCloseManagerBrowserTest,
   EXPECT_TRUE(chrome::BrowserIterator().done());
 }
 
-IN_PROC_BROWSER_TEST_P(BrowserCloseManagerBrowserTest, PRE_TestSessionRestore) {
+// Test is flaky on Mac. http://crbug.com/517687
+#if defined(OS_MACOSX)
+#define MAYBE_PRE_TestSessionRestore DISABLED_PRE_TestSessionRestore
+#else
+#define MAYBE_PRE_TestSessionRestore DISABLED_PRE_TestSessionRestore
+#endif
+IN_PROC_BROWSER_TEST_P(BrowserCloseManagerBrowserTest,
+                       MAYBE_PRE_TestSessionRestore) {
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
   ASSERT_NO_FATAL_FAILURE(ui_test_utils::NavigateToURL(
       browser(), embedded_test_server()->GetURL("/beforeunload.html")));
@@ -327,7 +334,14 @@ IN_PROC_BROWSER_TEST_P(BrowserCloseManagerBrowserTest, PRE_TestSessionRestore) {
 
 // Test that the tab closed after the aborted shutdown attempt is not re-opened
 // when restoring the session.
-IN_PROC_BROWSER_TEST_P(BrowserCloseManagerBrowserTest, TestSessionRestore) {
+// Test is flaky on Mac. http://crbug.com/517687
+#if defined(OS_MACOSX)
+#define MAYBE_TestSessionRestore DISABLED_TestSessionRestore
+#else
+#define MAYBE_TestSessionRestore DISABLED_TestSessionRestore
+#endif
+IN_PROC_BROWSER_TEST_P(BrowserCloseManagerBrowserTest,
+                       MAYBE_TestSessionRestore) {
   // The testing framework launches Chrome with about:blank as args.
   EXPECT_EQ(2, browser()->tab_strip_model()->count());
   EXPECT_EQ(GURL(chrome::kChromeUIVersionURL),
@@ -386,7 +400,8 @@ IN_PROC_BROWSER_TEST_P(BrowserCloseManagerBrowserTest, TestMultipleWindows) {
 // treated the same as the user accepting the close, but do not close the tab
 // early.
 // Test is flaky on windows, disabled. See http://crbug.com/276366
-#if defined(OS_WIN)
+// Test is flaky on Mac. See http://crbug.com/517687.
+#if defined(OS_WIN) || defined(OS_MACOSX)
 #define MAYBE_TestHangInBeforeUnloadMultipleTabs \
     DISABLED_TestHangInBeforeUnloadMultipleTabs
 #else
@@ -508,8 +523,9 @@ IN_PROC_BROWSER_TEST_P(BrowserCloseManagerBrowserTest,
 }
 
 // Test that tabs added during shutdown are closed.
+// Disabled for being flaky tests: crbug.com/519646
 IN_PROC_BROWSER_TEST_P(BrowserCloseManagerBrowserTest,
-                       TestAddTabDuringShutdown) {
+                       DISABLED_TestAddTabDuringShutdown) {
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
   browsers_.push_back(CreateBrowser(browser()->profile()));
   ASSERT_NO_FATAL_FAILURE(ui_test_utils::NavigateToURL(
@@ -531,8 +547,9 @@ IN_PROC_BROWSER_TEST_P(BrowserCloseManagerBrowserTest,
 
 // Test that tabs created during shutdown with beforeunload handlers can cancel
 // the shutdown.
+// Disabled for being flaky tests: crbug.com/519646
 IN_PROC_BROWSER_TEST_P(BrowserCloseManagerBrowserTest,
-                       TestAddTabWithBeforeUnloadDuringShutdown) {
+                       DISABLED_TestAddTabWithBeforeUnloadDuringShutdown) {
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
   browsers_.push_back(CreateBrowser(browser()->profile()));
   ASSERT_NO_FATAL_FAILURE(ui_test_utils::NavigateToURL(
@@ -687,6 +704,13 @@ class BrowserCloseManagerWithDownloadsBrowserTest :
     ASSERT_TRUE(scoped_download_directory_.CreateUniqueTempDir());
   }
 
+  // Disable new downloads UI as it is very very slow. https://crbug.com/526577
+  // TODO(dbeam): remove this once the downloads UI is not slow.
+  void SetUpCommandLine(base::CommandLine* command_line) override {
+    BrowserCloseManagerBrowserTest::SetUpCommandLine(command_line);
+    command_line->AppendSwitch(switches::kDisableMaterialDesignDownloads);
+  }
+
   void SetDownloadPathForProfile(Profile* profile) {
     DownloadPrefs* download_prefs = DownloadPrefs::FromBrowserContext(profile);
     download_prefs->SetDownloadPath(download_path());
@@ -741,8 +765,8 @@ IN_PROC_BROWSER_TEST_P(BrowserCloseManagerWithDownloadsBrowserTest,
   // Run a dangerous download, but the user doesn't make a decision.
   // This .swf normally would be categorized as DANGEROUS_FILE, but
   // TestDownloadManagerDelegate turns it into DANGEROUS_URL.
-  base::FilePath file(FILE_PATH_LITERAL("downloads/dangerous/dangerous.swf"));
-  GURL download_url(net::URLRequestMockHTTPJob::GetMockUrl(file));
+  GURL download_url(net::URLRequestMockHTTPJob::GetMockUrl(
+      "downloads/dangerous/dangerous.swf"));
   content::DownloadTestObserverInterrupted observer(
       content::BrowserContext::GetDownloadManager(browser()->profile()),
       1,

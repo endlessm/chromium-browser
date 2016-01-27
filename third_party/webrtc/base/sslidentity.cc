@@ -18,25 +18,74 @@
 #include <string>
 
 #include "webrtc/base/base64.h"
+#include "webrtc/base/checks.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/sslconfig.h"
 
-#if SSL_USE_SCHANNEL
-
-#elif SSL_USE_OPENSSL  // !SSL_USE_SCHANNEL
+#if SSL_USE_OPENSSL
 
 #include "webrtc/base/opensslidentity.h"
 
-#elif SSL_USE_NSS  // !SSL_USE_SCHANNEL && !SSL_USE_OPENSSL
-
-#include "webrtc/base/nssidentity.h"
-
-#endif  // SSL_USE_SCHANNEL
+#endif  // SSL_USE_OPENSSL
 
 namespace rtc {
 
 const char kPemTypeCertificate[] = "CERTIFICATE";
 const char kPemTypeRsaPrivateKey[] = "RSA PRIVATE KEY";
+const char kPemTypeEcPrivateKey[] = "EC PRIVATE KEY";
+
+KeyParams::KeyParams(KeyType key_type) {
+  if (key_type == KT_ECDSA) {
+    type_ = KT_ECDSA;
+    params_.curve = EC_NIST_P256;
+  } else if (key_type == KT_RSA) {
+    type_ = KT_RSA;
+    params_.rsa.mod_size = kRsaDefaultModSize;
+    params_.rsa.pub_exp = kRsaDefaultExponent;
+  } else {
+    RTC_NOTREACHED();
+  }
+}
+
+// static
+KeyParams KeyParams::RSA(int mod_size, int pub_exp) {
+  KeyParams kt(KT_RSA);
+  kt.params_.rsa.mod_size = mod_size;
+  kt.params_.rsa.pub_exp = pub_exp;
+  return kt;
+}
+
+// static
+KeyParams KeyParams::ECDSA(ECCurve curve) {
+  KeyParams kt(KT_ECDSA);
+  kt.params_.curve = curve;
+  return kt;
+}
+
+bool KeyParams::IsValid() const {
+  if (type_ == KT_RSA) {
+    return (params_.rsa.mod_size >= kRsaMinModSize &&
+            params_.rsa.mod_size <= kRsaMaxModSize &&
+            params_.rsa.pub_exp > params_.rsa.mod_size);
+  } else if (type_ == KT_ECDSA) {
+    return (params_.curve == EC_NIST_P256);
+  }
+  return false;
+}
+
+RSAParams KeyParams::rsa_params() const {
+  RTC_DCHECK(type_ == KT_RSA);
+  return params_.rsa;
+}
+
+ECCurve KeyParams::ec_curve() const {
+  RTC_DCHECK(type_ == KT_ECDSA);
+  return params_.curve;
+}
+
+KeyType IntKeyTypeFamilyToKeyType(int key_type_family) {
+  return static_cast<KeyType>(key_type_family);
+}
 
 bool SSLIdentity::PemToDer(const std::string& pem_type,
                            const std::string& pem_string,
@@ -102,33 +151,15 @@ SSLCertChain::~SSLCertChain() {
   std::for_each(certs_.begin(), certs_.end(), DeleteCert);
 }
 
-#if SSL_USE_SCHANNEL
-
-SSLCertificate* SSLCertificate::FromPEMString(const std::string& pem_string) {
-  return NULL;
-}
-
-SSLIdentity* SSLIdentity::Generate(const std::string& common_name) {
-  return NULL;
-}
-
-SSLIdentity* GenerateForTest(const SSLIdentityParams& params) {
-  return NULL;
-}
-
-SSLIdentity* SSLIdentity::FromPEMStrings(const std::string& private_key,
-                                         const std::string& certificate) {
-  return NULL;
-}
-
-#elif SSL_USE_OPENSSL  // !SSL_USE_SCHANNEL
+#if SSL_USE_OPENSSL
 
 SSLCertificate* SSLCertificate::FromPEMString(const std::string& pem_string) {
   return OpenSSLCertificate::FromPEMString(pem_string);
 }
 
-SSLIdentity* SSLIdentity::Generate(const std::string& common_name) {
-  return OpenSSLIdentity::Generate(common_name);
+SSLIdentity* SSLIdentity::Generate(const std::string& common_name,
+                                   const KeyParams& key_params) {
+  return OpenSSLIdentity::Generate(common_name, key_params);
 }
 
 SSLIdentity* SSLIdentity::GenerateForTest(const SSLIdentityParams& params) {
@@ -140,29 +171,10 @@ SSLIdentity* SSLIdentity::FromPEMStrings(const std::string& private_key,
   return OpenSSLIdentity::FromPEMStrings(private_key, certificate);
 }
 
-#elif SSL_USE_NSS  // !SSL_USE_OPENSSL && !SSL_USE_SCHANNEL
-
-SSLCertificate* SSLCertificate::FromPEMString(const std::string& pem_string) {
-  return NSSCertificate::FromPEMString(pem_string);
-}
-
-SSLIdentity* SSLIdentity::Generate(const std::string& common_name) {
-  return NSSIdentity::Generate(common_name);
-}
-
-SSLIdentity* SSLIdentity::GenerateForTest(const SSLIdentityParams& params) {
-  return NSSIdentity::GenerateForTest(params);
-}
-
-SSLIdentity* SSLIdentity::FromPEMStrings(const std::string& private_key,
-                                         const std::string& certificate) {
-  return NSSIdentity::FromPEMStrings(private_key, certificate);
-}
-
-#else  // !SSL_USE_OPENSSL && !SSL_USE_SCHANNEL && !SSL_USE_NSS
+#else  // !SSL_USE_OPENSSL
 
 #error "No SSL implementation"
 
-#endif  // SSL_USE_SCHANNEL
+#endif  // SSL_USE_OPENSSL
 
 }  // namespace rtc

@@ -16,7 +16,7 @@
 #include <limits>
 #include <vector>
 
-#include "webrtc/system_wrappers/interface/cpu_info.h"
+#include "webrtc/system_wrappers/include/cpu_info.h"
 
 namespace webrtc {
 namespace test {
@@ -59,6 +59,7 @@ VideoProcessorImpl::VideoProcessorImpl(webrtc::VideoEncoder* encoder,
       last_frame_missing_(false),
       initialized_(false),
       encoded_frame_size_(0),
+      encoded_frame_type_(kVideoFrameKey),
       prev_time_stamp_(0),
       num_dropped_frames_(0),
       num_spatial_resizes_(0),
@@ -161,6 +162,10 @@ size_t VideoProcessorImpl::EncodedFrameSize() {
   return encoded_frame_size_;
 }
 
+FrameType VideoProcessorImpl::EncodedFrameType() {
+  return encoded_frame_type_;
+}
+
 int VideoProcessorImpl::NumberDroppedFrames() {
   return num_dropped_frames_;
 }
@@ -194,14 +199,15 @@ bool VideoProcessorImpl::ProcessFrame(int frame_number) {
     source_frame_.set_timestamp(frame_number);
 
     // Decide if we're going to force a keyframe:
-    std::vector<VideoFrameType> frame_types(1, kDeltaFrame);
+    std::vector<FrameType> frame_types(1, kVideoFrameDelta);
     if (config_.keyframe_interval > 0 &&
         frame_number % config_.keyframe_interval == 0) {
-      frame_types[0] = kKeyFrame;
+      frame_types[0] = kVideoFrameKey;
     }
 
     // For dropped frames, we regard them as zero size encoded frames.
     encoded_frame_size_ = 0;
+    encoded_frame_type_ = kVideoFrameDelta;
 
     int32_t encode_result = encoder_->Encode(source_frame_, NULL, &frame_types);
 
@@ -233,6 +239,8 @@ void VideoProcessorImpl::FrameEncoded(const EncodedImage& encoded_image) {
   // (encoder callback is only called for non-zero length frames).
   encoded_frame_size_ = encoded_image._length;
 
+  encoded_frame_type_ = encoded_image._frameType;
+
   TickTime encode_stop = TickTime::Now();
   int frame_number = encoded_image._timeStamp;
   FrameStatistic& stat = stats_->stats_[frame_number];
@@ -249,7 +257,7 @@ void VideoProcessorImpl::FrameEncoded(const EncodedImage& encoded_image) {
   // Perform packet loss if criteria is fullfilled:
   bool exclude_this_frame = false;
   // Only keyframes can be excluded
-  if (encoded_image._frameType == kKeyFrame) {
+  if (encoded_image._frameType == kVideoFrameKey) {
     switch (config_.exclude_frame_types) {
       case kExcludeOnlyFirstKeyFrame:
         if (!first_key_frame_has_been_excluded_) {

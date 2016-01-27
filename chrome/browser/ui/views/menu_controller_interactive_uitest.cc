@@ -58,6 +58,7 @@ typedef MenuControllerMnemonicTest<ui::VKEY_DIVIDE,1>
 // ozone bringup - http://crbug.com/401304
 #define MAYBE_MnemonicMatch DISABLED_MnemonicMatch
 #else
+// If this flakes, disable and log details in http://crbug.com/523255.
 #define MAYBE_MnemonicMatch MnemonicMatch
 #endif
 
@@ -72,6 +73,7 @@ typedef MenuControllerMnemonicTest<ui::VKEY_T,2>
 // ozone bringup - http://crbug.com/401304
 #define MAYBE_TitleMatch DISABLED_TitleMatch
 #else
+// If this flakes, disable and log details in http://crbug.com/523255.
 #define MAYBE_TitleMatch TitleMatch
 #endif
 
@@ -85,6 +87,7 @@ typedef MenuControllerMnemonicTest<ui::VKEY_A,0>
 // ozone bringup - http://crbug.com/401304
 #define MAYBE_NoMatch DISABLED_NoMatch
 #else
+// If this flakes, disable and log details in http://crbug.com/523255.
 #define MAYBE_NoMatch NoMatch
 #endif
 

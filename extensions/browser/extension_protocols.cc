@@ -195,6 +195,10 @@ class URLRequestExtensionJob : public net::URLRequestFileJob {
     *info = response_info_;
   }
 
+  // This always returns 200 because a URLRequestExtensionJob will only get
+  // created in MaybeCreateJob() if the file exists.
+  int GetResponseCode() const override { return 200; }
+
   void Start() override {
     request_timer_.reset(new base::ElapsedTimer());
     base::FilePath* read_file_path = new base::FilePath;
@@ -553,10 +557,11 @@ net::HttpResponseHeaders* BuildHttpHeaders(
   return new net::HttpResponseHeaders(raw_headers);
 }
 
-net::URLRequestJobFactory::ProtocolHandler* CreateExtensionProtocolHandler(
-    bool is_incognito,
-    extensions::InfoMap* extension_info_map) {
-  return new ExtensionProtocolHandler(is_incognito, extension_info_map);
+scoped_ptr<net::URLRequestJobFactory::ProtocolHandler>
+CreateExtensionProtocolHandler(bool is_incognito,
+                               extensions::InfoMap* extension_info_map) {
+  return make_scoped_ptr(
+      new ExtensionProtocolHandler(is_incognito, extension_info_map));
 }
 
 }  // namespace extensions

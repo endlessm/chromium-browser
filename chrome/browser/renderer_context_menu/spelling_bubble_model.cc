@@ -41,11 +41,6 @@ base::string16 SpellingBubbleModel::GetMessageText() const {
   return l10n_util::GetStringUTF16(IDS_CONTENT_CONTEXT_SPELLING_BUBBLE_TEXT);
 }
 
-gfx::Image* SpellingBubbleModel::GetIcon() const {
-  return &ResourceBundle::GetSharedInstance().GetImageNamed(
-      IDR_PRODUCT_LOGO_16);
-}
-
 base::string16 SpellingBubbleModel::GetButtonLabel(BubbleButton button) const {
   return l10n_util::GetStringUTF16(button == BUTTON_OK ?
       IDS_CONTENT_CONTEXT_SPELLING_BUBBLE_ENABLE :
@@ -64,10 +59,13 @@ base::string16 SpellingBubbleModel::GetLinkText() const {
   return l10n_util::GetStringUTF16(IDS_LEARN_MORE);
 }
 
+GURL SpellingBubbleModel::GetLinkURL() const {
+  return GURL(chrome::kPrivacyLearnMoreURL);
+}
+
 void SpellingBubbleModel::LinkClicked() {
-  OpenURLParams params(
-      GURL(chrome::kPrivacyLearnMoreURL), Referrer(), NEW_FOREGROUND_TAB,
-      ui::PAGE_TRANSITION_LINK, false);
+  OpenURLParams params(GetLinkURL(), Referrer(), NEW_FOREGROUND_TAB,
+                       ui::PAGE_TRANSITION_LINK, false);
   web_contents_->OpenURL(params);
 }
 

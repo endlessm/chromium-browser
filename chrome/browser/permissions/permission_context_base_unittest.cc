@@ -6,9 +6,13 @@
 
 #include "base/bind.h"
 #include "base/command_line.h"
+#include "base/metrics/field_trial.h"
+#include "base/test/mock_entropy_provider.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/permissions/permission_queue_controller.h"
 #include "chrome/browser/permissions/permission_request_id.h"
+#include "chrome/browser/permissions/permission_util.h"
 #include "chrome/browser/ui/website_settings/permission_bubble_manager.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
@@ -16,11 +20,24 @@
 #include "components/content_settings/core/browser/host_content_settings_map.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
+#include "components/variations/variations_associated_data.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/test/mock_render_process_host.h"
 #include "content/public/test/web_contents_tester.h"
 #include "testing/gtest/include/gtest/gtest.h"
+
+#if defined(OS_ANDROID)
+#include "chrome/browser/permissions/permission_queue_controller.h"
+#else
+#include "chrome/browser/ui/website_settings/permission_bubble_manager.h"
+#endif
+
+const char* kPermissionsKillSwitchFieldStudy =
+    PermissionContextBase::kPermissionsKillSwitchFieldStudy;
+const char* kPermissionsKillSwitchBlockedValue =
+    PermissionContextBase::kPermissionsKillSwitchBlockedValue;
+const char kPermissionsKillSwitchTestGroup[] = "TestGroup";
 
 class TestPermissionContext : public PermissionContextBase {
  public:
@@ -29,13 +46,17 @@ class TestPermissionContext : public PermissionContextBase {
    : PermissionContextBase(profile, permission_type),
      permission_set_(false),
      permission_granted_(false),
-     tab_context_updated_(false) {}
+     tab_context_updated_(false),
+     field_trial_list_(new base::FieldTrialList(new base::MockEntropyProvider))
+     {}
 
   ~TestPermissionContext() override {}
 
+#if defined(OS_ANDROID)
   PermissionQueueController* GetInfoBarController() {
     return GetQueueController();
   }
+#endif
 
   bool permission_granted() {
     return permission_granted_;
@@ -54,6 +75,15 @@ class TestPermissionContext : public PermissionContextBase {
     permission_granted_ = content_setting == CONTENT_SETTING_ALLOW;
   }
 
+  void ResetFieldTrialList() {
+    // Destroy the existing FieldTrialList before creating a new one to avoid
+    // a DCHECK.
+    field_trial_list_.reset();
+    field_trial_list_.reset(new base::FieldTrialList(
+        new base::MockEntropyProvider));
+    variations::testing::ClearAllVariationParams();
+  }
+
  protected:
   void UpdateTabContext(const PermissionRequestID& id,
                         const GURL& requesting_origin,
@@ -69,6 +99,7 @@ class TestPermissionContext : public PermissionContextBase {
    bool permission_set_;
    bool permission_granted_;
    bool tab_context_updated_;
+   scoped_ptr<base::FieldTrialList> field_trial_list_;
 };
 
 class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
@@ -80,18 +111,17 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
                            const PermissionRequestID& id,
                            const GURL& url,
                            bool accept) {
-    if (!PermissionBubbleManager::Enabled()) {
-      context->GetInfoBarController()->OnPermissionSet(
-          id, url, url, accept, accept);
-      return;
-    }
-
+#if defined(OS_ANDROID)
+    context->GetInfoBarController()->OnPermissionSet(id, url, url, accept,
+                                                     accept);
+#else
     PermissionBubbleManager* manager =
         PermissionBubbleManager::FromWebContents(web_contents());
     if (accept)
       manager->Accept();
     else
       manager->Closing();
+#endif
   }
 
   void TestAskAndGrant_TestContent() {
@@ -103,7 +133,7 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
     const PermissionRequestID id(
         web_contents()->GetRenderProcessHost()->GetID(),
         web_contents()->GetMainFrame()->GetRoutingID(),
-        -1, GURL());
+        -1);
     permission_context.RequestPermission(
         web_contents(),
         id, url, true,
@@ -116,9 +146,11 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
     EXPECT_TRUE(permission_context.tab_context_updated());
 
     ContentSetting setting =
-        profile()->GetHostContentSettingsMap()->GetContentSetting(
-            url.GetOrigin(), url.GetOrigin(),
-            CONTENT_SETTINGS_TYPE_NOTIFICATIONS, std::string());
+        HostContentSettingsMapFactory::GetForProfile(profile())
+            ->GetContentSetting(url.GetOrigin(),
+                                url.GetOrigin(),
+                                CONTENT_SETTINGS_TYPE_NOTIFICATIONS,
+                                std::string());
     EXPECT_EQ(CONTENT_SETTING_ALLOW, setting);
   }
 
@@ -131,7 +163,7 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
     const PermissionRequestID id(
         web_contents()->GetRenderProcessHost()->GetID(),
         web_contents()->GetMainFrame()->GetRoutingID(),
-        -1, GURL());
+        -1);
     permission_context.RequestPermission(
         web_contents(),
         id, url, true,
@@ -144,9 +176,11 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
     EXPECT_TRUE(permission_context.tab_context_updated());
 
     ContentSetting setting =
-        profile()->GetHostContentSettingsMap()->GetContentSetting(
-            url.GetOrigin(), url.GetOrigin(),
-            CONTENT_SETTINGS_TYPE_MIDI_SYSEX, std::string());
+        HostContentSettingsMapFactory::GetForProfile(profile())
+            ->GetContentSetting(url.GetOrigin(),
+                                url.GetOrigin(),
+                                CONTENT_SETTINGS_TYPE_MIDI_SYSEX,
+                                std::string());
     EXPECT_EQ(CONTENT_SETTING_ASK, setting);
   }
 
@@ -159,7 +193,7 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
     const PermissionRequestID id(
         web_contents()->GetRenderProcessHost()->GetID(),
         web_contents()->GetMainFrame()->GetRoutingID(),
-        -1, GURL());
+        -1);
     permission_context.RequestPermission(
         web_contents(),
         id, url, true,
@@ -171,8 +205,11 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
     EXPECT_TRUE(permission_context.tab_context_updated());
 
     ContentSetting setting =
-        profile()->GetHostContentSettingsMap()->GetContentSetting(
-            url.GetOrigin(), url.GetOrigin(), type, std::string());
+        HostContentSettingsMapFactory::GetForProfile(profile())
+            ->GetContentSetting(url.GetOrigin(),
+                                url.GetOrigin(),
+                                type,
+                                std::string());
     EXPECT_EQ(CONTENT_SETTING_ASK, setting);
   }
 
@@ -185,7 +222,7 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
     const PermissionRequestID id(
         web_contents()->GetRenderProcessHost()->GetID(),
         web_contents()->GetMainFrame()->GetRoutingID(),
-        -1, GURL());
+        -1);
     permission_context.RequestPermission(
         web_contents(),
         id, url, true,
@@ -198,29 +235,52 @@ class PermissionContextBaseTests : public ChromeRenderViewHostTestHarness {
     EXPECT_TRUE(permission_context.tab_context_updated());
 
     ContentSetting setting =
-        profile()->GetHostContentSettingsMap()->GetContentSetting(
-            url.GetOrigin(), url.GetOrigin(),
-            type, std::string());
+        HostContentSettingsMapFactory::GetForProfile(profile())
+            ->GetContentSetting(url.GetOrigin(),
+                                url.GetOrigin(),
+                                type,
+                                std::string());
     EXPECT_EQ(CONTENT_SETTING_ALLOW, setting);
 
     // Try to reset permission.
     permission_context.ResetPermission(url.GetOrigin(), url.GetOrigin());
     ContentSetting setting_after_reset =
-        profile()->GetHostContentSettingsMap()->GetContentSetting(
-            url.GetOrigin(), url.GetOrigin(),
-            type, std::string());
+        HostContentSettingsMapFactory::GetForProfile(profile())
+            ->GetContentSetting(url.GetOrigin(),
+                                url.GetOrigin(),
+                                type,
+                                std::string());
     ContentSetting default_setting =
-        profile()->GetHostContentSettingsMap()->GetDefaultContentSetting(
-            type, nullptr);
+        HostContentSettingsMapFactory::GetForProfile(profile())
+            ->GetDefaultContentSetting(type, nullptr);
     EXPECT_EQ(default_setting, setting_after_reset);
+  }
+
+  void TestGlobalPermissionsKillSwitch(ContentSettingsType type) {
+    TestPermissionContext permission_context(profile(), type);
+    permission_context.ResetFieldTrialList();
+
+    EXPECT_FALSE(permission_context.IsPermissionKillSwitchOn());
+    std::map<std::string, std::string> params;
+    params[PermissionUtil::GetPermissionString(type)] =
+        kPermissionsKillSwitchBlockedValue;
+    variations::AssociateVariationParams(
+        kPermissionsKillSwitchFieldStudy, kPermissionsKillSwitchTestGroup,
+        params);
+    base::FieldTrialList::CreateFieldTrial(kPermissionsKillSwitchFieldStudy,
+                                           kPermissionsKillSwitchTestGroup);
+    EXPECT_TRUE(permission_context.IsPermissionKillSwitchOn());
   }
 
  private:
   // ChromeRenderViewHostTestHarness:
   void SetUp() override {
     ChromeRenderViewHostTestHarness::SetUp();
+#if defined(OS_ANDROID)
     InfoBarService::CreateForWebContents(web_contents());
+#else
     PermissionBubbleManager::CreateForWebContents(web_contents());
+#endif
   }
 
   DISALLOW_COPY_AND_ASSIGN(PermissionContextBaseTests);
@@ -285,3 +345,18 @@ TEST_F(PermissionContextBaseTests, TestGrantAndRevokeWithBubbles) {
                                  CONTENT_SETTING_ASK);
 }
 #endif
+
+// Tests the global kill switch by enabling/disabling the Field Trials.
+TEST_F(PermissionContextBaseTests, TestGlobalKillSwitch) {
+  TestGlobalPermissionsKillSwitch(CONTENT_SETTINGS_TYPE_GEOLOCATION);
+  TestGlobalPermissionsKillSwitch(CONTENT_SETTINGS_TYPE_NOTIFICATIONS);
+  TestGlobalPermissionsKillSwitch(CONTENT_SETTINGS_TYPE_MIDI_SYSEX);
+  TestGlobalPermissionsKillSwitch(CONTENT_SETTINGS_TYPE_PUSH_MESSAGING);
+  TestGlobalPermissionsKillSwitch(CONTENT_SETTINGS_TYPE_DURABLE_STORAGE);
+#if defined(OS_ANDROID) || defined(OS_CHROMEOS)
+  TestGlobalPermissionsKillSwitch(
+      CONTENT_SETTINGS_TYPE_PROTECTED_MEDIA_IDENTIFIER);
+#endif
+  TestGlobalPermissionsKillSwitch(CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC);
+  TestGlobalPermissionsKillSwitch(CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA);
+}

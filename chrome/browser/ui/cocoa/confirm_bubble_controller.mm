@@ -51,6 +51,10 @@
   return base::SysUTF16ToNSString(model_->GetLinkText());
 }
 
+- (NSString*)linkURL {
+  return base::SysUTF8ToNSString(model_->GetLinkURL().spec());
+}
+
 - (NSString*)okButtonText {
   return base::SysUTF16ToNSString(
       model_->GetButtonLabel(ConfirmBubbleModel::BUTTON_OK));
@@ -67,11 +71,6 @@
 
 - (BOOL)hasCancelButton {
   return (model_->GetButtons() & ConfirmBubbleModel::BUTTON_CANCEL) ? YES : NO;
-}
-
-- (NSImage*)icon {
-  gfx::Image* image = model_->GetIcon();
-  return !image ? nil : image->ToNSImage();
 }
 
 // Action handlers.

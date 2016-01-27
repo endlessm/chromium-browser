@@ -34,10 +34,11 @@
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
 #include "core/input/EventHandler.h"
-#include "core/inspector/InspectorPageAgent.h"
+#include "core/inspector/InspectedFrames.h"
 #include "core/page/ChromeClient.h"
 #include "core/page/Page.h"
 #include "platform/JSONValues.h"
+#include "platform/PlatformEvent.h"
 #include "platform/PlatformTouchEvent.h"
 #include "platform/PlatformTouchPoint.h"
 #include "platform/geometry/FloatSize.h"
@@ -48,17 +49,40 @@
 
 namespace {
 
+enum Modifiers {
+    AltKey = 1 << 0,
+    CtrlKey = 1 << 1,
+    MetaKey = 1 << 2,
+    ShiftKey = 1 << 3
+};
+
+unsigned GetEventModifiers(const int* modifiers)
+{
+    if (!modifiers)
+        return 0;
+    unsigned platformModifiers = 0;
+    if (*modifiers & AltKey)
+        platformModifiers |= blink::PlatformEvent::AltKey;
+    if (*modifiers & CtrlKey)
+        platformModifiers |= blink::PlatformEvent::CtrlKey;
+    if (*modifiers & MetaKey)
+        platformModifiers |= blink::PlatformEvent::MetaKey;
+    if (*modifiers & ShiftKey)
+        platformModifiers |= blink::PlatformEvent::ShiftKey;
+    return platformModifiers;
+}
+
 class SyntheticInspectorTouchPoint : public blink::PlatformTouchPoint {
 public:
     SyntheticInspectorTouchPoint(int id, State state, const blink::IntPoint& screenPos, const blink::IntPoint& pos, int radiusX, int radiusY, double rotationAngle, double force)
     {
-        m_id = id;
+        m_pointerProperties.id = id;
         m_screenPos = screenPos;
         m_pos = pos;
         m_state = state;
         m_radius = blink::FloatSize(radiusX, radiusY);
         m_rotationAngle = rotationAngle;
-        m_force = force;
+        m_pointerProperties.force = force;
     }
 };
 
@@ -87,9 +111,9 @@ void ConvertInspectorPoint(blink::LocalFrame* frame, const blink::IntPoint& poin
 
 namespace blink {
 
-InspectorInputAgent::InspectorInputAgent(InspectorPageAgent* pageAgent)
+InspectorInputAgent::InspectorInputAgent(InspectedFrames* inspectedFrames)
     : InspectorBaseAgent<InspectorInputAgent, InspectorFrontend::Input>("Input")
-    , m_pageAgent(pageAgent)
+    , m_inspectedFrames(inspectedFrames)
 {
 }
 
@@ -111,7 +135,7 @@ void InspectorInputAgent::dispatchTouchEvent(ErrorString* error, const String& t
         return;
     }
 
-    unsigned convertedModifiers = modifiers ? *modifiers : 0;
+    unsigned convertedModifiers = GetEventModifiers(modifiers);
 
     SyntheticInspectorTouchEvent event(convertedType, convertedModifiers, timestamp ? *timestamp : currentTime());
 
@@ -173,18 +197,17 @@ void InspectorInputAgent::dispatchTouchEvent(ErrorString* error, const String& t
         // Some platforms may have flipped coordinate systems, but the given coordinates
         // assume the origin is in the top-left of the window. Convert.
         IntPoint convertedPoint, globalPoint;
-        ConvertInspectorPoint(m_pageAgent->inspectedFrame(), IntPoint(x, y), &convertedPoint, &globalPoint);
+        ConvertInspectorPoint(m_inspectedFrames->root(), IntPoint(x, y), &convertedPoint, &globalPoint);
 
         SyntheticInspectorTouchPoint point(id++, convertedState, globalPoint, convertedPoint, radiusX, radiusY, rotationAngle, force);
         event.append(point);
     }
 
-    m_pageAgent->inspectedFrame()->eventHandler().handleTouchEvent(event);
+    m_inspectedFrames->root()->eventHandler().handleTouchEvent(event);
 }
 
 DEFINE_TRACE(InspectorInputAgent)
 {
-    visitor->trace(m_pageAgent);
     InspectorBaseAgent::trace(visitor);
 }
 

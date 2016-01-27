@@ -80,6 +80,8 @@ struct Extensions
     // GL_OES_texture_float, GL_OES_texture_float_linear
     // GL_EXT_texture_rg
     // GL_EXT_texture_compression_dxt1, GL_ANGLE_texture_compression_dxt3, GL_ANGLE_texture_compression_dxt5
+    // GL_KHR_texture_compression_astc_hdr, GL_KHR_texture_compression_astc_ldr
+    // GL_OES_compressed_ETC1_RGB8_texture
     // GL_EXT_sRGB
     // GL_ANGLE_depth_texture
     // GL_EXT_color_buffer_float
@@ -137,6 +139,16 @@ struct Extensions
     bool textureCompressionDXT1;
     bool textureCompressionDXT3;
     bool textureCompressionDXT5;
+
+    // GL_KHR_texture_compression_astc_hdr
+    bool textureCompressionASTCHDR;
+
+    // GL_KHR_texture_compression_astc_ldr
+    bool textureCompressionASTCLDR;
+
+    // GL_OES_compressed_ETC1_RGB8_texture
+    // Implies that TextureCaps for GL_ETC1_RGB8_OES exist
+    bool compressedETC1RGB8Texture;
 
     // GL_EXT_sRGB
     // Implies that TextureCaps for GL_SRGB8_ALPHA8 and GL_SRGB8 exist
@@ -219,10 +231,52 @@ struct Extensions
     // EXT_debug_marker
     bool debugMarker;
 
+    // GL_OES_EGL_image
+    bool eglImage;
+
+    // GL_OES_EGL_image_external
+    bool eglImageExternal;
+
+    // GL_OES_EGL_image_external_essl3
+    bool eglImageExternalEssl3;
+
+    // EXT_unpack_subimage
+    bool unpackSubimage;
+
+    // NV_pack_subimage
+    bool packSubimage;
+
+    // GL_OES_vertex_array_object
+    bool vertexArrayObject;
+
     // ES3 Extension support
 
     // GL_EXT_color_buffer_float
     bool colorBufferFloat;
+};
+
+struct Limitations
+{
+    Limitations();
+
+    // Renderer doesn't support gl_FrontFacing in fragment shaders
+    bool noFrontFacingSupport;
+
+    // Renderer doesn't support GL_SAMPLE_ALPHA_TO_COVERAGE
+    bool noSampleAlphaToCoverageSupport;
+
+    // In glVertexAttribDivisorANGLE, attribute zero must have a zero divisor
+    bool attributeZeroRequiresZeroDivisorInEXT;
+
+    // Unable to support different values for front and back faces for stencil refs and masks
+    bool noSeparateStencilRefsAndMasks;
+
+    // Renderer doesn't support non-constant indexing loops in fragment shader
+    bool shadersRequireIndexedLoopValidation;
+
+    // Renderer doesn't support Simultaneous use of GL_CONSTANT_ALPHA/GL_ONE_MINUS_CONSTANT_ALPHA
+    // and GL_CONSTANT_COLOR/GL_ONE_MINUS_CONSTANT_COLOR blend functions.
+    bool noSimultaneousConstantColorAndAlphaBlendFunc;
 };
 
 struct TypePrecision
@@ -352,6 +406,9 @@ struct DisplayExtensions
     // EGL_ANGLE_window_fixed_size
     bool windowFixedSize;
 
+    // EGL_ANGLE_keyed_mutex
+    bool keyedMutex;
+
     // EGL_NV_post_sub_buffer
     bool postSubBuffer;
 
@@ -360,6 +417,30 @@ struct DisplayExtensions
 
     // EGL_EXT_device_query
     bool deviceQuery;
+
+    // EGL_KHR_image
+    bool image;
+
+    // EGL_KHR_image_base
+    bool imageBase;
+
+    // EGL_KHR_image_pixmap
+    bool imagePixmap;
+
+    // EGL_KHR_gl_texture_2D_image
+    bool glTexture2DImage;
+
+    // EGL_KHR_gl_texture_cubemap_image
+    bool glTextureCubemapImage;
+
+    // EGL_KHR_gl_texture_3D_image
+    bool glTexture3DImage;
+
+    // EGL_KHR_gl_renderbuffer_image
+    bool glRenderbufferImage;
+
+    // EGL_KHR_get_all_proc_addresses
+    bool getAllProcAddresses;
 };
 
 struct DeviceExtensions
@@ -394,6 +475,9 @@ struct ClientExtensions
 
     // EGL_ANGLE_platform_angle_opengl
     bool platformANGLEOpenGL;
+
+    // EGL_KHR_client_get_all_proc_addresses
+    bool clientGetAllProcAddresses;
 };
 
 }

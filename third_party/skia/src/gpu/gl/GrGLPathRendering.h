@@ -11,8 +11,8 @@
 #include "SkRefCnt.h"
 #include "GrPathRendering.h"
 #include "GrStencil.h"
-#include "gl/GrGLFunctions.h"
 #include "gl/GrGLProgram.h"
+#include "gl/GrGLTypes.h"
 
 class GrGLNameAllocator;
 class GrGLGpu;
@@ -46,6 +46,10 @@ public:
      */
     void abandonGpuResources();
 
+    bool shouldBindFragmentInputs() const {
+        return fCaps.bindFragmentInputSupport;
+    }
+
     // Functions for "separable shader" texturing support.
     void setProgramPathFragmentInputTransform(GrGLuint program, GrGLint location,
                                               GrGLenum genMode, GrGLint components,
@@ -65,6 +69,13 @@ protected:
     void onDrawPaths(const DrawPathArgs&, const GrPathRange*, const void* indices, PathIndexType,
                      const float transformValues[], PathTransformType, int count) override;
 private:
+    /**
+     * Mark certain functionality as not supported.
+     */
+    struct Caps {
+        bool bindFragmentInputSupport : 1;
+    };
+
     void flushPathStencilSettings(const GrStencilSettings&);
 
     struct MatrixState {
@@ -83,7 +94,7 @@ private:
         /**
          * Gets a matrix that goes from local coordinates to GL normalized device coords.
          */
-        template<int Size> void getRTAdjustedGLMatrix(GrGLfloat* destMatrix) {
+        template<int Size> void getRTAdjustedGLMatrix(float* destMatrix) {
             SkMatrix combined;
             if (kBottomLeft_GrSurfaceOrigin == fRenderTargetOrigin) {
                 combined.setAll(SkIntToScalar(2) / fRenderTargetSize.fWidth, 0, -SK_Scalar1,
@@ -103,6 +114,7 @@ private:
     SkAutoTDelete<GrGLNameAllocator> fPathNameAllocator;
     MatrixState fHWProjectionMatrixState;
     GrStencilSettings fHWPathStencilSettings;
+    Caps fCaps;
 };
 
 #endif

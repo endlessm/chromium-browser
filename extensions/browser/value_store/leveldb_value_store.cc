@@ -8,9 +8,13 @@
 #include "base/json/json_reader.h"
 #include "base/json/json_writer.h"
 #include "base/logging.h"
+#include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/sys_string_conversions.h"
+#include "base/thread_task_runner_handle.h"
+#include "base/trace_event/memory_dump_manager.h"
+#include "base/trace_event/process_memory_dump.h"
 #include "content/public/browser/browser_thread.h"
 #include "extensions/browser/value_store/value_store_util.h"
 #include "third_party/leveldatabase/env_chromium.h"
@@ -24,6 +28,16 @@ namespace {
 
 const char kInvalidJson[] = "Invalid JSON";
 const char kCannotSerialize[] = "Cannot serialize value to JSON";
+
+// UMA values used when recovering from a corrupted leveldb.
+// Do not change/delete these values as you will break reporting for older
+// copies of Chrome. Only add new values to the end.
+enum LevelDBCorruptionRecoveryValue {
+  LEVELDB_RESTORE_DELETE_SUCCESS = 0,
+  LEVELDB_RESTORE_DELETE_FAILURE,
+  LEVELDB_RESTORE_REPAIR_SUCCESS,
+  LEVELDB_RESTORE_MAX
+};
 
 // Scoped leveldb snapshot which releases the snapshot on destruction.
 class ScopedSnapshot {
@@ -48,13 +62,28 @@ class ScopedSnapshot {
 
 }  // namespace
 
-LeveldbValueStore::LeveldbValueStore(const base::FilePath& db_path)
-    : db_path_(db_path) {
+LeveldbValueStore::LeveldbValueStore(const std::string& uma_client_name,
+                                     const base::FilePath& db_path)
+    : db_path_(db_path), open_histogram_(nullptr), restore_histogram_(nullptr) {
   DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+
+  // Used in lieu of UMA_HISTOGRAM_ENUMERATION because the histogram name is
+  // not a constant.
+  open_histogram_ = base::LinearHistogram::FactoryGet(
+      "Extensions.Database.Open." + uma_client_name, 1,
+      leveldb_env::LEVELDB_STATUS_MAX, leveldb_env::LEVELDB_STATUS_MAX + 1,
+      base::Histogram::kUmaTargetedHistogramFlag);
+  restore_histogram_ = base::LinearHistogram::FactoryGet(
+      "Extensions.Database.Restore." + uma_client_name, 1, LEVELDB_RESTORE_MAX,
+      LEVELDB_RESTORE_MAX + 1, base::Histogram::kUmaTargetedHistogramFlag);
+  base::trace_event::MemoryDumpManager::GetInstance()->RegisterDumpProvider(
+      this, "LeveldbValueStore", base::ThreadTaskRunnerHandle::Get());
 }
 
 LeveldbValueStore::~LeveldbValueStore() {
   DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+  base::trace_event::MemoryDumpManager::GetInstance()->UnregisterDumpProvider(
+      this);
 
   // Delete the database from disk if it's empty (but only if we managed to
   // open it!). This is safe on destruction, assuming that we have exclusive
@@ -271,28 +300,26 @@ ValueStore::WriteResult LeveldbValueStore::Clear() {
 bool LeveldbValueStore::Restore() {
   DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
-  ReadResult result = Get();
-  std::string previous_key;
-  while (result->IsCorrupted()) {
-    // If we don't have a specific corrupted key, or we've tried and failed to
-    // clear this specific key, or we fail to restore the key, then wipe the
-    // whole database.
-    if (!result->error().key.get() || *result->error().key == previous_key ||
-        !RestoreKey(*result->error().key)) {
-      DeleteDbFile();
-      result = Get();
-      break;
-    }
+  // Possible to have a corrupted open database, so first close it.
+  db_.reset();
 
-    // Otherwise, re-Get() the database to check if there is still any
-    // corruption.
-    previous_key = *result->error().key;
-    result = Get();
+  leveldb::Options options;
+  options.create_if_missing = true;
+
+  // Repair can drop an unbounded number of leveldb tables (key/value sets)
+  leveldb::Status status = leveldb::RepairDB(db_path_.AsUTF8Unsafe(), options);
+  if (status.ok()) {
+    restore_histogram_->Add(LEVELDB_RESTORE_REPAIR_SUCCESS);
+    return true;
   }
 
-  // If we still have an error, it means we've tried deleting the database file,
-  // and failed. There's nothing more we can do.
-  return !result->IsCorrupted();
+  if (DeleteDbFile()) {
+    restore_histogram_->Add(LEVELDB_RESTORE_DELETE_SUCCESS);
+    return true;
+  }
+
+  restore_histogram_->Add(LEVELDB_RESTORE_DELETE_FAILURE);
+  return false;
 }
 
 bool LeveldbValueStore::RestoreKey(const std::string& key) {
@@ -317,6 +344,38 @@ bool LeveldbValueStore::WriteToDbForTest(leveldb::WriteBatch* batch) {
   return !WriteToDb(batch).get();
 }
 
+bool LeveldbValueStore::OnMemoryDump(
+    const base::trace_event::MemoryDumpArgs& args,
+    base::trace_event::ProcessMemoryDump* pmd) {
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
+
+  // Return true so that the provider is not disabled.
+  if (!db_)
+    return true;
+
+  std::string value;
+  uint64 size;
+  bool res = db_->GetProperty("leveldb.approximate-memory-usage", &value);
+  DCHECK(res);
+  res = base::StringToUint64(value, &size);
+  DCHECK(res);
+
+  auto dump = pmd->CreateAllocatorDump(
+      base::StringPrintf("leveldb/value_store/%s/%p",
+                         open_histogram_->histogram_name().c_str(), this));
+  dump->AddScalar(base::trace_event::MemoryAllocatorDump::kNameSize,
+                  base::trace_event::MemoryAllocatorDump::kUnitsBytes, size);
+
+  // Memory is allocated from system allocator (malloc).
+  const char* system_allocator_name =
+      base::trace_event::MemoryDumpManager::GetInstance()
+          ->system_allocator_pool_name();
+  if (system_allocator_name)
+    pmd->AddSuballocation(dump->guid(), system_allocator_name);
+
+  return true;
+}
+
 scoped_ptr<ValueStore::Error> LeveldbValueStore::EnsureDbIsOpen() {
   DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
@@ -331,6 +390,14 @@ scoped_ptr<ValueStore::Error> LeveldbValueStore::EnsureDbIsOpen() {
   leveldb::DB* db = NULL;
   leveldb::Status status =
       leveldb::DB::Open(options, db_path_.AsUTF8Unsafe(), &db);
+  if (open_histogram_)
+    open_histogram_->Add(leveldb_env::GetLevelDBStatusUMAValue(status));
+  if (status.IsCorruption()) {
+    // Returning a corruption error should result in Restore() being called.
+    // However, since once a leveldb becomes corrupt it's unusable without
+    // some kind of repair or delete, so do that right now.
+    Restore();
+  }
   if (!status.ok())
     return ToValueStoreError(status, util::NoKey());
 
@@ -418,12 +485,14 @@ bool LeveldbValueStore::IsEmpty() {
   return is_empty;
 }
 
-void LeveldbValueStore::DeleteDbFile() {
+bool LeveldbValueStore::DeleteDbFile() {
   db_.reset();  // release any lock on the directory
   if (!base::DeleteFile(db_path_, true /* recursive */)) {
     LOG(WARNING) << "Failed to delete LeveldbValueStore database at " <<
         db_path_.value();
+    return false;
   }
+  return true;
 }
 
 scoped_ptr<ValueStore::Error> LeveldbValueStore::ToValueStoreError(

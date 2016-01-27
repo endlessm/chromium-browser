@@ -25,10 +25,10 @@
 #include "chrome/browser/ui/android/tab_model/tab_model.h"
 #include "chrome/browser/ui/android/tab_model/tab_model_list.h"
 #include "chrome/common/chrome_content_client.h"
-#include "chrome/common/chrome_version_info.h"
 #include "components/devtools_http_handler/devtools_http_handler.h"
 #include "components/devtools_http_handler/devtools_http_handler_delegate.h"
 #include "components/history/core/browser/top_sites.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/android/devtools_auth.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/devtools_agent_host.h"
@@ -114,6 +114,11 @@ class DevToolsServerDelegate :
         return std::string(data->front_as<char>(), data->size());
     }
     return std::string();
+  }
+
+  content::DevToolsExternalAgentProxyDelegate*
+      HandleWebSocketConnection(const std::string& path) override {
+    return nullptr;
   }
 
  private:
@@ -205,8 +210,6 @@ void DevToolsServer::Start(bool allow_debug_permission) {
       allow_debug_permission ?
           base::Bind(&AuthorizeSocketAccessWithDebugPermission) :
           base::Bind(&content::CanUserConnectToDevTools);
-  chrome::VersionInfo version_info;
-
   scoped_ptr<DevToolsHttpHandler::ServerSocketFactory> factory(
       new UnixDomainServerSocketFactory(socket_name_, auth_callback));
   devtools_http_handler_.reset(new DevToolsHttpHandler(
@@ -215,7 +218,7 @@ void DevToolsServer::Start(bool allow_debug_permission) {
       new DevToolsServerDelegate(),
       base::FilePath(),
       base::FilePath(),
-      version_info.ProductNameAndVersionForUserAgent(),
+      version_info::GetProductNameAndVersionForUserAgent(),
       ::GetUserAgent()));
 }
 
@@ -231,26 +234,29 @@ bool RegisterDevToolsServer(JNIEnv* env) {
   return RegisterNativesImpl(env);
 }
 
-static jlong InitRemoteDebugging(JNIEnv* env,
-                                jobject obj,
-                                jstring socket_name_prefix) {
+static jlong InitRemoteDebugging(
+    JNIEnv* env,
+    const JavaParamRef<jobject>& obj,
+    const JavaParamRef<jstring>& socket_name_prefix) {
   DevToolsServer* server = new DevToolsServer(
       base::android::ConvertJavaStringToUTF8(env, socket_name_prefix));
   return reinterpret_cast<intptr_t>(server);
 }
 
-static void DestroyRemoteDebugging(JNIEnv* env, jobject obj, jlong server) {
+static void DestroyRemoteDebugging(JNIEnv* env,
+                                   const JavaParamRef<jobject>& obj,
+                                   jlong server) {
   delete reinterpret_cast<DevToolsServer*>(server);
 }
 
 static jboolean IsRemoteDebuggingEnabled(JNIEnv* env,
-                                         jobject obj,
+                                         const JavaParamRef<jobject>& obj,
                                          jlong server) {
   return reinterpret_cast<DevToolsServer*>(server)->IsStarted();
 }
 
 static void SetRemoteDebuggingEnabled(JNIEnv* env,
-                                      jobject obj,
+                                      const JavaParamRef<jobject>& obj,
                                       jlong server,
                                       jboolean enabled,
                                       jboolean allow_debug_permission) {

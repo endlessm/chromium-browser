@@ -51,10 +51,8 @@ bool ParseNetworkGuid(const std::string& guid,
                       std::string* device_path,
                       std::string* access_point_path,
                       std::string* ssid) {
-  std::vector<std::string> guid_parts;
-
-  base::SplitString(guid, '|', &guid_parts);
-
+  std::vector<std::string> guid_parts =
+      base::SplitString(guid, "|", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   if (guid_parts.size() != 3) {
     return false;
   }
@@ -555,6 +553,25 @@ void NetworkingPrivateLinux::GetCaptivePortalStatus(
   ReportNotSupported("GetCaptivePortalStatus", failure_callback);
 }
 
+void NetworkingPrivateLinux::UnlockCellularSim(
+    const std::string& guid,
+    const std::string& pin,
+    const std::string& puk,
+    const VoidCallback& success_callback,
+    const FailureCallback& failure_callback) {
+  ReportNotSupported("UnlockCellularSim", failure_callback);
+}
+
+void NetworkingPrivateLinux::SetCellularSimState(
+    const std::string& guid,
+    bool require_pin,
+    const std::string& current_pin,
+    const std::string& new_pin,
+    const VoidCallback& success_callback,
+    const FailureCallback& failure_callback) {
+  ReportNotSupported("SetCellularSimState", failure_callback);
+}
+
 scoped_ptr<base::ListValue> NetworkingPrivateLinux::GetEnabledNetworkTypes() {
   scoped_ptr<base::ListValue> network_list(new base::ListValue);
   network_list->AppendString(::onc::network_type::kWiFi);
@@ -564,10 +581,10 @@ scoped_ptr<base::ListValue> NetworkingPrivateLinux::GetEnabledNetworkTypes() {
 scoped_ptr<NetworkingPrivateDelegate::DeviceStateList>
 NetworkingPrivateLinux::GetDeviceStateList() {
   scoped_ptr<DeviceStateList> device_state_list(new DeviceStateList);
-  scoped_ptr<core_api::networking_private::DeviceStateProperties> properties(
-      new core_api::networking_private::DeviceStateProperties);
-  properties->type = core_api::networking_private::NETWORK_TYPE_WIFI;
-  properties->state = core_api::networking_private::DEVICE_STATE_TYPE_ENABLED;
+  scoped_ptr<api::networking_private::DeviceStateProperties> properties(
+      new api::networking_private::DeviceStateProperties);
+  properties->type = api::networking_private::NETWORK_TYPE_WIFI;
+  properties->state = api::networking_private::DEVICE_STATE_TYPE_ENABLED;
   device_state_list->push_back(properties.Pass());
   return device_state_list.Pass();
 }

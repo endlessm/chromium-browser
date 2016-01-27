@@ -35,14 +35,14 @@ class SkCanvas;
 
 namespace blink {
 
-class DisplayItemList;
 class GraphicsContext;
 class IntRect;
+class PaintController;
 
 class PLATFORM_EXPORT GraphicsContextPainter {
 public:
-    virtual void paint(GraphicsContext&, const IntRect& clip) = 0;
-    virtual DisplayItemList* displayItemList() = 0;
+    virtual void paint(GraphicsContext&, const IntRect* clip) = 0;
+    virtual PaintController* paintController() = 0;
 
 protected:
     virtual ~GraphicsContextPainter() { }
@@ -56,8 +56,8 @@ public:
     ~ContentLayerDelegate() override;
 
     // WebContentLayerClient implementation.
-    void paintContents(SkCanvas*, const WebRect& clip, WebContentLayerClient::PaintingControlSetting = PaintDefaultBehavior) override;
     void paintContents(WebDisplayItemList*, const WebRect& clip, WebContentLayerClient::PaintingControlSetting = PaintDefaultBehavior) override;
+    size_t approximateUnsharedMemoryUsage() const override;
 
 private:
     GraphicsContextPainter* m_painter;

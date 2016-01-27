@@ -84,8 +84,8 @@ public:
     BLINK_EXPORT WebString target() const;
     BLINK_EXPORT void setTarget(const WebString&);
 
-    BLINK_EXPORT WebFloatPoint pinchViewportScrollOffset() const;
-    BLINK_EXPORT void setPinchViewportScrollOffset(const WebFloatPoint&);
+    BLINK_EXPORT WebFloatPoint visualViewportScrollOffset() const;
+    BLINK_EXPORT void setVisualViewportScrollOffset(const WebFloatPoint&);
 
     BLINK_EXPORT WebPoint scrollOffset() const;
     BLINK_EXPORT void setScrollOffset(const WebPoint&);

@@ -111,7 +111,7 @@ ifeq ($(PLATFORM), win)
   # I'm explicitly coding the path.
   BUILDPATH = $(DESTDIR)$(PREFIX)/bin:/usr/local/bin:/usr/bin:/bin
   SCONS ?= scons.bat
-  GIT ?= $(shell python ../build/find_depot_tools.py)/git.bat
+  GIT ?= $(shell python ../../build/find_depot_tools.py)/git.bat
   REVISION ?= $(shell $(GIT) rev-parse HEAD | tr -d $$"\r")
   PREFIX_NATIVE = $(shell cygpath -m $(PREFIX))
   CREATE_REDIRECTORS = ./create_redirectors_cygwin.sh
@@ -855,7 +855,7 @@ ifeq ($(INST_GLIBC_PROGRAM), none)
 else
 	$(INST_GLIBC_PROGRAM) "$(DESTDIR)$(PREFIX)"
 endif
-	cp -f SRC/glibc/sysdeps/nacl/{irt_syscalls,nacl_stat}.h \
+	cp -f SRC/glibc/sysdeps/nacl/{irt_syscalls,nacl_stat,nacl_dirent}.h \
 	  "$(DESTDIR)$(PREFIX)/$(CROSSARCH)"/include
 	$(MAKE) -f $(THISMAKEFILE) export-headers
 	$(MAKE) -f $(THISMAKEFILE) glibc-adhoc-files

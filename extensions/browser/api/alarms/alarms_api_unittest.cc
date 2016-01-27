@@ -17,7 +17,7 @@
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
-typedef extensions::core_api::alarms::Alarm JsAlarm;
+typedef extensions::api::alarms::Alarm JsAlarm;
 
 namespace extensions {
 
@@ -32,7 +32,7 @@ class AlarmDelegate : public AlarmManager::Delegate {
   void OnAlarm(const std::string& extension_id, const Alarm& alarm) override {
     alarms_seen.push_back(alarm.js_alarm->name);
     if (base::MessageLoop::current()->is_running())
-      base::MessageLoop::current()->Quit();
+      base::MessageLoop::current()->QuitWhenIdle();
   }
 
   std::vector<std::string> alarms_seen;

@@ -15,11 +15,13 @@
 #include "bindings/core/v8/WrapperTypeInfo.h"
 #include "core/CoreExport.h"
 #include "core/dom/DOMTypedArray.h"
+#include "core/dom/FlexibleArrayBufferView.h"
 #include "platform/heap/Handle.h"
 
 namespace blink {
 
 class V8Uint8ClampedArray {
+    STATIC_ONLY(V8Uint8ClampedArray);
 public:
     CORE_EXPORT static bool hasInstance(v8::Local<v8::Value>, v8::Isolate*);
     CORE_EXPORT static TestUint8ClampedArray* toImpl(v8::Local<v8::Object> object);
@@ -33,7 +35,7 @@ public:
     }
     static const int internalFieldCount = v8DefaultWrapperInternalFieldCount + 0;
     static void installConditionallyEnabledProperties(v8::Local<v8::Object>, v8::Isolate*) { }
-    static void preparePrototypeObject(v8::Isolate*, v8::Local<v8::Object> prototypeObject, v8::Local<v8::FunctionTemplate> interfaceTemplate) { }
+    static void preparePrototypeAndInterfaceObject(v8::Isolate*, v8::Local<v8::Object> prototypeObject, v8::Local<v8::Function> interfaceObject, v8::Local<v8::FunctionTemplate> interfaceTemplate) { }
 };
 
 template <>

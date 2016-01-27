@@ -32,6 +32,7 @@
 
 #include "talk/app/webrtc/mediaconstraintsinterface.h"
 #include "talk/session/media/channelmanager.h"
+#include "webrtc/base/arraysize.h"
 
 using cricket::CaptureState;
 using webrtc::MediaConstraintsInterface;
@@ -157,12 +158,9 @@ bool NewFormatWithConstraints(
         value = 1;
       }
     }
-    if (value <= cricket::VideoFormat::IntervalToFps(format_in.interval)) {
+    if (value <= cricket::VideoFormat::IntervalToFps(format_in.interval))
       format_out->interval = cricket::VideoFormat::FpsToInterval(value);
-      return true;
-    } else {
-      return false;
-    }
+    return true;
   } else if (constraint.key == MediaConstraintsInterface::kMinAspectRatio) {
     double value = rtc::FromString<double>(constraint.value);
     // The aspect ratio in |constraint.value| has been converted to a string and
@@ -253,10 +251,10 @@ const cricket::VideoFormat& GetBestCaptureFormat(
   std::vector<cricket::VideoFormat>::const_iterator it = formats.begin();
   std::vector<cricket::VideoFormat>::const_iterator best_it = formats.begin();
   int best_diff_area = std::abs(default_area - it->width * it->height);
-  int64 best_diff_interval = kDefaultFormat.interval;
+  int64_t best_diff_interval = kDefaultFormat.interval;
   for (; it != formats.end(); ++it) {
     int diff_area = std::abs(default_area - it->width * it->height);
-    int64 diff_interval = std::abs(kDefaultFormat.interval - it->interval);
+    int64_t diff_interval = std::abs(kDefaultFormat.interval - it->interval);
     if (diff_area < best_diff_area ||
         (diff_area == best_diff_area && diff_interval < best_diff_interval)) {
       best_diff_area = diff_area;
@@ -270,11 +268,12 @@ const cricket::VideoFormat& GetBestCaptureFormat(
 // Set |option| to the highest-priority value of |key| in the constraints.
 // Return false if the key is mandatory, and the value is invalid.
 bool ExtractOption(const MediaConstraintsInterface* all_constraints,
-    const std::string& key, cricket::Settable<bool>* option) {
+                   const std::string& key,
+                   rtc::Optional<bool>* option) {
   size_t mandatory = 0;
   bool value;
   if (FindConstraint(all_constraints, key, &value, &mandatory)) {
-    option->Set(value);
+    *option = rtc::Optional<bool>(value);
     return true;
   }
 
@@ -321,10 +320,8 @@ class FrameInputWrapper : public cricket::VideoRenderer {
 
  private:
   cricket::VideoCapturer* capturer_;
-  int width_;
-  int height_;
 
-  DISALLOW_COPY_AND_ASSIGN(FrameInputWrapper);
+  RTC_DISALLOW_COPY_AND_ASSIGN(FrameInputWrapper);
 };
 
 }  // anonymous namespace
@@ -373,7 +370,7 @@ void VideoSource::Initialize(
     } else {
       // The VideoCapturer implementation doesn't support capability
       // enumeration. We need to guess what the camera supports.
-      for (int i = 0; i < ARRAY_SIZE(kVideoFormats); ++i) {
+      for (int i = 0; i < arraysize(kVideoFormats); ++i) {
         formats.push_back(cricket::VideoFormat(kVideoFormats[i]));
       }
     }

@@ -74,9 +74,11 @@ HttpCache::DefaultBackend::DefaultBackend(
 HttpCache::DefaultBackend::~DefaultBackend() {}
 
 // static
-HttpCache::BackendFactory* HttpCache::DefaultBackend::InMemory(int max_bytes) {
-  return new DefaultBackend(MEMORY_CACHE, CACHE_BACKEND_DEFAULT,
-                            base::FilePath(), max_bytes, NULL);
+scoped_ptr<HttpCache::BackendFactory> HttpCache::DefaultBackend::InMemory(
+    int max_bytes) {
+  return make_scoped_ptr(new DefaultBackend(MEMORY_CACHE, CACHE_BACKEND_DEFAULT,
+                                            base::FilePath(), max_bytes,
+                                            nullptr));
 }
 
 int HttpCache::DefaultBackend::CreateBackend(
@@ -294,49 +296,38 @@ class HttpCache::QuicServerInfoFactoryAdaptor : public QuicServerInfoFactory {
 };
 
 //-----------------------------------------------------------------------------
-HttpCache::HttpCache(const HttpNetworkSession::Params& params,
-                     BackendFactory* backend_factory)
-    : net_log_(params.net_log),
-      backend_factory_(backend_factory),
-      building_backend_(false),
-      bypass_lock_for_test_(false),
-      fail_conditionalization_for_test_(false),
-      mode_(NORMAL),
-      network_layer_(new HttpNetworkLayer(new HttpNetworkSession(params))),
-      clock_(new base::DefaultClock()),
-      weak_factory_(this) {
-  SetupQuicServerInfoFactory(network_layer_->GetSession());
-}
-
-
-// This call doesn't change the shared |session|'s QuicServerInfoFactory because
-// |session| is shared.
 HttpCache::HttpCache(HttpNetworkSession* session,
-                     BackendFactory* backend_factory)
-    : net_log_(session->net_log()),
-      backend_factory_(backend_factory),
-      building_backend_(false),
-      bypass_lock_for_test_(false),
-      fail_conditionalization_for_test_(false),
-      mode_(NORMAL),
-      network_layer_(new HttpNetworkLayer(session)),
-      clock_(new base::DefaultClock()),
-      weak_factory_(this) {
-}
+                     scoped_ptr<BackendFactory> backend_factory,
+                     bool set_up_quic_server_info)
+    : HttpCache(make_scoped_ptr(new HttpNetworkLayer(session)),
+                backend_factory.Pass(),
+                set_up_quic_server_info) {}
 
-HttpCache::HttpCache(HttpTransactionFactory* network_layer,
-                     NetLog* net_log,
-                     BackendFactory* backend_factory)
-    : net_log_(net_log),
-      backend_factory_(backend_factory),
+HttpCache::HttpCache(scoped_ptr<HttpTransactionFactory> network_layer,
+                     scoped_ptr<BackendFactory> backend_factory,
+                     bool set_up_quic_server_info)
+    : net_log_(nullptr),
+      backend_factory_(backend_factory.Pass()),
       building_backend_(false),
       bypass_lock_for_test_(false),
       fail_conditionalization_for_test_(false),
       mode_(NORMAL),
-      network_layer_(network_layer),
+      network_layer_(network_layer.Pass()),
       clock_(new base::DefaultClock()),
       weak_factory_(this) {
-  SetupQuicServerInfoFactory(network_layer_->GetSession());
+  HttpNetworkSession* session = network_layer_->GetSession();
+  // Session may be NULL in unittests.
+  // TODO(mmenke): Seems like tests could be changed to provide a session,
+  // rather than having logic only used in unit tests here.
+  if (session) {
+    net_log_ = session->net_log();
+    if (set_up_quic_server_info &&
+        !session->quic_stream_factory()->has_quic_server_info_factory()) {
+      // QuicStreamFactory takes ownership of QuicServerInfoFactoryAdaptor.
+      session->quic_stream_factory()->set_quic_server_info_factory(
+          new QuicServerInfoFactoryAdaptor(this));
+    }
+  }
 }
 
 HttpCache::~HttpCache() {
@@ -994,16 +985,6 @@ bool HttpCache::RemovePendingTransactionFromPendingOp(PendingOp* pending_op,
     }
   }
   return false;
-}
-
-void HttpCache::SetupQuicServerInfoFactory(HttpNetworkSession* session) {
-  if (session &&
-      !session->quic_stream_factory()->has_quic_server_info_factory()) {
-    DCHECK(!quic_server_info_factory_);
-    quic_server_info_factory_.reset(new QuicServerInfoFactoryAdaptor(this));
-    session->quic_stream_factory()->set_quic_server_info_factory(
-        quic_server_info_factory_.get());
-  }
 }
 
 void HttpCache::ProcessPendingQueue(ActiveEntry* entry) {

@@ -122,15 +122,15 @@ class ClientSession
       protocol::ConnectionToClient* connection) override;
   void OnConnectionClosed(protocol::ConnectionToClient* connection,
                           protocol::ErrorCode error) override;
-  void OnEventTimestamp(protocol::ConnectionToClient* connection,
-                        int64 timestamp) override;
+  void OnInputEventReceived(protocol::ConnectionToClient* connection,
+                            int64_t timestamp) override;
   void OnRouteChange(protocol::ConnectionToClient* connection,
                      const std::string& channel_name,
                      const protocol::TransportRoute& route) override;
 
   // ClientSessionControl interface.
   const std::string& client_jid() const override;
-  void DisconnectSession() override;
+  void DisconnectSession(protocol::ErrorCode error) override;
   void OnLocalMouseMoved(const webrtc::DesktopVector& position) override;
   void SetDisableInputs(bool disable_inputs) override;
   void ResetVideoPipeline() override;
@@ -196,7 +196,7 @@ class ClientSession
 
   // A timer that triggers a disconnect when the maximum session duration
   // is reached.
-  base::OneShotTimer<ClientSession> max_duration_timer_;
+  base::OneShotTimer max_duration_timer_;
 
   scoped_refptr<base::SingleThreadTaskRunner> audio_task_runner_;
   scoped_refptr<base::SingleThreadTaskRunner> input_task_runner_;

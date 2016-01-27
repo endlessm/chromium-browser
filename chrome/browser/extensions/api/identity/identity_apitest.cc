@@ -12,6 +12,13 @@
 #include "base/strings/stringprintf.h"
 #include "base/values.h"
 #include "chrome/browser/chrome_notification_types.h"
+#if defined(OS_CHROMEOS)
+#include "chrome/browser/chromeos/login/users/mock_user_manager.h"
+#include "chrome/browser/chromeos/login/users/scoped_user_manager_enabler.h"
+#include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
+#include "chrome/browser/chromeos/policy/stub_enterprise_install_attributes.h"
+#include "extensions/common/extension_builder.h"
+#endif
 #include "chrome/browser/extensions/api/identity/identity_api.h"
 #include "chrome/browser/extensions/component_loader.h"
 #include "chrome/browser/extensions/extension_apitest.h"
@@ -21,9 +28,8 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/signin/account_tracker_service_factory.h"
 #include "chrome/browser/signin/fake_gaia_cookie_manager_service.h"
-#include "chrome/browser/signin/fake_profile_oauth2_token_service.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service_builder.h"
-#include "chrome/browser/signin/fake_signin_manager.h"
+#include "chrome/browser/signin/fake_signin_manager_builder.h"
 #include "chrome/browser/signin/gaia_cookie_manager_service_factory.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
@@ -36,9 +42,11 @@
 #include "components/crx_file/id_util.h"
 #include "components/guest_view/browser/guest_view_base.h"
 #include "components/signin/core/browser/account_tracker_service.h"
+#include "components/signin/core/browser/fake_profile_oauth2_token_service.h"
 #include "components/signin/core/browser/signin_manager.h"
 #include "components/signin/core/common/profile_management_switches.h"
 #include "components/signin/core/common/signin_pref_names.h"
+#include "components/signin/core/common/signin_switches.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/test/test_utils.h"
@@ -97,7 +105,7 @@ class SendResponseDelegate
     response_.reset(new bool);
     *response_ = success;
     if (should_post_quit_) {
-      base::MessageLoopForUI::current()->Quit();
+      base::MessageLoopForUI::current()->QuitWhenIdle();
     }
   }
 
@@ -236,7 +244,8 @@ class WaitForGURLAndCloseWindow : public content::WindowedNotificationObserver {
       : WindowedNotificationObserver(
             content::NOTIFICATION_LOAD_STOP,
             content::NotificationService::AllSources()),
-        url_(url) {}
+        url_(url),
+        embedder_web_contents_(nullptr) {}
 
   // NotificationObserver:
   void Observe(int type,
@@ -281,6 +290,7 @@ class FakeGetAuthTokenFunction : public IdentityGetAuthTokenFunction {
         auto_login_access_token_(true),
         login_ui_result_(true),
         scope_ui_result_(true),
+        scope_ui_failure_(GaiaWebAuthFlow::WINDOW_CLOSED),
         login_ui_shown_(false),
         scope_ui_shown_(false) {}
 
@@ -338,6 +348,12 @@ class FakeGetAuthTokenFunction : public IdentityGetAuthTokenFunction {
     }
   }
 
+#if defined(OS_CHROMEOS)
+  void StartDeviceLoginAccessTokenRequest() override {
+    StartLoginAccessTokenRequest();
+  }
+#endif
+
   void ShowLoginPopup() override {
     EXPECT_FALSE(login_ui_shown_);
     login_ui_shown_ = true;
@@ -394,7 +410,7 @@ class MockQueuedMintRequest : public IdentityMintRequestQueue::Request {
   MOCK_METHOD1(StartMintToken, void(IdentityMintRequestQueue::MintType));
 };
 
-gaia::AccountIds CreateIds(std::string email, std::string obfid) {
+gaia::AccountIds CreateIds(const std::string& email, const std::string& obfid) {
   gaia::AccountIds ids;
   ids.account_key = email;
   ids.email = email;
@@ -553,7 +569,7 @@ class IdentityTestWithSignin : public AsyncExtensionBrowserTest {
     // creating the browser so that a bunch of classes don't register as
     // observers and end up needing to unregister when the fake is substituted.
     SigninManagerFactory::GetInstance()->SetTestingFactory(
-        context, &FakeSigninManagerBase::Build);
+        context, &BuildFakeSigninManagerBase);
     ProfileOAuth2TokenServiceFactory::GetInstance()->SetTestingFactory(
         context, &BuildFakeProfileOAuth2TokenService);
     GaiaCookieManagerServiceFactory::GetInstance()->SetTestingFactory(
@@ -668,11 +684,11 @@ class GetAuthTokenFunctionTest : public IdentityTestWithSignin {
     command_line->AppendSwitch(switches::kExtensionsMultiAccount);
   }
 
-  void IssueLoginRefreshTokenForAccount(const std::string account_key) {
+  void IssueLoginRefreshTokenForAccount(const std::string& account_key) {
     token_service_->UpdateCredentials(account_key, "refresh_token");
   }
 
-  void IssueLoginAccessTokenForAccount(const std::string account_key) {
+  void IssueLoginAccessTokenForAccount(const std::string& account_key) {
     token_service_->IssueAllTokensForAccount(
         account_key,
         "access_token-" + account_key,
@@ -736,10 +752,10 @@ class GetAuthTokenFunctionTest : public IdentityTestWithSignin {
     id_api()->SetCachedToken(key, token_data);
   }
 
-  const IdentityTokenCacheValue& GetCachedToken(std::string account_id) {
-    if (account_id.empty())
-      account_id = GetPrimaryAccountId();
-    ExtensionTokenKey key(extension_id_, account_id, oauth_scopes_);
+  const IdentityTokenCacheValue& GetCachedToken(const std::string& account_id) {
+    ExtensionTokenKey key(
+        extension_id_, account_id.empty() ? GetPrimaryAccountId() : account_id,
+        oauth_scopes_);
     return id_api()->GetCachedToken(key);
   }
 
@@ -1611,6 +1627,84 @@ IN_PROC_BROWSER_TEST_F(GetAuthTokenFunctionTest, ScopesEmailFooBar) {
   EXPECT_TRUE(ContainsKey(token_key->scopes, "foo"));
   EXPECT_TRUE(ContainsKey(token_key->scopes, "bar"));
 }
+
+
+#if defined(OS_CHROMEOS)
+class GetAuthTokenFunctionPublicSessionTest : public GetAuthTokenFunctionTest {
+ public:
+  GetAuthTokenFunctionPublicSessionTest()
+      : user_manager_(new chromeos::MockUserManager) {}
+
+ protected:
+  void SetUpInProcessBrowserTestFixture() override {
+     GetAuthTokenFunctionTest::SetUpInProcessBrowserTestFixture();
+
+     // Set up the user manager to fake a public session.
+     EXPECT_CALL(*user_manager_, IsLoggedInAsKioskApp())
+         .WillRepeatedly(Return(false));
+     EXPECT_CALL(*user_manager_, IsLoggedInAsPublicAccount())
+         .WillRepeatedly(Return(true));
+
+    // Set up fake install attributes to make the device appeared as
+    // enterprise-managed.
+    scoped_ptr<policy::StubEnterpriseInstallAttributes> attributes(
+        new policy::StubEnterpriseInstallAttributes());
+    attributes->SetDomain("example.com");
+    attributes->SetRegistrationUser("user@example.com");
+    policy::BrowserPolicyConnectorChromeOS::SetInstallAttributesForTesting(
+        attributes.release());
+  }
+
+  scoped_refptr<Extension> CreateTestExtension(const std::string& id) {
+    return ExtensionBuilder()
+        .SetManifest(
+             DictionaryBuilder()
+                 .Set("name", "Test")
+                 .Set("version", "1.0")
+                 .Set(
+                     "oauth2",
+                     DictionaryBuilder()
+                         .Set("client_id", "clientId")
+                         .Set(
+                             "scopes",
+                             ListBuilder().Append("scope1"))))
+        .SetLocation(Manifest::UNPACKED)
+        .SetID(id)
+        .Build();
+  }
+
+  // Owned by |user_manager_enabler|.
+  chromeos::MockUserManager* user_manager_;
+};
+
+IN_PROC_BROWSER_TEST_F(GetAuthTokenFunctionPublicSessionTest, NonWhitelisted) {
+  // GetAuthToken() should return UserNotSignedIn in public sessions for
+  // non-whitelisted extensions.
+  chromeos::ScopedUserManagerEnabler user_manager_enabler(user_manager_);
+  scoped_refptr<FakeGetAuthTokenFunction> func(new FakeGetAuthTokenFunction());
+  func->set_extension(CreateTestExtension("test-id"));
+  std::string error = utils::RunFunctionAndReturnError(
+      func.get(), "[]", browser());
+  EXPECT_EQ(std::string(errors::kUserNotSignedIn), error);
+  EXPECT_FALSE(func->login_ui_shown());
+  EXPECT_FALSE(func->scope_ui_shown());
+}
+
+IN_PROC_BROWSER_TEST_F(GetAuthTokenFunctionPublicSessionTest, Whitelisted) {
+  // GetAuthToken() should return a token for whitelisted extensions.
+  chromeos::ScopedUserManagerEnabler user_manager_enabler(user_manager_);
+  scoped_refptr<FakeGetAuthTokenFunction> func(new FakeGetAuthTokenFunction());
+  func->set_extension(CreateTestExtension("ljacajndfccfgnfohlgkdphmbnpkjflk"));
+  func->set_mint_token_result(TestOAuth2MintTokenFlow::MINT_TOKEN_SUCCESS);
+  scoped_ptr<base::Value> value(
+      utils::RunFunctionAndReturnSingleResult(func.get(), "[{}]", browser()));
+  std::string access_token;
+  EXPECT_TRUE(value->GetAsString(&access_token));
+  EXPECT_EQ(std::string(kAccessToken), access_token);
+}
+
+#endif
+
 
 class RemoveCachedAuthTokenFunctionTest : public ExtensionBrowserTest {
  protected:

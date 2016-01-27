@@ -42,6 +42,7 @@ using blink::WebTextAreaElement;
 using blink::WebVector;
 
 namespace autofill {
+namespace form_util {
 
 namespace {
 
@@ -1019,7 +1020,7 @@ class FormAutofillTest : public ChromeRenderViewTest {
     lastname.setAutofilled(true);
     WebInputElement month = GetInputElementById("month");
     month.setAutofilled(true);
-    WebInputElement textarea = GetInputElementById("textarea");
+    WebFormControlElement textarea = GetFormControlElementById("textarea");
     textarea.setAutofilled(true);
 
     // Set the value of the disabled text input element.
@@ -1563,6 +1564,38 @@ TEST_F(FormAutofillTest, WebFormControlElementToFormFieldSelect) {
   EXPECT_EQ(ASCIIToUTF16("Texas"), result3.option_contents[1]);
 }
 
+// We copy extra attributes for the select field.
+TEST_F(FormAutofillTest,
+       WebFormControlElementToFormFieldSelect_ExtraAttributes) {
+  LoadHTML("<SELECT id='element' autocomplete='off'/>"
+           "  <OPTION value='CA'>California</OPTION>"
+           "  <OPTION value='TX'>Texas</OPTION>"
+           "</SELECT>");
+
+  WebFrame* frame = GetMainFrame();
+  ASSERT_NE(nullptr, frame);
+
+  WebFormControlElement element = GetFormControlElementById("element");
+  element.setAutofilled(true);
+
+  FormFieldData result1;
+  WebFormControlElementToFormField(element, EXTRACT_VALUE, &result1);
+
+  FormFieldData expected;
+  expected.name = ASCIIToUTF16("element");
+  expected.max_length = 0;
+  expected.form_control_type = "select-one";
+  // We check that the extra attributes have been copied to |result1|.
+  expected.is_autofilled = true;
+  expected.autocomplete_attribute = "off";
+  expected.should_autocomplete = false;
+  expected.is_focusable = true;
+  expected.text_direction = base::i18n::LEFT_TO_RIGHT;
+
+  expected.value = ASCIIToUTF16("CA");
+  EXPECT_FORM_FIELD_DATA_EQUALS(expected, result1);
+}
+
 // When faced with <select> field with *many* options, we should trim them to a
 // reasonable number.
 TEST_F(FormAutofillTest, WebFormControlElementToFormFieldLongSelect) {
@@ -1971,6 +2004,30 @@ TEST_F(FormAutofillTest, WebFormElementToFormData) {
   EXPECT_FORM_FIELD_DATA_EQUALS(expected, fields[5]);
 }
 
+TEST_F(FormAutofillTest, WebFormElementConsiderNonControlLabelableElements) {
+  LoadHTML("<form id=form>"
+           "  <label for='progress'>Progress:</label>"
+           "  <progress id='progress'></progress>"
+           "  <label for='firstname'>First name:</label>"
+           "  <input type='text' id='firstname' value='John'>"
+           "</form>");
+
+  WebFrame* frame = GetMainFrame();
+  ASSERT_NE(nullptr, frame);
+
+  WebFormElement web_form = frame->document().getElementById("form")
+      .to<WebFormElement>();
+  ASSERT_FALSE(web_form.isNull());
+
+  FormData form;
+  EXPECT_TRUE(WebFormElementToFormData(web_form, WebFormControlElement(),
+                                       EXTRACT_NONE, &form, nullptr));
+
+  const std::vector<FormFieldData>& fields = form.fields;
+  ASSERT_EQ(1U, fields.size());
+  EXPECT_EQ(ASCIIToUTF16("firstname"), fields[0].name);
+}
+
 // We should not be able to serialize a form with too many fillable fields.
 TEST_F(FormAutofillTest, WebFormElementToFormDataTooManyFields) {
   std::string html =
@@ -2100,7 +2157,7 @@ TEST_F(FormAutofillTest, OnlyExtractNewForms) {
   ASSERT_TRUE(forms.empty());
 
   // Append to the current form will re-extract.
-  ExecuteJavaScript(
+  ExecuteJavaScriptForTests(
       "var newInput = document.createElement('input');"
       "newInput.setAttribute('type', 'text');"
       "newInput.setAttribute('id', 'telephone');"
@@ -2137,7 +2194,7 @@ TEST_F(FormAutofillTest, OnlyExtractNewForms) {
   forms.clear();
 
   // Completely new form will also be extracted.
-  ExecuteJavaScript(
+  ExecuteJavaScriptForTests(
       "var newForm=document.createElement('form');"
       "newForm.id='new_testform';"
       "newForm.action='http://google.com';"
@@ -3958,7 +4015,7 @@ TEST_F(FormAutofillTest,
   ASSERT_EQ(2U, fieldsets.size());
 
   FormData form;
-  EXPECT_TRUE(UnownedFormElementsAndFieldSetsToFormData(
+  EXPECT_TRUE(UnownedCheckoutFormElementsAndFieldSetsToFormData(
       fieldsets, control_elements, nullptr, frame->document(), extract_mask,
       &form, nullptr));
 
@@ -4018,7 +4075,7 @@ TEST_F(FormAutofillTest,
   ASSERT_EQ(1U, fieldsets.size());
 
   FormData form;
-  EXPECT_TRUE(UnownedFormElementsAndFieldSetsToFormData(
+  EXPECT_TRUE(UnownedCheckoutFormElementsAndFieldSetsToFormData(
       fieldsets, control_elements, nullptr, frame->document(), extract_mask,
       &form, nullptr));
 
@@ -4067,9 +4124,10 @@ TEST_F(FormAutofillTest, UnownedFormElementsAndFieldSetsToFormDataWithForm) {
   ASSERT_TRUE(fieldsets.empty());
 
   FormData form;
-  EXPECT_FALSE(UnownedFormElementsAndFieldSetsToFormData(
+  EXPECT_FALSE(UnownedCheckoutFormElementsAndFieldSetsToFormData(
       fieldsets, control_elements, nullptr, frame->document(), extract_mask,
       &form, nullptr));
 }
 
+}  // namespace form_util
 }  // namespace autofill

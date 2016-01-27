@@ -26,6 +26,11 @@ class MediaSinksObserver {
   MediaSinksObserver(MediaRouter* router, const MediaSource& source);
   virtual ~MediaSinksObserver();
 
+  // Registers with MediaRouter to start observing. Must be called before the
+  // observer will start receiving updates. Returns |true| if the observer is
+  // initialized. This method is no-op if the observer is already initialized.
+  bool Init();
+
   // This function is invoked when the list of sinks compatible
   // with |source_| has been updated.
   // Implementations may not perform operations that modify the Media Router's
@@ -38,6 +43,7 @@ class MediaSinksObserver {
  private:
   const MediaSource source_;
   MediaRouter* router_;
+  bool initialized_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaSinksObserver);
 };

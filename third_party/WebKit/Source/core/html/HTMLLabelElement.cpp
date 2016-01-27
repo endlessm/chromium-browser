@@ -28,12 +28,15 @@
 #include "core/HTMLNames.h"
 #include "core/dom/Document.h"
 #include "core/dom/ElementTraversal.h"
+#include "core/editing/EditingUtilities.h"
 #include "core/editing/FrameSelection.h"
 #include "core/editing/SelectionController.h"
 #include "core/events/MouseEvent.h"
 #include "core/frame/LocalFrame.h"
+#include "core/frame/UseCounter.h"
 #include "core/html/FormAssociatedElement.h"
 #include "core/input/EventHandler.h"
+#include "core/layout/LayoutObject.h"
 
 namespace blink {
 
@@ -50,12 +53,6 @@ PassRefPtrWillBeRawPtr<HTMLLabelElement> HTMLLabelElement::create(Document& docu
 {
     RefPtrWillBeRawPtr<HTMLLabelElement> labelElement = adoptRefWillBeNoop(new HTMLLabelElement(document, form));
     return labelElement.release();
-}
-
-bool HTMLLabelElement::layoutObjectIsFocusable() const
-{
-    HTMLLabelElement* that = const_cast<HTMLLabelElement*>(this);
-    return that->isContentEditable();
 }
 
 LabelableElement* HTMLLabelElement::control() const
@@ -155,13 +152,13 @@ void HTMLLabelElement::defaultEventHandler(Event* evt)
         // If the click is not simulated and the text of the label element
         // is selected by dragging over it, then return without passing the
         // click event to control element.
-        // Note: a click event may be not a mouse event if created by
-        // document.createEvent().
-        if (evt->isMouseEvent() && !toMouseEvent(evt)->isSimulated()) {
+        // Note: check if it is a MouseEvent because a click event may
+        // not be an instance of a MouseEvent if created by document.createEvent().
+        if (evt->isMouseEvent() && toMouseEvent(evt)->hasPosition()) {
             if (LocalFrame* frame = document().frame()) {
                 // Check if there is a selection and click is not on the
                 // selection.
-                if (!Position::nodeIsUserSelectNone(this) && frame->selection().isRange() && !frame->eventHandler().selectionController().mouseDownWasSingleClickInSelection())
+                if (layoutObject() && layoutObject()->isSelectable() && frame->selection().isRange() && !frame->eventHandler().selectionController().mouseDownWasSingleClickInSelection())
                     isLabelTextSelected = true;
                 // If selection is there and is single click i.e. text is
                 // selected by dragging over label text, then return.
@@ -183,7 +180,7 @@ void HTMLLabelElement::defaultEventHandler(Event* evt)
             // In case of double click or triple click, selection will be there,
             // so do not focus the control element.
             if (!isLabelTextSelected)
-                element->focus(true, WebFocusTypeMouse);
+                element->focus(FocusParams(SelectionBehaviorOnFocus::Restore, WebFocusTypeMouse, nullptr));
         }
 
         // Click the corresponding control.
@@ -205,13 +202,15 @@ bool HTMLLabelElement::willRespondToMouseClickEvents()
     return HTMLElement::willRespondToMouseClickEvents();
 }
 
-void HTMLLabelElement::focus(bool, WebFocusType type)
+void HTMLLabelElement::focus(const FocusParams& params)
 {
-    // to match other browsers, always restore previous selection
+    if (isFocusable()) {
+        HTMLElement::focus(params);
+        return;
+    }
+    // To match other browsers, always restore previous selection.
     if (HTMLElement* element = control())
-        element->focus(true, type);
-    if (isFocusable())
-        HTMLElement::focus(true, type);
+        element->focus(FocusParams(SelectionBehaviorOnFocus::Restore, params.type, params.sourceCapabilities));
 }
 
 void HTMLLabelElement::accessKeyAction(bool sendMouseEvents)
@@ -283,10 +282,12 @@ DEFINE_TRACE(HTMLLabelElement)
 
 void HTMLLabelElement::parseAttribute(const QualifiedName& attributeName, const AtomicString& attributeValue)
 {
-    if (attributeName == formAttr)
+    if (attributeName == formAttr) {
         formAttributeChanged();
-    else
+        UseCounter::count(document(), UseCounter::HTMLLabelElementFormContentAttribute);
+    } else {
         HTMLElement::parseAttribute(attributeName, attributeValue);
+    }
 }
 
 } // namespace

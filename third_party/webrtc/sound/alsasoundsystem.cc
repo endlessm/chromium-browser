@@ -11,15 +11,17 @@
 #include "webrtc/sound/alsasoundsystem.h"
 
 #include <algorithm>
-#include "webrtc/sound/sounddevicelocator.h"
-#include "webrtc/sound/soundinputstreaminterface.h"
-#include "webrtc/sound/soundoutputstreaminterface.h"
+
+#include "webrtc/base/arraysize.h"
 #include "webrtc/base/common.h"
 #include "webrtc/base/logging.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/stringutils.h"
 #include "webrtc/base/timeutils.h"
 #include "webrtc/base/worker.h"
+#include "webrtc/sound/sounddevicelocator.h"
+#include "webrtc/sound/soundinputstreaminterface.h"
+#include "webrtc/sound/soundoutputstreaminterface.h"
 
 namespace rtc {
 
@@ -62,7 +64,7 @@ class AlsaDeviceLocator : public SoundDeviceLocator {
                                &name_);
   }
 
-  virtual SoundDeviceLocator *Copy() const {
+  SoundDeviceLocator *Copy() const override {
     return new AlsaDeviceLocator(*this);
   }
 };
@@ -223,7 +225,7 @@ class AlsaStream {
   int flags_;
   int freq_;
 
-  DISALLOW_COPY_AND_ASSIGN(AlsaStream);
+  RTC_DISALLOW_COPY_AND_ASSIGN(AlsaStream);
 };
 
 // Implementation of an input stream. See soundinputstreaminterface.h regarding
@@ -242,46 +244,46 @@ class AlsaInputStream :
         buffer_size_(0) {
   }
 
-  virtual ~AlsaInputStream() {
+  ~AlsaInputStream() override {
     bool success = StopReading();
     // We need that to live.
     VERIFY(success);
   }
 
-  virtual bool StartReading() {
+  bool StartReading() override {
     return StartWork();
   }
 
-  virtual bool StopReading() {
+  bool StopReading() override {
     return StopWork();
   }
 
-  virtual bool GetVolume(int *volume) {
+  bool GetVolume(int *volume) override {
     // TODO: Implement this.
     return false;
   }
 
-  virtual bool SetVolume(int volume) {
+  bool SetVolume(int volume) override {
     // TODO: Implement this.
     return false;
   }
 
-  virtual bool Close() {
+  bool Close() override {
     return StopReading() && stream_.Close();
   }
 
-  virtual int LatencyUsecs() {
+  int LatencyUsecs() override {
     return stream_.CurrentDelayUsecs();
   }
 
  private:
   // Inherited from Worker.
-  virtual void OnStart() {
+  void OnStart() override {
     HaveWork();
   }
 
   // Inherited from Worker.
-  virtual void OnHaveWork() {
+  void OnHaveWork() override {
     // Block waiting for data.
     snd_pcm_uframes_t avail = stream_.Wait();
     if (avail > 0) {
@@ -317,7 +319,7 @@ class AlsaInputStream :
   }
 
   // Inherited from Worker.
-  virtual void OnStop() {
+  void OnStop() override {
     // Nothing to do.
   }
 
@@ -329,14 +331,13 @@ class AlsaInputStream :
   rtc::scoped_ptr<char[]> buffer_;
   size_t buffer_size_;
 
-  DISALLOW_COPY_AND_ASSIGN(AlsaInputStream);
+  RTC_DISALLOW_COPY_AND_ASSIGN(AlsaInputStream);
 };
 
 // Implementation of an output stream. See soundoutputstreaminterface.h
 // regarding thread-safety.
-class AlsaOutputStream :
-    public SoundOutputStreamInterface,
-    private rtc::Worker {
+class AlsaOutputStream : public SoundOutputStreamInterface,
+                         private rtc::Worker {
  public:
   AlsaOutputStream(AlsaSoundSystem *alsa,
                    snd_pcm_t *handle,
@@ -347,22 +348,21 @@ class AlsaOutputStream :
       : stream_(alsa, handle, frame_size, wait_timeout_ms, flags, freq) {
   }
 
-  virtual ~AlsaOutputStream() {
+  ~AlsaOutputStream() override {
     bool success = DisableBufferMonitoring();
     // We need that to live.
     VERIFY(success);
   }
 
-  virtual bool EnableBufferMonitoring() {
+  bool EnableBufferMonitoring() override {
     return StartWork();
   }
 
-  virtual bool DisableBufferMonitoring() {
+  bool DisableBufferMonitoring() override {
     return StopWork();
   }
 
-  virtual bool WriteSamples(const void *sample_data,
-                            size_t size) {
+  bool WriteSamples(const void *sample_data, size_t size) override {
     if (size % stream_.frame_size() != 0) {
       // No client of SoundSystemInterface does this, so let's not support it.
       // (If we wanted to support it, we'd basically just buffer the fractional
@@ -389,32 +389,32 @@ class AlsaOutputStream :
     return true;
   }
 
-  virtual bool GetVolume(int *volume) {
+  bool GetVolume(int *volume) override {
     // TODO: Implement this.
     return false;
   }
 
-  virtual bool SetVolume(int volume) {
+  bool SetVolume(int volume) override {
     // TODO: Implement this.
     return false;
   }
 
-  virtual bool Close() {
+  bool Close() override {
     return DisableBufferMonitoring() && stream_.Close();
   }
 
-  virtual int LatencyUsecs() {
+  int LatencyUsecs() override {
     return stream_.CurrentDelayUsecs();
   }
 
  private:
   // Inherited from Worker.
-  virtual void OnStart() {
+  void OnStart() override {
     HaveWork();
   }
 
   // Inherited from Worker.
-  virtual void OnHaveWork() {
+  void OnHaveWork() override {
     snd_pcm_uframes_t avail = stream_.Wait();
     if (avail > 0) {
       size_t space = avail * stream_.frame_size();
@@ -424,7 +424,7 @@ class AlsaOutputStream :
   }
 
   // Inherited from Worker.
-  virtual void OnStop() {
+  void OnStop() override {
     // Nothing to do.
   }
 
@@ -434,7 +434,7 @@ class AlsaOutputStream :
 
   AlsaStream stream_;
 
-  DISALLOW_COPY_AND_ASSIGN(AlsaOutputStream);
+  RTC_DISALLOW_COPY_AND_ASSIGN(AlsaOutputStream);
 };
 
 AlsaSoundSystem::AlsaSoundSystem() : initialized_(false) {}
@@ -608,8 +608,6 @@ bool AlsaSoundSystem::GetDefaultDevice(SoundDeviceLocator **device) {
 }
 
 inline size_t AlsaSoundSystem::FrameSize(const OpenParams &params) {
-  ASSERT(static_cast<int>(params.format) <
-         ARRAY_SIZE(kCricketFormatToSampleSizeTable));
   return kCricketFormatToSampleSizeTable[params.format] * params.channels;
 }
 
@@ -664,8 +662,7 @@ StreamInterface *AlsaSoundSystem::OpenDevice(
     latency = std::max(latency, kMinimumLatencyUsecs);
   }
 
-  ASSERT(static_cast<int>(params.format) <
-         ARRAY_SIZE(kCricketFormatToAlsaFormatTable));
+  ASSERT(params.format < arraysize(kCricketFormatToAlsaFormatTable));
 
   err = symbol_table_.snd_pcm_set_params()(
       handle,

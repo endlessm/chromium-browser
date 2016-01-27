@@ -11,8 +11,8 @@
 #include "webrtc/common_audio/signal_processing/include/signal_processing_library.h"
 #include "webrtc/modules/audio_device/audio_device_config.h"
 #include "webrtc/modules/audio_device/audio_device_impl.h"
-#include "webrtc/system_wrappers/interface/ref_count.h"
-#include "webrtc/system_wrappers/interface/tick_util.h"
+#include "webrtc/system_wrappers/include/ref_count.h"
+#include "webrtc/system_wrappers/include/tick_util.h"
 
 #include <assert.h>
 #include <string.h>
@@ -48,8 +48,8 @@
 
 #include "webrtc/modules/audio_device/dummy/audio_device_dummy.h"
 #include "webrtc/modules/audio_device/dummy/file_audio_device.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/trace.h"
 
 #define CHECK_INITIALIZED()         \
 {                                   \
@@ -325,7 +325,7 @@ int32_t AudioDeviceModuleImpl::CreatePlatformSpecificObjects()
     if (audioLayer == kPlatformDefaultAudio)
     {
         // Create iOS Audio Device implementation.
-        ptrAudioDevice = new AudioDeviceIOS(Id());
+      ptrAudioDevice = new AudioDeviceIOS();
         WEBRTC_TRACE(kTraceInfo, kTraceAudioDevice, _id, "iPhone Audio APIs will be utilized");
     }
     // END #if defined(WEBRTC_IOS)
@@ -1869,34 +1869,57 @@ int32_t AudioDeviceModuleImpl::SetLoudspeakerStatus(bool enable)
 //  GetLoudspeakerStatus
 // ----------------------------------------------------------------------------
 
-int32_t AudioDeviceModuleImpl::GetLoudspeakerStatus(bool* enabled) const
-{
-    CHECK_INITIALIZED();
-
-    if (_ptrAudioDevice->GetLoudspeakerStatus(*enabled) != 0)
-    {
-        return -1;
-    }
-
-    return 0;
-}
-
-int32_t AudioDeviceModuleImpl::EnableBuiltInAEC(bool enable)
-{
+int32_t AudioDeviceModuleImpl::GetLoudspeakerStatus(bool* enabled) const {
   CHECK_INITIALIZED();
-  return _ptrAudioDevice->EnableBuiltInAEC(enable);
+  if (_ptrAudioDevice->GetLoudspeakerStatus(*enabled) != 0) {
+    return -1;
+  }
+  return 0;
 }
 
-bool AudioDeviceModuleImpl::BuiltInAECIsEnabled() const
-{
-    CHECK_INITIALIZED_BOOL();
-
-    return _ptrAudioDevice->BuiltInAECIsEnabled();
+bool AudioDeviceModuleImpl::BuiltInAECIsEnabled() const {
+  CHECK_INITIALIZED_BOOL();
+  return _ptrAudioDevice->BuiltInAECIsEnabled();
 }
 
 bool AudioDeviceModuleImpl::BuiltInAECIsAvailable() const {
   CHECK_INITIALIZED_BOOL();
   return _ptrAudioDevice->BuiltInAECIsAvailable();
+}
+
+int32_t AudioDeviceModuleImpl::EnableBuiltInAEC(bool enable) {
+  CHECK_INITIALIZED();
+  return _ptrAudioDevice->EnableBuiltInAEC(enable);
+}
+
+bool AudioDeviceModuleImpl::BuiltInAGCIsAvailable() const {
+  CHECK_INITIALIZED_BOOL();
+  return _ptrAudioDevice->BuiltInAGCIsAvailable();
+}
+
+int32_t AudioDeviceModuleImpl::EnableBuiltInAGC(bool enable) {
+  CHECK_INITIALIZED();
+  return _ptrAudioDevice->EnableBuiltInAGC(enable);
+}
+
+bool AudioDeviceModuleImpl::BuiltInNSIsAvailable() const {
+  CHECK_INITIALIZED_BOOL();
+  return _ptrAudioDevice->BuiltInNSIsAvailable();
+}
+
+int32_t AudioDeviceModuleImpl::EnableBuiltInNS(bool enable) {
+  CHECK_INITIALIZED();
+  return _ptrAudioDevice->EnableBuiltInNS(enable);
+}
+
+int AudioDeviceModuleImpl::GetPlayoutAudioParameters(
+    AudioParameters* params) const {
+  return _ptrAudioDevice->GetPlayoutAudioParameters(params);
+}
+
+int AudioDeviceModuleImpl::GetRecordAudioParameters(
+    AudioParameters* params) const {
+  return _ptrAudioDevice->GetRecordAudioParameters(params);
 }
 
 // ============================================================================

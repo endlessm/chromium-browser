@@ -27,8 +27,9 @@ void NaClDescUnmapUnsafe(struct NaClDesc *desc, void *addr, size_t length) {
   int rc = (*NACL_VTBL(NaClDesc, desc)->UnmapUnsafe)(desc, addr, length);
   if (rc != 0) {
     NaClLog(LOG_FATAL,
-            "NaClDescUnmapUnsafe: UnmapUnsafe() failed, rc %d, error %d\n",
-            rc, GetLastError());
+            "NaClDescUnmapUnsafe: UnmapUnsafe() failed: address 0x%p, "
+            "length 0x%" NACL_PRIxS ", rc %d, error %d\n",
+            addr, length, rc, GetLastError());
   }
 }
 
@@ -82,8 +83,8 @@ int32_t NaClAbiStatHostDescStatXlateCtor(struct nacl_abi_stat   *dst,
   }
   dst->nacl_abi_st_mode = m;
   dst->nacl_abi_st_nlink = src->st_nlink;
-  dst->nacl_abi_st_uid = -1;  /* not root */
-  dst->nacl_abi_st_gid = -1;  /* not wheel */
+  dst->nacl_abi_st_uid = (nacl_abi_uid_t) -1;  /* not root */
+  dst->nacl_abi_st_gid = (nacl_abi_gid_t) -1;  /* not wheel */
   dst->nacl_abi_st_rdev = 0;
   dst->nacl_abi_st_size = (nacl_abi_off_t) src->st_size;
   dst->nacl_abi_st_blksize = 0;

@@ -6,8 +6,8 @@
     <title>WebGL Specification</title>
     <meta name="generator" content="BBEdit 9.1">
     <link rel="stylesheet" type="text/css" href="../../../resources/Khronos-WD.css" />
-    <script src="../../../resources/jquery-1.3.2.min.js" type="text/javascript"></script>
-    <script src="../../../resources/generateTOC.js" type="text/javascript"></script>
+    <script src="../../../resources/jquery-1.3.2.min.js" type="application/javascript"></script>
+    <script src="../../../resources/generateTOC.js" type="application/javascript"></script>
 </head>
 <body onload="generateTOC(document.getElementById('toc'))">
     <!--begin-logo-->
@@ -28,7 +28,7 @@
     <!--end-logo-->
 
     <h1>WebGL Specification</h1>
-    <h2 class="no-toc">Editor's Draft 27 April 2015</h2>
+    <h2 class="no-toc">Editor's Draft 05 October 2015</h2>
     <dl>
         <dt>This version:
             <dd>
@@ -219,11 +219,16 @@
 
           </ol>
 
-        <li> Set the attributes of <em>contextAttributes</em> based on the properties of the newly
+        <li> Create a new <code>WebGLContextAttributes</code> object, <em>actualAttributes</em>.
+
+        <li> Set the attributes of <em>actualAttributes</em> based on the properties of the newly
              created drawing buffer.
 
         <li> Set <em>context's</em> <a href="#context-creation-parameters">context creation
         parameters</a> to <em>contextAttributes</em>.
+
+        <li> Set <em>context's</em> <a href="#actual-context-parameters">actual context
+        parameters</a> to <em>actualAttributes</em>.
 
         <li> Return <em>context</em>.
 
@@ -1694,7 +1699,7 @@ interface <dfn id="WebGLRenderingContextBase">WebGLRenderingContextBase</dfn>
 
     any getVertexAttrib(GLuint index, GLenum pname);
 
-    [WebGLHandlesContextLoss] GLsizeiptr getVertexAttribOffset(GLuint index, GLenum pname);
+    [WebGLHandlesContextLoss] GLintptr getVertexAttribOffset(GLuint index, GLenum pname);
 
     void hint(GLenum target, GLenum mode);
     [WebGLHandlesContextLoss] GLboolean isBuffer(WebGLBuffer? buffer);
@@ -1787,17 +1792,14 @@ interface <dfn id="WebGLRenderingContextBase">WebGLRenderingContextBase</dfn>
     void validateProgram(WebGLProgram? program);
 
     void vertexAttrib1f(GLuint indx, GLfloat x);
-    void vertexAttrib1fv(GLuint indx, Float32Array values);
-    void vertexAttrib1fv(GLuint indx, sequence&lt;GLfloat&gt; values);
+    typedef (Float32Array or sequence&lt;GLfloat&gt;) VertexAttribFVSource;
+    void vertexAttrib1fv(GLuint indx, VertexAttribFVSource values);
     void vertexAttrib2f(GLuint indx, GLfloat x, GLfloat y);
-    void vertexAttrib2fv(GLuint indx, Float32Array values);
-    void vertexAttrib2fv(GLuint indx, sequence&lt;GLfloat&gt; values);
+    void vertexAttrib2fv(GLuint indx, VertexAttribFVSource values);
     void vertexAttrib3f(GLuint indx, GLfloat x, GLfloat y, GLfloat z);
-    void vertexAttrib3fv(GLuint indx, Float32Array values);
-    void vertexAttrib3fv(GLuint indx, sequence&lt;GLfloat&gt; values);
+    void vertexAttrib3fv(GLuint indx, VertexAttribFVSource values);
     void vertexAttrib4f(GLuint indx, GLfloat x, GLfloat y, GLfloat z, GLfloat w);
-    void vertexAttrib4fv(GLuint indx, Float32Array values);
-    void vertexAttrib4fv(GLuint indx, sequence&lt;GLfloat&gt; values);
+    void vertexAttrib4fv(GLuint indx, VertexAttribFVSource values);
     void vertexAttribPointer(GLuint indx, GLint size, GLenum type,
                              GLboolean normalized, GLsizei stride, GLintptr offset);
 
@@ -2214,7 +2216,7 @@ WebGLRenderingContext implements WebGLRenderingContextBase;
             is bound and attempts to modify or query state on <code class="param">target</code> <code class="enum">FRAMEBUFFER</code>
             will generate an <code class="error">INVALID_OPERATION</code> error.
 
-        <dt class="idl-code">[WebGLHandlesContextLoss] GLenum checkFramebufferStatus(GLenum target)
+        <dt class="idl-code"><a name="CHECK_FRAMEBUFFER_STATUS">[WebGLHandlesContextLoss] GLenum checkFramebufferStatus</a>(GLenum target)
             <span class="gl-spec">(<a href="http://www.khronos.org/registry/gles/specs/2.0/es_full_spec_2.0.25.pdf#nameddest=section-4.4.5">OpenGL ES 2.0 &sect;4.4.5</a>, <a class="nonnormative" href="http://www.khronos.org/opengles/sdk/2.0/docs/man/xhtml/glCheckFramebufferStatus.xml">man page</a>)</span>
         <dd>
             Returns <code class="enum">FRAMEBUFFER_UNSUPPORTED</code> if the
@@ -3733,6 +3735,18 @@ extensions.
     <li> when counting varying variables: <code>getParameter(MAX_VARYING_VECTORS)</code>
     </ul>
 </p>
+<div class="note">
+    <p>
+        The text above defines the circumstances under which compilation or linking of a shader or
+        program must fail due to the constraints enforced by the packing algorithm. It is not
+        guaranteed that a shader which uses more variables than the minimum required amount whose
+        variables pack successfully according to this algorithm will compile successfully.
+        Inefficiencies have been observed in implementations, including expansion of scalar arrays
+        to consume multiple columns. Developers should avoid relying heavily upon automatic packing
+        of multiple variables into columns. Instead, define larger variables (like vec4) and
+        explicitly pack values into the rightmost columns.
+    </p>
+</div>
 
 <h3>Feedback Loops Between Textures and the Framebuffer</h3>
 <p>
@@ -3782,6 +3796,91 @@ extensions.
     gl_Position as undefined unless it is written to in a vertex shader. WebGL guarantees
     that gl_Position's initial value is <code>(0,0,0,0)</code>.
 </p>
+
+<h3>GLSL ES Global Variable Initialization</h3>
+<p>
+    The GLSL ES 1.00 <a href="#refsGLES20GLSL">[GLES20GLSL]</a> spec restricts global variable
+    initializers to be constant expressions. In the WebGL API, it is allowed to use other global
+    variables not qualified with the <code>const</code> qualifier and uniform values in global
+    variable initializers in GLSL ES 1.00 shaders. Global variable initializers must be global
+    initializer expressions, which are defined as one of:
+</p>
+<ul>
+<li>a literal value</li>
+<li>a global variable</li>
+<li>a uniform</li>
+<li>
+    an expression formed by an operator on operands that are global initializer expressions,
+    including getting an element of a global initializer vector or global initializer matrix,
+    or a field of a global initializer structure
+</li>
+<li>a constructor whose arguments are all global initializer expressions</li>
+<li>
+    a built-in function call whose arguments are all global initializer expressions, with the
+    exception of the texture lookup functions
+</li>
+</ul>
+<p>
+    The following may not be used in global initializer expressions:
+</p>
+<ul>
+<li>User-defined functions</li>
+<li>Attributes and varyings</li>
+<li>Global variables as l-values in an assignment or other operation</li>
+</ul>
+
+<p>
+    Compilers should generate a warning when a global variable initializer is in violation of the
+    unmodified GLSL ES spec i.e. when a global variable initializer is not a constant expression.
+</p>
+
+<div class="note rationale">
+    This behavior has existed in WebGL implementations for several years. Fixing this behavior to be
+    consistent with the GLSL ES specification would have a large compatibility impact with existing
+    content.
+</div>
+
+<h3><a name="PREPROCESSOR_DEFINED_IN_MACRO">GLSL ES Preprocessor "defined" Operator Generated By Macro Replacement</a></h3>
+
+<p>
+    The C++ standard, which the GLSL ES preprocessor specification refers to, has undefined behavior
+    when the <code>defined</code> operator is generated by macro replacement when parsing the
+    controlling expression of an <code>#if</code> or <code>#elif</code> directive. When shader code
+    processed by the WebGL API generates the token <code>defined</code> during macro replacement
+    inside a preprocessor expression, that token must be immediately handled as the
+    <code>defined</code> operator before any further macro replacement.
+</p>
+
+<p>
+    This has no effect on macro expansion outside preprocessor directives that handle the
+    <code>defined</code> operator.
+</p>
+
+<div class="note rationale">
+    This behavior is enforced across GLES implementations by dEQP tests, so shaders created on other
+    platforms may rely on it. In addition, the ported dEQP tests in the WebGL conformance suite are
+    only valid if this behavior is specified.
+</div>
+
+<h3><a name="EXTENSION_DIRECTIVE_LOCATION">GLSL ES #extension directive location</a></h3>
+
+<p>
+    The GLSL ES 1.00 <a href="#refsGLES20GLSL">[GLES20GLSL]</a> specification mandates that
+    <code>#extension</code> directives must occur before any non-preprocessor tokens unless the
+    extension specification says otherwise. In the WebGL API, <code>#extension</code> directives
+    may always occur after non-preprocessor tokens in GLSL ES 1.00 shaders. The scope of
+    <code>#extension</code> directives in GLSL ES 1.00 shaders is always the whole shader, and
+    <code>#extension</code> directives that occur later override those seen earlier for the whole
+    shader.
+</p>
+
+<div class="note rationale">
+    Letting extensions determine where the <code>#extension</code> directives should be placed has
+    resulted in a lot of room for interpretation in the spec. In practice GLES implementations have
+    not enforced the rule that's written in the GLSL ES spec, and neither have WebGL
+    implementations, so relaxing the rule is the only way to make the spec well-defined while being
+    compatible with existing content.
+</div>
 
 <!-- ======================================================================================================= -->
 

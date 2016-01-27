@@ -7,20 +7,16 @@
 #include "base/memory/singleton.h"
 #include "components/enhanced_bookmarks/enhanced_bookmark_model.h"
 #include "components/keyed_service/ios/browser_state_dependency_manager.h"
+#include "components/version_info/version_info.h"
+#include "ios/chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "ios/chrome/browser/browser_state/browser_state_otr_helper.h"
 #include "ios/public/provider/chrome/browser/browser_state/chrome_browser_state.h"
-#include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
-#include "ios/public/provider/chrome/browser/keyed_service_provider.h"
-
-namespace {
-const char kVersionPrefix[] = "chrome.";
-}
 
 namespace enhanced_bookmarks {
 
 // static
 EnhancedBookmarkModelFactory* EnhancedBookmarkModelFactory::GetInstance() {
-  return Singleton<EnhancedBookmarkModelFactory>::get();
+  return base::Singleton<EnhancedBookmarkModelFactory>::get();
 }
 
 // static
@@ -34,8 +30,7 @@ EnhancedBookmarkModelFactory::EnhancedBookmarkModelFactory()
     : BrowserStateKeyedServiceFactory(
           "EnhancedBookmarkModel",
           BrowserStateDependencyManager::GetInstance()) {
-  ios::KeyedServiceProvider* provider = ios::GetKeyedServiceProvider();
-  DependsOn(provider->GetBookmarkModelFactory());
+  DependsOn(ios::BookmarkModelFactory::GetInstance());
 }
 
 EnhancedBookmarkModelFactory::~EnhancedBookmarkModelFactory() {
@@ -46,11 +41,9 @@ scoped_ptr<KeyedService> EnhancedBookmarkModelFactory::BuildServiceInstanceFor(
   DCHECK(!context->IsOffTheRecord());
   ios::ChromeBrowserState* browser_state =
       ios::ChromeBrowserState::FromBrowserState(context);
-  ios::KeyedServiceProvider* provider = ios::GetKeyedServiceProvider();
   return make_scoped_ptr(new EnhancedBookmarkModel(
-      provider->GetBookmarkModelForBrowserState(browser_state),
-      ios::GetChromeBrowserProvider()->GetProductVersionWithPrefix(
-          kVersionPrefix)));
+      ios::BookmarkModelFactory::GetForBrowserState(browser_state),
+      "chrome." + version_info::GetVersionNumber()));
 }
 
 web::BrowserState* EnhancedBookmarkModelFactory::GetBrowserStateToUse(

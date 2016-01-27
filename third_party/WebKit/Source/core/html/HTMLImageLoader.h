@@ -39,10 +39,9 @@ public:
     void dispatchLoadEvent() override;
 
     void notifyFinished(Resource*) override;
+    String debugName() const override { return "HTMLImageLoader"; }
 
 private:
-    Timer<HTMLImageLoader> m_loadFallbackContentTimer;
-    void timerFired(Timer<HTMLImageLoader>*);
     explicit HTMLImageLoader(Element*);
     void noImageResourceToLoad() override;
     void ensureFallbackContent();

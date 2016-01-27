@@ -7,8 +7,8 @@ package org.chromium.chrome.test.util.browser;
 import android.text.TextUtils;
 
 import org.chromium.base.ThreadUtils;
-import org.chromium.chrome.browser.EmptyTabObserver;
-import org.chromium.chrome.browser.Tab;
+import org.chromium.chrome.browser.tab.EmptyTabObserver;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content_public.browser.LoadUrlParams;
 
@@ -44,12 +44,12 @@ public class TabLoadObserver extends EmptyTabObserver implements Criteria {
     }
 
     @Override
-    public void onLoadStarted(Tab tab) {
+    public void onLoadStarted(Tab tab, boolean toDifferentDocument) {
         mTabLoadStarted = true;
     }
 
     @Override
-    public void onLoadStopped(Tab tab) {
+    public void onLoadStopped(Tab tab, boolean toDifferentDocument) {
         mTabLoadStopped = true;
     }
 

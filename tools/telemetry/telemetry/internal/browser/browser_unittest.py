@@ -8,17 +8,24 @@ import shutil
 import tempfile
 import unittest
 
-from telemetry.core import gpu_device
-from telemetry.core import gpu_info
-from telemetry.core import system_info
 from telemetry.core import util
 from telemetry import decorators
+from telemetry.internal.browser import browser as browser_module
 from telemetry.internal.browser import browser_finder
+from telemetry.internal.platform import gpu_device
+from telemetry.internal.platform import gpu_info
+from telemetry.internal.platform import system_info
 from telemetry.internal.util import path
 from telemetry.testing import browser_test_case
 from telemetry.testing import options_for_unittests
 from telemetry.timeline import tracing_category_filter
 from telemetry.timeline import tracing_options
+
+import mock
+
+
+class IntentionalException(Exception):
+  pass
 
 
 class BrowserTest(browser_test_case.BrowserTestCase):
@@ -107,7 +114,7 @@ class BrowserTest(browser_test_case.BrowserTestCase):
   def testGetSystemTotalMemory(self):
     self.assertTrue(self._browser.memory_stats['SystemTotalPhysicalMemory'] > 0)
 
-  @decorators.Disabled('mac')  # crbug.com/499208.
+  @decorators.Disabled('mac', 'linux', 'chromeos')  # crbug.com/499208.
   def testIsTracingRunning(self):
     tracing_controller = self._browser.platform.tracing_controller
     if not tracing_controller.IsChromeTracingSupported():
@@ -146,6 +153,17 @@ class DirtyProfileBrowserTest(browser_test_case.BrowserTestCase):
     self.assertEquals(1, len(self._browser.tabs))
 
 
+class BrowserLoggingTest(browser_test_case.BrowserTestCase):
+  @classmethod
+  def CustomizeBrowserOptions(cls, options):
+    options.enable_logging = True
+
+  @decorators.Disabled('chromeos', 'android')
+  def testLogFileExist(self):
+    self.assertTrue(
+       os.path.isfile(self._browser._browser_backend.log_file_path))
+
+
 def _GenerateBrowserProfile(number_of_tabs):
   """ Generate a browser profile which browser had |number_of_tabs| number of
   tabs opened before it was closed.
@@ -157,9 +175,9 @@ def _GenerateBrowserProfile(number_of_tabs):
   options.output_profile_path = profile_dir
   browser_to_create = browser_finder.FindBrowser(options)
   with browser_to_create.Create(options) as browser:
-    browser.SetHTTPServerDirectories(path.GetUnittestDataDir())
+    browser.platform.SetHTTPServerDirectories(path.GetUnittestDataDir())
     blank_file_path = os.path.join(path.GetUnittestDataDir(), 'blank.html')
-    blank_url = browser.http_server.UrlOf(blank_file_path)
+    blank_url = browser.platform.http_server.UrlOf(blank_file_path)
     browser.foreground_tab.Navigate(blank_url)
     browser.foreground_tab.WaitForDocumentReadyStateToBeComplete()
     for _ in xrange(number_of_tabs - 1):
@@ -168,6 +186,31 @@ def _GenerateBrowserProfile(number_of_tabs):
       tab.WaitForDocumentReadyStateToBeComplete()
   return profile_dir
 
+
+class BrowserCreationTest(unittest.TestCase):
+  def setUp(self):
+    self.mock_browser_backend = mock.MagicMock()
+    self.mock_platform_backend = mock.MagicMock()
+
+  def testCleanedUpCalledWhenExceptionRaisedInBrowserCreation(self):
+    self.mock_platform_backend.platform.FlushDnsCache.side_effect = (
+        IntentionalException('Boom!'))
+    with self.assertRaises(IntentionalException):
+      browser_module.Browser(
+         self.mock_browser_backend, self.mock_platform_backend,
+         credentials_path=None)
+    self.assertTrue(self.mock_platform_backend.WillCloseBrowser.called)
+
+  def testOriginalExceptionNotSwallow(self):
+    self.mock_platform_backend.platform.FlushDnsCache.side_effect = (
+        IntentionalException('Boom!'))
+    self.mock_platform_backend.WillCloseBrowser.side_effect = (
+        IntentionalException('Cannot close browser!'))
+    with self.assertRaises(IntentionalException) as context:
+      browser_module.Browser(
+         self.mock_browser_backend, self.mock_platform_backend,
+         credentials_path=None)
+    self.assertIn('Boom!', context.exception.message)
 
 class BrowserRestoreSessionTest(unittest.TestCase):
 
@@ -199,3 +242,5 @@ class BrowserRestoreSessionTest(unittest.TestCase):
   @classmethod
   def tearDownClass(cls):
     shutil.rmtree(cls._profile_dir)
+
+

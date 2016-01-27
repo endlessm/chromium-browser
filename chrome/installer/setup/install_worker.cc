@@ -174,46 +174,6 @@ base::string16 GetRegCommandKey(BrowserDistribution* dist,
   return GetRegistrationDataCommandKey(dist->GetAppRegistrationData(), name);
 }
 
-// Adds work items to create (or delete if uninstalling) app commands to launch
-// the app with a switch. The following criteria should be true:
-//  1. The switch takes one parameter.
-//  2. The command send pings.
-//  3. The command is web accessible.
-//  4. The command is run as the user.
-void AddCommandWithParameterWorkItems(const InstallerState& installer_state,
-                                      const InstallationState& machine_state,
-                                      const Version& new_version,
-                                      const Product& product,
-                                      const wchar_t* command_key,
-                                      const wchar_t* app,
-                                      const char* command_with_parameter,
-                                      WorkItemList* work_item_list) {
-  DCHECK(command_key);
-  DCHECK(app);
-  DCHECK(command_with_parameter);
-  DCHECK(work_item_list);
-
-  base::string16 full_cmd_key(
-      GetRegCommandKey(product.distribution(), command_key));
-
-  if (installer_state.operation() == InstallerState::UNINSTALL) {
-    work_item_list->AddDeleteRegKeyWorkItem(installer_state.root_key(),
-                                            full_cmd_key,
-                                            KEY_WOW64_32KEY)
-        ->set_log_message("removing " + base::UTF16ToASCII(command_key) +
-                          " command");
-  } else {
-    base::CommandLine cmd_line(installer_state.target_path().Append(app));
-    cmd_line.AppendSwitchASCII(command_with_parameter, "%1");
-
-    AppCommand cmd(cmd_line.GetCommandLineString());
-    cmd.set_sends_pings(true);
-    cmd.set_is_web_accessible(true);
-    cmd.set_is_run_as_user(true);
-    cmd.AddWorkItems(installer_state.root_key(), full_cmd_key, work_item_list);
-  }
-}
-
 // A callback invoked by |work_item| that adds firewall rules for Chrome. Rules
 // are left in-place on rollback unless |remove_on_rollback| is true. This is
 // the case for new installs only. Updates and overinstalls leave the rule
@@ -294,50 +254,23 @@ void AddProductSpecificWorkItems(const InstallationState& original_state,
 }
 
 // This is called when an MSI installation is run. It may be that a user is
-// attempting to install the MSI on top of a non-MSI managed installation.
-// If so, try and remove any existing uninstallation shortcuts, as we want the
+// attempting to install the MSI on top of a non-MSI managed installation. If
+// so, try and remove any existing "Add/Remove Programs" entry, as we want the
 // uninstall to be managed entirely by the MSI machinery (accessible via the
 // Add/Remove programs dialog).
-void AddDeleteUninstallShortcutsForMSIWorkItems(
+void AddDeleteUninstallEntryForMSIWorkItems(
     const InstallerState& installer_state,
     const Product& product,
-    const base::FilePath& temp_path,
     WorkItemList* work_item_list) {
   DCHECK(installer_state.is_msi())
       << "This must only be called for MSI installations!";
 
-  // First attempt to delete the old installation's ARP dialog entry.
   HKEY reg_root = installer_state.root_key();
   base::string16 uninstall_reg(product.distribution()->GetUninstallRegPath());
 
   WorkItem* delete_reg_key = work_item_list->AddDeleteRegKeyWorkItem(
       reg_root, uninstall_reg, KEY_WOW64_32KEY);
   delete_reg_key->set_ignore_failure(true);
-
-  // Then attempt to delete the old installation's start menu shortcut.
-  base::FilePath uninstall_link;
-  if (installer_state.system_install()) {
-    PathService::Get(base::DIR_COMMON_START_MENU, &uninstall_link);
-  } else {
-    PathService::Get(base::DIR_START_MENU, &uninstall_link);
-  }
-
-  if (uninstall_link.empty()) {
-    LOG(ERROR) << "Failed to get location for shortcut.";
-  } else {
-    uninstall_link = uninstall_link.Append(
-        product.distribution()->GetStartMenuShortcutSubfolder(
-            BrowserDistribution::SUBFOLDER_CHROME));
-    uninstall_link = uninstall_link.Append(
-        product.distribution()->GetUninstallLinkName() + installer::kLnkExt);
-    VLOG(1) << "Deleting old uninstall shortcut (if present): "
-            << uninstall_link.value();
-    WorkItem* delete_link = work_item_list->AddDeleteTreeWorkItem(
-        uninstall_link, temp_path);
-    delete_link->set_ignore_failure(true);
-    delete_link->set_log_message(
-        "Failed to delete old uninstall shortcut.");
-  }
 }
 
 // Adds Chrome specific install work items to |install_list|.
@@ -1029,7 +962,6 @@ bool AppendPostInstallTasks(const InstallerState& installer_state,
                             const base::FilePath& setup_path,
                             const Version* current_version,
                             const Version& new_version,
-                            const base::FilePath& temp_path,
                             WorkItemList* post_install_task_list) {
   DCHECK(post_install_task_list);
 
@@ -1157,14 +1089,12 @@ bool AppendPostInstallTasks(const InstallerState& installer_state,
       AddSetMsiMarkerWorkItem(installer_state, product->distribution(), true,
                               post_install_task_list);
 
-      // We want MSI installs to take over the Add/Remove Programs shortcut.
-      // Make a best-effort attempt to delete any shortcuts left over from
-      // previous non-MSI installations for the same type of install (system or
-      // per user).
+      // We want MSI installs to take over the Add/Remove Programs entry. Make a
+      // best-effort attempt to delete any entry left over from previous non-MSI
+      // installations for the same type of install (system or per user).
       if (product->ShouldCreateUninstallEntry()) {
-        AddDeleteUninstallShortcutsForMSIWorkItems(installer_state, *product,
-                                                   temp_path,
-                                                   post_install_task_list);
+        AddDeleteUninstallEntryForMSIWorkItems(installer_state, *product,
+                                               post_install_task_list);
       }
     }
   }
@@ -1278,7 +1208,6 @@ void AddInstallWorkItems(const InstallationState& original_state,
                          setup_path,
                          current_version,
                          new_version,
-                         temp_path,
                          install_list);
 }
 
@@ -1326,9 +1255,9 @@ void AddDelegateExecuteWorkItems(const InstallerState& installer_state,
                                  const Version& new_version,
                                  const Product& product,
                                  WorkItemList* list) {
-  base::string16 handler_class_uuid;
   BrowserDistribution* dist = product.distribution();
-  if (!dist->GetCommandExecuteImplClsid(&handler_class_uuid)) {
+  const base::string16 handler_class_uuid = dist->GetCommandExecuteImplClsid();
+  if (handler_class_uuid.empty()) {
     if (InstallUtil::IsChromeSxSProcess()) {
       CleanupBadCanaryDelegateExecuteRegistration(target_path, list);
     } else {
@@ -1348,8 +1277,7 @@ void AddDelegateExecuteWorkItems(const InstallerState& installer_state,
   // the COM probe/flush below does its job.
   AddUninstallDelegateExecuteWorkItems(root, delegate_execute_path, list);
 
-  // Add work items to register the handler iff it is present.
-  // See also shell_util.cc's GetProgIdEntries.
+  // See also shell_util.cc's GetChromeProgIdEntries.
   if (installer_state.operation() != InstallerState::UNINSTALL) {
     VLOG(1) << "Adding registration items for DelegateExecute verb handler.";
 

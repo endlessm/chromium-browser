@@ -3,9 +3,39 @@
 # found in the LICENSE file.
 {
   'conditions': [
+    # Dummy target to allow chrome to require chrome_dll to build
+    # without actually linking to the library
+    ['OS=="mac"', {
+      'targets': [
+        {
+          'target_name': 'chrome_dll_dependency_shim',
+          'type': 'executable',
+          'dependencies': [
+            'chrome_dll',
+          ],
+          # In release, we end up with a strip step that is unhappy if there is
+          # no binary. Rather than check in a new file for this hack, just
+          # generate a source file on the fly.
+          'actions': [
+            {
+              'action_name': 'generate_stub_main',
+              'process_outputs_as_sources': 1,
+              'inputs': [],
+              'outputs': [ '<(INTERMEDIATE_DIR)/dummy_main.c' ],
+              'action': [
+                'bash', '-c',
+                'echo "int main() { return 0; }" > <(INTERMEDIATE_DIR)/dummy_main.c'
+              ],
+            },
+          ],
+        },
+      ],
+     },
+    ],
     ['OS=="mac" or OS=="win"', {
       'targets': [
         {
+          # GN version: //chrome:chrome_dll
           'target_name': 'chrome_dll',
           'type': 'none',
           'dependencies': [
@@ -156,7 +186,6 @@
               },
               'msvs_settings': {
                 'VCLinkerTool': {
-                  'ImportLibrary': '$(OutDir)\\lib\\chrome_dll.lib',
                   # Set /SUBSYSTEM:WINDOWS for chrome.dll (for consistency).
                   'SubSystem': '2',
                   'conditions': [
@@ -231,20 +260,6 @@
                     '../printing/printing.gyp:printing',
                   ],
                 }],
-                ['chrome_pgo_phase==1', {
-                  'msvs_settings': {
-                    'VCLinkerTool': {
-                      'LinkTimeCodeGeneration': '2',
-                    },
-                  },
-                }],
-                ['chrome_pgo_phase==2', {
-                  'msvs_settings': {
-                    'VCLinkerTool': {
-                      'LinkTimeCodeGeneration': '3',
-                    },
-                  },
-                }],
               ]
             }],
             ['chrome_multiple_dll==1', {
@@ -270,7 +285,7 @@
                 '<(DEPTH)/third_party/cld/cld.gyp:cld',
               ],
             }],
-            ['cld_version==0 or cld_version==2', {
+            ['cld_version==2', {
               'dependencies': [
                 '<(DEPTH)/third_party/cld_2/cld_2.gyp:cld_2',
               ],
@@ -301,7 +316,7 @@
               ],
             }],
             # This step currently fails when using LTO. TODO(pcc): Re-enable.
-            ['OS=="mac" and use_lto==0', {
+            ['OS=="mac" and use_lto==0 and component=="static_library" and asan==0', {
               'postbuilds': [
                 {
                   # This step causes an error to be raised if the .order file
@@ -357,6 +372,9 @@
                   'msvs_settings': {
                     'VCLinkerTool': {
                       'LinkTimeCodeGeneration': '2',
+                      'AdditionalOptions': [
+                        '/PogoSafeMode',
+                      ],
                     },
                   },
                 }],

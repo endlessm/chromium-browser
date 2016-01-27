@@ -44,6 +44,7 @@ class CONTENT_EXPORT NavigationControllerAndroid {
   void ContinuePendingReload(JNIEnv* env, jobject obj);
   void Reload(JNIEnv* env, jobject obj, jboolean check_for_repost);
   void ReloadIgnoringCache(JNIEnv* env, jobject obj, jboolean check_for_repost);
+  void ReloadDisableLoFi(JNIEnv* env, jobject obj, jboolean check_for_repost);
   void RequestRestoreLoad(JNIEnv* env, jobject obj);
   void CancelPendingReload(JNIEnv* env, jobject obj);
   void GoToNavigationIndex(JNIEnv* env, jobject obj, jint index);
@@ -60,7 +61,8 @@ class CONTENT_EXPORT NavigationControllerAndroid {
                jstring base_url_for_data_url,
                jstring virtual_url_for_data_url,
                jboolean can_load_local_resources,
-               jboolean is_renderer_initiated);
+               jboolean is_renderer_initiated,
+               jboolean should_replace_current_entry);
   void ClearSslPreferences(JNIEnv* env, jobject /* obj */);
   bool GetUseDesktopUserAgent(JNIEnv* env, jobject /* obj */);
   void SetUseDesktopUserAgent(JNIEnv* env,

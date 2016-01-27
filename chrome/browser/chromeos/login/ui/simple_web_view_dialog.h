@@ -8,6 +8,7 @@
 #include <string>
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/command_updater_delegate.h"
+#include "chrome/browser/ssl/security_state_model.h"
 #include "chrome/browser/ui/toolbar/toolbar_model_delegate.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
 #include "content/public/browser/page_navigator.h"
@@ -75,7 +76,6 @@ class SimpleWebViewDialog : public views::ButtonListener,
   content::WebContents* GetWebContents() override;
   ToolbarModel* GetToolbarModel() override;
   const ToolbarModel* GetToolbarModel() const override;
-  InstantController* GetInstant() override;
   views::Widget* CreateViewsBubble(
       views::BubbleDelegateView* bubble_delegate) override;
   PageActionImageView* CreatePageActionImageView(
@@ -83,9 +83,10 @@ class SimpleWebViewDialog : public views::ButtonListener,
       ExtensionAction* action) override;
   ContentSettingBubbleModelDelegate* GetContentSettingBubbleModelDelegate()
       override;
-  void ShowWebsiteSettings(content::WebContents* web_contents,
-                           const GURL& url,
-                           const content::SSLStatus& ssl) override;
+  void ShowWebsiteSettings(
+      content::WebContents* web_contents,
+      const GURL& url,
+      const SecurityStateModel::SecurityInfo& security_info) override;
 
   // Implements ToolbarModelDelegate:
   content::WebContents* GetActiveWebContents() const override;

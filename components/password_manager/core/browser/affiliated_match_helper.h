@@ -90,15 +90,6 @@ class AffiliatedMatchHelper : public PasswordStore::Observer,
   // purposes of affiliation-based matching.
   static bool IsValidWebCredential(const autofill::PasswordForm& form);
 
-  // Consumes a list of |android_credentials| corresponding to applications that
-  // are affiliated with the realm of |observed_form|, and transforms them so
-  // as to make them fillable into |observed_form|. This can be called from any
-  // thread.
-  static ScopedVector<autofill::PasswordForm>
-  TransformAffiliatedAndroidCredentials(
-      const autofill::PasswordForm& observed_form,
-      ScopedVector<autofill::PasswordForm> android_credentials);
-
   // Sets the task runner to be used to delay I/O heavy initialization. Should
   // be called before Initialize(). Used only for testing.
   void SetTaskRunnerUsedForWaitingForTesting(
@@ -171,8 +162,8 @@ class AffiliatedMatchHelper : public PasswordStore::Observer,
   scoped_ptr<AffiliationService> affiliation_service_;
 
   // Timers used to schedule VerifyAffiliationsPrefetchedForDummyFacets().
-  base::OneShotTimer<AffiliatedMatchHelper> on_startup_verification_timer_;
-  base::RepeatingTimer<AffiliatedMatchHelper> repeated_verification_timer_;
+  base::OneShotTimer on_startup_verification_timer_;
+  base::RepeatingTimer repeated_verification_timer_;
 
   base::WeakPtrFactory<AffiliatedMatchHelper> weak_ptr_factory_;
 

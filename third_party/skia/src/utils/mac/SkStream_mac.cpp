@@ -5,6 +5,9 @@
  * found in the LICENSE file.
  */
 
+#include "SkTypes.h"
+#if defined(SK_BUILD_FOR_MAC) || defined(SK_BUILD_FOR_IOS)
+
 #include "SkCGUtils.h"
 #include "SkStream.h"
 
@@ -20,7 +23,7 @@ static void delete_stream_proc(void* info, const void* addr, size_t size) {
     SkStream* stream = (SkStream*)info;
     SkASSERT(stream->getMemoryBase() == addr);
     SkASSERT(stream->getLength() == size);
-    SkDELETE(stream);
+    delete stream;
 }
 
 // These are used by CGDataProviderSequentialCallbacks
@@ -42,7 +45,7 @@ static void rewind_proc(void* info) {
 // Used when info is an SkStream.
 static void release_info_proc(void* info) {
     SkASSERT(info);
-    SkDELETE((SkStream*)info);
+    delete (SkStream*)info;
 }
 
 CGDataProviderRef SkCreateDataProviderFromStream(SkStream* stream) {
@@ -74,3 +77,5 @@ CGDataProviderRef SkCreateDataProviderFromData(SkData* data) {
     return CGDataProviderCreateWithData(data, data->data(), data->size(),
                                             unref_proc);
 }
+
+#endif//defined(SK_BUILD_FOR_MAC) || defined(SK_BUILD_FOR_IOS)

@@ -26,7 +26,6 @@
 #ifndef WebContentLayerClient_h
 #define WebContentLayerClient_h
 
-#include "WebCanvas.h"
 #include "WebCommon.h"
 
 namespace blink {
@@ -44,13 +43,6 @@ public:
     };
 
     // Paints the content area for the layer, typically dirty rects submitted
-    // through WebContentLayer::setNeedsDisplay, submitting drawing commands
-    // through the WebCanvas.
-    // The canvas is already clipped to the |clip| rect.
-    // The |PaintingControlSetting| enum controls painting to isolate different components in performance tests.
-    virtual void paintContents(WebCanvas*, const WebRect& clip, PaintingControlSetting = PaintDefaultBehavior) = 0;
-
-    // Paints the content area for the layer, typically dirty rects submitted
     // through WebContentLayer::setNeedsDisplayInRect, submitting drawing commands
     // to populate the WebDisplayItemList.
     // The |clip| rect defines the region of interest. The resulting WebDisplayItemList should contain
@@ -62,6 +54,12 @@ public:
         WebDisplayItemList*,
         const WebRect& clip,
         PaintingControlSetting = PaintDefaultBehavior) = 0;
+
+    // Returns an estimate of the current memory usage within this object,
+    // excluding memory shared with painting artifacts (i.e.,
+    // WebDisplayItemList). Should be invoked after paintContents, so that the
+    // result includes data cached internally during painting.
+    virtual size_t approximateUnsharedMemoryUsage() const { return 0; }
 
 protected:
     virtual ~WebContentLayerClient() { }

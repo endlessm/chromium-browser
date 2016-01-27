@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/views/extensions/extension_install_dialog_view.h"
 
+#include <algorithm>
+#include <string>
 #include <vector>
 
 #include "base/basictypes.h"
@@ -28,10 +30,13 @@
 #include "content/public/browser/web_contents.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/extension_urls.h"
-#include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "ui/base/resource/resource_bundle.h"
+#include "ui/gfx/color_palette.h"
+#include "ui/gfx/paint_vector_icon.h"
 #include "ui/gfx/text_utils.h"
+#include "ui/gfx/vector_icons_public.h"
+#include "ui/native_theme/common_theme.h"
 #include "ui/views/border.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/image_view.h"
@@ -104,8 +109,16 @@ void ShowExtensionInstallDialogImpl(
                                      show_params->GetParentWebContents(),
                                      delegate,
                                      prompt);
-  constrained_window::CreateBrowserModalDialogViews(
-      dialog, show_params->GetParentWindow())->Show();
+  if (prompt->ShouldUseTabModalDialog()) {
+    content::WebContents* parent_web_contents =
+        show_params->GetParentWebContents();
+    if (parent_web_contents)
+      constrained_window::ShowWebModalDialogViews(dialog, parent_web_contents);
+  } else {
+    constrained_window::CreateBrowserModalDialogViews(
+        dialog, show_params->GetParentWindow())
+        ->Show();
+  }
 }
 
 // A custom scrollable view implementation for the dialog.
@@ -409,7 +422,7 @@ void ExtensionInstallDialogView::InitView() {
     scroll_layout->AddView(issue_advice_view);
   }
 
-  DCHECK(prompt_->type() >= 0);
+  DCHECK_GE(prompt_->type(), 0);
   UMA_HISTOGRAM_ENUMERATION("Extensions.InstallPrompt.Type",
                             prompt_->type(),
                             ExtensionInstallPrompt::NUM_PROMPT_TYPES);
@@ -531,8 +544,6 @@ views::GridLayout* ExtensionInstallDialogView::CreateLayout(
   views::ImageView* icon = new views::ImageView();
   icon->SetImageSize(size);
   icon->SetImage(*image);
-  icon->SetHorizontalAlignment(views::ImageView::CENTER);
-  icon->SetVerticalAlignment(views::ImageView::CENTER);
 
   int icon_row_span = 1;  // Always span the title.
   if (prompt_->has_webstore_data()) {
@@ -597,7 +608,8 @@ bool ExtensionInstallDialogView::Accept() {
 }
 
 ui::ModalType ExtensionInstallDialogView::GetModalType() const {
-  return ui::MODAL_TYPE_WINDOW;
+  return prompt_->ShouldUseTabModalDialog() ? ui::MODAL_TYPE_CHILD
+                                            : ui::MODAL_TYPE_WINDOW;
 }
 
 void ExtensionInstallDialogView::LinkClicked(views::Link* source,
@@ -724,20 +736,14 @@ ExpandableContainerView::ExpandableContainerView(
   for (size_t i = 0; i < details.size(); ++i)
     details_view_->AddDetail(details[i]);
 
-  views::Link* link = new views::Link(
-      l10n_util::GetStringUTF16(IDS_EXTENSIONS_SHOW_DETAILS));
-
   // Make sure the link width column is as wide as needed for both Show and
   // Hide details, so that the arrow doesn't shift horizontally when we
   // toggle.
-  int link_col_width =
-      views::kRelatedControlHorizontalSpacing +
-      std::max(gfx::GetStringWidth(
-                   l10n_util::GetStringUTF16(IDS_EXTENSIONS_HIDE_DETAILS),
-                   link->font_list()),
-               gfx::GetStringWidth(
-                   l10n_util::GetStringUTF16(IDS_EXTENSIONS_SHOW_DETAILS),
-                   link->font_list()));
+  views::Link* link = new views::Link(
+      l10n_util::GetStringUTF16(IDS_EXTENSIONS_HIDE_DETAILS));
+  int link_col_width = link->GetPreferredSize().width();
+  link->SetText(l10n_util::GetStringUTF16(IDS_EXTENSIONS_SHOW_DETAILS));
+  link_col_width = std::max(link_col_width, link->GetPreferredSize().width());
 
   column_set = layout->AddColumnSet(++column_set_id);
   // Padding to the left of the More Details column. If the parent is using
@@ -756,7 +762,7 @@ ExpandableContainerView::ExpandableContainerView(
                         link_col_width);
   // The Up/Down arrow column.
   column_set->AddColumn(views::GridLayout::LEADING,
-                        views::GridLayout::LEADING,
+                        views::GridLayout::TRAILING,
                         0,
                         views::GridLayout::USE_PREF,
                         0,
@@ -770,10 +776,8 @@ ExpandableContainerView::ExpandableContainerView(
   layout->AddView(more_details_);
 
   // Add the arrow after the More Details link.
-  ui::ResourceBundle& rb = ui::ResourceBundle::GetSharedInstance();
   arrow_toggle_ = new views::ImageButton(this);
-  arrow_toggle_->SetImage(views::Button::STATE_NORMAL,
-                          rb.GetImageSkiaNamed(IDR_DOWN_ARROW));
+  UpdateArrowToggle(false);
   layout->AddView(arrow_toggle_);
 }
 
@@ -798,19 +802,8 @@ void ExpandableContainerView::AnimationProgressed(
 }
 
 void ExpandableContainerView::AnimationEnded(const gfx::Animation* animation) {
-  if (arrow_toggle_) {
-    if (animation->GetCurrentValue() != 0.0) {
-      arrow_toggle_->SetImage(
-          views::Button::STATE_NORMAL,
-          ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
-              IDR_UP_ARROW));
-    } else {
-      arrow_toggle_->SetImage(
-          views::Button::STATE_NORMAL,
-          ui::ResourceBundle::GetSharedInstance().GetImageSkiaNamed(
-              IDR_DOWN_ARROW));
-    }
-  }
+  if (arrow_toggle_)
+    UpdateArrowToggle(animation->GetCurrentValue() != 0.0);
   if (more_details_) {
     more_details_->SetText(expanded_ ?
         l10n_util::GetStringUTF16(IDS_EXTENSIONS_HIDE_DETAILS) :
@@ -829,6 +822,13 @@ void ExpandableContainerView::ToggleDetailLevel() {
     slide_animation_.Hide();
   else
     slide_animation_.Show();
+}
+
+void ExpandableContainerView::UpdateArrowToggle(bool expanded) {
+  gfx::ImageSkia icon = gfx::CreateVectorIcon(
+      expanded ? gfx::VectorIconId::FIND_PREV : gfx::VectorIconId::FIND_NEXT,
+      16, gfx::kChromeIconGrey);
+  arrow_toggle_->SetImage(views::Button::STATE_NORMAL, &icon);
 }
 
 // static

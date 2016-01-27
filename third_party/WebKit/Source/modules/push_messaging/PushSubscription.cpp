@@ -10,17 +10,20 @@
 #include "bindings/core/v8/V8ObjectBuilder.h"
 #include "modules/push_messaging/PushError.h"
 #include "modules/serviceworkers/ServiceWorkerRegistration.h"
+#include "platform/RuntimeEnabledFeatures.h"
 #include "public/platform/Platform.h"
 #include "public/platform/modules/push_messaging/WebPushProvider.h"
 #include "public/platform/modules/push_messaging/WebPushSubscription.h"
 #include "wtf/OwnPtr.h"
+#include "wtf/text/Base64.h"
 
 namespace blink {
 
-PushSubscription* PushSubscription::take(ScriptPromiseResolver*, WebPushSubscription* pushSubscription, ServiceWorkerRegistration* serviceWorkerRegistration)
+PushSubscription* PushSubscription::take(ScriptPromiseResolver*, PassOwnPtr<WebPushSubscription> pushSubscription, ServiceWorkerRegistration* serviceWorkerRegistration)
 {
-    OwnPtr<WebPushSubscription> subscription = adoptPtr(pushSubscription);
-    return new PushSubscription(subscription->endpoint, serviceWorkerRegistration);
+    if (!pushSubscription)
+        return nullptr;
+    return new PushSubscription(*pushSubscription, serviceWorkerRegistration);
 }
 
 void PushSubscription::dispose(WebPushSubscription* pushSubscription)
@@ -29,8 +32,9 @@ void PushSubscription::dispose(WebPushSubscription* pushSubscription)
         delete pushSubscription;
 }
 
-PushSubscription::PushSubscription(const KURL& endpoint, ServiceWorkerRegistration* serviceWorkerRegistration)
-    : m_endpoint(endpoint)
+PushSubscription::PushSubscription(const WebPushSubscription& subscription, ServiceWorkerRegistration* serviceWorkerRegistration)
+    : m_endpoint(subscription.endpoint)
+    , m_p256dh(DOMArrayBuffer::create(subscription.p256dh.data(), subscription.p256dh.size()))
     , m_serviceWorkerRegistration(serviceWorkerRegistration)
 {
 }
@@ -44,9 +48,17 @@ KURL PushSubscription::endpoint() const
     return m_endpoint;
 }
 
+PassRefPtr<DOMArrayBuffer> PushSubscription::getKey(const AtomicString& name) const
+{
+    if (name == "p256dh")
+        return m_p256dh;
+
+    return nullptr;
+}
+
 ScriptPromise PushSubscription::unsubscribe(ScriptState* scriptState)
 {
-    RefPtrWillBeRawPtr<ScriptPromiseResolver> resolver = ScriptPromiseResolver::create(scriptState);
+    ScriptPromiseResolver* resolver = ScriptPromiseResolver::create(scriptState);
     ScriptPromise promise = resolver->promise();
 
     WebPushProvider* webPushProvider = Platform::current()->pushProvider();
@@ -60,6 +72,15 @@ ScriptValue PushSubscription::toJSONForBinding(ScriptState* scriptState)
 {
     V8ObjectBuilder result(scriptState);
     result.addString("endpoint", endpoint());
+
+    if (RuntimeEnabledFeatures::pushMessagingDataEnabled()) {
+        ASSERT(m_p256dh);
+
+        V8ObjectBuilder keys(scriptState);
+        keys.add("p256dh", WTF::base64URLEncode(static_cast<const char*>(m_p256dh->data()), m_p256dh->byteLength()));
+
+        result.add("keys", keys);
+    }
 
     return result.scriptValue();
 }

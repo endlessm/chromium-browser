@@ -12,8 +12,8 @@
 #include "base/metrics/statistics_recorder.h"
 #include "base/prefs/testing_pref_service.h"
 #include "base/threading/platform_thread.h"
+#include "components/compression/compression_utils.h"
 #include "components/metrics/client_info.h"
-#include "components/metrics/compression_utils.h"
 #include "components/metrics/metrics_hashes.h"
 #include "components/metrics/metrics_log.h"
 #include "components/metrics/metrics_pref_names.h"
@@ -229,7 +229,8 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAtProviderRequest) {
   EXPECT_TRUE(log_manager->has_staged_log());
 
   std::string uncompressed_log;
-  EXPECT_TRUE(GzipUncompress(log_manager->staged_log(), &uncompressed_log));
+  EXPECT_TRUE(compression::GzipUncompress(log_manager->staged_log(),
+                                          &uncompressed_log));
 
   ChromeUserMetricsExtension uma_log;
   EXPECT_TRUE(uma_log.ParseFromString(uncompressed_log));
@@ -291,7 +292,8 @@ TEST_F(MetricsServiceTest, InitialStabilityLogAfterCrash) {
   EXPECT_TRUE(log_manager->has_staged_log());
 
   std::string uncompressed_log;
-  EXPECT_TRUE(GzipUncompress(log_manager->staged_log(), &uncompressed_log));
+  EXPECT_TRUE(compression::GzipUncompress(log_manager->staged_log(),
+                                          &uncompressed_log));
 
   ChromeUserMetricsExtension uma_log;
   EXPECT_TRUE(uma_log.ParseFromString(uncompressed_log));
@@ -369,6 +371,21 @@ TEST_F(MetricsServiceTest, RegisterSyntheticTrial) {
   EXPECT_TRUE(HasSyntheticTrial(synthetic_trials, "TestTrial2", "Group2"));
   EXPECT_TRUE(HasSyntheticTrial(synthetic_trials, "TestTrial3", "Group3"));
   service.log_manager_.FinishCurrentLog();
+}
+
+TEST_F(MetricsServiceTest,
+       MetricsProviderOnRecordingDisabledCalledOnInitialStop) {
+  TestMetricsServiceClient client;
+  TestMetricsService service(
+      GetMetricsStateManager(), &client, GetLocalState());
+
+  TestMetricsProvider* test_provider = new TestMetricsProvider();
+  service.RegisterMetricsProvider(scoped_ptr<MetricsProvider>(test_provider));
+
+  service.InitializeMetricsRecordingState();
+  service.Stop();
+
+  EXPECT_TRUE(test_provider->on_recording_disabled_called());
 }
 
 }  // namespace metrics

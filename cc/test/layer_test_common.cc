@@ -29,11 +29,9 @@ static bool CanRectFBeSafelyRoundedToRect(const gfx::RectF& r) {
     return false;
 
   // Ensure that the values are actually integers.
-  if (gfx::ToFlooredPoint(r.origin()) == r.origin() &&
-      gfx::ToFlooredSize(r.size()) == r.size())
-    return true;
-
-  return false;
+  gfx::RectF floored_rect(std::floor(r.x()), std::floor(r.y()),
+                          std::floor(r.width()), std::floor(r.height()));
+  return floored_rect == r;
 }
 
 void LayerTestCommon::VerifyQuadsExactlyCoverRect(const QuadList& quads,
@@ -84,10 +82,11 @@ void LayerTestCommon::VerifyQuadsAreOccluded(const QuadList& quads,
                  .IsPositiveScaleOrTranslation())
           << quad->shared_quad_state->quad_to_target_transform.ToString();
       gfx::RectF target_rectf = MathUtil::MapClippedRect(
-          quad->shared_quad_state->quad_to_target_transform, quad->rect);
+          quad->shared_quad_state->quad_to_target_transform,
+          gfx::RectF(quad->rect));
       // Scale transforms allowed, as long as the final transformed rect
       // ends up on integer boundaries for ease of testing.
-      DCHECK_EQ(target_rectf.ToString(), gfx::RectF(target_rect).ToString());
+      ASSERT_EQ(target_rectf, gfx::RectF(target_rect));
     }
     gfx::Rect target_visible_rect = MathUtil::MapEnclosingClippedRect(
         quad->shared_quad_state->quad_to_target_transform, quad->visible_rect);
@@ -115,13 +114,14 @@ LayerTestCommon::LayerImplTest::LayerImplTest()
 
 LayerTestCommon::LayerImplTest::LayerImplTest(const LayerTreeSettings& settings)
     : client_(FakeLayerTreeHostClient::DIRECT_3D),
+      output_surface_(FakeOutputSurface::Create3d()),
       host_(FakeLayerTreeHost::Create(&client_, &task_graph_runner_, settings)),
       root_layer_impl_(LayerImpl::Create(host_->host_impl()->active_tree(), 1)),
       render_pass_(RenderPass::Create()),
       layer_impl_id_(2) {
   root_layer_impl_->SetHasRenderSurface(true);
-  scoped_ptr<FakeOutputSurface> output_surface = FakeOutputSurface::Create3d();
-  host_->host_impl()->InitializeRenderer(FakeOutputSurface::Create3d());
+  host_->host_impl()->SetVisible(true);
+  host_->host_impl()->InitializeRenderer(output_surface_.get());
 }
 
 LayerTestCommon::LayerImplTest::~LayerImplTest() {}

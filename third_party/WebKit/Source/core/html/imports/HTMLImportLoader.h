@@ -56,6 +56,7 @@ class HTMLImportsController;
 //
 class HTMLImportLoader final : public NoBaseWillBeGarbageCollectedFinalized<HTMLImportLoader>, public ResourceOwner<RawResource>, public DocumentParserClient {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(HTMLImportLoader);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(HTMLImportLoader);
 public:
     enum State {
         StateLoading,
@@ -103,6 +104,7 @@ private:
     void responseReceived(Resource*, const ResourceResponse&, PassOwnPtr<WebDataConsumerHandle>) override;
     void dataReceived(Resource*, const char* data, unsigned length) override;
     void notifyFinished(Resource*) override;
+    String debugName() const override { return "HTMLImportLoader"; }
 
     // DocumentParserClient
 

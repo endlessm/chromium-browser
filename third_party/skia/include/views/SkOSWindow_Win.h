@@ -10,12 +10,16 @@
 #ifndef SkOSWindow_Win_DEFINED
 #define SkOSWindow_Win_DEFINED
 
+#include "../private/SkTHash.h"
 #include "SkWindow.h"
-#include "../../src/core/SkFunction.h"
-#include "../../src/core/SkTHash.h"
+#include <functional>
 
 #if SK_ANGLE
 #include "EGL/egl.h"
+#endif
+
+#if SK_COMMAND_BUFFER
+class SkCommandBufferGLContext;
 #endif
 
 class SkOSWindow : public SkWindow {
@@ -37,6 +41,9 @@ public:
 #if SK_ANGLE
         kANGLE_BackEndType,
 #endif // SK_ANGLE
+#if SK_COMMAND_BUFFER
+        kCommandBuffer_BackEndType,
+#endif // SK_COMMAND_BUFFER
 #endif // SK_SUPPORT_GPU
     };
 
@@ -64,9 +71,9 @@ public:
         return *win;
     }
 
-    // Iterates SkFunction over all the SkOSWindows and their corresponding HWNDs.
-    // The void* argument to the SkFunction is a HWND.
-    static void ForAllWindows(const SkFunction<void(void*, SkOSWindow**)>& f) {
+    // Iterates f over all the SkOSWindows and their corresponding HWNDs.
+    // The void* argument to f is a HWND.
+    static void ForAllWindows(const std::function<void(void*, SkOSWindow**)>& f) {
         gHwndToOSWindowMap.foreach(f);
     }
 
@@ -96,6 +103,9 @@ private:
     EGLSurface          fSurface;
     EGLConfig           fConfig;
 #endif // SK_ANGLE
+#if SK_COMMAND_BUFFER
+    SkCommandBufferGLContext* fCommandBuffer;
+#endif // SK_COMMAND_BUFFER
 #endif // SK_SUPPORT_GPU
 
     bool                fFullscreen;
@@ -125,6 +135,12 @@ private:
     void detachANGLE();
     void presentANGLE();
 #endif // SK_ANGLE
+
+#if SK_COMMAND_BUFFER
+    bool attachCommandBuffer(int msaaSampleCount, AttachmentInfo* info);
+    void detachCommandBuffer();
+    void presentCommandBuffer();
+#endif // SK_COMMAND_BUFFER
 #endif // SK_SUPPORT_GPU
 
     typedef SkWindow INHERITED;

@@ -17,7 +17,6 @@
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/interactive_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
-#include "content/public/browser/dom_operation_notification_details.h"
 #include "content/public/browser/notification_registrar.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_widget_host_view.h"
@@ -31,7 +30,6 @@
 #import "base/mac/mac_util.h"
 #endif
 
-using content::DomOperationNotificationDetails;
 using content::NavigationController;
 
 namespace {
@@ -113,13 +111,13 @@ class TestFinishObserver : public content::NotificationObserver {
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override {
     DCHECK(type == content::NOTIFICATION_DOM_OPERATION_RESPONSE);
-    content::Details<DomOperationNotificationDetails> dom_op_details(details);
+    content::Details<std::string> dom_op_result(details);
     // We might receive responses for other script execution, but we only
     // care about the test finished message.
-    if (dom_op_details->json == "\"FINISHED\"") {
+    if (*dom_op_result.ptr() == "\"FINISHED\"") {
       finished_ = true;
       if (waiting_)
-        base::MessageLoopForUI::current()->Quit();
+        base::MessageLoopForUI::current()->QuitWhenIdle();
     }
   }
 
@@ -817,8 +815,10 @@ IN_PROC_BROWSER_TEST_F(BrowserKeyEventsTest, DISABLED_PageUpDownKeys) {
   EXPECT_NO_FATAL_FAILURE(CheckTextBoxValue(tab_index, L"A", L""));
 }
 
-#if defined(OS_WIN)
 // AltKey is enabled only on Windows. See crbug.com/114537.
+#if defined(OS_WIN)
+// If this flakes, disable and log details in http://crbug.com/523255.
+// TODO(sky): remove comment if proves stable and reenable other tests.
 IN_PROC_BROWSER_TEST_F(BrowserKeyEventsTest, FocusMenuBarByAltKey) {
   static const KeyEventTestData kTestAltKey = {
     ui::VKEY_MENU, false, false, false, false,

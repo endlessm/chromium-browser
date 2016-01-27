@@ -17,11 +17,21 @@
 #include "webrtc/common_types.h"
 #include "webrtc/config.h"
 #include "webrtc/frame_callback.h"
+#include "webrtc/stream.h"
+#include "webrtc/transport.h"
 #include "webrtc/video_renderer.h"
 
 namespace webrtc {
 
+class LoadObserver;
 class VideoEncoder;
+
+class EncodingTimeObserver {
+ public:
+  virtual ~EncodingTimeObserver() {}
+
+  virtual void OnReportEncodedTime(int64_t ntp_time_ms, int encode_time_ms) = 0;
+};
 
 // Class to deliver captured frame to the video send stream.
 class VideoCaptureInput {
@@ -35,7 +45,7 @@ class VideoCaptureInput {
   virtual ~VideoCaptureInput() {}
 };
 
-class VideoSendStream {
+class VideoSendStream : public SendStream {
  public:
   struct StreamStats {
     FrameCounts frame_counts;
@@ -63,6 +73,10 @@ class VideoSendStream {
   };
 
   struct Config {
+    Config() = delete;
+    explicit Config(Transport* send_transport)
+        : send_transport(send_transport) {}
+
     std::string ToString() const;
 
     struct EncoderSettings {
@@ -70,6 +84,10 @@ class VideoSendStream {
 
       std::string payload_name;
       int payload_type = -1;
+
+      // TODO(sophiechang): Delete this field when no one is using internal
+      // sources anymore.
+      bool internal_source = false;
 
       // Uninitialized VideoEncoder instance to be used for encoding. Will be
       // initialized from inside the VideoSendStream.
@@ -109,6 +127,13 @@ class VideoSendStream {
       std::string c_name;
     } rtp;
 
+    // Transport for outgoing packets.
+    Transport* send_transport = nullptr;
+
+    // Callback for overuse and normal usage based on the jitter of incoming
+    // captured frames. 'nullptr' disables the callback.
+    LoadObserver* overuse_callback = nullptr;
+
     // Called for each I420 frame before encoding the frame. Can be used for
     // effects, snapshots etc. 'nullptr' disables the callback.
     I420FrameCallback* pre_encode_callback = nullptr;
@@ -134,14 +159,16 @@ class VideoSendStream {
     // below the minimum configured bitrate. If this variable is false, the
     // stream may send at a rate higher than the estimated available bitrate.
     bool suspend_below_min_bitrate = false;
+
+    // Called for each encoded frame. Passes the total time spent on encoding.
+    // TODO(ivica): Consolidate with post_encode_callback:
+    // https://code.google.com/p/webrtc/issues/detail?id=5042
+    EncodingTimeObserver* encoding_time_observer = nullptr;
   };
 
   // Gets interface used to insert captured frames. Valid as long as the
   // VideoSendStream is valid.
   virtual VideoCaptureInput* Input() = 0;
-
-  virtual void Start() = 0;
-  virtual void Stop() = 0;
 
   // Set which streams to send. Must have at least as many SSRCs as configured
   // in the config. Encoder settings are passed on to the encoder instance along
@@ -149,9 +176,6 @@ class VideoSendStream {
   virtual bool ReconfigureVideoEncoder(const VideoEncoderConfig& config) = 0;
 
   virtual Stats GetStats() = 0;
-
- protected:
-  virtual ~VideoSendStream() {}
 };
 
 }  // namespace webrtc

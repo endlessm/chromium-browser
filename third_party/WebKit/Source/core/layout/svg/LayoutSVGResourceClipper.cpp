@@ -27,18 +27,10 @@
 #include "core/dom/ElementTraversal.h"
 #include "core/layout/HitTestResult.h"
 #include "core/layout/svg/SVGLayoutSupport.h"
-#include "core/layout/svg/SVGResources.h"
-#include "core/layout/svg/SVGResourcesCache.h"
-#include "core/paint/CompositingRecorder.h"
 #include "core/paint/PaintInfo.h"
-#include "core/paint/TransformRecorder.h"
 #include "core/svg/SVGGeometryElement.h"
 #include "core/svg/SVGUseElement.h"
 #include "platform/RuntimeEnabledFeatures.h"
-#include "platform/graphics/paint/ClipPathDisplayItem.h"
-#include "platform/graphics/paint/CompositingDisplayItem.h"
-#include "platform/graphics/paint/DisplayItemList.h"
-#include "platform/graphics/paint/DrawingDisplayItem.h"
 #include "platform/graphics/paint/SkPictureBuilder.h"
 #include "third_party/skia/include/core/SkPicture.h"
 #include "third_party/skia/include/pathops/SkPathOps.h"
@@ -57,6 +49,7 @@ LayoutSVGResourceClipper::~LayoutSVGResourceClipper()
 
 void LayoutSVGResourceClipper::removeAllClientsFromCache(bool markForInvalidation)
 {
+    m_clipContentPath.clear();
     m_clipContentPicture.clear();
     m_clipBoundaries = FloatRect();
     markAllClientsForInvalidation(markForInvalidation ? LayoutAndBoundariesInvalidation : ParentOnlyInvalidation);
@@ -68,13 +61,16 @@ void LayoutSVGResourceClipper::removeClientFromCache(LayoutObject* client, bool 
     markClientForInvalidation(client, markForInvalidation ? BoundariesInvalidation : ParentOnlyInvalidation);
 }
 
-bool LayoutSVGResourceClipper::tryPathOnlyClipping(const LayoutObject& layoutObject, GraphicsContext* context,
-    const AffineTransform& animatedLocalTransform, const FloatRect& objectBoundingBox) {
+bool LayoutSVGResourceClipper::calculateClipContentPathIfNeeded()
+{
+    if (!m_clipContentPath.isEmpty())
+        return true;
+
     // If the current clip-path gets clipped itself, we have to fallback to masking.
-    if (!style()->svgStyle().clipperResource().isEmpty())
+    if (style()->svgStyle().hasClipper())
         return false;
 
-    Path clipPath;
+    unsigned opCount = 0;
     bool usingBuilder = false;
     SkOpBuilder clipPathBuilder;
 
@@ -83,36 +79,44 @@ bool LayoutSVGResourceClipper::tryPathOnlyClipping(const LayoutObject& layoutObj
         if (!childLayoutObject)
             continue;
         // Only shapes or paths are supported for direct clipping. We need to fallback to masking for texts.
-        if (childLayoutObject->isSVGText())
+        if (childLayoutObject->isSVGText()) {
+            m_clipContentPath.clear();
             return false;
+        }
         if (!childElement->isSVGGraphicsElement())
             continue;
 
         const ComputedStyle* style = childLayoutObject->style();
         if (!style || style->display() == NONE || style->visibility() != VISIBLE)
             continue;
-        const SVGComputedStyle& svgStyle = style->svgStyle();
+
         // Current shape in clip-path gets clipped too. Fallback to masking.
-        if (!svgStyle.clipperResource().isEmpty())
+        if (style->svgStyle().hasClipper()) {
+            m_clipContentPath.clear();
             return false;
+        }
 
         // First clip shape.
-        if (clipPath.isEmpty()) {
+        if (m_clipContentPath.isEmpty()) {
             if (isSVGGeometryElement(childElement))
-                toSVGGeometryElement(childElement)->toClipPath(clipPath);
+                toSVGGeometryElement(childElement)->toClipPath(m_clipContentPath);
             else if (isSVGUseElement(childElement))
-                toSVGUseElement(childElement)->toClipPath(clipPath);
+                toSVGUseElement(childElement)->toClipPath(m_clipContentPath);
 
             continue;
         }
 
-        // Multiple shapes require PathOps.
-        if (!RuntimeEnabledFeatures::pathOpsSVGClippingEnabled())
+        // Multiple shapes require PathOps. In some degenerate cases PathOps can exhibit quadratic
+        // behavior, so we cap the number of ops to a reasonable count.
+        const unsigned kMaxOps = 42;
+        if (!RuntimeEnabledFeatures::pathOpsSVGClippingEnabled() || ++opCount > kMaxOps) {
+            m_clipContentPath.clear();
             return false;
+        }
 
         // Second clip shape => start using the builder.
         if (!usingBuilder) {
-            clipPathBuilder.add(clipPath.skPath(), kUnion_SkPathOp);
+            clipPathBuilder.add(m_clipContentPath.skPath(), kUnion_SkPathOp);
             usingBuilder = true;
         }
 
@@ -128,29 +132,30 @@ bool LayoutSVGResourceClipper::tryPathOnlyClipping(const LayoutObject& layoutObj
     if (usingBuilder) {
         SkPath resolvedPath;
         clipPathBuilder.resolve(&resolvedPath);
-        clipPath = resolvedPath;
+        m_clipContentPath = resolvedPath;
     }
+
+    return true;
+}
+
+bool LayoutSVGResourceClipper::asPath(const AffineTransform& animatedLocalTransform, const FloatRect& referenceBox, Path& clipPath)
+{
+    if (!calculateClipContentPathIfNeeded())
+        return false;
+
+    clipPath = m_clipContentPath;
 
     // We are able to represent the clip as a path. Continue with direct clipping,
     // and transform the content to userspace if necessary.
     if (clipPathUnits() == SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX) {
         AffineTransform transform;
-        transform.translate(objectBoundingBox.x(), objectBoundingBox.y());
-        transform.scaleNonUniform(objectBoundingBox.width(), objectBoundingBox.height());
+        transform.translate(referenceBox.x(), referenceBox.y());
+        transform.scaleNonUniform(referenceBox.width(), referenceBox.height());
         clipPath.transform(transform);
     }
 
     // Transform path by animatedLocalTransform.
     clipPath.transform(animatedLocalTransform);
-
-    if (RuntimeEnabledFeatures::slimmingPaintEnabled()) {
-        if (!context->displayItemList()->displayItemConstructionIsDisabled())
-            context->displayItemList()->createAndAppend<BeginClipPathDisplayItem>(layoutObject, clipPath);
-    } else {
-        BeginClipPathDisplayItem clipPathDisplayItem(layoutObject, clipPath);
-        clipPathDisplayItem.replay(*context);
-    }
-
     return true;
 }
 
@@ -208,7 +213,7 @@ PassRefPtr<const SkPicture> LayoutSVGResourceClipper::createContentPicture(Affin
         // - masker/filter not applied when laying out the children
         // - fill is set to the initial fill paint server (solid, black)
         // - stroke is set to the initial stroke paint server (none)
-        PaintInfo info(&pictureBuilder.context(), LayoutRect::infiniteIntRect(), PaintPhaseForeground, PaintBehaviorRenderingClipPathAsMask);
+        PaintInfo info(&pictureBuilder.context(), LayoutRect::infiniteIntRect(), PaintPhaseForeground, GlobalPaintNormalPhase, PaintLayerPaintingRenderingClipPathAsMask);
         layoutObject->paint(info, IntPoint());
     }
 

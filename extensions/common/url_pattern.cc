@@ -110,7 +110,6 @@ bool IsValidPortForScheme(const std::string& scheme, const std::string& port) {
 std::string StripTrailingWildcard(const std::string& path) {
   size_t wildcard_index = path.find('*');
   size_t path_last = path.size() - 1;
-  DCHECK(wildcard_index == std::string::npos || wildcard_index == path_last);
   return wildcard_index == path_last ? path.substr(0, path_last) : path;
 }
 
@@ -237,11 +236,12 @@ URLPattern::ParseResult URLPattern::Parse(const std::string& pattern) {
     host_ = pattern.substr(host_start_pos, host_end_pos - host_start_pos);
 
     // The first component can optionally be '*' to match all subdomains.
-    std::vector<std::string> host_components;
-    base::SplitString(host_, '.', &host_components);
+    std::vector<std::string> host_components = base::SplitString(
+        host_, ".", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
 
     // Could be empty if the host only consists of whitespace characters.
-    if (host_components.empty())
+    if (host_components.empty() ||
+        (host_components.size() == 1 && host_components[0].empty()))
       return PARSE_ERROR_EMPTY_HOST;
 
     if (host_components[0] == "*") {
@@ -249,7 +249,7 @@ URLPattern::ParseResult URLPattern::Parse(const std::string& pattern) {
       host_components.erase(host_components.begin(),
                             host_components.begin() + 1);
     }
-    host_ = JoinString(host_components, '.');
+    host_ = base::JoinString(host_components, ".");
 
     path_start_pos = host_end_pos;
   }
@@ -533,10 +533,11 @@ bool URLPattern::OverlapsWith(const URLPattern& other) const {
 bool URLPattern::Contains(const URLPattern& other) const {
   if (match_all_urls())
     return true;
-  return MatchesAllSchemes(other.GetExplicitSchemes())
-      && MatchesHost(other.host())
-      && MatchesPortPattern(other.port())
-      && MatchesPath(StripTrailingWildcard(other.path()));
+  return MatchesAllSchemes(other.GetExplicitSchemes()) &&
+         MatchesHost(other.host()) &&
+         (!other.match_subdomains_ || match_subdomains_) &&
+         MatchesPortPattern(other.port()) &&
+         MatchesPath(StripTrailingWildcard(other.path()));
 }
 
 bool URLPattern::MatchesAnyScheme(

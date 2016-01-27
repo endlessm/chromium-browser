@@ -22,7 +22,6 @@
 #include "content/common/input/synthetic_web_input_event_builders.h"
 #include "content/common/view_messages.h"
 #include "content/public/browser/browser_context.h"
-#include "content/public/browser/dom_operation_notification_details.h"
 #include "content/public/browser/histogram_fetcher.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
@@ -31,7 +30,6 @@
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
-#include "content/public/browser/web_contents_observer.h"
 #include "content/public/test/test_utils.h"
 #include "net/base/filename_util.h"
 #include "net/cookies/cookie_store.h"
@@ -75,10 +73,12 @@ class DOMOperationObserver : public NotificationObserver,
                const NotificationSource& source,
                const NotificationDetails& details) override {
     DCHECK(type == NOTIFICATION_DOM_OPERATION_RESPONSE);
-    Details<DomOperationNotificationDetails> dom_op_details(details);
-    response_ = dom_op_details->json;
-    did_respond_ = true;
-    message_loop_runner_->Quit();
+    Details<std::string> dom_op_result(details);
+    if (!did_respond_) {
+      response_ = *dom_op_result.ptr();
+      did_respond_ = true;
+      message_loop_runner_->Quit();
+    }
   }
 
   // Overridden from WebContentsObserver:
@@ -162,6 +162,43 @@ bool ExecuteScriptHelper(RenderFrameHost* render_frame_host,
   return true;
 }
 
+// Specifying a prototype so that we can add the WARN_UNUSED_RESULT attribute.
+bool ExecuteScriptInIsolatedWorldHelper(RenderFrameHost* render_frame_host,
+                                        const int world_id,
+                                        const std::string& original_script,
+                                        scoped_ptr<base::Value>* result)
+    WARN_UNUSED_RESULT;
+
+bool ExecuteScriptInIsolatedWorldHelper(RenderFrameHost* render_frame_host,
+                                        const int world_id,
+                                        const std::string& original_script,
+                                        scoped_ptr<base::Value>* result) {
+  std::string script =
+      "window.domAutomationController.setAutomationId(0);" + original_script;
+  DOMOperationObserver dom_op_observer(render_frame_host->GetRenderViewHost());
+  render_frame_host->ExecuteJavaScriptInIsolatedWorld(
+      base::UTF8ToUTF16(script),
+      content::RenderFrameHost::JavaScriptResultCallback(), world_id);
+  std::string json;
+  if (!dom_op_observer.WaitAndGetResponse(&json)) {
+    DLOG(ERROR) << "Cannot communicate with DOMOperationObserver.";
+    return false;
+  }
+
+  // Nothing more to do for callers that ignore the returned JS value.
+  if (!result)
+    return true;
+
+  base::JSONReader reader(base::JSON_ALLOW_TRAILING_COMMAS);
+  *result = reader.ReadToValue(json);
+  if (!*result) {
+    DLOG(ERROR) << reader.GetErrorMessage();
+    return false;
+  }
+
+  return true;
+}
+
 void BuildSimpleWebKeyEvent(blink::WebInputEvent::Type type,
                             ui::KeyboardCode key_code,
                             int native_key_code,
@@ -190,7 +227,12 @@ void InjectRawKeyEvent(WebContents* web_contents,
                        int modifiers) {
   NativeWebKeyboardEvent event;
   BuildSimpleWebKeyEvent(type, key_code, native_key_code, modifiers, &event);
-  web_contents->GetRenderViewHost()->ForwardKeyboardEvent(event);
+  WebContentsImpl* web_contents_impl =
+      static_cast<WebContentsImpl*>(web_contents);
+  RenderWidgetHostImpl* main_frame_rwh =
+      web_contents_impl->GetMainFrame()->GetRenderWidgetHost();
+  web_contents_impl->GetFocusedRenderWidgetHost(main_frame_rwh)
+      ->ForwardKeyboardEvent(event);
 }
 
 void GetCookiesCallback(std::string* cookies_out,
@@ -234,7 +276,8 @@ scoped_ptr<net::test_server::HttpResponse> CrossSiteRedirectResponseHandler(
     const GURL& server_base_url,
     const net::test_server::HttpRequest& request) {
   std::string prefix("/cross-site/");
-  if (!base::StartsWithASCII(request.relative_url, prefix, true))
+  if (!base::StartsWith(request.relative_url, prefix,
+                        base::CompareCase::SENSITIVE))
     return scoped_ptr<net::test_server::HttpResponse>();
 
   std::string params = request.relative_url.substr(prefix.length());
@@ -344,8 +387,8 @@ void WaitForResizeComplete(WebContents* web_contents) {
   aura::WindowTreeHost* window_host = content->GetHost();
   aura::WindowEventDispatcher* dispatcher = window_host->dispatcher();
   aura::test::WindowEventDispatcherTestApi dispatcher_test(dispatcher);
-  RenderWidgetHostImpl* widget_host =
-      RenderWidgetHostImpl::From(web_contents->GetRenderViewHost());
+  RenderWidgetHostImpl* widget_host = RenderWidgetHostImpl::From(
+      web_contents->GetRenderViewHost()->GetWidget());
   if (!IsResizeComplete(&dispatcher_test, widget_host)) {
     WindowedNotificationObserver resize_observer(
         NOTIFICATION_RENDER_WIDGET_HOST_DID_UPDATE_BACKING_STORE,
@@ -359,8 +402,8 @@ bool IsResizeComplete(RenderWidgetHostImpl* widget_host) {
 }
 
 void WaitForResizeComplete(WebContents* web_contents) {
-  RenderWidgetHostImpl* widget_host =
-      RenderWidgetHostImpl::From(web_contents->GetRenderViewHost());
+  RenderWidgetHostImpl* widget_host = RenderWidgetHostImpl::From(
+      web_contents->GetRenderViewHost()->GetWidget());
   if (!IsResizeComplete(widget_host)) {
     WindowedNotificationObserver resize_observer(
         NOTIFICATION_RENDER_WIDGET_HOST_DID_UPDATE_BACKING_STORE,
@@ -393,9 +436,11 @@ void SimulateMouseClickAt(WebContents* web_contents,
   mouse_event.globalX = point.x() + offset.x();
   mouse_event.globalY = point.y() + offset.y();
   mouse_event.clickCount = 1;
-  web_contents->GetRenderViewHost()->ForwardMouseEvent(mouse_event);
+  web_contents->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
   mouse_event.type = blink::WebInputEvent::MouseUp;
-  web_contents->GetRenderViewHost()->ForwardMouseEvent(mouse_event);
+  web_contents->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
 }
 
 void SimulateMouseEvent(WebContents* web_contents,
@@ -405,17 +450,65 @@ void SimulateMouseEvent(WebContents* web_contents,
   mouse_event.type = type;
   mouse_event.x = point.x();
   mouse_event.y = point.y();
-  web_contents->GetRenderViewHost()->ForwardMouseEvent(mouse_event);
+  web_contents->GetRenderViewHost()->GetWidget()->ForwardMouseEvent(
+      mouse_event);
+}
+
+void SimulateMouseWheelEvent(WebContents* web_contents,
+                             const gfx::Point& point,
+                             const gfx::Vector2d& delta) {
+  blink::WebMouseWheelEvent wheel_event;
+  wheel_event.type = blink::WebInputEvent::MouseWheel;
+  wheel_event.x = point.x();
+  wheel_event.y = point.y();
+  wheel_event.deltaX = delta.x();
+  wheel_event.deltaY = delta.y();
+  RenderWidgetHostImpl* widget_host = RenderWidgetHostImpl::From(
+      web_contents->GetRenderViewHost()->GetWidget());
+  widget_host->ForwardWheelEvent(wheel_event);
+}
+
+void SimulateGestureScrollSequence(WebContents* web_contents,
+                                   const gfx::Point& point,
+                                   const gfx::Vector2dF& delta) {
+  RenderWidgetHostImpl* widget_host = RenderWidgetHostImpl::From(
+      web_contents->GetRenderViewHost()->GetWidget());
+
+  blink::WebGestureEvent scroll_begin;
+  scroll_begin.type = blink::WebGestureEvent::GestureScrollBegin;
+  scroll_begin.sourceDevice = blink::WebGestureDeviceTouchpad;
+  scroll_begin.x = point.x();
+  scroll_begin.y = point.y();
+  widget_host->ForwardGestureEvent(scroll_begin);
+
+  blink::WebGestureEvent scroll_update;
+  scroll_update.type = blink::WebGestureEvent::GestureScrollUpdate;
+  scroll_update.sourceDevice = blink::WebGestureDeviceTouchpad;
+  scroll_update.x = point.x();
+  scroll_update.y = point.y();
+  scroll_update.data.scrollUpdate.deltaX = delta.x();
+  scroll_update.data.scrollUpdate.deltaY = delta.y();
+  scroll_update.data.scrollUpdate.velocityX = 0;
+  scroll_update.data.scrollUpdate.velocityY = 0;
+  widget_host->ForwardGestureEvent(scroll_update);
+
+  blink::WebGestureEvent scroll_end;
+  scroll_end.type = blink::WebGestureEvent::GestureScrollEnd;
+  scroll_end.sourceDevice = blink::WebGestureDeviceTouchpad;
+  scroll_end.x = point.x() + delta.x();
+  scroll_end.y = point.y() + delta.y();
+  widget_host->ForwardGestureEvent(scroll_end);
 }
 
 void SimulateTapAt(WebContents* web_contents, const gfx::Point& point) {
   blink::WebGestureEvent tap;
   tap.type = blink::WebGestureEvent::GestureTap;
+  tap.sourceDevice = blink::WebGestureDeviceTouchpad;
   tap.x = point.x();
   tap.y = point.y();
   tap.modifiers = blink::WebInputEvent::ControlKey;
-  RenderWidgetHostImpl* widget_host =
-      RenderWidgetHostImpl::From(web_contents->GetRenderViewHost());
+  RenderWidgetHostImpl* widget_host = RenderWidgetHostImpl::From(
+      web_contents->GetRenderViewHost()->GetWidget());
   widget_host->ForwardGestureEvent(tap);
 }
 
@@ -424,19 +517,20 @@ void SimulateTapWithModifiersAt(WebContents* web_contents,
                                 const gfx::Point& point) {
   blink::WebGestureEvent tap;
   tap.type = blink::WebGestureEvent::GestureTap;
+  tap.sourceDevice = blink::WebGestureDeviceTouchpad;
   tap.x = point.x();
   tap.y = point.y();
   tap.modifiers = modifiers;
-  RenderWidgetHostImpl* widget_host =
-      RenderWidgetHostImpl::From(web_contents->GetRenderViewHost());
+  RenderWidgetHostImpl* widget_host = RenderWidgetHostImpl::From(
+      web_contents->GetRenderViewHost()->GetWidget());
   widget_host->ForwardGestureEvent(tap);
 }
 
 void SimulateTouchPressAt(WebContents* web_contents, const gfx::Point& point) {
   SyntheticWebTouchEvent touch;
   touch.PressPoint(point.x(), point.y());
-  RenderWidgetHostImpl* widget_host =
-      RenderWidgetHostImpl::From(web_contents->GetRenderViewHost());
+  RenderWidgetHostImpl* widget_host = RenderWidgetHostImpl::From(
+      web_contents->GetRenderViewHost()->GetWidget());
   widget_host->ForwardTouchEventWithLatencyInfo(touch, ui::LatencyInfo());
 }
 
@@ -447,12 +541,12 @@ void SimulateKeyPress(WebContents* web_contents,
                       bool alt,
                       bool command) {
   SimulateKeyPressWithCode(
-      web_contents, key_code, NULL, control, shift, alt, command);
+      web_contents, key_code, std::string(), control, shift, alt, command);
 }
 
 void SimulateKeyPressWithCode(WebContents* web_contents,
                               ui::KeyboardCode key_code,
-                              const char* code,
+                              const std::string& code,
                               bool control,
                               bool shift,
                               bool alt,
@@ -540,8 +634,6 @@ void SimulateKeyPressWithCode(WebContents* web_contents,
   ASSERT_EQ(modifiers, 0);
 }
 
-namespace internal {
-
 ToRenderFrameHost::ToRenderFrameHost(WebContents* web_contents)
     : render_frame_host_(web_contents->GetMainFrame()) {
 }
@@ -554,16 +646,14 @@ ToRenderFrameHost::ToRenderFrameHost(RenderFrameHost* render_frame_host)
     : render_frame_host_(render_frame_host) {
 }
 
-}  // namespace internal
-
-bool ExecuteScript(const internal::ToRenderFrameHost& adapter,
+bool ExecuteScript(const ToRenderFrameHost& adapter,
                    const std::string& script) {
   std::string new_script =
       script + ";window.domAutomationController.send(0);";
   return ExecuteScriptHelper(adapter.render_frame_host(), new_script, NULL);
 }
 
-bool ExecuteScriptAndExtractInt(const internal::ToRenderFrameHost& adapter,
+bool ExecuteScriptAndExtractInt(const ToRenderFrameHost& adapter,
                                 const std::string& script, int* result) {
   DCHECK(result);
   scoped_ptr<base::Value> value;
@@ -575,7 +665,7 @@ bool ExecuteScriptAndExtractInt(const internal::ToRenderFrameHost& adapter,
   return value->GetAsInteger(result);
 }
 
-bool ExecuteScriptAndExtractBool(const internal::ToRenderFrameHost& adapter,
+bool ExecuteScriptAndExtractBool(const ToRenderFrameHost& adapter,
                                  const std::string& script, bool* result) {
   DCHECK(result);
   scoped_ptr<base::Value> value;
@@ -587,7 +677,23 @@ bool ExecuteScriptAndExtractBool(const internal::ToRenderFrameHost& adapter,
   return value->GetAsBoolean(result);
 }
 
-bool ExecuteScriptAndExtractString(const internal::ToRenderFrameHost& adapter,
+bool ExecuteScriptInIsolatedWorldAndExtractBool(
+    const ToRenderFrameHost& adapter,
+    const int world_id,
+    const std::string& script,
+    bool* result) {
+  DCHECK(result);
+  scoped_ptr<base::Value> value;
+  if (!ExecuteScriptInIsolatedWorldHelper(adapter.render_frame_host(), world_id,
+                                          script, &value) ||
+      !value.get()) {
+    return false;
+  }
+
+  return value->GetAsBoolean(result);
+}
+
+bool ExecuteScriptAndExtractString(const ToRenderFrameHost& adapter,
                                    const std::string& script,
                                    std::string* result) {
   DCHECK(result);
@@ -708,8 +814,7 @@ void FetchHistogramsFromChildProcesses() {
   runner->Run();
 }
 
-void SetupCrossSiteRedirector(
-    net::test_server::EmbeddedTestServer* embedded_test_server) {
+void SetupCrossSiteRedirector(net::EmbeddedTestServer* embedded_test_server) {
    embedded_test_server->RegisterRequestHandler(
        base::Bind(&CrossSiteRedirectResponseHandler,
                   embedded_test_server->base_url()));
@@ -812,24 +917,6 @@ void TitleWatcher::TestTitle() {
   message_loop_runner_->Quit();
 }
 
-WebContentsDestroyedWatcher::WebContentsDestroyedWatcher(
-    WebContents* web_contents)
-    : WebContentsObserver(web_contents),
-      message_loop_runner_(new MessageLoopRunner) {
-  EXPECT_TRUE(web_contents != NULL);
-}
-
-WebContentsDestroyedWatcher::~WebContentsDestroyedWatcher() {
-}
-
-void WebContentsDestroyedWatcher::Wait() {
-  message_loop_runner_->Run();
-}
-
-void WebContentsDestroyedWatcher::WebContentsDestroyed() {
-  message_loop_runner_->Quit();
-}
-
 RenderProcessHostWatcher::RenderProcessHostWatcher(
     RenderProcessHost* render_process_host, WatchType type)
     : render_process_host_(render_process_host),
@@ -883,8 +970,8 @@ DOMMessageQueue::~DOMMessageQueue() {}
 void DOMMessageQueue::Observe(int type,
                               const NotificationSource& source,
                               const NotificationDetails& details) {
-  Details<DomOperationNotificationDetails> dom_op_details(details);
-  message_queue_.push(dom_op_details->json);
+  Details<std::string> dom_op_result(details);
+  message_queue_.push(*dom_op_result.ptr());
   if (message_loop_runner_.get())
     message_loop_runner_->Quit();
 }
@@ -972,7 +1059,8 @@ bool WebContentsAddedObserver::RenderViewCreatedCalled() {
 
 bool RequestFrame(WebContents* web_contents) {
   DCHECK(web_contents);
-  return RenderWidgetHostImpl::From(web_contents->GetRenderViewHost())
+  return RenderWidgetHostImpl::From(
+             web_contents->GetRenderViewHost()->GetWidget())
       ->ScheduleComposite();
 }
 
@@ -999,8 +1087,8 @@ bool FrameWatcher::OnMessageReceived(const IPC::Message& message) {
 
 void FrameWatcher::AttachTo(WebContents* web_contents) {
   DCHECK(web_contents);
-  RenderWidgetHostImpl* widget_host =
-      RenderWidgetHostImpl::From(web_contents->GetRenderViewHost());
+  RenderWidgetHostImpl* widget_host = RenderWidgetHostImpl::From(
+      web_contents->GetRenderViewHost()->GetWidget());
   widget_host->GetProcess()->AddFilter(this);
 }
 

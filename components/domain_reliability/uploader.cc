@@ -6,10 +6,10 @@
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/memory/scoped_vector.h"
 #include "base/metrics/sparse_histogram.h"
 #include "base/stl_util.h"
 #include "base/supports_user_data.h"
+#include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/domain_reliability/util.h"
 #include "net/base/load_flags.h"
 #include "net/base/net_errors.h"
@@ -23,7 +23,7 @@ namespace domain_reliability {
 
 namespace {
 
-const char* kJsonMimeType = "application/json; charset=utf-8";
+const char kJsonMimeType[] = "application/json; charset=utf-8";
 
 class UploadUserData : public base::SupportsUserData::Data {
  public:
@@ -31,7 +31,7 @@ class UploadUserData : public base::SupportsUserData::Data {
     return base::Bind(&UploadUserData::CreateUploadUserData);
   }
 
-  static const void* kUserDataKey;
+  static const void* const kUserDataKey;
 
  private:
   static base::SupportsUserData::Data* CreateUploadUserData() {
@@ -39,8 +39,8 @@ class UploadUserData : public base::SupportsUserData::Data {
   }
 };
 
-const void* UploadUserData::kUserDataKey =
-    static_cast<const void*>(&UploadUserData::kUserDataKey);
+const void* const UploadUserData::kUserDataKey =
+    &UploadUserData::kUserDataKey;
 
 class DomainReliabilityUploaderImpl
     : public DomainReliabilityUploader, net::URLFetcherDelegate {
@@ -78,6 +78,8 @@ class DomainReliabilityUploaderImpl
     net::URLFetcher* fetcher =
         net::URLFetcher::Create(0, upload_url, net::URLFetcher::POST, this)
             .release();
+    data_use_measurement::DataUseUserData::AttachToFetcher(
+        fetcher, data_use_measurement::DataUseUserData::DOMAIN_RELIABILITY);
     fetcher->SetRequestContext(url_request_context_getter_.get());
     fetcher->SetLoadFlags(net::LOAD_DO_NOT_SEND_COOKIES |
                           net::LOAD_DO_NOT_SAVE_COOKIES);

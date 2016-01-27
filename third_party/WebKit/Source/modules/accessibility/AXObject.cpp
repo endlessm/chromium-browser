@@ -29,12 +29,14 @@
 #include "config.h"
 #include "modules/accessibility/AXObject.h"
 
+#include "core/editing/EditingUtilities.h"
 #include "core/editing/VisibleUnits.h"
-#include "core/editing/htmlediting.h"
+#include "core/frame/FrameView.h"
 #include "core/frame/LocalFrame.h"
 #include "core/frame/Settings.h"
 #include "core/html/HTMLDialogElement.h"
 #include "core/html/HTMLFrameOwnerElement.h"
+#include "core/html/parser/HTMLParserIdioms.h"
 #include "core/layout/LayoutListItem.h"
 #include "core/layout/LayoutTheme.h"
 #include "core/layout/LayoutView.h"
@@ -141,6 +143,7 @@ const InternalRoleEntry internalRoles[] = {
     { ArticleRole, "Article" },
     { BannerRole, "Banner" },
     { BlockquoteRole, "Blockquote" },
+    // TODO(nektar): Delete busy_indicator role. It's used nowhere.
     { BusyIndicatorRole, "BusyIndicator" },
     { ButtonRole, "Button" },
     { CanvasRole, "Canvas" },
@@ -413,7 +416,9 @@ bool AXObject::isDetached() const
 
 bool AXObject::isARIATextControl() const
 {
-    return ariaRoleAttribute() == TextFieldRole || ariaRoleAttribute() == SearchBoxRole;
+    return ariaRoleAttribute() == TextFieldRole
+        || ariaRoleAttribute() == SearchBoxRole
+        || ariaRoleAttribute() == ComboBoxRole;
 }
 
 bool AXObject::isButton() const
@@ -671,15 +676,43 @@ bool AXObject::isPresentationalChild() const
     return m_cachedIsPresentationalChild;
 }
 
-String AXObject::name(AXNameFrom& nameFrom, WillBeHeapVector<RawPtrWillBeMember<AXObject>>& nameObjects)
+String AXObject::name(AXNameFrom& nameFrom, AXObject::AXObjectVector* nameObjects) const
 {
-    WillBeHeapHashSet<RawPtrWillBeMember<AXObject>> visited;
-    return textAlternative(false, false, visited, &nameFrom, &nameObjects);
+    HeapHashSet<Member<const AXObject>> visited;
+    AXRelatedObjectVector relatedObjects;
+    String text = textAlternative(false, false, visited, nameFrom, &relatedObjects, nullptr);
+
+    if (!node() || !isHTMLBRElement(node()))
+        text = text.simplifyWhiteSpace(isHTMLSpace<UChar>);
+
+    if (nameObjects) {
+        nameObjects->clear();
+        for (size_t i = 0; i < relatedObjects.size(); i++)
+            nameObjects->append(relatedObjects[i]->object);
+    }
+    return text;
 }
 
-// In ARIA 1.1, the default value for aria-orientation changed from horizontal to undefined.
+String AXObject::name(NameSources* nameSources) const
+{
+    AXObjectSet visited;
+    AXNameFrom tmpNameFrom;
+    AXRelatedObjectVector tmpRelatedObjects;
+    String text = textAlternative(false, false, visited, tmpNameFrom, &tmpRelatedObjects, nameSources);
+    text = text.simplifyWhiteSpace(isHTMLSpace<UChar>);
+    return text;
+}
+
+String AXObject::recursiveTextAlternative(const AXObject& axObj, bool inAriaLabelledByTraversal, AXObjectSet& visited)
+{
+    AXNameFrom tmpNameFrom;
+    return axObj.textAlternative(true, inAriaLabelledByTraversal, visited, tmpNameFrom, nullptr, nullptr);
+}
+
 AccessibilityOrientation AXObject::orientation() const
 {
+    // In ARIA 1.1, the default value for aria-orientation changed from
+    // horizontal to undefined.
     return AccessibilityOrientationUndefined;
 }
 
@@ -718,17 +751,15 @@ String AXObject::actionVerb() const
 
 AccessibilityButtonState AXObject::checkboxOrRadioValue() const
 {
-    // If this is a real checkbox or radio button, AXLayoutObject will handle.
-    // If it's an ARIA checkbox or radio, the aria-checked attribute should be used.
-
-    const AtomicString& result = getAttribute(aria_checkedAttr);
-    if (equalIgnoringCase(result, "true"))
+    const AtomicString& checkedAttribute = getAttribute(aria_checkedAttr);
+    if (equalIgnoringCase(checkedAttribute, "true"))
         return ButtonStateOn;
-    if (equalIgnoringCase(result, "mixed")) {
+
+    if (equalIgnoringCase(checkedAttribute, "mixed")) {
+        // Only checkboxes should support the mixed state.
         AccessibilityRole role = ariaRoleAttribute();
-        if (role == RadioButtonRole || role == MenuItemRadioRole || role == SwitchRole)
-            return ButtonStateOff;
-        return ButtonStateMixed;
+        if (role == CheckBoxRole || role == MenuItemCheckBoxRole)
+            return ButtonStateMixed;
     }
 
     return ButtonStateOff;
@@ -812,7 +843,7 @@ int AXObject::indexInParent() const
     return 0;
 }
 
-void AXObject::ariaTreeRows(AccessibilityChildrenVector& result)
+void AXObject::ariaTreeRows(AXObjectVector& result)
 {
     for (const auto& child : children()) {
         // Add tree items as the rows.
@@ -914,7 +945,7 @@ AXObject* AXObject::elementAccessibilityHitTest(const IntPoint& point) const
     return const_cast<AXObject*>(this);
 }
 
-const AXObject::AccessibilityChildrenVector& AXObject::children()
+const AXObject::AXObjectVector& AXObject::children()
 {
     updateChildrenIfNecessary();
 
@@ -1261,7 +1292,7 @@ void AXObject::scrollToGlobalPoint(const IntPoint& globalPoint) const
 {
     // Search up the parent chain and create a vector of all scrollable parent objects
     // and ending with this object itself.
-    Vector<const AXObject*> objects;
+    HeapVector<Member<const AXObject>> objects;
     AXObject* parentObject;
     for (parentObject = this->parentObject(); parentObject; parentObject = parentObject->parentObject()) {
         if (parentObject->getScrollableAreaIfScrollable() && !parentObject->isAXScrollView())
@@ -1331,29 +1362,30 @@ void AXObject::selectionChanged()
         parent->selectionChanged();
 }
 
-int AXObject::lineForPosition(const VisiblePosition& visiblePos) const
+int AXObject::lineForPosition(const VisiblePosition& position) const
 {
-    if (visiblePos.isNull() || !node())
+    if (position.isNull() || !node())
         return -1;
 
     // If the position is not in the same editable region as this AX object, return -1.
-    Node* containerNode = visiblePos.deepEquivalent().containerNode();
+    Node* containerNode = position.deepEquivalent().computeContainerNode();
     if (!containerNode->containsIncludingShadowDOM(node()) && !node()->containsIncludingShadowDOM(containerNode))
         return -1;
 
     int lineCount = -1;
-    VisiblePosition currentVisiblePos = visiblePos;
-    VisiblePosition savedVisiblePos;
+    VisiblePosition currentPosition = position;
+    VisiblePosition previousPosition;
 
     // move up until we get to the top
     // FIXME: This only takes us to the top of the rootEditableElement, not the top of the
     // top document.
     do {
-        savedVisiblePos = currentVisiblePos;
-        VisiblePosition prevVisiblePos = previousLinePosition(currentVisiblePos, 0, HasEditableAXRole);
-        currentVisiblePos = prevVisiblePos;
+        previousPosition = currentPosition;
+        currentPosition = previousLinePosition(
+            currentPosition, 0, HasEditableAXRole);
         ++lineCount;
-    } while (currentVisiblePos.isNotNull() && !(inSameLine(currentVisiblePos, savedVisiblePos)));
+    } while (currentPosition.isNotNull()
+        && !inSameLine(currentPosition, previousPosition));
 
     return lineCount;
 }
@@ -1435,20 +1467,23 @@ bool AXObject::nameFromContents() const
     switch (roleValue()) {
     case ButtonRole:
     case CheckBoxRole:
-    case CellRole:
-    case ColumnHeaderRole:
     case DirectoryRole:
+    case DisclosureTriangleRole:
+    case HeadingRole:
+    case LineBreakRole:
     case LinkRole:
+    case ListBoxOptionRole:
     case ListItemRole:
     case MenuItemRole:
     case MenuItemCheckBoxRole:
     case MenuItemRadioRole:
     case MenuListOptionRole:
     case RadioButtonRole:
-    case RowHeaderRole:
     case StaticTextRole:
     case StatusRole:
     case SwitchRole:
+    case TabRole:
+    case ToggleButtonRole:
     case TreeItemRole:
         return true;
     default:

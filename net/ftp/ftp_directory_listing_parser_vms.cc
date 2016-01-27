@@ -46,10 +46,10 @@ bool ParseVmsFilename(const base::string16& raw_filename,
   if (filename_parts.size() != 2)
     return false;
   if (base::EqualsASCII(filename_parts[1], "DIR")) {
-    *parsed_filename = base::StringToLowerASCII(filename_parts[0]);
+    *parsed_filename = base::ToLowerASCII(filename_parts[0]);
     *type = FtpDirectoryListingEntry::DIRECTORY;
   } else {
-    *parsed_filename = base::StringToLowerASCII(listing_parts[0]);
+    *parsed_filename = base::ToLowerASCII(listing_parts[0]);
     *type = FtpDirectoryListingEntry::FILE;
   }
   return true;
@@ -261,6 +261,9 @@ bool ParseFtpDirectoryListingVms(
               lines[i - 1] + space + lines[i], false),
           space, base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
     }
+
+    if (columns.empty())
+      return false;
 
     FtpDirectoryListingEntry entry;
     if (!ParseVmsFilename(columns[0], &entry.name, &entry.type))

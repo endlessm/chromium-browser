@@ -56,6 +56,7 @@
 #include "chrome/browser/chromeos/ui/focus_ring_controller.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "chrome/browser/ui/webui/chromeos/login/gaia_screen_handler.h"
 #include "chrome/browser/ui/webui/chromeos/login/oobe_ui.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_switches.h"
@@ -913,10 +914,10 @@ void LoginDisplayHostImpl::ShutdownDisplayHost(bool post_quit_task) {
   registrar_.RemoveAll();
   base::MessageLoop::current()->DeleteSoon(FROM_HERE, this);
   if (post_quit_task)
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
 
   if (!completion_callback_.is_null())
-    completion_callback_.Run();
+    base::MessageLoop::current()->PostTask(FROM_HERE, completion_callback_);
 }
 
 void LoginDisplayHostImpl::ScheduleWorkspaceAnimation() {
@@ -1130,6 +1131,14 @@ void LoginDisplayHostImpl::StartTimeZoneResolve() {
     return;
 
   g_browser_process->platform_part()->GetTimezoneResolver()->Start();
+}
+
+// static
+void LoginDisplayHostImpl::DisableRestrictiveProxyCheckForTest() {
+  static_cast<chromeos::LoginDisplayHostImpl*>(default_host())
+      ->GetOobeUI()
+      ->GetGaiaScreenActor()
+      ->DisableRestrictiveProxyCheckForTest();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

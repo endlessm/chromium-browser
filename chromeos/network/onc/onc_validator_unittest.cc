@@ -149,6 +149,16 @@ INSTANTIATE_TEST_CASE_P(
                   &kToplevelConfigurationSignature,
                   true,
                   ::onc::ONC_SOURCE_DEVICE_POLICY),
+        // Disabled technologies are only allowed for device policies.
+        OncParams("managed_toplevel_with_disabled_technologies.onc",
+                  &kToplevelConfigurationSignature,
+                  true,
+                  ::onc::ONC_SOURCE_DEVICE_POLICY),
+        // AllowOnlyPolicyNetworksToConnect is only allowed for device policies.
+        OncParams("managed_toplevel_with_only_managed.onc",
+                  &kToplevelConfigurationSignature,
+                  true,
+                  ::onc::ONC_SOURCE_DEVICE_POLICY),
         OncParams("managed_toplevel_l2tpipsec.onc",
                   &kToplevelConfigurationSignature,
                   true),
@@ -474,6 +484,10 @@ INSTANTIATE_TEST_CASE_P(
     StrictAndLiberalInvalid,
     ONCValidatorTestRepairable,
     ::testing::Values(
+        std::make_pair(OncParams("global-disabled-technologies",
+                                 &kGlobalNetworkConfigurationSignature,
+                                 false),
+                       ExpectBothNotValid("", "")),
         std::make_pair(OncParams("network-unknown-value",
                                  &kNetworkConfigurationSignature,
                                  false),

@@ -16,24 +16,22 @@
 
 #if defined(_WIN32)
 // Order for these headers are important
-#include <Windows.h>  // FILETIME
-
-#include <WinSock.h>  // timeval
-
+#include <winsock2.h>  // timeval
+#include <windows.h>  // FILETIME
 #include <MMSystem.h>  // timeGetTime
 #elif ((defined WEBRTC_LINUX) || (defined WEBRTC_MAC))
 #include <sys/time.h>  // gettimeofday
 #include <time.h>
 #endif
-#if (defined(_DEBUG) && defined(_WIN32) && (_MSC_VER >= 1400))
+#if (!defined(NDEBUG) && defined(_WIN32) && (_MSC_VER >= 1400))
 #include <stdio.h>
 #endif
 
+#include "webrtc/base/logging.h"
 #include "webrtc/modules/rtp_rtcp/source/byte_io.h"
-#include "webrtc/system_wrappers/interface/tick_util.h"
-#include "webrtc/system_wrappers/interface/logging.h"
+#include "webrtc/system_wrappers/include/tick_util.h"
 
-#if (defined(_DEBUG) && defined(_WIN32) && (_MSC_VER >= 1400))
+#if (!defined(NDEBUG) && defined(_WIN32) && (_MSC_VER >= 1400))
 #define DEBUG_PRINT(...)           \
   {                                \
     char msg[256];                 \
@@ -43,7 +41,7 @@
 #else
 // special fix for visual 2003
 #define DEBUG_PRINT(exp)        ((void)0)
-#endif  // defined(_DEBUG) && defined(_WIN32)
+#endif  // !defined(NDEBUG) && defined(_WIN32)
 
 namespace webrtc {
 
@@ -312,6 +310,7 @@ bool RtpHeaderParser::Parse(RTPHeader& header,
 
   // May not be present in packet.
   header.extension.hasAudioLevel = false;
+  header.extension.voiceActivity = false;
   header.extension.audioLevel = 0;
 
   // May not be present in packet.
@@ -423,14 +422,8 @@ void RtpHeaderParser::ParseOneByteExtensionHeader(
           // |  ID   | len=0 |V|   level     |
           // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
           //
-
-          // Parse out the fields but only use it for debugging for now.
-          // const uint8_t V = (*ptr & 0x80) >> 7;
-          // const uint8_t level = (*ptr & 0x7f);
-          // DEBUG_PRINT("RTP_AUDIO_LEVEL_UNIQUE_ID: ID=%u, len=%u, V=%u,
-          // level=%u", ID, len, V, level);
-
-          header.extension.audioLevel = ptr[0];
+          header.extension.audioLevel = ptr[0] & 0x7f;
+          header.extension.voiceActivity = (ptr[0] & 0x80) != 0;
           header.extension.hasAudioLevel = true;
           break;
         }

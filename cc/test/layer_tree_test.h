@@ -25,6 +25,25 @@ class TestContextProvider;
 class TestGpuMemoryBufferManager;
 class TestWebGraphicsContext3D;
 
+// Creates the virtual viewport layer hierarchy under the given root_layer.
+// Convenient overload of the method below that creates a scrolling layer as
+// the outer viewport scroll layer.
+void CreateVirtualViewportLayers(Layer* root_layer,
+                                 const gfx::Size& inner_bounds,
+                                 const gfx::Size& outer_bounds,
+                                 const gfx::Size& scroll_bounds,
+                                 LayerTreeHost* host,
+                                 const LayerSettings& layer_settings);
+
+// Creates the virtual viewport layer hierarchy under the given root_layer.
+// Uses the given scroll layer as the content "outer viewport scroll layer".
+void CreateVirtualViewportLayers(Layer* root_layer,
+                                 scoped_refptr<Layer> outer_scroll_layer,
+                                 const gfx::Size& outer_bounds,
+                                 const gfx::Size& scroll_bounds,
+                                 LayerTreeHost* host,
+                                 const LayerSettings& layer_settings);
+
 // Used by test stubs to notify the test when something interesting happens.
 class TestHooks : public AnimationDelegate {
  public:
@@ -36,14 +55,15 @@ class TestHooks : public AnimationDelegate {
   virtual void CreateResourceAndTileTaskWorkerPool(
       LayerTreeHostImpl* host_impl,
       scoped_ptr<TileTaskWorkerPool>* tile_task_worker_pool,
-      scoped_ptr<ResourcePool>* resource_pool,
-      scoped_ptr<ResourcePool>* staging_resource_pool);
+      scoped_ptr<ResourcePool>* resource_pool);
   virtual void WillBeginImplFrameOnThread(LayerTreeHostImpl* host_impl,
                                           const BeginFrameArgs& args) {}
   virtual void DidFinishImplFrameOnThread(LayerTreeHostImpl* host_impl) {}
   virtual void BeginMainFrameAbortedOnThread(LayerTreeHostImpl* host_impl,
                                              CommitEarlyOutReason reason) {}
+  virtual void WillPrepareTiles(LayerTreeHostImpl* host_impl) {}
   virtual void BeginCommitOnThread(LayerTreeHostImpl* host_impl) {}
+  virtual void WillCommitCompleteOnThread(LayerTreeHostImpl* host_impl) {}
   virtual void CommitCompleteOnThread(LayerTreeHostImpl* host_impl) {}
   virtual void WillActivateTreeOnThread(LayerTreeHostImpl* host_impl) {}
   virtual void DidActivateTreeOnThread(LayerTreeHostImpl* host_impl) {}
@@ -76,7 +96,7 @@ class TestHooks : public AnimationDelegate {
   virtual void BeginMainFrame(const BeginFrameArgs& args) {}
   virtual void WillBeginMainFrame() {}
   virtual void DidBeginMainFrame() {}
-  virtual void Layout() {}
+  virtual void UpdateLayerTreeHost() {}
   virtual void DidInitializeOutputSurface() {}
   virtual void DidFailToInitializeOutputSurface() {}
   virtual void DidAddAnimation() {}
@@ -87,6 +107,8 @@ class TestHooks : public AnimationDelegate {
   virtual void DidSetVisibleOnImplTree(LayerTreeHostImpl* host_impl,
                                        bool visible) {}
   virtual void ScheduleComposite() {}
+  virtual void DidSetNeedsUpdateLayers() {}
+  virtual void DidActivateSyncTree() {}
 
   // Hooks for SchedulerClient.
   virtual void ScheduledActionWillSendBeginMainFrame() {}
@@ -99,6 +121,42 @@ class TestHooks : public AnimationDelegate {
   virtual void ScheduledActionInvalidateOutputSurface() {}
   virtual void SendBeginFramesToChildren(const BeginFrameArgs& args) {}
   virtual void SendBeginMainFrameNotExpectedSoon() {}
+
+  // Hooks for ProxyImpl
+  virtual void SetThrottleFrameProductionOnImpl(bool throttle) {}
+  virtual void UpdateTopControlsStateOnImpl(TopControlsState constraints,
+                                            TopControlsState current,
+                                            bool animate) {}
+  virtual void InitializeOutputSurfaceOnImpl(OutputSurface* output_surface) {}
+  virtual void MainThreadHasStoppedFlingingOnImpl() {}
+  virtual void SetInputThrottledUntilCommitOnImpl(bool is_throttled) {}
+  virtual void SetDeferCommitsOnImpl(bool defer_commits) {}
+  virtual void BeginMainFrameAbortedOnImpl(CommitEarlyOutReason reason) {}
+  virtual void SetNeedsRedrawOnImpl(const gfx::Rect& damage_rect) {}
+  virtual void SetNeedsCommitOnImpl() {}
+  virtual void FinishAllRenderingOnImpl() {}
+  virtual void SetVisibleOnImpl(bool visible) {}
+  virtual void ReleaseOutputSurfaceOnImpl() {}
+  virtual void FinishGLOnImpl() {}
+  virtual void StartCommitOnImpl() {}
+  virtual void InitializeImplOnImpl() {}
+  virtual void WillCloseLayerTreeHostOnImpl() {}
+
+  // Hooks for ProxyMain
+  virtual void ReceivedDidCompleteSwapBuffers() {}
+  virtual void ReceivedSetRendererCapabilitiesMainCopy(
+      const RendererCapabilities& capabilities) {}
+  virtual void ReceivedBeginMainFrameNotExpectedSoon() {}
+  virtual void ReceivedDidCommitAndDrawFrame() {}
+  virtual void ReceivedSetAnimationEvents() {}
+  virtual void ReceivedDidLoseOutputSurface() {}
+  virtual void ReceivedRequestNewOutputSurface() {}
+  virtual void ReceivedDidInitializeOutputSurface(
+      bool success,
+      const RendererCapabilities& capabilities) {}
+  virtual void ReceivedDidCompletePageScaleAnimation() {}
+  virtual void ReceivedPostFrameTimingEventsOnMain() {}
+  virtual void ReceivedBeginMainFrame() {}
 
   // Implementation of AnimationDelegate:
   void NotifyAnimationStarted(base::TimeTicks monotonic_time,
@@ -195,15 +253,21 @@ class LayerTreeTest : public testing::Test, public TestHooks {
 
   bool HasImplThread() { return !!impl_thread_; }
   base::SingleThreadTaskRunner* ImplThreadTaskRunner() {
-    DCHECK(proxy());
-    return proxy()->ImplThreadTaskRunner() ? proxy()->ImplThreadTaskRunner()
-                                           : main_task_runner_.get();
+    DCHECK(task_runner_provider());
+    base::SingleThreadTaskRunner* impl_thread_task_runner =
+        task_runner_provider()->ImplThreadTaskRunner();
+    return impl_thread_task_runner ? impl_thread_task_runner
+                                   : main_task_runner_.get();
   }
   base::SingleThreadTaskRunner* MainThreadTaskRunner() {
     return main_task_runner_.get();
   }
   Proxy* proxy() const {
     return layer_tree_host_ ? layer_tree_host_->proxy() : NULL;
+  }
+  TaskRunnerProvider* task_runner_provider() const {
+    return layer_tree_host_ ? layer_tree_host_->task_runner_provider()
+                            : nullptr;
   }
   TaskGraphRunner* task_graph_runner() const {
     return task_graph_runner_.get();

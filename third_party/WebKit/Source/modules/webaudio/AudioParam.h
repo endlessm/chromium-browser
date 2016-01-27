@@ -31,7 +31,7 @@
 
 #include "bindings/core/v8/ScriptWrappable.h"
 #include "core/dom/DOMTypedArray.h"
-#include "modules/webaudio/AudioContext.h"
+#include "modules/webaudio/AbstractAudioContext.h"
 #include "modules/webaudio/AudioParamTimeline.h"
 #include "modules/webaudio/AudioSummingJunction.h"
 #include "wtf/PassRefPtr.h"
@@ -54,13 +54,13 @@ public:
     static const double DefaultSmoothingConstant;
     static const double SnapThreshold;
 
-    static PassRefPtr<AudioParamHandler> create(AudioContext& context, double defaultValue)
+    static PassRefPtr<AudioParamHandler> create(AbstractAudioContext& context, double defaultValue)
     {
         return adoptRef(new AudioParamHandler(context, defaultValue));
     }
-    DECLARE_TRACE();
+
     // This should be used only in audio rendering thread.
-    AudioContext* context() const;
+    AbstractAudioContext* context() const;
 
     // AudioSummingJunction
     void didUpdate() override { }
@@ -87,7 +87,7 @@ public:
     // Returns true if smoothed value has already snapped exactly to value.
     bool smooth();
 
-    void resetSmoothedValue() { m_smoothedValue = m_value; }
+    void resetSmoothedValue() { m_smoothedValue = intrinsicValue(); }
 
     bool hasSampleAccurateValues() { return m_timeline.hasValues() || numberOfRenderingConnections(); }
 
@@ -100,9 +100,9 @@ public:
     void disconnect(AudioNodeOutput&);
 
 private:
-    AudioParamHandler(AudioContext& context, double defaultValue)
+    AudioParamHandler(AbstractAudioContext& context, double defaultValue)
         : AudioSummingJunction(context.deferredTaskHandler())
-        , m_value(defaultValue)
+        , m_intrinsicValue(defaultValue)
         , m_defaultValue(defaultValue)
         , m_smoothedValue(defaultValue)
         , m_context(context) { }
@@ -111,45 +111,50 @@ private:
     void calculateFinalValues(float* values, unsigned numberOfValues, bool sampleAccurate);
     void calculateTimelineValues(float* values, unsigned numberOfValues);
 
-    double m_value;
-    double m_defaultValue;
+    // Intrinsic value
+    float m_intrinsicValue;
+    float intrinsicValue() const { return noBarrierLoad(&m_intrinsicValue); }
+    void setIntrinsicValue(float newValue) { noBarrierStore(&m_intrinsicValue, newValue); }
+
+    float m_defaultValue;
 
     // Smoothing (de-zippering)
-    double m_smoothedValue;
+    float m_smoothedValue;
 
     AudioParamTimeline m_timeline;
 
     // We can't make this Persistent because of a reference cycle. It's safe to
     // access this field only when we're rendering audio.
-    AudioContext& m_context;
+    GC_PLUGIN_IGNORE("509911")
+    AbstractAudioContext& m_context;
 };
 
 // AudioParam class represents web-exposed AudioParam interface.
 class AudioParam final : public GarbageCollectedFinalized<AudioParam>, public ScriptWrappable {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static AudioParam* create(AudioContext&, double defaultValue);
+    static AudioParam* create(AbstractAudioContext&, double defaultValue);
     DECLARE_TRACE();
     // |handler| always returns a valid object.
     AudioParamHandler& handler() const { return *m_handler; }
     // |context| always returns a valid object.
-    AudioContext* context() const { return m_context; }
+    AbstractAudioContext* context() const { return m_context; }
 
     float value() const;
     void setValue(float);
     float defaultValue() const;
-    void setValueAtTime(float value, double time, ExceptionState&);
-    void linearRampToValueAtTime(float value, double time, ExceptionState&);
-    void exponentialRampToValueAtTime(float value, double time, ExceptionState&);
-    void setTargetAtTime(float target, double time, double timeConstant, ExceptionState&);
-    void setValueCurveAtTime(DOMFloat32Array* curve, double time, double duration, ExceptionState&);
-    void cancelScheduledValues(double startTime, ExceptionState&);
+    AudioParam* setValueAtTime(float value, double time, ExceptionState&);
+    AudioParam* linearRampToValueAtTime(float value, double time, ExceptionState&);
+    AudioParam* exponentialRampToValueAtTime(float value, double time, ExceptionState&);
+    AudioParam* setTargetAtTime(float target, double time, double timeConstant, ExceptionState&);
+    AudioParam* setValueCurveAtTime(DOMFloat32Array* curve, double time, double duration, ExceptionState&);
+    AudioParam* cancelScheduledValues(double startTime, ExceptionState&);
 
 private:
-    AudioParam(AudioContext&, double defaultValue);
+    AudioParam(AbstractAudioContext&, double defaultValue);
 
     RefPtr<AudioParamHandler> m_handler;
-    Member<AudioContext> m_context;
+    Member<AbstractAudioContext> m_context;
 };
 
 } // namespace blink

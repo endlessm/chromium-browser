@@ -26,7 +26,7 @@
 #if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/AudioBasicInspectorNode.h"
 
-#include "modules/webaudio/AudioContext.h"
+#include "modules/webaudio/AbstractAudioContext.h"
 #include "modules/webaudio/AudioNodeInput.h"
 #include "modules/webaudio/AudioNodeOutput.h"
 
@@ -49,21 +49,23 @@ void AudioBasicInspectorHandler::pullInputs(size_t framesToProcess)
     input(0).pull(output(0).bus(), framesToProcess);
 }
 
-void AudioBasicInspectorNode::connect(AudioNode* destination, unsigned outputIndex, unsigned inputIndex, ExceptionState& exceptionState)
+AudioNode* AudioBasicInspectorNode::connect(AudioNode* destination, unsigned outputIndex, unsigned inputIndex, ExceptionState& exceptionState)
 {
     ASSERT(isMainThread());
 
-    AudioContext::AutoLocker locker(context());
+    AbstractAudioContext::AutoLocker locker(context());
 
     AudioNode::connect(destination, outputIndex, inputIndex, exceptionState);
     static_cast<AudioBasicInspectorHandler&>(handler()).updatePullStatus();
+
+    return destination;
 }
 
 void AudioBasicInspectorNode::disconnect(unsigned outputIndex, ExceptionState& exceptionState)
 {
     ASSERT(isMainThread());
 
-    AudioContext::AutoLocker locker(context());
+    AbstractAudioContext::AutoLocker locker(context());
 
     AudioNode::disconnect(outputIndex, exceptionState);
     static_cast<AudioBasicInspectorHandler&>(handler()).updatePullStatus();

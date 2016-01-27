@@ -41,6 +41,7 @@
 namespace blink {
 
 class CustomElementUpgradeCandidateMap final : public CustomElementObserver {
+    USING_FAST_MALLOC_WILL_BE_REMOVED(CustomElementUpgradeCandidateMap);
     WTF_MAKE_NONCOPYABLE(CustomElementUpgradeCandidateMap);
 public:
     static PassOwnPtrWillBeRawPtr<CustomElementUpgradeCandidateMap> create();

@@ -5,6 +5,7 @@
 #include "chrome/browser/ui/views/toolbar/back_button.h"
 
 #include "ui/gfx/geometry/insets.h"
+#include "ui/views/animation/ink_drop_animation_controller.h"
 #include "ui/views/controls/button/label_button_border.h"
 #include "ui/views/painter.h"
 
@@ -29,6 +30,10 @@ void BackButton::SetLeadingMargin(int margin) {
                                   kFocusRectInset, kFocusRectInset)));
 
   InvalidateLayout();
+}
+
+gfx::Point BackButton::CalculateInkDropCenter() const {
+  return gfx::Point((width() + margin_leading_) / 2, height() / 2);
 }
 
 const char* BackButton::GetClassName() const {

@@ -4,20 +4,12 @@
 
 #include "chrome/test/chromedriver/chrome/chrome_impl.h"
 
-#include "base/bind.h"
 #include "chrome/test/chromedriver/chrome/devtools_client.h"
 #include "chrome/test/chromedriver/chrome/devtools_event_listener.h"
 #include "chrome/test/chromedriver/chrome/devtools_http_client.h"
 #include "chrome/test/chromedriver/chrome/status.h"
 #include "chrome/test/chromedriver/chrome/web_view_impl.h"
 #include "chrome/test/chromedriver/net/port_server.h"
-
-namespace {
-
-void DoNothingWithWebViewInfo(const WebViewInfo& view) {
-}
-
-}  // namespace
 
 ChromeImpl::~ChromeImpl() {
   if (!quit_)
@@ -42,12 +34,6 @@ bool ChromeImpl::HasCrashedWebView() {
 }
 
 Status ChromeImpl::GetWebViewIds(std::list<std::string>* web_view_ids) {
-  WebViewCallback callback = base::Bind(&DoNothingWithWebViewInfo);
-  return UpdateWebViewIds(web_view_ids, callback);
-}
-
-Status ChromeImpl::UpdateWebViewIds(std::list<std::string>* web_view_ids,
-                                    const WebViewCallback& on_open_web_view) {
   WebViewsInfo views_info;
   Status status = devtools_http_client_->GetWebViewsInfo(&views_info);
   if (status.IsError())
@@ -66,11 +52,11 @@ Status ChromeImpl::UpdateWebViewIds(std::list<std::string>* web_view_ids,
   // Check for newly-opened web views.
   for (size_t i = 0; i < views_info.GetSize(); ++i) {
     const WebViewInfo& view = views_info.Get(i);
-    if (view.type == WebViewInfo::kPage ||
-        view.type == WebViewInfo::kApp ||
+    if (devtools_http_client_->IsBrowserWindow(view.type) ||
         (view.type == WebViewInfo::kOther &&
          (view.url.find("chrome-extension://") == 0 ||
-          view.url == "chrome://print/"))) {
+          view.url == "chrome://print/" ||
+          view.url == "chrome://media-router/"))) {
       bool found = false;
       for (WebViewList::const_iterator web_view_iter = web_views_.begin();
            web_view_iter != web_views_.end(); ++web_view_iter) {
@@ -93,7 +79,6 @@ Status ChromeImpl::UpdateWebViewIds(std::list<std::string>* web_view_ids,
             devtools_http_client_->browser_info(),
             client.Pass(),
             devtools_http_client_->device_metrics())));
-        on_open_web_view.Run(view);
       }
     }
   }

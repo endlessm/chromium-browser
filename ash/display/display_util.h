@@ -5,6 +5,8 @@
 #ifndef ASH_DISPLAY_DISPLAY_UTIL_H_
 #define ASH_DISPLAY_DISPLAY_UTIL_H_
 
+#include <set>
+#include <utility>
 #include <vector>
 
 #include "ash/ash_export.h"
@@ -14,6 +16,7 @@ namespace gfx {
 class Display;
 class Point;
 class Rect;
+class Size;
 }
 
 namespace ash {
@@ -26,8 +29,33 @@ class DisplayInfo;
 ASH_EXPORT std::vector<DisplayMode> CreateInternalDisplayModeList(
     const DisplayMode& native_mode);
 
-// Returns next valid UI scale.
-float GetNextUIScale(const DisplayInfo& info, bool up);
+// Creates the display mode list for unified display
+// based on |native_mode| and |scales|.
+ASH_EXPORT std::vector<DisplayMode> CreateUnifiedDisplayModeList(
+    const DisplayMode& native_mode,
+    const std::set<std::pair<float, float>>& dsf_scale_list);
+
+// Gets the display mode for |resolution|. Returns false if no display
+// mode matches the resolution, or the display is an internal display.
+ASH_EXPORT bool GetDisplayModeForResolution(const DisplayInfo& info,
+                                            const gfx::Size& resolution,
+                                            DisplayMode* out);
+
+// Gets the display mode for the next valid UI scale. Returns false
+// if the display is not an internal display.
+ASH_EXPORT bool GetDisplayModeForNextUIScale(const DisplayInfo& info,
+                                             bool up,
+                                             DisplayMode* out);
+
+// Gets the display mode for the next valid resolution. Returns false
+// if the display is an internal display.
+ASH_EXPORT bool GetDisplayModeForNextResolution(const DisplayInfo& info,
+                                                bool up,
+                                                DisplayMode* out);
+
+// Sets the UI scale for the |display_id|. Returns false if the
+// display_id is not an internal display.
+ASH_EXPORT bool SetDisplayUIScale(int64 display_id, float scale);
 
 // Tests if the |info| has display mode that matches |ui_scale|.
 bool HasDisplayModeForUIScale(const DisplayInfo& info, float ui_scale);
@@ -58,6 +86,15 @@ void MoveCursorTo(AshWindowTreeHost* ash_host,
 ASH_EXPORT int FindDisplayIndexContainingPoint(
     const std::vector<gfx::Display>& displays,
     const gfx::Point& point_in_screen);
+
+// Creates the DisplayIdPair where ids are sorted using |CompareDisplayIds|
+// below.
+ASH_EXPORT DisplayIdPair CreateDisplayIdPair(int64 id1, int64 id2);
+
+// Returns true if one of following conditinos is met.
+// 1) id1 is internal.
+// 2) output index of id1 < output index of id2 and id2 isn't internal.
+ASH_EXPORT bool CompareDisplayIds(int64 id1, int64 id2);
 
 }  // namespace ash
 

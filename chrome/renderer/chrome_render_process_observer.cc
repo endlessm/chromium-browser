@@ -29,15 +29,15 @@
 #include "chrome/common/resource_usage_reporter.mojom.h"
 #include "chrome/common/resource_usage_reporter_type_converters.h"
 #include "chrome/common/url_constants.h"
-#include "chrome/common/variations/variations_util.h"
 #include "chrome/renderer/content_settings_observer.h"
 #include "chrome/renderer/security_filter_peer.h"
+#include "components/variations/variations_util.h"
 #include "content/public/child/resource_dispatcher_delegate.h"
 #include "content/public/common/service_registry.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/renderer/render_view_visitor.h"
-#include "crypto/nss_util.h"
+#include "mojo/public/cpp/bindings/strong_binding.h"
 #include "net/base/net_errors.h"
 #include "net/base/net_module.h"
 #include "third_party/WebKit/public/web/WebCache.h"
@@ -46,10 +46,14 @@
 #include "third_party/WebKit/public/web/WebRuntimeFeatures.h"
 #include "third_party/WebKit/public/web/WebSecurityPolicy.h"
 #include "third_party/WebKit/public/web/WebView.h"
-#include "third_party/mojo/src/mojo/public/cpp/bindings/strong_binding.h"
 
 #if defined(ENABLE_EXTENSIONS)
 #include "chrome/renderer/extensions/extension_localization_peer.h"
+#endif
+
+#if !defined(OS_IOS)
+#include "chrome/common/media/media_resource_provider.h"
+#include "media/base/media_resources.h"
 #endif
 
 using blink::WebCache;
@@ -251,16 +255,13 @@ ChromeRenderProcessObserver::ChromeRenderProcessObserver()
 
   // Configure modules that need access to resources.
   net::NetModule::SetResourceProvider(chrome_common_net::NetResourceProvider);
-
-#if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(USE_OPENSSL)
-  // On platforms where we use system NSS shared libraries,
-  // initialize NSS now because it won't be able to load the .so's
-  // after we engage the sandbox.
-  if (!command_line.HasSwitch(switches::kSingleProcess))
-    crypto::InitNSSSafely();
+#if !defined(OS_IOS)
+  media::SetLocalizedStringProvider(
+      chrome_common_media::LocalizedStringProvider);
 #endif
+
   // Setup initial set of crash dump data for Field Trials in this renderer.
-  chrome_variations::SetChildProcessLoggingVariationList();
+  variations::SetVariationListCrashKeys();
   // Listen for field trial activations to report them to the browser.
   base::FieldTrialList::AddObserver(this);
 }
@@ -322,7 +323,7 @@ void ChromeRenderProcessObserver::OnSetFieldTrialGroup(
   // Ensure the trial is marked as "used" by calling group() on it if it is
   // marked as activated.
   trial->group();
-  chrome_variations::SetChildProcessLoggingVariationList();
+  variations::SetVariationListCrashKeys();
 }
 
 const RendererContentSettingRules*

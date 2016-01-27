@@ -23,6 +23,22 @@
 #include "sync/test/fake_server/fake_server.h"
 #include "sync/test/local_sync_test_server.h"
 
+// The E2E tests are designed to run against real backend servers. To identify
+// those tests we use *E2ETest* test name filter and run disabled tests.
+//
+// The following macros define how a test is run:
+// - E2E_ONLY: Marks a test to run only as an E2E test against backend servers.
+//             These tests DO NOT run on regular Chromium waterfalls.
+// - E2E_ENABLED: Marks a test to run as an E2E test in addition to Chromium
+//                waterfalls.
+//
+// To disable a test from running on Chromium waterfalls, you would still use
+// the default DISABLED_test_name macro. To disable it from running as an E2E
+// test outside Chromium waterfalls you would need to remove the E2E* macro.
+#define MACRO_CONCAT(prefix, test_name) prefix ## _ ## test_name
+#define E2E_ONLY(test_name) MACRO_CONCAT(DISABLED_E2ETest, test_name)
+#define E2E_ENABLED(test_name) MACRO_CONCAT(test_name, E2ETest)
+
 class ProfileSyncService;
 class ProfileSyncServiceHarness;
 class P2PInvalidationForwarder;
@@ -272,8 +288,11 @@ class SyncTest : public InProcessBrowserTest {
 
  private:
   // Helper to ProfileManager::CreateProfileAsync that creates a new profile
-  // used for UI Signin. Blocks until profile is created.
-  static Profile* MakeProfileForUISignin(const base::FilePath::StringType name);
+  // used for UI Signin. Blocks until profile is created. If
+  // |path_outside_user_data_dir| is true then profile's path is created outside
+  // user data dir which allows signing-in multiple profiles to same account.
+  static Profile* MakeProfileForUISignin(const base::FilePath::StringType name,
+                                         bool path_outside_user_data_dir);
 
   // Callback for CreateNewProfile() method. It runs the quit_closure once
   // profile is created successfully.
@@ -284,6 +303,13 @@ class SyncTest : public InProcessBrowserTest {
   // Helper to Profile::CreateProfile that handles path creation. It creates
   // a profile then registers it as a testing profile.
   Profile* MakeProfile(const base::FilePath::StringType name);
+
+  // Helper method used to create a Gaia account at runtime.
+  // This function should only be called when running against external servers
+  // which support this functionality.
+  // Returns true if account creation was successful, false otherwise.
+  bool CreateGaiaAccount(const std::string& username,
+                         const std::string& password);
 
   // Helper method used to read GAIA credentials from a local password file
   // specified via the "--password-file-for-test" command line switch.
@@ -396,6 +422,11 @@ class SyncTest : public InProcessBrowserTest {
   // Indicates whether or not notifications were explicitly enabled/disabled.
   // Defaults to true.
   bool notifications_enabled_;
+
+  // Indicates the need to create Gaia user account at runtime. This can only be
+  // set if tests are run against external servers with support for user
+  // creation via http requests.
+  bool create_gaia_account_at_runtime_;
 
   // Sync integration tests need to make live DNS requests for access to
   // GAIA and sync server URLs under google.com. We use a scoped version

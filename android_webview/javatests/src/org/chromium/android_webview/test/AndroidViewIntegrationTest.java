@@ -5,7 +5,6 @@
 package org.chromium.android_webview.test;
 
 import android.graphics.Color;
-import android.os.Build;
 import android.test.suitebuilder.annotation.SmallTest;
 import android.view.View;
 import android.view.ViewGroup.LayoutParams;
@@ -17,7 +16,7 @@ import org.chromium.android_webview.AwLayoutSizer;
 import org.chromium.android_webview.test.util.CommonResources;
 import org.chromium.android_webview.test.util.GraphicsTestUtils;
 import org.chromium.base.test.util.Feature;
-import org.chromium.base.test.util.MinAndroidSdkLevel;
+import org.chromium.base.test.util.parameter.ParameterizedTest;
 import org.chromium.content.browser.test.util.CallbackHelper;
 import org.chromium.ui.gfx.DeviceDisplayInfo;
 
@@ -26,7 +25,6 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Tests for certain edge cases related to integrating with the Android view system.
  */
-@MinAndroidSdkLevel(Build.VERSION_CODES.KITKAT)
 public class AndroidViewIntegrationTest extends AwTestBase {
     private static final int CONTENT_SIZE_CHANGE_STABILITY_TIMEOUT_MS = 1000;
 
@@ -154,9 +152,7 @@ public class AndroidViewIntegrationTest extends AwTestBase {
         assertZeroHeight(testContainerView);
 
         final int contentSizeChangeCallCount = mOnContentSizeChangedHelper.getCallCount();
-        final int pageScaleChangeCallCount = mOnPageScaleChangedHelper.getCallCount();
         loadUrlAsync(testContainerView.getAwContents(), CommonResources.ABOUT_HTML);
-        mOnPageScaleChangedHelper.waitForCallback(pageScaleChangeCallCount);
         mOnContentSizeChangedHelper.waitForCallback(contentSizeChangeCallCount);
         assertTrue(mOnContentSizeChangedHelper.getHeight() > 0);
     }
@@ -176,9 +172,7 @@ public class AndroidViewIntegrationTest extends AwTestBase {
         assertZeroHeight(testContainerView);
 
         final int contentSizeChangeCallCount = mOnContentSizeChangedHelper.getCallCount();
-        final int pageScaleChangeCallCount = mOnPageScaleChangedHelper.getCallCount();
         loadUrlAsync(testContainerView.getAwContents(), CommonResources.ABOUT_HTML);
-        mOnPageScaleChangedHelper.waitForCallback(pageScaleChangeCallCount);
         mOnContentSizeChangedHelper.waitForCallback(contentSizeChangeCallCount);
         assertTrue(mOnContentSizeChangedHelper.getHeight() > 0);
 
@@ -306,6 +300,8 @@ public class AndroidViewIntegrationTest extends AwTestBase {
 
     @SmallTest
     @Feature({"AndroidWebView"})
+    // Run in single-process mode only. Blocked by software draws support crbug.com/545611.
+    @ParameterizedTest.Set
     public void testViewIsNotBlankInWrapContentsMode() throws Throwable {
         final TestAwContentsClient contentsClient = new TestAwContentsClient();
         final AwTestContainerView testContainerView =

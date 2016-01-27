@@ -23,8 +23,8 @@
 #include "remoting/host/chromoting_host_context.h"
 #include "remoting/host/fake_desktop_environment.h"
 #include "remoting/host/video_frame_pump.h"
+#include "remoting/protocol/ice_transport_factory.h"
 #include "remoting/protocol/jingle_session_manager.h"
-#include "remoting/protocol/libjingle_transport_factory.h"
 #include "remoting/protocol/me2me_host_authenticator_factory.h"
 #include "remoting/protocol/negotiating_client_authenticator.h"
 #include "remoting/protocol/session_config.h"
@@ -119,7 +119,6 @@ class ProtocolPerfTest
 
   // VideoRenderer interface.
   void OnSessionConfig(const protocol::SessionConfig& config) override {}
-  ChromotingStats* GetStats() override { return nullptr; }
   protocol::VideoStub* GetVideoStub() override { return this; }
 
   // protocol::VideoStub interface.
@@ -234,12 +233,13 @@ class ProtocolPerfTest
     port_allocator->socket_factory()->set_out_of_order_rate(
         GetParam().out_of_order_rate);
     scoped_ptr<protocol::TransportFactory> host_transport_factory(
-        new protocol::LibjingleTransportFactory(
+        new protocol::IceTransportFactory(
             host_signaling_.get(), port_allocator.Pass(), network_settings,
             protocol::TransportRole::SERVER));
 
     scoped_ptr<protocol::SessionManager> session_manager(
         new protocol::JingleSessionManager(host_transport_factory.Pass()));
+    session_manager->set_protocol_config(protocol_config_->Clone());
 
     // Encoder runs on a separate thread, main thread is used for everything
     // else.
@@ -277,7 +277,6 @@ class ProtocolPerfTest
     host_->SetAuthenticatorFactory(auth_factory.Pass());
 
     host_->AddStatusObserver(this);
-    host_->set_protocol_config(protocol_config_->Clone());
     host_->Start(kHostOwner);
 
     message_loop_.PostTask(FROM_HERE,
@@ -304,7 +303,7 @@ class ProtocolPerfTest
     port_allocator->socket_factory()->set_out_of_order_rate(
         GetParam().out_of_order_rate);
     scoped_ptr<protocol::TransportFactory> client_transport_factory(
-        new protocol::LibjingleTransportFactory(
+        new protocol::IceTransportFactory(
             client_signaling_.get(), port_allocator.Pass(), network_settings,
             protocol::TransportRole::CLIENT));
 
@@ -321,10 +320,9 @@ class ProtocolPerfTest
             auth_methods));
     client_.reset(
         new ChromotingClient(client_context_.get(), this, this, nullptr));
-    client_->SetProtocolConfigForTests(protocol_config_->Clone());
-    client_->Start(
-        client_signaling_.get(), client_authenticator.Pass(),
-        client_transport_factory.Pass(), kHostJid, std::string());
+    client_->set_protocol_config(protocol_config_->Clone());
+    client_->Start(client_signaling_.get(), client_authenticator.Pass(),
+                   client_transport_factory.Pass(), kHostJid, std::string());
   }
 
   void FetchPin(

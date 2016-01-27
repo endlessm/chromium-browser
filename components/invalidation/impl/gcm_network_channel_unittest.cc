@@ -170,8 +170,7 @@ class GCMNetworkChannelTest
     last_invalidator_state_ = invalidator_state;
   }
 
-  void OnIncomingMessage(std::string incoming_message) {
-  }
+  void OnIncomingMessage(std::string /* incoming_message */) {}
 
   GCMNetworkChannel* network_channel() {
     return gcm_network_channel_.get();
@@ -233,7 +232,8 @@ void TestNetworkChannelURLFetcher::AddExtraRequestHeader(
   net::FakeURLFetcher::AddExtraRequestHeader(header_line);
   std::string header_name("echo-token: ");
   std::string echo_token;
-  if (base::StartsWithASCII(header_line, header_name, false)) {
+  if (base::StartsWith(header_line, header_name,
+                       base::CompareCase::INSENSITIVE_ASCII)) {
     echo_token = header_line;
     base::ReplaceFirstSubstringAfterOffset(
         &echo_token, 0, header_name, std::string());

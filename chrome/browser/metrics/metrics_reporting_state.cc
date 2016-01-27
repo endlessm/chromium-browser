@@ -9,8 +9,8 @@
 #include "base/prefs/pref_service.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/metrics/chrome_metrics_service_accessor.h"
-#include "chrome/common/pref_names.h"
 #include "chrome/installer/util/google_update_settings.h"
+#include "components/metrics/metrics_pref_names.h"
 #include "components/metrics/metrics_service.h"
 #include "content/public/browser/browser_thread.h"
 
@@ -60,7 +60,7 @@ void SetMetricsReporting(bool to_update_pref,
   }
 #if !defined(OS_CHROMEOS) && !defined(OS_ANDROID)
   g_browser_process->local_state()->SetBoolean(
-      prefs::kMetricsReportingEnabled, updated_pref);
+      metrics::prefs::kMetricsReportingEnabled, updated_pref);
 #endif
   // When a user opts in to the metrics reporting service, the previously
   // collected data should be cleared to ensure that nothing is reported before
@@ -87,7 +87,7 @@ void InitiateMetricsReportingChange(
   if (!IsMetricsReportingUserChangable()) {
     if (!callback_fn.is_null()) {
       callback_fn.Run(
-          ChromeMetricsServiceAccessor::IsMetricsReportingEnabled());
+          ChromeMetricsServiceAccessor::IsMetricsAndCrashReportingEnabled());
     }
     return;
   }
@@ -103,6 +103,6 @@ void InitiateMetricsReportingChange(
 bool IsMetricsReportingUserChangable() {
   const PrefService* pref_service = g_browser_process->local_state();
   const PrefService::Preference* pref =
-      pref_service->FindPreference(prefs::kMetricsReportingEnabled);
+      pref_service->FindPreference(metrics::prefs::kMetricsReportingEnabled);
   return pref && !pref->IsManaged();
 }

@@ -37,7 +37,7 @@ a {
 
 .icon {
   -webkit-user-select: none;
-  content: '';
+  display: inline-block;
 }
 
 .icon-generic {
@@ -70,6 +70,11 @@ a {
 
 #content-top {
   margin: 20px;
+}
+
+.gray-button {
+  background: #d9d9d9;
+  color: #696969;
 }
 
 #help-box-inner {
@@ -230,7 +235,7 @@ a {
     margin-bottom: 0;
   }
   .error-code {
-    margin-top: 10px;
+    margin: 10px 0;
   }
 }
 

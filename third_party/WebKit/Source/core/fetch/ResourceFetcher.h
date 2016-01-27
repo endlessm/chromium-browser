@@ -34,6 +34,7 @@
 #include "core/fetch/Resource.h"
 #include "core/fetch/ResourceLoaderOptions.h"
 #include "core/fetch/ResourcePtr.h"
+#include "core/fetch/SubstituteData.h"
 #include "platform/Timer.h"
 #include "platform/network/ResourceError.h"
 #include "platform/network/ResourceLoadPriority.h"
@@ -52,7 +53,6 @@ class ImageResource;
 class MHTMLArchive;
 class RawResource;
 class ScriptResource;
-class SubstituteData;
 class XSLStyleSheetResource;
 class KURL;
 class ResourceTimingInfo;
@@ -68,12 +68,13 @@ class ResourceLoaderSet;
 // alive past detach if scripts still reference the Document.
 class CORE_EXPORT ResourceFetcher : public GarbageCollectedFinalized<ResourceFetcher> {
     WTF_MAKE_NONCOPYABLE(ResourceFetcher);
+    WILL_BE_USING_PRE_FINALIZER(ResourceFetcher, clearPreloads);
 public:
     static ResourceFetcher* create(FetchContext* context) { return new ResourceFetcher(context); }
     virtual ~ResourceFetcher();
     DECLARE_VIRTUAL_TRACE();
 
-    ResourcePtr<Resource> requestResource(FetchRequest&, const ResourceFactory&);
+    ResourcePtr<Resource> requestResource(FetchRequest&, const ResourceFactory&, const SubstituteData& = SubstituteData());
 
     Resource* cachedResource(const KURL&) const;
 
@@ -109,7 +110,6 @@ public:
     void didLoadResource();
     void redirectReceived(Resource*, const ResourceResponse&);
     void didFinishLoading(Resource*, double finishTime, int64_t encodedDataLength);
-    void didChangeLoadingPriority(const Resource*, ResourceLoadPriority, int intraPriorityValue);
     void didFailLoading(const Resource*, const ResourceError&);
     void willSendRequest(unsigned long identifier, ResourceRequest&, const ResourceResponse& redirectResponse, const FetchInitiatorInfo&);
     void didReceiveResponse(const Resource*, const ResourceResponse&);
@@ -131,13 +131,13 @@ public:
 
     void acceptDataFromThreadedReceiver(unsigned long identifier, const char* data, int dataLength, int encodedDataLength);
 
-    ResourceLoadPriority loadPriority(Resource::Type, const FetchRequest&);
+    ResourceLoadPriority loadPriority(Resource::Type, const FetchRequest&, ResourcePriority::VisibilityStatus = ResourcePriority::NotVisible);
 
     enum ResourceLoadStartType {
         ResourceLoadingFromNetwork,
         ResourceLoadingFromCache
     };
-    void requestLoadStarted(Resource*, const FetchRequest&, ResourceLoadStartType);
+    void requestLoadStarted(Resource*, const FetchRequest&, ResourceLoadStartType, bool isStaticData = false);
     static const ResourceLoaderOptions& defaultResourceOptions();
 
     String getCacheIdentifier() const;
@@ -146,24 +146,32 @@ public:
     bool clientDefersImage(const KURL&) const;
     void determineRequestContext(ResourceRequest&, Resource::Type);
 
+    WebTaskRunner* loadingTaskRunner();
+
+    void updateAllImageResourcePriorities();
+
+    // This is only exposed for testing purposes.
+    WillBeHeapListHashSet<RawPtrWillBeMember<Resource>>* preloads() { return m_preloads.get(); }
+
 private:
     friend class ResourceCacheValidationSuppressor;
 
     explicit ResourceFetcher(FetchContext*);
 
-    ResourcePtr<Resource> createResourceForRevalidation(const FetchRequest&, Resource*, const ResourceFactory&);
+    void initializeRevalidation(const FetchRequest&, Resource*);
     ResourcePtr<Resource> createResourceForLoading(FetchRequest&, const String& charset, const ResourceFactory&);
     void storeResourceTimingInitiatorInformation(Resource*);
     bool scheduleArchiveLoad(Resource*, const ResourceRequest&);
+    ResourcePtr<Resource> preCacheData(const FetchRequest&, const ResourceFactory&, const SubstituteData&);
 
     enum RevalidationPolicy { Use, Revalidate, Reload, Load };
-    RevalidationPolicy determineRevalidationPolicy(Resource::Type, const FetchRequest&, Resource* existingResource) const;
+    RevalidationPolicy determineRevalidationPolicy(Resource::Type, const FetchRequest&, Resource* existingResource, bool isStaticData) const;
 
-    void addAdditionalRequestHeaders(ResourceRequest&, Resource::Type);
+    void moveCachedNonBlockingResourceToBlocking(Resource*);
+
+    void initializeResourceRequest(ResourceRequest&, Resource::Type);
 
     static bool resourceNeedsLoad(Resource*, const FetchRequest&, RevalidationPolicy);
-
-    void notifyLoadedFromMemoryCache(Resource*);
 
     void garbageCollectDocumentResourcesTimerFired(Timer<ResourceFetcher>*);
 
@@ -173,18 +181,27 @@ private:
 
     void willTerminateResourceLoader(ResourceLoader*);
 
+    ResourceLoadPriority modifyPriorityForExperiments(ResourceLoadPriority, Resource::Type, const FetchRequest&);
+
     Member<FetchContext> m_context;
 
     HashSet<String> m_validatedURLs;
     mutable DocumentResourceMap m_documentResources;
 
-    OwnPtr<ListHashSet<Resource*>> m_preloads;
+    // We intentionally use a Member instead of a ResourcePtr.
+    // Using a ResourcePtrs can lead to a wrong behavior because
+    // the underlying Resource of the ResourcePtr is updated when the Resource
+    // is revalidated. What we really want to hold here is not the ResourcePtr
+    // but the underlying Resource.
+    OwnPtrWillBeMember<WillBeHeapListHashSet<RawPtrWillBeMember<Resource>>> m_preloads;
     OwnPtrWillBeMember<ArchiveResourceCollection> m_archiveResourceCollection;
 
     Timer<ResourceFetcher> m_garbageCollectDocumentResourcesTimer;
     Timer<ResourceFetcher> m_resourceTimingReportTimer;
 
-    typedef HashMap<Resource*, OwnPtr<ResourceTimingInfo>> ResourceTimingInfoMap;
+    // We intentionally use a Member instead of a ResourcePtr.
+    // See the comment on m_preloads.
+    typedef WillBeHeapHashMap<RawPtrWillBeMember<Resource>, OwnPtr<ResourceTimingInfo>> ResourceTimingInfoMap;
     ResourceTimingInfoMap m_resourceTimingInfoMap;
 
     Vector<OwnPtr<ResourceTimingInfo>> m_scheduledResourceTimingReports;
@@ -194,6 +211,7 @@ private:
 
     // Used in hit rate histograms.
     class DeadResourceStatsRecorder {
+        DISALLOW_NEW();
     public:
         DeadResourceStatsRecorder();
         ~DeadResourceStatsRecorder();
@@ -207,7 +225,7 @@ private:
     };
     DeadResourceStatsRecorder m_deadStatsRecorder;
 
-    // 29 bits left
+    // 28 bits left
     bool m_autoLoadImages : 1;
     bool m_imagesEnabled : 1;
     bool m_allowStaleResources : 1;

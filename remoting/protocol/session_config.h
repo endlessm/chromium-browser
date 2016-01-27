@@ -23,6 +23,7 @@ struct ChannelConfig {
   enum TransportType {
     TRANSPORT_STREAM,
     TRANSPORT_MUX_STREAM,
+    TRANSPORT_QUIC_STREAM,
     TRANSPORT_DATAGRAM,
     TRANSPORT_NONE,
   };
@@ -80,7 +81,7 @@ class SessionConfig {
 
   // Returns a suitable session configuration for use in tests.
   static scoped_ptr<SessionConfig> ForTest();
-  static scoped_ptr<SessionConfig> WithLegacyIceForTest();
+  static scoped_ptr<SessionConfig> ForTestWithVerbatimVideo();
 
   bool standard_ice() const { return standard_ice_; }
 
@@ -91,6 +92,14 @@ class SessionConfig {
 
   bool is_audio_enabled() const {
     return audio_config_.transport != ChannelConfig::TRANSPORT_NONE;
+  }
+
+  // Returns true if any of the channels is using QUIC.
+  bool is_using_quic() const {
+    return control_config_.transport == ChannelConfig::TRANSPORT_QUIC_STREAM ||
+           event_config_.transport == ChannelConfig::TRANSPORT_QUIC_STREAM ||
+           video_config_.transport == ChannelConfig::TRANSPORT_QUIC_STREAM ||
+           audio_config_.transport == ChannelConfig::TRANSPORT_QUIC_STREAM;
   }
 
  private:
@@ -151,6 +160,18 @@ class CandidateSessionConfig {
     return &audio_configs_;
   }
 
+  // Old clients always list VP9 as supported and preferred even though they
+  // shouldn't have it enabled yet. I.e. the host cannot trust VP9 codec
+  // preference received from the client. To workaround this issue the client
+  // adds a hint in the session-initiate message to indicate that it actually
+  // wants VP9 to be enabled.
+  //
+  // TODO(sergeyu): Remove this kludge as soon as VP9 is enabled by default.
+  bool vp9_experiment_enabled() const { return vp9_experiment_enabled_; }
+  void set_vp9_experiment_enabled(bool value) {
+    vp9_experiment_enabled_ = value;
+  }
+
   // Returns true if |config| is supported.
   bool IsSupported(const SessionConfig& config) const;
 
@@ -158,7 +179,7 @@ class CandidateSessionConfig {
 
   // Helpers for enabling/disabling specific features.
   void DisableAudioChannel();
-  void EnableVideoCodec(ChannelConfig::Codec codec);
+  void PreferTransport(ChannelConfig::TransportType transport);
 
  private:
   CandidateSessionConfig();
@@ -171,6 +192,8 @@ class CandidateSessionConfig {
   std::list<ChannelConfig> event_configs_;
   std::list<ChannelConfig> video_configs_;
   std::list<ChannelConfig> audio_configs_;
+
+  bool vp9_experiment_enabled_ = false;
 };
 
 }  // namespace protocol

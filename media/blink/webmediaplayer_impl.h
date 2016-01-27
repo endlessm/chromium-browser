@@ -15,30 +15,32 @@
 #include "base/memory/weak_ptr.h"
 #include "base/threading/thread.h"
 #include "media/base/cdm_factory.h"
-#include "media/base/media_export.h"
 #include "media/base/pipeline.h"
 #include "media/base/renderer_factory.h"
 #include "media/base/text_track.h"
 #include "media/blink/buffered_data_source.h"
 #include "media/blink/buffered_data_source_host_impl.h"
 #include "media/blink/encrypted_media_player_support.h"
-#include "media/blink/skcanvas_video_renderer.h"
+#include "media/blink/media_blink_export.h"
 #include "media/blink/video_frame_compositor.h"
 #include "media/blink/webmediaplayer_params.h"
 #include "media/blink/webmediaplayer_util.h"
+#include "media/renderers/skcanvas_video_renderer.h"
 #include "third_party/WebKit/public/platform/WebAudioSourceProvider.h"
 #include "third_party/WebKit/public/platform/WebContentDecryptionModuleResult.h"
 #include "third_party/WebKit/public/platform/WebMediaPlayer.h"
-#include "third_party/WebKit/public/platform/WebMediaPlayerClient.h"
 #include "url/gurl.h"
 
 namespace blink {
 class WebGraphicsContext3D;
 class WebLocalFrame;
+class WebMediaPlayerClient;
+class WebMediaPlayerEncryptedMediaClient;
 }
 
 namespace base {
 class SingleThreadTaskRunner;
+class TaskRunner;
 }
 
 namespace cc_blink {
@@ -59,7 +61,7 @@ class WebTextTrackImpl;
 // The canonical implementation of blink::WebMediaPlayer that's backed by
 // Pipeline. Handles normal resource loading, Media Source, and
 // Encrypted Media.
-class MEDIA_EXPORT WebMediaPlayerImpl
+class MEDIA_BLINK_EXPORT WebMediaPlayerImpl
     : public NON_EXPORTED_BASE(blink::WebMediaPlayer),
       public base::SupportsWeakPtr<WebMediaPlayerImpl> {
  public:
@@ -68,68 +70,71 @@ class MEDIA_EXPORT WebMediaPlayerImpl
   // internal renderer will be created.
   // TODO(xhwang): Drop the internal renderer path and always pass in a renderer
   // here.
-  WebMediaPlayerImpl(blink::WebLocalFrame* frame,
-                     blink::WebMediaPlayerClient* client,
-                     base::WeakPtr<WebMediaPlayerDelegate> delegate,
-                     scoped_ptr<RendererFactory> renderer_factory,
-                     CdmFactory* cdm_factory,
-                     const WebMediaPlayerParams& params);
-  virtual ~WebMediaPlayerImpl();
+  WebMediaPlayerImpl(
+      blink::WebLocalFrame* frame,
+      blink::WebMediaPlayerClient* client,
+      blink::WebMediaPlayerEncryptedMediaClient* encrypted_client,
+      base::WeakPtr<WebMediaPlayerDelegate> delegate,
+      scoped_ptr<RendererFactory> renderer_factory,
+      CdmFactory* cdm_factory,
+      const WebMediaPlayerParams& params);
+  ~WebMediaPlayerImpl() override;
 
-  virtual void load(LoadType load_type,
-                    const blink::WebURL& url,
-                    CORSMode cors_mode);
+  void load(LoadType load_type,
+            const blink::WebURL& url,
+            CORSMode cors_mode) override;
 
   // Playback controls.
-  virtual void play();
-  virtual void pause();
-  virtual bool supportsSave() const;
-  virtual void seek(double seconds);
-  virtual void setRate(double rate);
-  virtual void setVolume(double volume);
-  virtual void setSinkId(const blink::WebString& device_id,
-                         WebSetSinkIdCB* web_callbacks);
-  virtual void setPreload(blink::WebMediaPlayer::Preload preload);
-  virtual blink::WebTimeRanges buffered() const;
-  virtual blink::WebTimeRanges seekable() const;
+  void play() override;
+  void pause() override;
+  bool supportsSave() const override;
+  void seek(double seconds) override;
+  void setRate(double rate) override;
+  void setVolume(double volume) override;
+  void setSinkId(const blink::WebString& sink_id,
+                 const blink::WebSecurityOrigin& security_origin,
+                 blink::WebSetSinkIdCallbacks* web_callback) override;
+  void setPreload(blink::WebMediaPlayer::Preload preload) override;
+  blink::WebTimeRanges buffered() const override;
+  blink::WebTimeRanges seekable() const override;
 
   // Methods for painting.
-  virtual void paint(blink::WebCanvas* canvas,
-                     const blink::WebRect& rect,
-                     unsigned char alpha,
-                     SkXfermode::Mode mode);
+  void paint(blink::WebCanvas* canvas,
+             const blink::WebRect& rect,
+             unsigned char alpha,
+             SkXfermode::Mode mode) override;
 
   // True if the loaded media has a playable video/audio track.
-  virtual bool hasVideo() const;
-  virtual bool hasAudio() const;
+  bool hasVideo() const override;
+  bool hasAudio() const override;
 
   // Dimensions of the video.
-  virtual blink::WebSize naturalSize() const;
+  blink::WebSize naturalSize() const override;
 
   // Getters of playback state.
-  virtual bool paused() const;
-  virtual bool seeking() const;
-  virtual double duration() const;
+  bool paused() const override;
+  bool seeking() const override;
+  double duration() const override;
   virtual double timelineOffset() const;
-  virtual double currentTime() const;
+  double currentTime() const override;
 
   // Internal states of loading and network.
   // TODO(hclam): Ask the pipeline about the state rather than having reading
   // them from members which would cause race conditions.
-  virtual blink::WebMediaPlayer::NetworkState networkState() const;
-  virtual blink::WebMediaPlayer::ReadyState readyState() const;
+  blink::WebMediaPlayer::NetworkState networkState() const override;
+  blink::WebMediaPlayer::ReadyState readyState() const override;
 
-  virtual bool didLoadingProgress();
+  bool didLoadingProgress() override;
 
-  virtual bool hasSingleSecurityOrigin() const;
-  virtual bool didPassCORSAccessCheck() const;
+  bool hasSingleSecurityOrigin() const override;
+  bool didPassCORSAccessCheck() const override;
 
-  virtual double mediaTimeForTimeValue(double timeValue) const;
+  double mediaTimeForTimeValue(double timeValue) const override;
 
-  virtual unsigned decodedFrameCount() const;
-  virtual unsigned droppedFrameCount() const;
-  virtual unsigned audioDecodedByteCount() const;
-  virtual unsigned videoDecodedByteCount() const;
+  unsigned decodedFrameCount() const override;
+  unsigned droppedFrameCount() const override;
+  unsigned audioDecodedByteCount() const override;
+  unsigned videoDecodedByteCount() const override;
 
   bool copyVideoTextureToPlatformTexture(
       blink::WebGraphicsContext3D* web_graphics_context,
@@ -139,27 +144,27 @@ class MEDIA_EXPORT WebMediaPlayerImpl
       bool premultiply_alpha,
       bool flip_y) override;
 
-  virtual blink::WebAudioSourceProvider* audioSourceProvider();
+  blink::WebAudioSourceProvider* audioSourceProvider() override;
 
-  virtual MediaKeyException generateKeyRequest(
+  MediaKeyException generateKeyRequest(
       const blink::WebString& key_system,
       const unsigned char* init_data,
-      unsigned init_data_length);
+      unsigned init_data_length) override;
 
-  virtual MediaKeyException addKey(const blink::WebString& key_system,
-                                   const unsigned char* key,
-                                   unsigned key_length,
-                                   const unsigned char* init_data,
-                                   unsigned init_data_length,
-                                   const blink::WebString& session_id);
+  MediaKeyException addKey(const blink::WebString& key_system,
+                           const unsigned char* key,
+                           unsigned key_length,
+                           const unsigned char* init_data,
+                           unsigned init_data_length,
+                           const blink::WebString& session_id) override;
 
-  virtual MediaKeyException cancelKeyRequest(
+  MediaKeyException cancelKeyRequest(
       const blink::WebString& key_system,
-      const blink::WebString& session_id);
+      const blink::WebString& session_id) override;
 
-  virtual void setContentDecryptionModule(
+  void setContentDecryptionModule(
       blink::WebContentDecryptionModule* cdm,
-      blink::WebContentDecryptionModuleResult result);
+      blink::WebContentDecryptionModuleResult result) override;
 
   void OnPipelineSeeked(bool time_changed, PipelineStatus status);
   void OnPipelineEnded();
@@ -229,6 +234,15 @@ class MEDIA_EXPORT WebMediaPlayerImpl
   // |ended_| state by clamping current time to duration upon |ended_|.
   void UpdatePausedTime();
 
+  // Notifies |delegate_| that playback has started or was paused; also starts
+  // or stops the memory usage reporting timer respectively.
+  void NotifyPlaybackStarted();
+  void NotifyPlaybackPaused();
+
+  // Called at low frequency to tell external observers how much memory we're
+  // using for video playback.  Called by |memory_usage_reporting_timer_|.
+  void ReportMemoryUsage();
+
   blink::WebLocalFrame* frame_;
 
   // TODO(hclam): get rid of these members and read from the pipeline directly.
@@ -243,6 +257,7 @@ class MEDIA_EXPORT WebMediaPlayerImpl
   const scoped_refptr<base::SingleThreadTaskRunner> main_task_runner_;
 
   scoped_refptr<base::SingleThreadTaskRunner> media_task_runner_;
+  scoped_refptr<base::TaskRunner> worker_task_runner_;
   scoped_refptr<MediaLog> media_log_;
   Pipeline pipeline_;
 
@@ -288,11 +303,18 @@ class MEDIA_EXPORT WebMediaPlayerImpl
   bool should_notify_time_changed_;
 
   blink::WebMediaPlayerClient* client_;
+  blink::WebMediaPlayerEncryptedMediaClient* encrypted_client_;
 
   base::WeakPtr<WebMediaPlayerDelegate> delegate_;
 
   WebMediaPlayerParams::DeferLoadCB defer_load_cb_;
   WebMediaPlayerParams::Context3DCB context_3d_cb_;
+
+  // Members for notifying upstream clients about internal memory usage.  The
+  // |adjust_allocated_memory_cb_| must only be called on |main_task_runner_|.
+  base::RepeatingTimer memory_usage_reporting_timer_;
+  WebMediaPlayerParams::AdjustAllocatedMemoryCB adjust_allocated_memory_cb_;
+  int64_t last_reported_memory_usage_;
 
   // Routes audio playback to either AudioRendererSink or WebAudio.
   scoped_refptr<WebAudioSourceProviderImpl> audio_source_provider_;

@@ -55,7 +55,6 @@ using cricket::ICE_CANDIDATE_COMPONENT_RTP;
 using cricket::kFecSsrcGroupSemantics;
 using cricket::LOCAL_PORT_TYPE;
 using cricket::NS_JINGLE_DRAFT_SCTP;
-using cricket::NS_JINGLE_ICE_UDP;
 using cricket::NS_JINGLE_RTP;
 using cricket::RtpHeaderExtension;
 using cricket::RELAY_PORT_TYPE;
@@ -76,9 +75,9 @@ using webrtc::SessionDescriptionInterface;
 typedef std::vector<AudioCodec> AudioCodecs;
 typedef std::vector<Candidate> Candidates;
 
-static const uint32 kDefaultSctpPort = 5000;
+static const uint32_t kDefaultSctpPort = 5000;
 static const char kSessionTime[] = "t=0 0\r\n";
-static const uint32 kCandidatePriority = 2130706432U;  // pref = 1.0
+static const uint32_t kCandidatePriority = 2130706432U;  // pref = 1.0
 static const char kCandidateUfragVoice[] = "ufrag_voice";
 static const char kCandidatePwdVoice[] = "pwd_voice";
 static const char kAttributeIcePwdVoice[] = "a=ice-pwd:pwd_voice\r\n";
@@ -87,7 +86,7 @@ static const char kCandidatePwdVideo[] = "pwd_video";
 static const char kCandidateUfragData[] = "ufrag_data";
 static const char kCandidatePwdData[] = "pwd_data";
 static const char kAttributeIcePwdVideo[] = "a=ice-pwd:pwd_video\r\n";
-static const uint32 kCandidateGeneration = 2;
+static const uint32_t kCandidateGeneration = 2;
 static const char kCandidateFoundation1[] = "a0+B/1";
 static const char kCandidateFoundation2[] = "a0+B/2";
 static const char kCandidateFoundation3[] = "a0+B/3";
@@ -108,11 +107,9 @@ static const char kExtmap[] =
 static const char kExtmapWithDirectionAndAttribute[] =
     "a=extmap:1/sendrecv http://example.com/082005/ext.htm#ttime a1 a2\r\n";
 
-static const uint8 kIdentityDigest[] = {0x4A, 0xAD, 0xB9, 0xB1,
-                                        0x3F, 0x82, 0x18, 0x3B,
-                                        0x54, 0x02, 0x12, 0xDF,
-                                        0x3E, 0x5D, 0x49, 0x6B,
-                                        0x19, 0xE5, 0x7C, 0xAB};
+static const uint8_t kIdentityDigest[] = {
+    0x4A, 0xAD, 0xB9, 0xB1, 0x3F, 0x82, 0x18, 0x3B, 0x54, 0x02,
+    0x12, 0xDF, 0x3E, 0x5D, 0x49, 0x6B, 0x19, 0xE5, 0x7C, 0xAB};
 
 static const char kDtlsSctp[] = "DTLS/SCTP";
 static const char kUdpDtlsSctp[] = "UDP/DTLS/SCTP";
@@ -298,6 +295,15 @@ static const char kSdpSctpDataChannelStringWithSctpPort[] =
     "a=ice-pwd:pwd_data\r\n"
     "a=mid:data_content_name\r\n";
 
+static const char kSdpSctpDataChannelStringWithSctpColonPort[] =
+    "m=application 9 DTLS/SCTP webrtc-datachannel\r\n"
+    "a=max-message-size=100000\r\n"
+    "a=sctp-port:5000\r\n"
+    "c=IN IP4 0.0.0.0\r\n"
+    "a=ice-ufrag:ufrag_data\r\n"
+    "a=ice-pwd:pwd_data\r\n"
+    "a=mid:data_content_name\r\n";
+
 static const char kSdpSctpDataChannelWithCandidatesString[] =
     "m=application 2345 DTLS/SCTP 5000\r\n"
     "c=IN IP4 74.125.127.126\r\n"
@@ -410,26 +416,26 @@ static const char kDataContentName[] = "data_content_name";
 static const char kStreamLabel1[] = "local_stream_1";
 static const char kStream1Cname[] = "stream_1_cname";
 static const char kAudioTrackId1[] = "audio_track_id_1";
-static const uint32 kAudioTrack1Ssrc = 1;
+static const uint32_t kAudioTrack1Ssrc = 1;
 static const char kVideoTrackId1[] = "video_track_id_1";
-static const uint32 kVideoTrack1Ssrc = 2;
+static const uint32_t kVideoTrack1Ssrc = 2;
 static const char kVideoTrackId2[] = "video_track_id_2";
-static const uint32 kVideoTrack2Ssrc = 3;
+static const uint32_t kVideoTrack2Ssrc = 3;
 
 // MediaStream 2
 static const char kStreamLabel2[] = "local_stream_2";
 static const char kStream2Cname[] = "stream_2_cname";
 static const char kAudioTrackId2[] = "audio_track_id_2";
-static const uint32 kAudioTrack2Ssrc = 4;
+static const uint32_t kAudioTrack2Ssrc = 4;
 static const char kVideoTrackId3[] = "video_track_id_3";
-static const uint32 kVideoTrack3Ssrc = 5;
-static const uint32 kVideoTrack4Ssrc = 6;
+static const uint32_t kVideoTrack3Ssrc = 5;
+static const uint32_t kVideoTrack4Ssrc = 6;
 
 // DataChannel
 static const char kDataChannelLabel[] = "data_channel";
 static const char kDataChannelMsid[] = "data_channeld0";
 static const char kDataChannelCname[] = "data_channel_cname";
-static const uint32 kDataChannelSsrc = 10;
+static const uint32_t kDataChannelSsrc = 10;
 
 // Candidate
 static const char kDummyMid[] = "dummy_mid";
@@ -580,13 +586,11 @@ class WebRtcSdpTest : public testing::Test {
     // TransportInfo
     EXPECT_TRUE(desc_.AddTransportInfo(
         TransportInfo(kAudioContentName,
-                      TransportDescription(NS_JINGLE_ICE_UDP,
-                                           kCandidateUfragVoice,
+                      TransportDescription(kCandidateUfragVoice,
                                            kCandidatePwdVoice))));
     EXPECT_TRUE(desc_.AddTransportInfo(
         TransportInfo(kVideoContentName,
-                      TransportDescription(NS_JINGLE_ICE_UDP,
-                                           kCandidateUfragVideo,
+                      TransportDescription(kCandidateUfragVideo,
                                            kCandidatePwdVideo))));
 
     // v4 host
@@ -778,9 +782,6 @@ class WebRtcSdpTest : public testing::Test {
       EXPECT_EQ(ext1.uri, ext2.uri);
       EXPECT_EQ(ext1.id, ext2.id);
     }
-
-    // buffered mode latency
-    EXPECT_EQ(cd1->buffered_mode_latency(), cd2->buffered_mode_latency());
   }
 
 
@@ -866,8 +867,6 @@ class WebRtcSdpTest : public testing::Test {
       const cricket::TransportInfo transport1 = transports1.at(i);
       const cricket::TransportInfo transport2 = transports2.at(i);
       EXPECT_EQ(transport1.content_name, transport2.content_name);
-      EXPECT_EQ(transport1.description.transport_type,
-                transport2.description.transport_type);
       EXPECT_EQ(transport1.description.ice_ufrag,
                 transport2.description.ice_ufrag);
       EXPECT_EQ(transport1.description.ice_pwd,
@@ -884,6 +883,9 @@ class WebRtcSdpTest : public testing::Test {
       EXPECT_TRUE(CompareCandidates(transport1.description.candidates,
                                     transport2.description.candidates));
     }
+
+    // global attributes
+    EXPECT_EQ(desc1.msid_supported(), desc2.msid_supported());
   }
 
   bool CompareCandidates(const Candidates& cs1, const Candidates& cs2) {
@@ -948,8 +950,7 @@ class WebRtcSdpTest : public testing::Test {
       ASSERT(false);
     }
     TransportInfo transport_info(
-        content_name, TransportDescription(NS_JINGLE_ICE_UDP,
-                                           ufrag, pwd));
+        content_name, TransportDescription(ufrag, pwd));
     SessionDescription* desc =
         const_cast<SessionDescription*>(jdesc->description());
     desc->RemoveTransportInfoByName(content_name);
@@ -986,8 +987,7 @@ class WebRtcSdpTest : public testing::Test {
                                           sizeof(kIdentityDigest));
     EXPECT_TRUE(desc_.AddTransportInfo(
         TransportInfo(kAudioContentName,
-                      TransportDescription(NS_JINGLE_ICE_UDP,
-                                           std::vector<std::string>(),
+                      TransportDescription(std::vector<std::string>(),
                                            kCandidateUfragVoice,
                                            kCandidatePwdVoice,
                                            cricket::ICEMODE_FULL,
@@ -995,8 +995,7 @@ class WebRtcSdpTest : public testing::Test {
                                            &fingerprint, Candidates()))));
     EXPECT_TRUE(desc_.AddTransportInfo(
         TransportInfo(kVideoContentName,
-                      TransportDescription(NS_JINGLE_ICE_UDP,
-                                           std::vector<std::string>(),
+                      TransportDescription(std::vector<std::string>(),
                                            kCandidateUfragVideo,
                                            kCandidatePwdVideo,
                                            cricket::ICEMODE_FULL,
@@ -1076,8 +1075,7 @@ class WebRtcSdpTest : public testing::Test {
     desc_.AddContent(kDataContentName, NS_JINGLE_DRAFT_SCTP, data.release());
     EXPECT_TRUE(desc_.AddTransportInfo(
            TransportInfo(kDataContentName,
-                         TransportDescription(NS_JINGLE_ICE_UDP,
-                                              kCandidateUfragData,
+                         TransportDescription(kCandidateUfragData,
                                               kCandidatePwdData))));
   }
 
@@ -1100,8 +1098,7 @@ class WebRtcSdpTest : public testing::Test {
     desc_.AddContent(kDataContentName, NS_JINGLE_RTP, data.release());
     EXPECT_TRUE(desc_.AddTransportInfo(
            TransportInfo(kDataContentName,
-                         TransportDescription(NS_JINGLE_ICE_UDP,
-                                              kCandidateUfragData,
+                         TransportDescription(kCandidateUfragData,
                                               kCandidatePwdData))));
   }
 
@@ -1721,22 +1718,6 @@ TEST_F(WebRtcSdpTest, SerializeSessionDescriptionWithExtmap) {
   EXPECT_EQ(sdp_with_extmap, message);
 }
 
-TEST_F(WebRtcSdpTest, SerializeSessionDescriptionWithBufferLatency) {
-  VideoContentDescription* vcd = static_cast<VideoContentDescription*>(
-      GetFirstVideoContent(&desc_)->description);
-  vcd->set_buffered_mode_latency(128);
-
-  ASSERT_TRUE(jdesc_.Initialize(desc_.Copy(),
-                                jdesc_.session_id(),
-                                jdesc_.session_version()));
-  std::string message = webrtc::SdpSerialize(jdesc_);
-  std::string sdp_with_buffer_latency = kSdpFullString;
-  InjectAfter("a=rtpmap:120 VP8/90000\r\n",
-              "a=x-google-buffer-latency:128\r\n",
-              &sdp_with_buffer_latency);
-  EXPECT_EQ(sdp_with_buffer_latency, message);
-}
-
 TEST_F(WebRtcSdpTest, SerializeCandidates) {
   std::string message = webrtc::SdpSerializeCandidate(*jcandidate_);
   EXPECT_EQ(std::string(kRawCandidate), message);
@@ -1962,24 +1943,6 @@ TEST_F(WebRtcSdpTest, DeserializeSessionDescriptionWithUfragPwd) {
   EXPECT_TRUE(CompareSessionDescription(jdesc_, jdesc_with_ufrag_pwd));
 }
 
-TEST_F(WebRtcSdpTest, DeserializeSessionDescriptionWithBufferLatency) {
-  JsepSessionDescription jdesc_with_buffer_latency(kDummyString);
-  std::string sdp_with_buffer_latency = kSdpFullString;
-  InjectAfter("a=rtpmap:120 VP8/90000\r\n",
-              "a=x-google-buffer-latency:128\r\n",
-              &sdp_with_buffer_latency);
-
-  EXPECT_TRUE(
-      SdpDeserialize(sdp_with_buffer_latency, &jdesc_with_buffer_latency));
-  VideoContentDescription* vcd = static_cast<VideoContentDescription*>(
-      GetFirstVideoContent(&desc_)->description);
-  vcd->set_buffered_mode_latency(128);
-  ASSERT_TRUE(jdesc_.Initialize(desc_.Copy(),
-                                jdesc_.session_id(),
-                                jdesc_.session_version()));
-  EXPECT_TRUE(CompareSessionDescription(jdesc_, jdesc_with_buffer_latency));
-}
-
 TEST_F(WebRtcSdpTest, DeserializeSessionDescriptionWithRecvOnlyContent) {
   EXPECT_TRUE(TestDeserializeDirection(cricket::MD_RECVONLY));
 }
@@ -2007,6 +1970,7 @@ TEST_F(WebRtcSdpTest, DeserializeSessionDescriptionWithRejectedAudioVideo) {
 // Tests that we can still handle the sdp uses mslabel and label instead of
 // msid for backward compatibility.
 TEST_F(WebRtcSdpTest, DeserializeSessionDescriptionWithoutMsid) {
+  jdesc_.description()->set_msid_supported(false);
   JsepSessionDescription jdesc(kDummyString);
   std::string sdp_without_msid = kSdpFullString;
   Replace("msid", "xmsid", &sdp_without_msid);
@@ -2173,6 +2137,32 @@ TEST_F(WebRtcSdpTest, DeserializeSdpWithSctpDataChannelsWithSctpPort) {
   EXPECT_TRUE(CompareSessionDescription(jdesc, jdesc_output));
 }
 
+TEST_F(WebRtcSdpTest, DeserializeSdpWithSctpDataChannelsWithSctpColonPort) {
+  AddSctpDataChannel();
+  JsepSessionDescription jdesc(kDummyString);
+  ASSERT_TRUE(jdesc.Initialize(desc_.Copy(), kSessionId, kSessionVersion));
+
+  std::string sdp_with_data = kSdpString;
+  sdp_with_data.append(kSdpSctpDataChannelStringWithSctpColonPort);
+  JsepSessionDescription jdesc_output(kDummyString);
+
+  // Verify with DTLS/SCTP.
+  EXPECT_TRUE(SdpDeserialize(sdp_with_data, &jdesc_output));
+  EXPECT_TRUE(CompareSessionDescription(jdesc, jdesc_output));
+
+  // Verify with UDP/DTLS/SCTP.
+  sdp_with_data.replace(sdp_with_data.find(kDtlsSctp),
+                        strlen(kDtlsSctp), kUdpDtlsSctp);
+  EXPECT_TRUE(SdpDeserialize(sdp_with_data, &jdesc_output));
+  EXPECT_TRUE(CompareSessionDescription(jdesc, jdesc_output));
+
+  // Verify with TCP/DTLS/SCTP.
+  sdp_with_data.replace(sdp_with_data.find(kUdpDtlsSctp),
+                        strlen(kUdpDtlsSctp), kTcpDtlsSctp);
+  EXPECT_TRUE(SdpDeserialize(sdp_with_data, &jdesc_output));
+  EXPECT_TRUE(CompareSessionDescription(jdesc, jdesc_output));
+}
+
 // Test to check the behaviour if sctp-port is specified
 // on the m= line and in a=sctp-port.
 TEST_F(WebRtcSdpTest, DeserializeSdpWithMultiSctpPort) {
@@ -2204,7 +2194,7 @@ TEST_F(WebRtcSdpTest, DeserializeSdpWithCorruptedSctpDataChannels) {
 
 TEST_F(WebRtcSdpTest, DeserializeSdpWithSctpDataChannelAndNewPort) {
   AddSctpDataChannel();
-  const uint16 kUnusualSctpPort = 9556;
+  const uint16_t kUnusualSctpPort = 9556;
   char default_portstr[16];
   char unusual_portstr[16];
   rtc::sprintfn(default_portstr, sizeof(default_portstr), "%d",
@@ -2438,10 +2428,6 @@ TEST_F(WebRtcSdpTest, DeserializeSdpWithInvalidAttributeValue) {
   ExpectParseFailureWithNewLines("a=mid:video_content_name\r\n",
                                  "a=extmap:badvalue http://example.com\r\n",
                                  "a=extmap:badvalue http://example.com");
-  // x-google-buffer-latency
-  ExpectParseFailureWithNewLines("a=mid:video_content_name\r\n",
-                                 "a=x-google-buffer-latency:badvalue\r\n",
-                                 "a=x-google-buffer-latency:badvalue");
 }
 
 TEST_F(WebRtcSdpTest, DeserializeSdpWithReorderedPltypes) {

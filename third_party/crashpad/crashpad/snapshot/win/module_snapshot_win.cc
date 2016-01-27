@@ -27,8 +27,12 @@ namespace internal {
 ModuleSnapshotWin::ModuleSnapshotWin()
     : ModuleSnapshot(),
       name_(),
-      timestamp_(0),
+      pdb_name_(),
+      uuid_(),
+      pe_image_reader_(),
       process_reader_(nullptr),
+      timestamp_(0),
+      age_(0),
       initialized_() {
 }
 
@@ -51,27 +55,31 @@ bool ModuleSnapshotWin::Initialize(
     return false;
   }
 
+  DWORD age_dword;
+  if (pe_image_reader_->DebugDirectoryInformation(
+          &uuid_, &age_dword, &pdb_name_)) {
+    static_assert(sizeof(DWORD) == sizeof(uint32_t), "unexpected age size");
+    age_ = age_dword;
+  } else {
+    // If we fully supported all old debugging formats, we would want to extract
+    // and emit a different type of CodeView record here (as old Microsoft tools
+    // would do). As we don't expect to ever encounter a module that wouldn't be
+    // be using .PDB that we actually have symbols for, we simply set a
+    // plausible name here, but this will never correspond to symbols that we
+    // have.
+    pdb_name_ = base::UTF16ToUTF8(name_);
+  }
+
   INITIALIZATION_STATE_SET_VALID(initialized_);
   return true;
 }
 
 void ModuleSnapshotWin::GetCrashpadOptions(CrashpadInfoClientOptions* options) {
   INITIALIZATION_STATE_DCHECK_VALID(initialized_);
-
-  process_types::CrashpadInfo crashpad_info;
-  if (!pe_image_reader_->GetCrashpadInfo(&crashpad_info)) {
-    options->crashpad_handler_behavior = TriState::kUnset;
-    options->system_crash_reporter_forwarding = TriState::kUnset;
-    return;
-  }
-
-  options->crashpad_handler_behavior =
-      CrashpadInfoClientOptions::TriStateFromCrashpadInfo(
-          crashpad_info.crashpad_handler_behavior);
-
-  options->system_crash_reporter_forwarding =
-      CrashpadInfoClientOptions::TriStateFromCrashpadInfo(
-          crashpad_info.system_crash_reporter_forwarding);
+  if (process_reader_->Is64Bit())
+    GetCrashpadOptionsInternal<process_types::internal::Traits64>(options);
+  else
+    GetCrashpadOptionsInternal<process_types::internal::Traits32>(options);
 }
 
 std::string ModuleSnapshotWin::Name() const {
@@ -146,16 +154,22 @@ ModuleSnapshot::ModuleType ModuleSnapshotWin::GetModuleType() const {
   return ModuleSnapshot::kModuleTypeUnknown;
 }
 
-void ModuleSnapshotWin::UUID(crashpad::UUID* uuid) const {
+void ModuleSnapshotWin::UUIDAndAge(crashpad::UUID* uuid, uint32_t* age) const {
   INITIALIZATION_STATE_DCHECK_VALID(initialized_);
-  CHECK(false) << "TODO(scottmg)";
+  *uuid = uuid_;
+  *age = age_;
+}
+
+std::string ModuleSnapshotWin::DebugFileName() const {
+  INITIALIZATION_STATE_DCHECK_VALID(initialized_);
+  return pdb_name_;
 }
 
 std::vector<std::string> ModuleSnapshotWin::AnnotationsVector() const {
   INITIALIZATION_STATE_DCHECK_VALID(initialized_);
   // These correspond to system-logged things on Mac. We don't currently track
   // any of these on Windows, but could in the future.
-  // See https://code.google.com/p/crashpad/issues/detail?id=38.
+  // See https://crashpad.chromium.org/bug/38.
   return std::vector<std::string>();
 }
 
@@ -165,6 +179,25 @@ std::map<std::string, std::string> ModuleSnapshotWin::AnnotationsSimpleMap()
   PEImageAnnotationsReader annotations_reader(
       process_reader_, pe_image_reader_.get(), name_);
   return annotations_reader.SimpleMap();
+}
+
+template <class Traits>
+void ModuleSnapshotWin::GetCrashpadOptionsInternal(
+    CrashpadInfoClientOptions* options) {
+  process_types::CrashpadInfo<Traits> crashpad_info;
+  if (!pe_image_reader_->GetCrashpadInfo(&crashpad_info)) {
+    options->crashpad_handler_behavior = TriState::kUnset;
+    options->system_crash_reporter_forwarding = TriState::kUnset;
+    return;
+  }
+
+  options->crashpad_handler_behavior =
+      CrashpadInfoClientOptions::TriStateFromCrashpadInfo(
+          crashpad_info.crashpad_handler_behavior);
+
+  options->system_crash_reporter_forwarding =
+      CrashpadInfoClientOptions::TriStateFromCrashpadInfo(
+          crashpad_info.system_crash_reporter_forwarding);
 }
 
 }  // namespace internal

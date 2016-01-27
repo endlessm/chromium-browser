@@ -10,9 +10,9 @@
 #include "base/single_thread_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/thread_task_runner_handle.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/renderer/media/cast_threads.h"
 #include "chrome/renderer/media/cast_transport_sender_ipc.h"
+#include "components/version_info/version_info.h"
 #include "content/public/renderer/render_thread.h"
 #include "media/cast/cast_config.h"
 #include "media/cast/cast_environment.h"
@@ -79,8 +79,8 @@ void CastSessionDelegateBase::StartUDP(
                  base::Unretained(this)),
       base::Bind(&CastSessionDelegateBase::StatusNotificationCB,
                  base::Unretained(this), error_callback),
-      base::Bind(&CastSessionDelegateBase::LogRawEvents,
-                 base::Unretained(this))));
+      base::Bind(&media::cast::LogEventDispatcher::DispatchBatchOfEvents,
+                 base::Unretained(cast_environment_->logger()))));
 }
 
 void CastSessionDelegateBase::StatusNotificationCB(
@@ -211,10 +211,9 @@ void CastSessionDelegate::GetEventLogsAndReset(
     metadata.set_extra_data(extra_data);
   media::cast::proto::GeneralDescription* gen_desc =
       metadata.mutable_general_description();
-  chrome::VersionInfo version_info;
-  gen_desc->set_product(version_info.Name());
-  gen_desc->set_product_version(version_info.Version());
-  gen_desc->set_os(version_info.OSType());
+  gen_desc->set_product(version_info::GetProductName());
+  gen_desc->set_product_version(version_info::GetVersionNumber());
+  gen_desc->set_os(version_info::GetOSType());
 
   scoped_ptr<char[]> serialized_log(new char[media::cast::kMaxSerializedBytes]);
   int output_bytes;
@@ -313,45 +312,4 @@ void CastSessionDelegate::OnOperationalStatusChange(
 void CastSessionDelegate::ReceivePacket(
     scoped_ptr<media::cast::Packet> packet) {
   // Do nothing (frees packet)
-}
-
-void CastSessionDelegate::LogRawEvents(
-    const std::vector<media::cast::PacketEvent>& packet_events,
-    const std::vector<media::cast::FrameEvent>& frame_events) {
-  DCHECK(io_task_runner_->BelongsToCurrentThread());
-
-  for (std::vector<media::cast::PacketEvent>::const_iterator it =
-           packet_events.begin();
-       it != packet_events.end();
-       ++it) {
-    cast_environment_->Logging()->InsertPacketEvent(it->timestamp,
-                                                    it->type,
-                                                    it->media_type,
-                                                    it->rtp_timestamp,
-                                                    it->frame_id,
-                                                    it->packet_id,
-                                                    it->max_packet_id,
-                                                    it->size);
-  }
-  for (std::vector<media::cast::FrameEvent>::const_iterator it =
-           frame_events.begin();
-       it != frame_events.end();
-       ++it) {
-    if (it->type == media::cast::FRAME_PLAYOUT) {
-      cast_environment_->Logging()->InsertFrameEventWithDelay(
-          it->timestamp,
-          it->type,
-          it->media_type,
-          it->rtp_timestamp,
-          it->frame_id,
-          it->delay_delta);
-    } else {
-      cast_environment_->Logging()->InsertFrameEvent(
-          it->timestamp,
-          it->type,
-          it->media_type,
-          it->rtp_timestamp,
-          it->frame_id);
-    }
-  }
 }

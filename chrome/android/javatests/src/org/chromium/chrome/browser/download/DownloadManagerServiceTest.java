@@ -6,6 +6,7 @@ package org.chromium.chrome.browser.download;
 
 import android.app.DownloadManager;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.test.InstrumentationTestCase;
@@ -101,7 +102,7 @@ public class DownloadManagerServiceTest extends InstrumentationTestCase {
         }
 
         @Override
-        public void notifyDownloadSuccessful(DownloadInfo downloadInfo) {
+        public void notifyDownloadSuccessful(DownloadInfo downloadInfo, Intent intent) {
             assertCorrectExpectedCall(MethodID.DOWNLOAD_SUCCESSFUL, downloadInfo);
         }
 
@@ -120,7 +121,44 @@ public class DownloadManagerServiceTest extends InstrumentationTestCase {
         public void cancelNotification(int downloadId) {
             assertCorrectExpectedCall(MethodID.CANCEL_DOWNLOAD_ID, downloadId);
         }
+    }
 
+    /**
+     * Mock implementation of the DownloadSnackbarController.
+     */
+    static class MockDownloadSnackbarController extends DownloadSnackbarController {
+        private boolean mSucceeded;
+        private boolean mFailed;
+
+        public MockDownloadSnackbarController() {
+            super(null);
+        }
+
+        public void waitForSnackbarControllerToFinish(final boolean success) {
+            boolean result = false;
+            try {
+                result = CriteriaHelper.pollForCriteria(new Criteria() {
+                    @Override
+                    public boolean isSatisfied() {
+                        return success ? mSucceeded : mFailed;
+                    }
+                });
+            } catch (InterruptedException e) {
+                fail("Failed while waiting for all calls to complete." + e);
+            }
+            assertTrue("Failed while waiting for all calls to complete.", result);
+        }
+
+        @Override
+        public void onDownloadSucceeded(
+                DownloadInfo downloadInfo, final long downloadId, boolean canBeResolved) {
+            mSucceeded = true;
+        }
+
+        @Override
+        public void onDownloadFailed(String errorMessage, boolean showAllDownloads) {
+            mFailed = true;
+        }
     }
 
     /**
@@ -213,6 +251,11 @@ public class DownloadManagerServiceTest extends InstrumentationTestCase {
                 long updateDelayInMillis) {
             super(context, mockNotifier, getTestHandler(), updateDelayInMillis);
         }
+
+        @Override
+        protected long addCompletedDownload(DownloadInfo downloadInfo) {
+            return 1L;
+        }
     }
 
     private static Handler getTestHandler() {
@@ -292,8 +335,10 @@ public class DownloadManagerServiceTest extends InstrumentationTestCase {
     @Feature({"Download"})
     public void testDownloadCompletedIsCalled() throws InterruptedException {
         MockDownloadNotifier notifier = new MockDownloadNotifier();
+        MockDownloadSnackbarController snackbarController = new MockDownloadSnackbarController();
         DownloadManagerServiceForTest dService = new DownloadManagerServiceForTest(
                 getTestContext(), notifier, UPDATE_DELAY_FOR_TEST);
+        dService.setDownloadSnackbarController(snackbarController);
         // Try calling download completed directly.
         DownloadInfo successful = Builder.fromDownloadInfo(getDownloadInfo())
                 .setIsSuccessful(true).build();
@@ -305,12 +350,16 @@ public class DownloadManagerServiceTest extends InstrumentationTestCase {
 
         dService.onDownloadCompleted(successful);
         notifier.waitTillExpectedCallsComplete();
+        snackbarController.waitForSnackbarControllerToFinish(true);
 
         // Now check that a cancel works.
         DownloadInfo failure = Builder.fromDownloadInfo(getDownloadInfo())
                 .setIsSuccessful(false).build();
         notifier.expect(MethodID.CANCEL_DOWNLOAD_ID, failure.getDownloadId())
                 .andThen(MethodID.DOWNLOAD_FAILED, failure);
+        dService.onDownloadCompleted(failure);
+        notifier.waitTillExpectedCallsComplete();
+        snackbarController.waitForSnackbarControllerToFinish(false);
 
         // Now check that a successful notification appears after a download progress.
         DownloadInfo progress = getDownloadInfo();
@@ -323,6 +372,7 @@ public class DownloadManagerServiceTest extends InstrumentationTestCase {
         Thread.sleep(DELAY_BETWEEN_CALLS);
         dService.onDownloadCompleted(successful);
         notifier.waitTillExpectedCallsComplete();
+        snackbarController.waitForSnackbarControllerToFinish(true);
     }
 
     @MediumTest

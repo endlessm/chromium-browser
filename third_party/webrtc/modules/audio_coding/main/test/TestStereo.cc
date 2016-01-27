@@ -17,9 +17,9 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/common_types.h"
 #include "webrtc/engine_configurations.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module_typedefs.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module_typedefs.h"
 #include "webrtc/modules/audio_coding/main/test/utility.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/test/testsupport/fileutils.h"
 
 namespace webrtc {
@@ -58,7 +58,7 @@ int32_t TestPackStereo::SendData(const FrameType frame_type,
   rtp_info.header.sequenceNumber = seq_no_++;
   rtp_info.header.payloadType = payload_type;
   rtp_info.header.timestamp = timestamp;
-  if (frame_type == kFrameEmpty) {
+  if (frame_type == kEmptyFrame) {
     // Skip this frame
     return 0;
   }
@@ -118,11 +118,9 @@ TestStereo::TestStereo(int test_mode)
 #ifdef WEBRTC_CODEC_G722
       , g722_pltype_(0)
 #endif
-#ifdef WEBRTC_CODEC_PCM16
       , l16_8khz_pltype_(-1)
       , l16_16khz_pltype_(-1)
       , l16_32khz_pltype_(-1)
-#endif
 #ifdef PCMA_AND_PCMU
       , pcma_pltype_(-1)
       , pcmu_pltype_(-1)
@@ -247,7 +245,6 @@ void TestStereo::Perform() {
   Run(channel_a2b_, audio_channels, codec_channels);
   out_file_.Close();
 #endif
-#ifdef WEBRTC_CODEC_PCM16
   if (test_mode_ != 0) {
     printf("===========================================================\n");
     printf("Test number: %d\n", test_cntr_ + 1);
@@ -306,7 +303,6 @@ void TestStereo::Perform() {
       l16_32khz_pltype_);
   Run(channel_a2b_, audio_channels, codec_channels);
   out_file_.Close();
-#endif
 #ifdef PCMA_AND_PCMU
   if (test_mode_ != 0) {
     printf("===========================================================\n");
@@ -435,7 +431,6 @@ void TestStereo::Perform() {
   Run(channel_a2b_, audio_channels, codec_channels);
   out_file_.Close();
 #endif
-#ifdef WEBRTC_CODEC_PCM16
   if (test_mode_ != 0) {
     printf("===============================================================\n");
     printf("Test number: %d\n", test_cntr_ + 1);
@@ -470,7 +465,6 @@ void TestStereo::Perform() {
       l16_32khz_pltype_);
   Run(channel_a2b_, audio_channels, codec_channels);
   out_file_.Close();
-#endif
 #ifdef PCMA_AND_PCMU
   if (test_mode_ != 0) {
     printf("===============================================================\n");
@@ -538,7 +532,6 @@ void TestStereo::Perform() {
   Run(channel_a2b_, audio_channels, codec_channels);
   out_file_.Close();
 #endif
-#ifdef WEBRTC_CODEC_PCM16
   if (test_mode_ != 0) {
     printf("===============================================================\n");
     printf("Test number: %d\n", test_cntr_ + 1);
@@ -572,7 +565,6 @@ void TestStereo::Perform() {
       l16_32khz_pltype_);
   Run(channel_a2b_, audio_channels, codec_channels);
   out_file_.Close();
-#endif
 #ifdef PCMA_AND_PCMU
   if (test_mode_ != 0) {
     printf("===============================================================\n");
@@ -662,9 +654,7 @@ void TestStereo::Perform() {
 #ifdef WEBRTC_CODEC_G722
     printf("   G.722\n");
 #endif
-#ifdef WEBRTC_CODEC_PCM16
     printf("   PCM16\n");
-#endif
     printf("   G.711\n");
 #ifdef WEBRTC_CODEC_OPUS
     printf("   Opus\n");
@@ -833,14 +823,15 @@ void TestStereo::OpenOutFile(int16_t test_number) {
 }
 
 void TestStereo::DisplaySendReceiveCodec() {
-  CodecInst my_codec_param;
-  acm_a_->SendCodec(&my_codec_param);
+  auto send_codec = acm_a_->SendCodec();
   if (test_mode_ != 0) {
-    printf("%s -> ", my_codec_param.plname);
+    ASSERT_TRUE(send_codec);
+    printf("%s -> ", send_codec->plname);
   }
-  acm_b_->ReceiveCodec(&my_codec_param);
+  CodecInst receive_codec;
+  acm_b_->ReceiveCodec(&receive_codec);
   if (test_mode_ != 0) {
-    printf("%s\n", my_codec_param.plname);
+    printf("%s\n", receive_codec.plname);
   }
 }
 

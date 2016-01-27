@@ -32,11 +32,11 @@ int RotationToDegrees(gfx::Display::Rotation rotation) {
 }
 
 // Creates new DisplayUnitInfo struct for |display|.
-core_api::system_display::DisplayUnitInfo* CreateDisplayUnitInfo(
+api::system_display::DisplayUnitInfo* CreateDisplayUnitInfo(
     const gfx::Display& display,
     int64 primary_display_id) {
-  core_api::system_display::DisplayUnitInfo* unit =
-      new core_api::system_display::DisplayUnitInfo();
+  api::system_display::DisplayUnitInfo* unit =
+      new api::system_display::DisplayUnitInfo();
   const gfx::Rect& bounds = display.bounds();
   const gfx::Rect& work_area = display.work_area();
   unit->id = base::Int64ToString(display.id());
@@ -74,6 +74,8 @@ void DisplayInfoProvider::InitializeForTesting(
   g_display_info_provider = display_info_provider;
 }
 
+void DisplayInfoProvider::EnableUnifiedDesktop(bool enable) {}
+
 DisplayInfo DisplayInfoProvider::GetAllDisplaysInfo() {
   // TODO(scottmg): Native is wrong http://crbug.com/133312
   gfx::Screen* screen = gfx::Screen::GetNativeScreen();
@@ -81,7 +83,7 @@ DisplayInfo DisplayInfoProvider::GetAllDisplaysInfo() {
   std::vector<gfx::Display> displays = screen->GetAllDisplays();
   DisplayInfo all_displays;
   for (const gfx::Display& display : displays) {
-    linked_ptr<core_api::system_display::DisplayUnitInfo> unit(
+    linked_ptr<api::system_display::DisplayUnitInfo> unit(
         CreateDisplayUnitInfo(display, primary_id));
     UpdateDisplayUnitInfoForPlatform(display, unit.get());
     all_displays.push_back(unit);

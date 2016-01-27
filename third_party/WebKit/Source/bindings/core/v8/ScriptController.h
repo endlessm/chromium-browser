@@ -68,6 +68,7 @@ enum ReasonForCallingCanExecuteScripts {
 
 class CORE_EXPORT ScriptController final : public NoBaseWillBeGarbageCollectedFinalized<ScriptController> {
     WTF_MAKE_NONCOPYABLE(ScriptController);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(ScriptController);
 public:
     enum ExecuteScriptPolicy {
         ExecuteScriptWhenScriptsDisabled,
@@ -89,7 +90,7 @@ public:
     // Evaluate JavaScript in the main world.
     void executeScriptInMainWorld(const String&, ExecuteScriptPolicy = DoNotExecuteScriptWhenScriptsDisabled);
     void executeScriptInMainWorld(const ScriptSourceCode&, AccessControlStatus = NotSharableCrossOrigin, double* compilationFinishTime = 0);
-    v8::Local<v8::Value> executeScriptInMainWorldAndReturnValue(const ScriptSourceCode&);
+    v8::Local<v8::Value> executeScriptInMainWorldAndReturnValue(const ScriptSourceCode&, ExecuteScriptPolicy = DoNotExecuteScriptWhenScriptsDisabled);
     v8::Local<v8::Value> executeScriptAndReturnValue(v8::Local<v8::Context>, const ScriptSourceCode&, AccessControlStatus = NotSharableCrossOrigin, double* compilationFinishTime = 0);
 
     // Executes JavaScript in an isolated world. The script gets its own global scope,
@@ -161,7 +162,7 @@ private:
 
     LocalFrame* frame() const { return toLocalFrame(m_windowProxyManager->frame()); }
 
-    typedef HashMap<Widget*, NPObject*> PluginObjectMap;
+    typedef WillBeHeapHashMap<RawPtrWillBeMember<Widget>, NPObject*> PluginObjectMap;
 
     v8::Local<v8::Value> evaluateScriptInMainWorld(const ScriptSourceCode&, AccessControlStatus, ExecuteScriptPolicy, double* compilationFinishTime = 0);
 

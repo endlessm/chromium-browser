@@ -35,39 +35,41 @@
 #include "core/frame/LocalFrame.h"
 #include "core/input/EventHandler.h"
 #include "core/layout/LayoutView.h"
-#include "core/layout/compositing/DeprecatedPaintLayerCompositor.h"
+#include "core/layout/compositing/PaintLayerCompositor.h"
 #include "core/page/AutoscrollController.h"
 #include "core/page/Page.h"
 #include "core/paint/TransformRecorder.h"
 #include "platform/Logging.h"
 #include "platform/graphics/GraphicsContext.h"
 #include "platform/graphics/paint/ClipRecorder.h"
+#include "platform/graphics/paint/CullRect.h"
 #include "platform/graphics/paint/DrawingRecorder.h"
 #include "platform/graphics/paint/SkPictureBuilder.h"
 #include "platform/transforms/AffineTransform.h"
 #include "public/web/WebInputEvent.h"
-#include "web/PageOverlayList.h"
 #include "web/WebInputEventConversion.h"
 #include "wtf/CurrentTime.h"
 
 namespace blink {
 
-void PageWidgetDelegate::animate(Page& page, double monotonicFrameBeginTime, LocalFrame& root)
+void PageWidgetDelegate::animate(Page& page, double monotonicFrameBeginTime)
 {
-    RefPtrWillBeRawPtr<FrameView> view = root.view();
-    if (!view)
-        return;
     page.autoscrollController().animate(monotonicFrameBeginTime);
     page.animator().serviceScriptedAnimations(monotonicFrameBeginTime);
 }
 
-void PageWidgetDelegate::layout(Page& page, LocalFrame& root)
+void PageWidgetDelegate::updateLifecycleToCompositingCleanPlusScrolling(Page& page, LocalFrame& root)
 {
-    page.animator().updateLayoutAndStyleForPainting(&root);
+    page.animator().updateLifecycleToCompositingCleanPlusScrolling(root);
 }
 
-void PageWidgetDelegate::paint(Page& page, PageOverlayList* overlays, WebCanvas* canvas,
-    const WebRect& rect, LocalFrame& root)
+void PageWidgetDelegate::updateAllLifecyclePhases(Page& page, LocalFrame& root)
+{
+    page.animator().updateAllLifecyclePhases(root);
+}
+
+static void paintInternal(Page& page, WebCanvas* canvas,
+    const WebRect& rect, LocalFrame& root, const GlobalPaintFlags globalPaintFlags)
 {
     if (rect.isEmpty())
         return;
@@ -91,15 +93,25 @@ void PageWidgetDelegate::paint(Page& page, PageOverlayList* overlays, WebCanvas*
         if (view) {
             ClipRecorder clipRecorder(paintContext, root, DisplayItem::PageWidgetDelegateClip, LayoutRect(dirtyRect));
 
-            view->paint(&paintContext, dirtyRect);
-            if (overlays)
-                overlays->paintWebFrame(paintContext);
+            view->paint(&paintContext, globalPaintFlags, CullRect(dirtyRect));
         } else if (!DrawingRecorder::useCachedDrawingIfPossible(paintContext, root, DisplayItem::PageWidgetDelegateBackgroundFallback)) {
             DrawingRecorder drawingRecorder(paintContext, root, DisplayItem::PageWidgetDelegateBackgroundFallback, dirtyRect);
             paintContext.fillRect(dirtyRect, Color::white);
         }
     }
     pictureBuilder.endRecording()->playback(canvas);
+}
+
+void PageWidgetDelegate::paint(Page& page, WebCanvas* canvas,
+    const WebRect& rect, LocalFrame& root)
+{
+    paintInternal(page, canvas, rect, root, GlobalPaintNormalPhase);
+}
+
+void PageWidgetDelegate::paintIgnoringCompositing(Page& page, WebCanvas* canvas,
+    const WebRect& rect, LocalFrame& root)
+{
+    paintInternal(page, canvas, rect, root, GlobalPaintFlattenCompositingLayers);
 }
 
 bool PageWidgetDelegate::handleInputEvent(PageWidgetEventHandler& handler, const WebInputEvent& event, LocalFrame* root)
@@ -209,6 +221,49 @@ bool PageWidgetEventHandler::handleMouseWheel(LocalFrame& mainFrame, const WebMo
 bool PageWidgetEventHandler::handleTouchEvent(LocalFrame& mainFrame, const WebTouchEvent& event)
 {
     return mainFrame.eventHandler().handleTouchEvent(PlatformTouchEventBuilder(mainFrame.view(), event));
+}
+
+#define WEBINPUT_EVENT_CASE(type) case WebInputEvent::type: return #type;
+
+const char* PageWidgetEventHandler::inputTypeToName(WebInputEvent::Type type)
+{
+    switch (type) {
+        WEBINPUT_EVENT_CASE(MouseDown)
+        WEBINPUT_EVENT_CASE(MouseUp)
+        WEBINPUT_EVENT_CASE(MouseMove)
+        WEBINPUT_EVENT_CASE(MouseEnter)
+        WEBINPUT_EVENT_CASE(MouseLeave)
+        WEBINPUT_EVENT_CASE(ContextMenu)
+        WEBINPUT_EVENT_CASE(MouseWheel)
+        WEBINPUT_EVENT_CASE(RawKeyDown)
+        WEBINPUT_EVENT_CASE(KeyDown)
+        WEBINPUT_EVENT_CASE(KeyUp)
+        WEBINPUT_EVENT_CASE(Char)
+        WEBINPUT_EVENT_CASE(GestureScrollBegin)
+        WEBINPUT_EVENT_CASE(GestureScrollEnd)
+        WEBINPUT_EVENT_CASE(GestureScrollUpdate)
+        WEBINPUT_EVENT_CASE(GestureFlingStart)
+        WEBINPUT_EVENT_CASE(GestureFlingCancel)
+        WEBINPUT_EVENT_CASE(GestureShowPress)
+        WEBINPUT_EVENT_CASE(GestureTap)
+        WEBINPUT_EVENT_CASE(GestureTapUnconfirmed)
+        WEBINPUT_EVENT_CASE(GestureTapDown)
+        WEBINPUT_EVENT_CASE(GestureTapCancel)
+        WEBINPUT_EVENT_CASE(GestureDoubleTap)
+        WEBINPUT_EVENT_CASE(GestureTwoFingerTap)
+        WEBINPUT_EVENT_CASE(GestureLongPress)
+        WEBINPUT_EVENT_CASE(GestureLongTap)
+        WEBINPUT_EVENT_CASE(GesturePinchBegin)
+        WEBINPUT_EVENT_CASE(GesturePinchEnd)
+        WEBINPUT_EVENT_CASE(GesturePinchUpdate)
+        WEBINPUT_EVENT_CASE(TouchStart)
+        WEBINPUT_EVENT_CASE(TouchMove)
+        WEBINPUT_EVENT_CASE(TouchEnd)
+        WEBINPUT_EVENT_CASE(TouchCancel)
+    default:
+        ASSERT_NOT_REACHED();
+        return "";
+    }
 }
 
 } // namespace blink

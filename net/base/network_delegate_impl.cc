@@ -56,15 +56,19 @@ void NetworkDelegateImpl::OnBeforeRedirect(URLRequest* request,
 void NetworkDelegateImpl::OnResponseStarted(URLRequest* request) {
 }
 
-void NetworkDelegateImpl::OnRawBytesRead(const URLRequest& request,
-                                         int bytes_read) {
-}
+void NetworkDelegateImpl::OnNetworkBytesReceived(URLRequest* request,
+                                                 int64_t bytes_received) {}
+
+void NetworkDelegateImpl::OnNetworkBytesSent(URLRequest* request,
+                                             int64_t bytes_sent) {}
 
 void NetworkDelegateImpl::OnCompleted(URLRequest* request, bool started) {
 }
 
 void NetworkDelegateImpl::OnURLRequestDestroyed(URLRequest* request) {
 }
+
+void NetworkDelegateImpl::OnURLRequestJobOrphaned(URLRequest* request) {}
 
 void NetworkDelegateImpl::OnPACScriptError(int line_number,
                                            const base::string16& error) {
@@ -100,7 +104,7 @@ bool NetworkDelegateImpl::OnCanEnablePrivacyMode(
   return false;
 }
 
-bool NetworkDelegateImpl::OnFirstPartyOnlyCookieExperimentEnabled() const {
+bool NetworkDelegateImpl::OnAreExperimentalCookieFeaturesEnabled() const {
   return false;
 }
 

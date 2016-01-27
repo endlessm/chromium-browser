@@ -50,7 +50,8 @@ class AutofillCCInfoBarDelegate : public ConfirmInfoBarDelegate {
 
   // ConfirmInfoBarDelegate:
   Type GetInfoBarType() const override;
-  int GetIconID() const override;
+  int GetIconId() const override;
+  gfx::VectorIconId GetVectorIconId() const override;
   bool ShouldExpire(const NavigationDetails& details) const override;
   void InfoBarDismissed() override;
   base::string16 GetMessageText() const override;
@@ -58,7 +59,7 @@ class AutofillCCInfoBarDelegate : public ConfirmInfoBarDelegate {
   bool Accept() override;
   bool Cancel() override;
   base::string16 GetLinkText() const override;
-  bool LinkClicked(WindowOpenDisposition disposition) override;
+  GURL GetLinkURL() const override;
 
   // Performs navigation to handle any link click. Guaranteed to outlive us.
   AutofillClient* const autofill_client_;

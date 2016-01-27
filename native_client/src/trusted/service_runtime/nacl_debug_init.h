@@ -7,7 +7,9 @@
 #ifndef NATIVE_CLIENT_SRC_TRUSTED_SERVICE_RUNTIME_NACL_DEBUG_INIT_H_
 #define NATIVE_CLIENT_SRC_TRUSTED_SERVICE_RUNTIME_NACL_DEBUG_INIT_H_ 1
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/portability_sockets.h"
+#include "native_client/src/shared/imc/nacl_imc_c.h"
 #include "native_client/src/trusted/service_runtime/sel_ldr.h"
 
 EXTERN_C_BEGIN
@@ -29,10 +31,25 @@ int NaClDebugBindSocket(void);
 void NaClDebugSetBoundSocket(NaClSocketHandle bound_socket);
 
 /*
+ * NaClDebugStubSetPipe() takes a named pipe on windows or a socket
+ * pair descriptor on posix. This sets up the debug stub to talk over the
+ * pipe with chrome.
+ */
+void NaClDebugStubSetPipe(NaClHandle handle);
+
+/*
  * Enables the debug stub.  If this is called, we do not guarantee
  * security to the same extent that we normally would.
  */
 int NaClDebugInit(struct NaClApp *nap);
+
+/*
+ * Returns the port bound in NaClDebugBindSocket() or NaClDebugSetBoundSocket().
+ * TODO(leslieb): remove when windows no longer needs the port information.
+ */
+#if NACL_WINDOWS
+uint16_t NaClDebugGetBoundPort();
+#endif
 
 EXTERN_C_END
 

@@ -12,11 +12,29 @@
 #include "base/memory/scoped_ptr.h"
 #include "remoting/protocol/fake_stream_socket.h"
 #include "remoting/protocol/session.h"
+#include "remoting/protocol/transport.h"
 
 namespace remoting {
 namespace protocol {
 
 extern const char kTestJid[];
+
+class FakeTransport : public Transport {
+ public:
+  FakeTransport();
+  ~FakeTransport() override;
+
+  // Transport interface.
+  void Start(EventHandler* event_handler,
+             Authenticator* authenticator) override;
+  bool ProcessTransportInfo(buzz::XmlElement* transport_info) override;
+  DatagramChannelFactory* GetDatagramChannelFactory() override;
+  FakeStreamChannelFactory* GetStreamChannelFactory() override;
+  FakeStreamChannelFactory* GetMultiplexedChannelFactory() override;
+
+ private:
+  FakeStreamChannelFactory channel_factory_;
+};
 
 // FakeSession is a dummy protocol::Session that uses FakeStreamSocket for all
 // channels.
@@ -31,27 +49,22 @@ class FakeSession : public Session {
 
   bool is_closed() const { return closed_; }
 
-  FakeStreamChannelFactory& fake_channel_factory() { return channel_factory_; }
-
   // Session interface.
   void SetEventHandler(EventHandler* event_handler) override;
   ErrorCode error() override;
   const std::string& jid() override;
-  const CandidateSessionConfig* candidate_config() override;
   const SessionConfig& config() override;
-  void set_config(scoped_ptr<SessionConfig> config) override;
-  StreamChannelFactory* GetTransportChannelFactory() override;
-  StreamChannelFactory* GetMultiplexedChannelFactory() override;
-  void Close() override;
+  FakeTransport* GetTransport() override;
+  FakeStreamChannelFactory* GetQuicChannelFactory() override;
+  void Close(ErrorCode error) override;
 
  public:
   EventHandler* event_handler_;
-  scoped_ptr<const CandidateSessionConfig> candidate_config_;
   scoped_ptr<SessionConfig> config_;
 
-  FakeStreamChannelFactory channel_factory_;
-
   std::string jid_;
+
+  FakeTransport transport_;
 
   ErrorCode error_;
   bool closed_;

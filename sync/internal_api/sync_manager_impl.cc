@@ -242,7 +242,6 @@ void SyncManagerImpl::Init(InitArgs* args) {
 
   database_path_ = args->database_location.Append(
       syncable::Directory::kSyncDatabaseFilename);
-  unrecoverable_error_handler_ = args->unrecoverable_error_handler.Pass();
   report_unrecoverable_error_function_ =
       args->report_unrecoverable_error_function;
 
@@ -267,7 +266,7 @@ void SyncManagerImpl::Init(InitArgs* args) {
   share_.directory.reset(
       new syncable::Directory(
           backing_store.release(),
-          unrecoverable_error_handler_.get(),
+          args->unrecoverable_error_handler,
           report_unrecoverable_error_function_,
           sync_encryption_handler_.get(),
           sync_encryption_handler_->GetCryptographerUnsafe()));
@@ -313,11 +312,12 @@ void SyncManagerImpl::Init(InitArgs* args) {
 
   // Bind the SyncContext WeakPtr to this thread.  This helps us crash earlier
   // if the pointer is misused in debug mode.
-  base::WeakPtr<SyncContext> weak_core = model_type_registry_->AsWeakPtr();
+  base::WeakPtr<syncer_v2::SyncContext> weak_core =
+      model_type_registry_->AsWeakPtr();
   weak_core.get();
 
-  sync_context_proxy_.reset(
-      new SyncContextProxyImpl(base::ThreadTaskRunnerHandle::Get(), weak_core));
+  sync_context_proxy_.reset(new syncer_v2::SyncContextProxyImpl(
+      base::ThreadTaskRunnerHandle::Get(), weak_core));
 
   // Build a SyncSessionContext and store the worker in it.
   DVLOG(1) << "Sync is bringing up SyncSessionContext.";
@@ -940,7 +940,7 @@ UserShare* SyncManagerImpl::GetUserShare() {
   return &share_;
 }
 
-syncer::SyncContextProxy* SyncManagerImpl::GetSyncContextProxy() {
+syncer_v2::SyncContextProxy* SyncManagerImpl::GetSyncContextProxy() {
   DCHECK(initialized_);
   return sync_context_proxy_.get();
 }
@@ -1037,6 +1037,13 @@ bool SyncManagerImpl::HasDirectoryTypeDebugInfoObserver(
 
 void SyncManagerImpl::RequestEmitDebugInfo() {
   model_type_registry_->RequestEmitDebugInfo();
+}
+
+void SyncManagerImpl::ClearServerData(const ClearServerDataCallback& callback) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  scheduler_->Start(SyncScheduler::CLEAR_SERVER_DATA_MODE, base::Time());
+  ClearParams params(callback);
+  scheduler_->ScheduleClearServerData(params);
 }
 
 }  // namespace syncer

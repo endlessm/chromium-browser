@@ -27,7 +27,7 @@ class MediaRouterUI;
 // The handler for Javascript messages related to the media router dialog.
 class MediaRouterWebUIMessageHandler : public content::WebUIMessageHandler {
  public:
-  MediaRouterWebUIMessageHandler();
+  explicit MediaRouterWebUIMessageHandler(MediaRouterUI* media_router_ui);
   ~MediaRouterWebUIMessageHandler() override;
 
   // Methods to update the status displayed by the dialog.
@@ -35,11 +35,15 @@ class MediaRouterWebUIMessageHandler : public content::WebUIMessageHandler {
   void UpdateRoutes(const std::vector<MediaRoute>& routes);
   void UpdateCastModes(const CastModeSet& cast_modes,
                        const std::string& source_host);
-  void AddRoute(const MediaRoute& route);
+  void OnCreateRouteResponseReceived(const MediaSink::Id& sink_id,
+                                     const MediaRoute* route);
 
   // Does not take ownership of |issue|. Note that |issue| can be nullptr, when
   // there are no more issues.
   void UpdateIssue(const Issue* issue);
+
+  // Notifies the dialog that the route creation attempt timed out.
+  void NotifyRouteCreationTimeout();
 
  private:
   // WebUIMessageHandler implementation.
@@ -54,6 +58,7 @@ class MediaRouterWebUIMessageHandler : public content::WebUIMessageHandler {
   void OnActOnIssue(const base::ListValue* args);
   void OnCloseRoute(const base::ListValue* args);
   void OnCloseDialog(const base::ListValue* args);
+  void OnReportSinkCount(const base::ListValue* args);
 
   // Performs an action for an Issue of |type|.
   // |args| contains additional parameter that varies based on |type|.
@@ -61,11 +66,10 @@ class MediaRouterWebUIMessageHandler : public content::WebUIMessageHandler {
   bool ActOnIssueType(const IssueAction::Type& type,
                       const base::DictionaryValue* args);
 
-  // Helper function for getting a pointer to the corresponding MediaRouterUI.
-  MediaRouterUI* GetMediaRouterUI();
-
   // Keeps track of whether a command to close the dialog has been issued.
   bool dialog_closing_;
+
+  MediaRouterUI* media_router_ui_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaRouterWebUIMessageHandler);
 };

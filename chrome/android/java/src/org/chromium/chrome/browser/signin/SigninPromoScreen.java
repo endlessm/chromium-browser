@@ -6,7 +6,6 @@ package org.chromium.chrome.browser.signin;
 
 import android.accounts.Account;
 import android.app.Activity;
-import android.app.Dialog;
 import android.content.Intent;
 import android.os.Bundle;
 import android.text.TextUtils;
@@ -25,15 +24,17 @@ import org.chromium.chrome.browser.preferences.PreferencesLauncher;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.signin.SigninManager.SignInFlowObserver;
 import org.chromium.chrome.browser.sync.ui.SyncCustomizationFragment;
+import org.chromium.chrome.browser.widget.AlwaysDismissedDialog;
 import org.chromium.sync.signin.AccountManagerHelper;
 import org.chromium.sync.signin.ChromeSigninController;
 
 /**
  * This class implements the dialog UI for the signin promo.
  */
-public class SigninPromoScreen extends Dialog implements AccountFirstRunView.Listener {
-
+public class SigninPromoScreen
+        extends AlwaysDismissedDialog implements AccountFirstRunView.Listener {
     private AccountFirstRunView mAccountFirstRunView;
+    private ProfileDataCache mProfileDataCache;
 
     /**
      * Launches the signin promo if it needs to be displayed.
@@ -73,9 +74,9 @@ public class SigninPromoScreen extends Dialog implements AccountFirstRunView.Lis
 
         LayoutInflater inflater = LayoutInflater.from(activity);
         View view = inflater.inflate(R.layout.fre_choose_account, null);
-        ProfileDataCache profileData = new ProfileDataCache(activity, Profile.getLastUsedProfile());
+        mProfileDataCache = new ProfileDataCache(activity, Profile.getLastUsedProfile());
         mAccountFirstRunView = (AccountFirstRunView) view.findViewById(R.id.fre_account_layout);
-        mAccountFirstRunView.init(profileData);
+        mAccountFirstRunView.init(mProfileDataCache);
         mAccountFirstRunView.configureForAddAccountPromo();
         mAccountFirstRunView.setListener(this);
 
@@ -87,6 +88,13 @@ public class SigninPromoScreen extends Dialog implements AccountFirstRunView.Lis
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         SigninPromoUma.recordAction(SigninPromoUma.SIGNIN_PROMO_SHOWN);
+    }
+
+    @Override
+    public void dismiss() {
+        super.dismiss();
+        mProfileDataCache.destroy();
+        mProfileDataCache = null;
     }
 
     @Override

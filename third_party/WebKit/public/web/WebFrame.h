@@ -80,6 +80,7 @@ struct WebConsoleMessage;
 struct WebFindOptions;
 struct WebFloatPoint;
 struct WebFloatRect;
+struct WebFrameOwnerProperties;
 struct WebPoint;
 struct WebPrintParams;
 struct WebRect;
@@ -184,10 +185,6 @@ public:
     // The scroll offset from the top-left corner of the frame in pixels.
     virtual WebSize scrollOffset() const = 0;
     virtual void setScrollOffset(const WebSize&) = 0;
-
-    // The minimum and maxium scroll positions in pixels.
-    virtual WebSize minimumScrollOffset() const = 0;
-    virtual WebSize maximumScrollOffset() const = 0;
 
     // The size of the contents area.
     virtual WebSize contentsSize() const = 0;
@@ -427,6 +424,9 @@ public:
 
     // Returns the number of registered unload listeners.
     virtual unsigned unloadListenerCount() const = 0;
+
+    // Will return true if between didStartLoading and didStopLoading notifications.
+    virtual bool isLoading() const;
 
 
     // Editing -------------------------------------------------------------
@@ -711,10 +711,10 @@ protected:
     void setParent(WebFrame*);
 
 private:
-    friend class OpenedFrameTracker;
-
 #if BLINK_IMPLEMENTATION
 #if ENABLE(OILPAN)
+    friend class OpenedFrameTracker;
+
     static void traceFrame(Visitor*, WebFrame*);
     static void traceFrame(InlinedGlobalMarkingVisitor, WebFrame*);
     static bool isFrameAlive(const WebFrame*);

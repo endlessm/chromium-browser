@@ -56,14 +56,6 @@ bool DistillerPageIOS::StringifyOutput() {
  return true;
 }
 
-bool DistillerPageIOS::CreateNewContext() {
-  // UIWebView's JavaScript engine has a bug that causes crashes when
-  // creating a separate window object, so allow the script to run directly
-  // in the window until a better solution is created.
-  // TODO(kkhorimoto): investigate whether this is necessary for WKWebView.
- return false;
-}
-
 void DistillerPageIOS::DistillPageImpl(const GURL& url,
                                        const std::string& script) {
   if (!url.is_valid() || !script.length())
@@ -111,8 +103,8 @@ void DistillerPageIOS::OnLoadURLDone(
 void DistillerPageIOS::HandleJavaScriptResultString(NSString* result) {
   scoped_ptr<base::Value> resultValue = base::Value::CreateNullValue();
   if (result.length) {
-    scoped_ptr<base::Value> dictionaryValue(
-        base::JSONReader::DeprecatedRead(base::SysNSStringToUTF8(result)));
+    scoped_ptr<base::Value> dictionaryValue =
+        base::JSONReader::Read(base::SysNSStringToUTF8(result));
     if (dictionaryValue &&
         dictionaryValue->IsType(base::Value::TYPE_DICTIONARY)) {
       resultValue = dictionaryValue.Pass();

@@ -33,21 +33,19 @@ void NetEqExternalDecoderTest::Init() {
                             decoder_, codec_, kPayloadType, sample_rate_hz_));
 }
 
-void NetEqExternalDecoderTest::InsertPacket(WebRtcRTPHeader rtp_header,
-                                            const uint8_t* payload,
-                                            size_t payload_size_bytes,
-                                            uint32_t receive_timestamp) {
-  ASSERT_EQ(
-      NetEq::kOK,
-      neteq_->InsertPacket(
-          rtp_header, payload, payload_size_bytes, receive_timestamp));
+void NetEqExternalDecoderTest::InsertPacket(
+    WebRtcRTPHeader rtp_header,
+    rtc::ArrayView<const uint8_t> payload,
+    uint32_t receive_timestamp) {
+  ASSERT_EQ(NetEq::kOK,
+            neteq_->InsertPacket(rtp_header, payload, receive_timestamp));
 }
 
-int NetEqExternalDecoderTest::GetOutputAudio(size_t max_length,
-                                             int16_t* output,
-                                             NetEqOutputType* output_type) {
+size_t NetEqExternalDecoderTest::GetOutputAudio(size_t max_length,
+                                                int16_t* output,
+                                                NetEqOutputType* output_type) {
   // Get audio from regular instance.
-  int samples_per_channel;
+  size_t samples_per_channel;
   int num_channels;
   EXPECT_EQ(NetEq::kOK,
             neteq_->GetAudio(max_length,
@@ -56,7 +54,8 @@ int NetEqExternalDecoderTest::GetOutputAudio(size_t max_length,
                              &num_channels,
                              output_type));
   EXPECT_EQ(channels_, num_channels);
-  EXPECT_EQ(kOutputLengthMs * sample_rate_hz_ / 1000, samples_per_channel);
+  EXPECT_EQ(static_cast<size_t>(kOutputLengthMs * sample_rate_hz_ / 1000),
+            samples_per_channel);
   return samples_per_channel;
 }
 

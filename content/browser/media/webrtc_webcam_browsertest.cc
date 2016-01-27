@@ -47,7 +47,7 @@ class WebRtcWebcamBrowserTest: public ContentBrowserTest {
   ~WebRtcWebcamBrowserTest() override {}
 
   void SetUpCommandLine(base::CommandLine* command_line) override {
-    ASSERT_TRUE(command_line->HasSwitch(switches::kUseFakeUIForMediaStream));
+    command_line->AppendSwitch(switches::kUseFakeUIForMediaStream);
 
     // The content_browsertests run with this flag by default, and this test is
     // the only current exception to that rule, so just remove the flag
@@ -71,7 +71,7 @@ class WebRtcWebcamBrowserTest: public ContentBrowserTest {
 // want here since the bot runs tests sequentially on the device.
 IN_PROC_BROWSER_TEST_F(WebRtcWebcamBrowserTest,
                        MANUAL_CanAcquireVgaOnRealWebcam) {
-  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+  ASSERT_TRUE(embedded_test_server()->Start());
   GURL url(embedded_test_server()->GetURL(
       "/media/getusermedia-real-webcam.html"));
   NavigateToURL(shell(), url);

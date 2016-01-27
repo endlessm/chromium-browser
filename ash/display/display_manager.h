@@ -38,7 +38,6 @@ class Screen;
 
 namespace ash {
 class AcceleratorControllerTest;
-class DisplayController;
 class DisplayLayoutStore;
 class MouseWarpController;
 class ScreenAsh;
@@ -163,15 +162,6 @@ class ASH_EXPORT DisplayManager
                           gfx::Display::Rotation rotation,
                           gfx::Display::RotationSource source);
 
-  // Sets the display's ui scale. Returns true if it's successful, or
-  // false otherwise.  TODO(mukai): remove this and merge into
-  // SetDisplayMode.
-  bool SetDisplayUIScale(int64 display_id, float ui_scale);
-
-  // Sets the display's resolution.
-  // TODO(mukai): remove this and merge into SetDisplayMode.
-  void SetDisplayResolution(int64 display_id, const gfx::Size& resolution);
-
   // Sets the external display's configuration, including resolution change,
   // ui-scale change, and device scale factor change. Returns true if it changes
   // the display resolution so that the caller needs to show a notification in
@@ -250,6 +240,10 @@ class ASH_EXPORT DisplayManager
     return active_display_list_;
   }
 
+  // Returns true if the display specified by |display_id| is currently
+  // connected and active. (mirroring display isn't active, for example).
+  bool IsActiveDisplayId(int64 display_id) const;
+
   // Returns the number of connected displays. This returns 2
   // when displays are mirrored.
   size_t num_connected_displays() const { return num_connected_displays_; }
@@ -260,6 +254,12 @@ class ASH_EXPORT DisplayManager
   const DisplayList& software_mirroring_display_list() const {
     return software_mirroring_display_list_;
   }
+
+  // Sets/gets if the unified desktop feature is enabled.
+  void SetUnifiedDesktopEnabled(bool enabled);
+  bool unified_desktop_enabled() const { return unified_desktop_enabled_; }
+
+  // Returns true if it's in unified desktop mode.
   bool IsInUnifiedMode() const;
 
   // Returns the display used for software mirrroring. Returns invalid
@@ -292,14 +292,14 @@ class ASH_EXPORT DisplayManager
   bool SoftwareMirroringEnabled() const override;
 #endif
 
-  // Sets/gets multi display mode.
-  void SetMultiDisplayMode(MultiDisplayMode mode);
-
   // Sets/gets default multi display mode.
-  void SetDefaultMultiDisplayMode(MultiDisplayMode mode);
-  MultiDisplayMode default_multi_display_mode() const {
-    return default_multi_display_mode_;
+  void SetDefaultMultiDisplayModeForCurrentDisplays(MultiDisplayMode mode);
+  MultiDisplayMode current_default_multi_display_mode() const {
+    return current_default_multi_display_mode_;
   }
+
+  // Sets multi display mode.
+  void SetMultiDisplayMode(MultiDisplayMode mode);
 
   // Reconfigure display configuration using the same
   // physical display. TODO(oshima): Refactor and move this
@@ -375,6 +375,14 @@ private:
   // Creates a display object from the DisplayInfo for |display_id|.
   gfx::Display CreateDisplayFromDisplayInfoById(int64 display_id);
 
+  // Creates a display object from the DisplayInfo for |display_id| for
+  // mirroring. The size of the display will be scaled using |scale|
+  // with the offset using |origin|.
+  gfx::Display CreateMirroringDisplayFromDisplayInfoById(
+      int64 display_id,
+      const gfx::Point& origin,
+      float scale);
+
   // Updates the bounds of all non-primary displays in |display_list| and
   // append the indices of displays updated to |updated_indices|.
   // When the size of |display_list| equals 2, the bounds are updated using
@@ -423,7 +431,7 @@ private:
   bool change_display_upon_host_resize_;
 
   MultiDisplayMode multi_display_mode_;
-  MultiDisplayMode default_multi_display_mode_;
+  MultiDisplayMode current_default_multi_display_mode_;
 
   int64 mirroring_display_id_;
   DisplayList software_mirroring_display_list_;
@@ -433,6 +441,8 @@ private:
 
   // User preference for the rotation of the internal display.
   gfx::Display::Rotation registered_internal_display_rotation_;
+
+  bool unified_desktop_enabled_;
 
   base::WeakPtrFactory<DisplayManager> weak_ptr_factory_;
 

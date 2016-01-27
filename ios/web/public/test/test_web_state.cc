@@ -68,7 +68,15 @@ void TestWebState::SetContentIsHTML(bool content_is_html) {
   content_is_html_ = content_is_html;
 }
 
+const base::string16& TestWebState::GetTitle() const {
+  return title_;
+}
+
 bool TestWebState::IsLoading() const {
+  return false;
+}
+
+bool TestWebState::IsBeingDestroyed() const {
   return false;
 }
 

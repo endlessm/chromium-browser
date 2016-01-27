@@ -21,6 +21,7 @@
 #include "content/common/gpu/media/va_surface.h"
 #include "media/base/video_decoder_config.h"
 #include "media/base/video_frame.h"
+#include "media/video/jpeg_decode_accelerator.h"
 #include "media/video/video_decode_accelerator.h"
 #include "media/video/video_encode_accelerator.h"
 #include "third_party/libva/va/va.h"
@@ -67,24 +68,29 @@ class CONTENT_EXPORT VaapiWrapper {
       media::VideoCodecProfile profile,
       const base::Closure& report_error_to_uma_cb);
 
-  // Return the supported encode profiles.
+  // Return the supported video encode profiles.
   static media::VideoEncodeAccelerator::SupportedProfiles
       GetSupportedEncodeProfiles();
 
-  // Return the supported decode profiles.
+  // Return the supported video decode profiles.
   static media::VideoDecodeAccelerator::SupportedProfiles
       GetSupportedDecodeProfiles();
 
+  // Return true when JPEG decode is supported.
+  static bool IsJpegDecodeSupported();
+
   ~VaapiWrapper();
 
-  // Create |num_surfaces| backing surfaces in driver for VASurfaces, each
-  // of size |size|. Returns true when successful, with the created IDs in
-  // |va_surfaces| to be managed and later wrapped in VASurfaces.
+  // Create |num_surfaces| backing surfaces in driver for VASurfaces of
+  // |va_format|, each of size |size|. Returns true when successful, with the
+  // created IDs in |va_surfaces| to be managed and later wrapped in
+  // VASurfaces.
   // The client must DestroySurfaces() each time before calling this method
   // again to free the allocated surfaces first, but is not required to do so
   // at destruction time, as this will be done automatically from
   // the destructor.
-  bool CreateSurfaces(const gfx::Size& size,
+  bool CreateSurfaces(unsigned int va_format,
+                      const gfx::Size& size,
                       size_t num_surfaces,
                       std::vector<VASurfaceID>* va_surfaces);
 
@@ -180,16 +186,17 @@ class CONTENT_EXPORT VaapiWrapper {
   // Destroy all previously-allocated (and not yet destroyed) coded buffers.
   void DestroyCodedBuffers();
 
-  // Blits a VASurface |va_surface_id_src| into another VASurface
-  // |va_surface_id_dest| applying pixel format conversion and scaling
+  // Blits a VASurface |va_surface_src| into another VASurface
+  // |va_surface_dest| applying pixel format conversion and scaling
   // if needed.
-  bool BlitSurface(VASurfaceID va_surface_id_src,
-                   const gfx::Size& src_size,
-                   VASurfaceID va_surface_id_dest,
-                   const gfx::Size& dest_size);
+  bool BlitSurface(const scoped_refptr<VASurface>& va_surface_src,
+                   const scoped_refptr<VASurface>& va_surface_dest);
 
   // Initialize static data before sandbox is enabled.
   static void PreSandboxInitialization();
+
+  // Get the created surfaces format.
+  unsigned int va_surface_format() const { return va_surface_format_; }
 
  private:
   struct ProfileInfo {
@@ -320,6 +327,9 @@ class CONTENT_EXPORT VaapiWrapper {
 
   // Allocated ids for VASurfaces.
   std::vector<VASurfaceID> va_surface_ids_;
+
+  // VA format of surfaces with va_surface_ids_.
+  unsigned int va_surface_format_;
 
   // Singleton instance of VADisplayState.
   static base::LazyInstance<VADisplayState> va_display_state_;

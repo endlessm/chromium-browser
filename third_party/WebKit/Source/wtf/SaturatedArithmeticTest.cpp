@@ -29,8 +29,8 @@
  */
 
 #include "config.h"
-
 #include "wtf/SaturatedArithmetic.h"
+
 #include <gtest/gtest.h>
 #include <limits.h>
 
@@ -130,7 +130,9 @@ TEST(SaturatedArithmeticTest, SetSigned)
     EXPECT_EQ(getMinSaturatedSetResultForTesting(kFractionBits),
         saturatedSet(intMinForLayoutUnit - 100, kFractionBits));
 
-    EXPECT_EQ((intMinForLayoutUnit + 100) << kFractionBits,
+    // Shifting negative numbers left has undefined behavior, so use
+    // multiplication instead of direct shifting here.
+    EXPECT_EQ((intMinForLayoutUnit + 100) * (1 << kFractionBits),
         saturatedSet(intMinForLayoutUnit + 100, kFractionBits));
 }
 

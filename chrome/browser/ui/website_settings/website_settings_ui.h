@@ -14,13 +14,9 @@
 #include "components/content_settings/core/common/content_settings_types.h"
 #include "ui/gfx/native_widget_types.h"
 
-
 class GURL;
 class Profile;
 class WebsiteSettings;
-namespace content {
-struct SSLStatus;
-}
 
 namespace gfx {
 class Image;
@@ -34,7 +30,7 @@ class Image;
 // etc.).
 class WebsiteSettingsUI {
  public:
-  // The Website Settings UI contains several tabs. Each tab is assiciated with
+  // The Website Settings UI contains several tabs. Each tab is associated with
   // a unique tab id. The enum |TabId| contains all the ids for the tabs.
   enum TabId {
     TAB_ID_PERMISSIONS = 0,
@@ -43,7 +39,7 @@ class WebsiteSettingsUI {
   };
 
   // |CookieInfo| contains information about the cookies from a specific source.
-  // A source can for example be a specific origin or an entire domain.
+  // A source can for example be a specific origin or an entire wildcard domain.
   struct CookieInfo {
     CookieInfo();
 
@@ -53,6 +49,10 @@ class WebsiteSettingsUI {
     int allowed;
     // The number of blocked cookies.
     int blocked;
+
+    // Whether these cookies are from the current top-level origin as seen by
+    // the user, or from third-party origins.
+    bool is_first_party;
   };
 
   // |PermissionInfo| contains information about a single permission |type| for
@@ -82,7 +82,7 @@ class WebsiteSettingsUI {
     // Status of the site's identity.
     WebsiteSettings::SiteIdentityStatus identity_status;
     // Helper to get the status text to display to the user.
-    base::string16 GetIdentityStatusText() const;
+    base::string16 GetSecuritySummary() const;
     // Textual description of the site's identity status that is displayed to
     // the user.
     std::string identity_status_description;
@@ -151,7 +151,7 @@ class WebsiteSettingsUI {
   // Sets cookie information.
   virtual void SetCookieInfo(const CookieInfoList& cookie_info_list) = 0;
 
-  // Sets permision information.
+  // Sets permission information.
   virtual void SetPermissionInfo(
       const PermissionInfoList& permission_info_list) = 0;
 

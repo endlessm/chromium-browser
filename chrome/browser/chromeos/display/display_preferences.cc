@@ -7,6 +7,7 @@
 #include "ash/display/display_layout_store.h"
 #include "ash/display/display_manager.h"
 #include "ash/display/display_pref_util.h"
+#include "ash/display/display_util.h"
 #include "ash/shell.h"
 #include "base/prefs/pref_registry_simple.h"
 #include "base/prefs/pref_service.h"
@@ -79,7 +80,7 @@ std::string ColorProfileToString(ui::ColorCalibrationProfile profile) {
   return "";
 }
 
-ui::ColorCalibrationProfile StringToColorProfile(std::string value) {
+ui::ColorCalibrationProfile StringToColorProfile(const std::string& value) {
   if (value == "standard")
     return ui::COLOR_PROFILE_STANDARD;
   else if (value == "dynamic")
@@ -121,8 +122,8 @@ void LoadDisplayLayouts() {
     }
 
     if (it.key().find(",") != std::string::npos) {
-      std::vector<std::string> ids;
-      base::SplitString(it.key(), ',', &ids);
+      std::vector<std::string> ids = base::SplitString(
+          it.key(), ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
       int64 id1 = gfx::Display::kInvalidDisplayID;
       int64 id2 = gfx::Display::kInvalidDisplayID;
       if (!base::StringToInt64(ids[0], &id1) ||
@@ -253,12 +254,16 @@ void StoreCurrentDisplayProperties() {
 
     scoped_ptr<base::DictionaryValue> property_value(
         new base::DictionaryValue());
+    // Don't save the display preference in unified mode because its
+    // size and modes can change depending on the combination of displays.
+    if (display_manager->IsInUnifiedMode())
+      continue;
     property_value->SetInteger(
         "rotation",
         static_cast<int>(info.GetRotation(gfx::Display::ROTATION_SOURCE_USER)));
     property_value->SetInteger(
-        "ui-scale",
-        static_cast<int>(info.configured_ui_scale() * 1000));
+        "ui-scale", static_cast<int>(info.configured_ui_scale() * 1000));
+
     ash::DisplayMode mode;
     if (!display.IsInternal() &&
         display_manager->GetSelectedModeForDisplayId(id, &mode) &&
@@ -269,7 +274,7 @@ void StoreCurrentDisplayProperties() {
           "device-scale-factor",
           static_cast<int>(mode.device_scale_factor * 1000));
     }
-    if (!info.overscan_insets_in_dip().empty())
+    if (!info.overscan_insets_in_dip().IsEmpty())
       InsetsToValue(info.overscan_insets_in_dip(), property_value.get());
     if (info.color_profile() != ui::COLOR_PROFILE_STANDARD) {
       property_value->SetString(
@@ -390,7 +395,7 @@ void LoadDisplayPreferences(bool first_run_after_boot) {
 void StoreDisplayLayoutPrefForTest(int64 id1,
                                    int64 id2,
                                    const ash::DisplayLayout& layout) {
-  StoreDisplayLayoutPref(std::make_pair(id1, id2), layout);
+  StoreDisplayLayoutPref(ash::CreateDisplayIdPair(id1, id2), layout);
 }
 
 // Stores the given |power_state|.

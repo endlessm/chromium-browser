@@ -35,8 +35,8 @@
 #include "core/frame/FrameView.h"
 #include "core/frame/LocalDOMWindow.h"
 #include "core/frame/LocalFrame.h"
-#include "core/frame/PinchViewport.h"
 #include "core/frame/Settings.h"
+#include "core/frame/VisualViewport.h"
 #include "core/html/HTMLBodyElement.h"
 #include "core/html/HTMLHeadElement.h"
 #include "core/html/HTMLHtmlElement.h"
@@ -56,7 +56,10 @@ using namespace HTMLNames;
 
 class ImageEventListener : public EventListener {
 public:
-    static PassRefPtr<ImageEventListener> create(ImageDocument* document) { return adoptRef(new ImageEventListener(document)); }
+    static PassRefPtrWillBeRawPtr<ImageEventListener> create(ImageDocument* document)
+    {
+        return adoptRefWillBeNoop(new ImageEventListener(document));
+    }
     static const ImageEventListener* cast(const EventListener* listener)
     {
         return listener->type() == ImageEventListenerType
@@ -64,7 +67,13 @@ public:
             : 0;
     }
 
-    virtual bool operator==(const EventListener& other);
+    bool operator==(const EventListener& other) const override;
+
+    DEFINE_INLINE_VIRTUAL_TRACE()
+    {
+        visitor->trace(m_doc);
+        EventListener::trace(visitor);
+    }
 
 private:
     ImageEventListener(ImageDocument* document)
@@ -75,7 +84,7 @@ private:
 
     virtual void handleEvent(ExecutionContext*, Event*);
 
-    ImageDocument* m_doc;
+    RawPtrWillBeMember<ImageDocument> m_doc;
 };
 
 class ImageDocumentParser : public RawDataDocumentParser {
@@ -137,21 +146,20 @@ void ImageDocumentParser::appendBytes(const char* data, size_t length)
         document()->cachedImage()->appendData(data, length);
     }
 
-    if (!document())
-        return;
-
-    // Make sure the image layoutObject gets created because we need the layoutObject
-    // to read the aspect ratio. See crbug.com/320244
-    document()->updateLayoutTreeIfNeeded();
-    document()->imageUpdated();
+    // TODO(esprehn): These null checks on Document don't make sense, document()
+    // will ASSERT if it was null. Do these want to check isDetached() ?
+    if (document())
+        document()->imageUpdated();
 }
 
 void ImageDocumentParser::finish()
 {
     if (!isStopped() && document()->imageElement() && document()->cachedImage()) {
         ImageResource* cachedImage = document()->cachedImage();
+        DocumentLoader* loader = document()->loader();
+        cachedImage->setResponse(loader->response());
+        cachedImage->setLoadFinishTime(loader->timing().responseEnd());
         cachedImage->finish();
-        cachedImage->setResponse(document()->frame()->loader().documentLoader()->response());
 
         // Report the natural image size in the page title, regardless of zoom level.
         // At a zoom level of 1 the image is guaranteed to have an integer size.
@@ -168,6 +176,8 @@ void ImageDocumentParser::finish()
         document()->imageUpdated();
     }
 
+    // TODO(esprehn): These null checks on Document don't make sense, document()
+    // will ASSERT if it was null. Do these want to check isDetached() ?
     if (document())
         document()->finishedParsing();
 }
@@ -216,6 +226,9 @@ void ImageDocument::createDocumentStructure(bool loadingMultipartContent)
     RefPtrWillBeRawPtr<HTMLBodyElement> body = HTMLBodyElement::create(*this);
     body->setAttribute(styleAttr, "margin: 0px;");
 
+    if (frame())
+        frame()->loader().client()->dispatchWillInsertBody();
+
     m_imageElement = HTMLImageElement::create(*this);
     m_imageElement->setAttribute(styleAttr, "-webkit-user-select: none");
     // If the image is multipart, we neglect to mention to the HTMLImageElement that it's in an
@@ -227,7 +240,7 @@ void ImageDocument::createDocumentStructure(bool loadingMultipartContent)
 
     if (shouldShrinkToFit()) {
         // Add event listeners
-        RefPtr<EventListener> listener = ImageEventListener::create(this);
+        RefPtrWillBeRawPtr<EventListener> listener = ImageEventListener::create(this);
         if (LocalDOMWindow* domWindow = this->domWindow())
             domWindow->addEventListener("resize", listener, false);
         if (m_shrinkToFitMode == Desktop)
@@ -306,6 +319,7 @@ void ImageDocument::imageUpdated()
     if (m_imageSizeIsKnown)
         return;
 
+    updateLayoutTreeIfNeeded();
     if (!m_imageElement->cachedImage() || m_imageElement->cachedImage()->imageSizeForLayoutObject(m_imageElement->layoutObject(), pageZoomFactor(this)).isEmpty())
         return;
 
@@ -315,9 +329,6 @@ void ImageDocument::imageUpdated()
         // Force resizing of the image
         windowSizeChanged(ScaleOnlyUnzoomedDocument);
     }
-
-    // Update layout as soon as image size is known. This enables large image files to render progressively or to animate.
-    updateLayout();
 }
 
 void ImageDocument::restoreImageSize(ScaleType type)
@@ -369,8 +380,8 @@ void ImageDocument::windowSizeChanged(ScaleType type)
         // the scale is minimum.
         // Don't shrink height to fit because we use width=device-width in viewport meta tag,
         // and expect a full-width reading mode for normal-width-huge-height images.
-        int viewportWidth = frame()->host()->pinchViewport().size().width();
-        m_imageElement->setInlineStyleProperty(CSSPropertyMaxWidth, viewportWidth * 10, CSSPrimitiveValue::CSS_PX);
+        int viewportWidth = frame()->host()->visualViewport().size().width();
+        m_imageElement->setInlineStyleProperty(CSSPropertyMaxWidth, viewportWidth * 10, CSSPrimitiveValue::UnitType::Pixels);
         return;
     }
 
@@ -442,7 +453,7 @@ void ImageEventListener::handleEvent(ExecutionContext*, Event* event)
     }
 }
 
-bool ImageEventListener::operator==(const EventListener& listener)
+bool ImageEventListener::operator==(const EventListener& listener) const
 {
     if (const ImageEventListener* imageEventListener = ImageEventListener::cast(&listener))
         return m_doc == imageEventListener->m_doc;

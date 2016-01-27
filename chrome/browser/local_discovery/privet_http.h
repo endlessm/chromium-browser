@@ -101,7 +101,7 @@ class PrivetRegisterOperation {
     FAILURE_JSON_ERROR,
     FAILURE_MALFORMED_RESPONSE,
     FAILURE_TOKEN,
-    FAILURE_RETRY
+    FAILURE_UNKNOWN,
   };
 
   class Delegate {

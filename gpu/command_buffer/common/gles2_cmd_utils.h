@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "base/macros.h"
 #include "base/numerics/safe_math.h"
 #include "gpu/command_buffer/common/gles2_utils_export.h"
 
@@ -127,7 +128,15 @@ class GLES2_UTILS_EXPORT GLES2Util {
 
   static size_t GetGLTypeSizeForTexturesAndBuffers(uint32_t type);
 
+  static size_t GetGLTypeSizeForPathCoordType(uint32_t type);
+
   static uint32_t GLErrorToErrorBit(uint32_t gl_error);
+
+  static size_t GetComponentCountForGLTransformType(uint32_t type);
+  static size_t GetGLTypeSizeForGLPathNameType(uint32_t type);
+
+  static size_t GetCoefficientCountForGLPathFragmentInputGenMode(
+      uint32_t gen_mode);
 
   static uint32_t GLErrorBitToGLError(uint32_t error_bit);
 
@@ -135,9 +144,10 @@ class GLES2_UTILS_EXPORT GLES2Util {
 
   static size_t GLTargetToFaceIndex(uint32_t target);
 
-  static uint32_t GetPreferredGLReadPixelsFormat(uint32_t internal_format);
+  static uint32_t GetGLReadPixelsImplementationFormat(
+      uint32_t internal_format);
 
-  static uint32_t GetPreferredGLReadPixelsType(
+  static uint32_t GetGLReadPixelsImplementationType(
       uint32_t internal_format, uint32_t texture_type);
 
   // Returns a bitmask for the channels the given format supports.
@@ -162,19 +172,6 @@ class GLES2_UTILS_EXPORT GLES2Util {
   static std::string GetStringBool(uint32_t value);
   static std::string GetStringError(uint32_t value);
 
-  // Parses a uniform name.
-  //   array_pos: the position of the last '[' character in name.
-  //   element_index: the index of the array element specifed in the name.
-  //   getting_array: True if name refers to array.
-  // returns true of parsing was successful. Returing true does NOT mean
-  // it's a valid uniform name. On the otherhand, returning false does mean
-  // it's an invalid uniform name.
-  static bool ParseUniformName(
-      const std::string& name,
-      size_t* array_pos,
-      int* element_index,
-      bool* getting_array);
-
   static size_t CalcClearBufferivDataCount(int buffer);
   static size_t CalcClearBufferfvDataCount(int buffer);
 
@@ -183,6 +180,11 @@ class GLES2_UTILS_EXPORT GLES2Util {
   static uint64_t MapTwoUint32ToUint64(uint32_t v32_0, uint32_t v32_1);
 
   static uint32_t MapBufferTargetToBindingEnum(uint32_t target);
+
+  static bool IsUnsignedIntegerFormat(uint32_t internal_format);
+  static bool IsSignedIntegerFormat(uint32_t internal_format);
+  static bool IsIntegerFormat(uint32_t internal_format);
+  static bool IsFloatFormat(uint32_t internal_format);
 
   #include "../common/gles2_cmd_utils_autogen.h"
 
@@ -195,6 +197,36 @@ class GLES2_UTILS_EXPORT GLES2Util {
 
   int num_compressed_texture_formats_;
   int num_shader_binary_formats_;
+};
+
+class GLES2_UTILS_EXPORT GLSLArrayName {
+ public:
+  explicit GLSLArrayName(const std::string& name);
+
+  // Returns true if the string is an array reference.
+  bool IsArrayName() const { return element_index_ >= 0; }
+  // Returns the name with the possible last array index specifier removed.
+  std::string base_name() const {
+    DCHECK(IsArrayName());
+    return base_name_;
+  }
+  // Returns the element index of a name which references an array element.
+  int element_index() const {
+    DCHECK(IsArrayName());
+    return element_index_;
+  }
+
+ private:
+  std::string base_name_;
+  int element_index_;
+  DISALLOW_COPY_AND_ASSIGN(GLSLArrayName);
+};
+
+enum ContextType {
+  CONTEXT_TYPE_WEBGL1,
+  CONTEXT_TYPE_WEBGL2,
+  CONTEXT_TYPE_OPENGLES2,
+  CONTEXT_TYPE_OPENGLES3
 };
 
 struct GLES2_UTILS_EXPORT ContextCreationAttribHelper {
@@ -216,8 +248,7 @@ struct GLES2_UTILS_EXPORT ContextCreationAttribHelper {
   bool bind_generates_resource;
   bool fail_if_major_perf_caveat;
   bool lose_context_when_out_of_memory;
-  // 0 if not a WebGL context.
-  unsigned webgl_version;
+  ContextType context_type;
 };
 
 }  // namespace gles2

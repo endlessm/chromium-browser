@@ -8,10 +8,12 @@
 #include "base/callback.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/native_library.h"
+#include "ui/gfx/buffer_types.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/native_widget_types.h"
 #include "ui/gfx/overlay_transform.h"
 #include "ui/ozone/ozone_base_export.h"
+#include "ui/ozone/public/native_pixmap.h"
 
 namespace ui {
 
@@ -52,22 +54,6 @@ class SurfaceOzoneEGL;
 // modes (See comments bellow for descriptions).
 class OZONE_BASE_EXPORT SurfaceFactoryOzone {
  public:
-  // Describes overlay buffer format.
-  // TODO: this is a placeholder for now and will be populated with more
-  // formats once we know what sorts of content, video, etc. we can support.
-  enum BufferFormat {
-    UNKNOWN,
-    BGRA_8888,
-    RGBX_8888,
-    BUFFER_FORMAT_LAST = RGBX_8888
-  };
-
-  enum BufferUsage {
-    MAP,
-    PERSISTENT_MAP,
-    SCANOUT,
-  };
-
   typedef void* (*GLGetProcAddressProc)(const char* name);
   typedef base::Callback<void(base::NativeLibrary)> AddGLLibraryCallback;
   typedef base::Callback<void(GLGetProcAddressProc)>
@@ -118,17 +104,13 @@ class OZONE_BASE_EXPORT SurfaceFactoryOzone {
   virtual scoped_refptr<NativePixmap> CreateNativePixmap(
       gfx::AcceleratedWidget widget,
       gfx::Size size,
-      BufferFormat format,
-      BufferUsage usage);
+      gfx::BufferFormat format,
+      gfx::BufferUsage usage);
 
-  // Returns true if overlays can be shown at z-index 0, replacing the main
-  // surface. Combined with surfaceless extensions, it allows for an
-  // overlay-only mode.
-  virtual bool CanShowPrimaryPlaneAsOverlay();
-
-  // Returns true if the platform is able to create buffers for a specific usage
-  // such as MAP for zero copy or SCANOUT for display controller.
-  virtual bool CanCreateNativePixmap(BufferUsage usage);
+  // Create a single native buffer from an existing handle. Takes ownership of
+  // |handle| and can be called on any thread.
+  virtual scoped_refptr<NativePixmap> CreateNativePixmapFromHandle(
+      const gfx::NativePixmapHandle& handle);
 
  protected:
   SurfaceFactoryOzone();

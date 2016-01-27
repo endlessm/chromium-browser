@@ -15,14 +15,13 @@
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/io_thread.h"
-#include "chrome/browser/net/about_protocol_handler.h"
-#include "chrome/browser/net/chrome_net_log.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
 #include "chrome/browser/net/chrome_url_request_context_getter.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
+#include "components/net_log/chrome_net_log.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/cookie_store_factory.h"
 #include "content/public/browser/resource_context.h"
@@ -147,10 +146,10 @@ OffTheRecordProfileIOData::Handle::CreateIsolatedAppRequestContextGetter(
   return context;
 }
 
-DevToolsNetworkController*
-OffTheRecordProfileIOData::Handle::GetDevToolsNetworkController() const {
+DevToolsNetworkControllerHandle*
+OffTheRecordProfileIOData::Handle::GetDevToolsNetworkControllerHandle() const {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  return io_data_->network_controller();
+  return io_data_->network_controller_handle();
 }
 
 void OffTheRecordProfileIOData::Handle::LazyInitialize() const {
@@ -160,12 +159,10 @@ void OffTheRecordProfileIOData::Handle::LazyInitialize() const {
   // Set initialized_ to true at the beginning in case any of the objects
   // below try to get the ResourceContext pointer.
   initialized_ = true;
-#if defined(SAFE_BROWSING_SERVICE)
   io_data_->safe_browsing_enabled()->Init(prefs::kSafeBrowsingEnabled,
       profile_->GetPrefs());
   io_data_->safe_browsing_enabled()->MoveToThread(
       BrowserThread::GetMessageLoopProxyForThread(BrowserThread::IO));
-#endif
   io_data_->InitializeOnUIThread(profile_);
 }
 
@@ -219,12 +216,12 @@ void OffTheRecordProfileIOData::InitializeInternal(
       io_thread_globals->host_resolver.get());
   main_context->set_http_auth_handler_factory(
       io_thread_globals->http_auth_handler_factory.get());
-  main_context->set_fraudulent_certificate_reporter(
-      fraudulent_certificate_reporter());
   main_context->set_proxy_service(proxy_service());
 
   main_context->set_cert_transparency_verifier(
       io_thread_globals->cert_transparency_verifier.get());
+  main_context->set_backoff_manager(
+      io_thread_globals->url_request_backoff_manager.get());
 
   // For incognito, we use the default non-persistent HttpServerPropertiesImpl.
   set_http_server_properties(
@@ -248,9 +245,9 @@ void OffTheRecordProfileIOData::InitializeInternal(
           NULL,
           profile_params->cookie_monster_delegate.get())));
 
-  net::HttpCache::BackendFactory* main_backend =
-      net::HttpCache::DefaultBackend::InMemory(0);
-  main_http_factory_ = CreateMainHttpFactory(profile_params, main_backend);
+  http_network_session_ = CreateHttpNetworkSession(*profile_params);
+  main_http_factory_ = CreateMainHttpFactory(
+      http_network_session_.get(), net::HttpCache::DefaultBackend::InMemory(0));
 
   main_context->set_http_transaction_factory(main_http_factory_.get());
 #if !defined(DISABLE_FTP_SUPPORT)
@@ -296,14 +293,15 @@ void OffTheRecordProfileIOData::
   extensions_context->set_cert_transparency_verifier(
       io_thread_globals->cert_transparency_verifier.get());
 
+  extensions_context->set_backoff_manager(
+      io_thread_globals->url_request_backoff_manager.get());
   // All we care about for extensions is the cookie store. For incognito, we
   // use a non-persistent cookie store.
   net::CookieMonster* extensions_cookie_store =
       content::CreateCookieStore(content::CookieStoreConfig())->
           GetCookieMonster();
-  // Enable cookies for devtools and extension URLs.
+  // Enable cookies for chrome-extension URLs.
   const char* const schemes[] = {
-      content::kChromeDevToolsScheme,
       extensions::kExtensionScheme
   };
   extensions_cookie_store->SetCookieableSchemes(schemes, arraysize(schemes));
@@ -345,12 +343,9 @@ net::URLRequestContext* OffTheRecordProfileIOData::InitializeAppRequestContext(
       content::CreateCookieStore(content::CookieStoreConfig()));
 
   // Use a separate in-memory cache for the app.
-  net::HttpCache::BackendFactory* app_backend =
-      net::HttpCache::DefaultBackend::InMemory(0);
-  net::HttpNetworkSession* main_network_session =
-      main_http_factory_->GetSession();
   scoped_ptr<net::HttpCache> app_http_cache =
-      CreateHttpFactory(main_network_session, app_backend);
+      CreateHttpFactory(http_network_session_.get(),
+                        net::HttpCache::DefaultBackend::InMemory(0));
 
   context->SetHttpTransactionFactory(app_http_cache.Pass());
 

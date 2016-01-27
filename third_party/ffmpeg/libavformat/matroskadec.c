@@ -480,8 +480,9 @@ static EbmlSyntax matroska_attachments[] = {
 };
 
 static EbmlSyntax matroska_chapter_display[] = {
-    { MATROSKA_ID_CHAPSTRING, EBML_UTF8, 0, offsetof(MatroskaChapter, title) },
-    { MATROSKA_ID_CHAPLANG,   EBML_NONE },
+    { MATROSKA_ID_CHAPSTRING,  EBML_UTF8, 0, offsetof(MatroskaChapter, title) },
+    { MATROSKA_ID_CHAPLANG,    EBML_NONE },
+    { MATROSKA_ID_CHAPCOUNTRY, EBML_NONE },
     { 0 }
 };
 
@@ -812,7 +813,7 @@ static int ebml_read_sint(AVIOContext *pb, int size, int64_t *num)
 
         /* big-endian ordering; build up number */
         while (n++ < size)
-            *num = (*num << 8) | avio_r8(pb);
+            *num = ((uint64_t)*num << 8) | avio_r8(pb);
     }
 
     return 0;
@@ -1526,10 +1527,11 @@ static void matroska_add_index_entries(MatroskaDemuxContext *matroska)
 
     index_list = &matroska->index;
     index      = index_list->elem;
-    if (index_list->nb_elem &&
-        index[0].time > 1E14 / matroska->time_scale) {
-        av_log(matroska->ctx, AV_LOG_WARNING, "Working around broken index.\n");
-        index_scale = matroska->time_scale;
+    if (index_list->nb_elem < 2)
+        return;
+    if (index[1].time > 1E14 / matroska->time_scale) {
+        av_log(matroska->ctx, AV_LOG_WARNING, "Dropping apparently-broken index.\n");
+        return;
     }
     for (i = 0; i < index_list->nb_elem; i++) {
         EbmlList *pos_list    = &index[i].pos;
@@ -1798,7 +1800,7 @@ static int matroska_parse_tracks(AVFormatContext *s)
             ffio_init_context(&b, track->codec_priv.data,
                               track->codec_priv.size,
                               0, NULL, NULL, NULL, NULL);
-            ret = ff_get_wav_header(&b, st->codec, track->codec_priv.size, 0);
+            ret = ff_get_wav_header(s, &b, st->codec, track->codec_priv.size, 0);
             if (ret < 0)
                 return ret;
             codec_id         = st->codec->codec_id;
@@ -1859,7 +1861,7 @@ static int matroska_parse_tracks(AVFormatContext *s)
         } else if (codec_id == AV_CODEC_ID_AAC && !track->codec_priv.size) {
             int profile = matroska_aac_profile(track->codec_id);
             int sri     = matroska_aac_sri(track->audio.samplerate);
-            extradata   = av_mallocz(5 + FF_INPUT_BUFFER_PADDING_SIZE);
+            extradata   = av_mallocz(5 + AV_INPUT_BUFFER_PADDING_SIZE);
             if (!extradata)
                 return AVERROR(ENOMEM);
             extradata[0] = (profile << 3) | ((sri & 0x0E) >> 1);
@@ -1872,13 +1874,13 @@ static int matroska_parse_tracks(AVFormatContext *s)
                 extradata_size = 5;
             } else
                 extradata_size = 2;
-        } else if (codec_id == AV_CODEC_ID_ALAC && track->codec_priv.size && track->codec_priv.size < INT_MAX - 12 - FF_INPUT_BUFFER_PADDING_SIZE) {
+        } else if (codec_id == AV_CODEC_ID_ALAC && track->codec_priv.size && track->codec_priv.size < INT_MAX - 12 - AV_INPUT_BUFFER_PADDING_SIZE) {
             /* Only ALAC's magic cookie is stored in Matroska's track headers.
              * Create the "atom size", "tag", and "tag version" fields the
              * decoder expects manually. */
             extradata_size = 12 + track->codec_priv.size;
             extradata      = av_mallocz(extradata_size +
-                                        FF_INPUT_BUFFER_PADDING_SIZE);
+                                        AV_INPUT_BUFFER_PADDING_SIZE);
             if (!extradata)
                 return AVERROR(ENOMEM);
             AV_WB32(extradata, extradata_size);
@@ -1888,7 +1890,7 @@ static int matroska_parse_tracks(AVFormatContext *s)
                    track->codec_priv.size);
         } else if (codec_id == AV_CODEC_ID_TTA) {
             extradata_size = 30;
-            extradata      = av_mallocz(extradata_size + FF_INPUT_BUFFER_PADDING_SIZE);
+            extradata      = av_mallocz(extradata_size + AV_INPUT_BUFFER_PADDING_SIZE);
             if (!extradata)
                 return AVERROR(ENOMEM);
             ffio_init_context(&b, extradata, extradata_size, 1,
@@ -2077,7 +2079,9 @@ static int matroska_parse_tracks(AVFormatContext *s)
             st->codec->channels    = track->audio.channels;
             if (!st->codec->bits_per_coded_sample)
                 st->codec->bits_per_coded_sample = track->audio.bitdepth;
-            if (st->codec->codec_id != AV_CODEC_ID_AAC)
+            if (st->codec->codec_id == AV_CODEC_ID_MP3)
+                st->need_parsing = AVSTREAM_PARSE_FULL;
+            else if (st->codec->codec_id != AV_CODEC_ID_AAC)
                 st->need_parsing = AVSTREAM_PARSE_HEADERS;
             if (track->codec_delay > 0) {
                 st->codec->delay = av_rescale_q(track->codec_delay,
@@ -2300,7 +2304,7 @@ static void matroska_clear_queue(MatroskaDemuxContext *matroska)
     if (matroska->packets) {
         int n;
         for (n = 0; n < matroska->num_packets; n++) {
-            av_free_packet(matroska->packets[n]);
+            av_packet_unref(matroska->packets[n]);
             av_freep(&matroska->packets[n]);
         }
         av_freep(&matroska->packets);
@@ -2763,7 +2767,7 @@ static int matroska_parse_frame(MatroskaDemuxContext *matroska,
                                                      AV_PKT_DATA_MATROSKA_BLOCKADDITIONAL,
                                                      additional_size + 8);
         if (!side_data) {
-            av_free_packet(pkt);
+            av_packet_unref(pkt);
             av_free(pkt);
             return AVERROR(ENOMEM);
         }
@@ -2776,7 +2780,7 @@ static int matroska_parse_frame(MatroskaDemuxContext *matroska,
                                                      AV_PKT_DATA_SKIP_SAMPLES,
                                                      10);
         if (!side_data) {
-            av_free_packet(pkt);
+            av_packet_unref(pkt);
             av_free(pkt);
             return AVERROR(ENOMEM);
         }
@@ -2791,29 +2795,15 @@ static int matroska_parse_frame(MatroskaDemuxContext *matroska,
     else
         pkt->pts = timecode;
     pkt->pos = pos;
+    pkt->duration = lace_duration;
+
+#if FF_API_CONVERGENCE_DURATION
+FF_DISABLE_DEPRECATION_WARNINGS
     if (st->codec->codec_id == AV_CODEC_ID_SUBRIP) {
-        /*
-         * For backward compatibility.
-         * Historically, we have put subtitle duration
-         * in convergence_duration, on the off chance
-         * that the time_scale is less than 1us, which
-         * could result in a 32bit overflow on the
-         * normal duration field.
-         */
         pkt->convergence_duration = lace_duration;
     }
-
-    if (track->type != MATROSKA_TRACK_TYPE_SUBTITLE ||
-        lace_duration <= INT_MAX) {
-        /*
-         * For non subtitle tracks, just store the duration
-         * as normal.
-         *
-         * If it's a subtitle track and duration value does
-         * not overflow a uint32, then also store it normally.
-         */
-        pkt->duration = lace_duration;
-    }
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
 
     dynarray_add(&matroska->packets, &matroska->num_packets, pkt);
     matroska->prev_pkt = pkt;

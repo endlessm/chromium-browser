@@ -43,6 +43,7 @@ namespace blink {
 class FloatRoundedRect;
 
 struct LineSegment {
+    STACK_ALLOCATED();
     LineSegment()
         : logicalLeft(0)
         , logicalRight(0)
@@ -68,8 +69,10 @@ struct LineSegment {
 // physical coordinates.
 
 class CORE_EXPORT Shape {
+    USING_FAST_MALLOC(Shape);
 public:
     struct DisplayPaths {
+        STACK_ALLOCATED();
         Path shape;
         Path marginShape;
     };

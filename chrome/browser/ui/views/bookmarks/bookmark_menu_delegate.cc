@@ -8,16 +8,17 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/app/chrome_command_ids.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
-#include "chrome/browser/bookmarks/chrome_bookmark_client.h"
-#include "chrome/browser/bookmarks/chrome_bookmark_client_factory.h"
+#include "chrome/browser/bookmarks/managed_bookmark_service_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/bookmarks/bookmark_drag_drop.h"
 #include "chrome/browser/ui/bookmarks/bookmark_utils.h"
+#include "chrome/browser/ui/bookmarks/bookmark_utils_desktop.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/views/bookmarks/bookmark_bar_view.h"
 #include "chrome/browser/ui/views/event_utils.h"
-#include "chrome/common/pref_names.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/bookmarks/common/bookmark_pref_names.h"
+#include "components/bookmarks/managed/managed_bookmark_service.h"
 #include "content/public/browser/page_navigator.h"
 #include "content/public/browser/user_metrics.h"
 #include "grit/theme_resources.h"
@@ -37,9 +38,18 @@ using bookmarks::BookmarkNodeData;
 using content::PageNavigator;
 using views::MenuItemView;
 
+namespace {
+
 // Max width of a menu. There does not appear to be an OS value for this, yet
 // both IE and FF restrict the max width of a menu.
-static const int kMaxMenuWidth = 400;
+const int kMaxMenuWidth = 400;
+
+SkColor TextColorForMenu(MenuItemView* menu) {
+  return menu->GetNativeTheme()->GetSystemColor(
+      ui::NativeTheme::kColorId_EnabledMenuItemForegroundColor);
+}
+
+}  // namespace
 
 BookmarkMenuDelegate::BookmarkMenuDelegate(Browser* browser,
                                            PageNavigator* navigator,
@@ -76,12 +86,13 @@ void BookmarkMenuDelegate::Init(views::MenuDelegate* real_delegate,
     // current node has children. If |node| is the bookmark bar then the
     // managed node is shown as its first child, if it's not empty.
     BookmarkModel* model = GetBookmarkModel();
-    ChromeBookmarkClient* client = GetChromeBookmarkClient();
+    bookmarks::ManagedBookmarkService* managed = GetManagedBookmarkService();
     bool show_forced_folders = show_options == SHOW_PERMANENT_FOLDERS &&
                                node == model->bookmark_bar_node();
-    bool show_managed = show_forced_folders && !client->managed_node()->empty();
+    bool show_managed =
+        show_forced_folders && !managed->managed_node()->empty();
     bool show_supervised =
-        show_forced_folders && !client->supervised_node()->empty();
+        show_forced_folders && !managed->supervised_node()->empty();
     bool has_children = (start_child_index < node->child_count()) ||
                         show_managed || show_supervised;
     int initial_count = parent->GetSubmenu() ?
@@ -110,8 +121,9 @@ BookmarkModel* BookmarkMenuDelegate::GetBookmarkModel() {
   return BookmarkModelFactory::GetForProfile(profile_);
 }
 
-ChromeBookmarkClient* BookmarkMenuDelegate::GetChromeBookmarkClient() {
-  return ChromeBookmarkClientFactory::GetForProfile(profile_);
+bookmarks::ManagedBookmarkService*
+BookmarkMenuDelegate::GetManagedBookmarkService() {
+  return ManagedBookmarkServiceFactory::GetForProfile(profile_);
 }
 
 void BookmarkMenuDelegate::SetActiveMenu(const BookmarkNode* node,
@@ -154,10 +166,11 @@ void BookmarkMenuDelegate::ExecuteCommand(int id, int mouse_event_flags) {
   std::vector<const BookmarkNode*> selection;
   selection.push_back(node);
 
+  RecordBookmarkLaunch(node, location_);
   chrome::OpenAll(parent_->GetNativeWindow(), page_navigator_, selection,
                   ui::DispositionFromEventFlags(mouse_event_flags),
                   profile_);
-  RecordBookmarkLaunch(node, location_);
+  // NOTE: |this| may be deleted.
 }
 
 bool BookmarkMenuDelegate::ShouldExecuteCommandWithoutClosingMenu(
@@ -170,9 +183,9 @@ bool BookmarkMenuDelegate::ShouldExecuteCommandWithoutClosingMenu(
 bool BookmarkMenuDelegate::GetDropFormats(
     MenuItemView* menu,
     int* formats,
-    std::set<ui::OSExchangeData::CustomFormat>* custom_formats) {
+    std::set<ui::Clipboard::FormatType>* format_types) {
   *formats = ui::OSExchangeData::URL;
-  custom_formats->insert(BookmarkNodeData::GetBookmarkCustomFormat());
+  format_types->insert(BookmarkNodeData::GetBookmarkFormatType());
   return true;
 }
 
@@ -397,7 +410,7 @@ void BookmarkMenuDelegate::WillRemoveBookmarks(
   // to support different parents, but this would need to prune any nodes whose
   // parent has been removed. As all nodes currently have the same parent, there
   // is the DCHECK.
-  DCHECK(changed_parent_menus.size() <= 1);
+  DCHECK_LE(changed_parent_menus.size(), 1U);
 
   // Remove any descendants of the removed nodes in |node_to_menu_map_|.
   for (NodeToMenuMap::iterator i(node_to_menu_map_.begin());
@@ -452,17 +465,18 @@ void BookmarkMenuDelegate::BuildMenusForPermanentNodes(
     views::MenuItemView* menu) {
   BookmarkModel* model = GetBookmarkModel();
   bool added_separator = false;
-  BuildMenuForPermanentNode(model->other_node(), IDR_BOOKMARK_BAR_FOLDER, menu,
-                            &added_separator);
-  BuildMenuForPermanentNode(model->mobile_node(), IDR_BOOKMARK_BAR_FOLDER, menu,
-                            &added_separator);
+  BuildMenuForPermanentNode(model->other_node(), chrome::GetBookmarkFolderIcon(
+                                                     TextColorForMenu(menu)),
+                            menu, &added_separator);
+  BuildMenuForPermanentNode(model->mobile_node(), chrome::GetBookmarkFolderIcon(
+                                                      TextColorForMenu(menu)),
+                            menu, &added_separator);
 }
 
-void BookmarkMenuDelegate::BuildMenuForPermanentNode(
-    const BookmarkNode* node,
-    int icon_resource_id,
-    MenuItemView* menu,
-    bool* added_separator) {
+void BookmarkMenuDelegate::BuildMenuForPermanentNode(const BookmarkNode* node,
+                                                     const gfx::ImageSkia& icon,
+                                                     MenuItemView* menu,
+                                                     bool* added_separator) {
   if (!node->IsVisible() || node->GetTotalNodeCount() == 1)
     return;  // No children, don't create a menu.
 
@@ -471,27 +485,27 @@ void BookmarkMenuDelegate::BuildMenuForPermanentNode(
     menu->AppendSeparator();
   }
 
-  ui::ResourceBundle* rb = &ui::ResourceBundle::GetSharedInstance();
-  gfx::ImageSkia* folder_icon = rb->GetImageSkiaNamed(icon_resource_id);
-  AddMenuToMaps(menu->AppendSubMenuWithIcon(next_menu_id_++, node->GetTitle(),
-                                            *folder_icon),
-                node);
+  AddMenuToMaps(
+      menu->AppendSubMenuWithIcon(next_menu_id_++, node->GetTitle(), icon),
+      node);
 }
 
 void BookmarkMenuDelegate::BuildMenuForManagedNode(MenuItemView* menu) {
   // Don't add a separator for this menu.
   bool added_separator = true;
-  const BookmarkNode* node = GetChromeBookmarkClient()->managed_node();
-  BuildMenuForPermanentNode(node, IDR_BOOKMARK_BAR_FOLDER_MANAGED, menu,
-                            &added_separator);
+  const BookmarkNode* node = GetManagedBookmarkService()->managed_node();
+  BuildMenuForPermanentNode(
+      node, chrome::GetBookmarkManagedFolderIcon(TextColorForMenu(menu)), menu,
+      &added_separator);
 }
 
 void BookmarkMenuDelegate::BuildMenuForSupervisedNode(MenuItemView* menu) {
   // Don't add a separator for this menu.
   bool added_separator = true;
-  const BookmarkNode* node = GetChromeBookmarkClient()->supervised_node();
-  BuildMenuForPermanentNode(node, IDR_BOOKMARK_BAR_FOLDER_SUPERVISED, menu,
-                            &added_separator);
+  const BookmarkNode* node = GetManagedBookmarkService()->supervised_node();
+  BuildMenuForPermanentNode(
+      node, chrome::GetBookmarkSupervisedFolderIcon(TextColorForMenu(menu)),
+      menu, &added_separator);
 }
 
 void BookmarkMenuDelegate::BuildMenu(const BookmarkNode* parent,
@@ -511,10 +525,9 @@ void BookmarkMenuDelegate::BuildMenu(const BookmarkNode* parent,
           menu->AppendMenuItemWithIcon(id, node->GetTitle(), *icon);
     } else {
       DCHECK(node->is_folder());
-      gfx::ImageSkia* folder_icon =
-          rb->GetImageSkiaNamed(IDR_BOOKMARK_BAR_FOLDER);
-      child_menu_item =
-          menu->AppendSubMenuWithIcon(id, node->GetTitle(), *folder_icon);
+      child_menu_item = menu->AppendSubMenuWithIcon(
+          id, node->GetTitle(),
+          chrome::GetBookmarkFolderIcon(TextColorForMenu(menu)));
     }
     AddMenuToMaps(child_menu_item, node);
   }

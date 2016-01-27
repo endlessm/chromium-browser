@@ -6,13 +6,13 @@
 
 #include <errno.h>
 #include <netinet/in.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <string>
 
 #include "base/basictypes.h"
 #include "base/logging.h"
-#include "net/base/net_util.h"
 #include "net/quic/quic_protocol.h"
 
 #ifndef SO_RXQ_OVFL
@@ -116,7 +116,7 @@ int QuicSocketUtils::ReadPacket(int fd, char* buffer, size_t buf_len,
   hdr.msg_iovlen = 1;
   hdr.msg_flags = 0;
 
-  struct cmsghdr* cmsg = (struct cmsghdr*)cbuf;
+  struct cmsghdr* cmsg = reinterpret_cast<struct cmsghdr*>(cbuf);
   cmsg->cmsg_len = arraysize(cbuf);
   hdr.msg_control = cmsg;
   hdr.msg_controllen = arraysize(cbuf);

@@ -36,6 +36,7 @@
 #include "core/HTMLNames.h"
 #include "core/InputTypeNames.h"
 #include "core/dom/AXObjectCache.h"
+#include "core/dom/NodeComputedStyle.h"
 #include "core/dom/Touch.h"
 #include "core/dom/TouchList.h"
 #include "core/dom/shadow/ShadowRoot.h"
@@ -88,6 +89,10 @@ RangeInputType::RangeInputType(HTMLInputElement& element)
 void RangeInputType::countUsage()
 {
     countUsageIfVisible(UseCounter::InputTypeRange);
+    if (const ComputedStyle* style = element().computedStyle()) {
+        if (style->appearance() == SliderVerticalPart)
+            UseCounter::count(element().document(), UseCounter::InputTypeRangeVerticalAppearance);
+    }
 }
 
 const AtomicString& RangeInputType::formControlType() const
@@ -190,8 +195,10 @@ void RangeInputType::handleKeydownEvent(KeyboardEvent* event)
     const Decimal step = equalIgnoringCase(element().fastGetAttribute(stepAttr), "any") ? (stepRange.maximum() - stepRange.minimum()) / 100 : stepRange.step();
     const Decimal bigStep = std::max((stepRange.maximum() - stepRange.minimum()) / 10, step);
 
+    TextDirection dir = LTR;
     bool isVertical = false;
     if (element().layoutObject()) {
+        dir = computedTextDirection();
         ControlPart part = element().layoutObject()->style()->appearance();
         isVertical = part == SliderVerticalPart;
     }
@@ -202,9 +209,9 @@ void RangeInputType::handleKeydownEvent(KeyboardEvent* event)
     else if (key == "Down")
         newValue = current - step;
     else if (key == "Left")
-        newValue = isVertical ? current + step : current - step;
+        newValue = (isVertical || dir == RTL) ? current + step : current - step;
     else if (key == "Right")
-        newValue = isVertical ? current - step : current + step;
+        newValue = (isVertical || dir == RTL) ? current - step : current + step;
     else if (key == "PageUp")
         newValue = current + bigStep;
     else if (key == "PageDown")

@@ -11,13 +11,13 @@ import android.test.suitebuilder.annotation.SmallTest;
 import org.chromium.base.CommandLine;
 import org.chromium.base.ObserverList;
 import org.chromium.base.ThreadUtils;
-import org.chromium.chrome.browser.Tab;
-import org.chromium.chrome.browser.TabObserver;
+import org.chromium.chrome.browser.compositor.layouts.content.TabContentManager;
+import org.chromium.chrome.browser.tab.Tab;
+import org.chromium.chrome.browser.tab.TabObserver;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabLaunchType;
 import org.chromium.chrome.browser.tabmodel.TabModel.TabSelectionType;
 import org.chromium.content.browser.test.NativeLibraryTestBase;
 import org.chromium.content_public.browser.LoadUrlParams;
-import org.chromium.content_public.browser.WebContents;
 import org.chromium.ui.base.WindowAndroid;
 
 /**
@@ -59,6 +59,11 @@ public class TabModelSelectorTabObserverTest extends NativeLibraryTestBase {
         };
 
         TabModelOrderController orderController = new TabModelOrderController(mSelector);
+        TabContentManager tabContentManager =
+                new TabContentManager(getInstrumentation().getTargetContext(), null, false);
+        TabPersistentStore tabPersistentStore = new TabPersistentStore(mSelector, 0,
+                getInstrumentation().getTargetContext(), null, null);
+
         TabModelDelegate delegate = new TabModelDelegate() {
             @Override
             public void selectModel(boolean incognito) {
@@ -94,29 +99,19 @@ public class TabModelSelectorTabObserverTest extends NativeLibraryTestBase {
                 return false;
             }
         };
-        mNormalTabModel = new TabModelBase(false, orderController, delegate) {
+        mNormalTabModel = new TabModelImpl(false, null, null, null, orderController,
+                tabContentManager, tabPersistentStore, delegate) {
             @Override
-            protected Tab createTabWithWebContents(boolean incognito, WebContents webContents,
-                    int parentId) {
-                return null;
-            }
-
-            @Override
-            protected Tab createNewTabForDevTools(String url) {
-                return null;
+            public boolean supportsPendingClosures() {
+                return false;
             }
         };
 
-        mIncognitoTabModel = new TabModelBase(true, orderController, delegate) {
+        mIncognitoTabModel = new TabModelImpl(true, null, null, null, orderController,
+                tabContentManager, tabPersistentStore, delegate) {
             @Override
-            protected Tab createTabWithWebContents(boolean incognito, WebContents webContents,
-                    int parentId) {
-                return null;
-            }
-
-            @Override
-            protected Tab createNewTabForDevTools(String url) {
-                return null;
+            public boolean supportsPendingClosures() {
+                return false;
             }
         };
 
@@ -205,13 +200,13 @@ public class TabModelSelectorTabObserverTest extends NativeLibraryTestBase {
 
     private class TestTab extends Tab {
         public TestTab(boolean incognito) {
-            super(incognito, null, mWindowAndroid);
+            super(Tab.INVALID_TAB_ID, incognito, mWindowAndroid);
             initializeNative();
         }
 
         // Exists to expose the method to the test.
         @Override
-        protected ObserverList.RewindableIterator<TabObserver> getTabObservers() {
+        public ObserverList.RewindableIterator<TabObserver> getTabObservers() {
             return super.getTabObservers();
         }
     }

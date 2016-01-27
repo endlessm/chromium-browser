@@ -2,17 +2,23 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "net/spdy/spdy_framer.h"
+
+#include <stdlib.h>
+#include <string.h>
+
 #include <algorithm>
-#include <iostream>
 #include <limits>
+#include <memory>
+#include <string>
+#include <vector>
 
 #include "base/compiler_specific.h"
 #include "base/memory/scoped_ptr.h"
-#include "net/spdy/hpack_output_stream.h"
+#include "net/spdy/hpack/hpack_constants.h"
 #include "net/spdy/mock_spdy_framer_visitor.h"
 #include "net/spdy/spdy_frame_builder.h"
 #include "net/spdy/spdy_frame_reader.h"
-#include "net/spdy/spdy_framer.h"
 #include "net/spdy/spdy_protocol.h"
 #include "net/spdy/spdy_test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
@@ -52,7 +58,7 @@ class SpdyFramerTestUtil {
     DecompressionVisitor visitor(framer->protocol_version());
     framer->set_visitor(&visitor);
     CHECK_EQ(frame.size(), framer->ProcessInput(frame.data(), frame.size()));
-    CHECK_EQ(SpdyFramer::SPDY_RESET, framer->state());
+    CHECK_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer->state());
     framer->set_visitor(NULL);
 
     char* buffer = visitor.ReleaseBuffer();
@@ -90,6 +96,16 @@ class SpdyFramerTestUtil {
     }
 
     void OnStreamPadding(SpdyStreamId stream_id, size_t len) override {
+      LOG(FATAL);
+    }
+
+    SpdyHeadersHandlerInterface* OnHeaderFrameStart(
+        SpdyStreamId stream_id) override {
+      LOG(FATAL);
+      return nullptr;
+    }
+
+    void OnHeaderFrameEnd(SpdyStreamId stream_id, bool end_headers) override {
       LOG(FATAL);
     }
 
@@ -292,8 +308,9 @@ class TestSpdyVisitor : public SpdyFramerVisitorInterface,
                          size_t len,
                          bool fin) override {
     EXPECT_EQ(header_stream_id_, stream_id);
-    if (len == 0)
+    if (len == 0) {
       ++zero_length_data_frame_count_;
+    }
 
     data_bytes_ += len;
     LOG(INFO) << "OnStreamFrameData(" << stream_id << ", \"";
@@ -312,6 +329,16 @@ class TestSpdyVisitor : public SpdyFramerVisitorInterface,
     LOG(INFO) << "OnStreamPadding(" << stream_id << ", " << len << ")\n";
   }
 
+  SpdyHeadersHandlerInterface* OnHeaderFrameStart(
+      SpdyStreamId stream_id) override {
+    LOG(FATAL);
+    return nullptr;
+  }
+
+  void OnHeaderFrameEnd(SpdyStreamId stream_id, bool end_headers) override {
+    LOG(FATAL);
+  }
+
   bool OnControlFrameHeaderData(SpdyStreamId stream_id,
                                 const char* header_data,
                                 size_t len) override {
@@ -322,12 +349,8 @@ class TestSpdyVisitor : public SpdyFramerVisitorInterface,
       // Indicates end-of-header-block.
       headers_.clear();
       CHECK(header_buffer_valid_);
-      size_t parsed_length = framer_.ParseHeaderBlockInBuffer(
-          header_buffer_.get(), header_buffer_length_, &headers_);
-      LOG_IF(DFATAL, header_buffer_length_ != parsed_length)
-          << "Check failed: header_buffer_length_ == parsed_length "
-          << "(" << header_buffer_length_ << " vs. " << parsed_length << ")";
-      return true;
+      return framer_.ParseHeaderBlockInBuffer(header_buffer_.get(),
+                                              header_buffer_length_, &headers_);
     }
     const size_t available = header_buffer_size_ - header_buffer_length_;
     if (len > available) {
@@ -484,7 +507,7 @@ class TestSpdyVisitor : public SpdyFramerVisitorInterface,
     const char* input_ptr = reinterpret_cast<const char*>(input);
     while (input_remaining > 0 &&
            framer_.error_code() == SpdyFramer::SPDY_NO_ERROR) {
-      // To make the tests more interesting, we feed random (amd small) chunks
+      // To make the tests more interesting, we feed random (and small) chunks
       // into the framer.  This simulates getting strange-sized reads from
       // the socket.
       const size_t kMaxReadSize = 32;
@@ -655,33 +678,6 @@ class SpdyFramerTest : public ::testing::TestWithParam<SpdyMajorVersion> {
         actual_frame.size());
   }
 
-  // Returns true if the two header blocks have equivalent content.
-  bool CompareHeaderBlocks(const SpdyHeaderBlock* expected,
-                           const SpdyHeaderBlock* actual) {
-    if (expected->size() != actual->size()) {
-      LOG(ERROR) << "Expected " << expected->size() << " headers; actually got "
-                 << actual->size() << ".";
-      return false;
-    }
-    for (SpdyHeaderBlock::const_iterator it = expected->begin();
-         it != expected->end();
-         ++it) {
-      SpdyHeaderBlock::const_iterator it2 = actual->find(it->first);
-      if (it2 == actual->end()) {
-        LOG(ERROR) << "Expected header name '" << it->first << "'.";
-        return false;
-      }
-      if (it->second.compare(it2->second) != 0) {
-        LOG(ERROR) << "Expected header named '" << it->first
-                   << "' to have a value of '" << it->second
-                   << "'. The actual value received was '" << it2->second
-                   << "'.";
-        return false;
-      }
-    }
-    return true;
-  }
-
   bool IsSpdy2() { return spdy_version_ == SPDY2; }
   bool IsSpdy3() { return spdy_version_ == SPDY3; }
   bool IsHttp2() { return spdy_version_ == HTTP2; }
@@ -719,8 +715,7 @@ TEST_P(SpdyFramerTest, HeaderBlockWithEmptyCookie) {
       frame->size());
 
   EXPECT_EQ(1, visitor.zero_length_control_frame_header_data_count_);
-  EXPECT_FALSE(CompareHeaderBlocks(&headers.name_value_block(),
-                                  &visitor.headers_));
+  EXPECT_NE(headers.header_block(), visitor.headers_);
   EXPECT_EQ(1u, visitor.headers_.size());
   EXPECT_EQ("key=value; foo; bar=; k2=v2 ", visitor.headers_["cookie"]);
 }
@@ -746,8 +741,7 @@ TEST_P(SpdyFramerTest, HeaderBlockInBuffer) {
       frame->size());
 
   EXPECT_EQ(1, visitor.zero_length_control_frame_header_data_count_);
-  EXPECT_TRUE(CompareHeaderBlocks(&headers.name_value_block(),
-                                  &visitor.headers_));
+  EXPECT_EQ(headers.header_block(), visitor.headers_);
 }
 
 // Test that if there's not a full frame, we fail to parse it.
@@ -970,7 +964,7 @@ TEST_P(SpdyFramerTest, MultiValueHeader) {
     frame.WriteStringPiece16(value);
   } else if (spdy_version_ > SPDY3) {
     // TODO(jgraettinger): If this pattern appears again, move to test class.
-    std::map<string, string> header_set;
+    SpdyHeaderBlock header_set;
     header_set["name"] = value;
     string buffer;
     HpackEncoder encoder(ObtainHpackHuffmanTable());
@@ -994,7 +988,7 @@ TEST_P(SpdyFramerTest, MultiValueHeader) {
       control_frame->size());
 
   EXPECT_THAT(visitor.headers_,
-              testing::ElementsAre(testing::Pair("name", value)));
+              testing::ElementsAre(testing::Pair("name", StringPiece(value))));
 }
 
 TEST_P(SpdyFramerTest, BasicCompression) {
@@ -1058,14 +1052,14 @@ TEST_P(SpdyFramerTest, BasicCompression) {
 #if defined(USE_SYSTEM_ZLIB)
     EXPECT_EQ(149u, compressed_size4);
 #else  // !defined(USE_SYSTEM_ZLIB)
-    EXPECT_EQ(101u, compressed_size4);
+    EXPECT_EQ(99u, compressed_size4);
 #endif  // !defined(USE_SYSTEM_ZLIB)
   } else {
     EXPECT_EQ(165u, uncompressed_size4);
 #if defined(USE_SYSTEM_ZLIB)
     EXPECT_EQ(175u, compressed_size4);
 #else  // !defined(USE_SYSTEM_ZLIB)
-    EXPECT_EQ(102u, compressed_size4);
+    EXPECT_EQ(99u, compressed_size4);
 #endif  // !defined(USE_SYSTEM_ZLIB)
   }
 
@@ -1508,14 +1502,14 @@ TEST_P(SpdyFramerTest, HeaderCompression) {
   block[kHeader1] = kValue1;
   block[kHeader2] = kValue2;
   SpdySynStreamIR syn_ir_1(1);
-  syn_ir_1.set_name_value_block(block);
+  syn_ir_1.set_header_block(block);
   scoped_ptr<SpdyFrame> syn_frame_1(send_framer.SerializeFrame(syn_ir_1));
   EXPECT_TRUE(syn_frame_1.get() != NULL);
 
   // SYN_STREAM #2
   block[kHeader3] = kValue3;
   SpdySynStreamIR syn_stream(3);
-  syn_stream.set_name_value_block(block);
+  syn_stream.set_header_block(block);
   scoped_ptr<SpdyFrame> syn_frame_2(send_framer.SerializeSynStream(syn_stream));
   EXPECT_TRUE(syn_frame_2.get() != NULL);
 
@@ -2459,12 +2453,10 @@ TEST_P(SpdyFramerTest, CreateRstStream) {
       0x00, 0x00, 0x00, 0x01,
     };
     const unsigned char kH2FrameData[] = {
-      0x00, 0x00, 0x07, 0x03,
-      0x00, 0x00, 0x00, 0x00,
-      0x01, 0x00, 0x00, 0x00,
-      0x01, 0x52, 0x53, 0x54
+        0x00, 0x00, 0x04, 0x03, 0x00, 0x00, 0x00,
+        0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
     };
-    SpdyRstStreamIR rst_stream(1, RST_STREAM_PROTOCOL_ERROR, "RST");
+    SpdyRstStreamIR rst_stream(1, RST_STREAM_PROTOCOL_ERROR);
     scoped_ptr<SpdyFrame> frame(framer.SerializeRstStream(rst_stream));
     if (IsHttp2()) {
       CompareFrame(kDescription, *frame, kH2FrameData, arraysize(kH2FrameData));
@@ -2487,9 +2479,7 @@ TEST_P(SpdyFramerTest, CreateRstStream) {
       0xff, 0x00, 0x00, 0x00,
       0x01,
     };
-    SpdyRstStreamIR rst_stream(0x7FFFFFFF,
-                               RST_STREAM_PROTOCOL_ERROR,
-                               "");
+    SpdyRstStreamIR rst_stream(0x7FFFFFFF, RST_STREAM_PROTOCOL_ERROR);
     scoped_ptr<SpdyFrame> frame(framer.SerializeRstStream(rst_stream));
     if (IsHttp2()) {
       CompareFrame(kDescription, *frame, kH2FrameData, arraysize(kH2FrameData));
@@ -2512,9 +2502,7 @@ TEST_P(SpdyFramerTest, CreateRstStream) {
       0xff, 0x00, 0x00, 0x00,
       0x02,
     };
-    SpdyRstStreamIR rst_stream(0x7FFFFFFF,
-                               RST_STREAM_INTERNAL_ERROR,
-                               "");
+    SpdyRstStreamIR rst_stream(0x7FFFFFFF, RST_STREAM_INTERNAL_ERROR);
     scoped_ptr<SpdyFrame> frame(framer.SerializeRstStream(rst_stream));
     if (IsHttp2()) {
       CompareFrame(kDescription, *frame, kH2FrameData, arraysize(kH2FrameData));
@@ -3527,20 +3515,21 @@ TEST_P(SpdyFramerTest, CreateAltSvc) {
   const char kType = static_cast<unsigned char>(
       SpdyConstants::SerializeFrameType(spdy_version_, ALTSVC));
   const unsigned char kFrameData[] = {
-      0x00, 0x00, 0x49, kType, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x06, 'o',
+      0x00, 0x00, 0x53, kType, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x06, 'o',
       'r',  'i',  'g',  'i',   'n',  'p',  'i',  'd',  '1',  '=',  '"',  'h',
       'o',  's',  't',  ':',   '4',  '4',  '3',  '"',  ';',  ' ',  'm',  'a',
       '=',  '5',  ',',  'p',   '%',  '2',  '2',  '%',  '3',  'D',  'i',  '%',
       '3',  'A',  'd',  '=',   '"',  'h',  '_',  '\\', '\\', 'o',  '\\', '"',
       's',  't',  ':',  '1',   '2',  '3',  '"',  ';',  ' ',  'm',  'a',  '=',
-      '4',  '2',  ';',  ' ',   'p',  '=',  '0',  '.',  '2',  '0',
-  };
+      '4',  '2',  ';',  ' ',   'p',  '=',  '"',  '0',  '.',  '2',  '0',  '"',
+      ';',  ' ',  'v',  '=',   '"',  '2',  '4',  '"'};
   SpdyAltSvcIR altsvc_ir(3);
   altsvc_ir.set_origin("origin");
-  altsvc_ir.add_altsvc(
-      SpdyAltSvcWireFormat::AlternativeService("pid1", "host", 443, 5, 1.0));
   altsvc_ir.add_altsvc(SpdyAltSvcWireFormat::AlternativeService(
-      "p\"=i:d", "h_\\o\"st", 123, 42, 0.2));
+      "pid1", "host", 443, 5, 1.0, SpdyAltSvcWireFormat::VersionVector{}));
+  altsvc_ir.add_altsvc(SpdyAltSvcWireFormat::AlternativeService(
+      "p\"=i:d", "h_\\o\"st", 123, 42, 0.2,
+      SpdyAltSvcWireFormat::VersionVector{24}));
   scoped_ptr<SpdySerializedFrame> frame(framer.SerializeFrame(altsvc_ir));
   CompareFrame(kDescription, *frame, kFrameData, arraysize(kFrameData));
 }
@@ -3582,7 +3571,7 @@ TEST_P(SpdyFramerTest, ReadCompressedSynStreamHeaderBlock) {
   syn_stream.set_priority(1);
   syn_stream.SetHeader("aa", "vv");
   syn_stream.SetHeader("bb", "ww");
-  SpdyHeaderBlock headers = syn_stream.name_value_block();
+  SpdyHeaderBlock headers = syn_stream.header_block();
   scoped_ptr<SpdyFrame> control_frame(framer.SerializeSynStream(syn_stream));
   EXPECT_TRUE(control_frame.get() != NULL);
   TestSpdyVisitor visitor(spdy_version_);
@@ -3591,7 +3580,7 @@ TEST_P(SpdyFramerTest, ReadCompressedSynStreamHeaderBlock) {
       reinterpret_cast<unsigned char*>(control_frame->data()),
       control_frame->size());
   EXPECT_EQ(1, visitor.syn_frame_count_);
-  EXPECT_TRUE(CompareHeaderBlocks(&headers, &visitor.headers_));
+  EXPECT_EQ(headers, visitor.headers_);
 }
 
 TEST_P(SpdyFramerTest, ReadCompressedSynReplyHeaderBlock) {
@@ -3602,7 +3591,7 @@ TEST_P(SpdyFramerTest, ReadCompressedSynReplyHeaderBlock) {
   SpdySynReplyIR syn_reply(1);
   syn_reply.SetHeader("alpha", "beta");
   syn_reply.SetHeader("gamma", "delta");
-  SpdyHeaderBlock headers = syn_reply.name_value_block();
+  SpdyHeaderBlock headers = syn_reply.header_block();
   scoped_ptr<SpdyFrame> control_frame(framer.SerializeSynReply(syn_reply));
   EXPECT_TRUE(control_frame.get() != NULL);
   TestSpdyVisitor visitor(spdy_version_);
@@ -3617,7 +3606,7 @@ TEST_P(SpdyFramerTest, ReadCompressedSynReplyHeaderBlock) {
     EXPECT_EQ(1, visitor.syn_reply_frame_count_);
     EXPECT_EQ(0, visitor.headers_frame_count_);
   }
-  EXPECT_TRUE(CompareHeaderBlocks(&headers, &visitor.headers_));
+  EXPECT_EQ(headers, visitor.headers_);
 }
 
 TEST_P(SpdyFramerTest, ReadCompressedHeadersHeaderBlock) {
@@ -3625,7 +3614,7 @@ TEST_P(SpdyFramerTest, ReadCompressedHeadersHeaderBlock) {
   SpdyHeadersIR headers_ir(1);
   headers_ir.SetHeader("alpha", "beta");
   headers_ir.SetHeader("gamma", "delta");
-  SpdyHeaderBlock headers = headers_ir.name_value_block();
+  SpdyHeaderBlock headers = headers_ir.header_block();
   scoped_ptr<SpdyFrame> control_frame(framer.SerializeHeaders(headers_ir));
   EXPECT_TRUE(control_frame.get() != NULL);
   TestSpdyVisitor visitor(spdy_version_);
@@ -3641,7 +3630,7 @@ TEST_P(SpdyFramerTest, ReadCompressedHeadersHeaderBlock) {
   EXPECT_LE(2, visitor.control_frame_header_data_count_);
   EXPECT_EQ(1, visitor.zero_length_control_frame_header_data_count_);
   EXPECT_EQ(0, visitor.zero_length_data_frame_count_);
-  EXPECT_TRUE(CompareHeaderBlocks(&headers, &visitor.headers_));
+  EXPECT_EQ(headers, visitor.headers_);
 }
 
 TEST_P(SpdyFramerTest, ReadCompressedHeadersHeaderBlockWithHalfClose) {
@@ -3650,7 +3639,7 @@ TEST_P(SpdyFramerTest, ReadCompressedHeadersHeaderBlockWithHalfClose) {
   headers_ir.set_fin(true);
   headers_ir.SetHeader("alpha", "beta");
   headers_ir.SetHeader("gamma", "delta");
-  SpdyHeaderBlock headers = headers_ir.name_value_block();
+  SpdyHeaderBlock headers = headers_ir.header_block();
   scoped_ptr<SpdyFrame> control_frame(framer.SerializeHeaders(headers_ir));
   EXPECT_TRUE(control_frame.get() != NULL);
   TestSpdyVisitor visitor(spdy_version_);
@@ -3666,7 +3655,7 @@ TEST_P(SpdyFramerTest, ReadCompressedHeadersHeaderBlockWithHalfClose) {
   EXPECT_LE(2, visitor.control_frame_header_data_count_);
   EXPECT_EQ(1, visitor.zero_length_control_frame_header_data_count_);
   EXPECT_EQ(1, visitor.zero_length_data_frame_count_);
-  EXPECT_TRUE(CompareHeaderBlocks(&headers, &visitor.headers_));
+  EXPECT_EQ(headers, visitor.headers_);
 }
 
 TEST_P(SpdyFramerTest, ControlFrameAtMaxSizeLimit) {
@@ -4260,7 +4249,7 @@ TEST_P(SpdyFramerTest, ProcessDataFrameWithPadding) {
   // Send rest of the padding payload.
   EXPECT_CALL(visitor, OnStreamPadding(1, 18));
   CHECK_EQ(18u, framer.ProcessInput(frame->data() + bytes_consumed, 18));
-  CHECK_EQ(framer.state(), SpdyFramer::SPDY_RESET);
+  CHECK_EQ(framer.state(), SpdyFramer::SPDY_READY_FOR_FRAME);
   CHECK_EQ(framer.error_code(), SpdyFramer::SPDY_NO_ERROR);
 }
 
@@ -4351,7 +4340,7 @@ TEST_P(SpdyFramerTest, ReadCompressedPushPromise) {
   SpdyPushPromiseIR push_promise(42, 57);
   push_promise.SetHeader("foo", "bar");
   push_promise.SetHeader("bar", "foofoo");
-  SpdyHeaderBlock headers = push_promise.name_value_block();
+  SpdyHeaderBlock headers = push_promise.header_block();
   scoped_ptr<SpdySerializedFrame> frame(
     framer.SerializePushPromise(push_promise));
   EXPECT_TRUE(frame.get() != NULL);
@@ -4362,7 +4351,7 @@ TEST_P(SpdyFramerTest, ReadCompressedPushPromise) {
       frame->size());
   EXPECT_EQ(42u, visitor.last_push_promise_stream_);
   EXPECT_EQ(57u, visitor.last_push_promise_promised_stream_);
-  EXPECT_TRUE(CompareHeaderBlocks(&headers, &visitor.headers_));
+  EXPECT_EQ(headers, visitor.headers_);
 }
 
 TEST_P(SpdyFramerTest, ReadHeadersWithContinuation) {
@@ -4374,27 +4363,27 @@ TEST_P(SpdyFramerTest, ReadHeadersWithContinuation) {
     0x00, 0x00, 0x14, 0x01, 0x08,  // HEADERS: PADDED
     0x00, 0x00, 0x00, 0x01,  // Stream 1
     0x03,                    // Padding of 3.
-    0x00, 0x06, 0x63, 0x6f,
-    0x6f, 0x6b, 0x69, 0x65,
-    0x07, 0x66, 0x6f, 0x6f,
-    0x3d, 0x62, 0x61, 0x72,
+    0x00, 0x06, 'c', 'o',
+    'o',  'k',  'i', 'e',
+    0x07, 'f',  'o', 'o',
+    '=',  'b',  'a', 'r',
     0x00, 0x00, 0x00,
 
     0x00, 0x00, 0x14, 0x09, 0x00,  // CONTINUATION
     0x00, 0x00, 0x00, 0x01,  // Stream 1
-    0x00, 0x06, 0x63, 0x6f,
-    0x6f, 0x6b, 0x69, 0x65,
-    0x08, 0x62, 0x61, 0x7a,
-    0x3d, 0x62, 0x69, 0x6e,
-    0x67, 0x00, 0x06, 0x63,
+    0x00, 0x06, 'c',  'o',
+    'o',  'k',  'i',  'e',
+    0x08, 'b',  'a',  'z',
+    '=',  'b',  'i',  'n',
+    'g',  0x00, 0x06, 'c',
 
     0x00, 0x00, 0x12, 0x09, 0x04,  // CONTINUATION: END_HEADERS
     0x00, 0x00, 0x00, 0x01,  // Stream 1
-    0x6f, 0x6f, 0x6b, 0x69,
-    0x65, 0x00, 0x00, 0x04,
-    0x6e, 0x61, 0x6d, 0x65,
-    0x05, 0x76, 0x61, 0x6c,
-    0x75, 0x65,
+    'o',  'o',  'k',  'i',
+    'e',  0x00, 0x00, 0x04,
+    'n',  'a',  'm',  'e',
+    0x05, 'v',  'a',  'l',
+    'u',  'e',
   };
 
   TestSpdyVisitor visitor(spdy_version_);
@@ -4420,26 +4409,26 @@ TEST_P(SpdyFramerTest, ReadHeadersWithContinuationAndFin) {
   const unsigned char kInput[] = {
     0x00, 0x00, 0x10, 0x01, 0x01,  // HEADERS: FIN
     0x00, 0x00, 0x00, 0x01,  // Stream 1
-    0x00, 0x06, 0x63, 0x6f,
-    0x6f, 0x6b, 0x69, 0x65,
-    0x07, 0x66, 0x6f, 0x6f,
-    0x3d, 0x62, 0x61, 0x72,
+    0x00, 0x06, 'c', 'o',
+    'o',  'k',  'i', 'e',
+    0x07, 'f',  'o', 'o',
+    '=',  'b',  'a', 'r',
 
     0x00, 0x00, 0x14, 0x09, 0x00,  // CONTINUATION
     0x00, 0x00, 0x00, 0x01,  // Stream 1
-    0x00, 0x06, 0x63, 0x6f,
-    0x6f, 0x6b, 0x69, 0x65,
-    0x08, 0x62, 0x61, 0x7a,
-    0x3d, 0x62, 0x69, 0x6e,
-    0x67, 0x00, 0x06, 0x63,
+    0x00, 0x06, 'c',  'o',
+    'o',  'k',  'i',  'e',
+    0x08, 'b',  'a',  'z',
+    '=',  'b',  'i',  'n',
+    'g',  0x00, 0x06, 'c',
 
     0x00, 0x00, 0x12, 0x09, 0x04,  // CONTINUATION: END_HEADERS
     0x00, 0x00, 0x00, 0x01,  // Stream 1
-    0x6f, 0x6f, 0x6b, 0x69,
-    0x65, 0x00, 0x00, 0x04,
-    0x6e, 0x61, 0x6d, 0x65,
-    0x05, 0x76, 0x61, 0x6c,
-    0x75, 0x65,
+    'o',  'o',  'k',  'i',
+    'e',  0x00, 0x00, 0x04,
+    'n',  'a',  'm',  'e',
+    0x05, 'v',  'a',  'l',
+    'u',  'e',
   };
 
   SpdyFramer framer(spdy_version_);
@@ -4469,27 +4458,27 @@ TEST_P(SpdyFramerTest, ReadPushPromiseWithContinuation) {
     0x08, 0x00, 0x00, 0x00,  // PADDED
     0x01, 0x02, 0x00, 0x00,  // Stream 1, Pad length field
     0x00, 0x2A, 0x00, 0x06,  // Promised stream 42
-    0x63, 0x6f, 0x6f, 0x6b,
-    0x69, 0x65, 0x07, 0x66,
-    0x6f, 0x6f, 0x3d, 0x62,
-    0x61, 0x72, 0x00, 0x00,
+    'c',  'o',  'o',  'k',
+    'i',  'e',  0x07, 'f',
+    'o',  'o',  '=',  'b',
+    'a',  'r',  0x00, 0x00,
 
     0x00, 0x00, 0x14, 0x09,  // CONTINUATION
     0x00, 0x00, 0x00, 0x00,
-    0x01, 0x00, 0x06, 0x63,  // Stream 1
-    0x6f, 0x6f, 0x6b, 0x69,
-    0x65, 0x08, 0x62, 0x61,
-    0x7a, 0x3d, 0x62, 0x69,
-    0x6e, 0x67, 0x00, 0x06,
-    0x63,
+    0x01, 0x00, 0x06, 'c',   // Stream 1
+    'o',  'o',  'k',  'i',
+    'e',  0x08, 'b',  'a',
+    'z',  '=',  'b',  'i',
+    'n',  'g',  0x00, 0x06,
+    'c',
 
     0x00, 0x00, 0x12, 0x09,  // CONTINUATION
     0x04, 0x00, 0x00, 0x00,  // END_HEADERS
-    0x01, 0x6f, 0x6f, 0x6b,  // Stream 1
-    0x69, 0x65, 0x00, 0x00,
-    0x04, 0x6e, 0x61, 0x6d,
-    0x65, 0x05, 0x76, 0x61,
-    0x6c, 0x75, 0x65,
+    0x01, 'o',  'o',  'k',   // Stream 1
+    'i',  'e',  0x00, 0x00,
+    0x04, 'n',  'a',  'm',
+    'e',  0x05, 'v',  'a',
+    'l',  'u',  'e',
   };
 
   SpdyFramer framer(spdy_version_);
@@ -4827,10 +4816,10 @@ TEST_P(SpdyFramerTest, SizesTest) {
 TEST_P(SpdyFramerTest, StateToStringTest) {
   EXPECT_STREQ("ERROR",
                SpdyFramer::StateToString(SpdyFramer::SPDY_ERROR));
-  EXPECT_STREQ("AUTO_RESET",
-               SpdyFramer::StateToString(SpdyFramer::SPDY_AUTO_RESET));
-  EXPECT_STREQ("RESET",
-               SpdyFramer::StateToString(SpdyFramer::SPDY_RESET));
+  EXPECT_STREQ("FRAME_COMPLETE",
+               SpdyFramer::StateToString(SpdyFramer::SPDY_FRAME_COMPLETE));
+  EXPECT_STREQ("READY_FOR_FRAME",
+               SpdyFramer::StateToString(SpdyFramer::SPDY_READY_FOR_FRAME));
   EXPECT_STREQ("READING_COMMON_HEADER",
                SpdyFramer::StateToString(
                    SpdyFramer::SPDY_READING_COMMON_HEADER));
@@ -5004,7 +4993,7 @@ TEST_P(SpdyFramerTest, DataFrameFlagsV2V3) {
                 framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     }
@@ -5054,7 +5043,7 @@ TEST_P(SpdyFramerTest, DataFrameFlagsV4) {
       EXPECT_EQ(SpdyFramer::SPDY_INVALID_DATA_FRAME_FLAGS, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     }
@@ -5108,7 +5097,7 @@ TEST_P(SpdyFramerTest, SynStreamFrameFlags) {
                 framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     }
@@ -5151,7 +5140,7 @@ TEST_P(SpdyFramerTest, SynReplyFrameFlags) {
                 framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     }
@@ -5167,7 +5156,7 @@ TEST_P(SpdyFramerTest, RstStreamFrameFlags) {
     SpdyFramer framer(spdy_version_);
     framer.set_visitor(&visitor);
 
-    SpdyRstStreamIR rst_stream(13, RST_STREAM_CANCEL, "");
+    SpdyRstStreamIR rst_stream(13, RST_STREAM_CANCEL);
     scoped_ptr<SpdyFrame> frame(framer.SerializeRstStream(rst_stream));
     SetFrameFlags(frame.get(), flags, spdy_version_);
 
@@ -5184,7 +5173,7 @@ TEST_P(SpdyFramerTest, RstStreamFrameFlags) {
                 framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     }
@@ -5226,7 +5215,7 @@ TEST_P(SpdyFramerTest, SettingsFrameFlagsOldFormat) {
                 framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     }
@@ -5269,7 +5258,7 @@ TEST_P(SpdyFramerTest, SettingsFrameFlags) {
                 framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     }
@@ -5302,7 +5291,7 @@ TEST_P(SpdyFramerTest, GoawayFrameFlags) {
                 framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     }
@@ -5387,11 +5376,11 @@ TEST_P(SpdyFramerTest, HeadersFrameFlags) {
                 framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else if (IsHttp2() && ~(flags & HEADERS_FLAG_END_HEADERS)) {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     }
@@ -5422,7 +5411,7 @@ TEST_P(SpdyFramerTest, PingFrameFlags) {
     framer.ProcessInput(frame->data(), frame->size());
     if ((spdy_version_ > SPDY3 && flags == PING_FLAG_ACK) ||
         flags == 0) {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
@@ -5460,7 +5449,7 @@ TEST_P(SpdyFramerTest, WindowUpdateFrameFlags) {
                 framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     }
@@ -5509,7 +5498,7 @@ TEST_P(SpdyFramerTest, PushPromiseFrameFlags) {
                 framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     }
@@ -5566,7 +5555,7 @@ TEST_P(SpdyFramerTest, ContinuationFrameFlags) {
                 framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     } else {
-      EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+      EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
       EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
           << SpdyFramer::ErrorCodeToString(framer.error_code());
     }
@@ -5593,7 +5582,7 @@ TEST_P(SpdyFramerTest, EmptySynStream) {
   SpdySynStreamIR syn_stream(1);
   syn_stream.set_priority(1);
   scoped_ptr<SpdyFrame> frame(framer.SerializeSynStream(syn_stream));
-  // Adjust size to remove the name/value block.
+  // Adjust size to remove the header block.
   SetFrameLength(
       frame.get(),
       framer.GetSynStreamMinimumSize() - framer.GetControlFrameHeaderSize(),
@@ -5604,7 +5593,7 @@ TEST_P(SpdyFramerTest, EmptySynStream) {
   EXPECT_CALL(visitor, OnControlFrameHeaderData(1, NULL, 0));
 
   framer.ProcessInput(frame->data(), framer.GetSynStreamMinimumSize());
-  EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+  EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
   EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
       << SpdyFramer::ErrorCodeToString(framer.error_code());
 }
@@ -5664,7 +5653,7 @@ TEST_P(SpdyFramerTest, RstStreamStatusBounds) {
     framer.ProcessInput(reinterpret_cast<const char*>(kV3RstStreamInvalid),
                         arraysize(kV3RstStreamInvalid));
   }
-  EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+  EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
   EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
       << SpdyFramer::ErrorCodeToString(framer.error_code());
 
@@ -5682,7 +5671,7 @@ TEST_P(SpdyFramerTest, RstStreamStatusBounds) {
         reinterpret_cast<const char*>(kV3RstStreamNumStatusCodes),
         arraysize(kV3RstStreamNumStatusCodes));
   }
-  EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+  EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
   EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
       << SpdyFramer::ErrorCodeToString(framer.error_code());
 }
@@ -5719,7 +5708,7 @@ TEST_P(SpdyFramerTest, GoAwayStatusBounds) {
     framer.ProcessInput(reinterpret_cast<const char*>(kH2FrameData),
                         arraysize(kH2FrameData));
   }
-  EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+  EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
   EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
       << SpdyFramer::ErrorCodeToString(framer.error_code());
 }
@@ -5760,7 +5749,7 @@ TEST_P(SpdyFramerTest, GoAwayStreamIdBounds) {
     framer.ProcessInput(reinterpret_cast<const char*>(kH2FrameData),
                         arraysize(kH2FrameData));
   }
-  EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+  EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
   EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
       << SpdyFramer::ErrorCodeToString(framer.error_code());
 }
@@ -5782,7 +5771,7 @@ TEST_P(SpdyFramerTest, OnBlocked) {
   scoped_ptr<SpdySerializedFrame> frame(framer.SerializeFrame(blocked_ir));
   framer.ProcessInput(frame->data(), framer.GetBlockedSize());
 
-  EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+  EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
   EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
       << SpdyFramer::ErrorCodeToString(framer.error_code());
 }
@@ -5798,9 +5787,11 @@ TEST_P(SpdyFramerTest, OnAltSvc) {
   SpdyFramer framer(spdy_version_);
   framer.set_visitor(&visitor);
 
-  SpdyAltSvcWireFormat::AlternativeService altsvc1("pid1", "host", 443, 5, 1.0);
-  SpdyAltSvcWireFormat::AlternativeService altsvc2("p\"=i:d", "h_\\o\"st", 123,
-                                                   42, 0.2);
+  SpdyAltSvcWireFormat::AlternativeService altsvc1(
+      "pid1", "host", 443, 5, 1.0, SpdyAltSvcWireFormat::VersionVector());
+  SpdyAltSvcWireFormat::AlternativeService altsvc2(
+      "p\"=i:d", "h_\\o\"st", 123, 42, 0.2,
+      SpdyAltSvcWireFormat::VersionVector{24});
   SpdyAltSvcWireFormat::AlternativeServiceVector altsvc_vector;
   altsvc_vector.push_back(altsvc1);
   altsvc_vector.push_back(altsvc2);
@@ -5814,7 +5805,7 @@ TEST_P(SpdyFramerTest, OnAltSvc) {
   scoped_ptr<SpdySerializedFrame> frame(framer.SerializeFrame(altsvc_ir));
   framer.ProcessInput(frame->data(), frame->size());
 
-  EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+  EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
   EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
       << SpdyFramer::ErrorCodeToString(framer.error_code());
 }
@@ -5830,9 +5821,11 @@ TEST_P(SpdyFramerTest, OnAltSvcNoOrigin) {
   SpdyFramer framer(spdy_version_);
   framer.set_visitor(&visitor);
 
-  SpdyAltSvcWireFormat::AlternativeService altsvc1("pid1", "host", 443, 5, 1.0);
-  SpdyAltSvcWireFormat::AlternativeService altsvc2("p\"=i:d", "h_\\o\"st", 123,
-                                                   42, 0.2);
+  SpdyAltSvcWireFormat::AlternativeService altsvc1(
+      "pid1", "host", 443, 5, 1.0, SpdyAltSvcWireFormat::VersionVector());
+  SpdyAltSvcWireFormat::AlternativeService altsvc2(
+      "p\"=i:d", "h_\\o\"st", 123, 42, 0.2,
+      SpdyAltSvcWireFormat::VersionVector{24});
   SpdyAltSvcWireFormat::AlternativeServiceVector altsvc_vector;
   altsvc_vector.push_back(altsvc1);
   altsvc_vector.push_back(altsvc2);
@@ -5844,7 +5837,7 @@ TEST_P(SpdyFramerTest, OnAltSvcNoOrigin) {
   scoped_ptr<SpdySerializedFrame> frame(framer.SerializeFrame(altsvc_ir));
   framer.ProcessInput(frame->data(), frame->size());
 
-  EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+  EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
   EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
       << SpdyFramer::ErrorCodeToString(framer.error_code());
 }
@@ -5862,10 +5855,10 @@ TEST_P(SpdyFramerTest, OnAltSvcEmptyProtocolId) {
 
   SpdyAltSvcIR altsvc_ir(1);
   altsvc_ir.set_origin("o1");
-  altsvc_ir.add_altsvc(
-      SpdyAltSvcWireFormat::AlternativeService("pid1", "host", 443, 5, 1.0));
-  altsvc_ir.add_altsvc(
-      SpdyAltSvcWireFormat::AlternativeService("", "h1", 443, 10, 1.0));
+  altsvc_ir.add_altsvc(SpdyAltSvcWireFormat::AlternativeService(
+      "pid1", "host", 443, 5, 1.0, SpdyAltSvcWireFormat::VersionVector()));
+  altsvc_ir.add_altsvc(SpdyAltSvcWireFormat::AlternativeService(
+      "", "h1", 443, 10, 1.0, SpdyAltSvcWireFormat::VersionVector()));
   scoped_ptr<SpdySerializedFrame> frame(framer.SerializeFrame(altsvc_ir));
   framer.ProcessInput(frame->data(), frame->size());
 
@@ -5885,7 +5878,8 @@ TEST_P(SpdyFramerTest, OnAltSvcBadLengths) {
   SpdyFramer framer(spdy_version_);
   framer.set_visitor(&visitor);
 
-  SpdyAltSvcWireFormat::AlternativeService altsvc("pid", "h1", 443, 10, 1.0);
+  SpdyAltSvcWireFormat::AlternativeService altsvc(
+      "pid", "h1", 443, 10, 1.0, SpdyAltSvcWireFormat::VersionVector());
   SpdyAltSvcWireFormat::AlternativeServiceVector altsvc_vector;
   altsvc_vector.push_back(altsvc);
   EXPECT_CALL(visitor, OnAltSvc(kStreamId, StringPiece("o1"), altsvc_vector));
@@ -5896,7 +5890,7 @@ TEST_P(SpdyFramerTest, OnAltSvcBadLengths) {
   scoped_ptr<SpdySerializedFrame> frame(framer.SerializeFrame(altsvc_ir));
   framer.ProcessInput(frame->data(), frame->size());
 
-  EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+  EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
   EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
       << SpdyFramer::ErrorCodeToString(framer.error_code());
 }
@@ -5909,9 +5903,11 @@ TEST_P(SpdyFramerTest, ReadChunkedAltSvcFrame) {
 
   SpdyFramer framer(spdy_version_);
   SpdyAltSvcIR altsvc_ir(1);
-  SpdyAltSvcWireFormat::AlternativeService altsvc1("pid1", "host", 443, 5, 1.0);
-  SpdyAltSvcWireFormat::AlternativeService altsvc2("p\"=i:d", "h_\\o\"st", 123,
-                                                   42, 0.2);
+  SpdyAltSvcWireFormat::AlternativeService altsvc1(
+      "pid1", "host", 443, 5, 1.0, SpdyAltSvcWireFormat::VersionVector());
+  SpdyAltSvcWireFormat::AlternativeService altsvc2(
+      "p\"=i:d", "h_\\o\"st", 123, 42, 0.2,
+      SpdyAltSvcWireFormat::VersionVector{24});
   altsvc_ir.add_altsvc(altsvc1);
   altsvc_ir.add_altsvc(altsvc2);
 
@@ -5951,7 +5947,7 @@ TEST_P(SpdyFramerTest, ReadPriority) {
   EXPECT_CALL(visitor, OnPriority(3, 1, 255, false));
   framer.ProcessInput(frame->data(), frame->size());
 
-  EXPECT_EQ(SpdyFramer::SPDY_RESET, framer.state());
+  EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
   EXPECT_EQ(SpdyFramer::SPDY_NO_ERROR, framer.error_code())
       << SpdyFramer::ErrorCodeToString(framer.error_code());
   // TODO(mlavan): once we actually maintain a priority tree,
@@ -6010,6 +6006,135 @@ TEST_P(SpdyFramerTest, ReadIncorrectlySizedPriority) {
   EXPECT_EQ(SpdyFramer::SPDY_INVALID_CONTROL_FRAME,
             visitor.framer_.error_code())
       << SpdyFramer::ErrorCodeToString(visitor.framer_.error_code());
+}
+
+// Test that SpdyFramer processes, by default, all passed input in one call
+// to ProcessInput (i.e. will not be calling set_process_single_input_frame()).
+TEST_P(SpdyFramerTest, ProcessAllInput) {
+  SpdyFramer framer(spdy_version_);
+  scoped_ptr<TestSpdyVisitor> visitor(new TestSpdyVisitor(spdy_version_));
+  framer.set_visitor(visitor.get());
+
+  // Create two input frames.
+  SpdyHeadersIR headers(1);
+  headers.set_priority(1);
+  headers.SetHeader("alpha", "beta");
+  headers.SetHeader("gamma", "charlie");
+  headers.SetHeader("cookie", "key1=value1; key2=value2");
+  scoped_ptr<SpdyFrame> headers_frame(framer.SerializeHeaders(headers));
+
+  const char four_score[] = "Four score and seven years ago";
+  SpdyDataIR four_score_ir(1, four_score);
+  scoped_ptr<SpdyFrame> four_score_frame(framer.SerializeData(four_score_ir));
+
+  // Put them in a single buffer (new variables here to make it easy to
+  // change the order and type of frames).
+  SpdyFrame* frame1 = headers_frame.get();
+  SpdyFrame* frame2 = four_score_frame.get();
+
+  const size_t frame1_size = frame1->size();
+  const size_t frame2_size = frame2->size();
+
+  LOG(INFO) << "frame1_size = " << frame1_size;
+  LOG(INFO) << "frame2_size = " << frame2_size;
+
+  string input_buffer;
+  input_buffer.append(frame1->data(), frame1_size);
+  input_buffer.append(frame2->data(), frame2_size);
+
+  const char* buf = input_buffer.data();
+  const size_t buf_size = input_buffer.size();
+
+  LOG(INFO) << "buf_size = " << buf_size;
+
+  size_t processed = framer.ProcessInput(buf, buf_size);
+  EXPECT_EQ(buf_size, processed);
+  EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
+  EXPECT_EQ(1, visitor->headers_frame_count_);
+  EXPECT_EQ(1, visitor->data_frame_count_);
+  EXPECT_EQ(strlen(four_score), static_cast<unsigned>(visitor->data_bytes_));
+}
+
+// Test that SpdyFramer stops after processing a full frame if
+// process_single_input_frame is set. Input to ProcessInput has two frames, but
+// only processes the first when we give it the first frame split at any point,
+// or give it more than one frame in the input buffer.
+TEST_P(SpdyFramerTest, ProcessAtMostOneFrame) {
+  SpdyFramer framer(spdy_version_);
+  framer.set_process_single_input_frame(true);
+  scoped_ptr<TestSpdyVisitor> visitor;
+
+  // Create two input frames.
+  const char four_score[] = "Four score and ...";
+  SpdyDataIR four_score_ir(1, four_score);
+  scoped_ptr<SpdyFrame> four_score_frame(framer.SerializeData(four_score_ir));
+
+  SpdyHeadersIR headers(2);
+  headers.SetHeader("alpha", "beta");
+  headers.SetHeader("gamma", "charlie");
+  headers.SetHeader("cookie", "key1=value1; key2=value2");
+  scoped_ptr<SpdyFrame> headers_frame(framer.SerializeHeaders(headers));
+
+  // Put them in a single buffer (new variables here to make it easy to
+  // change the order and type of frames).
+  SpdyFrame* frame1 = four_score_frame.get();
+  SpdyFrame* frame2 = headers_frame.get();
+
+  const size_t frame1_size = frame1->size();
+  const size_t frame2_size = frame2->size();
+
+  LOG(INFO) << "frame1_size = " << frame1_size;
+  LOG(INFO) << "frame2_size = " << frame2_size;
+
+  string input_buffer;
+  input_buffer.append(frame1->data(), frame1_size);
+  input_buffer.append(frame2->data(), frame2_size);
+
+  const char* buf = input_buffer.data();
+  const size_t buf_size = input_buffer.size();
+
+  LOG(INFO) << "buf_size = " << buf_size;
+
+  for (size_t first_size = 0; first_size <= buf_size; ++first_size) {
+    LOG(INFO) << "first_size = " << first_size;
+    visitor.reset(new TestSpdyVisitor(spdy_version_));
+    framer.set_visitor(visitor.get());
+
+    EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
+
+    size_t processed_first = framer.ProcessInput(buf, first_size);
+    if (first_size < frame1_size) {
+      EXPECT_EQ(first_size, processed_first);
+
+      if (first_size == 0) {
+        EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
+      } else {
+        EXPECT_NE(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
+      }
+
+      const char* rest = buf + processed_first;
+      const size_t remaining = buf_size - processed_first;
+      LOG(INFO) << "remaining = " << remaining;
+
+      size_t processed_second = framer.ProcessInput(rest, remaining);
+
+      // Redundant tests just to make it easier to think about.
+      EXPECT_EQ(frame1_size - processed_first, processed_second);
+      size_t processed_total = processed_first + processed_second;
+      EXPECT_EQ(frame1_size, processed_total);
+    } else {
+      EXPECT_EQ(frame1_size, processed_first);
+    }
+
+    EXPECT_EQ(SpdyFramer::SPDY_READY_FOR_FRAME, framer.state());
+
+    // At this point should have processed the entirety of the first frame,
+    // and none of the second frame.
+
+    EXPECT_EQ(1, visitor->data_frame_count_);
+    EXPECT_EQ(strlen(four_score), static_cast<unsigned>(visitor->data_bytes_));
+    EXPECT_EQ(0, visitor->headers_frame_count_);
+  }
 }
 
 }  // namespace test

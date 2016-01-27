@@ -231,7 +231,7 @@ static void partialVoidTestEnumModulesArgMethodMethod(const v8::FunctionCallback
         arg = info[0];
         if (!arg.prepare())
             return;
-        static const char* validValues[] = {
+        const char* validValues[] = {
             "EnumModulesValue1",
             "EnumModulesValue2",
         };
@@ -296,9 +296,9 @@ static void unscopeableVoidMethodMethodCallback(const v8::FunctionCallbackInfo<v
 
 } // namespace TestInterfaceImplementationPartialV8Internal
 
-static const V8DOMConfiguration::MethodConfiguration V8TestInterfaceMethods[] = {
-    {"partialVoidTestEnumModulesArgMethod", TestInterfaceImplementationPartialV8Internal::partialVoidTestEnumModulesArgMethodMethodCallback, 0, 1, V8DOMConfiguration::ExposedToAllScripts},
-    {"unscopeableVoidMethod", TestInterfaceImplementationPartialV8Internal::unscopeableVoidMethodMethodCallback, 0, 0, V8DOMConfiguration::ExposedToAllScripts},
+const V8DOMConfiguration::MethodConfiguration V8TestInterfaceMethods[] = {
+    {"partialVoidTestEnumModulesArgMethod", TestInterfaceImplementationPartialV8Internal::partialVoidTestEnumModulesArgMethodMethodCallback, 0, 1, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
+    {"unscopeableVoidMethod", TestInterfaceImplementationPartialV8Internal::unscopeableVoidMethodMethodCallback, 0, 0, v8::None, V8DOMConfiguration::ExposedToAllScripts, V8DOMConfiguration::OnPrototype},
 };
 
 void V8TestInterfacePartial::installV8TestInterfaceTemplate(v8::Local<v8::FunctionTemplate> functionTemplate, v8::Isolate* isolate)
@@ -317,16 +317,16 @@ void V8TestInterfacePartial::installV8TestInterfaceTemplate(v8::Local<v8::Functi
     ALLOW_UNUSED_LOCAL(instanceTemplate);
     v8::Local<v8::ObjectTemplate> prototypeTemplate = functionTemplate->PrototypeTemplate();
     ALLOW_UNUSED_LOCAL(prototypeTemplate);
-    static const V8DOMConfiguration::ConstantConfiguration V8TestInterfaceConstants[] = {
-        {"PARTIAL3_UNSIGNED_SHORT", 0, 0, 0, V8DOMConfiguration::ConstantTypeUnsignedShort},
+    const V8DOMConfiguration::ConstantConfiguration V8TestInterfaceConstants[] = {
+        {"PARTIAL3_UNSIGNED_SHORT", 0, 0, V8DOMConfiguration::ConstantTypeUnsignedShort},
     };
     V8DOMConfiguration::installConstants(isolate, functionTemplate, prototypeTemplate, V8TestInterfaceConstants, WTF_ARRAY_LENGTH(V8TestInterfaceConstants));
     functionTemplate->InstanceTemplate()->SetCallAsFunctionHandler(V8TestInterface::legacyCallCustom);
 }
 
-void V8TestInterfacePartial::preparePrototypeObject(v8::Isolate* isolate, v8::Local<v8::Object> prototypeObject, v8::Local<v8::FunctionTemplate> interfaceTemplate)
+void V8TestInterfacePartial::preparePrototypeAndInterfaceObject(v8::Isolate* isolate, v8::Local<v8::Object> prototypeObject, v8::Local<v8::Function> interfaceObject, v8::Local<v8::FunctionTemplate> interfaceTemplate)
 {
-    V8TestInterface::preparePrototypeObject(isolate, prototypeObject, interfaceTemplate);
+    V8TestInterface::preparePrototypeAndInterfaceObject(isolate, prototypeObject, interfaceObject, interfaceTemplate);
     v8::Local<v8::Context> v8Context(prototypeObject->CreationContext());
     v8::Local<v8::Name> unscopablesSymbol(v8::Symbol::GetUnscopables(isolate));
     v8::Local<v8::Object> unscopeables;
@@ -343,7 +343,7 @@ void V8TestInterfacePartial::initialize()
     // Should be invoked from initModules.
     V8TestInterface::updateWrapperTypeInfo(
         &V8TestInterfacePartial::installV8TestInterfaceTemplate,
-        &V8TestInterfacePartial::preparePrototypeObject);
+        &V8TestInterfacePartial::preparePrototypeAndInterfaceObject);
     V8TestInterface::registerVoidMethodPartialOverloadMethodForPartialInterface(&TestInterfaceImplementationPartialV8Internal::voidMethodPartialOverloadMethod);
     V8TestInterface::registerStaticVoidMethodPartialOverloadMethodForPartialInterface(&TestInterfaceImplementationPartialV8Internal::staticVoidMethodPartialOverloadMethod);
     V8TestInterface::registerPromiseMethodPartialOverloadMethodForPartialInterface(&TestInterfaceImplementationPartialV8Internal::promiseMethodPartialOverloadMethod);

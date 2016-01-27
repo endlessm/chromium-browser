@@ -21,8 +21,8 @@
 #ifndef RefCounted_h
 #define RefCounted_h
 
+#include "wtf/Allocator.h"
 #include "wtf/Assertions.h"
-#include "wtf/FastAllocBase.h"
 #include "wtf/InstanceCounter.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/WTFExport.h"
@@ -163,7 +163,7 @@ inline void adopted(RefCountedBase* object)
 
 template<typename T> class RefCounted : public RefCountedBase {
     WTF_MAKE_NONCOPYABLE(RefCounted);
-    WTF_MAKE_FAST_ALLOCATED(RefCounted);
+    USING_FAST_MALLOC(RefCounted);
 
 public:
     void deref()

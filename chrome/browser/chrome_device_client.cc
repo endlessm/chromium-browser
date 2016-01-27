@@ -17,12 +17,18 @@ ChromeDeviceClient::~ChromeDeviceClient() {}
 
 device::UsbService* ChromeDeviceClient::GetUsbService() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  return device::UsbService::GetInstance(
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE));
+  if (!usb_service_) {
+    usb_service_ = device::UsbService::Create(
+        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE));
+  }
+  return usb_service_.get();
 }
 
 device::HidService* ChromeDeviceClient::GetHidService() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
-  return device::HidService::GetInstance(
-      BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE));
+  if (!hid_service_) {
+    hid_service_ = device::HidService::Create(
+        BrowserThread::GetMessageLoopProxyForThread(BrowserThread::FILE));
+  }
+  return hid_service_.get();
 }

@@ -156,7 +156,7 @@ void WorkerWebSocketChannel::fail(const String& reason, MessageLevel level, cons
     if (!m_bridge)
         return;
 
-    RefPtrWillBeRawPtr<ScriptCallStack> callStack = createScriptCallStack(1, true);
+    RefPtrWillBeRawPtr<ScriptCallStack> callStack = currentScriptCallStack(1);
     if (callStack && callStack->size())  {
         // In order to emulate the ConsoleMessage behavior,
         // we should ignore the specified url and line number if
@@ -470,10 +470,15 @@ bool Bridge::waitForMethodCompletion(PassOwnPtr<ExecutionContextTask> task)
 
     // We wait for the syncHelper event even if a shutdown event is fired.
     // See https://codereview.chromium.org/267323004/#msg43 for why we need to wait this.
-    SafePointScope scope(ThreadState::HeapPointersOnStack);
+    SafePointScope scope(BlinkGC::HeapPointersOnStack);
     m_syncHelper->wait();
     // This is checking whether a shutdown event is fired or not.
     return !m_workerGlobalScope->thread()->terminated();
+}
+
+void Bridge::peerShouldBeDisconnected()
+{
+    RELEASE_ASSERT(!m_peer);
 }
 
 DEFINE_TRACE(Bridge)

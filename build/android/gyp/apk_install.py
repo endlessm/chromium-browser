@@ -20,8 +20,8 @@ from util import md5_check
 BUILD_ANDROID_DIR = os.path.join(os.path.dirname(__file__), '..')
 sys.path.append(BUILD_ANDROID_DIR)
 
+from devil.android import apk_helper
 from pylib import constants
-from pylib.utils import apk_helper
 
 
 def GetNewMetadata(device, apk_package):
@@ -29,9 +29,9 @@ def GetNewMetadata(device, apk_package):
   output = device.RunShellCommand('ls -l /data/app/')
   # Matches lines like:
   # -rw-r--r-- system   system    7376582 2013-04-19 16:34 \
-  # org.chromium.chrome.shell.apk
+  # org.chromium.chrome.apk
   # -rw-r--r-- system   system    7376582 2013-04-19 16:34 \
-  # org.chromium.chrome.shell-1.apk
+  # org.chromium.chrome-1.apk
   apk_matcher = lambda s: re.match('.*%s(-[0-9]*)?(.apk)?$' % apk_package, s)
   matches = filter(apk_matcher, output)
   return matches[0] if matches else None

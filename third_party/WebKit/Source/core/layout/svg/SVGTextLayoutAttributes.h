@@ -21,6 +21,7 @@
 #define SVGTextLayoutAttributes_h
 
 #include "core/layout/svg/SVGTextMetrics.h"
+#include "wtf/Allocator.h"
 #include "wtf/HashMap.h"
 #include "wtf/MathExtras.h"
 #include "wtf/Noncopyable.h"
@@ -31,6 +32,7 @@ namespace blink {
 class LayoutSVGInlineText;
 
 struct SVGCharacterData {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
     SVGCharacterData();
 
     float x;
@@ -43,6 +45,7 @@ struct SVGCharacterData {
 typedef HashMap<unsigned, SVGCharacterData> SVGCharacterDataMap;
 
 class SVGTextLayoutAttributes {
+    DISALLOW_NEW();
     WTF_MAKE_NONCOPYABLE(SVGTextLayoutAttributes);
 public:
     SVGTextLayoutAttributes(LayoutSVGInlineText*);

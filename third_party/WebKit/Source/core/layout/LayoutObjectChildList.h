@@ -34,7 +34,7 @@ namespace blink {
 class LayoutObject;
 
 class LayoutObjectChildList {
-    DISALLOW_ALLOCATION();
+    DISALLOW_NEW();
 public:
     LayoutObjectChildList()
         : m_firstChild(nullptr)
@@ -60,7 +60,7 @@ public:
     }
 
 private:
-    void invalidatePaintOnRemoval(const LayoutObject& oldChild);
+    void invalidatePaintOnRemoval(LayoutObject& oldChild);
 
     LayoutObject* m_firstChild;
     LayoutObject* m_lastChild;

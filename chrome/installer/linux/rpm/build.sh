@@ -17,10 +17,10 @@ gen_spec() {
   rm -f "${SPEC}"
   # Trunk packages need to install to a custom path so they don't conflict with
   # release channel packages.
-  local PACKAGE_FILENAME="${PACKAGE}"
+  local PACKAGE_FILENAME="${PACKAGE}-${CHANNEL}"
   if [ "$CHANNEL" != "stable" ]; then
     local INSTALLDIR="${INSTALLDIR}-${CHANNEL}"
-    PACKAGE_FILENAME="${PACKAGE}-${CHANNEL}"
+    local PACKAGE="${PACKAGE}-${CHANNEL}"
     local MENUNAME="${MENUNAME} (${CHANNEL})"
   fi
   process_template "${SCRIPTDIR}/chrome.spec.template" "${SPEC}"
@@ -126,6 +126,9 @@ do_package() {
   # https://qa.mandriva.com/show_bug.cgi?id=55714
   # https://bugzilla.redhat.com/show_bug.cgi?id=538158
   # https://bugzilla.novell.com/show_bug.cgi?id=556248
+  #
+  # We want to depend on liberation-fonts as well, but there is no such package
+  # for Fedora. https://bugzilla.redhat.com/show_bug.cgi?id=1252564
   DEPENDS="lsb >= 4.0, \
   libcurl.so.4${EMPTY_VERSION}${PKG_ARCH}, \
   libnss3.so(NSS_3.14.3)${PKG_ARCH}, \
@@ -166,11 +169,12 @@ cleanup() {
 
 usage() {
   echo "usage: $(basename $0) [-c channel] [-a target_arch] [-o 'dir']"
-  echo "                      [-b 'dir']"
+  echo "                      [-b 'dir'] -d branding"
   echo "-c channel the package channel (trunk, asan, unstable, beta, stable)"
   echo "-a arch    package architecture (ia32 or x64)"
   echo "-o dir     package output directory [${OUTPUTDIR}]"
   echo "-b dir     build input directory    [${BUILDDIR}]"
+  echo "-d brand   either chromium or google_chrome"
   echo "-h         this help message"
 }
 
@@ -211,7 +215,7 @@ verify_channel() {
 }
 
 process_opts() {
-  while getopts ":o:b:c:a:h" OPTNAME
+  while getopts ":o:b:c:a:d:h" OPTNAME
   do
     case $OPTNAME in
       o )
@@ -227,6 +231,9 @@ process_opts() {
         ;;
       a )
         TARGETARCH="$OPTARG"
+        ;;
+      d )
+        BRANDING="$OPTARG"
         ;;
       h )
         usage
@@ -272,7 +279,7 @@ source ${BUILDDIR}/installer/common/installer.include
 
 get_version_info
 
-if [ "$CHROMIUM_BUILD" = "_google_chrome" ]; then
+if [ "$BRANDING" = "google_chrome" ]; then
   source "${BUILDDIR}/installer/common/google-chrome.info"
 else
   source "${BUILDDIR}/installer/common/chromium-browser.info"

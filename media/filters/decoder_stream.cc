@@ -12,8 +12,11 @@
 #include "base/trace_event/trace_event.h"
 #include "media/base/bind_to_current_loop.h"
 #include "media/base/decoder_buffer.h"
+#include "media/base/limits.h"
 #include "media/base/media_log.h"
+#include "media/base/timestamp_constants.h"
 #include "media/base/video_decoder.h"
+#include "media/base/video_frame.h"
 #include "media/filters/decrypting_demuxer_stream.h"
 
 namespace media {
@@ -48,11 +51,11 @@ DecoderStream<StreamType>::DecoderStream(
       decoder_selector_(new DecoderSelector<StreamType>(task_runner,
                                                         decoders.Pass(),
                                                         media_log)),
+      decoded_frames_since_fallback_(0),
       active_splice_(false),
       decoding_eos_(false),
       pending_decode_requests_(0),
-      weak_factory_(this) {
-}
+      weak_factory_(this) {}
 
 template <DemuxerStream::Type StreamType>
 DecoderStream<StreamType>::~DecoderStream() {
@@ -86,7 +89,7 @@ template <DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::Initialize(
     DemuxerStream* stream,
     const InitCB& init_cb,
-    const SetDecryptorReadyCB& set_decryptor_ready_cb,
+    const SetCdmReadyCB& set_cdm_ready_cb,
     const StatisticsCB& statistics_cb,
     const base::Closure& waiting_for_decryption_key_cb) {
   FUNCTION_DVLOG(2);
@@ -101,7 +104,7 @@ void DecoderStream<StreamType>::Initialize(
   stream_ = stream;
 
   state_ = STATE_INITIALIZING;
-  SelectDecoder(set_decryptor_ready_cb);
+  SelectDecoder(set_cdm_ready_cb);
 }
 
 template <DemuxerStream::Type StreamType>
@@ -212,9 +215,9 @@ bool DecoderStream<StreamType>::CanDecodeMore() const {
 
 template <DemuxerStream::Type StreamType>
 void DecoderStream<StreamType>::SelectDecoder(
-    const SetDecryptorReadyCB& set_decryptor_ready_cb) {
+    const SetCdmReadyCB& set_cdm_ready_cb) {
   decoder_selector_->SelectDecoder(
-      stream_, set_decryptor_ready_cb,
+      stream_, set_cdm_ready_cb,
       base::Bind(&DecoderStream<StreamType>::OnDecoderSelected,
                  weak_factory_.GetWeakPtr()),
       base::Bind(&DecoderStream<StreamType>::OnDecodeOutputReady,
@@ -241,6 +244,7 @@ void DecoderStream<StreamType>::OnDecoderSelected(
   }
 
   previous_decoder_ = decoder_.Pass();
+  decoded_frames_since_fallback_ = 0;
   decoder_ = selected_decoder.Pass();
   if (decrypting_demuxer_stream) {
     decrypting_demuxer_stream_ = decrypting_demuxer_stream.Pass();
@@ -298,7 +302,7 @@ void DecoderStream<StreamType>::Decode(
   TRACE_EVENT_ASYNC_BEGIN2(
       "media", GetTraceString<StreamType>(), this, "key frame",
       !buffer->end_of_stream() && buffer->is_key_frame(), "timestamp (ms)",
-      buffer->timestamp().InMilliseconds());
+      !buffer->end_of_stream() ? buffer->timestamp().InMilliseconds() : 0);
 
   if (buffer->end_of_stream())
     decoding_eos_ = true;
@@ -411,6 +415,13 @@ void DecoderStream<StreamType>::OnDecodeOutputReady(
 
   // Store decoded output.
   ready_outputs_.push_back(output);
+
+  // Destruct any previous decoder once we've decoded enough frames to ensure
+  // that it's no longer in use.
+  if (previous_decoder_ &&
+      ++decoded_frames_since_fallback_ > limits::kMaxVideoFrames) {
+    previous_decoder_.reset();
+  }
 }
 
 template <DemuxerStream::Type StreamType>
@@ -531,7 +542,7 @@ void DecoderStream<StreamType>::OnDecoderReinitialized(bool success) {
     // once is safe.
     // For simplicity, don't attempt to fall back to a decryptor. Calling this
     // with a null callback ensures that one won't be selected.
-    SelectDecoder(SetDecryptorReadyCB());
+    SelectDecoder(SetCdmReadyCB());
   } else {
     CompleteDecoderReinitialization(true);
   }

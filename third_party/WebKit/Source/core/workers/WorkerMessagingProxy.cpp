@@ -56,6 +56,12 @@ namespace blink {
 
 namespace {
 
+void processExceptionOnWorkerGlobalScope(int exceptionId, bool isHandled, ExecutionContext* scriptContext)
+{
+    WorkerGlobalScope* globalScope = toWorkerGlobalScope(scriptContext);
+    globalScope->exceptionHandled(exceptionId, isHandled);
+}
+
 void processMessageOnWorkerGlobalScope(PassRefPtr<SerializedScriptValue> message, PassOwnPtr<MessagePortChannelArray> channels, WorkerObjectProxy* workerObjectProxy, ExecutionContext* scriptContext)
 {
     WorkerGlobalScope* globalScope = toWorkerGlobalScope(scriptContext);
@@ -90,6 +96,7 @@ WorkerMessagingProxy::~WorkerMessagingProxy()
         || (m_executionContext->isWorkerGlobalScope() && toWorkerGlobalScope(m_executionContext.get())->thread()->isCurrentThread()));
     if (m_loaderProxy)
         m_loaderProxy->detachProvider(this);
+    m_workerInspectorProxy->setWorkerGlobalScopeProxy(nullptr);
 }
 
 void WorkerMessagingProxy::startWorkerGlobalScope(const KURL& scriptURL, const String& userAgent, const String& sourceCode, WorkerThreadStartMode startMode)
@@ -103,7 +110,7 @@ void WorkerMessagingProxy::startWorkerGlobalScope(const KURL& scriptURL, const S
     Document* document = toDocument(m_executionContext.get());
     SecurityOrigin* starterOrigin = document->securityOrigin();
 
-    RefPtr<ContentSecurityPolicy> csp = m_workerObject->contentSecurityPolicy() ? m_workerObject->contentSecurityPolicy() : document->contentSecurityPolicy();
+    ContentSecurityPolicy* csp = m_workerObject->contentSecurityPolicy() ? m_workerObject->contentSecurityPolicy() : document->contentSecurityPolicy();
     ASSERT(csp);
 
     OwnPtr<WorkerThreadStartupData> startupData = WorkerThreadStartupData::create(scriptURL, userAgent, sourceCode, nullptr, startMode, csp->headers(), starterOrigin, m_workerClients.release());
@@ -133,7 +140,7 @@ void WorkerMessagingProxy::postMessageToWorkerGlobalScope(PassRefPtr<SerializedS
     OwnPtr<ExecutionContextTask> task = createCrossThreadTask(&processMessageOnWorkerGlobalScope, message, channels, AllowCrossThreadAccess(&workerObjectProxy()));
     if (m_workerThread) {
         ++m_unconfirmedMessageCount;
-        m_workerThread->postTask(FROM_HERE, task.release());
+        m_workerThread->postTask(BLINK_FROM_HERE, task.release());
     } else {
         m_queuedEarlyTasks.append(task.release());
     }
@@ -145,7 +152,7 @@ bool WorkerMessagingProxy::postTaskToWorkerGlobalScope(PassOwnPtr<ExecutionConte
         return false;
 
     ASSERT(m_workerThread);
-    m_workerThread->postTask(FROM_HERE, task);
+    m_workerThread->postTask(BLINK_FROM_HERE, task);
     return true;
 }
 
@@ -153,7 +160,7 @@ void WorkerMessagingProxy::postTaskToLoader(PassOwnPtr<ExecutionContextTask> tas
 {
     // FIXME: In case of nested workers, this should go directly to the root Document context.
     ASSERT(m_executionContext->isDocument());
-    m_executionContext->postTask(FROM_HERE, task);
+    m_executionContext->postTask(BLINK_FROM_HERE, task);
 }
 
 void WorkerMessagingProxy::reportException(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL, int exceptionId)
@@ -166,8 +173,7 @@ void WorkerMessagingProxy::reportException(const String& errorMessage, int lineN
 
     RefPtrWillBeRawPtr<ErrorEvent> event = ErrorEvent::create(errorMessage, sourceURL, lineNumber, columnNumber, nullptr);
     bool errorHandled = !m_workerObject->dispatchEvent(event);
-
-    postTaskToWorkerGlobalScope(createCrossThreadTask(&WorkerGlobalScope::exceptionHandled, m_workerThread->workerGlobalScope(), exceptionId, errorHandled));
+    postTaskToWorkerGlobalScope(createCrossThreadTask(&processExceptionOnWorkerGlobalScope, exceptionId, errorHandled));
 }
 
 void WorkerMessagingProxy::reportConsoleMessage(MessageSource source, MessageLevel level, const String& message, int lineNumber, const String& sourceURL)
@@ -196,14 +202,18 @@ void WorkerMessagingProxy::workerThreadCreated(PassRefPtr<WorkerThread> workerTh
     m_workerThreadHadPendingActivity = true; // Worker initialization means a pending activity.
 
     for (auto& earlyTasks : m_queuedEarlyTasks)
-        m_workerThread->postTask(FROM_HERE, earlyTasks.release());
+        m_workerThread->postTask(BLINK_FROM_HERE, earlyTasks.release());
     m_queuedEarlyTasks.clear();
 }
 
 void WorkerMessagingProxy::workerObjectDestroyed()
 {
-    m_workerObject = nullptr;
-    m_executionContext->postTask(FROM_HERE, createCrossThreadTask(&WorkerMessagingProxy::workerObjectDestroyedInternal, this));
+    // workerObjectDestroyed() is called in InProcessWorkerBase's destructor.
+    // Thus it should be guaranteed that a weak pointer m_workerObject has been cleared
+    // before this method gets called.
+    ASSERT(!m_workerObject);
+
+    m_executionContext->postTask(BLINK_FROM_HERE, createCrossThreadTask(&WorkerMessagingProxy::workerObjectDestroyedInternal, this));
 }
 
 void WorkerMessagingProxy::workerObjectDestroyedInternal()

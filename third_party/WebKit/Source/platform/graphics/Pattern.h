@@ -37,8 +37,8 @@
 #include "wtf/RefCounted.h"
 #include "wtf/RefPtr.h"
 
+class SkPaint;
 class SkPicture;
-class SkShader;
 
 namespace blink {
 
@@ -52,13 +52,12 @@ public:
         RepeatModeXY   = RepeatModeX | RepeatModeY
     };
 
-    static PassRefPtr<Pattern> createBitmapPattern(PassRefPtr<Image> tileImage,
-        RepeatMode = RepeatModeXY);
+    static PassRefPtr<Pattern> createImagePattern(PassRefPtr<Image>, RepeatMode = RepeatModeXY);
     static PassRefPtr<Pattern> createPicturePattern(PassRefPtr<const SkPicture>,
         RepeatMode = RepeatModeXY);
     virtual ~Pattern();
 
-    SkShader* shader();
+    void applyToPaint(SkPaint&);
 
     void setPatternSpaceTransform(const AffineTransform& patternSpaceTransformation);
     const AffineTransform& patternSpaceTransform() const { return m_patternSpaceTransformation; }
@@ -66,6 +65,8 @@ public:
     bool isRepeatX() { return m_repeatMode & RepeatModeX; }
     bool isRepeatY() { return m_repeatMode & RepeatModeY; }
     bool isRepeatXY() { return m_repeatMode == RepeatModeXY; }
+
+    virtual bool isTextureBacked() const { return false; }
 
 protected:
     virtual PassRefPtr<SkShader> createShader() = 0;

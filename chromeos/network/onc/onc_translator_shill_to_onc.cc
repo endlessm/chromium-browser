@@ -31,18 +31,16 @@ namespace {
 // returns NULL.
 scoped_ptr<base::Value> ConvertStringToValue(const std::string& str,
                                              base::Value::Type type) {
-  base::Value* value;
+  scoped_ptr<base::Value> value;
   if (type == base::Value::TYPE_STRING) {
-    value = new base::StringValue(str);
+    value.reset(new base::StringValue(str));
   } else {
-    value = base::JSONReader::DeprecatedRead(str);
+    value = base::JSONReader::Read(str);
   }
+  if (value && value->GetType() != type)
+    return nullptr;
 
-  if (value == NULL || value->GetType() != type) {
-    delete value;
-    value = NULL;
-  }
-  return make_scoped_ptr(value);
+  return value;
 }
 
 // This class implements the translation of properties from the given
@@ -331,8 +329,21 @@ void ShillToONCTranslator::TranslateVPN() {
 }
 
 void ShillToONCTranslator::TranslateWiFiWithState() {
-  TranslateWithTableAndSet(shill::kSecurityClassProperty, kWiFiSecurityTable,
-                           ::onc::wifi::kSecurity);
+  std::string shill_security;
+  std::string shill_key_mgmt;
+  if (shill_dictionary_->GetStringWithoutPathExpansion(
+          shill::kSecurityClassProperty, &shill_security) &&
+      shill_security == shill::kSecurityWep &&
+      shill_dictionary_->GetStringWithoutPathExpansion(
+          shill::kEapKeyMgmtProperty, &shill_key_mgmt) &&
+      shill_key_mgmt == shill::kKeyManagementIEEE8021X) {
+    onc_object_->SetStringWithoutPathExpansion(::onc::wifi::kSecurity,
+                                               ::onc::wifi::kWEP_8021X);
+  } else {
+    TranslateWithTableAndSet(shill::kSecurityClassProperty, kWiFiSecurityTable,
+                             ::onc::wifi::kSecurity);
+  }
+
   bool unknown_encoding = true;
   std::string ssid = shill_property_util::GetSSIDFromProperties(
       *shill_dictionary_, false /* verbose_logging */, &unknown_encoding);

@@ -116,14 +116,14 @@ IN_PROC_BROWSER_TEST_F(DriveAppConverterTest, GoodApp) {
   EXPECT_EQ(GURL(kAppUrl), AppLaunchInfo::GetLaunchWebURL(app));
   EXPECT_EQ(extensions::LAUNCH_CONTAINER_TAB,
             AppLaunchInfo::GetLaunchContainer(app));
-  EXPECT_EQ(0u, app->permissions_data()->active_permissions()->apis().size());
+  EXPECT_EQ(0u, app->permissions_data()->active_permissions().apis().size());
   EXPECT_EQ(1u, extensions::IconsInfo::GetIcons(app).map().size());
 
   const Extension* installed = extensions::ExtensionSystem::Get(profile())
                                    ->extension_service()
                                    ->GetInstalledExtension(app->id());
   EXPECT_EQ(app, installed);
-  EXPECT_FALSE(extensions::util::ShouldSyncApp(app, profile()));
+  EXPECT_FALSE(extensions::util::ShouldSync(app, profile()));
 }
 
 IN_PROC_BROWSER_TEST_F(DriveAppConverterTest, BadApp) {

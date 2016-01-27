@@ -27,10 +27,10 @@
         'init_status.h',
         'meta_table.cc',
         'meta_table.h',
-        'proxy.cc',
-        'proxy.h',
         'recovery.cc',
         'recovery.h',
+        'sql_memory_dump_provider.cc',
+        'sql_memory_dump_provider.h',
         'statement.cc',
         'statement.h',
         'transaction.cc',
@@ -91,6 +91,7 @@
         'connection_unittest.cc',
         'meta_table_unittest.cc',
         'recovery_unittest.cc',
+        'sql_memory_dump_provider_unittest.cc',
         'sqlite_features_unittest.cc',
         'statement_unittest.cc',
         'test/paths.cc',
@@ -141,6 +142,25 @@
           'includes': [ '../build/apk_test.gypi' ],
         },
       ],
+      'conditions': [
+        ['test_isolation_mode != "noop"', {
+          'targets': [
+            {
+              'target_name': 'sql_unittests_apk_run',
+              'type': 'none',
+              'dependencies': [
+                'sql_unittests_apk',
+              ],
+              'includes': [
+                '../build/isolate.gypi',
+              ],
+              'sources': [
+                'sql_unittests_apk.isolate',
+              ],
+            },
+          ]
+        }],
+      ]
     }],
     ['test_isolation_mode != "noop"', {
       'targets': [

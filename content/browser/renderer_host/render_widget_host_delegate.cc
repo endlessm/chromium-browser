@@ -4,6 +4,7 @@
 
 #include "base/basictypes.h"
 #include "content/browser/renderer_host/render_widget_host_delegate.h"
+#include "ui/gfx/geometry/rect.h"
 
 namespace content {
 
@@ -39,5 +40,34 @@ gfx::NativeViewAccessible
   return NULL;
 }
 #endif
+
+// If a delegate does not override this, the RenderWidgetHostView will
+// assume it is the sole platform event consumer.
+RenderWidgetHostInputEventRouter*
+RenderWidgetHostDelegate::GetInputEventRouter() {
+  return nullptr;
+}
+
+// If a delegate does not override this, the RenderWidgetHostView will
+// assume its own RenderWidgetHost should consume keyboard events.
+RenderWidgetHostImpl* RenderWidgetHostDelegate::GetFocusedRenderWidgetHost(
+    RenderWidgetHostImpl* receiving_widget) {
+  return receiving_widget;
+}
+
+gfx::Rect RenderWidgetHostDelegate::GetRootWindowResizerRect(
+    RenderWidgetHostImpl* render_widget_host) const {
+  return gfx::Rect();
+};
+
+bool RenderWidgetHostDelegate::IsFullscreenForCurrentTab(
+    RenderWidgetHostImpl* render_widget_host) const {
+  return false;
+}
+
+blink::WebDisplayMode RenderWidgetHostDelegate::GetDisplayMode(
+    RenderWidgetHostImpl* render_widget_host) const {
+  return blink::WebDisplayModeBrowser;
+}
 
 }  // namespace content

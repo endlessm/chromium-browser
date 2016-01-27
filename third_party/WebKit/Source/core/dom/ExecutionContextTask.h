@@ -28,7 +28,7 @@
 #define ExecutionContextTask_h
 
 #include "core/CoreExport.h"
-#include "wtf/FastAllocBase.h"
+#include "wtf/Allocator.h"
 #include "wtf/Functional.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/PassOwnPtr.h"
@@ -40,7 +40,7 @@ class ExecutionContext;
 
 class CORE_EXPORT ExecutionContextTask {
     WTF_MAKE_NONCOPYABLE(ExecutionContextTask);
-    WTF_MAKE_FAST_ALLOCATED(ExecutionContextTask);
+    USING_FAST_MALLOC(ExecutionContextTask);
 public:
     ExecutionContextTask() { }
     virtual ~ExecutionContextTask() { }

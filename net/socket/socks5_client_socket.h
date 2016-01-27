@@ -5,10 +5,11 @@
 #ifndef NET_SOCKET_SOCKS5_CLIENT_SOCKET_H_
 #define NET_SOCKET_SOCKS5_CLIENT_SOCKET_H_
 
+#include <stdint.h>
+
 #include <string>
 
 #include "base/basictypes.h"
-#include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "net/base/address_list.h"
@@ -58,6 +59,7 @@ class NET_EXPORT_PRIVATE SOCKS5ClientSocket : public StreamSocket {
   void GetConnectionAttempts(ConnectionAttempts* out) const override;
   void ClearConnectionAttempts() override {}
   void AddConnectionAttempts(const ConnectionAttempts& attempts) override {}
+  int64_t GetTotalReceivedBytes() const override;
 
   // Socket implementation.
   int Read(IOBuffer* buf,

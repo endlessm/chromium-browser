@@ -11,6 +11,7 @@
 #include "base/files/scoped_file.h"
 #include "base/message_loop/message_loop.h"
 #include "base/single_thread_task_runner.h"
+#include "base/time/time.h"
 #include "components/cronet/url_request_context_config.h"
 #include "net/android/network_change_notifier_factory_android.h"
 #include "net/base/net_errors.h"
@@ -67,9 +68,6 @@ class BasicNetworkDelegate : public net::NetworkDelegateImpl {
                         const GURL& new_location) override {}
 
   void OnResponseStarted(net::URLRequest* request) override {}
-
-  void OnRawBytesRead(const net::URLRequest& request,
-                      int bytes_read) override {}
 
   void OnCompleted(net::URLRequest* request, bool started) override {}
 
@@ -128,8 +126,8 @@ void URLRequestContextAdapter::Initialize(
 }
 
 void URLRequestContextAdapter::InitRequestContextOnMainThread() {
-  proxy_config_service_.reset(net::ProxyService::CreateSystemProxyConfigService(
-      GetNetworkTaskRunner(), NULL));
+  proxy_config_service_ = net::ProxyService::CreateSystemProxyConfigService(
+      GetNetworkTaskRunner(), NULL);
   GetNetworkTaskRunner()->PostTask(
       FROM_HERE,
       base::Bind(&URLRequestContextAdapter::InitRequestContextOnNetworkThread,
@@ -141,11 +139,20 @@ void URLRequestContextAdapter::InitRequestContextOnNetworkThread() {
   DCHECK(config_);
   // TODO(mmenke):  Add method to have the builder enable SPDY.
   net::URLRequestContextBuilder context_builder;
-  context_builder.set_network_delegate(new BasicNetworkDelegate());
-  context_builder.set_proxy_config_service(proxy_config_service_.get());
+
+  // TODO(mef): Remove this work around for crbug.com/543366 once it is fixed.
+  net::URLRequestContextBuilder::HttpNetworkSessionParams
+      custom_http_network_session_params;
+  custom_http_network_session_params.use_alternative_services = false;
+  context_builder.set_http_network_session_params(
+      custom_http_network_session_params);
+
+  context_builder.set_network_delegate(
+      make_scoped_ptr(new BasicNetworkDelegate()));
+  context_builder.set_proxy_config_service(proxy_config_service_.Pass());
   config_->ConfigureURLRequestContextBuilder(&context_builder);
 
-  context_.reset(context_builder.Build());
+  context_ = context_builder.Build().Pass();
 
   if (config_->enable_sdch) {
     DCHECK(context_->sdch_manager());
@@ -193,7 +200,8 @@ void URLRequestContextAdapter::InitRequestContextOnNetworkThread() {
           net::AlternateProtocol::QUIC, "",
           static_cast<uint16>(quic_hint.alternate_port));
       context_->http_server_properties()->SetAlternativeService(
-          quic_hint_host_port_pair, alternative_service, 1.0f);
+          quic_hint_host_port_pair, alternative_service, 1.0f,
+          base::Time::Max());
     }
   }
   load_disable_cache_ = config_->load_disable_cache;

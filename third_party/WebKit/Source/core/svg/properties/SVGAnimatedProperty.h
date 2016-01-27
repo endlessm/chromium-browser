@@ -53,6 +53,7 @@ public:
     virtual ~SVGAnimatedPropertyBase();
 
     virtual SVGPropertyBase* currentValueBase() = 0;
+    virtual const SVGPropertyBase& baseValueBase() const = 0;
     virtual bool isAnimating() const = 0;
 
     virtual PassRefPtrWillBeRawPtr<SVGPropertyBase> createAnimatedValue() = 0;
@@ -92,7 +93,6 @@ public:
 
     DEFINE_INLINE_VIRTUAL_TRACE()
     {
-        visitor->trace(m_contextElement);
     }
 
 protected:
@@ -102,8 +102,10 @@ private:
     const AnimatedPropertyType m_type;
     bool m_isReadOnly;
 
-    // This reference is kept alive from V8 wrapper
-    RawPtrWillBeMember<SVGElement> m_contextElement;
+    // This raw pointer is safe since the SVG element is guaranteed to be kept
+    // alive by a V8 wrapper.
+    GC_PLUGIN_IGNORE("crbug.com/528275")
+    SVGElement* m_contextElement;
 
     const QualifiedName& m_attributeName;
 };
@@ -129,6 +131,11 @@ public:
     SVGPropertyBase* currentValueBase() override
     {
         return currentValue();
+    }
+
+    const SVGPropertyBase& baseValueBase() const override
+    {
+        return *m_baseValue;
     }
 
     bool isAnimating() const override
@@ -323,6 +330,30 @@ private:
     //     m_baseValTearOff targets m_baseValue.
     RefPtrWillBeMember<TearOffType> m_baseValTearOff;
     RefPtrWillBeMember<TearOffType> m_animValTearOff;
+};
+
+// Implementation of SVGAnimatedProperty which doesn't use tear-off value types.
+// This class has "void" for its TearOffType.
+// Currently only used for SVGAnimatedPath.
+template <typename Property>
+class SVGAnimatedProperty<Property, void, void> : public SVGAnimatedPropertyCommon<Property> {
+public:
+    static PassRefPtrWillBeRawPtr<SVGAnimatedProperty<Property>> create(SVGElement* contextElement, const QualifiedName& attributeName, PassRefPtrWillBeRawPtr<Property> initialValue)
+    {
+        return adoptRefWillBeNoop(new SVGAnimatedProperty<Property>(contextElement, attributeName, initialValue));
+    }
+
+    bool needsSynchronizeAttribute() override
+    {
+        // DOM attribute synchronization is only needed if the property is being animated.
+        return this->isAnimating();
+    }
+
+protected:
+    SVGAnimatedProperty(SVGElement* contextElement, const QualifiedName& attributeName, PassRefPtrWillBeRawPtr<Property> initialValue)
+        : SVGAnimatedPropertyCommon<Property>(contextElement, attributeName, initialValue)
+    {
+    }
 };
 
 } // namespace blink

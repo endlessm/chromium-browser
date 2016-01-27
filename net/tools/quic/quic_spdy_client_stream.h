@@ -10,8 +10,8 @@
 
 #include "base/basictypes.h"
 #include "base/strings/string_piece.h"
-#include "net/quic/quic_data_stream.h"
 #include "net/quic/quic_protocol.h"
+#include "net/quic/quic_spdy_stream.h"
 #include "net/spdy/spdy_framer.h"
 
 namespace net {
@@ -21,7 +21,7 @@ class QuicClientSession;
 
 // All this does right now is send an SPDY request, and aggregate the
 // SPDY response.
-class QuicSpdyClientStream : public QuicDataStream {
+class QuicSpdyClientStream : public QuicSpdyStream {
  public:
   QuicSpdyClientStream(QuicStreamId id, QuicClientSession* session);
   ~QuicSpdyClientStream() override;
@@ -36,7 +36,7 @@ class QuicSpdyClientStream : public QuicDataStream {
 
   // ReliableQuicStream implementation called by the session when there's
   // data for us.
-  uint32 ProcessData(const char* data, uint32 data_len) override;
+  void OnDataAvailable() override;
 
   // Serializes the headers and body, sends it to the server, and
   // returns the number of bytes sent.
@@ -49,7 +49,7 @@ class QuicSpdyClientStream : public QuicDataStream {
   // As above, but |delegate| will be notified once |data| is ACKed.
   void SendBody(const std::string& data,
                 bool fin,
-                QuicAckNotifier::DelegateInterface* delegate);
+                QuicAckListenerInterface* listener);
 
   // Returns the response data.
   const std::string& data() { return data_; }
@@ -65,7 +65,13 @@ class QuicSpdyClientStream : public QuicDataStream {
 
   // While the server's set_priority shouldn't be called externally, the creator
   // of client-side streams should be able to set the priority.
-  using QuicDataStream::set_priority;
+  using QuicSpdyStream::set_priority;
+
+  void set_allow_bidirectional_data(bool value) {
+    allow_bidirectional_data_ = value;
+  }
+
+  bool allow_bidirectional_data() const { return allow_bidirectional_data_; }
 
  private:
   bool ParseResponseHeaders(const char* data, uint32 data_len);
@@ -78,6 +84,9 @@ class QuicSpdyClientStream : public QuicDataStream {
   std::string data_;
   size_t header_bytes_read_;
   size_t header_bytes_written_;
+  // When true allows the sending of a request to continue while the response is
+  // arriving.
+  bool allow_bidirectional_data_;
 
   DISALLOW_COPY_AND_ASSIGN(QuicSpdyClientStream);
 };

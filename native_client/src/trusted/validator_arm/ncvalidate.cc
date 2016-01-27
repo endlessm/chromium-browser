@@ -78,7 +78,7 @@ static NaClValidationStatus ValidatorCopyArm(
       RegisterList(Register::Sp()),
       features);
 
-  bool success = validator.CopyCode(source_code, dest_code, copy_func,
+  bool success = validator.CopyCode(source_code, &dest_code, copy_func,
                                     NULL);
   return success ? NaClValidationSucceeded : NaClValidationFailed;
 }
@@ -143,12 +143,14 @@ static NaClValidationStatus ApplyValidatorArm(
     uint8_t *data,
     size_t size,
     int stubout_mode,
+    uint32_t flags,
     int readonly_text,
     const NaClCPUFeatures *cpu_features,
     const struct NaClValidationMetadata *metadata,
     struct NaClValidationCache *cache) {
   // The ARM validator never modifies the text, so this flag can be ignored.
   UNREFERENCED_PARAMETER(readonly_text);
+  CHECK((flags & NACL_VALIDATION_FLAGS_MASK_ARM) == 0);
   CheckAddressAlignAndOverflow((uint8_t *) guest_addr, size);
   CheckAddressOverflow(data, size);
   CheckAddressOverflow(data, size);
@@ -222,13 +224,35 @@ static NaClValidationStatus IsOnInstBoundaryArm(
     const uint8_t *data,
     size_t size,
     const NaClCPUFeatures *f) {
-  /* TODO (leslieb) This still needs to be implemented. */
-  UNREFERENCED_PARAMETER(guest_addr);
-  UNREFERENCED_PARAMETER(addr);
-  UNREFERENCED_PARAMETER(data);
-  UNREFERENCED_PARAMETER(size);
-  UNREFERENCED_PARAMETER(f);
-  return NaClValidationFailedNotImplemented;
+  NaClCPUFeaturesArm *cpu_features = (NaClCPUFeaturesArm *) f;
+  uint32_t guest_bundle_addr = (addr & ~(kBytesPerBundle - 1));
+  const uint8_t *local_bundle_addr = data + (guest_bundle_addr - guest_addr);
+
+  /* Check code range doesn't overflow. */
+  CHECK(guest_addr + size > guest_addr);
+  CHECK(size % kBytesPerBundle == 0 && size != 0);
+  CHECK((uint32_t) (guest_addr & ~(kBytesPerBundle - 1)) == guest_addr);
+
+  /* Check addr is within code boundary. */
+  if (addr < guest_addr || addr >= guest_addr + size)
+    return NaClValidationFailed;
+
+  SfiValidator validator(
+      kBytesPerBundle,
+      kBytesOfCodeSpace,
+      kBytesOfDataSpace,
+      RegisterList(Register::Tp()),
+      RegisterList(Register::Sp()),
+      cpu_features);
+
+  CodeSegment segment = CodeSegment(
+      local_bundle_addr,
+      static_cast<uint32_t>(guest_bundle_addr),
+      kBytesPerBundle);
+
+  return validator.is_valid_inst_boundary(segment, static_cast<uint32_t>(addr))
+    ? NaClValidationSucceeded
+    : NaClValidationFailed;
 }
 
 static struct NaClValidatorInterface validator = {

@@ -11,6 +11,7 @@
 #include "base/threading/thread.h"
 #include "media/audio/fake_audio_log_factory.h"
 #include "media/base/audio_hardware_config.h"
+#include "media/mojo/interfaces/service_factory.mojom.h"
 #include "mojo/application/public/interfaces/service_provider.mojom.h"
 
 namespace base {
@@ -24,11 +25,12 @@ class WebMediaPlayer;
 class WebLocalFrame;
 class WebURL;
 class WebMediaPlayerClient;
+class WebMediaPlayerEncryptedMediaClient;
 }
 
 namespace media {
 class AudioManager;
-class AudioRendererSink;
+class RestartableAudioRendererSink;
 class CdmFactory;
 class MediaPermission;
 class WebEncryptedMediaClientImpl;
@@ -55,19 +57,20 @@ class MediaFactory {
       blink::WebLocalFrame* frame,
       const blink::WebURL& url,
       blink::WebMediaPlayerClient* client,
+      blink::WebMediaPlayerEncryptedMediaClient* encrypted_client,
       blink::WebContentDecryptionModule* initial_cdm,
       mojo::Shell* shell);
 
   blink::WebEncryptedMediaClient* GetEncryptedMediaClient();
 
  private:
-  mojo::ServiceProvider* GetMediaServiceProvider();
+  media::interfaces::ServiceFactory* GetMediaServiceFactory();
   media::MediaPermission* GetMediaPermission();
   media::CdmFactory* GetCdmFactory();
 
 #if !defined(OS_ANDROID)
   const media::AudioHardwareConfig& GetAudioHardwareConfig();
-  scoped_refptr<media::AudioRendererSink> CreateAudioRendererSink();
+  scoped_refptr<media::RestartableAudioRendererSink> CreateAudioRendererSink();
   scoped_refptr<base::SingleThreadTaskRunner> GetMediaThreadTaskRunner();
 
   base::Thread media_thread_;
@@ -81,7 +84,7 @@ class MediaFactory {
   mojo::Shell* shell_;
 
   // Lazily initialized objects.
-  mojo::ServiceProviderPtr media_service_provider_;
+  media::interfaces::ServiceFactoryPtr media_service_factory_;
   scoped_ptr<media::WebEncryptedMediaClientImpl> web_encrypted_media_client_;
   scoped_ptr<media::MediaPermission> media_permission_;
   scoped_ptr<media::CdmFactory> cdm_factory_;

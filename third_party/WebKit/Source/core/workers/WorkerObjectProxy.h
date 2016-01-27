@@ -34,6 +34,7 @@
 #include "core/CoreExport.h"
 #include "core/dom/MessagePort.h"
 #include "core/workers/WorkerReportingProxy.h"
+#include "platform/heap/Handle.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/PassRefPtr.h"
 
@@ -51,9 +52,11 @@ class WorkerMessagingProxy;
 //
 // Used only by in-process workers (DedicatedWorker and CompositorWorker.)
 class CORE_EXPORT WorkerObjectProxy : public WorkerReportingProxy {
+    USING_FAST_MALLOC(WorkerObjectProxy);
+    WTF_MAKE_NONCOPYABLE(WorkerObjectProxy);
 public:
     static PassOwnPtr<WorkerObjectProxy> create(ExecutionContext*, WorkerMessagingProxy*);
-    virtual ~WorkerObjectProxy() { }
+    ~WorkerObjectProxy() override { }
 
     void postMessageToWorkerObject(PassRefPtr<SerializedScriptValue>, PassOwnPtr<MessagePortChannelArray>);
     void postTaskToMainExecutionContext(PassOwnPtr<ExecutionContextTask>);
@@ -61,21 +64,22 @@ public:
     void reportPendingActivity(bool hasPendingActivity);
 
     // WorkerReportingProxy overrides.
-    virtual void reportException(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL, int exceptionId) override;
-    virtual void reportConsoleMessage(PassRefPtrWillBeRawPtr<ConsoleMessage>) override;
-    virtual void postMessageToPageInspector(const String&) override;
-    virtual void postWorkerConsoleAgentEnabled() override;
-    virtual void didEvaluateWorkerScript(bool success) override { }
-    virtual void workerGlobalScopeStarted(WorkerGlobalScope*) override { }
-    virtual void workerGlobalScopeClosed() override;
-    virtual void workerThreadTerminated() override;
-    virtual void willDestroyWorkerGlobalScope() override { }
+    void reportException(const String& errorMessage, int lineNumber, int columnNumber, const String& sourceURL, int exceptionId) override;
+    void reportConsoleMessage(PassRefPtrWillBeRawPtr<ConsoleMessage>) override;
+    void postMessageToPageInspector(const String&) override;
+    void postWorkerConsoleAgentEnabled() override;
+    void didEvaluateWorkerScript(bool success) override { }
+    void workerGlobalScopeStarted(WorkerGlobalScope*) override { }
+    void workerGlobalScopeClosed() override;
+    void workerThreadTerminated() override;
+    void willDestroyWorkerGlobalScope() override { }
 
 protected:
     WorkerObjectProxy(ExecutionContext*, WorkerMessagingProxy*);
 
 private:
     // These objects always outlive this proxy.
+    GC_PLUGIN_IGNORE("553613")
     ExecutionContext* m_executionContext;
     WorkerMessagingProxy* m_messagingProxy;
 };

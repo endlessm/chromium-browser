@@ -46,7 +46,7 @@ class ChromeClient;
 class DragData;
 class ExceptionState;
 class FileList;
-class FormDataList;
+class FormData;
 
 // An InputType object represents the type-specific part of an HTMLInputElement.
 // Do not expose instances of InputType and classes derived from it to classes
@@ -54,7 +54,7 @@ class FormDataList;
 // FIXME: InputType should not inherit InputTypeView. It's conceptually wrong.
 class CORE_EXPORT InputType : public InputTypeView {
     WTF_MAKE_NONCOPYABLE(InputType);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(InputType);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(InputType);
 
 public:
     static PassRefPtrWillBeRawPtr<InputType> create(HTMLInputElement&, const AtomicString&);
@@ -84,7 +84,7 @@ public:
     virtual FormControlState saveFormControlState() const;
     virtual void restoreFormControlState(const FormControlState&);
     virtual bool isFormDataAppendable() const;
-    virtual bool appendFormData(FormDataList&, bool multipart) const;
+    virtual void appendToFormData(FormData&) const;
     virtual String resultForDialogSubmit() const;
 
     // DOM property functions
@@ -97,6 +97,7 @@ public:
     virtual double valueAsDouble() const;
     virtual void setValueAsDouble(double, TextFieldEventBehavior, ExceptionState&) const;
     virtual void setValueAsDecimal(const Decimal&, TextFieldEventBehavior, ExceptionState&) const;
+    virtual void readingChecked() const;
 
     // Validation functions
     virtual String validationMessage() const;
@@ -135,6 +136,7 @@ public:
     // Returing the null string means "use the default value."
     // This function must be called only by HTMLInputElement::sanitizeValue().
     virtual String sanitizeValue(const String&) const;
+    virtual String sanitizeUserInputValue(const String&) const;
     virtual void warnIfValueIsInvalid(const String&) const;
     void warnIfValueIsInvalidAndElementIsVisible(const String&) const;
 
@@ -210,6 +212,7 @@ public:
     bool hasCustomFocusLogic() const override;
 
     virtual bool shouldDispatchFormControlChangeEvent(String&, String&);
+    virtual void dispatchSearchEvent();
 
     // For test purpose
     virtual ColorChooserClient* colorChooserClient();

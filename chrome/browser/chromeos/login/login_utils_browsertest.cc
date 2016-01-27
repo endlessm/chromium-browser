@@ -14,7 +14,6 @@
 #include "chrome/browser/chromeos/login/test/oobe_base_test.h"
 #include "chrome/browser/chromeos/login/ui/webui_login_display.h"
 #include "chrome/browser/chromeos/login/wizard_controller.h"
-#include "chrome/browser/rlz/rlz.h"
 #include "chrome/browser/ui/webui/chromeos/login/signin_screen_handler.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
@@ -27,7 +26,10 @@
 #include "google_apis/gaia/gaia_urls.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 #include "net/test/embedded_test_server/http_response.h"
-#include "testing/gtest/include/gtest/gtest.h"
+
+#if defined(ENABLE_RLZ)
+#include "components/rlz/rlz_tracker.h"
+#endif
 
 namespace chromeos {
 
@@ -37,16 +39,15 @@ namespace {
 void GetAccessPointRlzInBackgroundThread(rlz_lib::AccessPoint point,
                                          base::string16* rlz) {
   ASSERT_FALSE(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
-  ASSERT_TRUE(RLZTracker::GetAccessPointRlz(point, rlz));
+  ASSERT_TRUE(rlz::RLZTracker::GetAccessPointRlz(point, rlz));
 }
 #endif
 
 }  // namespace
 
-class LoginUtilsTest : public OobeBaseTest,
-                       public testing::WithParamInterface<bool> {
+class LoginUtilsTest : public OobeBaseTest {
  public:
-  LoginUtilsTest() { set_use_webview(GetParam()); }
+  LoginUtilsTest() {}
 
   void RunUntilIdle() {
     base::RunLoop().RunUntilIdle();
@@ -80,7 +81,7 @@ class LoginUtilsTest : public OobeBaseTest,
 };
 
 #if defined(ENABLE_RLZ)
-IN_PROC_BROWSER_TEST_P(LoginUtilsTest, RlzInitialized) {
+IN_PROC_BROWSER_TEST_F(LoginUtilsTest, RlzInitialized) {
   WaitForSigninScreen();
 
   // No RLZ brand code set initially.
@@ -106,18 +107,13 @@ IN_PROC_BROWSER_TEST_P(LoginUtilsTest, RlzInitialized) {
     base::RunLoop loop;
     base::string16 rlz_string;
     content::BrowserThread::PostBlockingPoolTaskAndReply(
-        FROM_HERE,
-        base::Bind(&GetAccessPointRlzInBackgroundThread,
-                   RLZTracker::ChromeHomePage(),
-                   &rlz_string),
+        FROM_HERE, base::Bind(&GetAccessPointRlzInBackgroundThread,
+                              rlz::RLZTracker::ChromeHomePage(), &rlz_string),
         loop.QuitClosure());
     loop.Run();
     EXPECT_EQ(base::string16(), rlz_string);
   }
 }
-
-INSTANTIATE_TEST_CASE_P(LoginUtilsTestSuite, LoginUtilsTest, testing::Bool());
-
 #endif
 
 }  // namespace chromeos

@@ -41,13 +41,15 @@ static const int kInfiniteRatio = 99999;
         name, \
         (height) ? ((width) * 100) / (height) : kInfiniteRatio);
 
-class SyncPointClientImpl : public VideoFrame::SyncPointClient {
+class SyncTokenClientImpl : public VideoFrame::SyncTokenClient {
  public:
-  explicit SyncPointClientImpl(GLHelper* gl_helper) : gl_helper_(gl_helper) {}
-  ~SyncPointClientImpl() override {}
-  uint32 InsertSyncPoint() override { return gl_helper_->InsertSyncPoint(); }
-  void WaitSyncPoint(uint32 sync_point) override {
-    gl_helper_->WaitSyncPoint(sync_point);
+  explicit SyncTokenClientImpl(GLHelper* gl_helper) : gl_helper_(gl_helper) {}
+  ~SyncTokenClientImpl() override {}
+  void GenerateSyncToken(gpu::SyncToken* sync_token) override {
+    gl_helper_->GenerateSyncToken(sync_token);
+  }
+  void WaitSyncToken(const gpu::SyncToken& sync_token) override {
+    gl_helper_->WaitSyncToken(sync_token);
   }
 
  private:
@@ -55,18 +57,18 @@ class SyncPointClientImpl : public VideoFrame::SyncPointClient {
 };
 
 void ReturnVideoFrame(const scoped_refptr<VideoFrame>& video_frame,
-                      uint32 sync_point) {
+                      const gpu::SyncToken& sync_token) {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
 #if defined(OS_ANDROID)
   NOTREACHED();
 #else
   GLHelper* gl_helper = ImageTransportFactory::GetInstance()->GetGLHelper();
-  // UpdateReleaseSyncPoint() creates a new sync_point using |gl_helper|, so
-  // wait the given |sync_point| using |gl_helper|.
+  // UpdateReleaseSyncToken() creates a new sync_token using |gl_helper|, so
+  // wait the given |sync_token| using |gl_helper|.
   if (gl_helper) {
-    gl_helper->WaitSyncPoint(sync_point);
-    SyncPointClientImpl client(gl_helper);
-    video_frame->UpdateReleaseSyncPoint(&client);
+    gl_helper->WaitSyncToken(sync_token);
+    SyncTokenClientImpl client(gl_helper);
+    video_frame->UpdateReleaseSyncToken(&client);
   }
 #endif
 }
@@ -101,7 +103,7 @@ struct VideoCaptureController::ControllerClient {
   // Buffers that are currently known to this client.
   std::set<int> known_buffers;
 
-  // Buffers currently held by this client, and syncpoint callback to call when
+  // Buffers currently held by this client, and sync token callback to call when
   // they are returned from the client.
   typedef std::map<int, scoped_refptr<VideoFrame>> ActiveBufferMap;
   ActiveBufferMap active_buffers;
@@ -137,11 +139,10 @@ VideoCaptureController::GetWeakPtrForIOThread() {
 }
 
 scoped_ptr<media::VideoCaptureDevice::Client>
-VideoCaptureController::NewDeviceClient(
-    const scoped_refptr<base::SingleThreadTaskRunner>& capture_task_runner) {
+VideoCaptureController::NewDeviceClient() {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   return make_scoped_ptr(new VideoCaptureDeviceClient(
-      this->GetWeakPtrForIOThread(), buffer_pool_, capture_task_runner));
+      this->GetWeakPtrForIOThread(), buffer_pool_));
 }
 
 void VideoCaptureController::AddClient(
@@ -203,20 +204,53 @@ int VideoCaptureController::RemoveClient(
   return session_id;
 }
 
-void VideoCaptureController::PauseOrResumeClient(
+void VideoCaptureController::PauseClient(
     VideoCaptureControllerID id,
-    VideoCaptureControllerEventHandler* event_handler,
-    bool pause) {
+    VideoCaptureControllerEventHandler* event_handler) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DVLOG(1) << "VideoCaptureController::PauseOrResumeClient, id "
-           << id << ", " << pause;
+  DVLOG(1) << "VideoCaptureController::PauseClient, id " << id;
 
   ControllerClient* client = FindClient(id, event_handler, controller_clients_);
   if (!client)
     return;
 
-  DLOG_IF(WARNING, client->paused == pause) << "Redundant client configuration";
-  client->paused = pause;
+  DLOG_IF(WARNING, client->paused) << "Redundant client configuration";
+
+  client->paused = true;
+}
+
+bool VideoCaptureController::ResumeClient(
+    VideoCaptureControllerID id,
+    VideoCaptureControllerEventHandler* event_handler) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DVLOG(1) << "VideoCaptureController::ResumeClient, id " << id;
+
+  ControllerClient* client = FindClient(id, event_handler, controller_clients_);
+  if (!client)
+    return false;
+
+  if (!client->paused) {
+    DVLOG(1) << "Calling resume on unpaused client";
+    return false;
+  }
+
+  client->paused = false;
+  return true;
+}
+
+int VideoCaptureController::GetClientCount() const {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  return controller_clients_.size();
+}
+
+int VideoCaptureController::GetActiveClientCount() const {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  int active_client_count = 0;
+  for (ControllerClient* client : controller_clients_) {
+    if (!client->paused)
+      ++active_client_count;
+  }
+  return active_client_count;
 }
 
 void VideoCaptureController::StopSession(int session_id) {
@@ -235,7 +269,7 @@ void VideoCaptureController::ReturnBuffer(
     VideoCaptureControllerID id,
     VideoCaptureControllerEventHandler* event_handler,
     int buffer_id,
-    uint32 sync_point,
+    const gpu::SyncToken& sync_token,
     double consumer_resource_utilization) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
@@ -274,12 +308,11 @@ void VideoCaptureController::ReturnBuffer(
   buffer_pool_->RelinquishConsumerHold(buffer_id, 1);
 
 #if defined(OS_ANDROID)
-  DCHECK_EQ(0u, sync_point);
+  DCHECK(!sync_token.HasData());
 #endif
-  if (sync_point)
-    BrowserThread::PostTask(BrowserThread::UI,
-                            FROM_HERE,
-                            base::Bind(&ReturnVideoFrame, frame, sync_point));
+  if (sync_token.HasData())
+    BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
+                            base::Bind(&ReturnVideoFrame, frame, sync_token));
 }
 
 const media::VideoCaptureFormat&
@@ -310,32 +343,20 @@ void VideoCaptureController::DoIncomingCapturedVideoFrameOnIOThread(
     scoped_ptr<base::DictionaryValue> metadata(new base::DictionaryValue());
     frame->metadata()->MergeInternalValuesInto(metadata.get());
 
+    DCHECK(
+        (frame->IsMappable() && frame->format() == media::PIXEL_FORMAT_I420) ||
+        (frame->HasTextures() && frame->format() == media::PIXEL_FORMAT_ARGB))
+        << "Format and/or storage type combination not supported (received: "
+        << media::VideoPixelFormatToString(frame->format()) << ")";
+
     for (const auto& client : controller_clients_) {
       if (client->session_closed || client->paused)
         continue;
 
-      CHECK((frame->IsMappable() && frame->format() == VideoFrame::I420) ||
-            (!frame->IsMappable() && frame->HasTextures() &&
-             frame->format() == VideoFrame::ARGB))
-          << "Format and/or storage type combination not supported (received: "
-          << VideoFrame::FormatToString(frame->format()) << ")";
-
-      if (frame->HasTextures()) {
-        DCHECK(frame->coded_size() == frame->visible_rect().size())
-            << "Textures are always supposed to be tightly packed.";
-        DCHECK_EQ(1u, VideoFrame::NumPlanes(frame->format()));
-      } else if (frame->format() == VideoFrame::I420) {
-        const bool is_new_buffer =
-            client->known_buffers.insert(buffer_id).second;
-        if (is_new_buffer) {
-          // On the first use of a buffer on a client, share the memory handle.
-          size_t memory_size = 0;
-          base::SharedMemoryHandle remote_handle = buffer_pool_->ShareToProcess(
-              buffer_id, client->render_process_handle, &memory_size);
-          client->event_handler->OnBufferCreated(
-              client->controller_id, remote_handle, memory_size, buffer_id);
-        }
-      }
+      // On the first use of a buffer on a client, share the memory handles.
+      const bool is_new_buffer = client->known_buffers.insert(buffer_id).second;
+      if (is_new_buffer)
+        DoNewBufferOnIOThread(client, buffer.get(), frame);
 
       client->event_handler->OnBufferReady(client->controller_id,
                                            buffer_id,
@@ -400,6 +421,41 @@ void VideoCaptureController::DoBufferDestroyedOnIOThread(
   }
 }
 
+void VideoCaptureController::DoNewBufferOnIOThread(
+    ControllerClient* client,
+    media::VideoCaptureDevice::Client::Buffer* buffer,
+    const scoped_refptr<media::VideoFrame>& frame) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  const int buffer_id = buffer->id();
+
+  if (frame->HasTextures()) {
+    DCHECK_EQ(frame->format(), media::PIXEL_FORMAT_ARGB);
+    DCHECK(frame->coded_size() == frame->visible_rect().size())
+        << "Textures shouldn't be crop-marked or letterboxed.";
+    return;
+  }
+
+  DCHECK_EQ(frame->format(), media::PIXEL_FORMAT_I420);
+  if (frame->storage_type() == media::VideoFrame::STORAGE_GPU_MEMORY_BUFFERS) {
+    std::vector<gfx::GpuMemoryBufferHandle> handles;
+    for (size_t i = 0; i < media::VideoFrame::NumPlanes(frame->format()); ++i) {
+      gfx::GpuMemoryBufferHandle remote_handle;
+      buffer_pool_->ShareToProcess2(buffer_id, i, client->render_process_handle,
+                                    &remote_handle);
+      handles.push_back(remote_handle);
+    }
+    client->event_handler->OnBufferCreated2(client->controller_id, handles,
+                                            buffer->dimensions(), buffer_id);
+  } else {
+    base::SharedMemoryHandle remote_handle;
+    buffer_pool_->ShareToProcess(buffer_id, client->render_process_handle,
+                                 &remote_handle);
+
+    client->event_handler->OnBufferCreated(client->controller_id, remote_handle,
+                                           buffer->mapped_size(), buffer_id);
+  }
+}
+
 VideoCaptureController::ControllerClient* VideoCaptureController::FindClient(
     VideoCaptureControllerID id,
     VideoCaptureControllerEventHandler* handler,
@@ -419,21 +475,6 @@ VideoCaptureController::ControllerClient* VideoCaptureController::FindClient(
       return client;
   }
   return NULL;
-}
-
-int VideoCaptureController::GetClientCount() const {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  return controller_clients_.size();
-}
-
-int VideoCaptureController::GetActiveClientCount() const {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  int active_client_count = 0;
-  for (ControllerClient* client : controller_clients_) {
-    if (!client->paused)
-      ++active_client_count;
-  }
-  return active_client_count;
 }
 
 }  // namespace content

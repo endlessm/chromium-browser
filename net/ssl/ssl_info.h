@@ -13,6 +13,7 @@
 #include "net/cert/sct_status_flags.h"
 #include "net/cert/x509_cert_types.h"
 #include "net/ssl/signed_certificate_timestamp_and_status.h"
+#include "net/ssl/ssl_config.h"
 
 namespace net {
 
@@ -60,6 +61,12 @@ class NET_EXPORT SSLInfo {
   // -1 means the security strength is unknown.
   int security_bits;
 
+  // Security information of the SSL connection handshake.
+  // The meaning depends on the cipher used, see BoringSSL's |SSL_SESSION|'s
+  // key_exchange_info for more information.
+  // A zero indicates that the value is unknown.
+  int key_exchange_info;
+
   // Information about the SSL connection itself. See
   // ssl_connection_status_flags.h for values. The protocol version,
   // ciphersuite, and compression in use are encoded within.
@@ -75,6 +82,15 @@ class NET_EXPORT SSLInfo {
 
   // True if a channel ID was sent to the server.
   bool channel_id_sent;
+
+  // True if Token Binding was negotiated with the server and we agreed on a
+  // version and key params.
+  bool token_binding_negotiated;
+
+  // Only valid if |token_binding_negotiated| is true. Contains the key param
+  // negotiated by the client and server in the Token Binding Negotiation TLS
+  // extension.
+  TokenBindingParam token_binding_key_param;
 
   HandshakeType handshake_type;
 

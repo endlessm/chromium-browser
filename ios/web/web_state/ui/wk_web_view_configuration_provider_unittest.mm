@@ -6,11 +6,13 @@
 
 #import <WebKit/WebKit.h>
 
+#include "base/ios/ios_util.h"
 #import "base/ios/weak_nsobject.h"
 #include "ios/web/public/test/test_browser_state.h"
 #include "ios/web/public/test/web_test_util.h"
 #include "ios/web/public/web_client.h"
 #import "ios/web/web_state/js/page_script_util.h"
+#import "ios/web/web_state/ui/crw_wk_script_message_router.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "testing/gtest_mac.h"
 #include "testing/platform_test.h"
@@ -68,6 +70,30 @@ TEST_F(WKWebViewConfigurationProviderTest, ConfigurationOwnerhip) {
             other_provider.GetWebViewConfiguration().processPool);
 }
 
+// Tests Non-OffTheRecord configuration.
+TEST_F(WKWebViewConfigurationProviderTest, NoneOffTheRecordConfiguration) {
+  CR_TEST_REQUIRES_WK_WEB_VIEW();
+  if (!base::ios::IsRunningOnIOS9OrLater())
+    return;
+
+  browser_state_.SetOffTheRecord(false);
+  WKWebViewConfigurationProvider& provider = GetProvider(&browser_state_);
+  EXPECT_TRUE(provider.GetWebViewConfiguration().websiteDataStore.persistent);
+}
+
+// Tests OffTheRecord configuration.
+TEST_F(WKWebViewConfigurationProviderTest, OffTheRecordConfiguration) {
+  CR_TEST_REQUIRES_WK_WEB_VIEW();
+  if (!base::ios::IsRunningOnIOS9OrLater())
+    return;
+
+  browser_state_.SetOffTheRecord(true);
+  WKWebViewConfigurationProvider& provider = GetProvider(&browser_state_);
+  WKWebViewConfiguration* config = provider.GetWebViewConfiguration();
+  ASSERT_TRUE(config);
+  EXPECT_FALSE(config.websiteDataStore.persistent);
+}
+
 // Tests that internal configuration object can not be changed by clients.
 TEST_F(WKWebViewConfigurationProviderTest, ConfigurationProtection) {
   CR_TEST_REQUIRES_WK_WEB_VIEW();
@@ -99,46 +125,33 @@ TEST_F(WKWebViewConfigurationProviderTest, ConfigurationProtection) {
             provider.GetWebViewConfiguration().userContentController);
 }
 
-// Tests that |HasWebViewConfiguration| returns false by default.
-TEST_F(WKWebViewConfigurationProviderTest, NoConfigurationByDefault) {
+// Tests that script message router is bound to correct user content controller.
+TEST_F(WKWebViewConfigurationProviderTest, ScriptMessageRouter) {
   CR_TEST_REQUIRES_WK_WEB_VIEW();
 
-  EXPECT_FALSE(GetProvider().HasWebViewConfiguration());
+  ASSERT_TRUE(GetProvider().GetWebViewConfiguration().userContentController);
+  EXPECT_EQ(GetProvider().GetWebViewConfiguration().userContentController,
+            GetProvider().GetScriptMessageRouter().userContentController);
 }
 
-// Tests that |HasWebViewConfiguration| returns true after
-// |GetWebViewConfiguration| call and false after |Purge| call.
-TEST_F(WKWebViewConfigurationProviderTest, HasWebViewConfiguration) {
-  CR_TEST_REQUIRES_WK_WEB_VIEW();
-
-  // Valid configuration after |GetWebViewConfiguration| call.
-  @autoreleasepool {  // Make sure that resulting copy is deallocated.
-    GetProvider().GetWebViewConfiguration();
-  }
-  EXPECT_TRUE(GetProvider().HasWebViewConfiguration());
-
-  // No configuration after |Purge| call.
-  GetProvider().Purge();
-  EXPECT_FALSE(GetProvider().HasWebViewConfiguration());
-
-  // Valid configuration after |GetWebViewConfiguration| call.
-  GetProvider().GetWebViewConfiguration();
-  EXPECT_TRUE(GetProvider().HasWebViewConfiguration());
-}
-
-// Tests that configuration is deallocated after |Purge| call.
+// Tests that both configuration and script message router are deallocated after
+// |Purge| call.
 TEST_F(WKWebViewConfigurationProviderTest, Purge) {
   CR_TEST_REQUIRES_WK_WEB_VIEW();
 
   base::WeakNSObject<id> config;
+  base::WeakNSObject<id> router;
   @autoreleasepool {  // Make sure that resulting copy is deallocated.
     config.reset(GetProvider().GetWebViewConfiguration());
+    router.reset(GetProvider().GetScriptMessageRouter());
     ASSERT_TRUE(config);
+    ASSERT_TRUE(router);
   }
 
-  // No configuration after |Purge| call.
+  // No configuration and router after |Purge| call.
   GetProvider().Purge();
   EXPECT_FALSE(config);
+  EXPECT_FALSE(router);
 }
 
 // Tests that configuration's userContentController has only one script with the

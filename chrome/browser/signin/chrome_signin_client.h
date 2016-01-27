@@ -37,14 +37,8 @@ class ChromeSigninClient
   void Shutdown() override;
   void DoFinalInit() override;
 
-  // Utility methods.
+  // Utility method.
   static bool ProfileAllowsSigninCookies(Profile* profile);
-  static bool SettingsAllowSigninCookies(
-      content_settings::CookieSettings* cookie_settings);
-
-  // If |for_ephemeral| is true, special kind of device ID for ephemeral users
-  // is generated.
-  static std::string GenerateSigninScopedDeviceID(bool for_ephemeral);
 
   // SigninClient implementation.
   PrefService* GetPrefs() override;
@@ -82,8 +76,6 @@ class ChromeSigninClient
   void PostSignedIn(const std::string& account_id,
                     const std::string& username,
                     const std::string& password) override;
-  bool UpdateAccountInfo(
-      AccountTrackerService::AccountInfo* out_account_info) override;
 
   // SigninErrorController::Observer implementation.
   void OnErrorChanged() override;

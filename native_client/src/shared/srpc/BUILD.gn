@@ -4,7 +4,7 @@
 
 static_library("nonnacl_srpc") {
   deps = [
-    "//native_client/build/config/nacl:nacl_base",
+    "//build/config/nacl:nacl_base",
   ]
 
   sources = [
@@ -17,14 +17,12 @@ static_library("nonnacl_srpc") {
     "rpc_server_loop.c",
     "rpc_service.c",
   ]
-
-  cflags_c = [ "-fno-strict-aliasing" ]
 }
 
 if (current_os == "nacl") {
   static_library("srpc") {
     deps = [
-      "//native_client/build/config/nacl:nacl_base",
+      "//build/config/nacl:nacl_base",
       "//native_client/src/untrusted/nacl:imc_syscalls",
     ]
 
@@ -40,7 +38,5 @@ if (current_os == "nacl") {
       "rpc_server_loop.c",
       "rpc_service.c",
     ]
-
-    cflags_c = [ "-fno-strict-aliasing" ]
   }
 }

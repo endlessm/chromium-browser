@@ -4,14 +4,14 @@
 
 // Original code copyright 2014 Foxit Software Inc. http://www.foxitsoftware.com
 
-#include "../../../include/fxge/fx_ge.h"
+#include "core/include/fxge/fx_ge.h"
 #include "apple_int.h"
+
 #if _FX_OS_ == _FX_MACOSX_
 static const struct {
-    const FX_CHAR*	m_pName;
-    const FX_CHAR*	m_pSubstName;
-}
-Base14Substs[] = {
+  const FX_CHAR* m_pName;
+  const FX_CHAR* m_pSubstName;
+} Base14Substs[] = {
     {"Courier", "Courier New"},
     {"Courier-Bold", "Courier New Bold"},
     {"Courier-BoldOblique", "Courier New Bold Italic"},
@@ -25,84 +25,89 @@ Base14Substs[] = {
     {"Times-BoldItalic", "Times New Roman Bold Italic"},
     {"Times-Italic", "Times New Roman Italic"},
 };
-class CFX_MacFontInfo : public CFX_FolderFontInfo
-{
-public:
-    virtual void*		MapFont(int weight, FX_BOOL bItalic, int charset, int pitch_family, const FX_CHAR* family, FX_BOOL& bExact);
+class CFX_MacFontInfo : public CFX_FolderFontInfo {
+ public:
+  virtual void* MapFont(int weight,
+                        FX_BOOL bItalic,
+                        int charset,
+                        int pitch_family,
+                        const FX_CHAR* family,
+                        int& iExact);
 };
 #define JAPAN_GOTHIC "Hiragino Kaku Gothic Pro W6"
 #define JAPAN_MINCHO "Hiragino Mincho Pro W6"
-static void GetJapanesePreference(CFX_ByteString& face, int weight, int picth_family)
-{
-    if (face.Find("Gothic") >= 0) {
-        face = JAPAN_GOTHIC;
-        return;
-    }
-    if (!(picth_family & FXFONT_FF_ROMAN) && weight > 400) {
-        face = JAPAN_GOTHIC;
-    } else {
-        face = JAPAN_MINCHO;
-    }
+static void GetJapanesePreference(CFX_ByteString& face,
+                                  int weight,
+                                  int picth_family) {
+  if (face.Find("Gothic") >= 0) {
+    face = JAPAN_GOTHIC;
+    return;
+  }
+  if (!(picth_family & FXFONT_FF_ROMAN) && weight > 400) {
+    face = JAPAN_GOTHIC;
+  } else {
+    face = JAPAN_MINCHO;
+  }
 }
-void* CFX_MacFontInfo::MapFont(int weight, FX_BOOL bItalic, int charset, int pitch_family, const FX_CHAR* cstr_face, FX_BOOL& bExact)
-{
-    CFX_ByteString face = cstr_face;
-    int iBaseFont;
-    for (iBaseFont = 0; iBaseFont < 12; iBaseFont ++)
-        if (face == CFX_ByteStringC(Base14Substs[iBaseFont].m_pName)) {
-            face = Base14Substs[iBaseFont].m_pSubstName;
-            bExact = TRUE;
-            break;
-        }
-    if (iBaseFont < 12) {
-        return GetFont(face);
+void* CFX_MacFontInfo::MapFont(int weight,
+                               FX_BOOL bItalic,
+                               int charset,
+                               int pitch_family,
+                               const FX_CHAR* cstr_face,
+                               int& iExact) {
+  CFX_ByteString face = cstr_face;
+  int iBaseFont;
+  for (iBaseFont = 0; iBaseFont < 12; iBaseFont++)
+    if (face == CFX_ByteStringC(Base14Substs[iBaseFont].m_pName)) {
+      face = Base14Substs[iBaseFont].m_pSubstName;
+      iExact = TRUE;
+      break;
     }
-    void* p;
-    if (m_FontList.Lookup(face, p)) {
-        return p;
-    }
-    if (charset == FXFONT_ANSI_CHARSET && (pitch_family & FXFONT_FF_FIXEDPITCH)) {
-        return GetFont("Courier New");
-    }
-    if (charset == FXFONT_ANSI_CHARSET || charset == FXFONT_SYMBOL_CHARSET) {
-        return NULL;
-    }
-    switch (charset) {
-        case FXFONT_SHIFTJIS_CHARSET:
-            GetJapanesePreference(face, weight, pitch_family);
-            break;
-        case FXFONT_GB2312_CHARSET:
-            face = "STSong";
-            break;
-        case FXFONT_HANGEUL_CHARSET:
-            face = "AppleMyungjo";
-            break;
-        case FXFONT_CHINESEBIG5_CHARSET:
-            face = "LiSong Pro Light";
-    }
-    if (m_FontList.Lookup(face, p)) {
-        return p;
-    }
+  if (iBaseFont < 12) {
+    return GetFont(face);
+  }
+  auto it = m_FontList.find(face);
+  if (it != m_FontList.end())
+    return it->second;
+
+  if (charset == FXFONT_ANSI_CHARSET && (pitch_family & FXFONT_FF_FIXEDPITCH)) {
+    return GetFont("Courier New");
+  }
+  if (charset == FXFONT_ANSI_CHARSET || charset == FXFONT_SYMBOL_CHARSET) {
     return NULL;
+  }
+  switch (charset) {
+    case FXFONT_SHIFTJIS_CHARSET:
+      GetJapanesePreference(face, weight, pitch_family);
+      break;
+    case FXFONT_GB2312_CHARSET:
+      face = "STSong";
+      break;
+    case FXFONT_HANGEUL_CHARSET:
+      face = "AppleMyungjo";
+      break;
+    case FXFONT_CHINESEBIG5_CHARSET:
+      face = "LiSong Pro Light";
+  }
+  it = m_FontList.find(face);
+  if (it != m_FontList.end())
+    return it->second;
+
+  return NULL;
 }
-IFX_SystemFontInfo* IFX_SystemFontInfo::CreateDefault()
-{
-    CFX_MacFontInfo* pInfo = new CFX_MacFontInfo;
-    pInfo->AddPath("~/Library/Fonts");
-    pInfo->AddPath("/Library/Fonts");
-    pInfo->AddPath("/System/Library/Fonts");
-    return pInfo;
+IFX_SystemFontInfo* IFX_SystemFontInfo::CreateDefault(const char** pUnused) {
+  CFX_MacFontInfo* pInfo = new CFX_MacFontInfo;
+  pInfo->AddPath("~/Library/Fonts");
+  pInfo->AddPath("/Library/Fonts");
+  pInfo->AddPath("/System/Library/Fonts");
+  return pInfo;
 }
-void CFX_GEModule::InitPlatform()
-{
-    m_pPlatformData = new CApplePlatform;
-    m_pFontMgr->SetSystemFontInfo(IFX_SystemFontInfo::CreateDefault());
+void CFX_GEModule::InitPlatform() {
+  m_pPlatformData = new CApplePlatform;
+  m_pFontMgr->SetSystemFontInfo(IFX_SystemFontInfo::CreateDefault(nullptr));
 }
-void CFX_GEModule::DestroyPlatform()
-{
-    if (m_pPlatformData) {
-        delete (CApplePlatform *) m_pPlatformData;
-    }
-    m_pPlatformData = NULL;
+void CFX_GEModule::DestroyPlatform() {
+  delete (CApplePlatform*)m_pPlatformData;
+  m_pPlatformData = NULL;
 }
 #endif

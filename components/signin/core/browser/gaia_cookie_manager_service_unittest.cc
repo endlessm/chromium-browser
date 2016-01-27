@@ -16,6 +16,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/test/histogram_tester.h"
 #include "base/thread_task_runner_handle.h"
+#include "components/signin/core/browser/account_tracker_service.h"
 #include "components/signin/core/browser/gaia_cookie_manager_service.h"
 #include "components/signin/core/browser/test_signin_client.h"
 #include "components/signin/core/common/signin_pref_names.h"
@@ -220,7 +221,7 @@ TEST_F(GaiaCookieManagerServiceTest, MergeSessionRetried) {
   DCHECK(helper.is_running());
   // Transient error incurs a retry after 1 second.
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::MessageLoop::QuitClosure(),
+      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
       base::TimeDelta::FromMilliseconds(1100));
   base::MessageLoop::current()->Run();
   SimulateMergeSessionSuccess(&helper, "token");
@@ -242,14 +243,14 @@ TEST_F(GaiaCookieManagerServiceTest, MergeSessionRetriedTwice) {
   DCHECK(helper.is_running());
   // Transient error incurs a retry after 1 second.
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::MessageLoop::QuitClosure(),
+      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
       base::TimeDelta::FromMilliseconds(1100));
   base::MessageLoop::current()->Run();
   SimulateMergeSessionFailure(&helper, canceled());
   DCHECK(helper.is_running());
   // Next transient error incurs a retry after 3 seconds.
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-      FROM_HERE, base::MessageLoop::QuitClosure(),
+      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure(),
       base::TimeDelta::FromMilliseconds(3100));
   base::MessageLoop::current()->Run();
   SimulateMergeSessionSuccess(&helper, "token");

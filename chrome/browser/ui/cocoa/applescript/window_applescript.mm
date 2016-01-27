@@ -15,10 +15,12 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/cocoa/applescript/constants_applescript.h"
 #include "chrome/browser/ui/cocoa/applescript/error_applescript.h"
+#include "chrome/browser/ui/cocoa/applescript/metrics_applescript.h"
 #import "chrome/browser/ui/cocoa/applescript/tab_applescript.h"
 #include "chrome/browser/ui/host_desktop.h"
 #include "chrome/browser/ui/tab_contents/core_tab_helper.h"
@@ -247,6 +249,8 @@
 }
 
 - (void)handlesCloseScriptCommand:(NSCloseCommand*)command {
+  AppleScript::LogAppleScriptUMA(AppleScript::AppleScriptCommand::WINDOW_CLOSE);
+
   // window() can be NULL during startup.
   if (browser_->window())
     browser_->window()->Close();
@@ -260,6 +264,8 @@
 }
 
 - (void)handlesEnterPresentationMode:(NSScriptCommand*)command {
+  AppleScript::LogAppleScriptUMA(
+      AppleScript::AppleScriptCommand::WINDOW_ENTER_PRESENTATION_MODE);
   if (browser_->window()) {
     browser_->window()->EnterFullscreen(
         GURL(), EXCLUSIVE_ACCESS_BUBBLE_TYPE_FULLSCREEN_EXIT_INSTRUCTION,
@@ -268,6 +274,8 @@
 }
 
 - (void)handlesExitPresentationMode:(NSScriptCommand*)command {
+  AppleScript::LogAppleScriptUMA(
+      AppleScript::AppleScriptCommand::WINDOW_EXIT_PRESENTATION_MODE);
   if (browser_->window())
     browser_->window()->ExitFullscreen();
 }

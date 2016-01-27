@@ -245,10 +245,12 @@ WebInspector.ScreencastView.prototype = {
         {
             if (!node)
                 return;
-            if (event.type === "mousemove")
+            if (event.type === "mousemove") {
                 this.highlightDOMNode(node, this._inspectModeConfig);
-            else if (event.type === "click")
+                this._domModel.nodeHighlightRequested(node.id);
+            } else if (event.type === "click") {
                 WebInspector.Revealer.reveal(node);
+            }
         }
     },
 
@@ -332,7 +334,7 @@ WebInspector.ScreencastView.prototype = {
         }
         if (event.type === "mouseup")
             delete this._eventScreenOffsetTop;
-        WebInspector.targetManager.mainTarget().inputAgent().invoke_emulateTouchFromMouseEvent(params);
+        this._target.inputAgent().invoke_emulateTouchFromMouseEvent(params);
     },
 
     /**
@@ -344,7 +346,7 @@ WebInspector.ScreencastView.prototype = {
             var params = this._eventParams;
             delete this._eventParams;
             params.type = "mouseReleased";
-            WebInspector.targetManager.mainTarget().inputAgent().invoke_emulateTouchFromMouseEvent(params);
+            this._target.inputAgent().invoke_emulateTouchFromMouseEvent(params);
         }
     },
 
@@ -513,21 +515,6 @@ WebInspector.ScreencastView.prototype = {
 
     },
 
-
-    /**
-     * @param {!DOMAgent.Quad} quad1
-     * @param {!DOMAgent.Quad} quad2
-     * @return {boolean}
-     */
-    _quadsAreEqual: function(quad1, quad2)
-    {
-        for (var i = 0; i < quad1.length; ++i) {
-            if (quad1[i] !== quad2[i])
-                return false;
-        }
-        return true;
-    },
-
     /**
      * @param {!DOMAgent.RGBA} color
      * @return {string}
@@ -678,14 +665,13 @@ WebInspector.ScreencastView.prototype = {
 
     /**
      * @override
-     * @param {boolean} enabled
-     * @param {boolean} inspectUAShadowDOM
+     * @param {!DOMAgent.InspectMode} mode
      * @param {!DOMAgent.HighlightConfig} config
      * @param {function(?Protocol.Error)=} callback
      */
-    setInspectModeEnabled: function(enabled, inspectUAShadowDOM, config, callback)
+    setInspectMode: function(mode, config, callback)
     {
-        this._inspectModeConfig = enabled ? config : null;
+        this._inspectModeConfig = mode !== DOMAgent.InspectMode.None ? config : null;
         if (callback)
             callback(null);
     },

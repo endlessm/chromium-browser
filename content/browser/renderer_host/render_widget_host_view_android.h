@@ -57,6 +57,7 @@ class ContentViewCoreImpl;
 class OverscrollControllerAndroid;
 class RenderWidgetHost;
 class RenderWidgetHostImpl;
+class SynchronousCompositorBase;
 struct DidOverscrollParams;
 struct NativeWebKeyboardEvent;
 
@@ -105,10 +106,8 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   float GetTopControlsHeight() const override;
   void UpdateCursor(const WebCursor& cursor) override;
   void SetIsLoading(bool is_loading) override;
-  void TextInputTypeChanged(ui::TextInputType type,
-                            ui::TextInputMode input_mode,
-                            bool can_compose_inline,
-                            int flags) override;
+  void TextInputStateChanged(
+      const ViewHostMsg_TextInputState_Params& params) override;
   void ImeCancelComposition() override;
   void ImeCompositionRangeChanged(
       const gfx::Range& range,
@@ -123,22 +122,21 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
                         const gfx::Range& range) override;
   void SelectionBoundsChanged(
       const ViewHostMsg_SelectionBounds_Params& params) override;
-  void AcceleratedSurfaceInitialized(int route_id) override;
   bool HasAcceleratedSurface(const gfx::Size& desired_size) override;
   void SetBackgroundColor(SkColor color) override;
   void CopyFromCompositingSurface(
       const gfx::Rect& src_subrect,
       const gfx::Size& dst_size,
-      ReadbackRequestCallback& callback,
+      const ReadbackRequestCallback& callback,
       const SkColorType preferred_color_type) override;
   void CopyFromCompositingSurfaceToVideoFrame(
       const gfx::Rect& src_subrect,
       const scoped_refptr<media::VideoFrame>& target,
-      const base::Callback<void(bool)>& callback) override;
+      const base::Callback<void(const gfx::Rect&, bool)>& callback) override;
   bool CanCopyToVideoFrame() const override;
   void GetScreenInfo(blink::WebScreenInfo* results) override;
+  bool GetScreenColorProfile(std::vector<char>* color_profile) override;
   gfx::Rect GetBoundsInRootWindow() override;
-  gfx::GLSurfaceHandle GetCompositingSurface() override;
   void ProcessAckedTouchEvent(const TouchEventWithLatencyInfo& touch,
                               InputEventAckState ack_result) override;
   InputEventAckState FilterInputEvent(
@@ -152,6 +150,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   void UnlockMouse() override;
   void OnSwapCompositorFrame(uint32 output_surface_id,
                              scoped_ptr<cc::CompositorFrame> frame) override;
+  void ClearCompositorFrame() override;
   void DidOverscroll(const DidOverscrollParams& params) override;
   void DidStopFlinging() override;
   uint32_t GetSurfaceIdNamespace() override;
@@ -170,6 +169,8 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
 
   // cc::SurfaceFactoryClient implementation.
   void ReturnResources(const cc::ReturnedResourceArray& resources) override;
+  void SetBeginFrameSource(cc::SurfaceId surface_id,
+                           cc::BeginFrameSource* begin_frame_source) override;
 
   // ui::GestureProviderClient implementation.
   void OnGestureEvent(const ui::GestureEventData& gesture) override;
@@ -212,9 +213,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   void SendMouseWheelEvent(const blink::WebMouseWheelEvent& event);
   void SendGestureEvent(const blink::WebGestureEvent& event);
 
-  void OnTextInputStateChanged(const ViewHostMsg_TextInputState_Params& params);
-  void OnDidChangeBodyBackgroundColor(SkColor color);
-  void OnStartContentIntent(const GURL& content_url);
+  void OnStartContentIntent(const GURL& content_url, bool is_main_frame);
   void OnSetNeedsBeginFrames(bool enabled);
   void OnSmartClipDataExtracted(const base::string16& text,
                                 const base::string16& html,
@@ -233,7 +232,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   void GetScaledContentBitmap(float scale,
                               SkColorType preferred_color_type,
                               gfx::Rect src_subrect,
-                              ReadbackRequestCallback& result_callback);
+                              const ReadbackRequestCallback& result_callback);
 
   scoped_refptr<cc::Layer> CreateDelegatedLayer() const;
 
@@ -245,6 +244,7 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   void OnShowingPastePopup(const gfx::PointF& point);
   void OnShowUnhandledTapUIIfNeeded(int x_dip, int y_dip);
 
+  SynchronousCompositorBase* GetSynchronousCompositor();
   void SynchronousFrameMetadata(
       const cc::CompositorFrameMetadata& frame_metadata);
 
@@ -263,20 +263,21 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
 
   void DestroyDelegatedContent();
   void CheckOutputSurfaceChanged(uint32 output_surface_id);
-  void SubmitFrame(scoped_ptr<cc::DelegatedFrameData> frame_data);
+  void SubmitCompositorFrame(scoped_ptr<cc::CompositorFrame> frame_data);
   void SwapDelegatedFrame(uint32 output_surface_id,
-                          scoped_ptr<cc::DelegatedFrameData> frame_data);
+                          scoped_ptr<cc::CompositorFrame> frame_data);
   void SendDelegatedFrameAck(uint32 output_surface_id);
   void SendReturnedDelegatedResources(uint32 output_surface_id);
 
   void OnFrameMetadataUpdated(
       const cc::CompositorFrameMetadata& frame_metadata);
-  void ComputeContentsSize(const cc::CompositorFrameMetadata& frame_metadata);
 
   void ShowInternal();
-  void HideInternal(bool hide_frontbuffer, bool stop_observing_root_window);
+  void HideInternal();
   void AttachLayers();
   void RemoveLayers();
+
+  void UpdateBackgroundColor(SkColor color);
 
   // Called after async screenshot task completes. Scales and crops the result
   // of the copy.
@@ -284,20 +285,20 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
       const gfx::Size& dst_size_in_pixel,
       SkColorType color_type,
       const base::TimeTicks& start_time,
-      ReadbackRequestCallback& callback,
+      const ReadbackRequestCallback& callback,
       scoped_ptr<cc::CopyOutputResult> result);
   static void PrepareTextureCopyOutputResultForDelegatedReadback(
       const gfx::Size& dst_size_in_pixel,
       SkColorType color_type,
       const base::TimeTicks& start_time,
       scoped_refptr<cc::Layer> readback_layer,
-      ReadbackRequestCallback& callback,
+      const ReadbackRequestCallback& callback,
       scoped_ptr<cc::CopyOutputResult> result);
 
   // DevTools ScreenCast support for Android WebView.
   void SynchronousCopyContents(const gfx::Rect& src_subrect_in_pixel,
                                const gfx::Size& dst_size_in_pixel,
-                               ReadbackRequestCallback& callback,
+                               const ReadbackRequestCallback& callback,
                                const SkColorType color_type);
 
   // If we have locks on a frame during a ContentViewCore swap or a context
@@ -326,6 +327,8 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   bool Animate(base::TimeTicks frame_time);
   void RequestDisallowInterceptTouchEvent();
 
+  bool SyncCompositorOnMessageReceived(const IPC::Message& message);
+
   // The model object.
   RenderWidgetHostImpl* host_;
 
@@ -335,6 +338,10 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   uint32 outstanding_vsync_requests_;
 
   bool is_showing_;
+
+  // Window-specific bits that affect widget visibility.
+  bool is_window_visible_;
+  bool is_window_activity_started_;
 
   // ContentViewCoreImpl is our interface to the view system.
   ContentViewCoreImpl* content_view_core_;
@@ -360,12 +367,11 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   cc::SurfaceId surface_id_;
   gfx::Size current_surface_size_;
   cc::ReturnedResourceArray surface_returned_resources_;
+  gfx::Vector2dF location_bar_content_translation_;
+  cc::ViewportSelection current_viewport_selection_;
 
   // The most recent texture size that was pushed to the texture layer.
   gfx::Size texture_size_in_layer_;
-
-  // The most recent content size that was pushed to the texture layer.
-  gfx::Size content_size_in_layer_;
 
   // The output surface id of the last received frame.
   uint32_t last_output_surface_id_;
@@ -387,12 +393,11 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   // This will always be NULL if |content_view_core_| is NULL.
   scoped_ptr<ui::TouchSelectionController> selection_controller_;
 
-  int accelerated_surface_route_id_;
-
   // Size to use if we have no backing ContentViewCore
   gfx::Size default_size_;
 
   const bool using_browser_compositor_;
+  scoped_ptr<SynchronousCompositorBase> sync_compositor_;
 
   scoped_ptr<DelegatedFrameEvictor> frame_evictor_;
 
@@ -419,6 +424,6 @@ class CONTENT_EXPORT RenderWidgetHostViewAndroid
   DISALLOW_COPY_AND_ASSIGN(RenderWidgetHostViewAndroid);
 };
 
-} // namespace content
+}  // namespace content
 
 #endif  // CONTENT_BROWSER_RENDERER_HOST_RENDER_WIDGET_HOST_VIEW_ANDROID_H_

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "ash/display/display_manager.h"
+#include "ash/screen_util.h"
 #include "ash/shelf/shelf_layout_manager.h"
 #include "ash/shelf/shelf_types.h"
 #include "ash/shell.h"
@@ -56,16 +57,21 @@ class AshPopupAlignmentDelegateTest : public test::AshTestBase {
     return alignment_delegate_.get();
   }
 
+  void UpdateWorkArea(AshPopupAlignmentDelegate* alignment_delegate,
+                      const gfx::Display& display) {
+    alignment_delegate->StartObserving(Shell::GetScreen(), display);
+    // Update the layout
+    alignment_delegate->OnDisplayWorkAreaInsetsChanged();
+  }
+
   void SetAlignmentDelegate(scoped_ptr<AshPopupAlignmentDelegate> delegate) {
     if (!delegate.get()) {
       alignment_delegate_.reset();
       return;
     }
     alignment_delegate_ = delegate.Pass();
-    alignment_delegate_->StartObserving(
-        Shell::GetScreen(), Shell::GetScreen()->GetPrimaryDisplay());
-    // Update the layout
-    alignment_delegate_->OnDisplayWorkAreaInsetsChanged();
+    UpdateWorkArea(alignment_delegate_.get(),
+                   Shell::GetScreen()->GetPrimaryDisplay());
   }
 
   Position GetPositionInDisplay(const gfx::Point& point) {
@@ -130,6 +136,9 @@ TEST_F(AshPopupAlignmentDelegateTest, ShelfAlignment) {
 }
 
 TEST_F(AshPopupAlignmentDelegateTest, LockScreen) {
+  if (!SupportsHostWindowResize())
+    return;
+
   const gfx::Rect toast_size(0, 0, 10, 10);
 
   Shell::GetInstance()->SetShelfAlignment(
@@ -252,12 +261,25 @@ TEST_F(AshPopupAlignmentDelegateTest, TrayHeight) {
             alignment_delegate()->GetBaseLine());
 }
 
+TEST_F(AshPopupAlignmentDelegateTest, Extended) {
+  if (!SupportsMultipleDisplays())
+    return;
+  UpdateDisplay("600x600,800x800");
+  SetAlignmentDelegate(make_scoped_ptr(new AshPopupAlignmentDelegate()));
+
+  AshPopupAlignmentDelegate for_2nd_display;
+  UpdateWorkArea(&for_2nd_display, ScreenUtil::GetSecondaryDisplay());
+  // Make sure that the toast position on the secondary display is
+  // positioned correctly.
+  EXPECT_LT(1300, for_2nd_display.GetToastOriginX(gfx::Rect(0, 0, 10, 10)));
+  EXPECT_LT(700, for_2nd_display.GetBaseLine());
+}
+
 TEST_F(AshPopupAlignmentDelegateTest, Unified) {
   if (!SupportsMultipleDisplays())
     return;
   DisplayManager* display_manager = Shell::GetInstance()->display_manager();
-  display_manager->SetDefaultMultiDisplayMode(DisplayManager::UNIFIED);
-  display_manager->SetMultiDisplayMode(DisplayManager::UNIFIED);
+  display_manager->SetUnifiedDesktopEnabled(true);
 
   // Reset the delegate as the primary display's shelf will be destroyed during
   // transition.

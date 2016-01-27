@@ -12,7 +12,7 @@
 #include "content/public/browser/web_contents.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
-
+#include "ui/gfx/vector_icons_public.h"
 
 // static
 void WebsiteSettingsInfoBarDelegate::Create(InfoBarService* infobar_service) {
@@ -33,8 +33,16 @@ WebsiteSettingsInfoBarDelegate::GetInfoBarType() const {
   return PAGE_ACTION_TYPE;
 }
 
-int WebsiteSettingsInfoBarDelegate::GetIconID() const {
+int WebsiteSettingsInfoBarDelegate::GetIconId() const {
   return IDR_INFOBAR_ALT_NAV_URL;
+}
+
+gfx::VectorIconId WebsiteSettingsInfoBarDelegate::GetVectorIconId() const {
+#if defined(OS_MACOSX)
+  return gfx::VectorIconId::VECTOR_ICON_NONE;
+#else
+  return gfx::VectorIconId::GLOBE;
+#endif
 }
 
 base::string16 WebsiteSettingsInfoBarDelegate::GetMessageText() const {

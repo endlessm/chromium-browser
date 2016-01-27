@@ -31,7 +31,7 @@ class BrowserSideNavigationBrowserTest : public ContentBrowserTest {
 
   void SetUpOnMainThread() override {
     host_resolver()->AddRule("*", "127.0.0.1");
-    ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+    ASSERT_TRUE(embedded_test_server()->Start());
   }
 };
 
@@ -176,7 +176,9 @@ IN_PROC_BROWSER_TEST_F(BrowserSideNavigationBrowserTest, FailedNavigation) {
     TestNavigationObserver observer(shell()->web_contents());
     GURL error_url(
         net::URLRequestFailedJob::GetMockHttpUrl(net::ERR_CONNECTION_RESET));
-    net::URLRequestFailedJob::AddUrlHandler();
+    BrowserThread::PostTask(
+        BrowserThread::IO, FROM_HERE,
+        base::Bind(&net::URLRequestFailedJob::AddUrlHandler));
     NavigateToURL(shell(), error_url);
     EXPECT_EQ(error_url, observer.last_navigation_url());
     NavigationEntry* entry =

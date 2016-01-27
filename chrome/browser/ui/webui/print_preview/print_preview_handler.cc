@@ -30,6 +30,7 @@
 #include "base/values.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/browser_process.h"
+#include "chrome/browser/dom_distiller/tab_utils.h"
 #include "chrome/browser/platform_util.h"
 #include "chrome/browser/printing/print_dialog_cloud.h"
 #include "chrome/browser/printing/print_error_dialog.h"
@@ -57,6 +58,8 @@
 #include "components/cloud_devices/common/cloud_device_description.h"
 #include "components/cloud_devices/common/cloud_devices_urls.h"
 #include "components/cloud_devices/common/printer_description.h"
+#include "components/dom_distiller/core/dom_distiller_switches.h"
+#include "components/dom_distiller/core/url_utils.h"
 #include "components/printing/common/print_messages.h"
 #include "components/signin/core/browser/gaia_cookie_manager_service.h"
 #include "components/signin/core/browser/profile_oauth2_token_service.h"
@@ -130,6 +133,7 @@ enum PrintSettingsBuckets {
   NON_DEFAULT_MEDIA,
   COPIES,
   NON_DEFAULT_MARGINS,
+  DISTILL_PAGE,
   PRINT_SETTINGS_BUCKET_BOUNDARY
 };
 
@@ -165,6 +169,9 @@ const char kHidePrintWithSystemDialogLink[] = "hidePrintWithSystemDialogLink";
 #endif
 // Name of a dictionary field holding the state of selection for document.
 const char kDocumentHasSelection[] = "documentHasSelection";
+// Dictionary field holding the default destination selection rules.
+const char kDefaultDestinationSelectionRules[] =
+    "defaultDestinationSelectionRules";
 
 // Id of the predefined PDF printer.
 const char kLocalPdfPrinterId[] = "Save as PDF";
@@ -175,7 +182,8 @@ const char kPrinterCapabilities[] = "capabilities";
 
 // Get the print job settings dictionary from |args|. The caller takes
 // ownership of the returned DictionaryValue. Returns NULL on failure.
-base::DictionaryValue* GetSettingsDictionary(const base::ListValue* args) {
+scoped_ptr<base::DictionaryValue> GetSettingsDictionary(
+    const base::ListValue* args) {
   std::string json_str;
   if (!args->GetString(0, &json_str)) {
     NOTREACHED() << "Could not read JSON argument";
@@ -185,10 +193,9 @@ base::DictionaryValue* GetSettingsDictionary(const base::ListValue* args) {
     NOTREACHED() << "Empty print job settings";
     return NULL;
   }
-  scoped_ptr<base::DictionaryValue> settings(
-      static_cast<base::DictionaryValue*>(
-          base::JSONReader::DeprecatedRead(json_str)));
-  if (!settings.get() || !settings->IsType(base::Value::TYPE_DICTIONARY)) {
+  scoped_ptr<base::DictionaryValue> settings =
+      base::DictionaryValue::From(base::JSONReader::Read(json_str));
+  if (!settings) {
     NOTREACHED() << "Print job settings must be a dictionary.";
     return NULL;
   }
@@ -198,7 +205,7 @@ base::DictionaryValue* GetSettingsDictionary(const base::ListValue* args) {
     return NULL;
   }
 
-  return settings.release();
+  return settings;
 }
 
 // Track the popularity of print settings and report the stats.
@@ -275,6 +282,13 @@ void ReportPrintSettingsStats(const base::DictionaryValue& settings) {
                           &external_preview) && external_preview) {
     ReportPrintSettingHistogram(EXTERNAL_PDF_PREVIEW);
   }
+
+  bool distill_page = false;
+  if (settings.GetBoolean(printing::kSettingDistillPageEnabled,
+                          &distill_page) && distill_page) {
+    ReportPrintSettingHistogram(DISTILL_PAGE);
+  }
+
 }
 
 // Callback that stores a PDF file on disk.
@@ -775,8 +789,8 @@ void PrintPreviewHandler::HandleGetExtensionPrinterCapabilities(
 
 void PrintPreviewHandler::HandleGetPreview(const base::ListValue* args) {
   DCHECK_EQ(3U, args->GetSize());
-  scoped_ptr<base::DictionaryValue> settings(GetSettingsDictionary(args));
-  if (!settings.get())
+  scoped_ptr<base::DictionaryValue> settings = GetSettingsDictionary(args);
+  if (!settings)
     return;
   int request_id = -1;
   if (!settings->GetInteger(printing::kPreviewRequestID, &request_id))
@@ -839,8 +853,28 @@ void PrintPreviewHandler::HandleGetPreview(const base::ListValue* args) {
   }
 
   VLOG(1) << "Print preview request start";
-  RenderViewHost* rvh = initiator->GetRenderViewHost();
-  rvh->Send(new PrintMsg_PrintPreview(rvh->GetRoutingID(), *settings));
+
+  bool distill_page = false;
+  if (!settings->GetBoolean(printing::kSettingDistillPageEnabled,
+                            &distill_page)) {
+    NOTREACHED();
+  }
+
+  bool selection_only = false;
+  if (!settings->GetBoolean(printing::kSettingShouldPrintSelectionOnly,
+                            &selection_only)) {
+    NOTREACHED();
+  }
+
+  if (distill_page && !selection_only) {
+    print_preview_distiller_.reset(new PrintPreviewDistiller(
+        initiator, base::Bind(&PrintPreviewUI::OnPrintPreviewFailed,
+                              print_preview_ui()->GetWeakPtr()),
+        settings.Pass()));
+  } else {
+    RenderViewHost* rvh = initiator->GetRenderViewHost();
+    rvh->Send(new PrintMsg_PrintPreview(rvh->GetRoutingID(), *settings));
+  }
 }
 
 void PrintPreviewHandler::HandlePrint(const base::ListValue* args) {
@@ -851,8 +885,8 @@ void PrintPreviewHandler::HandlePrint(const base::ListValue* args) {
   UMA_HISTOGRAM_COUNTS("PrintPreview.RegeneratePreviewRequest.BeforePrint",
                        regenerate_preview_request_count_);
 
-  scoped_ptr<base::DictionaryValue> settings(GetSettingsDictionary(args));
-  if (!settings.get())
+  scoped_ptr<base::DictionaryValue> settings = GetSettingsDictionary(args);
+  if (!settings)
     return;
 
   ReportPrintSettingsStats(*settings);
@@ -1232,9 +1266,10 @@ void PrintPreviewHandler::SendInitialSettings(
                               print_preview_ui()->source_has_selection());
   initial_settings.SetBoolean(printing::kSettingShouldPrintSelectionOnly,
                               print_preview_ui()->print_selection_only());
+  PrefService* prefs = Profile::FromBrowserContext(
+      preview_web_contents()->GetBrowserContext())->GetPrefs();
   printing::StickySettings* sticky_settings = GetStickySettings();
-  sticky_settings->RestoreFromPrefs(Profile::FromBrowserContext(
-      preview_web_contents()->GetBrowserContext())->GetPrefs());
+  sticky_settings->RestoreFromPrefs(prefs);
   if (sticky_settings->printer_app_state()) {
     initial_settings.SetString(kAppState,
                                *sticky_settings->printer_app_state());
@@ -1252,10 +1287,23 @@ void PrintPreviewHandler::SendInitialSettings(
   bool is_ash = (chrome::GetActiveDesktop() == chrome::HOST_DESKTOP_TYPE_ASH);
   initial_settings.SetBoolean(kHidePrintWithSystemDialogLink, is_ash);
 #endif
+  if (prefs) {
+    const std::string rules_str =
+        prefs->GetString(prefs::kPrintPreviewDefaultDestinationSelectionRules);
+    if (!rules_str.empty())
+      initial_settings.SetString(kDefaultDestinationSelectionRules, rules_str);
+  }
 
   if (print_preview_ui()->source_is_modifiable())
     GetNumberFormatAndMeasurementSystem(&initial_settings);
   web_ui()->CallJavascriptFunction("setInitialSettings", initial_settings);
+
+  if (PrintPreviewDistiller::IsEnabled()) {
+    using dom_distiller::url_utils::IsUrlDistillable;
+    WebContents* initiator = GetInitiator();
+    if (initiator && IsUrlDistillable(initiator->GetLastCommittedURL()))
+      web_ui()->CallJavascriptFunction("allowDistillPage");
+  }
 }
 
 void PrintPreviewHandler::ClosePreviewDialog() {
@@ -1589,7 +1637,7 @@ void PrintPreviewHandler::StartPrivetLocalPrint(const std::string& print_ticket,
 
   if (signin_manager) {
     privet_local_print_operation_->SetUsername(
-        signin_manager->GetAuthenticatedUsername());
+        signin_manager->GetAuthenticatedAccountInfo().email);
   }
 
   privet_local_print_operation_->Start();

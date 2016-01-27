@@ -66,13 +66,6 @@
  * functions, at least, will enforce this restriction.
  */
 
-/*
- * TODO(bsy): remove when we put SIZE_T_MAX in a common header file.
- */
-#if !defined(SIZE_T_MAX)
-# define SIZE_T_MAX ((size_t) -1)
-#endif
-
 int NaClDescCtor(struct NaClDesc *ndp) {
   /* this should be a compile-time test */
   if (0 != (sizeof(struct NaClInternalHeader) & 0xf)) {
@@ -263,7 +256,7 @@ uintptr_t NaClDescMapNotImplemented(struct NaClDesc         *vself,
           "Map method is not implemented for object of type %s\n",
           NaClDescTypeString(((struct NaClDescVtbl const *)
                               vself->base.vtbl)->typeTag));
-  return -NACL_ABI_EINVAL;
+  return (uintptr_t) -NACL_ABI_EINVAL;
 }
 
 #if NACL_WINDOWS
@@ -356,6 +349,52 @@ int NaClDescFstatNotImplemented(struct NaClDesc         *vself,
 
   NaClLog(LOG_ERROR,
           "Fstat method is not implemented for object of type %s\n",
+          NaClDescTypeString(((struct NaClDescVtbl const *)
+                              vself->base.vtbl)->typeTag));
+  return -NACL_ABI_EINVAL;
+}
+
+int NaClDescFchdirNotImplemented(struct NaClDesc *vself) {
+  NaClLog(LOG_ERROR,
+          "Fchdir method is not implemented for object of type %s\n",
+          NaClDescTypeString(((struct NaClDescVtbl const *)
+                              vself->base.vtbl)->typeTag));
+  return -NACL_ABI_EINVAL;
+}
+
+int NaClDescFchmodNotImplemented(struct NaClDesc *vself,
+                                 int             mode) {
+  UNREFERENCED_PARAMETER(mode);
+
+  NaClLog(LOG_ERROR,
+          "Fchmod method is not implemented for object of type %s\n",
+          NaClDescTypeString(((struct NaClDescVtbl const *)
+                              vself->base.vtbl)->typeTag));
+  return -NACL_ABI_EINVAL;
+}
+
+int NaClDescFsyncNotImplemented(struct NaClDesc *vself) {
+  NaClLog(LOG_ERROR,
+          "Fsync method is not implemented for object of type %s\n",
+          NaClDescTypeString(((struct NaClDescVtbl const *)
+                              vself->base.vtbl)->typeTag));
+  return -NACL_ABI_EINVAL;
+}
+
+int NaClDescFdatasyncNotImplemented(struct NaClDesc *vself) {
+  NaClLog(LOG_ERROR,
+          "Fdatasync method is not implemented for object of type %s\n",
+          NaClDescTypeString(((struct NaClDescVtbl const *)
+                              vself->base.vtbl)->typeTag));
+  return -NACL_ABI_EINVAL;
+}
+
+int NaClDescFtruncateNotImplemented(struct NaClDesc  *vself,
+                                    nacl_abi_off_t   length) {
+  UNREFERENCED_PARAMETER(length);
+
+  NaClLog(LOG_ERROR,
+          "Ftruncate method is not implemented for object of type %s\n",
           NaClDescTypeString(((struct NaClDescVtbl const *)
                               vself->base.vtbl)->typeTag));
   return -NACL_ABI_EINVAL;
@@ -697,6 +736,11 @@ struct NaClDescVtbl const kNaClDescVtbl = {
   NaClDescPReadNotImplemented,
   NaClDescPWriteNotImplemented,
   NaClDescFstatNotImplemented,
+  NaClDescFchdirNotImplemented,
+  NaClDescFchmodNotImplemented,
+  NaClDescFsyncNotImplemented,
+  NaClDescFdatasyncNotImplemented,
+  NaClDescFtruncateNotImplemented,
   NaClDescGetdentsNotImplemented,
   NaClDescExternalizeSizeNotImplemented,
   NaClDescExternalizeNotImplemented,

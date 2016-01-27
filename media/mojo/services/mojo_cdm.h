@@ -14,6 +14,7 @@
 #include "media/base/media_keys.h"
 #include "media/mojo/interfaces/content_decryption_module.mojom.h"
 #include "media/mojo/services/mojo_type_trait.h"
+#include "mojo/public/cpp/bindings/binding.h"
 
 namespace mojo {
 class ServiceProvider;
@@ -21,26 +22,24 @@ class ServiceProvider;
 
 namespace media {
 
-// A MediaKeys that proxies to a mojo::ContentDecryptionModule. That
-// mojo::ContentDecryptionModule proxies back to the MojoCdm via the
-// mojo::ContentDecryptionModuleClient interface.
+// A MediaKeys that proxies to a interfaces::ContentDecryptionModule. That
+// interfaces::ContentDecryptionModule proxies back to the MojoCdm via the
+// interfaces::ContentDecryptionModuleClient interface.
 class MojoCdm : public MediaKeys,
                 public CdmContext,
-                public mojo::ContentDecryptionModuleClient {
+                public interfaces::ContentDecryptionModuleClient {
  public:
   static void Create(
       const std::string& key_system,
       const GURL& security_origin,
       const media::CdmConfig& cdm_config,
-      mojo::ContentDecryptionModulePtr remote_cdm,
+      interfaces::ContentDecryptionModulePtr remote_cdm,
       const media::SessionMessageCB& session_message_cb,
       const media::SessionClosedCB& session_closed_cb,
       const media::LegacySessionErrorCB& legacy_session_error_cb,
       const media::SessionKeysChangeCB& session_keys_change_cb,
       const media::SessionExpirationUpdateCB& session_expiration_update_cb,
       const media::CdmCreatedCB& cdm_created_cb);
-
-  ~MojoCdm() final;
 
   // MediaKeys implementation.
   void SetServerCertificate(const std::vector<uint8_t>& certificate,
@@ -67,34 +66,43 @@ class MojoCdm : public MediaKeys,
   int GetCdmId() const final;
 
  private:
-  MojoCdm(mojo::ContentDecryptionModulePtr remote_cdm,
+  MojoCdm(interfaces::ContentDecryptionModulePtr remote_cdm,
           const SessionMessageCB& session_message_cb,
           const SessionClosedCB& session_closed_cb,
           const LegacySessionErrorCB& legacy_session_error_cb,
           const SessionKeysChangeCB& session_keys_change_cb,
           const SessionExpirationUpdateCB& session_expiration_update_cb);
 
+  ~MojoCdm() final;
+
   void InitializeCdm(const std::string& key_system,
                      const GURL& security_origin,
                      const media::CdmConfig& cdm_config,
                      scoped_ptr<CdmInitializedPromise> promise);
 
-  // mojo::ContentDecryptionModuleClient implementation.
+  // interfaces::ContentDecryptionModuleClient implementation.
   void OnSessionMessage(const mojo::String& session_id,
-                        mojo::CdmMessageType message_type,
+                        interfaces::CdmMessageType message_type,
                         mojo::Array<uint8_t> message,
                         const mojo::String& legacy_destination_url) final;
   void OnSessionClosed(const mojo::String& session_id) final;
   void OnLegacySessionError(const mojo::String& session_id,
-                            mojo::CdmException exception,
+                            interfaces::CdmException exception,
                             uint32_t system_code,
                             const mojo::String& error_message) final;
   void OnSessionKeysChange(
       const mojo::String& session_id,
       bool has_additional_usable_key,
-      mojo::Array<mojo::CdmKeyInformationPtr> keys_info) final;
+      mojo::Array<interfaces::CdmKeyInformationPtr> keys_info) final;
   void OnSessionExpirationUpdate(const mojo::String& session_id,
                                  double new_expiry_time_sec) final;
+
+  // Callback for InitializeCdm.
+  // Note: Cannot use OnPromiseResult() below since we need an extra parameter
+  // |cdm_id|, which isn't needed in CdmInitializedPromise.
+  void OnCdmInitialized(scoped_ptr<CdmInitializedPromise> promise,
+                        interfaces::CdmPromiseResultPtr result,
+                        int cdm_id);
 
   // Callbacks to handle CDM promises.
   // We have to inline this method, since MS VS 2013 compiler fails to compile
@@ -102,7 +110,7 @@ class MojoCdm : public MediaKeys,
   // "unable to match function definition to an existing declaration".
   template <typename... T>
   void OnPromiseResult(scoped_ptr<CdmPromiseTemplate<T...>> promise,
-                       mojo::CdmPromiseResultPtr result,
+                       interfaces::CdmPromiseResultPtr result,
                        typename MojoTypeTrait<T>::MojoType... args) {
     if (result->success)
       promise->resolve(args.template To<T>()...);  // See ISO C++03 14.2/4.
@@ -110,9 +118,7 @@ class MojoCdm : public MediaKeys,
       RejectPromise(promise.Pass(), result.Pass());
   }
 
-  static int next_cdm_id_;
-
-  mojo::ContentDecryptionModulePtr remote_cdm_;
+  interfaces::ContentDecryptionModulePtr remote_cdm_;
   mojo::Binding<ContentDecryptionModuleClient> binding_;
   int cdm_id_;
 

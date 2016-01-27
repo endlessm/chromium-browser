@@ -9,7 +9,7 @@
 
 #include "base/rand_util.h"
 #include "base/sys_byteorder.h"
-#include "net/spdy/hpack_constants.h"
+#include "net/spdy/hpack/hpack_constants.h"
 
 namespace net {
 
@@ -72,9 +72,9 @@ void HpackFuzzUtil::InitializeGeneratorContext(GeneratorContext* context) {
 }
 
 // static
-map<string, string> HpackFuzzUtil::NextGeneratedHeaderSet(
+SpdyHeaderBlock HpackFuzzUtil::NextGeneratedHeaderSet(
     GeneratorContext* context) {
-  map<string, string> headers;
+  SpdyHeaderBlock headers;
 
   size_t header_count = 1 + SampleExponential(kHeaderCountMean,
                                               kHeaderCountMax);
@@ -150,10 +150,10 @@ bool HpackFuzzUtil::RunHeaderBlockThroughFuzzerStages(FuzzerContext* context,
                                                       StringPiece input_block) {
   // First stage: Decode the input header block. This may fail on invalid input.
   if (!context->first_stage->HandleControlFrameHeadersData(
-      1, input_block.data(), input_block.size())) {
+          input_block.data(), input_block.size())) {
     return false;
   }
-  if (!context->first_stage->HandleControlFrameHeadersComplete(1)) {
+  if (!context->first_stage->HandleControlFrameHeadersComplete(nullptr)) {
     return false;
   }
   // Second stage: Re-encode the decoded header block. This must succeed.
@@ -165,10 +165,10 @@ bool HpackFuzzUtil::RunHeaderBlockThroughFuzzerStages(FuzzerContext* context,
   // don't require it. It's possible for the stage-two encoder to produce an
   // output which violates decoder size tolerances.
   if (!context->third_stage->HandleControlFrameHeadersData(
-          1, second_stage_out.data(), second_stage_out.length())) {
+          second_stage_out.data(), second_stage_out.length())) {
     return false;
   }
-  if (!context->third_stage->HandleControlFrameHeadersComplete(1)) {
+  if (!context->third_stage->HandleControlFrameHeadersComplete(nullptr)) {
     return false;
   }
   return true;

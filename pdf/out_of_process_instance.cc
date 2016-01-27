@@ -16,6 +16,7 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/strings/string_util.h"
+#include "base/strings/utf_string_conversions.h"
 #include "base/values.h"
 #include "chrome/common/content_restriction.h"
 #include "net/base/escape.h"
@@ -52,10 +53,6 @@ const char kAccessibleNumberOfPages[] = "numberOfPages";
 const char kAccessibleLoaded[] = "loaded";
 const char kAccessibleCopyable[] = "copyable";
 
-// PDF background colors.
-const uint32 kBackgroundColor = 0xFFCCCCCC;
-const uint32 kBackgroundColorMaterial = 0xFF525659;
-
 // Constants used in handling postMessage() messages.
 const char kType[] = "type";
 // Viewport message arguments. (Page -> Plugin).
@@ -77,9 +74,10 @@ const char kJSPageHeight[] = "height";
 // Document load progress arguments (Plugin -> Page)
 const char kJSLoadProgressType[] = "loadProgress";
 const char kJSProgressPercentage[] = "progress";
-// Bookmarks
-const char kJSBookmarksType[] = "bookmarks";
+// Metadata
+const char kJSMetadataType[] = "metadata";
 const char kJSBookmarks[] = "bookmarks";
+const char kJSTitle[] = "title";
 // Get password arguments (Plugin -> Page)
 const char kJSGetPasswordType[] = "getPassword";
 // Get password complete arguments (Page -> Plugin)
@@ -105,11 +103,6 @@ const char kJSPreviewPageIndex[] = "index";
 const char kJSSetScrollPositionType[] = "setScrollPosition";
 const char kJSPositionX[] = "x";
 const char kJSPositionY[] = "y";
-// Set translated strings (Plugin -> Page)
-const char kJSSetTranslatedStringsType[] = "setTranslatedStrings";
-const char kJSGetPasswordString[] = "getPasswordString";
-const char kJSLoadingString[] = "loadingString";
-const char kJSLoadFailedString[] = "loadFailedString";
 // Request accessibility JSON data (Page -> Plugin)
 const char kJSGetAccessibilityJSONType[] = "getAccessibilityJSON";
 const char kJSAccessibilityPageNumber[] = "page";
@@ -151,6 +144,10 @@ const char kJSNamedDestinationPageNumber[] = "pageNumber";
 const char kJSSetIsSelectingType[] = "setIsSelecting";
 const char kJSIsSelecting[] = "isSelecting";
 
+// Notify when a form field is focused (Plugin -> Page)
+const char kJSFieldFocusType[] = "formFocusChange";
+const char kJSFieldFocus[] = "focused";
+
 const int kFindResultCooldownMs = 100;
 
 const double kMinZoom = 0.01;
@@ -158,6 +155,14 @@ const double kMinZoom = 0.01;
 namespace {
 
 static const char kPPPPdfInterface[] = PPP_PDF_INTERFACE_1;
+
+// Used for UMA. Do not delete entries, and keep in sync with histograms.xml.
+enum PDFFeatures {
+  LOADED_DOCUMENT = 0,
+  HAS_TITLE = 1,
+  HAS_BOOKMARKS = 2,
+  FEATURES_COUNT
+};
 
 PP_Var GetLinkAtPosition(PP_Instance instance, PP_Point point) {
   pp::Var var;
@@ -206,8 +211,9 @@ const PPP_Pdf ppp_private = {
 
 int ExtractPrintPreviewPageIndex(const std::string& src_url) {
   // Sample |src_url| format: chrome://print/id/page_index/print.pdf
-  std::vector<std::string> url_substr;
-  base::SplitString(src_url.substr(strlen(kChromePrint)), '/', &url_substr);
+  std::vector<std::string> url_substr = base::SplitString(
+      src_url.substr(strlen(kChromePrint)), "/",
+      base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   if (url_substr.size() != 3)
     return -1;
 
@@ -278,7 +284,8 @@ OutOfProcessInstance::OutOfProcessInstance(PP_Instance instance)
       received_viewport_message_(false),
       did_call_start_loading_(false),
       stop_scrolling_(false),
-      background_color_(kBackgroundColor) {
+      background_color_(0),
+      top_toolbar_height_(0) {
   loader_factory_.Initialize(this);
   timer_factory_.Initialize(this);
   form_factory_.Initialize(this);
@@ -303,23 +310,24 @@ bool OutOfProcessInstance::Init(uint32_t argc,
                                 const char* argn[],
                                 const char* argv[]) {
   // Check if the PDF is being loaded in the PDF chrome extension. We only allow
-  // the plugin to be put into "full frame" mode when it is being loaded in the
-  // extension because this enables some features that we don't want pages
-  // abusing outside of the extension.
+  // the plugin to be loaded in the extension and print preview to avoid
+  // exposing sensitive APIs directly to external websites.
   pp::Var document_url_var = pp::URLUtil_Dev::Get()->GetDocumentURL(this);
-  std::string document_url = document_url_var.is_string() ?
-      document_url_var.AsString() : std::string();
+  if (!document_url_var.is_string())
+    return false;
+  std::string document_url = document_url_var.AsString();
   std::string extension_url = std::string(kChromeExtension);
-  bool in_extension =
-      !document_url.compare(0, extension_url.size(), extension_url);
+  std::string print_preview_url = std::string(kChromePrint);
+  if (!base::StringPiece(document_url).starts_with(kChromeExtension) &&
+      !base::StringPiece(document_url).starts_with(kChromePrint)) {
+    return false;
+  }
 
-  if (in_extension) {
-    // Check if the plugin is full frame. This is passed in from JS.
-    for (uint32_t i = 0; i < argc; ++i) {
-      if (strcmp(argn[i], "full-frame") == 0) {
-        full_ = true;
-        break;
-      }
+  // Check if the plugin is full frame. This is passed in from JS.
+  for (uint32_t i = 0; i < argc; ++i) {
+    if (strcmp(argn[i], "full-frame") == 0) {
+      full_ = true;
+      break;
     }
   }
 
@@ -327,40 +335,27 @@ bool OutOfProcessInstance::Init(uint32_t argc,
   if (full_)
     SetPluginToHandleFindRequests();
 
-  // Send translated strings to the extension where they will be displayed.
-  // TODO(raymes): It would be better to get these in the extension directly
-  // through an API but no such API currently exists.
-  pp::VarDictionary translated_strings;
-  translated_strings.Set(kType, kJSSetTranslatedStringsType);
-  translated_strings.Set(kJSGetPasswordString,
-      GetLocalizedString(PP_RESOURCESTRING_PDFGETPASSWORD));
-  translated_strings.Set(kJSLoadingString,
-      GetLocalizedString(PP_RESOURCESTRING_PDFLOADING));
-  translated_strings.Set(kJSLoadFailedString,
-      GetLocalizedString(PP_RESOURCESTRING_PDFLOAD_FAILED));
-  PostMessage(translated_strings);
-
   text_input_.reset(new pp::TextInput_Dev(this));
 
   const char* stream_url = nullptr;
   const char* original_url = nullptr;
   const char* headers = nullptr;
-  bool is_material = false;
   for (uint32_t i = 0; i < argc; ++i) {
+    bool success = true;
     if (strcmp(argn[i], "src") == 0)
       original_url = argv[i];
     else if (strcmp(argn[i], "stream-url") == 0)
       stream_url = argv[i];
     else if (strcmp(argn[i], "headers") == 0)
       headers = argv[i];
-    else if (strcmp(argn[i], "is-material") == 0)
-      is_material = true;
-  }
+    else if (strcmp(argn[i], "background-color") == 0)
+      success = base::HexStringToUInt(argv[i], &background_color_);
+    else if (strcmp(argn[i], "top-toolbar-height") == 0)
+      success = base::StringToInt(argv[i], &top_toolbar_height_);
 
-  if (is_material)
-    background_color_ = kBackgroundColorMaterial;
-  else
-    background_color_ = kBackgroundColor;
+    if (!success)
+      return false;
+  }
 
   if (!original_url)
     return false;
@@ -592,8 +587,12 @@ void OutOfProcessInstance::DidChangeView(const pp::View& view) {
 
   if (!stop_scrolling_) {
     pp::Point scroll_offset(view.GetScrollOffset());
+    // Because view messages come from the DOM, the coordinates of the viewport
+    // are 0-based (i.e. they do not correspond to the viewport's coordinates in
+    // JS), so we need to subtract the toolbar height to convert them into
+    // viewport coordinates.
     pp::FloatPoint scroll_offset_float(scroll_offset.x(),
-                                       scroll_offset.y());
+                                       scroll_offset.y() - top_toolbar_height_);
     scroll_offset_float = BoundScrollOffsetToDocument(scroll_offset_float);
     engine_->ScrolledToXPosition(scroll_offset_float.x() * device_scale_);
     engine_->ScrolledToYPosition(scroll_offset_float.y() * device_scale_);
@@ -665,8 +664,8 @@ bool OutOfProcessInstance::IsPrintScalingDisabled() {
 }
 
 bool OutOfProcessInstance::StartFind(const std::string& text,
-                                                 bool case_sensitive) {
-  engine_->StartFind(text.c_str(), case_sensitive);
+                                     bool case_sensitive) {
+  engine_->StartFind(text, case_sensitive);
   return true;
 }
 
@@ -726,6 +725,16 @@ void OutOfProcessInstance::OnPaint(
       }
     }
 
+    // Ensure the region above the first page (if any) is filled;
+    int32_t first_page_ypos = engine_->GetNumberOfPages() == 0 ?
+        0 : engine_->GetPageScreenRect(0).y();
+    if (rect.y() < first_page_ypos) {
+      pp::Rect region = rect.Intersect(pp::Rect(
+          pp::Point(), pp::Size(plugin_size_.width(), first_page_ypos)));
+      ready->push_back(PaintManager::ReadyRect(region, image_data_, false));
+      FillRect(region, background_color_);
+    }
+
     for (size_t j = 0; j < background_parts_.size(); ++j) {
       pp::Rect intersection = background_parts_[j].location.Intersect(rect);
       if (!intersection.IsEmpty()) {
@@ -762,7 +771,8 @@ void OutOfProcessInstance::DidOpen(int32_t result) {
 
 void OutOfProcessInstance::DidOpenPreview(int32_t result) {
   if (result == PP_OK) {
-    preview_engine_.reset(PDFEngine::Create(new PreviewModeClient(this)));
+    preview_client_.reset(new PreviewModeClient(this));
+    preview_engine_.reset(PDFEngine::Create(preview_client_.get()));
     preview_engine_->HandleDocumentLoad(embed_preview_loader_);
   } else {
     NOTREACHED();
@@ -1099,6 +1109,8 @@ void OutOfProcessInstance::DocumentLoadComplete(int page_count) {
   DCHECK(document_load_state_ == LOAD_STATE_LOADING);
   document_load_state_ = LOAD_STATE_COMPLETE;
   UserMetricsRecordAction("PDF.LoadSuccess");
+  uma_.HistogramEnumeration("PDF.DocumentFeature", LOADED_DOCUMENT,
+                            FEATURES_COUNT);
 
   // Note: If we are in print preview mode the scroll location is retained
   // across document loads so we don't want to scroll again and override it.
@@ -1107,10 +1119,21 @@ void OutOfProcessInstance::DocumentLoadComplete(int page_count) {
     OnGeometryChanged(0, 0);
   }
 
-  pp::VarDictionary bookmarks_message;
-  bookmarks_message.Set(pp::Var(kType), pp::Var(kJSBookmarksType));
-  bookmarks_message.Set(pp::Var(kJSBookmarks), engine_->GetBookmarks());
-  PostMessage(bookmarks_message);
+  pp::VarDictionary metadata_message;
+  metadata_message.Set(pp::Var(kType), pp::Var(kJSMetadataType));
+  std::string title = engine_->GetMetadata("Title");
+  if (!base::TrimWhitespace(base::UTF8ToUTF16(title), base::TRIM_ALL).empty()) {
+    metadata_message.Set(pp::Var(kJSTitle), pp::Var(title));
+    uma_.HistogramEnumeration("PDF.DocumentFeature", HAS_TITLE, FEATURES_COUNT);
+  }
+
+  pp::VarArray bookmarks = engine_->GetBookmarks();
+  metadata_message.Set(pp::Var(kJSBookmarks), bookmarks);
+  if (bookmarks.GetLength() > 0) {
+    uma_.HistogramEnumeration("PDF.DocumentFeature", HAS_BOOKMARKS,
+                              FEATURES_COUNT);
+  }
+  PostMessage(metadata_message);
 
   pp::VarDictionary progress_message;
   progress_message.Set(pp::Var(kType), pp::Var(kJSLoadProgressType));
@@ -1130,10 +1153,14 @@ void OutOfProcessInstance::DocumentLoadComplete(int page_count) {
   if (!engine_->HasPermission(PDFEngine::PERMISSION_COPY))
     content_restrictions |= CONTENT_RESTRICTION_COPY;
 
+  if (!engine_->HasPermission(PDFEngine::PERMISSION_PRINT_LOW_QUALITY) &&
+      !engine_->HasPermission(PDFEngine::PERMISSION_PRINT_HIGH_QUALITY)) {
+    content_restrictions |= CONTENT_RESTRICTION_PRINT;
+  }
+
   pp::PDF::SetContentRestriction(this, content_restrictions);
 
-  uma_.HistogramCustomCounts("PDF.PageCount", page_count,
-                             1, 1000000, 50);
+  uma_.HistogramCustomCounts("PDF.PageCount", page_count, 1, 1000000, 50);
 }
 
 void OutOfProcessInstance::RotateClockwise() {
@@ -1258,6 +1285,12 @@ void OutOfProcessInstance::DocumentLoadProgress(uint32 available,
 void OutOfProcessInstance::FormTextFieldFocusChange(bool in_focus) {
   if (!text_input_.get())
     return;
+
+  pp::VarDictionary message;
+  message.Set(pp::Var(kType), pp::Var(kJSFieldFocusType));
+  message.Set(pp::Var(kJSFieldFocus), pp::Var(in_focus));
+  PostMessage(message);
+
   if (in_focus)
     text_input_->SetTextInputType(PP_TEXTINPUT_TYPE_DEV_TEXT);
   else
@@ -1279,10 +1312,10 @@ void OutOfProcessInstance::OnGeometryChanged(double old_zoom,
     available_area_.Offset((available_area_.width() - doc_width) / 2, 0);
     available_area_.set_width(doc_width);
   }
-  int doc_height = GetDocumentPixelHeight();
-  if (doc_height < available_area_.height()) {
-    available_area_.set_height(doc_height);
-  }
+  int bottom_of_document =
+      GetDocumentPixelHeight() + (top_toolbar_height_ * device_scale_);
+  if (bottom_of_document < available_area_.height())
+    available_area_.set_height(bottom_of_document);
 
   CalculateBackgroundParts();
   engine_->PageOffsetUpdated(available_area_.point());
@@ -1333,14 +1366,6 @@ void OutOfProcessInstance::SetZoom(double scale) {
   double old_zoom = zoom_;
   zoom_ = scale;
   OnGeometryChanged(old_zoom, device_scale_);
-}
-
-std::string OutOfProcessInstance::GetLocalizedString(PP_ResourceString id) {
-  pp::Var rv(pp::PDF::GetLocalizedString(this, id));
-  if (!rv.is_string())
-    return std::string();
-
-  return rv.AsString();
 }
 
 void OutOfProcessInstance::AppendBlankPrintPreviewPages() {
@@ -1408,8 +1433,9 @@ pp::FloatPoint OutOfProcessInstance::BoundScrollOffsetToDocument(
     const pp::FloatPoint& scroll_offset) {
   float max_x = document_size_.width() * zoom_ - plugin_dip_size_.width();
   float x = std::max(std::min(scroll_offset.x(), max_x), 0.0f);
+  float min_y = -top_toolbar_height_;
   float max_y = document_size_.height() * zoom_ - plugin_dip_size_.height();
-  float y = std::max(std::min(scroll_offset.y(), max_y), 0.0f);
+  float y = std::max(std::min(scroll_offset.y(), max_y), min_y);
   return pp::FloatPoint(x, y);
 }
 

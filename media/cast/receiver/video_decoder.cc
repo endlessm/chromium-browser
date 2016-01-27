@@ -10,14 +10,16 @@
 #include "base/location.h"
 #include "base/logging.h"
 #include "base/values.h"
+#include "media/base/video_frame_pool.h"
 #include "media/base/video_util.h"
 #include "media/cast/cast_defines.h"
 #include "media/cast/cast_environment.h"
 // VPX_CODEC_DISABLE_COMPAT excludes parts of the libvpx API that provide
 // backwards compatibility for legacy applications using the library.
 #define VPX_CODEC_DISABLE_COMPAT 1
-#include "third_party/libvpx/source/libvpx/vpx/vp8dx.h"
-#include "third_party/libvpx/source/libvpx/vpx/vpx_decoder.h"
+#include "third_party/libvpx_new/source/libvpx/vpx/vp8dx.h"
+#include "third_party/libvpx_new/source/libvpx/vpx/vpx_decoder.h"
+#include "third_party/libyuv/include/libyuv/convert.h"
 #include "ui/gfx/geometry/size.h"
 
 namespace media {
@@ -61,6 +63,15 @@ class VideoDecoder::ImplBase
     const scoped_refptr<VideoFrame> decoded_frame = Decode(
         encoded_frame->mutable_bytes(),
         static_cast<int>(encoded_frame->data.size()));
+
+    scoped_ptr<FrameEvent> decode_event(new FrameEvent());
+    decode_event->timestamp = cast_environment_->Clock()->NowTicks();
+    decode_event->type = FRAME_DECODED;
+    decode_event->media_type = VIDEO_EVENT;
+    decode_event->rtp_timestamp = encoded_frame->rtp_timestamp;
+    decode_event->frame_id = encoded_frame->frame_id;
+    cast_environment_->logger()->DispatchFrameEvent(decode_event.Pass());
+
     cast_environment_->PostTask(
         CastEnvironment::MAIN,
         FROM_HERE,
@@ -81,6 +92,9 @@ class VideoDecoder::ImplBase
 
   // Subclass' ctor is expected to set this to STATUS_INITIALIZED.
   OperationalStatus operational_status_;
+
+  // Pool of VideoFrames to decode incoming frames into.
+  media::VideoFramePool video_frame_pool_;
 
  private:
   bool seen_first_frame_;
@@ -131,8 +145,8 @@ class VideoDecoder::Vp8Impl : public VideoDecoder::ImplBase {
     vpx_image_t* const image = vpx_codec_get_frame(&context_, &iter);
     if (!image)
       return NULL;
-    if (image->fmt != VPX_IMG_FMT_I420 && image->fmt != VPX_IMG_FMT_YV12) {
-      NOTREACHED();
+    if (image->fmt != VPX_IMG_FMT_I420) {
+      NOTREACHED() << "Only pixel format supported is I420, got " << image->fmt;
       return NULL;
     }
     DCHECK(vpx_codec_get_frame(&context_, &iter) == NULL)
@@ -140,24 +154,22 @@ class VideoDecoder::Vp8Impl : public VideoDecoder::ImplBase {
 
     const gfx::Size frame_size(image->d_w, image->d_h);
     // Note: Timestamp for the VideoFrame will be set in VideoReceiver.
+    // |decoded_frame| will be returned to |video_frame_pool_| on destruction to
+    // be reused.
     const scoped_refptr<VideoFrame> decoded_frame =
-        VideoFrame::CreateFrame(VideoFrame::YV12,
-                                frame_size,
-                                gfx::Rect(frame_size),
-                                frame_size,
-                                base::TimeDelta());
-    CopyYPlane(image->planes[VPX_PLANE_Y],
-               image->stride[VPX_PLANE_Y],
-               image->d_h,
-               decoded_frame.get());
-    CopyUPlane(image->planes[VPX_PLANE_U],
-               image->stride[VPX_PLANE_U],
-               (image->d_h + 1) / 2,
-               decoded_frame.get());
-    CopyVPlane(image->planes[VPX_PLANE_V],
-               image->stride[VPX_PLANE_V],
-               (image->d_h + 1) / 2,
-               decoded_frame.get());
+        video_frame_pool_.CreateFrame(PIXEL_FORMAT_I420, frame_size,
+                                      gfx::Rect(frame_size), frame_size,
+                                      base::TimeDelta());
+    libyuv::I420Copy(image->planes[VPX_PLANE_Y], image->stride[VPX_PLANE_Y],
+                     image->planes[VPX_PLANE_U], image->stride[VPX_PLANE_U],
+                     image->planes[VPX_PLANE_V], image->stride[VPX_PLANE_V],
+                     decoded_frame->visible_data(media::VideoFrame::kYPlane),
+                     decoded_frame->stride(media::VideoFrame::kYPlane),
+                     decoded_frame->visible_data(media::VideoFrame::kUPlane),
+                     decoded_frame->stride(media::VideoFrame::kUPlane),
+                     decoded_frame->visible_data(media::VideoFrame::kVPlane),
+                     decoded_frame->stride(media::VideoFrame::kVPlane),
+                     frame_size.width(), frame_size.height());
     return decoded_frame;
   }
 

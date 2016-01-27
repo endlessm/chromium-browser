@@ -12,8 +12,8 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.FrameLayout;
 
-import org.chromium.base.CalledByNative;
-import org.chromium.base.JNINamespace;
+import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.JNINamespace;
 import org.chromium.ui.base.WindowAndroid;
 
 /***
@@ -195,10 +195,6 @@ public class ContentViewRenderView extends FrameLayout {
         int format = enabled ? PixelFormat.TRANSLUCENT : PixelFormat.OPAQUE;
         mSurfaceView.getHolder().setFormat(format);
         nativeSetOverlayVideoMode(mNativeContentViewRenderView, enabled);
-    }
-
-    @CalledByNative
-    protected void onCompositorLayout() {
     }
 
     @CalledByNative

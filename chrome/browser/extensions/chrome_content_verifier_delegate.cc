@@ -41,7 +41,12 @@ namespace extensions {
 ContentVerifierDelegate::Mode ChromeContentVerifierDelegate::GetDefaultMode() {
   base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
 
-  Mode experiment_value = NONE;
+  Mode experiment_value;
+#if defined(GOOGLE_CHROME_BUILD)
+  experiment_value = ContentVerifierDelegate::ENFORCE;
+#else
+  experiment_value = ContentVerifierDelegate::NONE;
+#endif
   const std::string group =
       base::FieldTrialList::FindFullName(kContentVerificationExperimentName);
   if (group == "EnforceStrict")
@@ -50,6 +55,8 @@ ContentVerifierDelegate::Mode ChromeContentVerifierDelegate::GetDefaultMode() {
     experiment_value = ContentVerifierDelegate::ENFORCE;
   else if (group == "Bootstrap")
     experiment_value = ContentVerifierDelegate::BOOTSTRAP;
+  else if (group == "None")
+    experiment_value = ContentVerifierDelegate::NONE;
 
   // The field trial value that normally comes from the server can be
   // overridden on the command line, which we don't want to allow since
@@ -135,7 +142,7 @@ GURL ChromeContentVerifierDelegate::GetSignatureFetchUrl(
   parts.push_back("id=" + extension_id);
   parts.push_back("v=" + version.GetString());
   std::string x_value =
-      net::EscapeQueryParamValue(JoinString(parts, "&"), true);
+      net::EscapeQueryParamValue(base::JoinString(parts, "&"), true);
   std::string query = "response=redirect&x=" + x_value;
 
   GURL base_url = extension_urls::GetWebstoreUpdateUrl();

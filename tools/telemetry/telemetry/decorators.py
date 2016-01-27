@@ -72,7 +72,7 @@ class Deprecated(object):
       @functools.wraps(target)
       def wrapper(*args, **kwargs):
         self._DisplayWarningMessage(target)
-        target(*args, **kwargs)
+        return target(*args, **kwargs)
       return wrapper
     elif inspect.isclass(target):
       original_ctor = target.__init__
@@ -99,8 +99,6 @@ class Deprecated(object):
 def Disabled(*args):
   """Decorator for disabling tests/benchmarks.
 
-  May be used without args to unconditionally disable:
-    @Disabled  # Unconditionally disabled.
 
   If args are given, the test will be disabled if ANY of the args match the
   browser type, OS name or OS version:
@@ -108,19 +106,17 @@ def Disabled(*args):
     @Disabled('win')           # Disabled on Windows.
     @Disabled('win', 'linux')  # Disabled on both Windows and Linux.
     @Disabled('mavericks')     # Disabled on Mac Mavericks (10.9) only.
+    @Disabled('all')  # Unconditionally disabled.
   """
   def _Disabled(func):
-    if not isinstance(func, types.FunctionType):
-      func._disabled_strings = disabled_strings
-      return func
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-      func(*args, **kwargs)
-    wrapper._disabled_strings = disabled_strings
-    return wrapper
-  if len(args) == 1 and callable(args[0]):
-    disabled_strings = []
-    return _Disabled(args[0])
+    if not hasattr(func, '_disabled_strings'):
+      func._disabled_strings = set()
+    func._disabled_strings.update(disabled_strings)
+    return func
+  assert args, (
+      "@Disabled(...) requires arguments. Use @Disabled('all') if you want to "
+      'unconditionally disable the test.')
+  assert not callable(args[0]), 'Please use @Disabled(..).'
   disabled_strings = list(args)
   for disabled_string in disabled_strings:
     # TODO(tonyg): Validate that these strings are recognized.
@@ -139,15 +135,12 @@ def Enabled(*args):
     @Enabled('mavericks')     # Enabled only on Mac Mavericks (10.9).
   """
   def _Enabled(func):
-    if not isinstance(func, types.FunctionType):
-      func._enabled_strings = enabled_strings
-      return func
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-      func(*args, **kwargs)
-    wrapper._enabled_strings = enabled_strings
-    return wrapper
-  assert args and not callable(args[0]), '@Enabled requires arguments'
+    if not hasattr(func, '_enabled_strings'):
+      func._enabled_strings = set()
+    func._enabled_strings.update(enabled_strings)
+    return func
+  assert args, '@Enabled(..) requires arguments'
+  assert not callable(args[0]), 'Please use @Enabled(..).'
   enabled_strings = list(args)
   for enabled_string in enabled_strings:
     # TODO(tonyg): Validate that these strings are recognized.
@@ -180,6 +173,7 @@ def Isolated(*args):
   return _Isolated
 
 
+# TODO(nednguyen): Remove this and have call site just use ShouldSkip directly.
 def IsEnabled(test, possible_browser):
   """Returns True iff |test| is enabled given the |possible_browser|.
 
@@ -193,6 +187,7 @@ def IsEnabled(test, possible_browser):
   should_skip, msg = ShouldSkip(test, possible_browser)
   return (not should_skip, msg)
 
+
 def ShouldSkip(test, possible_browser):
   """Returns whether the test should be skipped and the reason for it."""
   platform_attributes = [a.lower() for a in [
@@ -202,8 +197,11 @@ def ShouldSkip(test, possible_browser):
       ]]
   if possible_browser.supports_tab_control:
     platform_attributes.append('has tabs')
+  # Match browser type filters against "content-shell" and "mandoline" prefixes.
   if 'content-shell' in possible_browser.browser_type:
     platform_attributes.append('content-shell')
+  if 'mandoline' in possible_browser.browser_type:
+    platform_attributes.append('mandoline')
 
   if hasattr(test, '__name__'):
     name = test.__name__
@@ -212,31 +210,22 @@ def ShouldSkip(test, possible_browser):
   else:
     name = str(test)
 
+  skip = 'Skipping %s (%s) because' % (name, str(test))
+  running = 'You are running %r.' % platform_attributes
+
   if hasattr(test, '_disabled_strings'):
-    disabled_strings = test._disabled_strings
-    if not disabled_strings:
-      return True, ('Skipping %s (%s) because it is unconditionally '
-                    'disabled.' % (name, str(test)))
-    for disabled_string in disabled_strings:
-      if disabled_string in platform_attributes:
-        return (True,
-                'Skipping %s (%s) because it is disabled for %s. '
-                'You are running %s.' % (name, str(test),
-                                         ' and '.join(disabled_strings),
-                                         ' '.join(platform_attributes)))
+    if 'all' in test._disabled_strings:
+      return (True, '%s it is unconditionally disabled.' % skip)
+    if set(test._disabled_strings) & set(platform_attributes):
+      return (True, '%s it is disabled for %s. %s' %
+                      (skip, ' and '.join(test._disabled_strings), running))
 
   if hasattr(test, '_enabled_strings'):
-    enabled_strings = test._enabled_strings
-    if not enabled_strings:
+    if 'all' in test._enabled_strings:
       return False, None  # No arguments to @Enabled means always enable.
-    for enabled_string in enabled_strings:
-      if enabled_string in platform_attributes:
-        return False, None
-    return (True,
-            'Skipping %s (%s) because it is only enabled for %s. '
-            'You are running %s.' % (name, str(test),
-                                     ' or '.join(enabled_strings),
-                                     ' '.join(platform_attributes)))
+    if not set(test._enabled_strings) & set(platform_attributes):
+      return (True, '%s it is only enabled for %s. %s' %
+                      (skip, ' or '.join(test._enabled_strings), running))
 
   return False, None
 

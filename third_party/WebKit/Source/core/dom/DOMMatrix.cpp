@@ -19,7 +19,7 @@ DOMMatrix* DOMMatrix::create(DOMMatrixReadOnly* other)
 
 DOMMatrix::DOMMatrix(const TransformationMatrix& matrix, bool is2D)
 {
-    m_matrix = matrix;
+    m_matrix = adoptPtr(new TransformationMatrix(matrix));
     m_is2D = is2D;
 }
 
@@ -34,7 +34,7 @@ DOMMatrix* DOMMatrix::multiplySelf(DOMMatrix* other)
     if (!other->is2D())
         m_is2D = false;
 
-    m_matrix = m_matrix * other->matrix();
+    *m_matrix *= other->matrix();
 
     return this;
 }
@@ -44,7 +44,8 @@ DOMMatrix* DOMMatrix::preMultiplySelf(DOMMatrix* other)
     if (!other->is2D())
         m_is2D = false;
 
-    m_matrix = other->matrix() * m_matrix;
+    TransformationMatrix& matrix = *m_matrix;
+    *m_matrix = other->matrix() * matrix;
 
     return this;
 }
@@ -58,9 +59,9 @@ DOMMatrix* DOMMatrix::translateSelf(double tx, double ty, double tz)
         m_is2D = false;
 
     if (m_is2D)
-        m_matrix.translate(tx, ty);
+        m_matrix->translate(tx, ty);
     else
-        m_matrix.translate3d(tx, ty, tz);
+        m_matrix->translate3d(tx, ty, tz);
 
     return this;
 }
@@ -90,9 +91,9 @@ DOMMatrix* DOMMatrix::scaleNonUniformSelf(double sx, double sy, double sz,
         translateSelf(ox, oy, oz);
 
     if (m_is2D)
-        m_matrix.scaleNonUniform(sx, sy);
+        m_matrix->scaleNonUniform(sx, sy);
     else
-        m_matrix.scale3d(sx, sy, sz);
+        m_matrix->scale3d(sx, sy, sz);
 
     if (hasTranslation)
         translateSelf(-ox, -oy, -oz);

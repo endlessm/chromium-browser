@@ -36,7 +36,7 @@
 #include "core/dom/DocumentOrderedList.h"
 #include "core/dom/DocumentStyleSheetCollection.h"
 #include "platform/heap/Handle.h"
-#include "wtf/FastAllocBase.h"
+#include "wtf/Allocator.h"
 #include "wtf/ListHashSet.h"
 #include "wtf/RefPtr.h"
 #include "wtf/TemporaryChange.h"
@@ -55,11 +55,12 @@ class StyleSheet;
 class StyleSheetContents;
 
 class CORE_EXPORT StyleEngine final : public NoBaseWillBeGarbageCollectedFinalized<StyleEngine>, public CSSFontSelectorClient  {
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(StyleEngine);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(StyleEngine);
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(StyleEngine);
 public:
 
     class IgnoringPendingStylesheet : public TemporaryChange<bool> {
+        DISALLOW_NEW();
     public:
         IgnoringPendingStylesheet(StyleEngine& engine)
             : TemporaryChange<bool>(engine.m_ignorePendingStylesheets, true)
@@ -197,8 +198,6 @@ private:
     bool isMaster() const { return m_isMaster; }
     Document* master();
     Document& document() const { return *m_document; }
-
-    void scheduleInvalidationSetsForElement(const InvalidationSetVector&, Element&);
 
     typedef WillBeHeapHashSet<RawPtrWillBeMember<TreeScope>> UnorderedTreeScopeSet;
 

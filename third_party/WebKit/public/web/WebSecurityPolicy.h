@@ -76,8 +76,14 @@ public:
     // Registers a URL scheme that can register a ServiceWorker.
     BLINK_EXPORT static void registerURLSchemeAsAllowingServiceWorkers(const WebString&);
 
+    // Registers an HTTP-like URL scheme that supports the Fetch API.
+    BLINK_EXPORT static void registerURLSchemeAsSupportingFetchAPI(const WebString&);
+
     // Registers a URL scheme whose resources can be loaded regardless of a page's Content Security Policy.
     BLINK_EXPORT static void registerURLSchemeAsBypassingContentSecurityPolicy(const WebString&);
+
+    // Registers a URL scheme which will always be considered the first-party when loaded in a top-level context.
+    BLINK_EXPORT static void registerURLSchemeAsFirstPartyWhenTopLevel(const WebString&);
 
     // Registers a URL scheme for which some kinds of resources bypass Content Security Policy.
     // This enum should be kept in sync with Source/platform/weborigin/SchemeRegistry.h.
@@ -106,6 +112,9 @@ public:
 
     // Support for whitelisting origins to treat them as trustworthy.
     BLINK_EXPORT static void addOriginTrustworthyWhiteList(const WebSecurityOrigin&);
+
+    // Support for whitelisting schemes as bypassing secure context checks.
+    BLINK_EXPORT static void addSchemeToBypassSecureContextWhitelist(const WebString&);
 
     // Returns the referrer modified according to the referrer policy for a
     // navigation to a given URL. If the referrer returned is empty, the

@@ -8,6 +8,7 @@
 #include <set>
 
 #include "ash/session/session_state_observer.h"
+#include "ash/shell_observer.h"
 #include "base/callback_forward.h"
 #include "base/callback_list.h"
 #include "base/memory/weak_ptr.h"
@@ -15,6 +16,7 @@
 #include "base/scoped_observer.h"
 #include "base/time/time.h"
 #include "chrome/browser/chromeos/accessibility/accessibility_util.h"
+#include "chrome/browser/chromeos/accessibility/chromevox_panel.h"
 #include "chrome/browser/extensions/api/braille_display_private/braille_controller.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -26,6 +28,7 @@
 namespace content {
 class RenderViewHost;
 }
+
 class Profile;
 
 namespace chromeos {
@@ -67,6 +70,8 @@ typedef base::CallbackList<void(const AccessibilityStatusEventDetails&)>
 typedef AccessibilityStatusCallbackList::Subscription
     AccessibilityStatusSubscription;
 
+class ChromeVoxPanelWidgetObserver;
+
 // AccessibilityManager changes the statuses of accessibility features
 // watching profile notifications and pref-changes.
 // TODO(yoshiki): merge MagnificationManager with AccessibilityManager.
@@ -74,6 +79,7 @@ class AccessibilityManager
     : public content::NotificationObserver,
       public extensions::api::braille_display_private::BrailleObserver,
       public ash::SessionStateObserver,
+      public ash::ShellObserver,
       public input_method::InputMethodManager::Observer {
  public:
   // Creates an instance of AccessibilityManager, this should be called once,
@@ -162,7 +168,10 @@ class AccessibilityManager
   bool IsBrailleDisplayConnected() const;
 
   // SessionStateObserver overrides:
-  void ActiveUserChanged(const std::string& user_id) override;
+  void ActiveUserChanged(const AccountId& account_id) override;
+
+  // ShellObserver overrides:
+  void OnAppTerminating() override;
 
   void SetProfileForTest(Profile* profile);
 
@@ -194,6 +203,10 @@ class AccessibilityManager
   // when their mapped event has occurred. The sound key enums can be found in
   // chromeos/audio/chromeos_sounds.h.
   void PlayEarcon(int sound_key);
+
+  // Called by our widget observer when the ChromeVoxPanel is closing.
+  void OnChromeVoxPanelClosing();
+  void OnChromeVoxPanelDestroying();
 
   // Profile having the a11y context.
   Profile* profile() { return profile_; }
@@ -287,6 +300,9 @@ class AccessibilityManager
                  AccessibilityManager> scoped_braille_observer_;
 
   bool braille_ime_current_;
+
+  ChromeVoxPanel* chromevox_panel_;
+  scoped_ptr<ChromeVoxPanelWidgetObserver> chromevox_panel_widget_observer_;
 
   base::WeakPtrFactory<AccessibilityManager> weak_ptr_factory_;
 

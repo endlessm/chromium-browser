@@ -61,7 +61,6 @@ const wchar_t kStageUncompressing[] = L"uncompressing";
 const wchar_t kStageUnpacking[] = L"unpacking";
 const wchar_t kStageUpdatingChannels[] = L"updating_channels";
 const wchar_t kStageCreatingVisualManifest[] = L"creating_visual_manifest";
-const wchar_t kStageDeferringToHigherVersion[] = L"deferring_to_higher_version";
 const wchar_t kStageUninstallingBinaries[] = L"uninstalling_binaries";
 const wchar_t kStageUninstallingChromeFrame[] = L"uninstalling_chrome_frame";
 
@@ -84,7 +83,7 @@ const wchar_t* const kStages[] = {
   kStageFinishing,
   kStageConfiguringAutoLaunch,
   kStageCreatingVisualManifest,
-  kStageDeferringToHigherVersion,
+  nullptr,      // Deprecated with InstallerStage(18) in util_constants.h.
   kStageUninstallingBinaries,
   kStageUninstallingChromeFrame,
 };
@@ -131,10 +130,10 @@ HWND CreateUACForegroundWindow() {
 }  // namespace
 
 bool InstallUtil::ShouldInstallMetroProperties() {
-  // Metro support in Chrome was dropped in Win10. Although Metro properties are
-  // only meaningful on Win8+, install them on earlier versions of the OS as
-  // well in order for easier transitions on OS upgrade to Win8+.
-  return base::win::GetVersion() < base::win::VERSION_WIN10;
+  // Install Metro properties on Windows versions that Chrome supports as well
+  // as on any version prior to Win8 to ease in-place upgrades to Win8.
+  return base::win::IsChromeMetroSupported() ||
+         base::win::GetVersion() < base::win::VERSION_WIN8;
 }
 
 base::string16 InstallUtil::GetActiveSetupPath(BrowserDistribution* dist) {

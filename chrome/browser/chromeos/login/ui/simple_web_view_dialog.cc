@@ -14,6 +14,7 @@
 #include "chrome/browser/command_updater.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/browser/ssl/security_state_model.h"
 #include "chrome/browser/ui/autofill/chrome_autofill_client.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/content_settings/content_setting_bubble_model_delegate.h"
@@ -159,6 +160,9 @@ void SimpleWebViewDialog::StartLoad(const GURL& url) {
 }
 
 void SimpleWebViewDialog::Init() {
+  // Create the security state model that the toolbar model needs.
+  if (web_view_->GetWebContents())
+    SecurityStateModel::CreateForWebContents(web_view_->GetWebContents());
   toolbar_model_.reset(new ToolbarModelImpl(this));
 
   set_background(views::Background::CreateSolidBackground(kDialogColor));
@@ -287,10 +291,6 @@ const ToolbarModel* SimpleWebViewDialog::GetToolbarModel() const {
   return toolbar_model_.get();
 }
 
-InstantController* SimpleWebViewDialog::GetInstant() {
-  return NULL;
-}
-
 views::Widget* SimpleWebViewDialog::CreateViewsBubble(
     views::BubbleDelegateView* bubble_delegate) {
   return views::BubbleDelegateView::CreateBubble(bubble_delegate);
@@ -304,7 +304,7 @@ SimpleWebViewDialog::GetContentSettingBubbleModelDelegate() {
 void SimpleWebViewDialog::ShowWebsiteSettings(
     content::WebContents* web_contents,
     const GURL& url,
-    const content::SSLStatus& ssl) {
+    const SecurityStateModel::SecurityInfo& security_info) {
   NOTIMPLEMENTED();
   // TODO (markusheintz@): implement this
 }

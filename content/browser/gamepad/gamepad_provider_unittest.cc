@@ -64,7 +64,13 @@ class GamepadProviderTest : public testing::Test, public GamepadTestHelper {
 };
 
 // Crashes. http://crbug.com/106163
-TEST_F(GamepadProviderTest, PollingAccess) {
+// crbug.com/147549
+#if defined(OS_ANDROID)
+#define MAYBE_PollingAccess DISABLED_PollingAccess
+#else
+#define MAYBE_PollingAccess PollingAccess
+#endif
+TEST_F(GamepadProviderTest, MAYBE_PollingAccess) {
   WebGamepads test_data;
   test_data.length = 1;
   test_data.items[0].connected = true;
@@ -120,8 +126,8 @@ TEST_F(GamepadProviderTest, UserGesture) {
   no_button_data.items[0].axesLength = 2;
   no_button_data.items[0].buttons[0].value = 0.f;
   no_button_data.items[0].buttons[0].pressed = false;
-  no_button_data.items[0].axes[0] = -1.f;
-  no_button_data.items[0].axes[1] = .5f;
+  no_button_data.items[0].axes[0] = 0.f;
+  no_button_data.items[0].axes[1] = .4f;
 
   WebGamepads button_down_data = no_button_data;
   button_down_data.items[0].buttons[0].value = 1.f;

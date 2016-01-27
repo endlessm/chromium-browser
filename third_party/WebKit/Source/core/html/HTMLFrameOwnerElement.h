@@ -27,6 +27,7 @@
 #include "core/html/HTMLElement.h"
 #include "platform/heap/Handle.h"
 #include "platform/scroll/ScrollTypes.h"
+#include "platform/weborigin/SecurityPolicy.h"
 #include "wtf/HashCountedSet.h"
 
 namespace blink {
@@ -58,15 +59,15 @@ public:
 
     Document* getSVGDocument(ExceptionState&) const;
 
-    virtual ScrollbarMode scrollingMode() const { return ScrollbarAuto; }
-
     virtual bool loadedNonEmptyDocument() const { return false; }
     virtual void didLoadNonEmptyDocument() { }
 
     void setWidget(PassRefPtrWillBeRawPtr<Widget>);
+    PassRefPtrWillBeRawPtr<Widget> releaseWidget();
     Widget* ownedWidget() const;
 
     class UpdateSuspendScope {
+        STACK_ALLOCATED();
     public:
         UpdateSuspendScope();
         ~UpdateSuspendScope();
@@ -80,6 +81,9 @@ public:
     void dispatchLoad() override;
     SandboxFlags sandboxFlags() const override { return m_sandboxFlags; }
     void renderFallbackContent() override { }
+    ScrollbarMode scrollingMode() const override { return ScrollbarAuto; }
+    int marginWidth() const override { return -1; }
+    int marginHeight() const override { return -1; }
 
     DECLARE_VIRTUAL_TRACE();
 
@@ -87,11 +91,13 @@ protected:
     HTMLFrameOwnerElement(const QualifiedName& tagName, Document&);
     void setSandboxFlags(SandboxFlags);
 
-    bool loadOrRedirectSubframe(const KURL&, const AtomicString& frameName, bool lockBackForwardList);
+    bool loadOrRedirectSubframe(const KURL&, const AtomicString& frameName, bool replaceCurrentItem);
 
 private:
     bool isKeyboardFocusable() const override;
     bool isFrameOwnerElement() const final { return true; }
+
+    virtual ReferrerPolicy referrerPolicyAttribute() { return ReferrerPolicyDefault; }
 
     RawPtrWillBeMember<Frame> m_contentFrame;
     RefPtrWillBeMember<Widget> m_widget;

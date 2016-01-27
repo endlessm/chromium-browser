@@ -21,7 +21,7 @@
 #define SVGResourcesCache_h
 
 #include "core/style/StyleDifference.h"
-#include "wtf/FastAllocBase.h"
+#include "wtf/Allocator.h"
 #include "wtf/HashMap.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/OwnPtr.h"
@@ -34,7 +34,7 @@ class LayoutSVGResourceContainer;
 class SVGResources;
 
 class SVGResourcesCache {
-    WTF_MAKE_NONCOPYABLE(SVGResourcesCache); WTF_MAKE_FAST_ALLOCATED(SVGResourcesCache);
+    WTF_MAKE_NONCOPYABLE(SVGResourcesCache); USING_FAST_MALLOC(SVGResourcesCache);
 public:
     SVGResourcesCache();
     ~SVGResourcesCache();
@@ -55,9 +55,6 @@ public:
 
     // Called from all SVG layoutObjects styleDidChange() methods.
     static void clientStyleChanged(LayoutObject*, StyleDifference, const ComputedStyle& newStyle);
-
-    // Called from LayoutSVGResourceContainer::willBeDestroyed().
-    static void resourceDestroyed(LayoutSVGResourceContainer*);
 
 private:
     void addResourcesFromLayoutObject(LayoutObject*, const ComputedStyle&);

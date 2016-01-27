@@ -38,9 +38,9 @@ typedef IntRectOutsets FilterOutsets;
 
 class PLATFORM_EXPORT FilterOperations {
 #if ENABLE(OILPAN)
-    DISALLOW_ALLOCATION();
+    DISALLOW_NEW();
 #else
-    WTF_MAKE_FAST_ALLOCATED(FilterOperations);
+    USING_FAST_MALLOC(FilterOperations);
 #endif
 public:
     FilterOperations();
@@ -93,12 +93,22 @@ public:
         return new FilterOperationsWrapper();
     }
 
+    static FilterOperationsWrapper* create(const FilterOperations& operations)
+    {
+        return new FilterOperationsWrapper(operations);
+    }
+
     const FilterOperations& operations() const { return m_operations; }
 
     DEFINE_INLINE_TRACE() { visitor->trace(m_operations); }
 
 private:
     FilterOperationsWrapper()
+    {
+    }
+
+    explicit FilterOperationsWrapper(const FilterOperations& operations)
+        : m_operations(operations)
     {
     }
 

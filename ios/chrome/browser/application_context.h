@@ -21,6 +21,27 @@ namespace net {
 class URLRequestContextGetter;
 }
 
+namespace net_log {
+class ChromeNetLog;
+}
+
+namespace network_time {
+class NetworkTimeTracker;
+}
+
+namespace policy {
+class BrowserPolicyConnector;
+class PolicyService;
+}
+
+namespace rappor {
+class RapporService;
+}
+
+namespace variations {
+class VariationsService;
+}
+
 class ApplicationContext;
 class PrefService;
 
@@ -31,6 +52,19 @@ class ApplicationContext {
  public:
   ApplicationContext();
   virtual ~ApplicationContext();
+
+  // Invoked when application enters foreground. Cancels the effect of
+  // OnAppEnterBackground(), in particular removes the boolean preference
+  // indicating that the ChromeBrowserStates have been shutdown.
+  virtual void OnAppEnterForeground() = 0;
+
+  // Invoked when application enters background. Saves any state that must be
+  // saved before shutdown can continue.
+  virtual void OnAppEnterBackground() = 0;
+
+  // Returns whether the last complete shutdown was clean (i.e. happened while
+  // the application was backgrounded).
+  virtual bool WasLastShutdownClean() = 0;
 
   // Gets the local state associated with this application.
   virtual PrefService* GetLocalState() = 0;
@@ -46,6 +80,24 @@ class ApplicationContext {
 
   // Gets the MetricsService used by this application.
   virtual metrics::MetricsService* GetMetricsService() = 0;
+
+  // Gets the VariationsService used by this application.
+  virtual variations::VariationsService* GetVariationsService() = 0;
+
+  // Gets the policy connector, creating and starting it if necessary.
+  virtual policy::BrowserPolicyConnector* GetBrowserPolicyConnector() = 0;
+
+  // Gets the policy service.
+  virtual policy::PolicyService* GetPolicyService() = 0;
+
+  // Gets the RapporService. May return null.
+  virtual rappor::RapporService* GetRapporService() = 0;
+
+  // Gets the ChromeNetLog.
+  virtual net_log::ChromeNetLog* GetNetLog() = 0;
+
+  // Gets the NetworkTimeTracker.
+  virtual network_time::NetworkTimeTracker* GetNetworkTimeTracker() = 0;
 
  protected:
   // Sets the global ApplicationContext instance.

@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "base/memory/weak_ptr.h"
-#include "third_party/mojo/src/mojo/public/cpp/bindings/interface_ptr.h"
+#include "mojo/public/cpp/bindings/interface_ptr.h"
 
 namespace mojo {
 
@@ -57,13 +57,13 @@ class WeakInterfacePtrSet {
 };
 
 template <typename Interface>
-class WeakInterfacePtr : public ErrorHandler {
+class WeakInterfacePtr {
  public:
   explicit WeakInterfacePtr(InterfacePtr<Interface> ptr)
       : ptr_(ptr.Pass()), weak_ptr_factory_(this) {
-    ptr_.set_error_handler(this);
+    ptr_.set_connection_error_handler([this]() { delete this; });
   }
-  ~WeakInterfacePtr() override {}
+  ~WeakInterfacePtr() {}
 
   void Close() { ptr_.reset(); }
 
@@ -74,9 +74,6 @@ class WeakInterfacePtr : public ErrorHandler {
   }
 
  private:
-  // ErrorHandler implementation
-  void OnConnectionError() override { delete this; }
-
   InterfacePtr<Interface> ptr_;
   base::WeakPtrFactory<WeakInterfacePtr> weak_ptr_factory_;
 

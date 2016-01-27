@@ -5,25 +5,30 @@
 package org.chromium.chrome.browser.enhancedbookmarks;
 
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.content.Context;
 import android.preference.PreferenceManager;
 import android.support.v4.widget.DrawerLayout;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ViewSwitcher;
 
+import org.chromium.base.ApplicationStatus;
 import org.chromium.base.ObserverList;
-import org.chromium.base.metrics.RecordHistogram;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.BookmarksBridge.BookmarkItem;
-import org.chromium.chrome.browser.BookmarksBridge.BookmarkModelObserver;
 import org.chromium.chrome.browser.UrlConstants;
-import org.chromium.chrome.browser.enhanced_bookmarks.EnhancedBookmarksModel;
-import org.chromium.chrome.browser.enhanced_bookmarks.LaunchLocation;
-import org.chromium.chrome.browser.ntp.NewTabPageUma;
+import org.chromium.chrome.browser.bookmark.BookmarksBridge.BookmarkItem;
+import org.chromium.chrome.browser.bookmark.BookmarksBridge.BookmarkModelObserver;
+import org.chromium.chrome.browser.favicon.LargeIconBridge;
+import org.chromium.chrome.browser.offlinepages.OfflinePageUtils;
 import org.chromium.chrome.browser.partnerbookmarks.PartnerBookmarksShim;
+import org.chromium.chrome.browser.profiles.Profile;
+import org.chromium.chrome.browser.snackbar.SnackbarManager;
 import org.chromium.chrome.browser.snackbar.SnackbarManager.SnackbarManageable;
 import org.chromium.components.bookmarks.BookmarkId;
+import org.chromium.ui.base.DeviceFormFactor;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
@@ -41,6 +46,7 @@ import java.util.Stack;
  */
 public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
     private static final String PREF_LAST_USED_URL = "enhanced_bookmark_last_used_url";
+    private static final int FAVICON_MAX_CACHE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
 
     private Activity mActivity;
     private ViewGroup mMainView;
@@ -51,13 +57,18 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
     private Set<BookmarkId> mSelectedBookmarks = new HashSet<>();
     private EnhancedBookmarkStateChangeListener mUrlChangeListener;
     private EnhancedBookmarkContentView mContentView;
+    private EnhancedBookmarkSearchView mSearchView;
+    private ViewSwitcher mViewSwitcher;
     private DrawerLayout mDrawer;
     private EnhancedBookmarkDrawerListView mDrawerListView;
     private final Stack<UIState> mStateStack = new Stack<>();
+    private LargeIconBridge mLargeIconBridge;
 
     private final BookmarkModelObserver mBookmarkModelObserver = new BookmarkModelObserver() {
+
         @Override
-        public void bookmarkNodeRemoved(BookmarkItem parent, int oldIndex, BookmarkItem node) {
+        public void bookmarkNodeRemoved(BookmarkItem parent, int oldIndex, BookmarkItem node,
+                boolean isDoingExtensiveChanges) {
             // If the folder is removed in folder mode, show the parent folder or falls back to all
             // bookmarks mode.
             if (getCurrentState() == UIState.STATE_FOLDER
@@ -107,15 +118,24 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
         mDrawerListView = (EnhancedBookmarkDrawerListView) mMainView.findViewById(
                 R.id.eb_drawer_list);
         mContentView = (EnhancedBookmarkContentView) mMainView.findViewById(R.id.eb_content_view);
+        mViewSwitcher = (ViewSwitcher) mMainView.findViewById(R.id.eb_view_switcher);
         mUndoController = new EnhancedBookmarkUndoController(activity, mEnhancedBookmarksModel,
                 ((SnackbarManageable) activity).getSnackbarManager());
-        mEnhancedBookmarksModel.addModelObserver(mBookmarkModelObserver);
+        mSearchView = (EnhancedBookmarkSearchView) getView().findViewById(R.id.eb_search_view);
+        mEnhancedBookmarksModel.addObserver(mBookmarkModelObserver);
         initializeIfBookmarkModelLoaded();
 
         // Load partner bookmarks explicitly. We load partner bookmarks in the deferred startup
         // code, but that might be executed much later. Especially on L, showing loading
         // progress bar blocks that so it won't be loaded. http://crbug.com/429383
         PartnerBookmarksShim.kickOffReading(activity);
+
+        mLargeIconBridge = new LargeIconBridge(Profile.getLastUsedProfile().getOriginalProfile());
+        ActivityManager activityManager = ((ActivityManager) ApplicationStatus
+                .getApplicationContext().getSystemService(Context.ACTIVITY_SERVICE));
+        int maxSize = Math.min(activityManager.getMemoryClass() / 4 * 1024 * 1024,
+                FAVICON_MAX_CACHE_SIZE_BYTES);
+        mLargeIconBridge.createCache(maxSize);
     }
 
     /**
@@ -131,9 +151,11 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
             mUndoController.destroy();
             mUndoController = null;
         }
-        mEnhancedBookmarksModel.removeModelObserver(mBookmarkModelObserver);
+        mEnhancedBookmarksModel.removeObserver(mBookmarkModelObserver);
         mEnhancedBookmarksModel.destroy();
         mEnhancedBookmarksModel = null;
+        mLargeIconBridge.destroy();
+        mLargeIconBridge = null;
     }
 
     /**
@@ -209,6 +231,7 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
      */
     private void initializeIfBookmarkModelLoaded() {
         if (mEnhancedBookmarksModel.isBookmarkModelLoaded()) {
+            mSearchView.onEnhancedBookmarkDelegateInitialized(this);
             mDrawerListView.onEnhancedBookmarkDelegateInitialized(this);
             mContentView.onEnhancedBookmarkDelegateInitialized(this);
             if (mStateStack.isEmpty()) {
@@ -269,7 +292,26 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
         if (!state.isValid(mEnhancedBookmarksModel)) {
             state = UIState.createAllBookmarksState(mEnhancedBookmarksModel);
         }
-        if (!mStateStack.isEmpty()) {
+        boolean saveUrl = true;
+        if (mStateStack.isEmpty()) {
+            // When offline page feature is enabled, show offline filter view if there is offline
+            // page and there is no network connection.
+            if (mEnhancedBookmarksModel.getOfflinePageBridge() != null
+                    && !mEnhancedBookmarksModel.getOfflinePageBridge().getAllPages().isEmpty()
+                    && !OfflinePageUtils.isConnected(mActivity.getApplicationContext())
+                    && !DeviceFormFactor.isTablet(mActivity.getApplicationContext())) {
+                UIState filterState = UIState.createFilterState(
+                        EnhancedBookmarkFilter.OFFLINE_PAGES, mEnhancedBookmarksModel);
+                if (state.mState != UIState.STATE_LOADING) {
+                    state = filterState;
+                } else {
+                    state.mUrl = filterState.mUrl;
+                }
+                // Showing offline filter view is just a temporary thing and it will not be saved
+                // to the preference.
+                saveUrl = false;
+            }
+        } else {
             if (mStateStack.peek().equals(state)) return;
             if (mStateStack.peek().mState == UIState.STATE_LOADING) {
                 mStateStack.pop();
@@ -278,7 +320,7 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
         mStateStack.push(state);
         if (state.mState != UIState.STATE_LOADING) {
             // Loading state may be pushed to the stack but should never be stored in preferences.
-            saveUrlToPreference(state.mUrl);
+            if (saveUrl) saveUrlToPreference(state.mUrl);
             // If a loading state is replaced by another loading state, do not notify this change.
             if (mUrlChangeListener != null) mUrlChangeListener.onBookmarkUIStateChange(state.mUrl);
         }
@@ -294,12 +336,19 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
 
     @Override
     public void openFolder(BookmarkId folder) {
+        closeSearchUI();
         setState(UIState.createFolderState(folder, mEnhancedBookmarksModel));
     }
 
     @Override
     public void openAllBookmarks() {
+        closeSearchUI();
         setState(UIState.createAllBookmarksState(mEnhancedBookmarksModel));
+    }
+
+    @Override
+    public void openFilter(EnhancedBookmarkFilter filter) {
+        setState(UIState.createFilterState(filter, mEnhancedBookmarksModel));
     }
 
     @Override
@@ -353,6 +402,9 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
                 // UIObservers, which means that there will be no observers at the time. Do nothing.
                 assert mUIObservers.isEmpty();
                 break;
+            case UIState.STATE_FILTER:
+                observer.onFilterStateSet(mStateStack.peek().mFilter);
+                break;
             default:
                 assert false : "State not valid";
                 break;
@@ -379,22 +431,22 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
     @Override
     public void openBookmark(BookmarkId bookmark, int launchLocation) {
         clearSelection();
-        if (mEnhancedBookmarksModel.getBookmarkById(bookmark) != null) {
-            NewTabPageUma.recordAction(NewTabPageUma.ACTION_OPENED_BOOKMARK);
-            RecordHistogram.recordEnumeratedHistogram("Stars.LaunchLocation", launchLocation,
-                    LaunchLocation.COUNT);
-            EnhancedBookmarkUtils.openBookmark(mActivity,
-                    mEnhancedBookmarksModel.getBookmarkById(bookmark).getUrl());
-            finishActivityOnPhone();
+        if (EnhancedBookmarkUtils.openBookmark(
+                    mEnhancedBookmarksModel, mActivity, bookmark, launchLocation)) {
+            EnhancedBookmarkUtils.finishActivityOnPhone(mActivity);
         }
     }
 
     @Override
-    public void finishActivityOnPhone() {
-        Activity activity = mActivity;
-        if (activity instanceof EnhancedBookmarkActivity) {
-            activity.finish();
-        }
+    public void openSearchUI() {
+        // Give search view focus, because it needs to handle back key event.
+        mViewSwitcher.showNext();
+    }
+
+    @Override
+    public void closeSearchUI() {
+        if (mSearchView.getVisibility() != View.VISIBLE) return;
+        mViewSwitcher.showPrevious();
     }
 
     @Override
@@ -418,6 +470,16 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
         return mStateStack.peek().mState;
     }
 
+    @Override
+    public LargeIconBridge getLargeIconBridge() {
+        return mLargeIconBridge;
+    }
+
+    @Override
+    public SnackbarManager getSnackbarManager() {
+        return ((SnackbarManageable) mActivity).getSnackbarManager();
+    }
+
     /**
      * Internal state that represents a url. Note every state needs to have a _valid_ url. For
      * loading state, {@link #mUrl} indicates the target to open after the bookmark model is loaded.
@@ -437,6 +499,7 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
         private int mState;
         private String mUrl;
         private BookmarkId mFolder;
+        private EnhancedBookmarkFilter mFilter;
 
         private static UIState createLoadingState(String url) {
             UIState state = new UIState();
@@ -455,6 +518,12 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
                     bookmarkModel);
         }
 
+        private static UIState createFilterState(
+                EnhancedBookmarkFilter filter, EnhancedBookmarksModel bookmarkModel) {
+            return createStateFromUrl(
+                    UrlConstants.BOOKMARKS_FILTER_URL + filter.toString(), bookmarkModel);
+        }
+
         /**
          * @return A state corresponding to the url. If the url is not valid, return all_bookmarks.
          */
@@ -471,6 +540,12 @@ public class EnhancedBookmarkManager implements EnhancedBookmarkDelegate {
                 if (!suffix.isEmpty()) {
                     state.mFolder = BookmarkId.getBookmarkIdFromString(suffix);
                     state.mState = STATE_FOLDER;
+                }
+            } else if (url.startsWith(UrlConstants.BOOKMARKS_FILTER_URL)) {
+                String suffix = decodeSuffix(url, UrlConstants.BOOKMARKS_FILTER_URL);
+                if (!suffix.isEmpty()) {
+                    state.mState = STATE_FILTER;
+                    state.mFilter = EnhancedBookmarkFilter.valueOf(suffix);
                 }
             }
 

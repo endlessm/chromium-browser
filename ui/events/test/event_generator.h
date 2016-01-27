@@ -21,6 +21,10 @@ namespace base {
 class TickClock;
 }
 
+namespace gfx {
+class PointF;
+}
+
 namespace ui {
 class Event;
 class EventProcessor;
@@ -170,6 +174,11 @@ class EventGenerator {
   void MoveMouseToInHost(int x, int y) {
     MoveMouseToInHost(gfx::Point(x, y));
   }
+
+  // Generates a mouse move event at the point given in the host
+  // coordinates, with a native event with |point_for_natve|.
+  void MoveMouseToWithNative(const gfx::Point& point_in_host,
+                             const gfx::Point& point_for_native);
 
   // Generates events to move mouse to be the given |point| in screen
   // coordinates.

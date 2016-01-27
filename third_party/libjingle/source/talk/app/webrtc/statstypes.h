@@ -43,6 +43,7 @@
 #include "webrtc/base/linked_ptr.h"
 #include "webrtc/base/scoped_ref_ptr.h"
 #include "webrtc/base/stringencode.h"
+#include "webrtc/base/thread_checker.h"
 
 namespace webrtc {
 
@@ -124,7 +125,7 @@ class StatsReport {
     kStatsValueNamePacketsReceived,
     kStatsValueNamePacketsSent,
     kStatsValueNameProtocol,
-    kStatsValueNameReadable,
+    kStatsValueNameReceiving,
     kStatsValueNameSelectedCandidatePairId,
     kStatsValueNameSsrc,
     kStatsValueNameState,
@@ -249,16 +250,16 @@ class StatsReport {
 
   struct Value {
     enum Type {
-      kInt, // int.
-      kInt64,  // int64.
-      kFloat,  // float.
-      kString,  // std::string
+      kInt,           // int.
+      kInt64,         // int64_t.
+      kFloat,         // float.
+      kString,        // std::string
       kStaticString,  // const char*.
-      kBool,  // bool.
-      kId,  // Id.
+      kBool,          // bool.
+      kId,            // Id.
     };
 
-    Value(StatsValueName name, int64 value, Type int_type);
+    Value(StatsValueName name, int64_t value, Type int_type);
     Value(StatsValueName name, float f);
     Value(StatsValueName name, const std::string& value);
     Value(StatsValueName name, const char* value);
@@ -280,7 +281,7 @@ class StatsReport {
     // kString and kStaticString too.
     bool operator==(const std::string& value) const;
     bool operator==(const char* value) const;
-    bool operator==(int64 value) const;
+    bool operator==(int64_t value) const;
     bool operator==(bool value) const;
     bool operator==(float value) const;
     bool operator==(const Id& value) const;
@@ -288,7 +289,7 @@ class StatsReport {
     // Getters that allow getting the native value directly.
     // The caller must know the type beforehand or else hit a check.
     int int_val() const;
-    int64 int64_val() const;
+    int64_t int64_val() const;
     float float_val() const;
     const char* static_string_val() const;
     const std::string& string_val() const;
@@ -311,7 +312,7 @@ class StatsReport {
     // TODO(tommi): Use C++ 11 union and make value_ const.
     union InternalType {
       int int_;
-      int64 int64_;
+      int64_t int64_;
       float float_;
       bool bool_;
       std::string* string_;
@@ -320,7 +321,7 @@ class StatsReport {
     } value_;
 
    private:
-    DISALLOW_COPY_AND_ASSIGN(Value);
+    RTC_DISALLOW_COPY_AND_ASSIGN(Value);
   };
 
   // TODO(tommi): Consider using a similar approach to how we store Ids using
@@ -354,7 +355,7 @@ class StatsReport {
 
   void AddString(StatsValueName name, const std::string& value);
   void AddString(StatsValueName name, const char* value);
-  void AddInt64(StatsValueName name, int64 value);
+  void AddInt64(StatsValueName name, int64_t value);
   void AddInt(StatsValueName name, int value);
   void AddFloat(StatsValueName name, float value);
   void AddBoolean(StatsValueName name, bool value);
@@ -370,7 +371,7 @@ class StatsReport {
   double timestamp_;  // Time since 1970-01-01T00:00:00Z in milliseconds.
   Values values_;
 
-  DISALLOW_COPY_AND_ASSIGN(StatsReport);
+  RTC_DISALLOW_COPY_AND_ASSIGN(StatsReport);
 };
 
 // Typedef for an array of const StatsReport pointers.
@@ -383,7 +384,6 @@ typedef std::vector<const StatsReport*> StatsReports;
 // A map from the report id to the report.
 // This class wraps an STL container and provides a limited set of
 // functionality in order to keep things simple.
-// TODO(tommi): Use a thread checker here (currently not in libjingle).
 class StatsCollection {
  public:
   StatsCollection();
@@ -409,6 +409,7 @@ class StatsCollection {
 
  private:
   Container list_;
+  rtc::ThreadChecker thread_checker_;
 };
 
 }  // namespace webrtc

@@ -31,6 +31,10 @@ namespace gfx {
 class Range;
 }
 
+namespace url {
+class Origin;
+}
+
 namespace v8 {
 template <typename T> class Local;
 class Context;
@@ -104,12 +108,14 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
       scoped_ptr<PluginInstanceThrottler> throttler) = 0;
 
   // The client should handle the navigation externally.
-  virtual void LoadURLExternally(blink::WebLocalFrame* frame,
-                                 const blink::WebURLRequest& request,
+  virtual void LoadURLExternally(const blink::WebURLRequest& request,
                                  blink::WebNavigationPolicy policy) = 0;
 
   // Execute a string of JavaScript in this frame's context.
   virtual void ExecuteJavaScript(const base::string16& javascript) = 0;
+
+  // Returns true if this is the main (top-level) frame.
+  virtual bool IsMainFrame() = 0;
 
   // Return true if this frame is hidden.
   virtual bool IsHidden() = 0;
@@ -122,8 +128,37 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
   // whitelist is later updated and includes |content_origin|, then
   // |unthrottle_callback| will be called.
   virtual void RegisterPeripheralPlugin(
-      const GURL& content_origin,
+      const url::Origin& content_origin,
       const base::Closure& unthrottle_callback) = 0;
+
+  // Returns true if this plugin should have power saver enabled.
+  //
+  // Power Saver is enabled for plugin content that are cross-origin and
+  // heuristically determined to be not essential to the web page content.
+  //
+  // Plugin content is defined to be cross-origin when the plugin source's
+  // origin differs from the top level frame's origin. For example:
+  //  - Cross-origin:  a.com -> b.com/plugin.swf
+  //  - Cross-origin:  a.com -> b.com/iframe.html -> b.com/plugin.swf
+  //  - Same-origin:   a.com -> b.com/iframe-to-a.html -> a.com/plugin.swf
+  //
+  // |main_frame_origin| is the origin of the main frame.
+  //
+  // |content_origin| is the origin of the plugin content.
+  //
+  // |width| and |height| are zoom and device scale independent logical pixels.
+  //
+  // |cross_origin_main_content| may be NULL. It is set to true if the
+  // plugin content is cross-origin but still the "main attraction" of the page.
+  virtual bool ShouldThrottleContent(const url::Origin& main_frame_origin,
+                                     const url::Origin& content_origin,
+                                     int width,
+                                     int height,
+                                     bool* cross_origin_main_content) const = 0;
+
+  // Whitelists a |content_origin| so its content will never be throttled in
+  // this RenderFrame. Whitelist is cleared by top level navigation.
+  virtual void WhitelistContentOrigin(const url::Origin& content_origin) = 0;
 #endif
 
   // Returns true if this frame is a FTP directory listing.
@@ -150,6 +185,12 @@ class CONTENT_EXPORT RenderFrame : public IPC::Listener,
   // Adds |message| to the DevTools console.
   virtual void AddMessageToConsole(ConsoleMessageLevel level,
                                    const std::string& message) = 0;
+
+  // Whether or not this frame is using Lo-Fi.
+  virtual bool IsUsingLoFi() const = 0;
+
+  // Whether or not this frame is currently pasting.
+  virtual bool IsPasting() const = 0;
 
  protected:
   ~RenderFrame() override {}

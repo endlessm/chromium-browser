@@ -5,6 +5,7 @@
 #ifndef CHROME_BROWSER_UI_VIEWS_TOOLBAR_TOOLBAR_ACTION_VIEW_H_
 #define CHROME_BROWSER_UI_VIEWS_TOOLBAR_TOOLBAR_ACTION_VIEW_H_
 
+#include "base/callback.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_action_view_delegate_views.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
@@ -26,6 +27,7 @@ class Image;
 }
 
 namespace views {
+class MenuItemView;
 class MenuRunner;
 }
 
@@ -35,7 +37,7 @@ class MenuRunner;
 // action in the BrowserActionsContainer.
 class ToolbarActionView : public views::MenuButton,
                           public ToolbarActionViewDelegateViews,
-                          public views::ButtonListener,
+                          public views::MenuButtonListener,
                           public views::ContextMenuController,
                           public content::NotificationObserver {
  public:
@@ -56,6 +58,9 @@ class ToolbarActionView : public views::MenuButton,
     // reference point for a popup when this view isn't visible.
     virtual views::MenuButton* GetOverflowReferenceView() = 0;
 
+    // Notifies the delegate that the mouse entered the view.
+    virtual void OnMouseEnteredToolbarActionView() = 0;
+
    protected:
     ~Delegate() override {}
   };
@@ -68,30 +73,18 @@ class ToolbarActionView : public views::MenuButton,
   // views::MenuButton:
   void GetAccessibleState(ui::AXViewState* state) override;
 
-  // views::ButtonListener:
-  void ButtonPressed(views::Button* sender, const ui::Event& event) override;
+  // views::MenuButtonListener:
+  void OnMenuButtonClicked(views::View* sender,
+                           const gfx::Point& point) override;
 
   // content::NotificationObserver:
   void Observe(int type,
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override;
 
-  // MenuButton behavior overrides.  These methods all default to LabelButton
-  // behavior unless this button is a popup.  In that case, it uses MenuButton
-  // behavior.  MenuButton has the notion of a child popup being shown where the
-  // button will stay in the pushed state until the "menu" (a popup in this
-  // case) is dismissed.
-  // TODO(devlin): This is a good idea, but it has some funny UI side-effects,
-  // like the fact that label buttons enter a pressed state immediately, but
-  // menu buttons only enter a pressed state on release (if they're draggable).
-  // We should probably just pick a behavior, and stick to it.
-  bool Activate() override;
-  bool OnMousePressed(const ui::MouseEvent& event) override;
-  void OnMouseReleased(const ui::MouseEvent& event) override;
-  void OnMouseExited(const ui::MouseEvent& event) override;
-  bool OnKeyReleased(const ui::KeyEvent& event) override;
-  void OnGestureEvent(ui::GestureEvent* event) override;
+  // views::MenuButton:
   scoped_ptr<views::LabelButtonBorder> CreateDefaultBorder() const override;
+  void OnMouseEntered(const ui::MouseEvent& event) override;
   bool ShouldEnterPushedState(const ui::Event& event) override;
 
   // ToolbarActionViewDelegate: (public because called by others).
@@ -106,6 +99,14 @@ class ToolbarActionView : public views::MenuButton,
   gfx::ImageSkia GetIconForTest();
 
   bool wants_to_run_for_testing() const { return wants_to_run_; }
+
+  using ContextMenuCallback = base::Callback<void(ToolbarActionView*)>;
+  // Set a callback to be called directly before the context menu is shown.
+  // The toolbar action opening the menu will be passed in.
+  static void set_context_menu_callback_for_testing(
+      ContextMenuCallback* callback);
+
+  views::MenuItemView* menu_for_testing() { return menu_; }
 
  private:
   // views::MenuButton:
@@ -136,12 +137,6 @@ class ToolbarActionView : public views::MenuButton,
   // Returns true if a menu was closed, false otherwise.
   bool CloseActiveMenuIfNeeded();
 
-  // Unfortunately, due to the dual-nature of a ToolbarActionView as both a
-  // label button and a menu button, activation can happen as part of either
-  // ButtonPressed() or Activate(). Handle both in this function.
-  void HandleActivation(const gfx::Point& menu_point,
-                        ui::MenuSourceType source_type);
-
   // A lock to keep the MenuButton pressed when a menu or popup is visible.
   scoped_ptr<views::MenuButton::PressedLock> pressed_lock_;
 
@@ -164,9 +159,16 @@ class ToolbarActionView : public views::MenuButton,
   // Responsible for running the menu.
   scoped_ptr<views::MenuRunner> menu_runner_;
 
+  // The root MenuItemView for the context menu, or null if no menu is being
+  // shown.
+  views::MenuItemView* menu_;
+
   // If non-null, this is the next toolbar action context menu that wants to run
   // once the current owner (this one) is done.
   base::Closure followup_context_menu_task_;
+
+  // The time the popup was last closed.
+  base::TimeTicks popup_closed_time_;
 
   content::NotificationRegistrar registrar_;
 

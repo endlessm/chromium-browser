@@ -8,10 +8,12 @@
 #include "core/CSSPropertyNames.h"
 #include "core/CoreExport.h"
 #include "core/dom/QualifiedName.h"
+#include "wtf/Allocator.h"
 
 namespace blink {
 
 class CORE_EXPORT PropertyHandle {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     explicit PropertyHandle(CSSPropertyID property)
         : handleType(HandleCSSProperty)
@@ -35,7 +37,7 @@ public:
     CSSPropertyID cssProperty() const { ASSERT(isCSSProperty()); return property; }
 
     bool isSVGAttribute() const { return handleType == HandleSVGAttribute; }
-    const QualifiedName* svgAttribute() const { ASSERT(isSVGAttribute()); return attribute; }
+    const QualifiedName& svgAttribute() const { ASSERT(isSVGAttribute()); return *attribute; }
 
 private:
     enum HandleType {
@@ -72,6 +74,7 @@ namespace WTF {
 
 template<> struct DefaultHash<blink::PropertyHandle> {
     struct Hash {
+        STATIC_ONLY(Hash);
         static unsigned hash(const blink::PropertyHandle& handle) { return handle.hash(); }
 
         static bool equal(const blink::PropertyHandle& a, const blink::PropertyHandle& b) { return a == b; }

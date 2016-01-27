@@ -5,7 +5,7 @@
 group("third_party") {
   deps = [
     ":bigint",
-    ":freetype",
+    ":fx_freetype",
     ":pdfium_base",
   ]
 }
@@ -30,24 +30,39 @@ source_set("bigint") {
   ]
 }
 
-source_set("freetype") {
+config("fx_freetype_warnings") {
+  visibility = [ ":*" ]
+  if (is_clang) {
+    # open_face_PS_from_sfnt_stream() and open_face_from_buffer() in
+    # ftbase.h are unused.
+    cflags = [ "-Wno-unused-function" ]
+  }
+}
+
+# Tests may link against this even if the production library doesn't,
+# so it needs to be separate from it.
+static_library("fx_freetype") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
     "//third_party/pdfium:pdfium_config",
+
+    # Must be after no_chromium_code for warning flags to be ordered correctly.
+    ":fx_freetype_warnings",
   ]
   defines = [ "FT2_BUILD_LIBRARY" ]
   sources = [
-    "freetype/include/freetype.h",
+    "freetype/include/freetype/freetype.h",
+    "freetype/include/freetype/ftmm.h",
+    "freetype/include/freetype/ftotval.h",
+    "freetype/include/freetype/ftoutln.h",
+    "freetype/include/freetype/internal/ftobjs.h",
+    "freetype/include/freetype/internal/ftstream.h",
+    "freetype/include/freetype/internal/tttypes.h",
+    "freetype/include/freetype/tttables.h",
     "freetype/include/ft2build.h",
-    "freetype/include/ftmm.h",
-    "freetype/include/ftotval.h",
-    "freetype/include/ftoutln.h",
-    "freetype/include/internal/ftobjs.h",
-    "freetype/include/internal/ftstream.h",
-    "freetype/include/internal/tttypes.h",
-    "freetype/include/tttables.h",
     "freetype/src/base/ftbase.c",
+    "freetype/src/base/ftbase.h",
     "freetype/src/base/ftbitmap.c",
     "freetype/src/base/ftglyph.c",
     "freetype/src/base/ftinit.c",
@@ -69,11 +84,22 @@ source_set("freetype") {
   ]
 }
 
+config("fx_agg_warnings") {
+  visibility = [ ":*" ]
+  if (is_clang) {
+    # calc_butt_cap() in agg_vcgen_stroke.cpp is unused.
+    cflags = [ "-Wno-unused-function" ]
+  }
+}
+
 source_set("fx_agg") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
     "//third_party/pdfium:pdfium_config",
+
+    # Must be after no_chromium_code for warning flags to be ordered correctly.
+    ":fx_agg_warnings",
   ]
   sources = [
     "agg23/agg_basics.h",
@@ -94,18 +120,27 @@ source_set("fx_agg") {
   ]
 }
 
-source_set("fx_lcms2") {
-  config("fx_lcms2_warnings") {
-    if (is_clang) {
+config("fx_lcms2_warnings") {
+  visibility = [ ":*" ]
+  if (is_clang) {
+    cflags = [
       # cmslut.cc is sloppy with aggregate initialization. Version 2.7 of this
       # library doesn't appear to have this problem.
-      cflags = [ "-Wno-missing-braces" ]
-    }
+      "-Wno-missing-braces",
+
+      # FindPrev() in cmsplugin.c is unused.
+      "-Wno-unused-function",
+    ]
   }
+}
+
+source_set("fx_lcms2") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
     "//third_party/pdfium:pdfium_config",
+
+    # Must be after no_chromium_code for warning flags to be ordered correctly.
     ":fx_lcms2_warnings",
   ]
   sources = [
@@ -139,7 +174,8 @@ source_set("fx_lcms2") {
   ]
 }
 
-source_set("fx_libjpeg") {
+# This is only used for standalone builds.
+source_set("jpeg") {
   configs -= [ "//build/config/compiler:chromium_code" ]
   configs += [
     "//build/config/compiler:no_chromium_code",
@@ -272,6 +308,7 @@ source_set("pdfium_base") {
     "base/numerics/safe_conversions_impl.h",
     "base/numerics/safe_math.h",
     "base/numerics/safe_math_impl.h",
+    "base/stl_util.h",
     "base/template_util.h",
   ]
 }

@@ -20,15 +20,16 @@ QuicClientSession::QuicClientSession(const QuicConfig& config,
                                      const QuicServerId& server_id,
                                      QuicCryptoClientConfig* crypto_config)
     : QuicClientSessionBase(connection, config),
-      crypto_stream_(new QuicCryptoClientStream(
-          server_id,
-          this,
-          new ProofVerifyContextChromium(0, BoundNetLog()),
-          crypto_config)),
-      respect_goaway_(true) {
-}
+      server_id_(server_id),
+      crypto_config_(crypto_config),
+      respect_goaway_(true) {}
 
 QuicClientSession::~QuicClientSession() {
+}
+
+void QuicClientSession::Initialize() {
+  crypto_stream_.reset(CreateQuicCryptoStream());
+  QuicClientSessionBase::Initialize();
 }
 
 void QuicClientSession::OnProofValid(
@@ -58,10 +59,10 @@ QuicSpdyClientStream* QuicClientSession::CreateOutgoingDynamicStream() {
 }
 
 QuicSpdyClientStream* QuicClientSession::CreateClientStream() {
-  return new QuicSpdyClientStream(GetNextStreamId(), this);
+  return new QuicSpdyClientStream(GetNextOutgoingStreamId(), this);
 }
 
-QuicCryptoClientStream* QuicClientSession::GetCryptoStream() {
+QuicCryptoClientStreamBase* QuicClientSession::GetCryptoStream() {
   return crypto_stream_.get();
 }
 
@@ -74,11 +75,18 @@ int QuicClientSession::GetNumSentClientHellos() const {
   return crypto_stream_->num_sent_client_hellos();
 }
 
-QuicDataStream* QuicClientSession::CreateIncomingDynamicStream(
+QuicSpdyStream* QuicClientSession::CreateIncomingDynamicStream(
     QuicStreamId id) {
   DLOG(ERROR) << "Server push not supported";
   return nullptr;
 }
 
+QuicCryptoClientStreamBase* QuicClientSession::CreateQuicCryptoStream() {
+  return new QuicCryptoClientStream(
+      server_id_, this, new ProofVerifyContextChromium(0, BoundNetLog()),
+      crypto_config_);
+}
+
 }  // namespace tools
+
 }  // namespace net

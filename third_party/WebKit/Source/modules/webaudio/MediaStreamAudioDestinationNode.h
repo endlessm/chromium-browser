@@ -35,7 +35,7 @@
 
 namespace blink {
 
-class AudioContext;
+class AbstractAudioContext;
 
 class MediaStreamAudioDestinationHandler final : public AudioBasicInspectorHandler {
 public:
@@ -54,18 +54,18 @@ private:
 
     // This Persistent doesn't make a reference cycle.
     Persistent<MediaStream> m_stream;
-    RefPtr<MediaStreamSource> m_source;
+    Persistent<MediaStreamSource> m_source;
     RefPtr<AudioBus> m_mixBus;
 };
 
 class MediaStreamAudioDestinationNode final : public AudioBasicInspectorNode {
     DEFINE_WRAPPERTYPEINFO();
 public:
-    static MediaStreamAudioDestinationNode* create(AudioContext&, size_t numberOfChannels);
+    static MediaStreamAudioDestinationNode* create(AbstractAudioContext&, size_t numberOfChannels);
     MediaStream* stream() const;
 
 private:
-    MediaStreamAudioDestinationNode(AudioContext&, size_t numberOfChannels);
+    MediaStreamAudioDestinationNode(AbstractAudioContext&, size_t numberOfChannels);
 };
 
 } // namespace blink

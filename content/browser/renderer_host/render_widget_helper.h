@@ -27,7 +27,6 @@ class TimeDelta;
 }
 
 struct ViewHostMsg_CreateWindow_Params;
-struct ViewMsg_SwapOut_Params;
 
 namespace content {
 class GpuProcessHost;
@@ -100,19 +99,17 @@ class RenderWidgetHelper
 
   // IO THREAD ONLY -----------------------------------------------------------
 
-  void CreateNewWindow(
-      const ViewHostMsg_CreateWindow_Params& params,
-      bool no_javascript_access,
-      base::ProcessHandle render_process,
-      int* route_id,
-      int* main_frame_route_id,
-      int* surface_id,
-      SessionStorageNamespace* session_storage_namespace);
+  void CreateNewWindow(const ViewHostMsg_CreateWindow_Params& params,
+                       bool no_javascript_access,
+                       base::ProcessHandle render_process,
+                       int32_t* route_id,
+                       int32_t* main_frame_route_id,
+                       int32_t* main_frame_widget_route_id,
+                       SessionStorageNamespace* session_storage_namespace);
   void CreateNewWidget(int opener_id,
                        blink::WebPopupType popup_type,
-                       int* route_id,
-                       int* surface_id);
-  void CreateNewFullscreenWidget(int opener_id, int* route_id, int* surface_id);
+                       int* route_id);
+  void CreateNewFullscreenWidget(int opener_id, int* route_id);
 
  private:
   friend class base::RefCountedThreadSafe<RenderWidgetHelper>;
@@ -122,22 +119,22 @@ class RenderWidgetHelper
   ~RenderWidgetHelper();
 
   // Called on the UI thread to finish creating a window.
-  void OnCreateWindowOnUI(
-      const ViewHostMsg_CreateWindow_Params& params,
-      int route_id,
-      int main_frame_route_id,
-      SessionStorageNamespace* session_storage_namespace);
+  void OnCreateWindowOnUI(const ViewHostMsg_CreateWindow_Params& params,
+                          int32_t route_id,
+                          int32_t main_frame_route_id,
+                          int32_t main_frame_widget_route_id,
+                          SessionStorageNamespace* session_storage_namespace);
 
   // Called on the IO thread after a window was created on the UI thread.
   void OnResumeRequestsForView(int route_id);
 
   // Called on the UI thread to finish creating a widget.
-  void OnCreateWidgetOnUI(int opener_id,
-                          int route_id,
+  void OnCreateWidgetOnUI(int32 opener_id,
+                          int32 route_id,
                           blink::WebPopupType popup_type);
 
   // Called on the UI thread to create a fullscreen widget.
-  void OnCreateFullscreenWidgetOnUI(int opener_id, int route_id);
+  void OnCreateFullscreenWidgetOnUI(int32 opener_id, int32 route_id);
 
   // Called on the IO thread to resume a paused navigation in the network
   // stack without transferring it to a new renderer process.

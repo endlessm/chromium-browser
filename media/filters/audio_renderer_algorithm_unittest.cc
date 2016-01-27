@@ -17,9 +17,9 @@
 #include "base/memory/scoped_ptr.h"
 #include "media/base/audio_buffer.h"
 #include "media/base/audio_bus.h"
-#include "media/base/buffers.h"
 #include "media/base/channel_layout.h"
 #include "media/base/test_helpers.h"
+#include "media/base/timestamp_constants.h"
 #include "media/filters/audio_renderer_algorithm.h"
 #include "media/filters/wsola_internals.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -215,6 +215,9 @@ class AudioRendererAlgorithmTest : public testing::Test {
 
       FillAlgorithmQueue();
     }
+
+    EXPECT_EQ(algorithm_.frames_buffered() * channels_ * sizeof(float),
+              static_cast<size_t>(algorithm_.GetMemoryUsage()));
 
     int frames_consumed =
         ComputeConsumedFrames(initial_frames_enqueued, initial_frames_buffered);
@@ -666,6 +669,7 @@ TEST_F(AudioRendererAlgorithmTest, FillBufferOffset) {
     ASSERT_EQ(kHalfSize, frames_filled);
     ASSERT_TRUE(VerifyAudioData(bus.get(), 0, kHalfSize, 0));
     ASSERT_FALSE(VerifyAudioData(bus.get(), kHalfSize, kHalfSize, 0));
+    FillAlgorithmQueue();
   }
 
   const float kMutedRates[] = {5.0f, 0.25f};
@@ -679,6 +683,7 @@ TEST_F(AudioRendererAlgorithmTest, FillBufferOffset) {
     ASSERT_EQ(kHalfSize, frames_filled);
     ASSERT_FALSE(VerifyAudioData(bus.get(), 0, kHalfSize, 0));
     ASSERT_TRUE(VerifyAudioData(bus.get(), kHalfSize, kHalfSize, 0));
+    FillAlgorithmQueue();
   }
 }
 

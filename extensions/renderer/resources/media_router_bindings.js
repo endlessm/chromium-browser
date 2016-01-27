@@ -30,27 +30,51 @@ define('media_router_bindings', [
     return new mediaRouterMojom.MediaSink({
       'name': sink.friendlyName,
       'sink_id': sink.id,
+      'icon_type': sinkIconTypeToMojo(sink.iconType),
     });
+  }
+
+  /**
+   * Converts a media sink's icon type to a MediaSink.IconType Mojo object.
+   * @param {!MediaSink.IconType} type A media sink's icon type.
+   * @return {!mediaRouterMojom.MediaSink.IconType} A Mojo MediaSink.IconType
+   *     object.
+   */
+  function sinkIconTypeToMojo(type) {
+    switch (type) {
+      case 'cast':
+        return mediaRouterMojom.MediaSink.IconType.CAST;
+      case 'cast_audio':
+        return mediaRouterMojom.MediaSink.IconType.CAST_AUDIO;
+      case 'cast_audio_group':
+        return mediaRouterMojom.MediaSink.IconType.CAST_AUDIO_GROUP;
+      case 'generic':
+        return mediaRouterMojom.MediaSink.IconType.GENERIC;
+      case 'hangout':
+        return mediaRouterMojom.MediaSink.IconType.HANGOUT;
+      default:
+        console.error('Unknown sink icon type : ' + type);
+        return mediaRouterMojom.MediaSink.IconType.GENERIC;
+    }
   }
 
   /**
    * Returns a Mojo MediaRoute object given a MediaRoute and a
    * media sink name.
    * @param {!MediaRoute} route
-   * @param {!string} sinkName
    * @return {!mojo.MediaRoute}
    */
-  function routeToMojo_(route, sinkName) {
+  function routeToMojo_(route) {
     return new mediaRouterMojom.MediaRoute({
       'media_route_id': route.id,
       'media_source': route.mediaSource,
-      'media_sink': new mediaRouterMojom.MediaSink({
-        'sink_id': route.sinkId,
-        'name': sinkName,
-      }),
+      'media_sink_id': route.sinkId,
       'description': route.description,
       'icon_url': route.iconUrl,
-      'is_local': route.isLocal
+      'is_local': route.isLocal,
+      'custom_controller_path': route.customControllerPath,
+      // TODO(imcheng): Remove logic when extension always sets the field.
+      'for_display': route.forDisplay == undefined ? true : route.forDisplay
     });
   }
 
@@ -62,16 +86,36 @@ define('media_router_bindings', [
   function messageToMojo_(message) {
     if ("string" == typeof message.message) {
       return new mediaRouterMojom.RouteMessage({
-        'route_id': message.routeId,
         'type': mediaRouterMojom.RouteMessage.Type.TEXT,
         'message': message.message,
       });
     } else {
       return new mediaRouterMojom.RouteMessage({
-        'route_id': message.routeId,
         'type': mediaRouterMojom.RouteMessage.Type.BINARY,
         'data': message.message,
       });
+    }
+  }
+
+  /**
+   * Converts presentation connection state to Mojo enum value.
+   * @param {!string} state
+   * @return {!mediaRouterMojom.MediaRouter.PresentationConnectionState}
+   */
+  function presentationConnectionStateToMojo_(state) {
+    switch (state) {
+      case 'connected':
+        return
+            mediaRouterMojom.MediaRouter.PresentationConnectionState.CONNECTED;
+      case 'closed':
+        return mediaRouterMojom.MediaRouter.PresentationConnectionState.CLOSED;
+      case 'terminated':
+        return
+            mediaRouterMojom.MediaRouter.PresentationConnectionState.TERMINATED;
+      default:
+        console.error('Unknown presentation connection state: ' + state);
+        return
+            mediaRouterMojom.MediaRouter.PresentationConnectionState.TERMINATED;
     }
   }
 
@@ -236,50 +280,34 @@ define('media_router_bindings', [
    * Called by the provider manager when the set of active routes
    * has been updated.
    * @param {!Array<MediaRoute>} routes The active set of media routes.
-   * @param {!Array<MediaSink>} sinks The active set of media sinks.
    */
-  MediaRouter.prototype.onRoutesUpdated = function(routes, sinks) {
-    // Create an inverted index relating sink IDs to their names.
-    var sinkNameMap = {};
-    for (var i = 0; i < sinks.length; i++) {
-      sinkNameMap[sinks[i].id] = sinks[i].friendlyName;
-    }
-
-    // Convert MediaRoutes to Mojo objects and add their sink names
-    // via sinkNameMap.
-    var mojoRoutes = routes.map(function(nextRoute) {
-      return routeToMojo_(nextRoute, sinkNameMap[nextRoute.sinkId]);
-    });
-
-    this.service_.onRoutesUpdated(mojoRoutes, sinks.map(sinkToMojo_));
+  MediaRouter.prototype.onRoutesUpdated = function(routes) {
+    this.service_.onRoutesUpdated(routes.map(routeToMojo_));
   };
 
   /**
-   * Called by the Provider Manager when an error was encountered in response
-   * to a media route creation request.
-   * @param {!string} requestId The request id.
-   * @param {!string} error The error.
+   * Called by the provider manager when sink availability has been updated.
+   * @param {!mediaRouterMojom.MediaRouter.SinkAvailability} availability
+   *     The new sink availability.
    */
-  MediaRouter.prototype.onRouteResponseError =
-      function(requestId, error) {
-    this.service_.onRouteResponseError(requestId, error);
+  MediaRouter.prototype.onSinkAvailabilityUpdated = function(availability) {
+    this.service_.onSinkAvailabilityUpdated(availability);
   };
 
   /**
-   * Called by the provider manager when a route was able to be created by a
-   * media route provider.
-   *
-   * @param {string} requestId The media route request id.
-   * @param {string} routeId The id of the media route that was created.
+   * Called by the provider manager when the state of a presentation connected
+   * to a route has changed.
+   * @param {!string} routeId
+   * @param {!string} state
    */
-  MediaRouter.prototype.onRouteResponseReceived =
-      function(requestId, routeId) {
-    this.service_.onRouteResponseReceived(requestId, routeId);
+  MediaRouter.prototype.onPresentationConnectionStateChanged =
+      function(routeId, state) {
+    this.service_.onPresentationConnectionStateChanged(
+        routeId, presentationConnectionStateToMojo_(state));
   };
 
   /**
    * Object containing callbacks set by the provider manager.
-   * TODO(mfoltz): Better named ProviderManagerDelegate?
    *
    * @constructor
    * @struct
@@ -316,9 +344,25 @@ define('media_router_bindings', [
     this.sendRouteMessage = null;
 
     /**
-     * @type {function(Array.<string>): Promise.<Array.<RouteMessage>>}
+     * @type {function(string, Uint8Array): Promise}
+     */
+    this.sendRouteBinaryMessage = null;
+
+    /**
+     * @type {function(string):
+     *     Promise.<{messages: Array.<RouteMessage>, error: boolean}>}
      */
     this.listenForRouteMessages = null;
+
+    /**
+     * @type {function(string)}
+     */
+    this.stopListeningForRouteMessages = null;
+
+    /**
+     * @type {function(string)}
+     */
+    this.onPresentationSessionDetached = null;
 
     /**
      * @type {function()}
@@ -359,7 +403,6 @@ define('media_router_bindings', [
   /*
    * Sets the callback handler used to invoke methods in the provider manager.
    *
-   * TODO(mfoltz): Rename to something more explicit?
    * @param {!MediaRouterHandlers} handlers
    */
   MediaRouteProvider.prototype.setHandlers = function(handlers) {
@@ -368,7 +411,10 @@ define('media_router_bindings', [
       'stopObservingMediaRoutes',
       'startObservingMediaRoutes',
       'sendRouteMessage',
+      'sendRouteBinaryMessage',
       'listenForRouteMessages',
+      'stopListeningForRouteMessages',
+      'onPresentationSessionDetached',
       'closeRoute',
       'joinRoute',
       'createRoute',
@@ -421,8 +467,7 @@ define('media_router_bindings', [
     return this.handlers_.createRoute(
         sourceUrn, sinkId, presentationId, origin, tabId)
         .then(function(route) {
-          // Sink name is not used, so it is omitted here.
-          return {route: routeToMojo_(route, "")};
+          return {route: routeToMojo_(route)};
         }.bind(this))
         .catch(function(err) {
           return {error_text: 'Error creating route: ' + err.message};
@@ -445,8 +490,7 @@ define('media_router_bindings', [
       function(sourceUrn, presentationId, origin, tabId) {
     return this.handlers_.joinRoute(sourceUrn, presentationId, origin, tabId)
         .then(function(newRoute) {
-          // Sink name is not used, so it is omitted here.
-          return {route: routeToMojo_(newRoute, "")};
+          return {route: routeToMojo_(newRoute)};
         },
         function(err) {
           return {error_text: 'Error joining route: ' + err.message};
@@ -472,25 +516,63 @@ define('media_router_bindings', [
       routeId, message) {
     return this.handlers_.sendRouteMessage(routeId, message)
         .then(function() {
-          return true;
+          return {'sent': true};
         }, function() {
-          return false;
+          return {'sent': false};
+        });
+  };
+
+  /**
+   * Sends a binary message to the route designated by |routeId|.
+   * @param {!string} routeId
+   * @param {!Uint8Array} data
+   * @return {!Promise.<boolean>} Resolved with true if the data was sent,
+   *    or false on failure.
+   */
+  MediaRouteProvider.prototype.sendRouteBinaryMessage = function(
+      routeId, data) {
+    return this.handlers_.sendRouteBinaryMessage(routeId, data)
+        .then(function() {
+          return {'sent': true};
+        }, function() {
+          return {'sent': false};
         });
   };
 
   /**
    * Listen for next batch of messages from one of the routeIds.
-   * @param {!Array.<string>} routeIds
-   * @return {!Promise.<Array.<RouteMessage>>} Resolved with a list of messages,
-   *    an empty list if an error occurred.
+   * @param {!string} routeId
+   * @return {!Promise.<{messages: Array.<RouteMessage>, error: boolean}>}
+   *     Resolved with a list of messages, and a boolean indicating if an error
+   *     occurred.
    */
-  MediaRouteProvider.prototype.listenForRouteMessages = function(routeIds) {
-    return this.handlers_.listenForRouteMessages(routeIds)
+  MediaRouteProvider.prototype.listenForRouteMessages = function(routeId) {
+    return this.handlers_.listenForRouteMessages(routeId)
         .then(function(messages) {
-          return {'messages': messages.map(messageToMojo_)};
+          return {'messages': messages.map(messageToMojo_), 'error': false};
         }, function() {
-          return {'messages': []};
+          return {'messages': [], 'error': true};
         });
+  };
+
+  /**
+   * If there is an outstanding |listenForRouteMessages| promise for
+   * |routeId|, resolve that promise with an empty array.
+   * @param {!string} routeId
+   */
+  MediaRouteProvider.prototype.stopListeningForRouteMessages = function(
+      routeId) {
+    return this.handlers_.stopListeningForRouteMessages(routeId);
+  };
+
+  /**
+   * Indicates that the presentation session that was connected to |routeId| is
+   * no longer connected to it.
+   * @param {!string} routeId
+   */
+  MediaRouteProvider.prototype.onPresentationSessionDetached = function(
+      routeId) {
+    this.handlers_.onPresentationSessionDetached(routeId);
   };
 
   /**

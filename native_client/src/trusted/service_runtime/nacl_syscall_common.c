@@ -54,17 +54,6 @@
 #include "native_client/src/trusted/service_runtime/sel_ldr.h"
 
 
-/*
- * OSX defines SIZE_T_MAX in i386/limits.h; Linux has SIZE_MAX;
- * Windows has none.
- *
- * TODO(bsy): remove when we put SIZE_T_MAX in a common header file.
- */
-#if !defined(SIZE_T_MAX)
-# define SIZE_T_MAX   (~(size_t) 0)
-#endif
-
-
 int32_t NaClSysNotImplementedDecoder(struct NaClAppThread *natp) {
   NaClCopyDropLock(natp->nap);
   return -NACL_ABI_ENOSYS;
@@ -781,7 +770,7 @@ int32_t NaClSysTestInfoLeak(struct NaClAppThread *natp) {
     } fxsave;
   };
 
-  static const char tenbytes[10] = "SecretBits";
+  static const char tenbytes[10] = "SecretBit";
   static const char manybytes[256] =
       "Highly sensitive information must not be leaked to untrusted code!\n"
       "xyzzy\nplugh\nYou are likely to be eaten by a grue.\n"

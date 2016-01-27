@@ -194,7 +194,7 @@ static int write_representation(AVFormatContext *s, AVStream *stream, char *id,
         avio_printf(s->pb, " width=\"%d\"", stream->codec->width);
     if (stream->codec->codec_type == AVMEDIA_TYPE_VIDEO && output_height)
         avio_printf(s->pb, " height=\"%d\"", stream->codec->height);
-    if (stream->codec->codec_type = AVMEDIA_TYPE_AUDIO && output_sample_rate)
+    if (stream->codec->codec_type == AVMEDIA_TYPE_AUDIO && output_sample_rate)
         avio_printf(s->pb, " audioSamplingRate=\"%d\"", stream->codec->sample_rate);
     if (w->is_live) {
         // For live streams, Codec and Mime Type always go in the Representation tag.
@@ -392,10 +392,10 @@ static int write_adaptation_set(AVFormatContext *s, int as_index)
         if (w->is_live) {
             AVDictionaryEntry *filename =
                 av_dict_get(s->streams[as->streams[i]]->metadata, FILENAME, NULL, 0);
-            if (!filename ||
-                (ret = parse_filename(filename->value, &representation_id, NULL, NULL))) {
+            if (!filename)
+                return AVERROR(EINVAL);
+            if (ret = parse_filename(filename->value, &representation_id, NULL, NULL))
                 return ret;
-            }
         } else {
             representation_id = av_asprintf("%d", w->representation_id++);
             if (!representation_id) return AVERROR(ENOMEM);

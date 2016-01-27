@@ -28,6 +28,7 @@ class StubInputController : public InputController {
                          const base::TimeDelta& interval) override;
   void GetAutoRepeatRate(base::TimeDelta* delay,
                          base::TimeDelta* interval) override;
+  bool SetCurrentLayoutByName(const std::string& layout_name) override;
   void SetTouchEventLoggingEnabled(bool enabled) override;
   void SetTouchpadSensitivity(int value) override;
   void SetTapToClick(bool enabled) override;
@@ -41,6 +42,8 @@ class StubInputController : public InputController {
   void GetTouchEventLog(const base::FilePath& out_dir,
                         const GetTouchEventLogReply& reply) override;
   void SetInternalTouchpadEnabled(bool enabled) override;
+  bool IsInternalTouchpadEnabled() const override;
+  void SetTouchscreensEnabled(bool enabled) override;
   void SetInternalKeyboardFilter(bool enable_filter,
                                  std::vector<DomCode> allowed_keys) override;
 
@@ -87,6 +90,11 @@ void StubInputController::GetAutoRepeatRate(base::TimeDelta* delay,
                                             base::TimeDelta* interval) {
 }
 
+bool StubInputController::SetCurrentLayoutByName(
+    const std::string& layout_name) {
+  return false;
+}
+
 void StubInputController::SetTouchpadSensitivity(int value) {
 }
 
@@ -127,6 +135,12 @@ void StubInputController::GetTouchEventLog(const base::FilePath& out_dir,
 
 void StubInputController::SetInternalTouchpadEnabled(bool enabled) {
 }
+
+bool StubInputController::IsInternalTouchpadEnabled() const {
+  return false;
+}
+
+void StubInputController::SetTouchscreensEnabled(bool enabled) {}
 
 void StubInputController::SetInternalKeyboardFilter(
     bool enable_filter,

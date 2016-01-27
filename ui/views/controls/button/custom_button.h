@@ -117,6 +117,12 @@ class VIEWS_EXPORT CustomButton : public Button,
   // we simply return IsTriggerableEvent(event).
   virtual bool ShouldEnterPushedState(const ui::Event& event);
 
+  // Returns true if the button should enter hovered state; that is, if the
+  // mouse is over the button, and no other window has capture (which would
+  // prevent the button from receiving MouseExited events and updating its
+  // state). This does not take into account enabled state.
+  bool ShouldEnterHoveredState();
+
   // Overridden from View:
   void ViewHierarchyChanged(
       const ViewHierarchyChangedDetails& details) override;
@@ -129,6 +135,11 @@ class VIEWS_EXPORT CustomButton : public Button,
   scoped_ptr<gfx::ThrobAnimation> hover_animation_;
 
  private:
+  // Returns true if this is not a top level widget. Virtual for tests.
+  virtual bool IsChildWidget() const;
+  // Returns true if the focus is not in a top level widget. Virtual for tests.
+  virtual bool FocusInChildWidget() const;
+
   // Should we animate when the state changes? Defaults to true.
   bool animate_on_state_change_;
 

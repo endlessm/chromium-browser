@@ -4,12 +4,15 @@
 
 #include "base/macros.h"
 #include "base/path_service.h"
+#include "chrome/app/chrome_command_ids.h"
+#include "chrome/browser/renderer_context_menu/render_view_context_menu_test_util.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "chrome/test/base/web_ui_browser_test.h"
+#include "content/public/common/context_menu_params.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
 
 class WebUIWebViewBrowserTest : public WebUIBrowserTest {
@@ -20,6 +23,8 @@ class WebUIWebViewBrowserTest : public WebUIBrowserTest {
     WebUIBrowserTest::SetUpOnMainThread();
     AddLibrary(
         base::FilePath(FILE_PATH_LITERAL("webview_content_script_test.js")));
+    AddLibrary(
+        base::FilePath(FILE_PATH_LITERAL("webview_basic.js")));
 
     base::FilePath test_data_dir;
     PathService::Get(chrome::DIR_TEST_DATA, &test_data_dir);
@@ -38,6 +43,17 @@ class WebUIWebViewBrowserTest : public WebUIBrowserTest {
  private:
   DISALLOW_COPY_AND_ASSIGN(WebUIWebViewBrowserTest);
 };
+
+// Checks that hiding and showing the WebUI host page doesn't break guests in
+// it.
+// Regression test for http://crbug.com/515268
+IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, DisplayNone) {
+  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+
+  ASSERT_TRUE(WebUIBrowserTest::RunJavascriptAsyncTest(
+      "testDisplayNone",
+      new base::StringValue(GetTestUrl("empty.html").spec())));
+}
 
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, ExecuteScriptCode) {
   ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
@@ -138,8 +154,8 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, AddContentScriptWithCode) {
 // Right now we only have incognito WebUI on CrOS, but this should
 // theoretically work for all platforms.
 IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, AddContentScriptIncognito) {
-  Browser* incognito_browser = ui_test_utils::OpenURLOffTheRecord(
-      browser()->profile(), GetWebViewEnabledWebUIURL());
+  Browser* incognito_browser =
+      OpenURLOffTheRecord(browser()->profile(), GetWebViewEnabledWebUIURL());
 
   SetWebUIInstance(
       incognito_browser->tab_strip_model()->GetActiveWebContents()->GetWebUI());
@@ -149,3 +165,12 @@ IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, AddContentScriptIncognito) {
       new base::StringValue(GetTestUrl("empty.html").spec())));
 }
 #endif
+
+IN_PROC_BROWSER_TEST_F(WebUIWebViewBrowserTest, ContextMenuInspectElement) {
+  ui_test_utils::NavigateToURL(browser(), GetWebViewEnabledWebUIURL());
+  content::ContextMenuParams params;
+  TestRenderViewContextMenu menu(
+      browser()->tab_strip_model()->GetActiveWebContents()->GetMainFrame(),
+      params);
+  EXPECT_FALSE(menu.IsItemPresent(IDC_CONTENT_CONTEXT_INSPECTELEMENT));
+}

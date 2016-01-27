@@ -12,20 +12,14 @@
 #include "base/logging.h"
 #include "base/prefs/pref_service.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/history/history_service_factory.h"
 #include "chrome/browser/precache/precache_manager_factory.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/profiles/profile_manager.h"
-#include "components/keyed_service/core/service_access_type.h"
 #include "components/precache/content/precache_manager.h"
 #include "jni/PrecacheLauncher_jni.h"
 
 using base::android::AttachCurrentThread;
 using precache::PrecacheManager;
-
-namespace history {
-class HistoryService;
-}
 
 namespace {
 
@@ -62,20 +56,14 @@ void PrecacheLauncher::Start(JNIEnv* env, jobject obj) {
   Profile* profile = GetProfile();
 
   PrecacheManager* precache_manager = GetPrecacheManager(profile);
-  history::HistoryService* hs = HistoryServiceFactory::GetForProfile(
-      profile, ServiceAccessType::IMPLICIT_ACCESS);
 
-  if (precache_manager == nullptr || hs == nullptr ||
-      !precache_manager->IsPrecachingAllowed()) {
-    Java_PrecacheLauncher_onPrecacheCompletedCallback(
-        env, weak_java_precache_launcher_.get(env).obj());
+  if (precache_manager == nullptr) {
+    OnPrecacheCompleted(false);
     return;
   }
 
-  precache_manager->StartPrecaching(
-      base::Bind(&PrecacheLauncher::OnPrecacheCompleted,
-                 weak_factory_.GetWeakPtr()),
-      *hs);
+  precache_manager->StartPrecaching(base::Bind(
+      &PrecacheLauncher::OnPrecacheCompleted, weak_factory_.GetWeakPtr()));
 }
 
 void PrecacheLauncher::Cancel(JNIEnv* env, jobject obj) {
@@ -85,18 +73,23 @@ void PrecacheLauncher::Cancel(JNIEnv* env, jobject obj) {
   precache_manager->CancelPrecaching();
 }
 
-void PrecacheLauncher::OnPrecacheCompleted() {
+void PrecacheLauncher::OnPrecacheCompleted(bool try_again_soon) {
   JNIEnv* env = AttachCurrentThread();
   Java_PrecacheLauncher_onPrecacheCompletedCallback(
-      env, weak_java_precache_launcher_.get(env).obj());
+      env, weak_java_precache_launcher_.get(env).obj(),
+      try_again_soon ? JNI_TRUE : JNI_FALSE);
 }
 
-static jlong Init(JNIEnv* env, jobject obj) {
+static jlong Init(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   return reinterpret_cast<intptr_t>(new PrecacheLauncher(env, obj));
 }
 
-static jboolean IsPrecachingEnabled(JNIEnv* env, jclass clazz) {
-  return PrecacheManager::IsPrecachingEnabled();
+// Must be run on the UI thread.
+static jboolean ShouldRun(JNIEnv* env, const JavaParamRef<jobject>& obj) {
+  Profile* profile = GetProfile();
+  PrecacheManager* precache_manager = GetPrecacheManager(profile);
+  return precache_manager && (precache_manager->IsInExperimentGroup() ||
+                              precache_manager->IsInControlGroup());
 }
 
 bool RegisterPrecacheLauncher(JNIEnv* env) {

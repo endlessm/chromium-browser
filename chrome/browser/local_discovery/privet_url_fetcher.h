@@ -28,10 +28,10 @@ class PrivetURLFetcher : public net::URLFetcherDelegate {
  public:
   enum ErrorType {
     JSON_PARSE_ERROR,
-    URL_FETCH_ERROR,
+    REQUEST_CANCELED,
     RESPONSE_CODE_ERROR,
-    RETRY_ERROR,
-    TOKEN_ERROR
+    TOKEN_ERROR,
+    UNKNOWN_ERROR,
   };
 
   typedef base::Callback<void(const std::string& /*token*/)> TokenCallback;
@@ -45,9 +45,6 @@ class PrivetURLFetcher : public net::URLFetcherDelegate {
     virtual void OnNeedPrivetToken(
         PrivetURLFetcher* fetcher,
         const TokenCallback& callback);
-
-    // If this returns the empty string, will not send an auth token.
-    virtual std::string GetAuthToken();
 
     virtual void OnError(PrivetURLFetcher* fetcher, ErrorType error) = 0;
     virtual void OnParsedJson(PrivetURLFetcher* fetcher,
@@ -66,7 +63,7 @@ class PrivetURLFetcher : public net::URLFetcherDelegate {
   PrivetURLFetcher(
       const GURL& url,
       net::URLFetcher::RequestType request_type,
-      net::URLRequestContextGetter* request_context,
+      const scoped_refptr<net::URLRequestContextGetter>& context_getter,
       Delegate* delegate);
 
   ~PrivetURLFetcher() override;
@@ -79,11 +76,11 @@ class PrivetURLFetcher : public net::URLFetcherDelegate {
 
   static void ResetTokenMapForTests();
 
+  void SetMaxRetries(int max_retries);
+
   void DoNotRetryOnTransientError();
 
   void SendEmptyPrivetToken();
-
-  void V3Mode();
 
   // Set the contents of the Range header. |OnRawData| must return true if this
   // is called.
@@ -101,8 +98,12 @@ class PrivetURLFetcher : public net::URLFetcherDelegate {
   void SetUploadFilePath(const std::string& upload_content_type,
                          const base::FilePath& upload_file_path);
 
-  const GURL& url() const { return url_fetcher_->GetOriginalURL(); }
-  int response_code() const { return url_fetcher_->GetResponseCode(); }
+  const GURL& url() const {
+    return url_fetcher_ ? url_fetcher_->GetOriginalURL() : url_;
+  }
+  int response_code() const {
+    return url_fetcher_ ? url_fetcher_->GetResponseCode() : -1;
+  }
 
  private:
   void OnURLFetchCompleteParseData(const net::URLFetcher* source);
@@ -116,16 +117,16 @@ class PrivetURLFetcher : public net::URLFetcherDelegate {
   void RequestTokenRefresh();
   void RefreshToken(const std::string& token);
 
-  GURL url_;
+  const GURL url_;
   net::URLFetcher::RequestType request_type_;
-  scoped_refptr<net::URLRequestContextGetter> request_context_;
+  scoped_refptr<net::URLRequestContextGetter> context_getter_;
   Delegate* delegate_;
 
+  int max_retries_;
   bool do_not_retry_on_transient_error_;
   bool send_empty_privet_token_;
   bool has_byte_range_;
   bool make_response_file_;
-  bool v3_mode_;
 
   int byte_range_start_;
   int byte_range_end_;

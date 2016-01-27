@@ -36,6 +36,8 @@ static_library("devtools") {
     "devtools_network_conditions.h",
     "devtools_network_controller.cc",
     "devtools_network_controller.h",
+    "devtools_network_controller_handle.cc",
+    "devtools_network_controller_handle.h",
     "devtools_network_interceptor.cc",
     "devtools_network_interceptor.h",
     "devtools_network_protocol_handler.cc",
@@ -52,6 +54,7 @@ static_library("devtools") {
   configs += [
     "//build/config/compiler:no_size_t_to_int_warning",
     "//build/config/compiler:wexit_time_destructors",
+    "//build/config:precompiled_headers",
     "//third_party/WebKit/public:debug_devtools",
   ]
 
@@ -118,6 +121,8 @@ static_library("devtools") {
       "devtools_file_helper.h",
       "devtools_file_system_indexer.cc",
       "devtools_file_system_indexer.h",
+      "devtools_file_watcher.cc",
+      "devtools_file_watcher.h",
       "devtools_target_impl.cc",
       "devtools_target_impl.h",
       "devtools_targets_ui.cc",
@@ -128,6 +133,8 @@ static_library("devtools") {
       "devtools_ui_bindings.h",
       "devtools_window.cc",
       "devtools_window.h",
+      "global_confirm_info_bar.cc",
+      "global_confirm_info_bar.h",
       "remote_debugging_server.cc",
       "remote_debugging_server.h",
     ]

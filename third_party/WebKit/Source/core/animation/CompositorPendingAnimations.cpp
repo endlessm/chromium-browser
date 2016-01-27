@@ -52,32 +52,40 @@ void CompositorPendingAnimations::add(Animation* animation)
 
     bool visible = document->page() && document->page()->visibilityState() == PageVisibilityStateVisible;
     if (!visible && !m_timer.isActive()) {
-        m_timer.startOneShot(0, FROM_HERE);
+        m_timer.startOneShot(0, BLINK_FROM_HERE);
     }
 }
 
 bool CompositorPendingAnimations::update(bool startOnCompositor)
 {
-    WillBeHeapVector<RawPtrWillBeMember<Animation>> waitingForStartTime;
+    HeapVector<Member<Animation>> waitingForStartTime;
     bool startedSynchronizedOnCompositor = false;
 
-    WillBeHeapVector<RefPtrWillBeMember<Animation>> animations;
+    HeapVector<Member<Animation>> animations;
+    HeapVector<Member<Animation>> deferred;
     animations.swap(m_pending);
     int compositorGroup = ++m_compositorGroup;
-    if (compositorGroup == 0) {
-        // Wrap around, skipping 0.
+    while (compositorGroup == 0 || compositorGroup == 1) {
+        // Wrap around, skipping 0, 1.
+        // * 0 is reserved for automatic assignment
+        // * 1 is used for animations with a specified start time
         compositorGroup = ++m_compositorGroup;
     }
 
     for (auto& animation : animations) {
         bool hadCompositorAnimation = animation->hasActiveAnimationsOnCompositor();
-        animation->preCommit(compositorGroup, startOnCompositor);
-        if (animation->hasActiveAnimationsOnCompositor() && !hadCompositorAnimation) {
-            startedSynchronizedOnCompositor = true;
-        }
+        // Animations with a start time do not participate in compositor start-time grouping.
+        if (animation->preCommit(animation->hasStartTime() ? 1 : compositorGroup, startOnCompositor)) {
+            if (animation->hasActiveAnimationsOnCompositor() && !hadCompositorAnimation) {
 
-        if (animation->playing() && !animation->hasStartTime()) {
-            waitingForStartTime.append(animation.get());
+                startedSynchronizedOnCompositor = true;
+            }
+
+            if (animation->playing() && !animation->hasStartTime() && animation->timeline() && animation->timeline()->isActive()) {
+                waitingForStartTime.append(animation.get());
+            }
+        } else {
+            deferred.append(animation);
         }
     }
 
@@ -103,6 +111,10 @@ bool CompositorPendingAnimations::update(bool startOnCompositor)
         animation->postCommit(animation->timeline()->currentTimeInternal());
 
     ASSERT(m_pending.isEmpty());
+    ASSERT(startOnCompositor || deferred.isEmpty());
+    for (auto& animation : deferred)
+        animation->setCompositorPending();
+    ASSERT(m_pending.size() == deferred.size());
 
     if (startedSynchronizedOnCompositor)
         return true;
@@ -119,18 +131,18 @@ bool CompositorPendingAnimations::update(bool startOnCompositor)
     // If not, go ahead and start any animations that were waiting.
     notifyCompositorAnimationStarted(monotonicallyIncreasingTime());
 
-    ASSERT(m_pending.isEmpty());
+    ASSERT(m_pending.size() == deferred.size());
     return false;
 }
 
 void CompositorPendingAnimations::notifyCompositorAnimationStarted(double monotonicAnimationStartTime, int compositorGroup)
 {
     TRACE_EVENT0("blink", "CompositorPendingAnimations::notifyCompositorAnimationStarted");
-    WillBeHeapVector<RefPtrWillBeMember<Animation>> animations;
+    HeapVector<Member<Animation>> animations;
     animations.swap(m_waitingForCompositorAnimationStart);
 
     for (auto animation : animations) {
-        if (animation->hasStartTime() || animation->playStateInternal() != Animation::Pending) {
+        if (animation->hasStartTime() || animation->playStateInternal() != Animation::Pending || !animation->timeline() || !animation->timeline()->isActive()) {
             // Already started or no longer relevant.
             continue;
         }

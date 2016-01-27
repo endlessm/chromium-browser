@@ -16,6 +16,7 @@
 #include "base/trace_event/trace_event.h"
 #include "third_party/icu/source/common/unicode/rbbi.h"
 #include "third_party/icu/source/common/unicode/utf16.h"
+#include "third_party/skia/include/core/SkDrawLooper.h"
 #include "third_party/skia/include/core/SkTypeface.h"
 #include "third_party/skia/include/effects/SkGradientShader.h"
 #include "ui/gfx/canvas.h"
@@ -152,10 +153,8 @@ skia::RefPtr<SkShader> CreateFadeShader(const Rect& text_rect,
     colors.push_back(colors.back());
   }
 
-  SkPoint points[2];
-  points[0].iset(text_rect.x(), text_rect.y());
-  points[1].iset(text_rect.right(), text_rect.y());
-
+  const SkPoint points[2] = { PointToSkPoint(text_rect.origin()),
+                              PointToSkPoint(text_rect.top_right()) };
   return skia::AdoptRef(
       SkGradientShader::CreateLinear(&points[0], &colors[0], &positions[0],
                                      colors.size(), SkShader::kClamp_TileMode));
@@ -708,10 +707,12 @@ void RenderText::SetCompositionRange(const Range& composition_range) {
 
 void RenderText::SetColor(SkColor value) {
   colors_.SetValue(value);
+  OnTextColorChanged();
 }
 
 void RenderText::ApplyColor(SkColor value, const Range& range) {
   colors_.ApplyValue(value, range);
+  OnTextColorChanged();
 }
 
 void RenderText::SetBaselineStyle(BaselineStyle value) {
@@ -770,7 +771,7 @@ VisualCursorDirection RenderText::GetVisualDirectionOfLogicalEnd() {
 }
 
 SizeF RenderText::GetStringSizeF() {
-  return GetStringSize();
+  return gfx::SizeF(GetStringSize());
 }
 
 float RenderText::GetContentWidthF() {
@@ -807,8 +808,10 @@ void RenderText::Draw(Canvas* canvas) {
   if (cursor_enabled() && cursor_visible() && focused())
     DrawCursor(canvas, selection_model_);
 
-  if (!text().empty())
-    DrawVisualText(canvas);
+  if (!text().empty()) {
+    internal::SkiaTextRenderer renderer(canvas);
+    DrawVisualText(&renderer);
+  }
 
   if (clip_to_display_rect())
     canvas->Restore();
@@ -1016,6 +1019,9 @@ void RenderText::SetSelectionModel(const SelectionModel& model) {
   DCHECK_LE(model.selection().GetMax(), text().length());
   selection_model_ = model;
   cached_bounds_and_offset_valid_ = false;
+}
+
+void RenderText::OnTextColorChanged() {
 }
 
 void RenderText::UpdateDisplayText(float text_width) {

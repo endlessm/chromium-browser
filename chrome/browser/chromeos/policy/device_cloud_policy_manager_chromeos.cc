@@ -24,6 +24,7 @@
 #include "chrome/browser/chromeos/policy/remote_commands/device_commands_factory_chromeos.h"
 #include "chrome/browser/chromeos/policy/server_backed_state_keys_broker.h"
 #include "chrome/browser/chromeos/policy/status_uploader.h"
+#include "chrome/browser/chromeos/policy/system_log_uploader.h"
 #include "chrome/common/pref_names.h"
 #include "chromeos/chromeos_constants.h"
 #include "chromeos/chromeos_switches.h"
@@ -62,9 +63,6 @@ const char kSharkRequisition[] = "shark";
 // does though!). The former sticker is the source of the serial number used by
 // device management service, so we prefer Product_S/N over serial number to
 // match the server.
-//
-// TODO(mnissler): Move serial_number back to the top once the server side uses
-// the correct serial number.
 const char* const kMachineInfoSerialNumberKeys[] = {
   "Product_S/N",    // Lumpy/Alex devices
   "serial_number",  // VPD v2+ devices
@@ -189,6 +187,7 @@ bool DeviceCloudPolicyManagerChromeOS::IsSharkRequisition() const {
 
 void DeviceCloudPolicyManagerChromeOS::Shutdown() {
   status_uploader_.reset();
+  syslog_uploader_.reset();
   heartbeat_scheduler_.reset();
   state_keys_update_subscription_.reset();
   CloudPolicyManager::Shutdown();
@@ -210,15 +209,19 @@ std::string DeviceCloudPolicyManagerChromeOS::GetMachineID() {
   chromeos::system::StatisticsProvider* provider =
       chromeos::system::StatisticsProvider::GetInstance();
   for (size_t i = 0; i < arraysize(kMachineInfoSerialNumberKeys); i++) {
-    if (provider->GetMachineStatistic(kMachineInfoSerialNumberKeys[i],
+    if (provider->HasMachineStatistic(kMachineInfoSerialNumberKeys[i]) &&
+        provider->GetMachineStatistic(kMachineInfoSerialNumberKeys[i],
                                       &machine_id) &&
         !machine_id.empty()) {
       break;
     }
   }
 
-  if (machine_id.empty())
-    LOG(WARNING) << "Failed to get machine id.";
+  if (machine_id.empty()) {
+    LOG(WARNING) << "Failed to get machine id. This is only an error if the "
+                    "device has not yet been enrolled or claimed by a local "
+                    "user.";
+  }
 
   return machine_id;
 }
@@ -253,11 +256,11 @@ void DeviceCloudPolicyManagerChromeOS::StartConnection(
   // the monitoring settings and only perform monitoring if it is active.
   if (install_attributes->IsEnterpriseDevice()) {
     CreateStatusUploader();
-    heartbeat_scheduler_.reset(
-        new HeartbeatScheduler(g_browser_process->gcm_driver(),
-                               install_attributes->GetDomain(),
-                               install_attributes->GetDeviceId(),
-                               task_runner_));
+    syslog_uploader_.reset(new SystemLogUploader(nullptr, task_runner_));
+    heartbeat_scheduler_.reset(new HeartbeatScheduler(
+        g_browser_process->gcm_driver(), client(),
+        install_attributes->GetDomain(), install_attributes->GetDeviceId(),
+        task_runner_));
   }
 
   NotifyConnected();
@@ -277,6 +280,7 @@ void DeviceCloudPolicyManagerChromeOS::Unregister(
 
 void DeviceCloudPolicyManagerChromeOS::Disconnect() {
   status_uploader_.reset();
+  syslog_uploader_.reset();
   heartbeat_scheduler_.reset();
   core()->Disconnect();
 
@@ -337,7 +341,8 @@ void DeviceCloudPolicyManagerChromeOS::CreateStatusUploader() {
           local_state_, chromeos::system::StatisticsProvider::GetInstance(),
           DeviceStatusCollector::LocationUpdateRequester(),
           DeviceStatusCollector::VolumeInfoFetcher(),
-          DeviceStatusCollector::CPUStatisticsFetcher())),
+          DeviceStatusCollector::CPUStatisticsFetcher(),
+          DeviceStatusCollector::CPUTempFetcher())),
       task_runner_));
 }
 

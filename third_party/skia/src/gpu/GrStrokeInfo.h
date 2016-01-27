@@ -8,8 +8,9 @@
 #ifndef GrStrokeInfo_DEFINED
 #define GrStrokeInfo_DEFINED
 
-#include "SkStrokeRec.h"
 #include "SkPathEffect.h"
+#include "SkStrokeRec.h"
+#include "SkTemplates.h"
 
 class GrUniqueKey;
 
@@ -20,6 +21,11 @@ class GrUniqueKey;
  */
 class GrStrokeInfo : public SkStrokeRec {
 public:
+    static const GrStrokeInfo& FillInfo() {
+        static const GrStrokeInfo gFill(kFill_InitStyle);
+        return gFill;
+    }
+
     GrStrokeInfo(SkStrokeRec::InitStyle style)
         : INHERITED(style)
         , fDashType(SkPathEffect::kNone_DashType) {

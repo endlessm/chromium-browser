@@ -35,6 +35,7 @@
 #include "chrome/test/base/ui_test_utils.h"
 #include "chromeos/chromeos_switches.h"
 #include "chromeos/login/user_names.h"
+#include "components/signin/core/account_id/account_id.h"
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
@@ -246,8 +247,8 @@ class SpokenFeedbackTest
       command_line->AppendSwitch(::switches::kIncognito);
       command_line->AppendSwitchASCII(chromeos::switches::kLoginProfile,
                                       "user");
-      command_line->AppendSwitchASCII(chromeos::switches::kLoginUser,
-                                      chromeos::login::kGuestUserName);
+      command_line->AppendSwitchASCII(switches::kLoginUser,
+                                      login::GuestAccountId().GetUserEmail());
     }
   }
 };
@@ -327,7 +328,7 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, NavigateAppLauncher) {
 
   SendKeyPress(ui::VKEY_RETURN);
 
-  EXPECT_EQ("Search or type U R L", speech_monitor_.GetNextUtterance());
+  EXPECT_EQ("Search or type URL", speech_monitor_.GetNextUtterance());
   EXPECT_EQ("Edit text", speech_monitor_.GetNextUtterance());
 
   SendKeyPress(ui::VKEY_DOWN);
@@ -370,7 +371,7 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, NavigateSystemTray) {
 
   // Compat next button.
   SendKeyPressWithSearchAndShift(ui::VKEY_N);
-  SendKeyPressWithSearchAndShift(ui::VKEY_B);
+  SendKeyPress(ui::VKEY_B);
   EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "*"));
   EXPECT_TRUE(base::MatchPattern(speech_monitor_.GetNextUtterance(), "Button"));
 
@@ -385,6 +386,11 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, NavigateSystemTray) {
   }
   SendKeyPress(ui::VKEY_RETURN);
 
+  while (true) {
+    if (base::MatchPattern(speech_monitor_.GetNextUtterance(), "*Bluetooth"))
+      break;
+  }
+
   // Navigate to return to previous menu button and press it.
   while (true) {
     SendKeyPress(ui::VKEY_TAB);
@@ -395,7 +401,6 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, NavigateSystemTray) {
   SendKeyPress(ui::VKEY_RETURN);
 
   while (true) {
-    std::string utterance = speech_monitor_.GetNextUtterance();
     if (base::MatchPattern(speech_monitor_.GetNextUtterance(), "*Bluetooth"))
       break;
   }
@@ -417,6 +422,9 @@ IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, DISABLED_ScreenBrightness) {
 IN_PROC_BROWSER_TEST_P(SpokenFeedbackTest, VolumeSlider) {
   EnableChromeVox();
 
+  // Volume slider does not fire valueChanged event on first key press because
+  // it has no widget.
+  EXPECT_TRUE(PerformAcceleratorAction(ash::VOLUME_UP));
   EXPECT_TRUE(PerformAcceleratorAction(ash::VOLUME_UP));
   EXPECT_TRUE(
       base::MatchPattern(speech_monitor_.GetNextUtterance(), "* percent*"));
@@ -590,8 +598,8 @@ class GuestSpokenFeedbackTest : public LoggedInSpokenFeedbackTest {
     command_line->AppendSwitch(chromeos::switches::kGuestSession);
     command_line->AppendSwitch(::switches::kIncognito);
     command_line->AppendSwitchASCII(chromeos::switches::kLoginProfile, "user");
-    command_line->AppendSwitchASCII(chromeos::switches::kLoginUser,
-                                    chromeos::login::kGuestUserName);
+    command_line->AppendSwitchASCII(switches::kLoginUser,
+                                    login::GuestAccountId().GetUserEmail());
   }
 
  private:
@@ -645,7 +653,7 @@ IN_PROC_BROWSER_TEST_F(OobeSpokenFeedbackTest, DISABLED_SpokenFeedbackInOobe) {
 
   // We expect to be in the language select dropdown for this test to work,
   // so make sure that's the case.
-  js_checker().Execute("$('language-select').focus()");
+  js_checker().ExecuteAsync("$('language-select').focus()");
   AccessibilityManager::Get()->EnableSpokenFeedback(
       true, ui::A11Y_NOTIFICATION_NONE);
   ASSERT_TRUE(speech_monitor_.SkipChromeVoxEnabledMessage());

@@ -66,7 +66,8 @@ void URLRequestFileDirJob::Kill() {
   weak_factory_.InvalidateWeakPtrs();
 }
 
-bool URLRequestFileDirJob::ReadRawData(IOBuffer* buf, int buf_size,
+bool URLRequestFileDirJob::ReadRawData(IOBuffer* buf,
+                                       int buf_size,
                                        int* bytes_read) {
   DCHECK(bytes_read);
   *bytes_read = 0;
@@ -162,7 +163,7 @@ void URLRequestFileDirJob::CompleteRead() {
     } else {
       NOTREACHED();
       // TODO: Better error code.
-      NotifyDone(URLRequestStatus(URLRequestStatus::FAILED, 0));
+      NotifyDone(URLRequestStatus::FromError(ERR_FAILED));
     }
   }
 }

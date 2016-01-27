@@ -13,6 +13,8 @@
 
 class GlobalErrorService;
 
+namespace safe_browsing {
+
 // Encapsulates UI-related functionality for the software removal tool (SRT)
 // prompt. The UI consists of two parts: (1.) the profile reset (pop-up) bubble,
 // and (2.) a menu item in the wrench menu (provided by being a GlobalError).
@@ -34,6 +36,9 @@ class SRTGlobalError : public GlobalErrorWithStandardBubble {
   base::string16 MenuItemLabel() override;
   void ExecuteMenuItem(Browser* browser) override;
   void ShowBubbleView(Browser* browser) override;
+
+  // WidgetDelegateView overrides:
+  bool ShouldShowCloseButton() const override;
 
   // GlobalErrorWithStandardBubble:
   base::string16 GetBubbleViewTitle() override;
@@ -63,7 +68,15 @@ class SRTGlobalError : public GlobalErrorWithStandardBubble {
   // The path to the downloaded executable.
   base::FilePath downloaded_path_;
 
+  // Identifies whether the Dismiss button should be shown or not.
+  bool show_dismiss_button_ = false;
+
+  // Identifies whether the user interacted with the bubble buttons or not.
+  bool interacted_ = false;
+
   DISALLOW_COPY_AND_ASSIGN(SRTGlobalError);
 };
+
+}  // namespace safe_browsing
 
 #endif  // CHROME_BROWSER_SAFE_BROWSING_SRT_GLOBAL_ERROR_WIN_H_

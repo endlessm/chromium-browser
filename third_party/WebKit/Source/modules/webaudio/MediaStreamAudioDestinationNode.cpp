@@ -26,7 +26,7 @@
 #if ENABLE(WEB_AUDIO)
 #include "modules/webaudio/MediaStreamAudioDestinationNode.h"
 
-#include "modules/webaudio/AudioContext.h"
+#include "modules/webaudio/AbstractAudioContext.h"
 #include "modules/webaudio/AudioNodeInput.h"
 #include "platform/UUID.h"
 #include "platform/mediastream/MediaStreamCenter.h"
@@ -41,7 +41,7 @@ MediaStreamAudioDestinationHandler::MediaStreamAudioDestinationHandler(AudioNode
 {
     m_source = MediaStreamSource::create("WebAudio-" + createCanonicalUUIDString(), MediaStreamSource::TypeAudio, "MediaStreamAudioDestinationNode", false, true, MediaStreamSource::ReadyStateLive, true);
     MediaStreamSourceVector audioSources;
-    audioSources.append(m_source);
+    audioSources.append(m_source.get());
     MediaStreamSourceVector videoSources;
     m_stream = MediaStream::create(node.context()->executionContext(), MediaStreamDescriptor::create(audioSources, videoSources));
     MediaStreamCenter::instance().didCreateMediaStreamAndTracks(m_stream->descriptor());
@@ -69,13 +69,13 @@ void MediaStreamAudioDestinationHandler::process(size_t numberOfFrames)
 
 // ----------------------------------------------------------------
 
-MediaStreamAudioDestinationNode::MediaStreamAudioDestinationNode(AudioContext& context, size_t numberOfChannels)
+MediaStreamAudioDestinationNode::MediaStreamAudioDestinationNode(AbstractAudioContext& context, size_t numberOfChannels)
     : AudioBasicInspectorNode(context)
 {
     setHandler(MediaStreamAudioDestinationHandler::create(*this, numberOfChannels));
 }
 
-MediaStreamAudioDestinationNode* MediaStreamAudioDestinationNode::create(AudioContext& context, size_t numberOfChannels)
+MediaStreamAudioDestinationNode* MediaStreamAudioDestinationNode::create(AbstractAudioContext& context, size_t numberOfChannels)
 {
     return new MediaStreamAudioDestinationNode(context, numberOfChannels);
 }

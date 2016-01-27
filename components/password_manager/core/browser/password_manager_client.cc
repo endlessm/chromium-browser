@@ -10,27 +10,20 @@ bool PasswordManagerClient::IsAutomaticPasswordSavingEnabled() const {
   return false;
 }
 
-bool PasswordManagerClient::IsPasswordManagementEnabledForCurrentPage() const {
+bool PasswordManagerClient::IsSavingAndFillingEnabledForCurrentPage() const {
   return true;
 }
 
-bool PasswordManagerClient::IsSavingEnabledForCurrentPage() const {
+bool PasswordManagerClient::IsFillingEnabledForCurrentPage() const {
   return true;
-}
-
-void PasswordManagerClient::AutofillResultsComputed() {
 }
 
 void PasswordManagerClient::ForceSavePassword() {
 }
 
 void PasswordManagerClient::PasswordWasAutofilled(
-    const autofill::PasswordFormMap& best_matches) const {
-}
-
-void PasswordManagerClient::PasswordAutofillWasBlocked(
-    const autofill::PasswordFormMap& best_matches) const {
-}
+    const autofill::PasswordFormMap& best_matches,
+    const GURL& origin) const {}
 
 PasswordSyncState PasswordManagerClient::GetPasswordSyncState() const {
   return NOT_SYNCING_PASSWORDS;
@@ -76,8 +69,13 @@ bool PasswordManagerClient::IsOffTheRecord() const {
   return false;
 }
 
-PasswordManager* PasswordManagerClient::GetPasswordManager() {
+const PasswordManager* PasswordManagerClient::GetPasswordManager() const {
   return nullptr;
+}
+
+PasswordManager* PasswordManagerClient::GetPasswordManager() {
+  return const_cast<PasswordManager*>(
+      static_cast<const PasswordManagerClient*>(this)->GetPasswordManager());
 }
 
 autofill::AutofillManager*
@@ -87,6 +85,10 @@ PasswordManagerClient::GetAutofillManagerForMainFrame() {
 
 const GURL& PasswordManagerClient::GetMainFrameURL() const {
   return GURL::EmptyGURL();
+}
+
+bool PasswordManagerClient::IsUpdatePasswordUIEnabled() const {
+  return false;
 }
 
 }  // namespace password_manager

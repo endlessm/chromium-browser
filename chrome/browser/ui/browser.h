@@ -23,6 +23,7 @@
 #include "chrome/browser/ui/bookmarks/bookmark_bar.h"
 #include "chrome/browser/ui/bookmarks/bookmark_tab_helper_delegate.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/chrome_bubble_manager.h"
 #include "chrome/browser/ui/chrome_web_modal_dialog_manager_delegate.h"
 #include "chrome/browser/ui/exclusive_access/exclusive_access_manager.h"
 #include "chrome/browser/ui/host_desktop.h"
@@ -30,10 +31,10 @@
 #include "chrome/browser/ui/search_engines/search_engine_tab_helper_delegate.h"
 #include "chrome/browser/ui/tab_contents/core_tab_helper_delegate.h"
 #include "chrome/browser/ui/tabs/tab_strip_model_observer.h"
-#include "chrome/browser/ui/toolbar/toolbar_model.h"
 #include "components/content_settings/core/common/content_settings.h"
 #include "components/content_settings/core/common/content_settings_types.h"
-#include "components/sessions/session_id.h"
+#include "components/sessions/core/session_id.h"
+#include "components/toolbar/toolbar_model.h"
 #include "components/translate/content/browser/content_translate_driver.h"
 #include "components/ui/zoom/zoom_observer.h"
 #include "content/public/browser/notification_observer.h"
@@ -55,7 +56,7 @@ class BrowserContentSettingBubbleModelDelegate;
 class BrowserInstantController;
 class BrowserSyncedWindowDelegate;
 class BrowserToolbarModelDelegate;
-class BrowserTabRestoreServiceDelegate;
+class BrowserLiveTabContext;
 class BrowserWindow;
 class FindBarController;
 class PrefService;
@@ -98,7 +99,6 @@ class WebDialogDelegate;
 }
 
 namespace web_modal {
-class PopupManager;
 class WebContentsModalDialogHost;
 }
 
@@ -255,9 +255,6 @@ class Browser : public TabStripModelObserver,
     toolbar_model->swap(toolbar_model_);
   }
 #endif
-  web_modal::PopupManager* popup_manager() {
-    return popup_manager_.get();
-  }
   TabStripModel* tab_strip_model() const { return tab_strip_model_.get(); }
   chrome::BrowserCommandController* command_controller() {
     return command_controller_.get();
@@ -274,9 +271,7 @@ class Browser : public TabStripModelObserver,
       content_setting_bubble_model_delegate() {
     return content_setting_bubble_model_delegate_.get();
   }
-  BrowserTabRestoreServiceDelegate* tab_restore_service_delegate() {
-    return tab_restore_service_delegate_.get();
-  }
+  BrowserLiveTabContext* live_tab_context() { return live_tab_context_.get(); }
   BrowserSyncedWindowDelegate* synced_window_delegate() {
     return synced_window_delegate_.get();
   }
@@ -286,6 +281,9 @@ class Browser : public TabStripModelObserver,
   extensions::HostedAppBrowserController* hosted_app_controller() {
     return hosted_app_controller_.get();
   }
+
+  // Will lazy create the bubble manager.
+  ChromeBubbleManager* GetBubbleManager();
 
   // Get the FindBarController for this browser, creating it if it does not
   // yet exist.
@@ -465,6 +463,9 @@ class Browser : public TabStripModelObserver,
   content::SecurityStyle GetSecurityStyle(
       content::WebContents* web_contents,
       content::SecurityStyleExplanations* security_style_explanations) override;
+  void ShowCertificateViewerInDevTools(
+      content::WebContents* web_contents,
+      int cert_id) override;
 
   bool is_type_tabbed() const { return type_ == TYPE_TABBED; }
   bool is_type_popup() const { return type_ == TYPE_POPUP; }
@@ -480,9 +481,6 @@ class Browser : public TabStripModelObserver,
 
   // Show the first run search engine bubble on the location bar.
   void ShowFirstRunBubble();
-
-  // Show a download on the download shelf.
-  void ShowDownload(content::DownloadItem* download);
 
   ExclusiveAccessManager* exclusive_access_manager() {
     return exclusive_access_manager_.get();
@@ -561,7 +559,6 @@ class Browser : public TabStripModelObserver,
                       bool user_gesture,
                       bool* was_blocked) override;
   void ActivateContents(content::WebContents* contents) override;
-  void DeactivateContents(content::WebContents* contents) override;
   void LoadingStateChanged(content::WebContents* source,
                            bool to_different_document) override;
   void CloseContents(content::WebContents* source) override;
@@ -587,8 +584,9 @@ class Browser : public TabStripModelObserver,
   void ShowRepostFormWarningDialog(content::WebContents* source) override;
   bool ShouldCreateWebContents(
       content::WebContents* web_contents,
-      int route_id,
-      int main_frame_route_id,
+      int32_t route_id,
+      int32_t main_frame_route_id,
+      int32_t main_frame_widget_route_id,
       WindowContainerType window_container_type,
       const std::string& frame_name,
       const GURL& target_url,
@@ -601,7 +599,6 @@ class Browser : public TabStripModelObserver,
                           content::WebContents* new_contents) override;
   void RendererUnresponsive(content::WebContents* source) override;
   void RendererResponsive(content::WebContents* source) override;
-  void WorkerCrashed(content::WebContents* source) override;
   void DidNavigateMainFramePostCommit(
       content::WebContents* web_contents) override;
   content::JavaScriptDialogManager* GetJavaScriptDialogManager(
@@ -620,6 +617,8 @@ class Browser : public TabStripModelObserver,
                                  const GURL& origin) override;
   void ExitFullscreenModeForTab(content::WebContents* web_contents) override;
   bool IsFullscreenForTabOrPending(
+      const content::WebContents* web_contents) const override;
+  blink::WebDisplayMode GetDisplayMode(
       const content::WebContents* web_contents) const override;
   void RegisterProtocolHandler(content::WebContents* web_contents,
                                const std::string& protocol,
@@ -827,11 +826,16 @@ class Browser : public TabStripModelObserver,
 
   bool ShouldHideUIForFullscreen() const;
 
+  // Returns true if we can start the shutdown sequence for the browser, i.e.
+  // the last browser window is being closed.
+  bool ShouldStartShutdown() const;
+
   // Creates a BackgroundContents if appropriate; return true if one was
   // created.
   bool MaybeCreateBackgroundContents(
-      int route_id,
-      int main_frame_route_id,
+      int32_t route_id,
+      int32_t main_frame_route_id,
+      int32_t main_frame_widget_route_id,
       content::WebContents* opener_web_contents,
       const std::string& frame_name,
       const GURL& target_url,
@@ -860,10 +864,6 @@ class Browser : public TabStripModelObserver,
 
   // This Browser's window.
   BrowserWindow* window_;
-
-  // Manages popup windows (bubbles, tab-modals) visible overlapping this
-  // window. JS alerts are not handled by this manager.
-  scoped_ptr<web_modal::PopupManager> popup_manager_;
 
   scoped_ptr<TabStripModelDelegate> tab_strip_model_delegate_;
   scoped_ptr<TabStripModel> tab_strip_model_;
@@ -936,6 +936,8 @@ class Browser : public TabStripModelObserver,
   scoped_ptr<chrome::UnloadController> unload_controller_;
   scoped_ptr<chrome::FastUnloadController> fast_unload_controller_;
 
+  scoped_ptr<ChromeBubbleManager> bubble_manager_;
+
   // The Find Bar. This may be NULL if there is no Find Bar, and if it is
   // non-NULL, it may or may not be visible.
   scoped_ptr<FindBarController> find_bar_controller_;
@@ -957,8 +959,8 @@ class Browser : public TabStripModelObserver,
   // |search_model_| state with the tab's state.
   scoped_ptr<SearchDelegate> search_delegate_;
 
-  // Helper which implements the TabRestoreServiceDelegate interface.
-  scoped_ptr<BrowserTabRestoreServiceDelegate> tab_restore_service_delegate_;
+  // Helper which implements the LiveTabContext interface.
+  scoped_ptr<BrowserLiveTabContext> live_tab_context_;
 
   // Helper which implements the SyncedWindowDelegate interface.
   scoped_ptr<BrowserSyncedWindowDelegate> synced_window_delegate_;

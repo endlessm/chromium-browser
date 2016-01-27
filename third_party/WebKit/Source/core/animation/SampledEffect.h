@@ -8,6 +8,7 @@
 #include "core/animation/Animation.h"
 #include "core/animation/Interpolation.h"
 #include "core/animation/KeyframeEffect.h"
+#include "wtf/Allocator.h"
 #include "wtf/BitArray.h"
 #include "wtf/Vector.h"
 
@@ -15,23 +16,20 @@ namespace blink {
 
 class SVGElement;
 
-class SampledEffect : public NoBaseWillBeGarbageCollected<SampledEffect> {
+// TODO(haraken): Drop Finalized once we ship Oilpan and the OwnPtrWillBeMember
+// is gone.
+class SampledEffect : public GarbageCollectedFinalized<SampledEffect> {
+    WTF_MAKE_NONCOPYABLE(SampledEffect);
 public:
-    static PassOwnPtrWillBeRawPtr<SampledEffect> create(KeyframeEffect* animation, PassOwnPtrWillBeRawPtr<WillBeHeapVector<RefPtrWillBeMember<Interpolation>>> interpolations)
+    static SampledEffect* create(KeyframeEffect* animation)
     {
-        return adoptPtrWillBeNoop(new SampledEffect(animation, interpolations));
+        return new SampledEffect(animation);
     }
 
     void clear();
 
-    const WillBeHeapVector<RefPtrWillBeMember<Interpolation>>& interpolations() const { return *m_interpolations; }
-#if ENABLE(OILPAN)
-    RawPtr<WillBeHeapVector<RefPtrWillBeMember<Interpolation>>> mutableInterpolations() { return m_interpolations.get(); }
-#else
-    PassOwnPtr<WillBeHeapVector<RefPtrWillBeMember<Interpolation>>> mutableInterpolations() { return m_interpolations.release(); }
-#endif
-
-    void setInterpolations(PassOwnPtrWillBeRawPtr<WillBeHeapVector<RefPtrWillBeMember<Interpolation>>> interpolations) { m_interpolations = interpolations; }
+    const Vector<RefPtr<Interpolation>>& interpolations() const { return m_interpolations; }
+    Vector<RefPtr<Interpolation>>& mutableInterpolations() { return m_interpolations; }
 
     KeyframeEffect* effect() const { return m_effect; }
     unsigned sequenceNumber() const { return m_sequenceNumber; }
@@ -39,14 +37,12 @@ public:
 
     DECLARE_TRACE();
 
-    void applySVGUpdate(SVGElement&);
-
 private:
-    SampledEffect(KeyframeEffect*, PassOwnPtrWillBeRawPtr<WillBeHeapVector<RefPtrWillBeMember<Interpolation>>>);
+    SampledEffect(KeyframeEffect*);
 
-    RawPtrWillBeWeakMember<KeyframeEffect> m_effect;
-    RefPtrWillBeMember<Animation> m_animation;
-    OwnPtrWillBeMember<WillBeHeapVector<RefPtrWillBeMember<Interpolation>>> m_interpolations;
+    WeakMember<KeyframeEffect> m_effect;
+    Member<Animation> m_animation;
+    Vector<RefPtr<Interpolation>> m_interpolations;
     const unsigned m_sequenceNumber;
     KeyframeEffect::Priority m_priority;
 };

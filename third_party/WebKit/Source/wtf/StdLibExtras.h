@@ -29,6 +29,7 @@
 #include "wtf/Assertions.h"
 #include "wtf/CPU.h"
 #include "wtf/CheckedArithmetic.h"
+#include <cstddef>
 
 #if ENABLE(ASSERT)
 #include "wtf/Noncopyable.h"
@@ -71,11 +72,6 @@ private:
     static type& name = *new type arguments
 #endif
 
-// Does the same as DEFINE_STATIC_LOCAL but without assertions.
-// Use this when you are absolutely sure that it is safe but above
-// assertions fail (e.g. called on multiple thread with a local lock).
-#define DEFINE_STATIC_LOCAL_NOASSERT(type, name, arguments) \
-    static type& name = *new type arguments
 #endif
 
 
@@ -87,25 +83,6 @@ private:
 #define DEFINE_STATIC_REF(type, name, arguments) \
     static type* name = PassRefPtr<type>(arguments).leakRef();
 #endif
-
-// Use this macro to declare and define a debug-only global variable that may have a
-// non-trivial constructor and destructor. When building with clang, this will suppress
-// warnings about global constructors and exit-time destructors.
-#ifndef NDEBUG
-#if COMPILER(CLANG)
-#define DEFINE_DEBUG_ONLY_GLOBAL(type, name, arguments) \
-    _Pragma("clang diagnostic push") \
-    _Pragma("clang diagnostic ignored \"-Wglobal-constructors\"") \
-    _Pragma("clang diagnostic ignored \"-Wexit-time-destructors\"") \
-    static type name arguments; \
-    _Pragma("clang diagnostic pop")
-#else
-#define DEFINE_DEBUG_ONLY_GLOBAL(type, name, arguments) \
-    static type name arguments;
-#endif // COMPILER(CLANG)
-#else
-#define DEFINE_DEBUG_ONLY_GLOBAL(type, name, arguments)
-#endif // NDEBUG
 
 /*
  * The reinterpret_cast<Type1*>([pointer to Type2]) expressions - where

@@ -37,7 +37,7 @@ Quickstart
         out/Debug/dm
         out/Debug/SampleApp
 
-Prerequisites
+<a name="prerequisites"></a>Prerequisites
 -------------
 
 On a Ubuntu 12.04 (Precise) or Ubuntu 14.04 (Trusty) system, you can run
@@ -94,7 +94,7 @@ If you want to use Eclipse, see Creating an Eclipse Project after you have gener
 On 32-bit Linux (when `uname -m` is *not* `x86_64`), you will have to
 explicitly specify the architecture:
 
-    GYP_DEFINES='skia_arch_width=32' ./gyp_skia
+    GYP_DEFINES='skia_arch_type=x86' ./gyp_skia
 
 Build and run tests from the command line
 -----------------------------------------
@@ -136,19 +136,20 @@ To move through the sample app, use the following keypresses:
   * left-arrow key: cycle through rendering methods for each test page
   * other keys are defined in SampleApp.cpp’s SampleWindow::onHandleKey() and SampleWindow::onHandleChar() methods
 
-Build and run gm ("golden master") tests
+Build and run DM ("diamond master") tests
 ----------------------------------------
 
-This will display the return value (0 = success) after running the tests...
+[DM is Skia's unit/correctness test harness](../../dev/testing/testing).
 
-    make -j gm
-    out/Debug/gm -r gm/base-linux ; echo $?
+    make -j dm
+    out/Debug/dm
 
-You can also adjust the type used to represent SkScalar. By default, we use a
-float. To change that, run it as follows:
+The `GYP_DEFINES` environment variable can be used to change Skia's
+compile-time settings.  For example, to disable the Skia GPU backend,
+run it as follows:
 
-    GYP_DEFINES="skia_scalar=fixed" make -j gm
-    out/Debug/gm -r gm/base-linux-fixed ; echo $?
+    GYP_DEFINES='skia_gpu=0' make -j dm
+    out/Debug/dm
 
 Build and run bench (performance testbench)
 -------------------------------------------

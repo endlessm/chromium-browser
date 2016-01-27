@@ -28,7 +28,6 @@
 
 #include "bindings/core/v8/ScriptState.h"
 #include "core/dom/ActiveDOMObject.h"
-#include "core/dom/DOMError.h"
 #include "core/events/EventListener.h"
 #include "modules/EventModules.h"
 #include "modules/EventTargetModules.h"
@@ -42,7 +41,7 @@
 
 namespace blink {
 
-class DOMError;
+class DOMException;
 class ExceptionState;
 class IDBDatabase;
 class IDBObjectStore;
@@ -77,7 +76,7 @@ public:
     const String& mode() const;
     PassRefPtrWillBeRawPtr<DOMStringList> objectStoreNames() const;
     IDBDatabase* db() const { return m_database.get(); }
-    DOMError* error() const { return m_error; }
+    DOMException* error() const { return m_error; }
     IDBObjectStore* objectStore(const String& name, ExceptionState&);
     void abort(ExceptionState&);
 
@@ -86,25 +85,26 @@ public:
     void objectStoreCreated(const String&, IDBObjectStore*);
     void objectStoreDeleted(const String&);
     void setActive(bool);
-    void setError(DOMError*);
+    void setError(DOMException*);
 
     DEFINE_ATTRIBUTE_EVENT_LISTENER(abort);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(complete);
     DEFINE_ATTRIBUTE_EVENT_LISTENER(error);
 
-    void onAbort(DOMError*);
+    void onAbort(DOMException*);
     void onComplete();
 
     // EventTarget
     const AtomicString& interfaceName() const override;
     ExecutionContext* executionContext() const override;
 
-    using EventTarget::dispatchEvent;
-    bool dispatchEvent(PassRefPtrWillBeRawPtr<Event>) override;
-
     // ActiveDOMObject
     bool hasPendingActivity() const override;
     void stop() override;
+
+protected:
+    // EventTarget
+    bool dispatchEventInternal(PassRefPtrWillBeRawPtr<Event>) override;
 
 private:
     IDBTransaction(ScriptState*, int64_t, const HashSet<String>&, WebIDBTransactionMode, IDBDatabase*, IDBOpenDBRequest*, const IDBDatabaseMetadata&);
@@ -118,26 +118,23 @@ private:
         Finished, // No more events will fire and no new requests may be filed.
     };
 
-    int64_t m_id;
+    const int64_t m_id;
     Member<IDBDatabase> m_database;
     const HashSet<String> m_objectStoreNames;
     Member<IDBOpenDBRequest> m_openDBRequest;
     const WebIDBTransactionMode m_mode;
-    State m_state;
-    bool m_hasPendingActivity;
-    bool m_contextStopped;
-    Member<DOMError> m_error;
+    State m_state = Active;
+    bool m_hasPendingActivity = true;
+    bool m_contextStopped = false;
+    Member<DOMException> m_error;
 
     HeapListHashSet<Member<IDBRequest>> m_requestList;
 
     typedef HeapHashMap<String, Member<IDBObjectStore>> IDBObjectStoreMap;
     IDBObjectStoreMap m_objectStoreMap;
 
-    typedef HeapHashSet<Member<IDBObjectStore>> IDBObjectStoreSet;
-    IDBObjectStoreSet m_deletedObjectStores;
-
-    typedef HeapHashMap<Member<IDBObjectStore>, IDBObjectStoreMetadata> IDBObjectStoreMetadataMap;
-    IDBObjectStoreMetadataMap m_objectStoreCleanupMap;
+    HeapHashSet<Member<IDBObjectStore>> m_deletedObjectStores;
+    HeapHashMap<Member<IDBObjectStore>, IDBObjectStoreMetadata> m_objectStoreCleanupMap;
     IDBDatabaseMetadata m_previousMetadata;
 };
 

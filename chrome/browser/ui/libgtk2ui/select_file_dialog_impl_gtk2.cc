@@ -3,6 +3,10 @@
 // found in the LICENSE file.
 
 #include <gtk/gtk.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
 #include <map>
 #include <set>
 #include <vector>
@@ -32,7 +36,8 @@ namespace {
 // Makes sure that .jpg also shows .JPG.
 gboolean FileFilterCaseInsensitive(const GtkFileFilterInfo* file_info,
                                    std::string* file_extension) {
-  return base::EndsWith(file_info->filename, *file_extension, false);
+  return base::EndsWith(file_info->filename, *file_extension,
+                        base::CompareCase::INSENSITIVE_ASCII);
 }
 
 // Deletes |data| when gtk_file_filter_add_custom() is done with it.
@@ -319,7 +324,8 @@ void SelectFileDialogImplGTK::AddFilters(GtkFileChooser* chooser) {
       // the extensions themselves if the description is blank.
       std::vector<std::string> fallback_labels_vector(fallback_labels.begin(),
                                                       fallback_labels.end());
-      std::string fallback_label = JoinString(fallback_labels_vector, ',');
+      std::string fallback_label =
+          base::JoinString(fallback_labels_vector, ",");
       gtk_file_filter_set_name(filter, fallback_label.c_str());
     }
 
@@ -384,8 +390,8 @@ GtkWidget* SelectFileDialogImplGTK::CreateFileOpenHelper(
   GtkWidget* dialog =
       gtk_file_chooser_dialog_new(title.c_str(), NULL,
                                   GTK_FILE_CHOOSER_ACTION_OPEN,
-                                  GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-                                  GTK_STOCK_OPEN, GTK_RESPONSE_ACCEPT,
+                                  "_Cancel", GTK_RESPONSE_CANCEL,
+                                  "_Open", GTK_RESPONSE_ACCEPT,
                                   NULL);
   SetGtkTransientForAura(dialog, parent);
   AddFilters(GTK_FILE_CHOOSER(dialog));
@@ -420,12 +426,12 @@ GtkWidget* SelectFileDialogImplGTK::CreateSelectFolderDialog(
   }
   std::string accept_button_label = (type == SELECT_UPLOAD_FOLDER) ?
       l10n_util::GetStringUTF8(IDS_SELECT_UPLOAD_FOLDER_DIALOG_UPLOAD_BUTTON) :
-      GTK_STOCK_OPEN;
+      "_Open";
 
   GtkWidget* dialog =
       gtk_file_chooser_dialog_new(title_string.c_str(), NULL,
                                   GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER,
-                                  GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
+                                  "_Cancel", GTK_RESPONSE_CANCEL,
                                   accept_button_label.c_str(),
                                   GTK_RESPONSE_ACCEPT,
                                   NULL);
@@ -480,20 +486,27 @@ GtkWidget* SelectFileDialogImplGTK::CreateSaveAsDialog(const std::string& title,
   GtkWidget* dialog =
       gtk_file_chooser_dialog_new(title_string.c_str(), NULL,
                                   GTK_FILE_CHOOSER_ACTION_SAVE,
-                                  GTK_STOCK_CANCEL, GTK_RESPONSE_CANCEL,
-                                  GTK_STOCK_SAVE, GTK_RESPONSE_ACCEPT,
+                                  "_Cancel", GTK_RESPONSE_CANCEL,
+                                  "_Save", GTK_RESPONSE_ACCEPT,
                                   NULL);
   SetGtkTransientForAura(dialog, parent);
 
   AddFilters(GTK_FILE_CHOOSER(dialog));
   if (!default_path.empty()) {
-    // Since the file may not already exist, we use
-    // set_current_folder() followed by set_current_name(), as per the
-    // recommendation of the GTK docs.
-    gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog),
-        default_path.DirName().value().c_str());
-    gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(dialog),
-        default_path.BaseName().value().c_str());
+    if (CallDirectoryExistsOnUIThread(default_path)) {
+      // If this is an existing directory, navigate to that directory, with no
+      // filename.
+      gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog),
+                                          default_path.value().c_str());
+    } else {
+      // The default path does not exist, or is an existing file. We use
+      // set_current_folder() followed by set_current_name(), as per the
+      // recommendation of the GTK docs.
+      gtk_file_chooser_set_current_folder(
+          GTK_FILE_CHOOSER(dialog), default_path.DirName().value().c_str());
+      gtk_file_chooser_set_current_name(
+          GTK_FILE_CHOOSER(dialog), default_path.BaseName().value().c_str());
+    }
   } else if (!last_saved_path_->empty()) {
     gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(dialog),
                                         last_saved_path_->value().c_str());
@@ -619,8 +632,22 @@ void SelectFileDialogImplGTK::OnFileChooserDestroy(GtkWidget* dialog) {
 void SelectFileDialogImplGTK::OnUpdatePreview(GtkWidget* chooser) {
   gchar* filename = gtk_file_chooser_get_preview_filename(
       GTK_FILE_CHOOSER(chooser));
-  if (!filename)
+  if (!filename) {
+    gtk_file_chooser_set_preview_widget_active(GTK_FILE_CHOOSER(chooser),
+                                               FALSE);
     return;
+  }
+
+  // Don't attempt to open anything which isn't a regular file. If a named pipe,
+  // this may hang. See https://crbug.com/534754.
+  struct stat stat_buf;
+  if (stat(filename, &stat_buf) != 0 || !S_ISREG(stat_buf.st_mode)) {
+    g_free(filename);
+    gtk_file_chooser_set_preview_widget_active(GTK_FILE_CHOOSER(chooser),
+                                               FALSE);
+    return;
+  }
+
   // This will preserve the image's aspect ratio.
   GdkPixbuf* pixbuf = gdk_pixbuf_new_from_file_at_size(filename, kPreviewWidth,
                                                        kPreviewHeight, NULL);

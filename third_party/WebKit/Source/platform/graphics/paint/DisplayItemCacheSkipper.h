@@ -5,9 +5,8 @@
 #ifndef DisplayItemCacheSkipper_h
 #define DisplayItemCacheSkipper_h
 
-#include "platform/RuntimeEnabledFeatures.h"
 #include "platform/graphics/GraphicsContext.h"
-#include "platform/graphics/paint/DisplayItemList.h"
+#include "platform/graphics/paint/PaintController.h"
 
 namespace blink {
 
@@ -16,13 +15,11 @@ public:
     DisplayItemCacheSkipper(GraphicsContext& context)
         : m_context(context)
     {
-        if (RuntimeEnabledFeatures::slimmingPaintEnabled())
-            context.displayItemList()->beginSkippingCache();
+        context.paintController().beginSkippingCache();
     }
     ~DisplayItemCacheSkipper()
     {
-        if (RuntimeEnabledFeatures::slimmingPaintEnabled())
-            m_context.displayItemList()->endSkippingCache();
+        m_context.paintController().endSkippingCache();
     }
 
 private:

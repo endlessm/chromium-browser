@@ -21,20 +21,32 @@
 ** MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
 */
 
-function generateTest(pixelFormat, pixelType, prologue) {
+function generateTest(internalFormat, pixelFormat, pixelType, prologue, resourcePath) {
     var wtu = WebGLTestUtils;
+    var tiu = TexImageUtils;
     var gl = null;
     var successfullyParsed = false;
+    var redColor = [255, 0, 0];
+    var greenColor = [0, 255, 0];
 
-    var init = function()
+    function init()
     {
-        description('Verify texImage2D and texSubImage2D code paths taking webgl canvas elements (' + pixelFormat + '/' + pixelType + ')');
+        description('Verify texImage2D and texSubImage2D code paths taking webgl canvas elements (' + internalFormat + '/' + pixelFormat + '/' + pixelType + ')');
 
         gl = wtu.create3DContext("example");
 
         if (!prologue(gl)) {
             finishTest();
             return;
+        }
+
+        switch (gl[pixelFormat]) {
+          case gl.RED:
+          case gl.RED_INTEGER:
+            greenColor = [0, 0, 0];
+            break;
+          default:
+            break;
         }
 
         gl.clearColor(0,0,0,1);
@@ -76,7 +88,7 @@ function generateTest(pixelFormat, pixelType, prologue) {
       ctx.canvas.height = 2;
       setCanvasToRedGreen(ctx);
     }
-
+  
     function runOneIteration(canvas, useTexSubImage2D, flipY, program, bindingTarget, opt_texture)
     {
         debug('Testing ' + (useTexSubImage2D ? 'texSubImage2D' : 'texImage2D') + ' with flipY=' +
@@ -112,11 +124,11 @@ function generateTest(pixelFormat, pixelType, prologue) {
         for (var tt = 0; tt < targets.length; ++tt) {
             // Initialize the texture to black first
             if (useTexSubImage2D) {
-                gl.texImage2D(targets[tt], 0, gl[pixelFormat], canvas.width, canvas.height, 0,
+                gl.texImage2D(targets[tt], 0, gl[internalFormat], canvas.width, canvas.height, 0,
                               gl[pixelFormat], gl[pixelType], null);
                 gl.texSubImage2D(targets[tt], 0, 0, 0, gl[pixelFormat], gl[pixelType], canvas);
             } else {
-                gl.texImage2D(targets[tt], 0, gl[pixelFormat], gl[pixelFormat], gl[pixelType], canvas);
+                gl.texImage2D(targets[tt], 0, gl[internalFormat], gl[pixelFormat], gl[pixelType], canvas);
             }
         }
 
@@ -126,8 +138,6 @@ function generateTest(pixelFormat, pixelType, prologue) {
         var top = flipY ? (height - halfHeight) : 0;
         var bottom = flipY ? 0 : (height - halfHeight);
 
-        var red = [255, 0, 0];
-        var green = [0, 255, 0];
         var loc;
         if (bindingTarget == gl.TEXTURE_CUBE_MAP) {
             loc = gl.getUniformLocation(program, "face");
@@ -142,11 +152,11 @@ function generateTest(pixelFormat, pixelType, prologue) {
 
             // Check the top and bottom halves and make sure they have the right color.
             debug("Checking " + (flipY ? "top" : "bottom"));
-            wtu.checkCanvasRect(gl, 0, bottom, width, halfHeight, red,
-                    "shouldBe " + red);
+            wtu.checkCanvasRect(gl, 0, bottom, width, halfHeight, redColor,
+                    "shouldBe " + redColor);
             debug("Checking " + (flipY ? "bottom" : "top"));
-            wtu.checkCanvasRect(gl, 0, top, width, halfHeight, green,
-                    "shouldBe " + green);
+            wtu.checkCanvasRect(gl, 0, top, width, halfHeight, greenColor,
+                    "shouldBe " + greenColor);
         }
 
         if (false) {
@@ -180,9 +190,9 @@ function generateTest(pixelFormat, pixelType, prologue) {
         function runTexImageTest(bindingTarget) {
             var program;
             if (bindingTarget == gl.TEXTURE_2D) {
-                program = wtu.setupTexturedQuad(gl);
+                program = tiu.setupTexturedQuad(gl, internalFormat);
             } else {
-                program = wtu.setupTexturedQuadWithCubeMap(gl);
+                program = tiu.setupTexturedQuadWithCubeMap(gl, internalFormat);
             }
 
             return new Promise(function(resolve, reject) {
@@ -219,7 +229,7 @@ function generateTest(pixelFormat, pixelType, prologue) {
                 wtu.glErrorShouldBe(gl, gl.NO_ERROR, "should be no errors");
                 finishTest();
             });
-        })
+        });
     }
 
     return init;

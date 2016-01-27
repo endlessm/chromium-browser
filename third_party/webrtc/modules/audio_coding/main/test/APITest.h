@@ -12,13 +12,13 @@
 #define WEBRTC_MODULES_AUDIO_CODING_MAIN_TEST_APITEST_H_
 
 #include "webrtc/base/scoped_ptr.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module.h"
 #include "webrtc/modules/audio_coding/main/test/ACMTest.h"
 #include "webrtc/modules/audio_coding/main/test/Channel.h"
 #include "webrtc/modules/audio_coding/main/test/PCMFile.h"
 #include "webrtc/modules/audio_coding/main/test/utility.h"
-#include "webrtc/system_wrappers/interface/event_wrapper.h"
-#include "webrtc/system_wrappers/interface/rw_lock_wrapper.h"
+#include "webrtc/system_wrappers/include/event_wrapper.h"
+#include "webrtc/system_wrappers/include/rw_lock_wrapper.h"
 
 namespace webrtc {
 
@@ -141,9 +141,6 @@ class APITest : public ACMTest {
   int32_t _minDelayB;
   bool _payloadUsed[32];
 
-  AudioPlayoutMode _playoutModeA;
-  AudioPlayoutMode _playoutModeB;
-
   bool _verbose;
 
   int _dotPositionA;
@@ -153,7 +150,6 @@ class APITest : public ACMTest {
 
   char _movingDot[41];
 
-  DTMFDetector* _dtmfCallback;
   VADCallback* _vadCallbackA;
   VADCallback* _vadCallbackB;
   RWLockWrapper& _apiTestRWLock;

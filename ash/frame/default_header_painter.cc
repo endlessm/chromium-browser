@@ -18,6 +18,7 @@
 #include "ui/gfx/font_list.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/image/image.h"
+#include "ui/gfx/scoped_canvas.h"
 #include "ui/gfx/skia_util.h"
 #include "ui/views/view.h"
 #include "ui/views/widget/native_widget_aura.h"
@@ -262,18 +263,13 @@ void DefaultHeaderPainter::PaintTitleBar(gfx::Canvas* canvas) {
 }
 
 void DefaultHeaderPainter::PaintHeaderContentSeparator(gfx::Canvas* canvas) {
-  SkColor color = (mode_ == MODE_ACTIVE) ?
-      kHeaderContentSeparatorColor :
-      kHeaderContentSeparatorInactiveColor;
-
+  gfx::ScopedCanvas scoped_canvas(canvas);
+  const float scale = canvas->UndoDeviceScaleFactor();
+  gfx::RectF rect(0, painted_height_ * scale - 1, view_->width() * scale, 1);
   SkPaint paint;
-  paint.setColor(color);
-  // Draw the line as 1px thick regardless of scale factor.
-  paint.setStrokeWidth(0);
-
-  float thickness = 1 / canvas->image_scale();
-  SkScalar y = SkIntToScalar(painted_height_) - SkFloatToScalar(thickness);
-  canvas->sk_canvas()->drawLine(0, y, SkIntToScalar(view_->width()), y, paint);
+  paint.setColor((mode_ == MODE_ACTIVE) ?
+      kHeaderContentSeparatorColor : kHeaderContentSeparatorInactiveColor);
+  canvas->sk_canvas()->drawRect(gfx::RectFToSkRect(rect), paint);
 }
 
 void DefaultHeaderPainter::LayoutLeftHeaderView() {

@@ -5,21 +5,27 @@
 #ifndef NET_HTTP_TRANSPORT_SECURITY_STATE_H_
 #define NET_HTTP_TRANSPORT_SECURITY_STATE_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/gtest_prod_util.h"
 #include "base/threading/non_thread_safe.h"
 #include "base/time/time.h"
+#include "net/base/expiring_cache.h"
 #include "net/base/net_export.h"
 #include "net/cert/x509_cert_types.h"
 #include "net/cert/x509_certificate.h"
+#include "url/gurl.h"
+
+class GURL;
 
 namespace net {
 
+class HostPortPair;
 class SSLInfo;
 
 // Tracks which hosts have enabled strict transport security and/or public
@@ -44,9 +50,6 @@ class NET_EXPORT TransportSecurityState
    protected:
     virtual ~Delegate() {}
   };
-
-  TransportSecurityState();
-  ~TransportSecurityState();
 
   // A STSState describes the strict transport security state (required
   // upgrade to HTTPS).
@@ -130,6 +133,10 @@ class NET_EXPORT TransportSecurityState
     // Updated by |GetDynamicPKPState| and |GetStaticDomainState|.
     std::string domain;
 
+    // An optional URI indicating where reports should be sent when this
+    // pin is violated, or empty when omitted.
+    GURL report_uri;
+
     // Takes a set of SubjectPublicKeyInfo |hashes| and returns true if:
     //   1) |bad_static_spki_hashes| does not intersect |hashes|; AND
     //   2) Both |static_spki_hashes| and |dynamic_spki_hashes| are empty
@@ -174,15 +181,35 @@ class NET_EXPORT TransportSecurityState
     std::map<std::string, PKPState>::const_iterator end_;
   };
 
+  // An interface for asynchronously sending HPKP violation reports.
+  class NET_EXPORT ReportSender {
+   public:
+    // Sends the given serialized |report| to |report_uri|.
+    virtual void Send(const GURL& report_uri, const std::string& report) = 0;
+
+   protected:
+    virtual ~ReportSender() {}
+  };
+
+  // Indicates whether or not a public key pin check should send a
+  // report if a violation is detected.
+  enum PublicKeyPinReportStatus { ENABLE_PIN_REPORTS, DISABLE_PIN_REPORTS };
+
+  TransportSecurityState();
+  ~TransportSecurityState();
+
   // These functions search for static and dynamic STS and PKP states, and
-  // invoke the
-  // functions of the same name on them. These functions are the primary public
-  // interface; direct access to STS and PKP states is best left to tests.
+  // invoke the functions of the same name on them. These functions are the
+  // primary public interface; direct access to STS and PKP states is best
+  // left to tests.
   bool ShouldSSLErrorsBeFatal(const std::string& host);
   bool ShouldUpgradeToSSL(const std::string& host);
-  bool CheckPublicKeyPins(const std::string& host,
+  bool CheckPublicKeyPins(const HostPortPair& host_port_pair,
                           bool is_issued_by_known_root,
                           const HashValueVector& hashes,
+                          const X509Certificate* served_certificate_chain,
+                          const X509Certificate* validated_certificate_chain,
+                          const PublicKeyPinReportStatus report_status,
                           std::string* failure_log);
   bool HasPublicKeyPins(const std::string& host);
 
@@ -192,6 +219,8 @@ class NET_EXPORT TransportSecurityState
   // Note: This is only used for serializing/deserializing the
   // TransportSecurityState.
   void SetDelegate(Delegate* delegate);
+
+  void SetReportSender(ReportSender* report_sender);
 
   // Clears all dynamic data (e.g. HSTS and HPKP data).
   //
@@ -268,15 +297,16 @@ class NET_EXPORT TransportSecurityState
   void AddHPKP(const std::string& host,
                const base::Time& expiry,
                bool include_subdomains,
-               const HashValueVector& hashes);
+               const HashValueVector& hashes,
+               const GURL& report_uri);
 
-  // Returns true iff we have any static public key pins for the |host| and
-  // iff its set of required pins is the set we expect for Google
-  // properties.
-  //
-  // If |host| matches both an exact entry and is a subdomain of another
-  // entry, the exact match determines the return value.
-  static bool IsGooglePinnedProperty(const std::string& host);
+  // Parses |value| as a Public-Key-Pins-Report-Only header value and
+  // sends a HPKP report for |host_port_pair| if |ssl_info| violates the
+  // pin. Returns true if |value| parses and includes a valid
+  // report-uri, and false otherwise.
+  bool ProcessHPKPReportOnlyHeader(const std::string& value,
+                                   const HostPortPair& host_port_pair,
+                                   const SSLInfo& ssl_info);
 
   // The maximum number of seconds for which we'll cache an HSTS request.
   static const long int kMaxHSTSAgeSecs;
@@ -306,9 +336,13 @@ class NET_EXPORT TransportSecurityState
   static bool IsBuildTimely();
 
   // Helper method for actually checking pins.
-  bool CheckPublicKeyPinsImpl(const std::string& host,
-                              const HashValueVector& hashes,
-                              std::string* failure_log);
+  bool CheckPublicKeyPinsImpl(
+      const HostPortPair& host_port_pair,
+      const HashValueVector& hashes,
+      const X509Certificate* served_certificate_chain,
+      const X509Certificate* validated_certificate_chain,
+      const PublicKeyPinReportStatus report_status,
+      std::string* failure_log);
 
   // If a Delegate is present, notify it that the internal state has
   // changed.
@@ -325,7 +359,8 @@ class NET_EXPORT TransportSecurityState
                        const base::Time& last_observed,
                        const base::Time& expiry,
                        bool include_subdomains,
-                       const HashValueVector& hashes);
+                       const HashValueVector& hashes,
+                       const GURL& report_uri);
 
   // Enable TransportSecurity for |host|. |state| supercedes any previous
   // state for the |host|, including static entries.
@@ -333,6 +368,22 @@ class NET_EXPORT TransportSecurityState
   // The new state for |host| is persisted using the Delegate (if any).
   void EnableSTSHost(const std::string& host, const STSState& state);
   void EnablePKPHost(const std::string& host, const PKPState& state);
+
+  // Returns true if a request to |host_port_pair| with the given
+  // SubjectPublicKeyInfo |hashes| satisfies the pins in |pkp_state|,
+  // and false otherwise. If a violation is found and reporting is
+  // configured (i.e. there is a report URI in |pkp_state| and
+  // |report_status| says to), this method sends an HPKP violation
+  // report containing |served_certificate_chain| and
+  // |validated_certificate_chain|.
+  bool CheckPinsAndMaybeSendReport(
+      const HostPortPair& host_port_pair,
+      const TransportSecurityState::PKPState& pkp_state,
+      const HashValueVector& hashes,
+      const X509Certificate* served_certificate_chain,
+      const X509Certificate* validated_certificate_chain,
+      const TransportSecurityState::PublicKeyPinReportStatus report_status,
+      std::string* failure_log);
 
   // The sets of hosts that have enabled TransportSecurity. |domain| will always
   // be empty for a STSState or PKPState in these maps; the domain
@@ -344,8 +395,15 @@ class NET_EXPORT TransportSecurityState
 
   Delegate* delegate_;
 
+  ReportSender* report_sender_;
+
   // True if static pins should be used.
   bool enable_static_pins_;
+
+  // Keeps track of reports that have been sent recently for
+  // rate-limiting.
+  ExpiringCache<std::string, bool, base::TimeTicks, std::less<base::TimeTicks>>
+      sent_reports_cache_;
 
   DISALLOW_COPY_AND_ASSIGN(TransportSecurityState);
 };

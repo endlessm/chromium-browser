@@ -18,6 +18,7 @@ namespace gles2 {
 struct DisallowedFeatures;
 class Buffer;
 class BufferManager;
+class FeatureInfo;
 class MockErrorState;
 class Shader;
 class TextureRef;
@@ -27,12 +28,16 @@ class TestHelper {
  public:
   static const GLuint kServiceBlackTexture2dId = 701;
   static const GLuint kServiceDefaultTexture2dId = 702;
-  static const GLuint kServiceBlackTextureCubemapId = 703;
-  static const GLuint kServiceDefaultTextureCubemapId = 704;
-  static const GLuint kServiceBlackExternalTextureId = 705;
-  static const GLuint kServiceDefaultExternalTextureId = 706;
-  static const GLuint kServiceBlackRectangleTextureId = 707;
-  static const GLuint kServiceDefaultRectangleTextureId = 708;
+  static const GLuint kServiceBlackTexture3dId = 703;
+  static const GLuint kServiceDefaultTexture3dId = 704;
+  static const GLuint kServiceBlackTexture2dArrayId = 705;
+  static const GLuint kServiceDefaultTexture2dArrayId = 706;
+  static const GLuint kServiceBlackTextureCubemapId = 707;
+  static const GLuint kServiceDefaultTextureCubemapId = 708;
+  static const GLuint kServiceBlackExternalTextureId = 709;
+  static const GLuint kServiceDefaultExternalTextureId = 710;
+  static const GLuint kServiceBlackRectangleTextureId = 711;
+  static const GLuint kServiceDefaultRectangleTextureId = 712;
 
   static const GLint kMaxSamples = 4;
   static const GLint kMaxRenderbufferSize = 1024;
@@ -69,6 +74,15 @@ class TestHelper {
     const char* good_name;
   };
 
+  struct VaryingInfo {
+    const char* name;
+    GLint size;
+    GLenum type;
+    GLint fake_location;
+    GLint real_location;
+    GLint desired_location;
+  };
+
   static void SetupContextGroupInitExpectations(
       ::gfx::MockGLInterface* gl,
       const DisallowedFeatures& disallowed_features,
@@ -83,26 +97,46 @@ class TestHelper {
       const char* gl_renderer,
       const char* gl_version);
   static void SetupTextureManagerInitExpectations(::gfx::MockGLInterface* gl,
+                                                  bool is_es3_enabled,
                                                   const char* extensions,
                                                   bool use_default_textures);
   static void SetupTextureManagerDestructionExpectations(
       ::gfx::MockGLInterface* gl,
+      bool is_es3_enabled,
       const char* extensions,
       bool use_default_textures);
 
   static void SetupExpectationsForClearingUniforms(
       ::gfx::MockGLInterface* gl, UniformInfo* uniforms, size_t num_uniforms);
 
-  static void SetupShader(
+  static void SetupShaderExpectations(::gfx::MockGLInterface* gl,
+                                      const FeatureInfo* feature_info,
+                                      AttribInfo* attribs,
+                                      size_t num_attribs,
+                                      UniformInfo* uniforms,
+                                      size_t num_uniforms,
+                                      GLuint service_id);
+
+  static void SetupShaderExpectationsWithVaryings(
       ::gfx::MockGLInterface* gl,
-      AttribInfo* attribs, size_t num_attribs,
-      UniformInfo* uniforms, size_t num_uniforms,
+      const FeatureInfo* feature_info,
+      AttribInfo* attribs,
+      size_t num_attribs,
+      UniformInfo* uniforms,
+      size_t num_uniforms,
+      VaryingInfo* varyings,
+      size_t num_varyings,
       GLuint service_id);
 
   static void SetupProgramSuccessExpectations(::gfx::MockGLInterface* gl,
-      AttribInfo* attribs, size_t num_attribs,
-      UniformInfo* uniforms, size_t num_uniforms,
-      GLuint service_id);
+                                              const FeatureInfo* feature_info,
+                                              AttribInfo* attribs,
+                                              size_t num_attribs,
+                                              UniformInfo* uniforms,
+                                              size_t num_uniforms,
+                                              VaryingInfo* varyings,
+                                              size_t num_varyings,
+                                              GLuint service_id);
 
   static void DoBufferData(
       ::gfx::MockGLInterface* gl, MockErrorState* error_state,
@@ -123,6 +157,7 @@ class TestHelper {
       const AttributeMap* const expected_attrib_map,
       const UniformMap* const expected_uniform_map,
       const VaryingMap* const expected_varying_map,
+      const InterfaceBlockMap* const expected_interface_block_map,
       const NameMap* const expected_name_map);
 
   static void SetShaderStates(

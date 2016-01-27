@@ -60,8 +60,10 @@ class AudioEncoderCopyRedTest : public ::testing::Test {
 
   void Encode() {
     ASSERT_TRUE(red_.get() != NULL);
-    encoded_info_ = red_->Encode(timestamp_, audio_, num_audio_samples_10ms,
-                                 encoded_.size(), &encoded_[0]);
+    encoded_info_ = red_->Encode(
+        timestamp_,
+        rtc::ArrayView<const int16_t>(audio_, num_audio_samples_10ms),
+        encoded_.size(), &encoded_[0]);
     timestamp_ += num_audio_samples_10ms;
   }
 
@@ -83,12 +85,12 @@ class MockEncodeHelper {
   }
 
   AudioEncoder::EncodedInfo Encode(uint32_t timestamp,
-                                   const int16_t* audio,
+                                   rtc::ArrayView<const int16_t> audio,
                                    size_t max_encoded_bytes,
                                    uint8_t* encoded) {
     if (write_payload_) {
-      CHECK(encoded);
-      CHECK_LE(info_.encoded_bytes, max_encoded_bytes);
+      RTC_CHECK(encoded);
+      RTC_CHECK_LE(info_.encoded_bytes, max_encoded_bytes);
       memcpy(encoded, payload_, info_.encoded_bytes);
     }
     return info_;
@@ -113,13 +115,13 @@ TEST_F(AudioEncoderCopyRedTest, CheckNumChannelsPropagation) {
 }
 
 TEST_F(AudioEncoderCopyRedTest, CheckFrameSizePropagation) {
-  EXPECT_CALL(mock_encoder_, Num10MsFramesInNextPacket()).WillOnce(Return(17));
-  EXPECT_EQ(17, red_->Num10MsFramesInNextPacket());
+  EXPECT_CALL(mock_encoder_, Num10MsFramesInNextPacket()).WillOnce(Return(17U));
+  EXPECT_EQ(17U, red_->Num10MsFramesInNextPacket());
 }
 
 TEST_F(AudioEncoderCopyRedTest, CheckMaxFrameSizePropagation) {
-  EXPECT_CALL(mock_encoder_, Max10MsFramesInAPacket()).WillOnce(Return(17));
-  EXPECT_EQ(17, red_->Max10MsFramesInAPacket());
+  EXPECT_CALL(mock_encoder_, Max10MsFramesInAPacket()).WillOnce(Return(17U));
+  EXPECT_EQ(17U, red_->Max10MsFramesInAPacket());
 }
 
 TEST_F(AudioEncoderCopyRedTest, CheckSetBitratePropagation) {

@@ -116,10 +116,10 @@ static Element* parentElement(const SelectorChecker::SelectorCheckingContext& co
 
 static bool scopeContainsLastMatchedElement(const SelectorChecker::SelectorCheckingContext& context)
 {
-    if (!context.scopeContainsLastMatchedElement)
+    // If this context isn't scoped, skip checking.
+    if (!context.scope)
         return true;
 
-    ASSERT(context.scope);
     if (context.scope->treeScope() == context.element->treeScope())
         return true;
 
@@ -295,18 +295,27 @@ SelectorChecker::Match SelectorChecker::matchForSubSelector(const SelectorChecki
     return matchSelector(nextContext, result);
 }
 
-static inline bool isOpenShadowRoot(const Node* node)
+static inline bool isV0ShadowRoot(const Node* node)
 {
-    return node && node->isShadowRoot() && toShadowRoot(node)->type() == ShadowRootType::Open;
+    return node && node->isShadowRoot() && toShadowRoot(node)->type() == ShadowRootType::V0;
 }
 
 SelectorChecker::Match SelectorChecker::matchForPseudoShadow(const SelectorCheckingContext& context, const ContainerNode* node, MatchResult& result) const
 {
-    if (!isOpenShadowRoot(node))
+    if (!isV0ShadowRoot(node))
         return SelectorFailsCompletely;
     if (!context.previousElement)
         return SelectorFailsCompletely;
     return matchSelector(context, result);
+}
+
+static inline Element* parentOrV0ShadowHostElement(const Element& element)
+{
+    if (element.parentNode() && element.parentNode()->isShadowRoot()) {
+        if (toShadowRoot(element.parentNode())->type() != ShadowRootType::V0)
+            return nullptr;
+    }
+    return element.parentOrShadowHostElement();
 }
 
 SelectorChecker::Match SelectorChecker::matchForRelation(const SelectorCheckingContext& context, MatchResult& result) const
@@ -423,6 +432,7 @@ SelectorChecker::Match SelectorChecker::matchForRelation(const SelectorCheckingC
             }
 
             if (context.selector->relationIsAffectedByPseudoContent()) {
+                // TODO(kochi): closed mode tree should be handled as well for ::content.
                 for (Element* element = context.element; element; element = element->parentOrShadowHostElement()) {
                     if (matchForShadowDistributed(nextContext, *element, result) == SelectorMatches)
                         return SelectorMatches;
@@ -432,7 +442,8 @@ SelectorChecker::Match SelectorChecker::matchForRelation(const SelectorCheckingC
 
             nextContext.isSubSelector = false;
             nextContext.inRightmostCompound = false;
-            for (nextContext.element = context.element->parentOrShadowHostElement(); nextContext.element; nextContext.element = nextContext.element->parentOrShadowHostElement()) {
+
+            for (nextContext.element = parentOrV0ShadowHostElement(*context.element); nextContext.element; nextContext.element = parentOrV0ShadowHostElement(*nextContext.element)) {
                 Match match = matchSelector(nextContext, result);
                 if (match == SelectorMatches || match == SelectorFailsCompletely)
                     return match;
@@ -766,6 +777,10 @@ bool SelectorChecker::checkPseudoClass(const SelectorCheckingContext& context, M
             return isFirstOfType(element, element.tagQName()) && isLastOfType(element, element.tagQName());
         }
         break;
+    case CSSSelector::PseudoPlaceholderShown:
+        if (isHTMLTextFormControlElement(element))
+            return toHTMLTextFormControlElement(element).isPlaceholderVisible();
+        break;
     case CSSSelector::PseudoNthChild:
         if (ContainerNode* parent = element.parentElementOrDocumentFragment()) {
             if (m_mode == ResolvingStyle)
@@ -934,10 +949,6 @@ bool SelectorChecker::checkPseudoClass(const SelectorCheckingContext& context, M
         return Fullscreen::isActiveFullScreenElement(element);
     case CSSSelector::PseudoFullScreenAncestor:
         return element.containsFullScreenElement();
-    case CSSSelector::PseudoFullScreenDocument:
-        // While a Document is in the fullscreen state, the 'full-screen-document' pseudoclass applies
-        // to all elements of that Document.
-        return Fullscreen::isFullScreen(element.document());
     case CSSSelector::PseudoInRange:
         if (m_mode == ResolvingStyle)
             element.document().setContainsValidityStyleRules();
@@ -953,9 +964,9 @@ bool SelectorChecker::checkPseudoClass(const SelectorCheckingContext& context, M
     case CSSSelector::PseudoScope:
         if (m_mode == SharingRules)
             return true;
-        if (context.scope)
-            return context.scope == element;
-        return element == element.document().documentElement();
+        if (context.scope == element.document())
+            return element == element.document().documentElement();
+        return context.scope == element;
     case CSSSelector::PseudoUnresolved:
         return element.isUnresolvedCustomElement();
     case CSSSelector::PseudoHost:
@@ -998,7 +1009,7 @@ bool SelectorChecker::checkPseudoElement(const SelectorCheckingContext& context,
         {
             SelectorCheckingContext subContext(context);
             subContext.isSubSelector = true;
-            subContext.scopeContainsLastMatchedElement = false;
+            subContext.scope = nullptr;
             subContext.treatShadowHostAsNormalScope = false;
 
             for (subContext.selector = selector.selectorList()->first(); subContext.selector; subContext.selector = CSSSelectorList::next(*subContext.selector)) {
@@ -1076,7 +1087,6 @@ bool SelectorChecker::checkPseudoHost(const SelectorCheckingContext& context, Ma
                 maxSpecificity = std::max(maxSpecificity, hostContext.selector->specificity() + subResult.specificity);
                 break;
             }
-            hostContext.scopeContainsLastMatchedElement = false;
             hostContext.treatShadowHostAsNormalScope = false;
             hostContext.scope = nullptr;
 
@@ -1152,25 +1162,25 @@ bool SelectorChecker::checkScrollbarPseudoClass(const SelectorCheckingContext& c
         {
             ScrollbarButtonsPlacement buttonsPlacement = scrollbar->theme()->buttonsPlacement();
             if (part == BackButtonStartPart || part == ForwardButtonStartPart || part == BackTrackPart)
-                return buttonsPlacement == ScrollbarButtonsDoubleStart || buttonsPlacement == ScrollbarButtonsDoubleBoth;
+                return buttonsPlacement == ScrollbarButtonsPlacementDoubleStart || buttonsPlacement == ScrollbarButtonsPlacementDoubleBoth;
             if (part == BackButtonEndPart || part == ForwardButtonEndPart || part == ForwardTrackPart)
-                return buttonsPlacement == ScrollbarButtonsDoubleEnd || buttonsPlacement == ScrollbarButtonsDoubleBoth;
+                return buttonsPlacement == ScrollbarButtonsPlacementDoubleEnd || buttonsPlacement == ScrollbarButtonsPlacementDoubleBoth;
             return false;
         }
     case CSSSelector::PseudoSingleButton:
         {
             ScrollbarButtonsPlacement buttonsPlacement = scrollbar->theme()->buttonsPlacement();
             if (part == BackButtonStartPart || part == ForwardButtonEndPart || part == BackTrackPart || part == ForwardTrackPart)
-                return buttonsPlacement == ScrollbarButtonsSingle;
+                return buttonsPlacement == ScrollbarButtonsPlacementSingle;
             return false;
         }
     case CSSSelector::PseudoNoButton:
         {
             ScrollbarButtonsPlacement buttonsPlacement = scrollbar->theme()->buttonsPlacement();
             if (part == BackTrackPart)
-                return buttonsPlacement == ScrollbarButtonsNone || buttonsPlacement == ScrollbarButtonsDoubleEnd;
+                return buttonsPlacement == ScrollbarButtonsPlacementNone || buttonsPlacement == ScrollbarButtonsPlacementDoubleEnd;
             if (part == ForwardTrackPart)
-                return buttonsPlacement == ScrollbarButtonsNone || buttonsPlacement == ScrollbarButtonsDoubleStart;
+                return buttonsPlacement == ScrollbarButtonsPlacementNone || buttonsPlacement == ScrollbarButtonsPlacementDoubleStart;
             return false;
         }
     case CSSSelector::PseudoCornerPresent:

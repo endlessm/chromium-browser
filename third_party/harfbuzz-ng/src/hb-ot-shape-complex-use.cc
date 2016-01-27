@@ -238,14 +238,6 @@ enum syllable_type_t {
 #include "hb-ot-shape-complex-use-machine.hh"
 
 
-static inline void
-set_use_properties (hb_glyph_info_t &info)
-{
-  hb_codepoint_t u = info.codepoint;
-  info.use_category() = hb_use_get_categories (u);
-}
-
-
 static void
 setup_masks_use (const hb_ot_shape_plan_t *plan,
 		 hb_buffer_t              *buffer,
@@ -444,10 +436,10 @@ reorder_syllable (hb_buffer_t *buffer, unsigned int start, unsigned int end)
 	if (info[i].use_category() == USE_H)
 	  i--;
 
+	buffer->merge_clusters (start, i + 1);
 	hb_glyph_info_t t = info[start];
 	memmove (&info[start], &info[start + 1], (i - start) * sizeof (info[0]));
 	info[i] = t;
-	buffer->merge_clusters (start, i + 1);
 
 	break;
       }
@@ -472,10 +464,10 @@ reorder_syllable (hb_buffer_t *buffer, unsigned int start, unsigned int end)
 	     0 == _hb_glyph_info_get_lig_comp (&info[i]) &&
 	     j < i)
     {
+      buffer->merge_clusters (j, i + 1);
       hb_glyph_info_t t = info[i];
       memmove (&info[j + 1], &info[j], (i - j) * sizeof (info[0]));
       info[j] = t;
-      buffer->merge_clusters (j, i + 1);
     }
   }
 }
@@ -498,11 +490,6 @@ insert_dotted_circles (const hb_ot_shape_plan_t *plan HB_UNUSED,
   if (likely (!has_broken_syllables))
     return;
 
-
-  hb_codepoint_t dottedcircle_glyph;
-  if (!font->get_glyph (0x25CCu, 0, &dottedcircle_glyph))
-    return;
-
   hb_glyph_info_t dottedcircle = {0};
   if (!font->get_glyph (0x25CCu, 0, &dottedcircle.codepoint))
     return;
@@ -511,9 +498,8 @@ insert_dotted_circles (const hb_ot_shape_plan_t *plan HB_UNUSED,
   buffer->clear_output ();
 
   buffer->idx = 0;
-
   unsigned int last_syllable = 0;
-  while (buffer->idx < buffer->len)
+  while (buffer->idx < buffer->len && !buffer->in_error)
   {
     unsigned int syllable = buffer->cur().syllable();
     syllable_type_t syllable_type = (syllable_type_t) (syllable & 0x0F);
@@ -521,10 +507,10 @@ insert_dotted_circles (const hb_ot_shape_plan_t *plan HB_UNUSED,
     {
       last_syllable = syllable;
 
-      hb_glyph_info_t info = dottedcircle;
-      info.cluster = buffer->cur().cluster;
-      info.mask = buffer->cur().mask;
-      info.syllable() = buffer->cur().syllable();
+      hb_glyph_info_t ginfo = dottedcircle;
+      ginfo.cluster = buffer->cur().cluster;
+      ginfo.mask = buffer->cur().mask;
+      ginfo.syllable() = buffer->cur().syllable();
       /* TODO Set glyph_props? */
 
       /* Insert dottedcircle after possible Repha. */
@@ -533,7 +519,7 @@ insert_dotted_circles (const hb_ot_shape_plan_t *plan HB_UNUSED,
 	     buffer->cur().use_category() == USE_R)
         buffer->next_glyph ();
 
-      buffer->output_info (info);
+      buffer->output_info (ginfo);
     }
     else
       buffer->next_glyph ();
@@ -584,6 +570,7 @@ const hb_ot_complex_shaper_t _hb_ot_complex_shaper_use =
   data_create_use,
   data_destroy_use,
   NULL, /* preprocess_text */
+  NULL, /* postprocess_glyphs */
   HB_OT_SHAPE_NORMALIZATION_MODE_COMPOSED_DIACRITICS_NO_SHORT_CIRCUIT,
   NULL, /* decompose */
   compose_use,

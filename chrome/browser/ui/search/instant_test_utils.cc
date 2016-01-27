@@ -10,12 +10,12 @@
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/search_engines/template_url_service_factory.h"
-#include "chrome/browser/ui/omnibox/omnibox_view.h"
 #include "chrome/browser/ui/search/search_tab_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/interactive_test_utils.h"
-#include "chrome/test/base/ui_test_utils.h"
+#include "chrome/test/base/search_test_utils.h"
+#include "components/omnibox/browser/omnibox_view.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/variations/entropy_provider.h"
 #include "content/public/browser/notification_service.h"
@@ -49,7 +49,7 @@ void InstantTestBase::SetupInstant(Browser* browser) {
 
   TemplateURLService* service =
       TemplateURLServiceFactory::GetForProfile(browser_->profile());
-  ui_test_utils::WaitForTemplateURLServiceToLoad(service);
+  search_test_utils::WaitForTemplateURLServiceToLoad(service);
 
   TemplateURLData data;
   // Necessary to use exact URL for both the main URL and the alternate URL for
@@ -72,7 +72,7 @@ void InstantTestBase::SetupInstant(Browser* browser) {
 void InstantTestBase::SetInstantURL(const std::string& url) {
   TemplateURLService* service =
       TemplateURLServiceFactory::GetForProfile(browser_->profile());
-  ui_test_utils::WaitForTemplateURLServiceToLoad(service);
+  search_test_utils::WaitForTemplateURLServiceToLoad(service);
 
   TemplateURLData data;
   data.SetShortName(base::ASCIIToUTF16("name"));

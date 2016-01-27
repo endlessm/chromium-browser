@@ -82,9 +82,10 @@ void SpeculationsPumpSession::addedElementTokens(size_t count)
     m_processedElementTokens += count;
 }
 
-HTMLParserScheduler::HTMLParserScheduler(HTMLDocumentParser* parser)
+HTMLParserScheduler::HTMLParserScheduler(HTMLDocumentParser* parser, WebTaskRunner* loadingTaskRunner)
     : m_parser(parser)
-    , m_cancellableContinueParse(WTF::bind(&HTMLParserScheduler::continueParsing, this))
+    , m_loadingTaskRunner(adoptPtr(loadingTaskRunner->clone()))
+    , m_cancellableContinueParse(CancellableTaskFactory::create(this, &HTMLParserScheduler::continueParsing))
     , m_isSuspendedWithActiveTimer(false)
 {
 }
@@ -96,28 +97,32 @@ HTMLParserScheduler::~HTMLParserScheduler()
 void HTMLParserScheduler::scheduleForResume()
 {
     ASSERT(!m_isSuspendedWithActiveTimer);
-    Platform::current()->currentThread()->scheduler()->postLoadingTask(
-        FROM_HERE, m_cancellableContinueParse.cancelAndCreate());
+    m_loadingTaskRunner->postTask(BLINK_FROM_HERE, m_cancellableContinueParse->cancelAndCreate());
 }
 
 void HTMLParserScheduler::suspend()
 {
     ASSERT(!m_isSuspendedWithActiveTimer);
-    if (!m_cancellableContinueParse.isPending())
+    if (!m_cancellableContinueParse->isPending())
         return;
     m_isSuspendedWithActiveTimer = true;
-    m_cancellableContinueParse.cancel();
+    m_cancellableContinueParse->cancel();
 }
 
 void HTMLParserScheduler::resume()
 {
-    ASSERT(!m_cancellableContinueParse.isPending());
+    ASSERT(!m_cancellableContinueParse->isPending());
     if (!m_isSuspendedWithActiveTimer)
         return;
     m_isSuspendedWithActiveTimer = false;
 
-    Platform::current()->currentThread()->scheduler()->postLoadingTask(
-        FROM_HERE, m_cancellableContinueParse.cancelAndCreate());
+    m_loadingTaskRunner->postTask(BLINK_FROM_HERE, m_cancellableContinueParse->cancelAndCreate());
+}
+
+void HTMLParserScheduler::detach()
+{
+    m_cancellableContinueParse->cancel();
+    m_isSuspendedWithActiveTimer = false;
 }
 
 inline bool HTMLParserScheduler::shouldYield(const SpeculationsPumpSession& session, bool startingScript) const
@@ -156,7 +161,7 @@ bool HTMLParserScheduler::yieldIfNeeded(const SpeculationsPumpSession& session, 
 
 void HTMLParserScheduler::forceResumeAfterYield()
 {
-    ASSERT(!m_cancellableContinueParse.isPending());
+    ASSERT(!m_cancellableContinueParse->isPending());
     m_isSuspendedWithActiveTimer = true;
 }
 

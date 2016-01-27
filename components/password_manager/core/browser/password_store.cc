@@ -12,8 +12,11 @@
 #include "base/thread_task_runner_handle.h"
 #include "components/autofill/core/common/password_form.h"
 #include "components/password_manager/core/browser/affiliated_match_helper.h"
+#include "components/password_manager/core/browser/password_manager_util.h"
 #include "components/password_manager/core/browser/password_store_consumer.h"
 #include "components/password_manager/core/browser/password_syncable_service.h"
+#include "components/password_manager/core/browser/statistics_table.h"
+#include "url/origin.h"
 
 using autofill::PasswordForm;
 
@@ -60,7 +63,7 @@ void PasswordStore::GetLoginsRequest::NotifyConsumerWithResults(
 }
 
 void PasswordStore::GetLoginsRequest::NotifyWithSiteStatistics(
-    scoped_ptr<InteractionsStats> stats) {
+    ScopedVector<InteractionsStats> stats) {
   origin_task_runner_->PostTask(
       FROM_HERE, base::Bind(&PasswordStoreConsumer::OnGetSiteStatistics,
                             consumer_weak_, base::Passed(&stats)));
@@ -86,10 +89,6 @@ void PasswordStore::SetAffiliatedMatchHelper(
   affiliated_match_helper_ = helper.Pass();
 }
 
-bool PasswordStore::HasAffiliatedMatchHelper() const {
-  return affiliated_match_helper_;
-}
-
 void PasswordStore::AddLogin(const PasswordForm& form) {
   CheckForEmptyUsernameAndPassword(form);
   ScheduleTask(base::Bind(&PasswordStore::AddLoginInternal, this, form));
@@ -112,6 +111,15 @@ void PasswordStore::RemoveLogin(const PasswordForm& form) {
   ScheduleTask(base::Bind(&PasswordStore::RemoveLoginInternal, this, form));
 }
 
+void PasswordStore::RemoveLoginsByOriginAndTime(
+    const url::Origin& origin,
+    base::Time delete_begin,
+    base::Time delete_end,
+    const base::Closure& completion) {
+  ScheduleTask(base::Bind(&PasswordStore::RemoveLoginsByOriginAndTimeInternal,
+                          this, origin, delete_begin, delete_end, completion));
+}
+
 void PasswordStore::RemoveLoginsCreatedBetween(
     base::Time delete_begin,
     base::Time delete_end,
@@ -124,6 +132,15 @@ void PasswordStore::RemoveLoginsSyncedBetween(base::Time delete_begin,
                                               base::Time delete_end) {
   ScheduleTask(base::Bind(&PasswordStore::RemoveLoginsSyncedBetweenInternal,
                           this, delete_begin, delete_end));
+}
+
+void PasswordStore::RemoveStatisticsCreatedBetween(
+    base::Time delete_begin,
+    base::Time delete_end,
+    const base::Closure& completion) {
+  ScheduleTask(
+      base::Bind(&PasswordStore::RemoveStatisticsCreatedBetweenInternal, this,
+                 delete_begin, delete_end, completion));
 }
 
 void PasswordStore::TrimAffiliationCache() {
@@ -210,6 +227,7 @@ void PasswordStore::RemoveObserver(Observer* observer) {
 }
 
 bool PasswordStore::ScheduleTask(const base::Closure& task) {
+  CHECK(is_alive());
   scoped_refptr<base::SingleThreadTaskRunner> task_runner(
       GetBackgroundTaskRunner());
   if (task_runner.get())
@@ -335,6 +353,18 @@ void PasswordStore::UpdateLoginWithPrimaryKeyInternal(
   NotifyLoginsChanged(all_changes);
 }
 
+void PasswordStore::RemoveLoginsByOriginAndTimeInternal(
+    const url::Origin& origin,
+    base::Time delete_begin,
+    base::Time delete_end,
+    const base::Closure& completion) {
+  PasswordStoreChangeList changes =
+      RemoveLoginsByOriginAndTimeImpl(origin, delete_begin, delete_end);
+  NotifyLoginsChanged(changes);
+  if (!completion.is_null())
+    main_thread_runner_->PostTask(FROM_HERE, completion);
+}
+
 void PasswordStore::RemoveLoginsCreatedBetweenInternal(
     base::Time delete_begin,
     base::Time delete_end,
@@ -351,6 +381,15 @@ void PasswordStore::RemoveLoginsSyncedBetweenInternal(base::Time delete_begin,
   PasswordStoreChangeList changes =
       RemoveLoginsSyncedBetweenImpl(delete_begin, delete_end);
   NotifyLoginsChanged(changes);
+}
+
+void PasswordStore::RemoveStatisticsCreatedBetweenInternal(
+    base::Time delete_begin,
+    base::Time delete_end,
+    const base::Closure& completion) {
+  RemoveStatisticsCreatedBetweenImpl(delete_begin, delete_end);
+  if (!completion.is_null())
+    main_thread_runner_->PostTask(FROM_HERE, completion);
 }
 
 void PasswordStore::GetAutofillableLoginsImpl(
@@ -386,8 +425,14 @@ void PasswordStore::GetLoginsWithAffiliationsImpl(
     android_form.scheme = PasswordForm::SCHEME_HTML;
     android_form.signon_realm = realm;
     ScopedVector<PasswordForm> more_results(
-        AffiliatedMatchHelper::TransformAffiliatedAndroidCredentials(
-            form, FillMatchingLogins(android_form, DISALLOW_PROMPT)));
+        FillMatchingLogins(android_form, DISALLOW_PROMPT));
+    for (PasswordForm* form : more_results)
+      form->is_affiliation_based_match = true;
+    ScopedVector<PasswordForm>::iterator it_first_federated = std::partition(
+        more_results.begin(), more_results.end(),
+        [](PasswordForm* form) { return form->federation_url.is_empty(); });
+    more_results.erase(it_first_federated, more_results.end());
+    password_manager_util::TrimUsernameOnlyCredentials(&more_results);
     results.insert(results.end(), more_results.begin(), more_results.end());
     more_results.weak_clear();
   }
@@ -410,12 +455,8 @@ scoped_ptr<PasswordForm> PasswordStore::GetLoginImpl(
   ScopedVector<PasswordForm> candidates(
       FillMatchingLogins(primary_key, DISALLOW_PROMPT));
   for (PasswordForm*& candidate : candidates) {
-    if (candidate->signon_realm == primary_key.signon_realm &&
-        candidate->username_element == primary_key.username_element &&
-        candidate->username_value == primary_key.username_value &&
-        candidate->password_element == primary_key.password_element &&
-        candidate->origin == primary_key.origin &&
-        !candidate->IsPublicSuffixMatch()) {
+    if (ArePasswordFormUniqueKeyEqual(*candidate, primary_key) &&
+        !candidate->is_public_suffix_match) {
       scoped_ptr<PasswordForm> result(candidate);
       candidate = nullptr;
       return result.Pass();
@@ -459,7 +500,7 @@ void PasswordStore::UpdateAffiliatedWebLoginsImpl(
       // non-HTML login forms; PSL matches; logins with a different username;
       // and logins with the same password (to avoid generating no-op updates).
       if (!AffiliatedMatchHelper::IsValidWebCredential(*web_login) ||
-          web_login->IsPublicSuffixMatch() ||
+          web_login->is_public_suffix_match ||
           web_login->username_value != updated_android_form.username_value ||
           web_login->password_value == updated_android_form.password_value)
         continue;
@@ -543,6 +584,18 @@ void PasswordStore::InitSyncableService(
 void PasswordStore::DestroySyncableService() {
   DCHECK(GetBackgroundTaskRunner()->BelongsToCurrentThread());
   syncable_service_.reset();
+}
+
+// No-op implementation of RemoveLoginsByOriginAndTimeImpl to please the
+// compiler on derived classes that have not yet provided an implementation on
+// their own.
+// TODO(ttr314@googlemail.com): Once crbug.com/113973 is done, remove default
+// implementation and mark method as pure virtual.
+PasswordStoreChangeList PasswordStore::RemoveLoginsByOriginAndTimeImpl(
+    const url::Origin& origin,
+    base::Time delete_begin,
+    base::Time delete_end) {
+  return PasswordStoreChangeList();
 }
 
 }  // namespace password_manager

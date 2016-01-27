@@ -12,6 +12,9 @@
 
 namespace ui {
 
+using BasicAXTreeSerializer =
+    AXTreeSerializer<const AXNode*, AXNodeData, AXTreeData>;
+
 // The framework for these tests is that each test sets up |treedata0_|
 // and |treedata1_| and then calls GetTreeSerializer, which creates a
 // serializer for a tree that's initially in state |treedata0_|, but then
@@ -30,9 +33,11 @@ class AXTreeSerializerTest : public testing::Test {
   AXTreeUpdate treedata1_;
   scoped_ptr<AXSerializableTree> tree0_;
   scoped_ptr<AXSerializableTree> tree1_;
-  scoped_ptr<AXTreeSource<const AXNode*> > tree0_source_;
-  scoped_ptr<AXTreeSource<const AXNode*> > tree1_source_;
-  scoped_ptr<AXTreeSerializer<const AXNode*> > serializer_;
+  scoped_ptr<AXTreeSource<const AXNode*, AXNodeData, AXTreeData> >
+      tree0_source_;
+  scoped_ptr<AXTreeSource<const AXNode*, AXNodeData, AXTreeData> >
+      tree1_source_;
+  scoped_ptr<BasicAXTreeSerializer> serializer_;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(AXTreeSerializerTest);
@@ -48,7 +53,7 @@ void AXTreeSerializerTest::CreateTreeSerializer() {
   // Serialize tree0 so that AXTreeSerializer thinks that its client
   // is totally in sync.
   tree0_source_.reset(tree0_->CreateTreeSource());
-  serializer_.reset(new AXTreeSerializer<const AXNode*>(tree0_source_.get()));
+  serializer_.reset(new BasicAXTreeSerializer(tree0_source_.get()));
   AXTreeUpdate unused_update;
   serializer_->SerializeChanges(tree0_->root(), &unused_update);
 
@@ -181,7 +186,8 @@ TEST_F(AXTreeSerializerTest, ReparentingUpdatesSubtree) {
 
 // A variant of AXTreeSource that returns true for IsValid() for one
 // particular id.
-class AXTreeSourceWithInvalidId : public AXTreeSource<const AXNode*> {
+class AXTreeSourceWithInvalidId
+    : public AXTreeSource<const AXNode*, AXNodeData, AXTreeData> {
  public:
   AXTreeSourceWithInvalidId(AXTree* tree, int invalid_id)
       : tree_(tree),
@@ -189,6 +195,7 @@ class AXTreeSourceWithInvalidId : public AXTreeSource<const AXNode*> {
   ~AXTreeSourceWithInvalidId() override {}
 
   // AXTreeSource implementation.
+  AXTreeData GetTreeData() const override { return AXTreeData(); }
   AXNode* GetRoot() const override { return tree_->root(); }
   AXNode* GetFromId(int32 id) const override { return tree_->GetFromId(id); }
   int32 GetId(const AXNode* node) const override { return node->id(); }
@@ -235,7 +242,7 @@ TEST(AXTreeSerializerInvalidTest, InvalidChild) {
   AXTree tree(treedata);
   AXTreeSourceWithInvalidId source(&tree, 3);
 
-  AXTreeSerializer<const AXNode*> serializer(&source);
+  BasicAXTreeSerializer serializer(&source);
   AXTreeUpdate update;
   serializer.SerializeChanges(tree.root(), &update);
 
@@ -265,7 +272,7 @@ TEST_F(AXTreeSerializerTest, MaximumSerializedNodeCount) {
 
   tree0_.reset(new AXSerializableTree(treedata0_));
   tree0_source_.reset(tree0_->CreateTreeSource());
-  serializer_.reset(new AXTreeSerializer<const AXNode*>(tree0_source_.get()));
+  serializer_.reset(new BasicAXTreeSerializer(tree0_source_.get()));
   serializer_->set_max_node_count(4);
   AXTreeUpdate update;
   serializer_->SerializeChanges(tree0_->root(), &update);

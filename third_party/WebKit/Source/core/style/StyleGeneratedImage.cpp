@@ -30,8 +30,8 @@
 
 namespace blink {
 
-StyleGeneratedImage::StyleGeneratedImage(PassRefPtrWillBeRawPtr<CSSImageGeneratorValue> value)
-    : m_imageGeneratorValue(value)
+StyleGeneratedImage::StyleGeneratedImage(const CSSImageGeneratorValue& value)
+    : m_imageGeneratorValue(const_cast<CSSImageGeneratorValue*>(&value))
     , m_fixedSize(m_imageGeneratorValue->isFixedSize())
 {
     m_isGeneratedImage = true;
@@ -40,6 +40,11 @@ StyleGeneratedImage::StyleGeneratedImage(PassRefPtrWillBeRawPtr<CSSImageGenerato
 PassRefPtrWillBeRawPtr<CSSValue> StyleGeneratedImage::cssValue() const
 {
     return m_imageGeneratorValue.get();
+}
+
+PassRefPtrWillBeRawPtr<CSSValue> StyleGeneratedImage::computedCSSValue() const
+{
+    return m_imageGeneratorValue->valueWithURLsMadeAbsolute();
 }
 
 LayoutSize StyleGeneratedImage::imageSize(const LayoutObject* layoutObject, float multiplier) const
@@ -84,7 +89,7 @@ void StyleGeneratedImage::removeClient(LayoutObject* layoutObject)
     m_imageGeneratorValue->removeClient(layoutObject);
 }
 
-PassRefPtr<Image> StyleGeneratedImage::image(LayoutObject* layoutObject, const IntSize& size) const
+PassRefPtr<Image> StyleGeneratedImage::image(const LayoutObject* layoutObject, const IntSize& size) const
 {
     return m_imageGeneratorValue->image(layoutObject, size);
 }
@@ -92,6 +97,12 @@ PassRefPtr<Image> StyleGeneratedImage::image(LayoutObject* layoutObject, const I
 bool StyleGeneratedImage::knownToBeOpaque(const LayoutObject* layoutObject) const
 {
     return m_imageGeneratorValue->knownToBeOpaque(layoutObject);
+}
+
+DEFINE_TRACE(StyleGeneratedImage)
+{
+    visitor->trace(m_imageGeneratorValue);
+    StyleImage::trace(visitor);
 }
 
 }

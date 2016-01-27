@@ -35,15 +35,16 @@
  * @implements {WebInspector.TimelineModeView}
  * @param {!WebInspector.TimelineModeViewDelegate} delegate
  * @param {!WebInspector.TimelineModel} model
+ * @param {!Array<!WebInspector.TimelineModel.Filter>} filters
  */
-WebInspector.TimelineView = function(delegate, model)
+WebInspector.TimelineView = function(delegate, model, filters)
 {
     WebInspector.VBox.call(this);
     this.element.classList.add("timeline-view");
 
     this._delegate = delegate;
     this._model = model;
-    this._presentationModel = new WebInspector.TimelinePresentationModel(model);
+    this._presentationModel = new WebInspector.TimelinePresentationModel(model, filters);
     this._calculator = new WebInspector.TimelineCalculator(model);
     this._linkifier = new WebInspector.Linkifier();
     this._frameStripByFrame = new Map();
@@ -139,7 +140,7 @@ WebInspector.TimelineView.prototype = {
             var dividerPosition = Math.round(position);
             if (dividerPosition < 0 || dividerPosition >= clientWidth || dividers.has(dividerPosition))
                 continue;
-            dividers.set(dividerPosition, WebInspector.TimelineUIUtils.createDividerForRecord(record, dividerPosition));
+            dividers.set(dividerPosition, WebInspector.TimelineUIUtils.createDividerForRecord(record, this._calculator.zeroTime(), dividerPosition));
         }
         this._timelineGrid.addEventDividers(dividers.valuesArray());
     },
@@ -333,7 +334,7 @@ WebInspector.TimelineView.prototype = {
             var aggregatedStats = {};
             var presentationChildren = presentationRecord.presentationChildren();
             for (var i = 0; i < presentationChildren.length; ++i)
-                WebInspector.TimelineUIUtils.aggregateTimeForRecord(aggregatedStats, presentationChildren[i].record());
+                WebInspector.TimelineUIUtils.aggregateTimeForRecord(aggregatedStats, this._model, presentationChildren[i].record());
             var idle = presentationRecord.endTime() - presentationRecord.startTime();
             for (var category in aggregatedStats)
                 idle -= aggregatedStats[category];
@@ -658,13 +659,15 @@ WebInspector.TimelineView.prototype = {
             if (task.startTime() > endTime)
                 break;
 
+            var data = task.traceEvent().args["data"];
+            var foreign = data && data["foreign"];
             var left = Math.max(0, this._calculator.computePosition(task.startTime()) + barOffset - widthAdjustment);
             var right = Math.min(width, this._calculator.computePosition(task.endTime() || 0) + barOffset + widthAdjustment);
 
             if (lastElement) {
                 var gap = Math.floor(left) - Math.ceil(lastRight);
                 if (gap < minGap) {
-                    if (!task.data["foreign"])
+                    if (!foreign)
                         lastElement.classList.remove(foreignStyle);
                     lastRight = right;
                     lastElement._tasksInfo.lastTaskIndex = taskIndex;
@@ -677,7 +680,7 @@ WebInspector.TimelineView.prototype = {
                 element = container.createChild("div", "timeline-graph-bar");
             element.style.left = left + "px";
             element._tasksInfo = {name: name, tasks: tasks, firstTaskIndex: taskIndex, lastTaskIndex: taskIndex};
-            if (task.data["foreign"])
+            if (foreign)
                 element.classList.add(foreignStyle);
             lastLeft = left;
             lastRight = right;
@@ -731,8 +734,10 @@ WebInspector.TimelineView.prototype = {
 
         var taskBarElement = e.target.enclosingNodeOrSelfWithClass("timeline-graph-bar");
         if (taskBarElement && taskBarElement._tasksInfo) {
-            var offset = taskBarElement.offsetLeft;
-            this._timelineGrid.showCurtains(offset >= 0 ? offset : 0, taskBarElement.offsetWidth);
+            var parentWidth = taskBarElement.parentElement.offsetWidth;
+            var offset = Math.max(0, taskBarElement.offsetLeft);
+            var width = taskBarElement.offsetWidth;
+            this._timelineGrid.showCurtains(offset / parentWidth, (offset + width) / parentWidth);
         } else
             this._timelineGrid.hideCurtains();
     },

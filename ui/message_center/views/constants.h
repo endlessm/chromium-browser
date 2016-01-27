@@ -21,12 +21,11 @@ const SkColor kContextTextBackgroundColor = SK_ColorWHITE;
 
 const int kIconSize = message_center::kNotificationIconSize;
 const int kLegacyIconSize = 40;
-const int kTextLeftPadding = kIconSize + message_center::kIconToTextPadding;
 const int kTextBottomPadding = 12;
-const int kTextRightPadding = 23;
 const int kItemTitleToMessagePadding = 3;
 const int kButtonVecticalPadding = 0;
 const int kButtonTitleTopPadding = 0;
+const int kNotificationSettingsPadding = 5;
 
 // Character limits: Displayed text will be subject to the line limits above,
 // but we also remove trailing characters from text to reduce processing cost.

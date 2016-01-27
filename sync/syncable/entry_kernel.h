@@ -13,8 +13,10 @@
 #include "sync/internal_api/public/base/model_type.h"
 #include "sync/internal_api/public/base/unique_position.h"
 #include "sync/internal_api/public/util/immutable.h"
+#include "sync/internal_api/public/util/proto_value_ptr.h"
+#include "sync/protocol/attachments.pb.h"
+#include "sync/protocol/sync.pb.h"
 #include "sync/syncable/metahandle_set.h"
-#include "sync/syncable/proto_value_ptr.h"
 #include "sync/syncable/syncable_id.h"
 #include "sync/util/time.h"
 
@@ -124,8 +126,8 @@ enum StringField {
   // A tag string which identifies this node as a particular top-level
   // permanent object.  The tag can be thought of as a unique key that
   // identifies a singleton instance.
-  UNIQUE_SERVER_TAG,  // Tagged by the server
-  UNIQUE_CLIENT_TAG,  // Tagged by the client
+  UNIQUE_SERVER_TAG,    // Tagged by the server
+  UNIQUE_CLIENT_TAG,    // Tagged by the client
   UNIQUE_BOOKMARK_TAG,  // Client tags for bookmark items
   STRING_FIELDS_END,
 };
@@ -191,10 +193,12 @@ enum {
   BIT_TEMPS_COUNT = BIT_TEMPS_END - BIT_TEMPS_BEGIN
 };
 
-
-
 struct SYNC_EXPORT_PRIVATE EntryKernel {
  private:
+  typedef syncer::ProtoValuePtr<sync_pb::EntitySpecifics> EntitySpecificsPtr;
+  typedef syncer::ProtoValuePtr<sync_pb::AttachmentMetadata>
+      AttachmentMetadataPtr;
+
   std::string string_fields[STRING_FIELDS_COUNT];
   EntitySpecificsPtr specifics_fields[PROTO_FIELDS_COUNT];
   int64 int64_fields[INT64_FIELDS_COUNT];
@@ -205,6 +209,8 @@ struct SYNC_EXPORT_PRIVATE EntryKernel {
       attachment_metadata_fields[ATTACHMENT_METADATA_FIELDS_COUNT];
   std::bitset<BIT_FIELDS_COUNT> bit_fields;
   std::bitset<BIT_TEMPS_COUNT> bit_temps;
+
+  friend std::ostream& operator<<(std::ostream& s, const EntryKernel& e);
 
  public:
   EntryKernel();
@@ -336,6 +342,18 @@ struct SYNC_EXPORT_PRIVATE EntryKernel {
     return unique_position_fields[field - UNIQUE_POSITION_FIELDS_BEGIN];
   }
 
+  // Deserialization methods for ::google::protobuf::MessageLite derived types.
+  inline void load(ProtoField field, const void* blob, int length) {
+    specifics_fields[field - PROTO_FIELDS_BEGIN].load(blob, length);
+  }
+
+  inline void load(AttachmentMetadataField field,
+                   const void* blob,
+                   int length) {
+    attachment_metadata_fields[field - ATTACHMENT_METADATA_FIELDS_BEGIN].load(
+        blob, length);
+  }
+
   // Sharing data methods for ::google::protobuf::MessageLite derived types.
   inline void copy(ProtoField src, ProtoField dest) {
     DCHECK_NE(src, dest);
@@ -392,6 +410,8 @@ base::DictionaryValue* EntryKernelMutationToValue(
 // Caller owns the return value.
 base::ListValue* EntryKernelMutationMapToValue(
     const EntryKernelMutationMap& mutations);
+
+std::ostream& operator<<(std::ostream& os, const EntryKernel& entry_kernel);
 
 }  // namespace syncable
 }  // namespace syncer

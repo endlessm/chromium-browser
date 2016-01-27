@@ -48,8 +48,10 @@ void PasswordsPrivateEventRouter::Shutdown() {
     event_router_->UnregisterObserver(this);
 
   PasswordsPrivateDelegate* delegate =
-      PasswordsPrivateDelegateFactory::GetForBrowserContext(context_);
-  delegate->RemoveObserver(this);
+      PasswordsPrivateDelegateFactory::GetForBrowserContext(context_,
+                                                            false /* create */);
+  if (delegate)
+    delegate->RemoveObserver(this);
 }
 
 void PasswordsPrivateEventRouter::OnListenerAdded(
@@ -81,7 +83,7 @@ void PasswordsPrivateEventRouter::SendSavedPasswordListToListeners() {
     return;
 
   scoped_ptr<Event> extension_event(
-      new Event(events::UNKNOWN,
+      new Event(events::PASSWORDS_PRIVATE_ON_SAVED_PASSWORDS_LIST_CHANGED,
                 api::passwords_private::OnSavedPasswordsListChanged::kEventName,
                 cached_saved_password_parameters_->CreateDeepCopy()));
   event_router_->BroadcastEvent(extension_event.Pass());
@@ -101,7 +103,7 @@ void PasswordsPrivateEventRouter::SendPasswordExceptionListToListeners() {
     return;
 
   scoped_ptr<Event> extension_event(new Event(
-      events::UNKNOWN,
+      events::PASSWORDS_PRIVATE_ON_PASSWORD_EXCEPTIONS_LIST_CHANGED,
       api::passwords_private::OnPasswordExceptionsListChanged::kEventName,
       cached_password_exception_parameters_->CreateDeepCopy()));
   event_router_->BroadcastEvent(extension_event.Pass());
@@ -120,7 +122,7 @@ void PasswordsPrivateEventRouter::OnPlaintextPasswordFetched(
   event_value->Append(params.ToValue());
 
   scoped_ptr<Event> extension_event(new Event(
-      events::UNKNOWN,
+      events::PASSWORDS_PRIVATE_ON_PLAINTEXT_PASSWORD_RETRIEVED,
       api::passwords_private::OnPlaintextPasswordRetrieved::kEventName,
       event_value.Pass()));
   event_router_->BroadcastEvent(extension_event.Pass());
@@ -141,7 +143,8 @@ void PasswordsPrivateEventRouter::StartOrStopListeningForChanges() {
       should_listen_for_plaintext_password_retrieval;
 
   PasswordsPrivateDelegate* delegate =
-      PasswordsPrivateDelegateFactory::GetForBrowserContext(context_);
+      PasswordsPrivateDelegateFactory::GetForBrowserContext(context_,
+                                                            true /* create */);
   if (should_listen && !listening_)
     delegate->AddObserver(this);
   else if (!should_listen && listening_)

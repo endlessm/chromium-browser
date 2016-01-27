@@ -4,17 +4,23 @@
 
 package org.chromium.chrome.browser.snackbar;
 
+import android.annotation.TargetApi;
+import android.app.Activity;
+import android.content.Context;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Handler;
+import android.util.AttributeSet;
 import android.view.Gravity;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.ViewTreeObserver.OnGlobalLayoutListener;
-import android.view.Window;
+import android.widget.LinearLayout;
 
 import org.chromium.base.ApiCompatibilityUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
+import org.chromium.chrome.browser.ChromeActivity;
 import org.chromium.chrome.browser.device.DeviceClassManager;
 import org.chromium.ui.UiUtils;
 import org.chromium.ui.base.DeviceFormFactor;
@@ -37,8 +43,33 @@ import java.util.Stack;
  */
 public class SnackbarManager implements OnClickListener, OnGlobalLayoutListener {
 
+    private static RuntimeException sWindowDetachTrace;
+
     /**
-     * Interface that shows the ability to provide a unified snackbar manager.
+     * A {@link LinearLayout} that logs the stack trace when {@link #onDetachedFromWindow()} is
+     * called.
+     */
+    public static class WindowDismissalAwareLayout extends LinearLayout {
+        // TODO(ianwen): remove this class after crbug.com/553569 is fixed.
+        /**
+         * Constructor for XML inflation.
+         */
+        public WindowDismissalAwareLayout(Context context, AttributeSet attrs) {
+            super(context, attrs);
+        }
+
+        @Override
+        protected void onDetachedFromWindow() {
+            super.onDetachedFromWindow();
+            sWindowDetachTrace = new RuntimeException(
+                    "Stacktrace for Snackbar view to be detached from window");
+        }
+    }
+
+    /**
+     * Interface that shows the ability to provide a snackbar manager. Activities implementing this
+     * interface must call {@link SnackbarManager#onStart()} and {@link SnackbarManager#onStop()} in
+     * corresponding lifecycle events.
      */
     public interface SnackbarManageable {
         /**
@@ -81,6 +112,7 @@ public class SnackbarManager implements OnClickListener, OnGlobalLayoutListener 
 
     private static final int DEFAULT_SNACKBAR_DURATION_MS = 3000;
     private static final int ACCESSIBILITY_MODE_SNACKBAR_DURATION_MS = 6000;
+    private static final String TAG = "cr_snackbar";
 
     // Used instead of the constant so tests can override the value.
     private static int sSnackbarDurationMs = DEFAULT_SNACKBAR_DURATION_MS;
@@ -88,14 +120,16 @@ public class SnackbarManager implements OnClickListener, OnGlobalLayoutListener 
 
     private final boolean mIsTablet;
 
+    private Activity mActivity;
     private View mDecor;
     private final Handler mUIThreadHandler;
     private Stack<Snackbar> mStack = new Stack<Snackbar>();
     private SnackbarPopupWindow mPopup;
+    private boolean mActivityInForeground;
     private final Runnable mHideRunnable = new Runnable() {
         @Override
         public void run() {
-            dismissSnackbar(true);
+            dismissAllSnackbars(true);
         }
     };
 
@@ -106,10 +140,26 @@ public class SnackbarManager implements OnClickListener, OnGlobalLayoutListener 
     /**
      * Constructs a SnackbarManager to show snackbars in the given window.
      */
-    public SnackbarManager(Window window) {
-        mDecor = window.getDecorView();
+    public SnackbarManager(Activity activity) {
+        mActivity = activity;
+        mDecor = activity.getWindow().getDecorView();
         mUIThreadHandler = new Handler();
         mIsTablet = DeviceFormFactor.isTablet(mDecor.getContext());
+    }
+
+    /**
+     * Notifies the snackbar manager that the activity is running in foreground now.
+     */
+    public void onStart() {
+        mActivityInForeground = true;
+    }
+
+    /**
+     * Notifies the snackbar manager that the activity has been pushed to background.
+     */
+    public void onStop() {
+        dismissAllSnackbars(false);
+        mActivityInForeground = false;
     }
 
     /**
@@ -117,6 +167,8 @@ public class SnackbarManager implements OnClickListener, OnGlobalLayoutListener 
      * visible.
      */
     public void showSnackbar(Snackbar snackbar) {
+        if (!mActivityInForeground) return;
+
         int durationMs = snackbar.getDuration();
         if (durationMs == 0) {
             durationMs = DeviceClassManager.isAccessibilityModeEnabled(mDecor.getContext())
@@ -139,15 +191,40 @@ public class SnackbarManager implements OnClickListener, OnGlobalLayoutListener 
     }
 
     /**
-     * Dismisses snackbar, clears out all entries in stack and prevents future remove callbacks from
-     * happening. This method also unregisters this class from global layout notifications.
+     * Warning: Calling this method might cause cascading destroy loop, because you might trigger
+     * callbacks for other {@link SnackbarController}. This method is only meant to be used during
+     * {@link ChromeActivity}'s destruction routine. For other purposes, use
+     * {@link #dismissSnackbars(SnackbarController)} instead.
+     * <p>
+     * Dismisses all snackbars in stack. This will call
+     * {@link SnackbarController#onDismissNoAction(Object)} for every closing snackbar.
+     *
      * @param isTimeout Whether dismissal was triggered by timeout.
      */
-    public void dismissSnackbar(boolean isTimeout) {
+    @TargetApi(Build.VERSION_CODES.JELLY_BEAN_MR1)
+    public void dismissAllSnackbars(boolean isTimeout) {
         mUIThreadHandler.removeCallbacks(mHideRunnable);
 
+        if (!mActivityInForeground) return;
+
         if (mPopup != null) {
-            mPopup.dismiss();
+            // TODO(ianwen): remove the try catch after crbug.com/553569 is fixed.
+            try {
+                mPopup.dismiss();
+            } catch (IllegalArgumentException ex) {
+                if (mActivity != null) {
+                    android.util.Log.d(TAG, "Activity.toString()? " + mActivity);
+                    android.util.Log.d(TAG, "Activity is finishing? " + mActivity.isFinishing());
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+                        android.util.Log.d(TAG, "Activity is destroyed?" + mActivity.isDestroyed());
+                    }
+                }
+                if (sWindowDetachTrace != null) {
+                    android.util.Log.d(TAG, "Window detach stack trace", sWindowDetachTrace);
+                }
+                throw ex;
+            }
+
             mPopup = null;
         }
 
@@ -165,11 +242,11 @@ public class SnackbarManager implements OnClickListener, OnGlobalLayoutListener 
     }
 
     /**
-     * Removes all snackbars that have a certain controller.
+     * Dismisses snackbars that are associated with the given {@link SnackbarController}.
      *
      * @param controller Only snackbars with this controller will be removed.
      */
-    public void removeMatchingSnackbars(SnackbarController controller) {
+    public void dismissSnackbars(SnackbarController controller) {
         boolean isFound = false;
         Snackbar[] snackbars = new Snackbar[mStack.size()];
         mStack.toArray(snackbars);
@@ -185,12 +262,12 @@ public class SnackbarManager implements OnClickListener, OnGlobalLayoutListener 
     }
 
     /**
-     * Removes all snackbars that have a certain controller and action data.
+     * Dismisses snackbars that have a certain controller and action data.
      *
      * @param controller Only snackbars with this controller will be removed.
      * @param actionData Only snackbars whose action data is equal to actionData will be removed.
      */
-    public void removeMatchingSnackbars(SnackbarController controller, Object actionData) {
+    public void dismissSnackbars(SnackbarController controller, Object actionData) {
         boolean isFound = false;
         for (Snackbar snackbar : mStack) {
             if (snackbar.getActionData() != null && snackbar.getActionData().equals(actionData)
@@ -209,7 +286,7 @@ public class SnackbarManager implements OnClickListener, OnGlobalLayoutListener 
         controller.onDismissForEachType(false);
 
         if (mStack.isEmpty()) {
-            dismissSnackbar(false);
+            dismissAllSnackbars(false);
         } else {
             // Refresh the snackbar to let it show top of stack and have full timeout.
             showSnackbar(mStack.pop());
@@ -229,7 +306,7 @@ public class SnackbarManager implements OnClickListener, OnGlobalLayoutListener 
         if (!mStack.isEmpty()) {
             showSnackbar(mStack.pop());
         } else {
-            dismissSnackbar(false);
+            dismissAllSnackbars(false);
         }
     }
 

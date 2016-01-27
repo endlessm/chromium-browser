@@ -11,8 +11,8 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/strings/string16.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/sync_driver/change_processor.h"
 #include "components/sync_driver/data_type_controller.h"
 #include "components/sync_driver/device_info.h"
@@ -23,11 +23,15 @@
 
 using ::testing::Invoke;
 
+namespace sync_driver {
+class SyncClient;
+}
+
 class ProfileSyncServiceMock : public ProfileSyncService {
  public:
   explicit ProfileSyncServiceMock(Profile* profile);
-  ProfileSyncServiceMock(
-      scoped_ptr<ProfileSyncComponentsFactory> factory, Profile* profile);
+  ProfileSyncServiceMock(scoped_ptr<sync_driver::SyncClient> sync_client,
+                         Profile* profile);
   virtual ~ProfileSyncServiceMock();
 
   // A utility used by sync tests to create a TestingProfile with a Google
@@ -62,7 +66,6 @@ class ProfileSyncServiceMock : public ProfileSyncService {
                const std::string& message));
   MOCK_METHOD1(DisableDatatype, void(const syncer::SyncError&));
   MOCK_CONST_METHOD0(GetUserShare, syncer::UserShare*());
-  MOCK_METHOD1(DeactivateDataType, void(syncer::ModelType));
   MOCK_METHOD0(RequestStart, void());
   MOCK_METHOD1(RequestStop, void(ProfileSyncService::SyncStopDataFate));
 
@@ -71,8 +74,8 @@ class ProfileSyncServiceMock : public ProfileSyncService {
   MOCK_METHOD0(GetJsController, base::WeakPtr<syncer::JsController>());
   MOCK_CONST_METHOD0(HasSyncSetupCompleted, bool());
 
-  MOCK_CONST_METHOD0(EncryptEverythingAllowed, bool());
-  MOCK_CONST_METHOD0(EncryptEverythingEnabled, bool());
+  MOCK_CONST_METHOD0(IsEncryptEverythingAllowed, bool());
+  MOCK_CONST_METHOD0(IsEncryptEverythingEnabled, bool());
   MOCK_METHOD0(EnableEncryptEverything, void());
 
   MOCK_METHOD1(ChangePreferredDataTypes,
@@ -86,11 +89,11 @@ class ProfileSyncServiceMock : public ProfileSyncService {
   MOCK_METHOD1(QueryDetailedSyncStatus,
                bool(browser_sync::SyncBackendHost::Status* result));
   MOCK_CONST_METHOD0(GetAuthError, const GoogleServiceAuthError&());
-  MOCK_CONST_METHOD0(FirstSetupInProgress, bool());
+  MOCK_CONST_METHOD0(IsFirstSetupInProgress, bool());
   MOCK_CONST_METHOD0(GetLastSyncedTimeString, base::string16());
   MOCK_CONST_METHOD0(HasUnrecoverableError, bool());
   MOCK_CONST_METHOD0(IsSyncActive, bool());
-  MOCK_CONST_METHOD0(backend_initialized, bool());
+  MOCK_CONST_METHOD0(IsBackendInitialized, bool());
   MOCK_CONST_METHOD0(IsSyncRequested, bool());
   MOCK_CONST_METHOD0(waiting_for_auth, bool());
   MOCK_METHOD1(OnActionableError, void(const syncer::SyncProtocolError&));

@@ -113,9 +113,8 @@ void AddEventsToFilter(IPC::MessageFilter* message_filter,
                        size_t count) {
   std::vector<IPC::Message> messages;
   for (size_t i = 0; i < count; ++i) {
-    messages.push_back(
-        InputMsg_HandleInputEvent(
-            kTestRoutingID, &events[i], ui::LatencyInfo(), false));
+    messages.push_back(InputMsg_HandleInputEvent(kTestRoutingID, &events[i],
+                                                 ui::LatencyInfo()));
   }
 
   AddMessagesToFilter(message_filter, messages);
@@ -165,7 +164,7 @@ TEST_F(InputEventFilterTest, Basic) {
   EXPECT_EQ(0U, event_recorder_.record_count());
   EXPECT_EQ(0U, message_recorder_.message_count());
 
-  filter_->DidAddInputHandler(kTestRoutingID, NULL);
+  filter_->DidAddInputHandler(kTestRoutingID, nullptr);
 
   AddEventsToFilter(filter_.get(), kEvents, arraysize(kEvents));
   ASSERT_EQ(arraysize(kEvents), ipc_sink_.message_count());
@@ -241,7 +240,7 @@ TEST_F(InputEventFilterTest, Basic) {
 }
 
 TEST_F(InputEventFilterTest, PreserveRelativeOrder) {
-  filter_->DidAddInputHandler(kTestRoutingID, NULL);
+  filter_->DidAddInputHandler(kTestRoutingID, nullptr);
   event_recorder_.set_send_to_widget(true);
 
 
@@ -251,10 +250,8 @@ TEST_F(InputEventFilterTest, PreserveRelativeOrder) {
       SyntheticWebMouseEventBuilder::Build(WebMouseEvent::MouseUp);
 
   std::vector<IPC::Message> messages;
-  messages.push_back(InputMsg_HandleInputEvent(kTestRoutingID,
-                                              &mouse_down,
-                                              ui::LatencyInfo(),
-                                              false));
+  messages.push_back(InputMsg_HandleInputEvent(kTestRoutingID, &mouse_down,
+                                               ui::LatencyInfo()));
   // Control where input events are delivered.
   messages.push_back(InputMsg_MouseCaptureLost(kTestRoutingID));
   messages.push_back(InputMsg_SetFocus(kTestRoutingID, true));
@@ -280,10 +277,8 @@ TEST_F(InputEventFilterTest, PreserveRelativeOrder) {
                                          gfx::Point(), gfx::Point()));
   messages.push_back(InputMsg_MoveCaret(kTestRoutingID, gfx::Point()));
 
-  messages.push_back(InputMsg_HandleInputEvent(kTestRoutingID,
-                                              &mouse_up,
-                                              ui::LatencyInfo(),
-                                              false));
+  messages.push_back(
+      InputMsg_HandleInputEvent(kTestRoutingID, &mouse_up, ui::LatencyInfo()));
   AddMessagesToFilter(filter_.get(), messages);
 
   // We should have sent all messages back to the main thread and preserved

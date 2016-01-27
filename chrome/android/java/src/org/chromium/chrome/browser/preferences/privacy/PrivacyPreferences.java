@@ -42,6 +42,9 @@ public class PrivacyPreferences extends PreferenceFragment
 
     private static final String PREF_NAVIGATION_ERROR = "navigation_error";
     private static final String PREF_SEARCH_SUGGESTIONS = "search_suggestions";
+    private static final String PREF_SAFE_BROWSING_EXTENDED_REPORTING =
+            "safe_browsing_extended_reporting";
+    private static final String PREF_SAFE_BROWSING = "safe_browsing";
     private static final String PREF_CONTEXTUAL_SEARCH = "contextual_search";
     private static final String PREF_NETWORK_PREDICTIONS = "network_predictions";
     private static final String PREF_NETWORK_PREDICTIONS_NO_CELLULAR =
@@ -129,6 +132,17 @@ public class PrivacyPreferences extends PreferenceFragment
             preferenceScreen.removePreference(findPreference(PREF_CONTEXTUAL_SEARCH));
         }
 
+        ChromeBaseCheckBoxPreference safeBrowsingExtendedReportingPref =
+                (ChromeBaseCheckBoxPreference) findPreference(
+                        PREF_SAFE_BROWSING_EXTENDED_REPORTING);
+        safeBrowsingExtendedReportingPref.setOnPreferenceChangeListener(this);
+        safeBrowsingExtendedReportingPref.setManagedPreferenceDelegate(mManagedPreferenceDelegate);
+
+        ChromeBaseCheckBoxPreference safeBrowsingPref =
+                (ChromeBaseCheckBoxPreference) findPreference(PREF_SAFE_BROWSING);
+        safeBrowsingPref.setOnPreferenceChangeListener(this);
+        safeBrowsingPref.setManagedPreferenceDelegate(mManagedPreferenceDelegate);
+
         ButtonPreference clearBrowsingData =
                 (ButtonPreference) findPreference(PREF_CLEAR_BROWSING_DATA);
         clearBrowsingData.setOnPreferenceClickListener(new OnPreferenceClickListener() {
@@ -166,17 +180,20 @@ public class PrivacyPreferences extends PreferenceFragment
         String key = preference.getKey();
         if (PREF_SEARCH_SUGGESTIONS.equals(key)) {
             PrefServiceBridge.getInstance().setSearchSuggestEnabled((boolean) newValue);
+        } else if (PREF_SAFE_BROWSING.equals(key)) {
+            PrefServiceBridge.getInstance().setSafeBrowsingEnabled((boolean) newValue);
+        } else if (PREF_SAFE_BROWSING_EXTENDED_REPORTING.equals(key)) {
+            PrefServiceBridge.getInstance().setSafeBrowsingExtendedReportingEnabled(
+                    (boolean) newValue);
         } else if (PREF_NETWORK_PREDICTIONS.equals(key)) {
             PrefServiceBridge.getInstance().setNetworkPredictionOptions(
                     NetworkPredictionOptions.stringToEnum((String) newValue));
-            PrecacheLauncher.updatePrecachingEnabled(
-                    PrivacyPreferencesManager.getInstance(getActivity()), getActivity());
+            PrecacheLauncher.updatePrecachingEnabled(getActivity());
         } else if (PREF_NETWORK_PREDICTIONS_NO_CELLULAR.equals(key)) {
             PrefServiceBridge.getInstance().setNetworkPredictionOptions((boolean) newValue
                     ? NetworkPredictionOptions.NETWORK_PREDICTION_ALWAYS
                     : NetworkPredictionOptions.NETWORK_PREDICTION_NEVER);
-            PrecacheLauncher.updatePrecachingEnabled(
-                    PrivacyPreferencesManager.getInstance(getActivity()), getActivity());
+            PrecacheLauncher.updatePrecachingEnabled(getActivity());
         } else if (PREF_NAVIGATION_ERROR.equals(key)) {
             PrefServiceBridge.getInstance().setResolveNavigationErrorEnabled((boolean) newValue);
         } else if (PREF_CRASH_DUMP_UPLOAD_NO_CELLULAR.equals(key)) {
@@ -209,6 +226,15 @@ public class PrivacyPreferences extends PreferenceFragment
                 PREF_SEARCH_SUGGESTIONS);
         searchSuggestionsPref.setChecked(prefServiceBridge.isSearchSuggestEnabled());
 
+        CheckBoxPreference extendedReportingPref =
+                (CheckBoxPreference) findPreference(PREF_SAFE_BROWSING_EXTENDED_REPORTING);
+        extendedReportingPref.setChecked(
+                prefServiceBridge.isSafeBrowsingExtendedReportingEnabled());
+
+        CheckBoxPreference safeBrowsingPref =
+                (CheckBoxPreference) findPreference(PREF_SAFE_BROWSING);
+        safeBrowsingPref.setChecked(prefServiceBridge.isSafeBrowsingEnabled());
+
         Preference doNotTrackPref = findPreference(PREF_DO_NOT_TRACK);
         if (prefServiceBridge.isDoNotTrackEnabled()) {
             doNotTrackPref.setSummary(getActivity().getResources().getText(R.string.text_on));
@@ -221,6 +247,18 @@ public class PrivacyPreferences extends PreferenceFragment
                 contextualPref.setSummary(getActivity().getResources().getText(R.string.text_off));
             } else {
                 contextualPref.setSummary(getActivity().getResources().getText(R.string.text_on));
+            }
+        }
+        PrivacyPreferencesManager privacyPrefManager =
+                PrivacyPreferencesManager.getInstance(getActivity());
+        if (privacyPrefManager.isCellularExperimentEnabled()) {
+            Preference usageAndCrashPref = findPreference(PREF_USAGE_AND_CRASH_REPORTING);
+            if (privacyPrefManager.isUsageAndCrashReportingEnabled()) {
+                usageAndCrashPref.setSummary(
+                        getActivity().getResources().getText(R.string.text_on));
+            } else {
+                usageAndCrashPref.setSummary(
+                        getActivity().getResources().getText(R.string.text_off));
             }
         }
     }
@@ -236,6 +274,12 @@ public class PrivacyPreferences extends PreferenceFragment
                 }
                 if (PREF_SEARCH_SUGGESTIONS.equals(key)) {
                     return prefs.isSearchSuggestManaged();
+                }
+                if (PREF_SAFE_BROWSING_EXTENDED_REPORTING.equals(key)) {
+                    return prefs.isSafeBrowsingExtendedReportingManaged();
+                }
+                if (PREF_SAFE_BROWSING.equals(key)) {
+                    return prefs.isSafeBrowsingManaged();
                 }
                 if (PREF_NETWORK_PREDICTIONS_NO_CELLULAR.equals(key)
                         || PREF_NETWORK_PREDICTIONS.equals(key)) {

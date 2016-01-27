@@ -32,7 +32,7 @@
 #include "wtf/text/Unicode.h"
 #include <limits.h>
 
-#if USE(CF)
+#if OS(MACOSX)
 typedef const struct __CFString * CFStringRef;
 #endif
 
@@ -122,9 +122,10 @@ private:
     void* operator new(size_t, void* ptr) { return ptr; }
     void operator delete(void*);
 
-    // Used to construct static strings, which have an special refCount that can never hit zero.
-    // This means that the static string will never be destroyed, which is important because
-    // static strings will be shared across threads & ref-counted in a non-threadsafe manner.
+    // Used to construct static strings, which have an special refCount that can
+    // never hit zero.  This means that the static string will never be
+    // destroyed, which is important because static strings will be shared
+    // across threads & ref-counted in a non-threadsafe manner.
     enum ConstructEmptyStringTag { ConstructEmptyString };
     explicit StringImpl(ConstructEmptyStringTag)
         : m_refCount(1)
@@ -134,9 +135,10 @@ private:
         , m_is8Bit(true)
         , m_isStatic(true)
     {
-        // Ensure that the hash is computed so that AtomicStringHash can call existingHash()
-        // with impunity. The empty string is special because it is never entered into
-        // AtomicString's HashKey, but still needs to compare correctly.
+        // Ensure that the hash is computed so that AtomicStringHash can call
+        // existingHash() with impunity. The empty string is special because it
+        // is never entered into AtomicString's HashKey, but still needs to
+        // compare correctly.
         STRING_STATS_ADD_8BIT_STRING(m_length);
         hash();
     }
@@ -195,6 +197,7 @@ public:
     ~StringImpl();
 
     static StringImpl* createStatic(const char* string, unsigned length, unsigned hash);
+    static void reserveStaticStringsCapacityForSize(unsigned size);
     static void freezeStaticStrings();
     static const StaticStringsTable& allStaticStrings();
     static unsigned highestStaticStringLength() { return m_highestStaticStringLength; }
@@ -215,19 +218,6 @@ public:
     static PassRefPtr<StringImpl> createUninitialized(unsigned length, LChar*& data);
     static PassRefPtr<StringImpl> createUninitialized(unsigned length, UChar*& data);
 
-    // Reallocate the StringImpl. The originalString must be only owned by the PassRefPtr.
-    // Just like the input pointer of realloc(), the originalString can't be used after this function.
-    static PassRefPtr<StringImpl> reallocate(PassRefPtr<StringImpl> originalString, unsigned length);
-
-    // If this StringImpl has only one reference, we can truncate the string by updating
-    // its m_length property without actually re-allocating its buffer.
-    void truncateAssumingIsolated(unsigned length)
-    {
-        ASSERT(hasOneRef());
-        ASSERT(length <= m_length);
-        m_length = length;
-    }
-
     unsigned length() const { return m_length; }
     bool is8Bit() const { return m_is8Bit; }
 
@@ -245,13 +235,15 @@ public:
     bool isStatic() const { return m_isStatic; }
 
 private:
-    // The high bits of 'hash' are always empty, but we prefer to store our flags
-    // in the low bits because it makes them slightly more efficient to access.
-    // So, we shift left and right when setting and getting our hash code.
+    // The high bits of 'hash' are always empty, but we prefer to store our
+    // flags in the low bits because it makes them slightly more efficient to
+    // access.  So, we shift left and right when setting and getting our hash
+    // code.
     void setHash(unsigned hash) const
     {
         ASSERT(!hasHash());
-        // Multiple clients assume that StringHasher is the canonical string hash function.
+        // Multiple clients assume that StringHasher is the canonical string
+        // hash function.
         ASSERT(hash == (is8Bit() ? StringHasher::computeHashAndMaskTop8Bits(characters8(), m_length) : StringHasher::computeHashAndMaskTop8Bits(characters16(), m_length)));
         m_hash = hash;
         ASSERT(hash); // Verify that 0 is a valid sentinel hash value.
@@ -346,9 +338,10 @@ public:
     int64_t toInt64(bool* ok = 0); // ignores trailing garbage
     uint64_t toUInt64(bool* ok = 0); // ignores trailing garbage
 
-    // FIXME: Like the strict functions above, these give false for "ok" when there is trailing garbage.
-    // Like the non-strict functions above, these return the value when there is trailing garbage.
-    // It would be better if these were more consistent with the above functions instead.
+    // FIXME: Like the strict functions above, these give false for "ok" when
+    // there is trailing garbage.  Like the non-strict functions above, these
+    // return the value when there is trailing garbage.  It would be better if
+    // these were more consistent with the above functions instead.
     double toDouble(bool* ok = 0);
     float toFloat(bool* ok = 0);
 
@@ -363,8 +356,8 @@ public:
 
     PassRefPtr<StringImpl> stripWhiteSpace();
     PassRefPtr<StringImpl> stripWhiteSpace(IsWhiteSpaceFunctionPtr);
-    PassRefPtr<StringImpl> simplifyWhiteSpace(StripBehavior stripBehavior = StripExtraWhiteSpace);
-    PassRefPtr<StringImpl> simplifyWhiteSpace(IsWhiteSpaceFunctionPtr, StripBehavior stripBehavior = StripExtraWhiteSpace);
+    PassRefPtr<StringImpl> simplifyWhiteSpace(StripBehavior = StripExtraWhiteSpace);
+    PassRefPtr<StringImpl> simplifyWhiteSpace(IsWhiteSpaceFunctionPtr, StripBehavior = StripExtraWhiteSpace);
 
     PassRefPtr<StringImpl> removeCharacters(CharacterMatchFunctionPtr);
     template <typename CharType>
@@ -411,7 +404,7 @@ public:
     PassRefPtr<StringImpl> replace(unsigned index, unsigned len, StringImpl*);
     PassRefPtr<StringImpl> upconvertedString();
 
-#if USE(CF)
+#if OS(MACOSX)
     RetainPtr<CFStringRef> createCFString();
 #endif
 #ifdef __OBJC__
@@ -450,11 +443,11 @@ private:
 
 private:
     unsigned m_refCount;
-    unsigned m_length;
+    const unsigned m_length;
     mutable unsigned m_hash : 24;
     unsigned m_isAtomic : 1;
-    unsigned m_is8Bit : 1;
-    unsigned m_isStatic : 1;
+    const unsigned m_is8Bit : 1;
+    const unsigned m_isStatic : 1;
 };
 
 template <>

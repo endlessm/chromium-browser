@@ -6,6 +6,7 @@
 
 #include "base/files/file_util.h"
 #include "base/run_loop.h"
+#include "content/public/browser/browser_thread.h"
 #include "content/public/test/test_browser_context.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -62,8 +63,8 @@ TEST(StoragePartitionConfigTest, OperatorLess) {
 }
 
 TEST(StoragePartitionImplMapTest, GarbageCollect) {
-  base::MessageLoop message_loop;
   TestBrowserContext browser_context;
+  base::MessageLoop message_loop;
   StoragePartitionImplMap storage_partition_impl_map(&browser_context);
 
   scoped_ptr<base::hash_set<base::FilePath> > active_paths(
@@ -84,6 +85,7 @@ TEST(StoragePartitionImplMapTest, GarbageCollect) {
   storage_partition_impl_map.GarbageCollect(
       active_paths.Pass(), run_loop.QuitClosure());
   run_loop.Run();
+  BrowserThread::GetBlockingPool()->FlushForTesting();
 
   EXPECT_TRUE(base::PathExists(active_path));
   EXPECT_FALSE(base::PathExists(inactive_path));

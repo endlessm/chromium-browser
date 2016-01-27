@@ -44,6 +44,7 @@ import org.chromium.base.PathService;
 import org.chromium.base.PathUtils;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.TraceEvent;
+import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.library_loader.LibraryLoader;
 import org.chromium.base.library_loader.LibraryProcessType;
 import org.chromium.base.library_loader.ProcessInitException;
@@ -106,6 +107,7 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         initialize(WebViewDelegateFactory.createProxyDelegate(delegate));
     }
 
+    @SuppressFBWarnings("DMI_HARDCODED_ABSOLUTE_FILENAME")
     private void initialize(WebViewDelegate webViewDelegate) {
         mWebViewDelegate = webViewDelegate;
         if (isBuildDebuggable()) {
@@ -303,7 +305,8 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
         assert Thread.holdsLock(mLock);
         assert mStarted;
         if (mBrowserContext == null) {
-            mBrowserContext = new AwBrowserContext(mWebViewPrefs);
+            mBrowserContext =
+                    new AwBrowserContext(mWebViewPrefs, getWrappedCurrentApplicationContext());
         }
         return mBrowserContext;
     }
@@ -326,7 +329,6 @@ public class WebViewChromiumFactoryProvider implements WebViewFactoryProvider {
                 mWebViewDelegate.getPackageId(context.getResources(), packageName));
 
         AwResource.setResources(context.getResources());
-        AwResource.setErrorPageResources(android.R.raw.loaderror, android.R.raw.nodomain);
         AwResource.setConfigKeySystemUuidMapping(android.R.array.config_keySystemUuidMapping);
     }
 

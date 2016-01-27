@@ -71,7 +71,10 @@ const int kMaxProfileShortcutFileNameLength = 64;
 const int kShortcutIconSize = 48;
 const int kProfileAvatarBadgeSize = kShortcutIconSize / 2;
 
-const int kCurrentProfileIconVersion = 3;
+// Incrementing this number will cause profile icons to be regenerated on
+// profile startup (it should be incremented whenever the product/avatar icons
+// change, etc).
+const int kCurrentProfileIconVersion = 4;
 
 // 2x sized profile avatar icons. Mirrors |kDefaultAvatarIconResources| in
 // profile_info_cache.cc.
@@ -518,7 +521,7 @@ void DeleteDesktopShortcuts(const base::FilePath& profile_path,
     // latter causes non-profile taskbar shortcuts to be removed since it
     // doesn't consider the command-line of the shortcuts it deletes.
     // TODO(huangs): Refactor with ShellUtil::RemoveShortcuts().
-    base::win::TaskbarUnpinShortcutLink(shortcuts[i]);
+    base::win::UnpinShortcutFromTaskbar(shortcuts[i]);
     base::DeleteFile(shortcuts[i], false);
     // Notify the shell that the shortcut was deleted to ensure desktop refresh.
     SHChangeNotify(SHCNE_DELETE, SHCNF_PATH, shortcuts[i].value().c_str(),

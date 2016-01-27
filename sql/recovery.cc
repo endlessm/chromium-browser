@@ -141,6 +141,9 @@ Recovery::Recovery(Connection* connection)
   if (db_->page_size_)
     recover_db_.set_page_size(db_->page_size_);
 
+  // Files with I/O errors cannot be safely memory-mapped.
+  recover_db_.set_mmap_disabled();
+
   // TODO(shess): This may not handle cases where the default page
   // size is used, but the default has changed.  I do not think this
   // has ever happened.  This could be handled by using "PRAGMA
@@ -456,12 +459,12 @@ bool Recovery::AutoRecoverTable(const char* table_name,
       "CREATE VIRTUAL TABLE temp.recover_%s USING recover(corrupt.%s, %s)",
       table_name,
       table_name,
-      JoinString(create_column_decls, ',').c_str()));
+      base::JoinString(create_column_decls, ",").c_str()));
 
   std::string recover_insert(base::StringPrintf(
       "INSERT OR REPLACE INTO main.%s SELECT %s FROM temp.recover_%s",
       table_name,
-      JoinString(insert_columns, ',').c_str(),
+      base::JoinString(insert_columns, ",").c_str(),
       table_name));
 
   std::string recover_drop(base::StringPrintf(

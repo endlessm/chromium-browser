@@ -5,10 +5,10 @@
 #include "content/browser/frame_host/frame_tree.h"
 
 #include <queue>
+#include <utility>
 
 #include "base/bind.h"
 #include "base/callback.h"
-#include "base/command_line.h"
 #include "base/containers/hash_tables.h"
 #include "base/lazy_instance.h"
 #include "content/browser/frame_host/frame_tree_node.h"
@@ -18,7 +18,8 @@
 #include "content/browser/frame_host/render_frame_proxy_host.h"
 #include "content/browser/renderer_host/render_view_host_factory.h"
 #include "content/browser/renderer_host/render_view_host_impl.h"
-#include "content/public/common/content_switches.h"
+#include "content/common/input_messages.h"
+#include "content/common/site_isolation_policy.h"
 #include "third_party/WebKit/public/web/WebSandboxFlags.h"
 
 namespace content {
@@ -94,6 +95,14 @@ bool IsNodeLoading(bool* is_loading, FrameTreeNode* node) {
   return true;
 }
 
+// Helper function used with FrameTree::ForEach to collect SiteInstances
+// involved in rendering a single FrameTree (which is a subset of SiteInstances
+// in main frame's proxy_hosts_ because of openers).
+bool CollectSiteInstances(std::set<SiteInstance*>* set, FrameTreeNode* node) {
+  set->insert(node->current_frame_host()->GetSiteInstance());
+  return true;
+}
+
 }  // namespace
 
 FrameTree::FrameTree(Navigator* navigator,
@@ -115,12 +124,14 @@ FrameTree::FrameTree(Navigator* navigator,
                               // document scope.
                               blink::WebTreeScopeType::Document,
                               std::string(),
-                              blink::WebSandboxFlags::None)),
+                              blink::WebSandboxFlags::None,
+                              blink::WebFrameOwnerProperties())),
       focused_frame_tree_node_id_(-1),
-      load_progress_(0.0) {
-}
+      load_progress_(0.0) {}
 
 FrameTree::~FrameTree() {
+  delete root_;
+  root_ = nullptr;
 }
 
 FrameTreeNode* FrameTree::FindByID(int frame_tree_node_id) {
@@ -151,7 +162,7 @@ FrameTreeNode* FrameTree::FindByRoutingID(int process_id, int routing_id) {
 
 FrameTreeNode* FrameTree::FindByName(const std::string& name) {
   if (name.empty())
-    return root_.get();
+    return root_;
 
   FrameTreeNode* node = nullptr;
   ForEach(base::Bind(&FrameTreeNodeForName, name, &node));
@@ -167,7 +178,7 @@ void FrameTree::ForEach(
     const base::Callback<bool(FrameTreeNode*)>& on_node,
     FrameTreeNode* skip_this_subtree) const {
   std::queue<FrameTreeNode*> queue;
-  queue.push(root_.get());
+  queue.push(root_);
 
   while (!queue.empty()) {
     FrameTreeNode* node = queue.front();
@@ -183,12 +194,14 @@ void FrameTree::ForEach(
   }
 }
 
-RenderFrameHostImpl* FrameTree::AddFrame(FrameTreeNode* parent,
-                                         int process_id,
-                                         int new_routing_id,
-                                         blink::WebTreeScopeType scope,
-                                         const std::string& frame_name,
-                                         blink::WebSandboxFlags sandbox_flags) {
+RenderFrameHostImpl* FrameTree::AddFrame(
+    FrameTreeNode* parent,
+    int process_id,
+    int new_routing_id,
+    blink::WebTreeScopeType scope,
+    const std::string& frame_name,
+    blink::WebSandboxFlags sandbox_flags,
+    const blink::WebFrameOwnerProperties& frame_owner_properties) {
   // A child frame always starts with an initial empty document, which means
   // it is in the same SiteInstance as the parent frame. Ensure that the process
   // which requested a child frame to be added is the same as the process of the
@@ -198,10 +211,10 @@ RenderFrameHostImpl* FrameTree::AddFrame(FrameTreeNode* parent,
   if (parent->current_frame_host()->GetProcess()->GetID() != process_id)
     return nullptr;
 
-  scoped_ptr<FrameTreeNode> node(
-      new FrameTreeNode(this, parent->navigator(), render_frame_delegate_,
-                        render_view_delegate_, render_widget_delegate_,
-                        manager_delegate_, scope, frame_name, sandbox_flags));
+  scoped_ptr<FrameTreeNode> node(new FrameTreeNode(
+      this, parent->navigator(), render_frame_delegate_, render_view_delegate_,
+      render_widget_delegate_, manager_delegate_, scope, frame_name,
+      sandbox_flags, frame_owner_properties));
   FrameTreeNode* node_ptr = node.get();
   // AddChild is what creates the RenderFrameHost.
   parent->AddChild(node.Pass(), process_id, new_routing_id);
@@ -227,7 +240,7 @@ void FrameTree::CreateProxiesForSiteInstance(
   if (!source || !source->IsMainFrame()) {
     RenderViewHostImpl* render_view_host = GetRenderViewHost(site_instance);
     if (!render_view_host) {
-      if (RenderFrameHostManager::IsSwappedOutStateForbidden()) {
+      if (SiteIsolationPolicy::IsSwappedOutStateForbidden()) {
         root()->render_manager()->CreateRenderFrameProxy(site_instance);
       } else {
         root()->render_manager()->CreateRenderFrame(
@@ -257,7 +270,25 @@ FrameTreeNode* FrameTree::GetFocusedFrame() {
 }
 
 void FrameTree::SetFocusedFrame(FrameTreeNode* node) {
+  std::set<SiteInstance*> frame_tree_site_instances;
+  ForEach(base::Bind(&CollectSiteInstances, &frame_tree_site_instances));
+
+  // Update the focused frame in all other SiteInstances.  If focus changes to
+  // a cross-process frame, this allows the old focused frame's renderer
+  // process to clear focus from that frame and fire blur events.  It also
+  // ensures that the latest focused frame is available in all renderers to
+  // compute document.activeElement.
+  for (const auto& instance : frame_tree_site_instances) {
+    if (instance != node->current_frame_host()->GetSiteInstance()) {
+      DCHECK(SiteIsolationPolicy::AreCrossProcessFramesPossible());
+      RenderFrameProxyHost* proxy =
+          node->render_manager()->GetRenderFrameProxyHost(instance);
+      proxy->SetFocusedFrame();
+    }
+  }
+
   focused_frame_tree_node_id_ = node->frame_tree_node_id();
+  node->DidFocus();
 }
 
 void FrameTree::SetFrameRemoveListener(
@@ -266,37 +297,31 @@ void FrameTree::SetFrameRemoveListener(
 }
 
 RenderViewHostImpl* FrameTree::CreateRenderViewHost(SiteInstance* site_instance,
-                                                    int routing_id,
-                                                    int main_frame_routing_id,
+                                                    int32 routing_id,
+                                                    int32 main_frame_routing_id,
                                                     bool swapped_out,
                                                     bool hidden) {
   RenderViewHostMap::iterator iter =
       render_view_host_map_.find(site_instance->GetId());
   if (iter != render_view_host_map_.end()) {
-    // If a RenderViewHost's main frame is pending deletion for this
-    // |site_instance|, put it in the map of RenderViewHosts pending shutdown.
-    // Otherwise return the existing RenderViewHost for the SiteInstance.
-    RenderFrameHostImpl* main_frame = static_cast<RenderFrameHostImpl*>(
-        iter->second->GetMainFrame());
-    if (main_frame &&
-        main_frame->frame_tree_node()->render_manager()->IsPendingDeletion(
-            main_frame)) {
+    // If a RenderViewHost is pending deletion for this |site_instance|, it
+    // shouldn't be reused, so put it in the map of RenderViewHosts pending
+    // shutdown.  Otherwise, return the existing RenderViewHost for the
+    // SiteInstance.  Note that if swapped-out is forbidden, the
+    // RenderViewHost's main frame has already been cleared, so we cannot rely
+    // on checking whether the main frame is pending deletion.
+    if (iter->second->is_pending_deletion()) {
       render_view_host_pending_shutdown_map_.insert(
-          std::pair<int, RenderViewHostImpl*>(site_instance->GetId(),
-                                              iter->second));
+          std::make_pair(site_instance->GetId(), iter->second));
       render_view_host_map_.erase(iter);
     } else {
       return iter->second;
     }
   }
-  RenderViewHostImpl* rvh = static_cast<RenderViewHostImpl*>(
-      RenderViewHostFactory::Create(site_instance,
-                                    render_view_delegate_,
-                                    render_widget_delegate_,
-                                    routing_id,
-                                    main_frame_routing_id,
-                                    swapped_out,
-                                    hidden));
+  RenderViewHostImpl* rvh =
+      static_cast<RenderViewHostImpl*>(RenderViewHostFactory::Create(
+          site_instance, render_view_delegate_, render_widget_delegate_,
+          routing_id, main_frame_routing_id, swapped_out, hidden));
 
   render_view_host_map_[site_instance->GetId()] = rvh;
   return rvh;
@@ -367,7 +392,7 @@ void FrameTree::FrameRemoved(FrameTreeNode* frame) {
 
   // No notification for the root frame.
   if (!frame->parent()) {
-    CHECK_EQ(frame, root_.get());
+    CHECK_EQ(frame, root_);
     return;
   }
 
@@ -401,6 +426,31 @@ bool FrameTree::IsLoading() {
   bool is_loading = false;
   ForEach(base::Bind(&IsNodeLoading, &is_loading));
   return is_loading;
+}
+
+void FrameTree::ReplicatePageFocus(bool is_focused) {
+  std::set<SiteInstance*> frame_tree_site_instances;
+  ForEach(base::Bind(&CollectSiteInstances, &frame_tree_site_instances));
+
+  // Send the focus update to main frame's proxies in all SiteInstances of
+  // other frames in this FrameTree. Note that the main frame might also know
+  // about proxies in SiteInstances for frames in a different FrameTree (e.g.,
+  // for window.open), so we can't just iterate over its proxy_hosts_ in
+  // RenderFrameHostManager.
+  for (const auto& instance : frame_tree_site_instances)
+    SetPageFocus(instance, is_focused);
+}
+
+void FrameTree::SetPageFocus(SiteInstance* instance, bool is_focused) {
+  RenderFrameHostManager* root_manager = root_->render_manager();
+
+  // This is only used to set page-level focus in cross-process subframes, and
+  // requests to set focus in main frame's SiteInstance are ignored.
+  if (instance != root_manager->current_frame_host()->GetSiteInstance()) {
+    RenderFrameProxyHost* proxy =
+        root_manager->GetRenderFrameProxyHost(instance);
+    proxy->Send(new InputMsg_SetFocus(proxy->GetRoutingID(), is_focused));
+  }
 }
 
 }  // namespace content

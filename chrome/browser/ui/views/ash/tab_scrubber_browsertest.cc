@@ -108,12 +108,8 @@ class TabScrubberTest : public InProcessBrowserTest,
 
     float offset = GetTabCenter(browser, index) -
         GetStartX(browser, active_index, direction);
-    ui::ScrollEvent scroll_event(ui::ET_SCROLL,
-                                 gfx::PointF(0, 0),
-                                 ui::EventTimeForNow(),
-                                 0,
-                                 offset, 0,
-                                 offset, 0,
+    ui::ScrollEvent scroll_event(ui::ET_SCROLL, gfx::Point(0, 0),
+                                 ui::EventTimeForNow(), 0, offset, 0, offset, 0,
                                  3);
     event_generator.Dispatch(&scroll_event);
   }
@@ -236,7 +232,6 @@ class TabScrubberTest : public InProcessBrowserTest,
   void TabBlockedStateChanged(content::WebContents* contents,
                               int index) override {}
   void TabStripEmpty() override {}
-  void TabStripModelDeleted() override {}
 
   // History of tab activation. Scrub() resets it.
   std::vector<int> activation_order_;

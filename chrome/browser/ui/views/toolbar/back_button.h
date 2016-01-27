@@ -29,6 +29,10 @@ class BackButton : public ToolbarButton {
 
   void SetLeadingMargin(int margin);
 
+ protected:
+  // ToolbarButton:
+  gfx::Point CalculateInkDropCenter() const override;
+
  private:
   // ToolbarButton:
   const char* GetClassName() const override;

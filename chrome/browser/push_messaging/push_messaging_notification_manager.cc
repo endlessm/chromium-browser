@@ -7,13 +7,16 @@
 #include <bitset>
 
 #include "base/metrics/histogram_macros.h"
+#include "base/prefs/pref_service.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/notifications/platform_notification_service_impl.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/push_messaging/push_messaging_constants.h"
+#include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/rappor/rappor_utils.h"
+#include "components/url_formatter/elide_url.h"
 #include "content/public/browser/browser_context.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/platform_notification_context.h"
@@ -21,6 +24,7 @@
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/browser/web_contents.h"
+#include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "url/gurl.h"
@@ -167,7 +171,7 @@ void PushMessagingNotificationManager::DidGetNotificationsFromDatabase(
           profile_, notification_database_data.notification_id);
       platform_notification_service->OnPersistentNotificationClose(
           profile_, notification_database_data.notification_id,
-          notification_database_data.origin);
+          notification_database_data.origin, false /* by_user */);
 
       break;
     }
@@ -250,16 +254,20 @@ void PushMessagingNotificationManager::DidGetNotificationsShownAndNeeded(
       g_browser_process->rappor_service(),
       "PushMessaging.GenericNotificationShown.Origin",
       requesting_origin);
+
   // The site failed to show a notification when one was needed, and they have
   // already failed once in the previous 10 push messages, so we will show a
   // generic notification. See https://crbug.com/437277.
-  // TODO(johnme): The generic notification should probably automatically
-  // close itself when the next push message arrives?
+  //
+  // TODO(johnme): The generic notification should probably automatically close
+  // itself when the next push message arrives?
   content::PlatformNotificationData notification_data;
-  // TODO(johnme): Switch to FormatOriginForDisplay from crbug.com/402698
-  notification_data.title = base::UTF8ToUTF16(requesting_origin.host());
+  notification_data.title =
+      url_formatter::FormatUrlForSecurityDisplayOmitScheme(
+          requesting_origin,
+          profile_->GetPrefs()->GetString(prefs::kAcceptLanguages));
   notification_data.direction =
-      content::PlatformNotificationData::NotificationDirectionLeftToRight;
+      content::PlatformNotificationData::DIRECTION_LEFT_TO_RIGHT;
   notification_data.body =
       l10n_util::GetStringUTF16(IDS_PUSH_MESSAGING_GENERIC_NOTIFICATION_BODY);
   notification_data.tag = kPushMessagingForcedNotificationTag;

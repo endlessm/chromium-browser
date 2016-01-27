@@ -61,18 +61,24 @@ void LayoutImageResourceStyleImage::shutdown()
     m_cachedImage = 0;
 }
 
-PassRefPtr<Image> LayoutImageResourceStyleImage::image(int width, int height) const
+PassRefPtr<Image> LayoutImageResourceStyleImage::image(const IntSize& size) const
 {
     // Generated content may trigger calls to image() while we're still pending, don't assert but gracefully exit.
     if (m_styleImage->isPendingImage())
         return nullptr;
-    return m_styleImage->image(m_layoutObject, IntSize(width, height));
+    return m_styleImage->image(m_layoutObject, size);
 }
 
 void LayoutImageResourceStyleImage::setContainerSizeForLayoutObject(const IntSize& size)
 {
     ASSERT(m_layoutObject);
     m_styleImage->setContainerSizeForLayoutObject(m_layoutObject, size, m_layoutObject->style()->effectiveZoom());
+}
+
+DEFINE_TRACE(LayoutImageResourceStyleImage)
+{
+    visitor->trace(m_styleImage);
+    LayoutImageResource::trace(visitor);
 }
 
 } // namespace blink

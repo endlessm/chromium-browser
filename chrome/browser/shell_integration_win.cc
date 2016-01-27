@@ -14,17 +14,22 @@
 #include "base/files/file_enumerator.h"
 #include "base/files/file_util.h"
 #include "base/message_loop/message_loop.h"
+#include "base/metrics/field_trial.h"
+#include "base/metrics/histogram_macros.h"
 #include "base/path_service.h"
+#include "base/process/launch.h"
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_util.h"
 #include "base/strings/stringprintf.h"
 #include "base/strings/utf_string_conversions.h"
+#include "base/timer/timer.h"
 #include "base/win/registry.h"
 #include "base/win/scoped_comptr.h"
 #include "base/win/scoped_propvariant.h"
 #include "base/win/shortcut.h"
 #include "base/win/windows_version.h"
 #include "chrome/browser/policy/policy_path_parser.h"
+#include "chrome/browser/ui/startup/startup_browser_creator.h"
 #include "chrome/browser/web_applications/web_app.h"
 #include "chrome/common/chrome_constants.h"
 #include "chrome/common/chrome_paths_internal.h"
@@ -38,6 +43,7 @@
 #include "chrome/installer/util/util_constants.h"
 #include "chrome/installer/util/work_item.h"
 #include "chrome/installer/util/work_item_list.h"
+#include "components/variations/variations_associated_data.h"
 #include "content/public/browser/browser_thread.h"
 
 using content::BrowserThread;
@@ -45,6 +51,19 @@ using content::BrowserThread;
 namespace {
 
 const wchar_t kAppListAppNameSuffix[] = L"AppList";
+
+const char kAsyncSetAsDefaultExperimentName[] = "AsyncSetAsDefault";
+// A prefix shared by multiple groups that kicks off the generic
+// AsyncSetAsDefault experiment.
+const char kAsyncSetAsDefaultExperimentEnabledGroupPrefix[] = "Enabled";
+// One of the group names for the AsyncSetAsDefault experiment. Unlike other
+// "Enabled" groups, this group doesn't reset the current default browser choice
+// in the registry.
+const char kAsyncSetAsDefaultExperimentEnabledNoRegistryGroupName[] =
+    "EnabledNoRegistry";
+
+const char kEnableAsyncSetAsDefault[] = "enable-async-set-as-default";
+const char kDisableAsyncSetAsDefault[] = "disable-async-set-as-default";
 
 // Helper function for ShellIntegration::GetAppId to generates profile id
 // from profile path. "profile_id" is composed of sanitized basenames of
@@ -134,7 +153,7 @@ base::string16 GetExpectedAppId(const base::CommandLine& command_line,
 
 void MigrateChromiumShortcutsCallback() {
   // This should run on the file thread.
-  DCHECK(BrowserThread::CurrentlyOn(BrowserThread::FILE));
+  DCHECK_CURRENTLY_ON(BrowserThread::FILE);
 
   // Get full path of chrome.
   base::FilePath chrome_exe;
@@ -207,23 +226,19 @@ base::string16 GetAppForProtocolUsingAssocQuery(const GURL& url) {
 }
 
 base::string16 GetAppForProtocolUsingRegistry(const GURL& url) {
-  base::string16 url_spec = base::ASCIIToUTF16(url.possibly_invalid_spec());
   const base::string16 cmd_key_path =
       base::ASCIIToUTF16(url.scheme() + "\\shell\\open\\command");
   base::win::RegKey cmd_key(HKEY_CLASSES_ROOT,
                             cmd_key_path.c_str(),
                             KEY_READ);
-  size_t split_offset = url_spec.find(L':');
-  if (split_offset == base::string16::npos)
-    return base::string16();
-  const base::string16 parameters = url_spec.substr(split_offset + 1,
-                                                    url_spec.length() - 1);
   base::string16 application_to_launch;
   if (cmd_key.ReadValue(NULL, &application_to_launch) == ERROR_SUCCESS) {
+    const base::string16 url_spec =
+        base::ASCIIToUTF16(url.possibly_invalid_spec());
     base::ReplaceSubstringsAfterOffset(&application_to_launch,
                                        0,
                                        L"%1",
-                                       parameters);
+                                       url_spec);
     return application_to_launch;
   }
   return base::string16();
@@ -244,19 +259,70 @@ ShellIntegration::DefaultWebClientState
   }
 }
 
+// Resets the default browser choice for the current user.
+void ResetDefaultBrowser() {
+  static const wchar_t* const kUrlAssociationKeyFormats[] = {
+      L"SOFTWARE\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\"
+      L"%ls\\UserChoice",
+      L"SOFTWARE\\Microsoft\\Windows\\Roaming\\OpenWith\\UrlAssociations\\"
+      L"%ls\\UserChoice"};
+  static const wchar_t* const kProtocols[] = {L"http", L"https"};
+
+  for (const wchar_t* format : kUrlAssociationKeyFormats) {
+    for (const wchar_t* protocol : kProtocols) {
+      base::win::RegKey registry_key(
+          HKEY_CURRENT_USER, base::StringPrintf(format, protocol).c_str(),
+          KEY_SET_VALUE);
+      registry_key.DeleteValue(L"Hash");
+    }
+  }
+}
+
+// Returns true if the AsyncSetAsDefault field trial is activated.
+bool IsAsyncSetAsDefaultEnabled() {
+  using base::CommandLine;
+
+  // Note: It's important to query the field trial state first, to ensure that
+  // UMA reports the correct group.
+  const std::string group_name =
+      base::FieldTrialList::FindFullName(kAsyncSetAsDefaultExperimentName);
+  if (CommandLine::ForCurrentProcess()->HasSwitch(kDisableAsyncSetAsDefault))
+    return false;
+  if (CommandLine::ForCurrentProcess()->HasSwitch(kEnableAsyncSetAsDefault))
+    return true;
+
+  return base::StartsWith(group_name,
+                          kAsyncSetAsDefaultExperimentEnabledGroupPrefix,
+                          base::CompareCase::SENSITIVE);
+}
+
+// Returns true if the default browser choice should be reset for the current
+// user.
+bool ShouldResetDefaultBrowser() {
+  return !base::StartsWith(
+      base::FieldTrialList::FindFullName(kAsyncSetAsDefaultExperimentName),
+      kAsyncSetAsDefaultExperimentEnabledNoRegistryGroupName,
+      base::CompareCase::SENSITIVE);
+}
+
+bool RegisterBrowser() {
+  base::FilePath chrome_exe;
+  if (!PathService::Get(base::FILE_EXE, &chrome_exe)) {
+    NOTREACHED() << "Error getting app exe path";
+    return false;
+  }
+  BrowserDistribution* dist = BrowserDistribution::GetDistribution();
+
+  return ShellUtil::RegisterChromeBrowser(dist, chrome_exe, base::string16(),
+                                          true);
+}
+
 }  // namespace
 
-ShellIntegration::DefaultWebClientSetPermission
-    ShellIntegration::CanSetAsDefaultBrowser() {
-  BrowserDistribution* distribution = BrowserDistribution::GetDistribution();
-  if (distribution->GetDefaultBrowserControlPolicy() !=
-          BrowserDistribution::DEFAULT_BROWSER_FULL_CONTROL)
-    return SET_DEFAULT_NOT_ALLOWED;
-
-  if (ShellUtil::CanMakeChromeDefaultUnattended())
-    return SET_DEFAULT_UNATTENDED;
-  else
-    return SET_DEFAULT_INTERACTIVE;
+// static
+bool ShellIntegration::IsSetAsDefaultAsynchronous() {
+  return base::win::GetVersion() >= base::win::VERSION_WIN10 &&
+         IsAsyncSetAsDefaultEnabled();
 }
 
 bool ShellIntegration::SetAsDefaultBrowser() {
@@ -275,6 +341,23 @@ bool ShellIntegration::SetAsDefaultBrowser() {
   }
 
   VLOG(1) << "Chrome registered as default browser.";
+  return true;
+}
+
+bool ShellIntegration::SetAsDefaultBrowserInteractive() {
+  base::FilePath chrome_exe;
+  if (!PathService::Get(base::FILE_EXE, &chrome_exe)) {
+    NOTREACHED() << "Error getting app exe path";
+    return false;
+  }
+
+  BrowserDistribution* dist = BrowserDistribution::GetDistribution();
+  if (!ShellUtil::ShowMakeChromeDefaultSystemUI(dist, chrome_exe)) {
+    LOG(ERROR) << "Failed to launch the set-default-browser Windows UI.";
+    return false;
+  }
+
+  VLOG(1) << "Set-default-browser Windows UI completed.";
   return true;
 }
 
@@ -301,23 +384,6 @@ bool ShellIntegration::SetAsDefaultProtocolClient(const std::string& protocol) {
   return true;
 }
 
-bool ShellIntegration::SetAsDefaultBrowserInteractive() {
-  base::FilePath chrome_exe;
-  if (!PathService::Get(base::FILE_EXE, &chrome_exe)) {
-    NOTREACHED() << "Error getting app exe path";
-    return false;
-  }
-
-  BrowserDistribution* dist = BrowserDistribution::GetDistribution();
-  if (!ShellUtil::ShowMakeChromeDefaultSystemUI(dist, chrome_exe)) {
-    LOG(ERROR) << "Failed to launch the set-default-browser Windows UI.";
-    return false;
-  }
-
-  VLOG(1) << "Set-default-browser Windows UI completed.";
-  return true;
-}
-
 bool ShellIntegration::SetAsDefaultProtocolClientInteractive(
     const std::string& protocol) {
   base::FilePath chrome_exe;
@@ -338,16 +404,21 @@ bool ShellIntegration::SetAsDefaultProtocolClientInteractive(
   return true;
 }
 
-ShellIntegration::DefaultWebClientState ShellIntegration::GetDefaultBrowser() {
-  return GetDefaultWebClientStateFromShellUtilDefaultState(
-      ShellUtil::GetChromeDefaultState());
+ShellIntegration::DefaultWebClientSetPermission
+    ShellIntegration::CanSetAsDefaultBrowser() {
+  BrowserDistribution* distribution = BrowserDistribution::GetDistribution();
+  if (distribution->GetDefaultBrowserControlPolicy() !=
+          BrowserDistribution::DEFAULT_BROWSER_FULL_CONTROL)
+    return SET_DEFAULT_NOT_ALLOWED;
+  if (ShellUtil::CanMakeChromeDefaultUnattended())
+    return SET_DEFAULT_UNATTENDED;
+  if (IsSetAsDefaultAsynchronous())
+    return SET_DEFAULT_ASYNCHRONOUS;
+  return SET_DEFAULT_INTERACTIVE;
 }
 
-ShellIntegration::DefaultWebClientState
-    ShellIntegration::IsDefaultProtocolClient(const std::string& protocol) {
-  return GetDefaultWebClientStateFromShellUtilDefaultState(
-      ShellUtil::GetChromeDefaultProtocolClientState(
-          base::UTF8ToUTF16(protocol)));
+bool ShellIntegration::IsElevationNeededForSettingDefaultProtocolClient() {
+  return base::win::GetVersion() < base::win::VERSION_WIN8;
 }
 
 base::string16 ShellIntegration::GetApplicationNameForProtocol(
@@ -357,6 +428,11 @@ base::string16 ShellIntegration::GetApplicationNameForProtocol(
     return GetAppForProtocolUsingAssocQuery(url);
   else
     return GetAppForProtocolUsingRegistry(url);
+}
+
+ShellIntegration::DefaultWebClientState ShellIntegration::GetDefaultBrowser() {
+  return GetDefaultWebClientStateFromShellUtilDefaultState(
+      ShellUtil::GetChromeDefaultState());
 }
 
 // There is no reliable way to say which browser is default on a machine (each
@@ -386,10 +462,17 @@ bool ShellIntegration::IsFirefoxDefaultBrowser() {
     base::string16 app_cmd;
     if (key.Valid() && (key.ReadValue(L"", &app_cmd) == ERROR_SUCCESS) &&
         base::string16::npos !=
-        base::StringToLowerASCII(app_cmd).find(L"firefox"))
+        base::ToLowerASCII(app_cmd).find(L"firefox"))
       ff_default = true;
   }
   return ff_default;
+}
+
+ShellIntegration::DefaultWebClientState
+    ShellIntegration::IsDefaultProtocolClient(const std::string& protocol) {
+  return GetDefaultWebClientStateFromShellUtilDefaultState(
+      ShellUtil::GetChromeDefaultProtocolClientState(
+          base::UTF8ToUTF16(protocol)));
 }
 
 base::string16 ShellIntegration::GetAppModelIdForProfile(
@@ -419,8 +502,7 @@ base::string16 ShellIntegration::GetChromiumModelIdForProfile(
 
 base::string16 ShellIntegration::GetAppListAppModelIdForProfile(
     const base::FilePath& profile_path) {
-  return ShellIntegration::GetAppModelIdForProfile(
-      GetAppListAppName(), profile_path);
+  return GetAppModelIdForProfile(GetAppListAppName(), profile_path);
 }
 
 void ShellIntegration::MigrateChromiumShortcuts() {
@@ -567,24 +649,104 @@ base::FilePath ShellIntegration::GetStartMenuShortcut(
     base::DIR_START_MENU,
   };
   BrowserDistribution* dist = BrowserDistribution::GetDistribution();
-  base::string16 shortcut_name(
-      dist->GetShortcutName(BrowserDistribution::SHORTCUT_CHROME));
+  const base::string16 shortcut_name(
+      dist->GetShortcutName(BrowserDistribution::SHORTCUT_CHROME) +
+      installer::kLnkExt);
+  base::FilePath programs_folder;
   base::FilePath shortcut;
 
   // Check both the common and the per-user Start Menu folders for system-level
   // installs.
   size_t folder = InstallUtil::IsPerUserInstall(chrome_exe) ? 1 : 0;
   for (; folder < arraysize(kFolderIds); ++folder) {
-    if (!PathService::Get(kFolderIds[folder], &shortcut)) {
+    if (!PathService::Get(kFolderIds[folder], &programs_folder)) {
       NOTREACHED();
       continue;
     }
 
-    shortcut = shortcut.Append(shortcut_name).Append(shortcut_name +
-                                                     installer::kLnkExt);
+    shortcut = programs_folder.Append(shortcut_name);
     if (base::PathExists(shortcut))
       return shortcut;
   }
 
   return base::FilePath();
+}
+
+// static
+bool ShellIntegration::DefaultWebClientWorker::ShouldReportAttemptResults() {
+  return base::win::GetVersion() >= base::win::VERSION_WIN10 &&
+         IsSetAsDefaultAsynchronous();
+}
+
+bool ShellIntegration::DefaultBrowserWorker::InitializeSetAsDefault() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+
+  if (!IsSetAsDefaultAsynchronous())
+    return false;
+
+  // On Windows 10+, there is no official way to prompt the user to set a
+  // default browser. This is the workaround:
+  // 1. Unregister the default browser.
+  // 2. Open "How to make Chrome my default browser" link with openwith.exe.
+  // 3. Windows will prompt the user with "How would you like to open this?".
+  // 4. If Chrome is selected, we intercept the attempt to open the URL and
+  //    instead call OnSetAsDefaultAttemptComplete(), passing true to indicate
+  //    success.
+  // 5. If Chrome is not selected, the url is opened in the selected browser.
+  //    After a certain amount of time, we notify the observer that the
+  //    process failed.
+
+  if (!StartupBrowserCreator::SetDefaultBrowserCallback(
+          base::Bind(&DefaultBrowserWorker::OnSetAsDefaultAttemptComplete, this,
+                     AttemptResult::SUCCESS))) {
+    // Another worker is currently processing. Note that this will still cause
+    // SetAsDefaultBrowserAsynchronous() to be invoked in SetAsDefault() but
+    // the other worker will happily intercept the attempt.
+    BrowserThread::PostTask(
+        BrowserThread::UI, FROM_HERE,
+        base::Bind(&DefaultBrowserWorker::OnSetAsDefaultAttemptComplete, this,
+                   AttemptResult::OTHER_WORKER));
+    return false;
+  }
+
+  // Start the timer.
+  if (!async_timer_)
+    async_timer_.reset(new base::OneShotTimer());
+  std::string value = variations::GetVariationParamValue(
+      kAsyncSetAsDefaultExperimentName, "TimerDuration");
+  int seconds = 0;
+  if (!value.empty())
+    base::StringToInt(value, &seconds);
+  if (!seconds)
+    seconds = 120;  // Default value of 2 minutes.
+  async_timer_->Start(
+      FROM_HERE, base::TimeDelta::FromSeconds(seconds),
+      base::Bind(&DefaultBrowserWorker::OnSetAsDefaultAttemptComplete, this,
+                 AttemptResult::FAILURE));
+  return true;
+}
+
+void ShellIntegration::DefaultBrowserWorker::FinalizeSetAsDefault() {
+  DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  DCHECK(set_as_default_initialized());
+
+  async_timer_.reset();
+  StartupBrowserCreator::ClearDefaultBrowserCallback();
+}
+
+// static
+bool ShellIntegration::DefaultBrowserWorker::SetAsDefaultBrowserAsynchronous() {
+  DCHECK(IsSetAsDefaultAsynchronous());
+
+  // Registers chrome.exe as a browser on Windows to make sure it will be shown
+  // in the "How would you like to open this?" prompt.
+  if (!RegisterBrowser())
+    return false;
+
+  if (ShouldResetDefaultBrowser())
+    ResetDefaultBrowser();
+
+  base::CommandLine cmdline(base::FilePath(L"openwith.exe"));
+  cmdline.AppendArgNative(StartupBrowserCreator::GetDefaultBrowserUrl());
+  return base::LaunchProcess(cmdline, base::LaunchOptions()).IsValid();
 }

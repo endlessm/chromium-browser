@@ -4,7 +4,6 @@
 
 #include "ash/display/resolution_notification_controller.h"
 
-#include "ash/display/display_controller.h"
 #include "ash/display/display_info.h"
 #include "ash/display/display_manager.h"
 #include "ash/shell.h"
@@ -122,7 +121,7 @@ struct ResolutionNotificationController::ResolutionChangeInfo {
   // The timer to invoke OnTimerTick() every second. This cannot be
   // OneShotTimer since the message contains text "automatically closed in xx
   // seconds..." which has to be updated every second.
-  base::RepeatingTimer<ResolutionNotificationController> timer;
+  base::RepeatingTimer timer;
 
  private:
   DISALLOW_COPY_AND_ASSIGN(ResolutionChangeInfo);
@@ -150,12 +149,12 @@ ResolutionNotificationController::ResolutionChangeInfo::
 }
 
 ResolutionNotificationController::ResolutionNotificationController() {
-  Shell::GetInstance()->display_controller()->AddObserver(this);
+  Shell::GetInstance()->window_tree_host_manager()->AddObserver(this);
   Shell::GetScreen()->AddObserver(this);
 }
 
 ResolutionNotificationController::~ResolutionNotificationController() {
-  Shell::GetInstance()->display_controller()->RemoveObserver(this);
+  Shell::GetInstance()->window_tree_host_manager()->RemoveObserver(this);
   Shell::GetScreen()->RemoveObserver(this);
 }
 
@@ -164,6 +163,7 @@ void ResolutionNotificationController::PrepareNotification(
     const DisplayMode& old_resolution,
     const DisplayMode& new_resolution,
     const base::Closure& accept_callback) {
+  DCHECK(!gfx::Display::IsInternalDisplayId(display_id));
   // If multiple resolution changes are invoked for the same display,
   // the original resolution for the first resolution change has to be used
   // instead of the specified |old_resolution|.
@@ -226,18 +226,14 @@ void ResolutionNotificationController::CreateOrUpdateNotification(
 
   ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
   scoped_ptr<Notification> notification(new Notification(
-      message_center::NOTIFICATION_TYPE_SIMPLE,
-      kNotificationId,
-      message,
-      timeout_message,
-      bundle.GetImageNamed(IDR_AURA_NOTIFICATION_DISPLAY),
-      base::string16() /* display_source */,
+      message_center::NOTIFICATION_TYPE_SIMPLE, kNotificationId, message,
+      timeout_message, bundle.GetImageNamed(IDR_AURA_NOTIFICATION_DISPLAY),
+      base::string16() /* display_source */, GURL(),
       message_center::NotifierId(
           message_center::NotifierId::SYSTEM_COMPONENT,
           system_notifier::kNotifierDisplayResolutionChange),
-      data,
-      new ResolutionChangeNotificationDelegate(
-          this, change_info_->timeout_count > 0)));
+      data, new ResolutionChangeNotificationDelegate(
+                this, change_info_->timeout_count > 0)));
   notification->SetSystemPriority();
   message_center->AddNotification(notification.Pass());
 }

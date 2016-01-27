@@ -20,19 +20,22 @@ namespace {
 //   0x12121212 0xFFFFFFFF
 template<int w, int h>
 void SetToCanvas(skia::PlatformCanvas* canvas, uint8 values[h][w]) {
-  SkBitmap& bitmap = const_cast<SkBitmap&>(
-      skia::GetTopDevice(*canvas)->accessBitmap(true));
-  SkAutoLockPixels lock(bitmap);
-  ASSERT_EQ(w, bitmap.width());
-  ASSERT_EQ(h, bitmap.height());
+  ASSERT_EQ(w, canvas->imageInfo().width());
+  ASSERT_EQ(h, canvas->imageInfo().height());
 
+  // This wouldn't be necessary if we extended the values in the inputs, but
+  // the uint8 values are a little bit easier to read and maintain.
+  uint32_t extendedValues[w*h];
   for (int y = 0; y < h; y++) {
     for (int x = 0; x < w; x++) {
       uint8 value = values[y][x];
-      *bitmap.getAddr32(x, y) =
+      extendedValues[y*w+x] =
           (value << 24) | (value << 16) | (value << 8) | value;
     }
   }
+
+  SkImageInfo info = SkImageInfo::MakeN32Premul(w, h);
+  canvas->writePixels(info, extendedValues, w*4, 0, 0);
 }
 
 // Checks each pixel in the given canvas and see if it is made up of the given
@@ -40,8 +43,7 @@ void SetToCanvas(skia::PlatformCanvas* canvas, uint8 values[h][w]) {
 // bitmap (see SetToCanvas above).
 template<int w, int h>
 void VerifyCanvasValues(skia::PlatformCanvas* canvas, uint8 values[h][w]) {
-  SkBitmap& bitmap = const_cast<SkBitmap&>(
-      skia::GetTopDevice(*canvas)->accessBitmap(true));
+  SkBitmap bitmap = skia::ReadPixels(canvas);
   SkAutoLockPixels lock(bitmap);
   ASSERT_EQ(w, bitmap.width());
   ASSERT_EQ(h, bitmap.height());
@@ -149,9 +151,9 @@ TEST(Blit, WithSharedMemory) {
   base::SharedMemory shared_mem;
   ASSERT_TRUE(shared_mem.CreateAnonymous(kCanvasWidth * kCanvasHeight));
   base::SharedMemoryHandle section = shared_mem.handle();
-  skia::RefPtr<SkCanvas> canvas = skia::AdoptRef(
-      skia::CreatePlatformCanvas(kCanvasWidth, kCanvasHeight, true, section,
-                                 skia::RETURN_NULL_ON_FAILURE));
+  skia::RefPtr<SkCanvas> canvas = skia::AdoptRef(skia::CreatePlatformCanvas(
+      kCanvasWidth, kCanvasHeight, true, section.GetHandle(),
+      skia::RETURN_NULL_ON_FAILURE));
   ASSERT_TRUE(canvas);
   shared_mem.Close();
 

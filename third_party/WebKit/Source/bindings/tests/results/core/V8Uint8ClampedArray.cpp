@@ -11,6 +11,7 @@
 #include "bindings/core/v8/V8ArrayBuffer.h"
 #include "bindings/core/v8/V8DOMConfiguration.h"
 #include "bindings/core/v8/V8ObjectConstructor.h"
+#include "bindings/core/v8/V8SharedArrayBuffer.h"
 #include "core/dom/ContextFeatures.h"
 #include "core/dom/Document.h"
 #include "platform/RuntimeEnabledFeatures.h"
@@ -26,7 +27,7 @@ namespace blink {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wglobal-constructors"
 #endif
-const WrapperTypeInfo V8Uint8ClampedArray::wrapperTypeInfo = { gin::kEmbedderBlink, 0, V8Uint8ClampedArray::refObject, V8Uint8ClampedArray::derefObject, V8Uint8ClampedArray::trace, 0, 0, V8Uint8ClampedArray::preparePrototypeObject, V8Uint8ClampedArray::installConditionallyEnabledProperties, "Uint8ClampedArray", &V8ArrayBufferView::wrapperTypeInfo, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::NotInheritFromEventTarget, WrapperTypeInfo::Independent, WrapperTypeInfo::RefCountedObject };
+const WrapperTypeInfo V8Uint8ClampedArray::wrapperTypeInfo = { gin::kEmbedderBlink, 0, V8Uint8ClampedArray::refObject, V8Uint8ClampedArray::derefObject, V8Uint8ClampedArray::trace, 0, 0, V8Uint8ClampedArray::preparePrototypeAndInterfaceObject, V8Uint8ClampedArray::installConditionallyEnabledProperties, "Uint8ClampedArray", &V8ArrayBufferView::wrapperTypeInfo, WrapperTypeInfo::WrapperTypeObjectPrototype, WrapperTypeInfo::ObjectClassId, WrapperTypeInfo::NotInheritFromEventTarget, WrapperTypeInfo::Independent, WrapperTypeInfo::RefCountedObject };
 #if defined(COMPONENT_BUILD) && defined(WIN32) && COMPILER(CLANG)
 #pragma clang diagnostic pop
 #endif
@@ -48,7 +49,15 @@ TestUint8ClampedArray* V8Uint8ClampedArray::toImpl(v8::Local<v8::Object> object)
         return scriptWrappable->toImpl<TestUint8ClampedArray>();
 
     v8::Local<v8::Uint8ClampedArray> v8View = object.As<v8::Uint8ClampedArray>();
-    RefPtr<TestUint8ClampedArray> typedArray = TestUint8ClampedArray::create(V8ArrayBuffer::toImpl(v8View->Buffer()), v8View->ByteOffset(), v8View->Length());
+    v8::Local<v8::Object> arrayBuffer = v8View->Buffer();
+    RefPtr<TestUint8ClampedArray> typedArray;
+    if (arrayBuffer->IsArrayBuffer()) {
+        typedArray = TestUint8ClampedArray::create(V8ArrayBuffer::toImpl(arrayBuffer), v8View->ByteOffset(), v8View->Length());
+    } else if (arrayBuffer->IsSharedArrayBuffer()) {
+        typedArray = TestUint8ClampedArray::create(V8SharedArrayBuffer::toImpl(arrayBuffer), v8View->ByteOffset(), v8View->Length());
+    } else {
+        ASSERT_NOT_REACHED();
+    }
     v8::Local<v8::Object> associatedWrapper = typedArray->associateWithWrapper(v8::Isolate::GetCurrent(), typedArray->wrapperTypeInfo(), object);
     ASSERT_UNUSED(associatedWrapper, associatedWrapper == object);
 

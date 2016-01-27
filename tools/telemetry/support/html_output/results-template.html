@@ -252,8 +252,8 @@ td.missingReference {
 Result <span id="time-memory" class="checkbox"><span class="checked">Time</span><span>Memory</span></span>
 Reference <span id="reference" class="checkbox"></span>
 Style <span id="scatter-line" class="checkbox"><span class="checked">Scatter</span><span>Line</span></span>
-<span class="checkbox"><span class="checked" id="undelete">Undelete</span></span>
-Run Telemetry with --reset-results to clear all runs
+<span class="checkbox"><span class="checked" id="undelete">Undelete</span></span><br>
+Run your test with --reset-results to clear all runs
 </div>
 <table id="container"></table>
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.6.4/jquery.min.js"></script>
@@ -279,7 +279,7 @@ var PADDING_UNDER_GRAPH = 5;
 // px Indentation for nested children left-margins
 var INDENTATION = 40;
 
-function TestResult(metric, values, associatedRun) {
+function TestResult(metric, values, associatedRun, std, degreesOfFreedom) {
     if (values) {
         if (values[0] instanceof Array) {
             var flattenedValues = [];
@@ -321,6 +321,10 @@ function TestResult(metric, values, associatedRun) {
     this.min = function () { return metric.scalingFactor() * Statistics.min(values); }
     this.max = function () { return metric.scalingFactor() * Statistics.max(values); }
     this.confidenceIntervalDelta = function () {
+        if (std !== undefined) {
+            return metric.scalingFactor() * Statistics.confidenceIntervalDeltaFromStd(0.95, values.length,
+                std, degreesOfFreedom);
+        }
         return metric.scalingFactor() * Statistics.confidenceIntervalDelta(0.95, values.length,
             Statistics.sum(values), Statistics.squareSum(values));
     }
@@ -1359,7 +1363,10 @@ function init() {
                         metric = new PerfTestMetric(testName, metricName, rawMetrics[metricName].units, rawMetrics[metricName].important);
                         metrics[fullMetricName] = metric;
                     }
-                    metric.addResult(new TestResult(metric, rawMetrics[metricName].current, run));
+                    // std & degrees_of_freedom could be undefined
+                    metric.addResult(
+                        new TestResult(metric, rawMetrics[metricName].current,
+                            run, rawMetrics[metricName]['std'], rawMetrics[metricName]['degrees_of_freedom']));
                 }
             }
         }

@@ -27,6 +27,10 @@
 #include "content/public/browser/render_widget_host_iterator.h"
 #include "content/public/browser/storage_partition.h"
 
+#if defined(ENABLE_BROWSER_CDMS)
+#include "media/base/media_keys.h"
+#endif
+
 namespace content {
 
 MockRenderProcessHost::MockRenderProcessHost(BrowserContext* browser_context)
@@ -138,6 +142,8 @@ int MockRenderProcessHost::VisibleWidgetCount() const {
   return 1;
 }
 
+void MockRenderProcessHost::AudioStateChanged() {}
+
 bool MockRenderProcessHost::IsForGuestsOnly() const {
   return is_for_guests_only_;
 }
@@ -170,6 +176,10 @@ base::ProcessHandle MockRenderProcessHost::GetHandle() const {
   if (process_handle)
     return *process_handle;
   return base::GetCurrentProcessHandle();
+}
+
+bool MockRenderProcessHost::IsReady() const {
+  return false;
 }
 
 bool MockRenderProcessHost::Send(IPC::Message* msg) {
@@ -236,7 +246,7 @@ void MockRenderProcessHost::AddFilter(BrowserMessageFilter* filter) {
 }
 
 bool MockRenderProcessHost::FastShutdownForPageCount(size_t count) {
-  if (static_cast<size_t>(GetActiveViewCount()) == count)
+  if (GetActiveViewCount() == count)
     return FastShutdownIfPossible();
   return false;
 }
@@ -276,8 +286,9 @@ void MockRenderProcessHost::SendUpdateValueState(
 }
 
 #if defined(ENABLE_BROWSER_CDMS)
-media::BrowserCdm* MockRenderProcessHost::GetBrowserCdm(int render_frame_id,
-                                                        int cdm_id) const {
+scoped_refptr<media::MediaKeys> MockRenderProcessHost::GetCdm(
+    int render_frame_id,
+    int cdm_id) const {
   return nullptr;
 }
 #endif
@@ -287,10 +298,11 @@ void MockRenderProcessHost::FilterURL(bool empty_allowed, GURL* url) {
 }
 
 #if defined(ENABLE_WEBRTC)
-void MockRenderProcessHost::EnableAecDump(const base::FilePath& file) {
+void MockRenderProcessHost::EnableAudioDebugRecordings(
+    const base::FilePath& file) {
 }
 
-void MockRenderProcessHost::DisableAecDump() {
+void MockRenderProcessHost::DisableAudioDebugRecordings() {
 }
 
 void MockRenderProcessHost::SetWebRtcLogMessageCallback(
@@ -351,4 +363,4 @@ void MockRenderProcessHostFactory::Remove(MockRenderProcessHost* host) const {
   }
 }
 
-}  // content
+}  // namespace content

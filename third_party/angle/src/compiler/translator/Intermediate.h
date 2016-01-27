@@ -48,8 +48,10 @@ class TIntermediate
         TIntermTyped *init, TIntermAggregate *statementList, const TSourceLoc &line);
     TIntermCase *addCase(
         TIntermTyped *condition, const TSourceLoc &line);
-    TIntermTyped *addComma(
-        TIntermTyped *left, TIntermTyped *right, const TSourceLoc &);
+    TIntermTyped *addComma(TIntermTyped *left,
+                           TIntermTyped *right,
+                           const TSourceLoc &line,
+                           int shaderVersion);
     TIntermConstantUnion *addConstantUnion(
         TConstantUnion *constantUnion, const TType &type, const TSourceLoc &line);
     // TODO(zmo): Get rid of default value.
@@ -60,7 +62,7 @@ class TIntermediate
     TIntermBranch *addBranch(TOperator, const TSourceLoc &);
     TIntermBranch *addBranch(TOperator, TIntermTyped *, const TSourceLoc &);
     TIntermTyped *addSwizzle(TVectorFields &, const TSourceLoc &);
-    bool postProcess(TIntermNode *);
+    TIntermAggregate *postProcess(TIntermNode *root);
 
     static void outputTree(TIntermNode *, TInfoSinkBase &);
 

@@ -35,7 +35,8 @@ class CompositorTimingHistory;
 class SchedulerClient {
  public:
   virtual void WillBeginImplFrame(const BeginFrameArgs& args) = 0;
-  virtual void ScheduledActionSendBeginMainFrame() = 0;
+  virtual void ScheduledActionSendBeginMainFrame(
+      const BeginFrameArgs& args) = 0;
   virtual DrawResult ScheduledActionDrawAndSwapIfPossible() = 0;
   virtual DrawResult ScheduledActionDrawAndSwapForced() = 0;
   virtual void ScheduledActionAnimate() = 0;
@@ -75,23 +76,24 @@ class CC_EXPORT Scheduler : public BeginFrameObserverBase {
                              base::TimeDelta interval);
   void SetEstimatedParentDrawTime(base::TimeDelta draw_time);
 
-  void SetCanStart();
-
   void SetVisible(bool visible);
+  bool visible() { return state_machine_.visible(); }
+  void SetResourcelessSoftareDraw(bool resourceless_draw);
   void SetCanDraw(bool can_draw);
   void NotifyReadyToActivate();
   void NotifyReadyToDraw();
   void SetThrottleFrameProduction(bool throttle);
 
-  void SetNeedsCommit();
+  void SetNeedsBeginMainFrame();
+  // Requests a single impl frame (after the current frame if there is one
+  // active).
+  void SetNeedsOneBeginImplFrame();
 
   void SetNeedsRedraw();
 
   void SetNeedsAnimate();
 
   void SetNeedsPrepareTiles();
-
-  void SetWaitForReadyToDraw();
 
   void SetMaxSwapsPending(int max);
   void DidSwapBuffers();
@@ -127,7 +129,11 @@ class CC_EXPORT Scheduler : public BeginFrameObserverBase {
     return state_machine_.impl_latency_takes_priority();
   }
 
-  void NotifyBeginMainFrameStarted();
+  // Pass in a main_thread_start_time of base::TimeTicks() if it is not
+  // known or not trustworthy (e.g. blink is running on a remote channel)
+  // to signal that the start time isn't known and should not be used for
+  // scheduling or statistics purposes.
+  void NotifyBeginMainFrameStarted(base::TimeTicks main_thread_start_time);
 
   base::TimeTicks LastBeginImplFrameTime();
 
@@ -135,10 +141,6 @@ class CC_EXPORT Scheduler : public BeginFrameObserverBase {
 
   scoped_refptr<base::trace_event::ConvertableToTraceFormat> AsValue() const;
   void AsValueInto(base::trace_event::TracedValue* value) const override;
-
-  void SetContinuousPainting(bool continuous_painting) {
-    state_machine_.SetContinuousPainting(continuous_painting);
-  }
 
   void SetChildrenNeedBeginFrames(bool children_need_begin_frames);
   void SetVideoNeedsBeginFrames(bool video_needs_begin_frames);
@@ -179,6 +181,7 @@ class CC_EXPORT Scheduler : public BeginFrameObserverBase {
   SchedulerStateMachine::BeginImplFrameDeadlineMode
       begin_impl_frame_deadline_mode_;
   BeginFrameTracker begin_impl_frame_tracker_;
+  BeginFrameArgs begin_main_frame_args_;
 
   base::Closure begin_retro_frame_closure_;
   base::Closure begin_impl_frame_deadline_closure_;

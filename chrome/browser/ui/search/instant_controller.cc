@@ -20,7 +20,7 @@
 #include "chrome/common/search_urls.h"
 #include "chrome/common/url_constants.h"
 #include "components/search_engines/template_url_service.h"
-#include "components/sessions/serialized_navigation_entry.h"
+#include "components/sessions/core/serialized_navigation_entry.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_process_host.h"
@@ -47,7 +47,7 @@ void EnsureSearchTermsAreSet(content::WebContents* contents,
 
   // If search terms are already correct or there is already a transient entry
   // (there shouldn't be), bail out early.
-  if (chrome::GetSearchTerms(contents) == search_terms ||
+  if (search::GetSearchTerms(contents) == search_terms ||
       controller->GetTransientEntry())
     return;
 
@@ -108,7 +108,7 @@ void InstantController::ActiveTabChanged() {
 void InstantController::TabDeactivated(content::WebContents* contents) {
   // If user is deactivating an NTP tab, log the number of mouseovers for this
   // NTP session.
-  if (chrome::IsInstantNTP(contents))
+  if (search::IsInstantNTP(contents))
     InstantTab::EmitNtpStatistics(contents);
 }
 

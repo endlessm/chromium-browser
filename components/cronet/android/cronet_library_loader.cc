@@ -17,7 +17,6 @@
 #include "base/message_loop/message_loop.h"
 #include "components/cronet/android/chromium_url_request.h"
 #include "components/cronet/android/chromium_url_request_context.h"
-#include "components/cronet/android/cronet_histogram_manager.h"
 #include "components/cronet/android/cronet_upload_data_stream_adapter.h"
 #include "components/cronet/android/cronet_url_request_adapter.h"
 #include "components/cronet/android/cronet_url_request_context_adapter.h"
@@ -26,10 +25,11 @@
 #include "net/android/net_jni_registrar.h"
 #include "net/android/network_change_notifier_factory_android.h"
 #include "net/base/network_change_notifier.h"
-#include "url/android/url_jni_registrar.h"
 #include "url/url_util.h"
 
-#if !defined(USE_ICU_ALTERNATIVES_ON_ANDROID)
+#if defined(USE_ICU_ALTERNATIVES_ON_ANDROID)
+#include "url/android/url_jni_registrar.h"
+#else
 #include "base/i18n/icu_util.h"
 #endif
 
@@ -40,15 +40,15 @@ const base::android::RegistrationMethod kCronetRegisteredMethods[] = {
     {"BaseAndroid", base::android::RegisterJni},
     {"ChromiumUrlRequest", ChromiumUrlRequestRegisterJni},
     {"ChromiumUrlRequestContext", ChromiumUrlRequestContextRegisterJni},
-    {"CronetHistogramManager", CronetHistogramManagerRegisterJni},
     {"CronetLibraryLoader", RegisterNativesImpl},
-    {"CronetUploadDataStreamAdapter",
-     CronetUploadDataStreamAdapterRegisterJni},
+    {"CronetUploadDataStreamAdapter", CronetUploadDataStreamAdapterRegisterJni},
     {"CronetUrlRequestAdapter", CronetUrlRequestAdapterRegisterJni},
     {"CronetUrlRequestContextAdapter",
      CronetUrlRequestContextAdapterRegisterJni},
     {"NetAndroid", net::android::RegisterJni},
+#if defined(USE_ICU_ALTERNATIVES_ON_ANDROID)
     {"UrlAndroid", url::android::RegisterJni},
+#endif
 };
 
 // MessageLoop on the main thread, which is where objects that receive Java
@@ -87,15 +87,13 @@ void CronetOnUnLoad(JavaVM* jvm, void* reserved) {
 }
 
 void CronetInitApplicationContext(JNIEnv* env,
-                                  jclass jcaller,
-                                  jobject japp_context) {
+                                  const JavaParamRef<jclass>& jcaller,
+                                  const JavaParamRef<jobject>& japp_context) {
   // Set application context.
-  base::android::ScopedJavaLocalRef<jobject> scoped_app_context(env,
-                                                                japp_context);
-  base::android::InitApplicationContext(env, scoped_app_context);
+  base::android::InitApplicationContext(env, japp_context);
 }
 
-void CronetInitOnMainThread(JNIEnv* env, jclass jcaller) {
+void CronetInitOnMainThread(JNIEnv* env, const JavaParamRef<jclass>& jcaller) {
 #if !defined(USE_ICU_ALTERNATIVES_ON_ANDROID)
   base::i18n::InitializeICU();
 #endif
@@ -113,8 +111,10 @@ void CronetInitOnMainThread(JNIEnv* env, jclass jcaller) {
   g_network_change_notifier = net::NetworkChangeNotifier::Create();
 }
 
-jstring GetCronetVersion(JNIEnv* env, jclass jcaller) {
-  return base::android::ConvertUTF8ToJavaString(env, CRONET_VERSION).Release();
+ScopedJavaLocalRef<jstring> GetCronetVersion(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& jcaller) {
+  return base::android::ConvertUTF8ToJavaString(env, CRONET_VERSION);
 }
 
 }  // namespace cronet

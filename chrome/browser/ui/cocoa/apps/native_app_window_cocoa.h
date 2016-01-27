@@ -10,7 +10,6 @@
 
 #include "base/mac/scoped_nsobject.h"
 #include "base/memory/scoped_ptr.h"
-#import "chrome/browser/ui/cocoa/browser_command_executor.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/native_app_window.h"
@@ -26,14 +25,18 @@ class SkRegion;
 
 // A window controller for a minimal window to host a web app view. Passes
 // Objective-C notifications to the C++ bridge.
-@interface NativeAppWindowController : NSWindowController
-                                      <NSWindowDelegate,
-                                       BrowserCommandExecutor> {
+@interface NativeAppWindowController : NSWindowController<NSWindowDelegate> {
  @private
   NativeAppWindowCocoa* appWindow_;  // Weak; owns self.
+  base::scoped_nsobject<NSView> titlebar_background_view_;
 }
 
 @property(assign, nonatomic) NativeAppWindowCocoa* appWindow;
+
+// NativeAppWindowController will retain this view and call
+// -[NSView setNeedsDisplay:YES] when the window changes main status. This is
+// necessary because it does not always happen. See http://crbug.com/508722.
+- (void)setTitlebarBackgroundView:(NSView*)view;
 
 // Consults the Command Registry to see if this |event| needs to be handled as
 // an extension command and returns YES if so (NO otherwise).
@@ -136,14 +139,12 @@ class NativeAppWindowCocoa : public extensions::NativeAppWindow,
   SkColor InactiveFrameColor() const override;
   gfx::Insets GetFrameInsets() const override;
   bool CanHaveAlphaEnabled() const override;
-  void SetInterceptAllKeys(bool want_all_keys) override;
 
   // These are used to simulate Mac-style hide/show. Since windows can be hidden
   // and shown using the app.window API, this sets is_hidden_with_app_ to
   // differentiate the reason a window was hidden.
   void ShowWithApp() override;
   void HideWithApp() override;
-  void UpdateShelfMenu() override;
   gfx::Size GetContentMinimumSize() const override;
   gfx::Size GetContentMaximumSize() const override;
   void SetContentSizeConstraints(const gfx::Size& min_size,

@@ -23,27 +23,22 @@ class BrowsingDataAppCacheHelper
  public:
   typedef std::map<GURL, content::AppCacheInfoVector> OriginAppCacheInfoMap;
 
+  using FetchCallback =
+      base::Callback<void(scoped_refptr<content::AppCacheInfoCollection>)>;
+
   explicit BrowsingDataAppCacheHelper(content::BrowserContext* browser_context);
 
-  virtual void StartFetching(const base::Closure& completion_callback);
+  virtual void StartFetching(const FetchCallback& completion_callback);
   virtual void DeleteAppCacheGroup(const GURL& manifest_url);
-
-  content::AppCacheInfoCollection* info_collection() const {
-    DCHECK(!is_fetching_);
-    return info_collection_.get();
-  }
 
  protected:
   friend class base::RefCountedThreadSafe<BrowsingDataAppCacheHelper>;
   virtual ~BrowsingDataAppCacheHelper();
 
-  base::Closure completion_callback_;
-  scoped_refptr<content::AppCacheInfoCollection> info_collection_;
-
  private:
-  void OnFetchComplete(int rv);
+  void StartFetchingOnIOThread(const FetchCallback& completion_callback);
+  void DeleteAppCacheGroupOnIOThread(const GURL& manifest_url);
 
-  bool is_fetching_;
   content::AppCacheService* appcache_service_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowsingDataAppCacheHelper);
@@ -74,11 +69,13 @@ class CannedBrowsingDataAppCacheHelper : public BrowsingDataAppCacheHelper {
   const OriginAppCacheInfoMap& GetOriginAppCacheInfoMap() const;
 
   // BrowsingDataAppCacheHelper methods.
-  void StartFetching(const base::Closure& completion_callback) override;
+  void StartFetching(const FetchCallback& completion_callback) override;
   void DeleteAppCacheGroup(const GURL& manifest_url) override;
 
  private:
   ~CannedBrowsingDataAppCacheHelper() override;
+
+  scoped_refptr<content::AppCacheInfoCollection> info_collection_;
 
   DISALLOW_COPY_AND_ASSIGN(CannedBrowsingDataAppCacheHelper);
 };

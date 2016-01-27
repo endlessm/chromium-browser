@@ -78,6 +78,10 @@ goog.scope(function() {
         this.testCases = root;
     };
 
+    tcuTestCase.Runner.prototype.setRange = function(range) {
+        this.range = range;
+    };
+
     /**
     * Searches the test tree for the next executable test
     * @return {?tcuTestCase.DeqpTest }
@@ -97,7 +101,10 @@ goog.scope(function() {
         if (tcuTestCase.lastResult == tcuTestCase.IterateResult.STOP) {
             // Look for next executable test
             do {
-                this.currentTest = this.currentTest.next(this.filter);
+                if (this.range)
+                    this.currentTest = this.currentTest.nextInRange(this.filter, this.range);
+                else
+                    this.currentTest = this.currentTest.next(this.filter);
             } while (this.currentTest && !this.currentTest.isExecutable());
         }
 
@@ -137,8 +144,8 @@ goog.scope(function() {
     * @param {Object=} spec
     */
     tcuTestCase.DeqpTest = function(name, description, spec) {
-        this.name = name;
-        this.description = description;
+        this.name = name || '';
+        this.description = description || '';
         this.spec = spec;
         this.currentTestNdx = 0;
         this.parentTest = null;
@@ -147,12 +154,17 @@ goog.scope(function() {
     };
 
     /**
-     * Abstract init function(each particular test will implement it)
+     * Abstract init function(each particular test will implement it, or not)
      */
     tcuTestCase.DeqpTest.prototype.init = function() {};
 
     /**
-     * Abstract iterate function(each particular test will implement it)
+     * Abstract deinit function(each particular test will implement it, or not)
+     */
+    tcuTestCase.DeqpTest.prototype.deinit = function() {};
+
+    /**
+     * Abstract iterate function(each particular test will implement it, or not)
      * @return {tcuTestCase.IterateResult}
      */
     tcuTestCase.DeqpTest.prototype.iterate = function() { return tcuTestCase.IterateResult.STOP; };
@@ -226,22 +238,42 @@ goog.scope(function() {
     };
 
     /**
+    * Returns the next test in the hierarchy of tests
+    * whose 1st level is in the given range
+    *
+    * @param {?string } pattern Optional pattern to search for
+    * @param {Array<number>} range
+    * @return {tcuTestCase.DeqpTest}
+    */
+    tcuTestCase.DeqpTest.prototype.nextInRange = function(pattern, range) {
+        while (true) {
+            var test = this.next(pattern);
+            if (!test)
+                return null;
+            var topLevelId = tcuTestCase.runner.testCases.currentTestNdx - 1;
+            if (topLevelId >= range[0] && topLevelId < range[1])
+                return test;
+        }
+    };
+
+    /**
     * Returns the full name of the test
     *
-    * @return {?string} Full test name.
+    * @return {string} Full test name.
     */
     tcuTestCase.DeqpTest.prototype.fullName = function() {
-        if (this.parentTest)
+        if (this.parentTest) {
             var parentName = this.parentTest.fullName();
             if (parentName)
                 return parentName + '.' + this.name;
+        }
         return this.name;
     };
 
     /**
     * Returns the description of the test
     *
-    * @return {?string} Test description.
+    * @return {string} Test description.
     */
     tcuTestCase.DeqpTest.prototype.getDescription = function() {
         return this.description;
@@ -327,15 +359,28 @@ goog.scope(function() {
 
                     //If it's a leaf test, notify of it's execution.
                     if (state.currentTest.isLeaf())
-                        debug('Start testcase: ' + fullTestName);
+                        debug('<hr/><br/>Start testcase: ' + fullTestName);
                 }
 
                 // Run the test, save the result.
                 tcuTestCase.lastResult = state.currentTest.iterate();
+
+                // Cleanup
+                if (tcuTestCase.lastResult == tcuTestCase.IterateResult.STOP)
+                    state.currentTest.deinit();
             }
             catch (err) {
                 // If the exception was not thrown by a test check, log it, but don't throw it again
                 if (!(err instanceof TestFailedException)) {
+                    //Stop execution of current test.
+                    tcuTestCase.lastResult = tcuTestCase.IterateResult.STOP;
+                    try {
+                        // Cleanup
+                        if (tcuTestCase.lastResult == tcuTestCase.IterateResult.STOP)
+                            state.currentTest.deinit();
+                    } catch (cerr) {
+                        bufferedLogToConsole('Error while cleaning up test: ' + cerr);
+                    }
                     var msg = err;
                     if (err.message)
                         msg = err.message;

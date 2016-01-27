@@ -62,9 +62,15 @@ class TestTouchEvent : public ui::TouchEvent {
                  int touch_id,
                  int flags,
                  base::TimeDelta timestamp)
-      : TouchEvent(type, root_location, flags, touch_id, timestamp,
-                   1.0f, 1.0f, 0.0f, 0.0f) {
-  }
+      : TouchEvent(type,
+                   root_location,
+                   flags,
+                   touch_id,
+                   timestamp,
+                   1.0f,
+                   1.0f,
+                   0.0f,
+                   0.0f) {}
 
  private:
   DISALLOW_COPY_AND_ASSIGN(TestTouchEvent);
@@ -171,6 +177,34 @@ void EventGenerator::SendMouseExit() {
   ui::MouseEvent mouseev(ui::ET_MOUSE_EXITED, exit_location, exit_location,
                          ui::EventTimeForNow(), flags_, 0);
   Dispatch(&mouseev);
+}
+
+void EventGenerator::MoveMouseToWithNative(const gfx::Point& point_in_host,
+                                           const gfx::Point& point_for_native) {
+#if defined(USE_X11)
+  ui::ScopedXI2Event xevent;
+  xevent.InitMotionEvent(point_in_host, point_for_native, flags_);
+  static_cast<XEvent*>(xevent)->xmotion.time = Now().InMicroseconds();
+  ui::MouseEvent mouseev(xevent);
+#elif defined(USE_OZONE)
+  // Ozone uses the location in native event as a system location.
+  // Create a fake event with the point in host, which will be passed
+  // to the non native event, then update the native event with the native
+  // (root) one.
+  scoped_ptr<ui::MouseEvent> native_event(new ui::MouseEvent(
+      ui::ET_MOUSE_MOVED, point_in_host, point_in_host, Now(), flags_, 0));
+  ui::MouseEvent mouseev(native_event.get());
+  native_event->set_location(point_for_native);
+#else
+  ui::MouseEvent mouseev(ui::ET_MOUSE_MOVED, point_in_host, point_for_native,
+                         Now(), flags_, 0);
+  LOG(FATAL)
+      << "Generating a native motion event is not supported on this platform";
+#endif
+  Dispatch(&mouseev);
+
+  current_location_ = point_in_host;
+  delegate()->ConvertPointFromHost(current_target_, &current_location_);
 }
 
 void EventGenerator::MoveMouseToInHost(const gfx::Point& point_in_host) {
@@ -336,11 +370,13 @@ void EventGenerator::GestureScrollSequenceWithCallback(
 
   float dx = static_cast<float>(end.x() - start.x()) / steps;
   float dy = static_cast<float>(end.y() - start.y()) / steps;
-  gfx::PointF location = start;
+  gfx::PointF location(start);
   for (int i = 0; i < steps; ++i) {
     location.Offset(dx, dy);
     timestamp += step_delay;
-    ui::TouchEvent move(ui::ET_TOUCH_MOVED, location, kTouchId, timestamp);
+    ui::TouchEvent move(ui::ET_TOUCH_MOVED, gfx::Point(), kTouchId, timestamp);
+    move.set_location_f(location);
+    move.set_root_location_f(location);
     Dispatch(&move);
     callback.Run(ui::ET_GESTURE_SCROLL_UPDATE, gfx::Vector2dF(dx, dy));
   }
@@ -540,7 +576,8 @@ void EventGenerator::DispatchKeyEvent(bool is_press,
                                       int flags) {
 #if defined(OS_WIN)
   UINT key_press = WM_KEYDOWN;
-  uint16 character = ui::GetCharacterFromKeyCode(key_code, flags);
+  uint16 character = ui::DomCodeToUsLayoutCharacter(
+      ui::UsLayoutKeyboardCodeToDomCode(key_code), flags);
   if (is_press && character) {
     MSG native_event = { NULL, WM_KEYDOWN, key_code, 0 };
     TestKeyEvent keyev(native_event, flags);

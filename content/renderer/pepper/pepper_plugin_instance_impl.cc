@@ -21,15 +21,10 @@
 #include "base/trace_event/trace_event.h"
 #include "cc/blink/web_layer_impl.h"
 #include "cc/layers/texture_layer.h"
-#include "cc/output/latency_info_swap_promise.h"
-#include "cc/trees/layer_tree_host.h"
 #include "content/common/content_constants_internal.h"
 #include "content/common/frame_messages.h"
-#include "content/common/input/web_input_event_traits.h"
-#include "content/common/view_messages.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/renderer/content_renderer_client.h"
-#include "content/renderer/gpu/render_widget_compositor.h"
 #include "content/renderer/pepper/content_decryptor_delegate.h"
 #include "content/renderer/pepper/event_conversion.h"
 #include "content/renderer/pepper/fullscreen_container.h"
@@ -124,6 +119,7 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_rep.h"
 #include "ui/gfx/range/range.h"
+#include "url/origin.h"
 #include "v8/include/v8.h"
 
 #if defined(OS_CHROMEOS)
@@ -363,23 +359,6 @@ class PluginInstanceLockTarget : public MouseLockDispatcher::LockTarget {
   PepperPluginInstanceImpl* plugin_;
 };
 
-void InitLatencyInfo(ui::LatencyInfo* new_latency,
-                     const ui::LatencyInfo* old_latency,
-                     blink::WebInputEvent::Type type,
-                     int64 input_sequence) {
-  new_latency->AddLatencyNumberWithTraceName(
-      ui::INPUT_EVENT_LATENCY_BEGIN_PLUGIN_COMPONENT,
-      0,
-      input_sequence,
-      WebInputEventTraits::GetName(type));
-  if (old_latency) {
-    new_latency->CopyLatencyFrom(*old_latency,
-                                 ui::INPUT_EVENT_LATENCY_ORIGINAL_COMPONENT);
-    new_latency->CopyLatencyFrom(*old_latency,
-                                 ui::INPUT_EVENT_LATENCY_UI_COMPONENT);
-  }
-}
-
 }  // namespace
 
 // static
@@ -419,8 +398,8 @@ void PepperPluginInstanceImpl::ExternalDocumentLoader::ReplayReceivedData(
         NULL,
         0 /* finish_time */,
         blink::WebURLLoaderClient::kUnknownEncodedDataLength);
-  }
-  if (error_.get()) {
+  } else if (error_.get()) {
+    DCHECK(!finished_loading_);
     document_loader->didFail(NULL, *error_);
   }
 }
@@ -438,6 +417,10 @@ void PepperPluginInstanceImpl::ExternalDocumentLoader::didFinishLoading(
     double finish_time,
     int64_t total_encoded_data_length) {
   DCHECK(!finished_loading_);
+
+  if (error_.get())
+    return;
+
   finished_loading_ = true;
 }
 
@@ -445,6 +428,10 @@ void PepperPluginInstanceImpl::ExternalDocumentLoader::didFail(
     WebURLLoader* loader,
     const WebURLError& error) {
   DCHECK(!error_.get());
+
+  if (finished_loading_)
+    return;
+
   error_.reset(new WebURLError(error));
 }
 
@@ -523,8 +510,6 @@ PepperPluginInstanceImpl::PepperPluginInstanceImpl(
       external_document_load_(false),
       isolate_(v8::Isolate::GetCurrent()),
       is_deleted_(false),
-      last_input_number_(0),
-      is_tracking_latency_(false),
       initialized_(false),
       view_change_weak_ptr_factory_(this),
       weak_factory_(this) {
@@ -558,7 +543,7 @@ PepperPluginInstanceImpl::PepperPluginInstanceImpl(
     view_data_.is_page_visible = !render_frame_->GetRenderWidget()->is_hidden();
 
     // Set the initial focus.
-    SetContentAreaFocus(render_frame_->GetRenderWidget()->has_focus());
+    SetContentAreaFocus(render_frame_->render_view()->has_focus());
 
     if (!module_->IsProxied()) {
       PepperBrowserConnection* browser_connection =
@@ -788,7 +773,7 @@ void PepperPluginInstanceImpl::CommitBackingTexture() {
   DCHECK(!mailbox.IsZero());
   DCHECK_NE(sync_point, 0u);
   texture_layer_->SetTextureMailboxWithoutReleaseCallback(
-      cc::TextureMailbox(mailbox, GL_TEXTURE_2D, sync_point));
+      cc::TextureMailbox(mailbox, gpu::SyncToken(sync_point), GL_TEXTURE_2D));
   texture_layer_->SetNeedsDisplay();
 }
 
@@ -1142,20 +1127,8 @@ bool PepperPluginInstanceImpl::HandleInputEvent(
         pending_user_gesture_token_.setOutOfProcess();
       }
 
-      const ui::LatencyInfo* current_event_latency_info = NULL;
-      if (render_frame_->GetRenderWidget()) {
-        current_event_latency_info =
-            render_frame_->GetRenderWidget()->current_event_latency_info();
-      }
-
       // Each input event may generate more than one PP_InputEvent.
       for (size_t i = 0; i < events.size(); i++) {
-        if (is_tracking_latency_) {
-          InitLatencyInfo(&events[i].latency_info,
-                          current_event_latency_info,
-                          event.type,
-                          last_input_number_++);
-        }
         if (filtered_input_event_mask_ & event_class)
           events[i].is_filtered = true;
         else
@@ -1550,7 +1523,7 @@ void PepperPluginInstanceImpl::UpdateLayerTransform() {
   // plugin to be rendered, then flickering behavior occurs as in
   // crbug.com/353453.
   gfx::SizeF graphics_2d_size_in_dip =
-      gfx::ScaleSize(bound_graphics_2d_platform_->Size(),
+      gfx::ScaleSize(gfx::SizeF(bound_graphics_2d_platform_->Size()),
                      bound_graphics_2d_platform_->GetScale());
   gfx::Size plugin_size_in_dip(view_data_.rect.size.width,
                                view_data_.rect.size.height);
@@ -1636,7 +1609,7 @@ void PepperPluginInstanceImpl::SendDidChangeView() {
     }
 
     if (throttler_) {
-      throttler_->Initialize(render_frame_, plugin_url_.GetOrigin(),
+      throttler_->Initialize(render_frame_, url::Origin(plugin_url_),
                              module()->name(), unobscured_rect_.size());
     }
   }
@@ -2032,7 +2005,8 @@ void PepperPluginInstanceImpl::UpdateLayer(bool device_changed) {
           cc_blink::WebLayerImpl::LayerSettings(), NULL);
       opaque = bound_graphics_3d_->IsOpaque();
       texture_layer_->SetTextureMailboxWithoutReleaseCallback(
-          cc::TextureMailbox(mailbox, GL_TEXTURE_2D, sync_point));
+          cc::TextureMailbox(mailbox, gpu::SyncToken(sync_point),
+                             GL_TEXTURE_2D));
     } else {
       DCHECK(bound_graphics_2d_platform_);
       texture_layer_ = cc::TextureLayer::CreateForMailbox(
@@ -2082,27 +2056,12 @@ void PepperPluginInstanceImpl::OnThrottleStateChange() {
   SendDidChangeView();
 
   bool is_throttled = throttler_->IsThrottled();
-  render_frame()->Send(new ViewHostMsg_PluginInstanceThrottleStateChange(
+  render_frame()->Send(new FrameHostMsg_PluginInstanceThrottleStateChange(
       module_->GetPluginChildId(), pp_instance_, is_throttled));
 }
 
 void PepperPluginInstanceImpl::OnHiddenForPlaceholder(bool hidden) {
   UpdateLayer(false /* device_changed */);
-}
-
-void PepperPluginInstanceImpl::AddLatencyInfo(
-    const std::vector<ui::LatencyInfo>& latency_info) {
-  if (render_frame_ && render_frame_->GetRenderWidget()) {
-    RenderWidgetCompositor* compositor =
-        render_frame_->GetRenderWidget()->compositor();
-    if (compositor) {
-      for (size_t i = 0; i < latency_info.size(); i++) {
-        scoped_ptr<cc::SwapPromise> swap_promise(
-            new cc::LatencyInfoSwapPromise(latency_info[i]));
-        compositor->QueueSwapPromise(swap_promise.Pass());
-      }
-    }
-  }
 }
 
 void PepperPluginInstanceImpl::AddPluginObject(PluginObject* plugin_object) {
@@ -2616,7 +2575,9 @@ PP_Bool PepperPluginInstanceImpl::GetScreenSize(PP_Instance instance,
     *size = view_data_.rect.size;
   } else {
     // All other cases: Report the screen size.
-    blink::WebScreenInfo info = render_frame()->GetRenderWidget()->screenInfo();
+    if (!render_frame_ || !render_frame_->GetRenderWidget())
+      return PP_FALSE;
+    blink::WebScreenInfo info = render_frame_->GetRenderWidget()->screenInfo();
     *size = PP_MakeSize(info.rect.width, info.rect.height);
   }
   return PP_TRUE;
@@ -2680,11 +2641,6 @@ void PepperPluginInstanceImpl::ClearInputEventRequest(PP_Instance instance,
   input_event_mask_ &= ~(event_classes);
   filtered_input_event_mask_ &= ~(event_classes);
   RequestInputEventsHelper(event_classes);
-}
-
-void PepperPluginInstanceImpl::StartTrackingLatency(PP_Instance instance) {
-  if (module_->permissions().HasPermission(ppapi::PERMISSION_PRIVATE))
-    is_tracking_latency_ = true;
 }
 
 void PepperPluginInstanceImpl::PostMessage(PP_Instance instance,
@@ -3062,7 +3018,8 @@ void PepperPluginInstanceImpl::DoSetCursor(WebCursorInfo* cursor) {
 
 bool PepperPluginInstanceImpl::IsFullPagePlugin() {
   WebLocalFrame* frame = container()->element().document().frame();
-  return frame->view()->mainFrame()->document().isPluginDocument();
+  return frame->view()->mainFrame()->isWebLocalFrame() &&
+         frame->view()->mainFrame()->document().isPluginDocument();
 }
 
 bool PepperPluginInstanceImpl::FlashSetFullscreen(bool fullscreen,
@@ -3082,6 +3039,9 @@ bool PepperPluginInstanceImpl::FlashSetFullscreen(bool fullscreen,
   if (fullscreen && !render_frame_->render_view()
                          ->renderer_preferences()
                          .plugin_fullscreen_allowed)
+    return false;
+
+  if (fullscreen && !IsProcessingUserGesture())
     return false;
 
   // Unbind current 2D or 3D graphics context.

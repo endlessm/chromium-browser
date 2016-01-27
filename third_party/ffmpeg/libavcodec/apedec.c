@@ -1281,7 +1281,7 @@ static void do_apply_filter(APEContext *ctx, int version, APEFilter *f,
             /* Update the adaption coefficients */
             absres = FFABS(res);
             if (absres)
-                *f->adaptcoeffs = ((res & (-1<<31)) ^ (-1<<30)) >>
+                *f->adaptcoeffs = ((res & INT32_MIN) ^ (-(1<<30))) >>
                                   (25 + (absres <= f->avg*3) + (absres <= f->avg*4/3));
             else
                 *f->adaptcoeffs = 0;
@@ -1570,7 +1570,8 @@ AVCodec ff_ape_decoder = {
     .init           = ape_decode_init,
     .close          = ape_decode_close,
     .decode         = ape_decode_frame,
-    .capabilities   = CODEC_CAP_SUBFRAMES | CODEC_CAP_DELAY | CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_SUBFRAMES | AV_CODEC_CAP_DELAY |
+                      AV_CODEC_CAP_DR1,
     .flush          = ape_flush,
     .sample_fmts    = (const enum AVSampleFormat[]) { AV_SAMPLE_FMT_U8P,
                                                       AV_SAMPLE_FMT_S16P,

@@ -4,7 +4,8 @@
 
 #include "google_apis/gcm/engine/connection_handler_impl.h"
 
-#include "base/message_loop/message_loop.h"
+#include "base/location.h"
+#include "base/thread_task_runner_handle.h"
 #include "google/protobuf/io/coded_stream.h"
 #include "google/protobuf/io/zero_copy_stream_impl_lite.h"
 #include "google_apis/gcm/base/mcs_util.h"
@@ -129,7 +130,7 @@ void ConnectionHandlerImpl::Login(
   if (output_stream_->Flush(
           base::Bind(&ConnectionHandlerImpl::OnMessageSent,
                      weak_ptr_factory_.GetWeakPtr())) != net::ERR_IO_PENDING) {
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&ConnectionHandlerImpl::OnMessageSent,
                    weak_ptr_factory_.GetWeakPtr()));
@@ -259,7 +260,7 @@ void ConnectionHandlerImpl::WaitForData(ProcessingState state) {
     DVLOG(1) << "Socket read finished prematurely. Waiting for "
              << min_bytes_needed - input_stream_->UnreadByteCount()
              << " more bytes.";
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&ConnectionHandlerImpl::WaitForData,
                    weak_ptr_factory_.GetWeakPtr(),
@@ -338,6 +339,8 @@ void ConnectionHandlerImpl::OnGotMessageSize() {
   }
 
   int prev_byte_count = input_stream_->UnreadByteCount();
+  int result = net::OK;
+  bool incomplete_size_packet = false;
   {
     CodedInputStream coded_input_stream(input_stream_.get());
     if (!coded_input_stream.ReadVarint32(&message_size_)) {
@@ -345,16 +348,23 @@ void ConnectionHandlerImpl::OnGotMessageSize() {
       if (prev_byte_count >= kSizePacketLenMax) {
         // Already had enough bytes, something else went wrong.
         LOG(ERROR) << "Failed to process message size";
-        connection_callback_.Run(net::ERR_FILE_TOO_BIG);
-        return;
+        result = net::ERR_FILE_TOO_BIG;
+      } else {
+        // Back up by the amount read.
+        int bytes_read = prev_byte_count - input_stream_->UnreadByteCount();
+        input_stream_->BackUp(bytes_read);
+        size_packet_so_far_ = bytes_read;
+        incomplete_size_packet = true;
       }
-      // Back up by the amount read.
-      int bytes_read = prev_byte_count - input_stream_->UnreadByteCount();
-      input_stream_->BackUp(bytes_read);
-      size_packet_so_far_ = bytes_read;
-      WaitForData(MCS_SIZE);
-      return;
     }
+  }
+
+  if (result != net::OK) {
+    connection_callback_.Run(result);
+    return;
+  } else if (incomplete_size_packet) {
+    WaitForData(MCS_SIZE);
+    return;
   }
 
   DVLOG(1) << "Proto size: " << message_size_;
@@ -374,7 +384,7 @@ void ConnectionHandlerImpl::OnGotMessageBytes() {
   // Messages with no content are valid; just use the default protobuf for
   // that tag.
   if (protobuf.get() && message_size_ == 0) {
-    base::MessageLoop::current()->PostTask(
+    base::ThreadTaskRunnerHandle::Get()->PostTask(
         FROM_HERE,
         base::Bind(&ConnectionHandlerImpl::GetNextMessage,
                    weak_ptr_factory_.GetWeakPtr()));
@@ -397,14 +407,13 @@ void ConnectionHandlerImpl::OnGotMessageBytes() {
      return;
   }
 
+  int result = net::OK;
   if (message_size_ < kDefaultDataPacketLimit) {
     CodedInputStream coded_input_stream(input_stream_.get());
     if (!protobuf->ParsePartialFromCodedStream(&coded_input_stream)) {
       LOG(ERROR) << "Unable to parse GCM message of type "
                  << static_cast<unsigned int>(message_tag_);
-      // Reset the connection.
-      connection_callback_.Run(net::ERR_FAILED);
-      return;
+      result = net::ERR_FAILED;
     }
   } else {
     // Copy any data in the input stream onto the end of the buffer.
@@ -423,9 +432,7 @@ void ConnectionHandlerImpl::OnGotMessageBytes() {
       if (!protobuf->ParsePartialFromCodedStream(&coded_input_stream)) {
         LOG(ERROR) << "Unable to parse GCM message of type "
                    << static_cast<unsigned int>(message_tag_);
-        // Reset the connection.
-        connection_callback_.Run(net::ERR_FAILED);
-        return;
+        result = net::ERR_FAILED;
       }
     } else {
       // Continue reading data.
@@ -443,8 +450,14 @@ void ConnectionHandlerImpl::OnGotMessageBytes() {
     }
   }
 
+  if (result != net::OK) {
+    // Reset the connection.
+    connection_callback_.Run(result);
+    return;
+  }
+
   input_stream_->RebuildBuffer();
-  base::MessageLoop::current()->PostTask(
+  base::ThreadTaskRunnerHandle::Get()->PostTask(
       FROM_HERE,
       base::Bind(&ConnectionHandlerImpl::GetNextMessage,
                  weak_ptr_factory_.GetWeakPtr()));

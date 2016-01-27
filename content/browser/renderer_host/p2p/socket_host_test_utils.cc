@@ -4,6 +4,7 @@
 
 #include "content/browser/renderer_host/p2p/socket_host_test_utils.h"
 
+#include "base/logging.h"
 #include "base/sys_byteorder.h"
 #include "base/thread_task_runner_handle.h"
 #include "net/base/completion_callback.h"
@@ -176,6 +177,11 @@ void FakeSocket::GetConnectionAttempts(net::ConnectionAttempts* out) const {
   out->clear();
 }
 
+int64_t FakeSocket::GetTotalReceivedBytes() const {
+  NOTIMPLEMENTED();
+  return 0;
+}
+
 void CreateRandomPacket(std::vector<char>* packet) {
   size_t size = kStunHeaderSize + rand() % 1000;
   packet->resize(size);
@@ -208,7 +214,7 @@ void CreateStunError(std::vector<char>* packet) {
   CreateStunPacket(packet, kStunBindingError);
 }
 
-net::IPEndPoint ParseAddress(const std::string ip_str, uint16 port) {
+net::IPEndPoint ParseAddress(const std::string& ip_str, uint16 port) {
   net::IPAddressNumber ip;
   EXPECT_TRUE(net::ParseIPLiteralToNumber(ip_str, &ip));
   return net::IPEndPoint(ip, port);

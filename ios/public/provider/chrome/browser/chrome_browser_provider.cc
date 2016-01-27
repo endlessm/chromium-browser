@@ -5,6 +5,7 @@
 #include "ios/public/provider/chrome/browser/chrome_browser_provider.h"
 
 #include "base/logging.h"
+#include "ios/public/provider/chrome/browser/keyed_service_provider.h"
 
 namespace ios {
 
@@ -33,8 +34,14 @@ ChromeBrowserProvider::GetSystemURLRequestContext() {
   return nullptr;
 }
 
-PrefService* ChromeBrowserProvider::GetLocalState() {
-  return nullptr;
+void ChromeBrowserProvider::AssertBrowserContextKeyedFactoriesBuilt() {
+}
+
+void ChromeBrowserProvider::RegisterLocalState(PrefRegistrySimple* registry) {
+}
+
+void ChromeBrowserProvider::RegisterProfilePrefs(
+    user_prefs::PrefRegistrySyncable* registry) {
 }
 
 ProfileOAuth2TokenServiceIOSProvider*
@@ -58,7 +65,15 @@ InfoBarViewPlaceholder ChromeBrowserProvider::CreateInfoBarView(
   return nullptr;
 }
 
+ChromeIdentityService* ChromeBrowserProvider::GetChromeIdentityService() {
+  return nullptr;
+}
+
 StringProvider* ChromeBrowserProvider::GetStringProvider() {
+  return nullptr;
+}
+
+LiveTabContextProvider* ChromeBrowserProvider::GetLiveTabContextProvider() {
   return nullptr;
 }
 
@@ -67,15 +82,8 @@ ChromeBrowserProvider::GetGeolocationUpdaterProvider() {
   return nullptr;
 }
 
-void ChromeBrowserProvider::ShowTranslateSettings() {
-}
-
-bool ChromeBrowserProvider::IsBookmarkCollectionEnabled() {
-  return false;
-}
-
-const char* ChromeBrowserProvider::GetChromeUIScheme() {
-  return nullptr;
+std::string ChromeBrowserProvider::GetDistributionBrandCode() {
+  return std::string();
 }
 
 void ChromeBrowserProvider::SetUIViewAlphaWithAnimation(UIView* view,
@@ -83,6 +91,10 @@ void ChromeBrowserProvider::SetUIViewAlphaWithAnimation(UIView* view,
 }
 
 metrics::MetricsService* ChromeBrowserProvider::GetMetricsService() {
+  return nullptr;
+}
+
+variations::VariationsService* ChromeBrowserProvider::GetVariationsService() {
   return nullptr;
 }
 
@@ -96,18 +108,31 @@ std::string ChromeBrowserProvider::GetRiskData() {
   return std::string();
 }
 
-std::string ChromeBrowserProvider::GetProductVersionWithPrefix(
-    const std::string& prefix) {
-  NOTREACHED();
-  return std::string();
+policy::BrowserPolicyConnector*
+ChromeBrowserProvider::GetBrowserPolicyConnector() {
+  return nullptr;
 }
 
-std::string ChromeBrowserProvider::GetVersionString() {
-  return std::string();
+rappor::RapporService* ChromeBrowserProvider::GetRapporService() {
+  return nullptr;
 }
 
-std::string ChromeBrowserProvider::GetVersionNumber() {
-  return std::string();
+bool ChromeBrowserProvider::IsOffTheRecordSessionActive() {
+  return false;
 }
+
+void ChromeBrowserProvider::GetFaviconForURL(
+    ios::ChromeBrowserState* browser_state,
+    const GURL& page_url,
+    const std::vector<int>& desired_sizes_in_pixel,
+    const favicon_base::FaviconResultsCallback& callback) const {}
+
+
+bool ChromeBrowserProvider::IsSafeBrowsingEnabled(
+    const base::Closure& on_update_callback) {
+  return false;
+}
+
+void ChromeBrowserProvider::OnMetricsServicesManagerClientDestroyed() {}
 
 }  // namespace ios

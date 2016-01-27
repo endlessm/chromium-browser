@@ -61,8 +61,7 @@ static bool DigestsEqual(const DigestValue& digest1, const DigestValue& digest2)
 
 static String digestToString(const DigestValue& digest)
 {
-    // We always output base64url encoded data, even though we use base64 internally.
-    return base64URLEncode(reinterpret_cast<const char*>(digest.data()), digest.size(), Base64DoNotInsertLFs);
+    return base64Encode(reinterpret_cast<const char*>(digest.data()), digest.size(), Base64DoNotInsertLFs);
 }
 
 
@@ -102,46 +101,72 @@ HashAlgorithm SubresourceIntegrity::getPrioritizedHashFunction(HashAlgorithm alg
     return algorithm2;
 }
 
-bool SubresourceIntegrity::CheckSubresourceIntegrity(const Element& element, const String& source, const KURL& resourceUrl, const Resource& resource)
+bool SubresourceIntegrity::CheckSubresourceIntegrity(const Element& element, const char* content, size_t size, const KURL& resourceUrl, const Resource& resource)
 {
     Document& document = element.document();
     String attribute = element.fastGetAttribute(HTMLNames::integrityAttr);
     if (attribute.isEmpty())
         return true;
 
-    if (!resource.isEligibleForIntegrityCheck(document.securityOrigin())) {
-        UseCounter::count(document, UseCounter::SRIElementIntegrityAttributeButIneligible);
-        logErrorToConsole("Subresource Integrity: The resource '" + resourceUrl.elidedString() + "' has an integrity attribute, but the resource requires the request to be CORS enabled to check the integrity, and it is not. The resource has not been blocked, but no integrity check occurred.", document);
-        return false;
-    }
-
-    WTF::Vector<IntegrityMetadata> metadataList;
-    IntegrityParseResult integrityParseResult = parseIntegrityAttribute(attribute, metadataList, document);
+    IntegrityMetadataSet metadataSet;
+    IntegrityParseResult integrityParseResult = parseIntegrityAttribute(attribute, metadataSet, &document);
     // On failed parsing, there's no need to log an error here, as
     // parseIntegrityAttribute() will output an appropriate console message.
     if (integrityParseResult != IntegrityParseValidResult)
         return true;
 
-    StringUTF8Adaptor normalizedSource(source, StringUTF8Adaptor::Normalize, WTF::EntitiesForUnencodables);
+    return CheckSubresourceIntegrity(metadataSet, element, content, size, resourceUrl, resource);
+}
 
-    if (!metadataList.size())
+bool SubresourceIntegrity::CheckSubresourceIntegrity(const IntegrityMetadataSet& metadataSet, const Element& element, const char* content, size_t size, const KURL& resourceUrl, const Resource& resource)
+{
+    Document& document = element.document();
+
+    if (!resource.isEligibleForIntegrityCheck(document.securityOrigin())) {
+        UseCounter::count(document, UseCounter::SRIElementIntegrityAttributeButIneligible);
+        logErrorToConsole("Subresource Integrity: The resource '" + resourceUrl.elidedString() + "' has an integrity attribute, but the resource requires the request to be CORS enabled to check the integrity, and it is not. The resource has been blocked because the integrity cannot be enforced.", document);
+        return false;
+    }
+
+    String errorMessage;
+    bool result = CheckSubresourceIntegrity(metadataSet, content, size, resourceUrl, document, errorMessage);
+    if (!result)
+        logErrorToConsole(errorMessage, document);
+    return result;
+}
+
+bool SubresourceIntegrity::CheckSubresourceIntegrity(const String& integrityMetadata, const char* content, size_t size, const KURL& resourceUrl, Document& document, String& errorMessage)
+{
+    IntegrityMetadataSet metadataSet;
+    IntegrityParseResult integrityParseResult = parseIntegrityAttribute(integrityMetadata, metadataSet, &document);
+    // On failed parsing, there's no need to log an error here, as
+    // parseIntegrityAttribute() will output an appropriate console message.
+    if (integrityParseResult != IntegrityParseValidResult)
+        return true;
+
+    return CheckSubresourceIntegrity(metadataSet, content, size, resourceUrl, document, errorMessage);
+}
+
+bool SubresourceIntegrity::CheckSubresourceIntegrity(const IntegrityMetadataSet& metadataSet, const char* content, size_t size, const KURL& resourceUrl, Document& document, String& errorMessage)
+{
+    if (!metadataSet.size())
         return true;
 
     HashAlgorithm strongestAlgorithm = HashAlgorithmSha256;
-    for (const IntegrityMetadata& metadata : metadataList)
-        strongestAlgorithm = getPrioritizedHashFunction(metadata.algorithm, strongestAlgorithm);
+    for (const IntegrityMetadata& metadata : metadataSet)
+        strongestAlgorithm = getPrioritizedHashFunction(metadata.algorithm(), strongestAlgorithm);
 
     DigestValue digest;
-    for (const IntegrityMetadata& metadata : metadataList) {
-        if (metadata.algorithm != strongestAlgorithm)
+    for (const IntegrityMetadata& metadata : metadataSet) {
+        if (metadata.algorithm() != strongestAlgorithm)
             continue;
 
         digest.clear();
-        bool digestSuccess = computeDigest(metadata.algorithm, normalizedSource.data(), normalizedSource.length(), digest);
+        bool digestSuccess = computeDigest(metadata.algorithm(), content, size, digest);
 
         if (digestSuccess) {
             Vector<char> hashVector;
-            base64Decode(metadata.digest, hashVector);
+            base64Decode(metadata.digest(), hashVector);
             DigestValue convertedHashVector;
             convertedHashVector.append(reinterpret_cast<uint8_t*>(hashVector.data()), hashVector.size());
 
@@ -153,19 +178,20 @@ bool SubresourceIntegrity::CheckSubresourceIntegrity(const Element& element, con
     }
 
     digest.clear();
-    if (computeDigest(HashAlgorithmSha256, normalizedSource.data(), normalizedSource.length(), digest)) {
+    if (computeDigest(HashAlgorithmSha256, content, size, digest)) {
         // This message exposes the digest of the resource to the console.
         // Because this is only to the console, that's okay for now, but we
         // need to be very careful not to expose this in exceptions or
         // JavaScript, otherwise it risks exposing information about the
         // resource cross-origin.
-        logErrorToConsole("Failed to find a valid digest in the 'integrity' attribute for resource '" + resourceUrl.elidedString() + "' with computed SHA-256 integrity '" + digestToString(digest) + "'. The resource has been blocked.", document);
+        errorMessage = "Failed to find a valid digest in the 'integrity' attribute for resource '" + resourceUrl.elidedString() + "' with computed SHA-256 integrity '" + digestToString(digest) + "'. The resource has been blocked.";
     } else {
-        logErrorToConsole("There was an error computing an integrity value for resource '" + resourceUrl.elidedString() + "'. The resource has been blocked.", document);
+        errorMessage = "There was an error computing an integrity value for resource '" + resourceUrl.elidedString() + "'. The resource has been blocked.";
     }
     UseCounter::count(document, UseCounter::SRIElementWithNonMatchingIntegrityAttribute);
     return false;
 }
+
 
 // Before:
 //
@@ -245,7 +271,12 @@ bool SubresourceIntegrity::parseDigest(const UChar*& position, const UChar* end,
     return true;
 }
 
-SubresourceIntegrity::IntegrityParseResult SubresourceIntegrity::parseIntegrityAttribute(const WTF::String& attribute, WTF::Vector<IntegrityMetadata>& metadataList, Document& document)
+SubresourceIntegrity::IntegrityParseResult SubresourceIntegrity::parseIntegrityAttribute(const WTF::String& attribute, IntegrityMetadataSet& metadataSet)
+{
+    return parseIntegrityAttribute(attribute, metadataSet, nullptr);
+}
+
+SubresourceIntegrity::IntegrityParseResult SubresourceIntegrity::parseIntegrityAttribute(const WTF::String& attribute, IntegrityMetadataSet& metadataSet, Document* document)
 {
     Vector<UChar> characters;
     attribute.stripWhiteSpace().appendTo(characters);
@@ -253,7 +284,7 @@ SubresourceIntegrity::IntegrityParseResult SubresourceIntegrity::parseIntegrityA
     const UChar* end = characters.end();
     const UChar* currentIntegrityEnd;
 
-    metadataList.clear();
+    metadataSet.clear();
     bool error = false;
 
     // The integrity attribute takes the form:
@@ -276,27 +307,33 @@ SubresourceIntegrity::IntegrityParseResult SubresourceIntegrity::parseIntegrityA
         if (parseResult == AlgorithmUnknown) {
             // Unknown hash algorithms are treated as if they're not present,
             // and thus are not marked as an error, they're just skipped.
-            logErrorToConsole("Error parsing 'integrity' attribute ('" + attribute + "'). The specified hash algorithm must be one of 'sha256', 'sha384', or 'sha512'.", document);
             skipUntil<UChar, isASCIISpace>(position, end);
-            UseCounter::count(document, UseCounter::SRIElementWithUnparsableIntegrityAttribute);
+            if (document) {
+                logErrorToConsole("Error parsing 'integrity' attribute ('" + attribute + "'). The specified hash algorithm must be one of 'sha256', 'sha384', or 'sha512'.", *document);
+                UseCounter::count(*document, UseCounter::SRIElementWithUnparsableIntegrityAttribute);
+            }
             continue;
         }
 
         if (parseResult == AlgorithmUnparsable) {
-            logErrorToConsole("Error parsing 'integrity' attribute ('" + attribute + "'). The hash algorithm must be one of 'sha256', 'sha384', or 'sha512', followed by a '-' character.", document);
             error = true;
-            UseCounter::count(document, UseCounter::SRIElementWithUnparsableIntegrityAttribute);
             skipUntil<UChar, isASCIISpace>(position, end);
+            if (document) {
+                logErrorToConsole("Error parsing 'integrity' attribute ('" + attribute + "'). The hash algorithm must be one of 'sha256', 'sha384', or 'sha512', followed by a '-' character.", *document);
+                UseCounter::count(*document, UseCounter::SRIElementWithUnparsableIntegrityAttribute);
+            }
             continue;
         }
 
         ASSERT(parseResult == AlgorithmValid);
 
         if (!parseDigest(position, currentIntegrityEnd, digest)) {
-            logErrorToConsole("Error parsing 'integrity' attribute ('" + attribute + "'). The digest must be a valid, base64-encoded value.", document);
             error = true;
             skipUntil<UChar, isASCIISpace>(position, end);
-            UseCounter::count(document, UseCounter::SRIElementWithUnparsableIntegrityAttribute);
+            if (document) {
+                logErrorToConsole("Error parsing 'integrity' attribute ('" + attribute + "'). The digest must be a valid, base64-encoded value.", *document);
+                UseCounter::count(*document, UseCounter::SRIElementWithUnparsableIntegrityAttribute);
+            }
             continue;
         }
 
@@ -307,18 +344,15 @@ SubresourceIntegrity::IntegrityParseResult SubresourceIntegrity::parseIntegrityA
         if (skipExactly<UChar>(position, end, '?')) {
             const UChar* begin = position;
             skipWhile<UChar, isValueCharacter>(position, end);
-            if (begin != position)
-                logErrorToConsole("Ignoring unrecogized 'integrity' attribute option '" + String(begin, position - begin) + "'.", document);
+            if (begin != position && document)
+                logErrorToConsole("Ignoring unrecogized 'integrity' attribute option '" + String(begin, position - begin) + "'.", *document);
         }
 
-        IntegrityMetadata integrityMetadata = {
-            digest,
-            algorithm
-        };
-        metadataList.append(integrityMetadata);
+        IntegrityMetadata integrityMetadata(digest, algorithm);
+        metadataSet.add(integrityMetadata.toPair());
     }
 
-    if (metadataList.size() == 0 && error)
+    if (metadataSet.size() == 0 && error)
         return IntegrityParseNoValidResult;
 
     return IntegrityParseValidResult;

@@ -19,6 +19,7 @@ class WebPushClient;
 class PushController final : public NoBaseWillBeGarbageCollected<PushController>, public WillBeHeapSupplement<LocalFrame> {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(PushController);
     WTF_MAKE_NONCOPYABLE(PushController);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(PushController);
 
 public:
     static PassOwnPtrWillBeRawPtr<PushController> create(WebPushClient*);

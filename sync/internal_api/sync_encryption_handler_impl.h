@@ -65,7 +65,7 @@ class SYNC_EXPORT_PRIVATE SyncEncryptionHandlerImpl
                                bool is_explicit) override;
   void SetDecryptionPassphrase(const std::string& passphrase) override;
   void EnableEncryptEverything() override;
-  bool EncryptEverythingEnabled() const override;
+  bool IsEncryptEverythingEnabled() const override;
   PassphraseType GetPassphraseType() const override;
 
   // NigoriHandler implementation.
@@ -275,10 +275,6 @@ class SYNC_EXPORT_PRIVATE SyncEncryptionHandlerImpl
 
   // Notify observers when a custom passphrase is set by this device.
   void NotifyObserversOfLocalCustomPassphrase(WriteTransaction* trans);
-
-  // Update the Nigori node to indicate that we're transitioning to passphrsae
-  // encryption.
-  void UpdateNigoriForTransitionToPassphraseEncryption(WriteTransaction* trans);
 
   base::ThreadChecker thread_checker_;
 

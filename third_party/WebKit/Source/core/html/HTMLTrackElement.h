@@ -72,6 +72,7 @@ private:
     void newCuesAvailable(TextTrackLoader*) override;
     void cueLoadingCompleted(TextTrackLoader*, bool loadingFailed) override;
     void newRegionsAvailable(TextTrackLoader*) override;
+    String debugName() const override { return "HTMLTrackElement"; }
 
     void setReadyState(ReadyState);
 
@@ -89,7 +90,7 @@ private:
 
     LoadableTextTrack* ensureTrack();
 
-    RefPtrWillBeMember<LoadableTextTrack> m_track;
+    PersistentWillBeMember<LoadableTextTrack> m_track;
     OwnPtrWillBeMember<TextTrackLoader> m_loader;
     Timer<HTMLTrackElement> m_loadTimer;
     KURL m_url;

@@ -9,11 +9,12 @@
  */
 
 #include "testing/gtest/include/gtest/gtest.h"
+#include "webrtc/base/checks.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common_video/interface/video_image.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
 #include "webrtc/modules/video_coding/codecs/vp8/include/vp8.h"
-#include "webrtc/system_wrappers/interface/tick_util.h"
+#include "webrtc/system_wrappers/include/tick_util.h"
 #include "webrtc/test/testsupport/fileutils.h"
 #include "webrtc/test/testsupport/metrics/video_metrics.h"
 #include "webrtc/tools/simple_command_line_parser.h"
@@ -68,7 +69,11 @@ class Vp8SequenceCoderDecodeCallback : public webrtc::DecodedImageCallback {
  public:
   explicit Vp8SequenceCoderDecodeCallback(FILE* decoded_file)
       : decoded_file_(decoded_file) {}
-  int Decoded(webrtc::VideoFrame& frame);
+  int32_t Decoded(webrtc::VideoFrame& frame) override;
+  int32_t Decoded(webrtc::VideoFrame& frame, int64_t decode_time_ms) override {
+    RTC_NOTREACHED();
+    return -1;;
+  }
   bool DecodeComplete();
 
  private:

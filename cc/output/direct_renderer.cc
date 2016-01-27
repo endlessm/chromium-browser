@@ -17,6 +17,7 @@
 #include "cc/output/bsp_walk_action.h"
 #include "cc/output/copy_output_request.h"
 #include "cc/quads/draw_quad.h"
+#include "ui/gfx/geometry/quad_f.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/gfx/transform.h"
 
@@ -221,11 +222,45 @@ void DirectRenderer::DrawFrame(RenderPassList* render_passes_in_draw_order,
 
   BeginDrawingFrame(&frame);
 
+  if (output_surface_->IsDisplayedAsOverlayPlane()) {
+    // Create the overlay candidate for the output surface, and mark it as
+    // always
+    // handled.
+    OverlayCandidate output_surface_plane;
+    output_surface_plane.display_rect =
+        gfx::RectF(root_render_pass->output_rect);
+    output_surface_plane.quad_rect_in_target_space =
+        root_render_pass->output_rect;
+    output_surface_plane.use_output_surface_for_resource = true;
+    output_surface_plane.overlay_handled = true;
+    frame.overlay_list.push_back(output_surface_plane);
+  }
+
   // If we have any copy requests, we can't remove any quads for overlays,
   // otherwise the framebuffer will be missing the overlay contents.
   if (root_render_pass->copy_requests.empty()) {
-    overlay_processor_->ProcessForOverlays(render_passes_in_draw_order,
-                                           &frame.overlay_list);
+    overlay_processor_->ProcessForOverlays(
+        resource_provider_, render_passes_in_draw_order, &frame.overlay_list,
+        &frame.root_damage_rect);
+
+    // No need to render in case the damage rect is completely composited using
+    // overlays and dont have any copy requests.
+    if (frame.root_damage_rect.IsEmpty()) {
+      bool handle_copy_requests = false;
+      for (auto* pass : *render_passes_in_draw_order) {
+        if (!pass->copy_requests.empty()) {
+          handle_copy_requests = true;
+          break;
+        }
+      }
+
+      if (!handle_copy_requests) {
+        BindFramebufferToOutputSurface(&frame);
+        FinishDrawingFrame(&frame);
+        render_passes_in_draw_order->clear();
+        return;
+      }
+    }
   }
 
   for (size_t i = 0; i < render_passes_in_draw_order->size(); ++i) {
@@ -421,8 +456,8 @@ void DirectRenderer::DrawRenderPass(DrawingFrame* frame,
 
   // If |has_external_stencil_test| we can't discard or clear. Make sure we
   // don't need to.
-  DCHECK_IMPLIES(has_external_stencil_test,
-                 !frame->current_render_pass->has_transparent_background);
+  DCHECK(!has_external_stencil_test ||
+         !frame->current_render_pass->has_transparent_background);
 
   SurfaceInitializationMode mode;
   if (should_clear_surface && render_pass_is_clipped) {
@@ -445,7 +480,7 @@ void DirectRenderer::DrawRenderPass(DrawingFrame* frame,
   for (auto it = quad_list.BackToFrontBegin(); it != quad_list.BackToFrontEnd();
        ++it) {
     const DrawQuad& quad = **it;
-    gfx::QuadF send_quad(quad.visible_rect);
+    gfx::QuadF send_quad(gfx::RectF(quad.visible_rect));
 
     if (render_pass_is_clipped &&
         ShouldSkipQuad(quad, render_pass_scissor_in_draw_space)) {
@@ -462,7 +497,7 @@ void DirectRenderer::DrawRenderPass(DrawingFrame* frame,
     // polygons to go into the BSP tree.
     if (quad.shared_quad_state->sorting_context_id != 0) {
       scoped_ptr<DrawPolygon> new_polygon(new DrawPolygon(
-          *it, quad.visible_rect,
+          *it, gfx::RectF(quad.visible_rect),
           quad.shared_quad_state->quad_to_target_transform, next_polygon_id++));
       if (new_polygon->points().size() > 2u) {
         poly_list.push_back(new_polygon.Pass());
@@ -501,8 +536,9 @@ bool DirectRenderer::UseRenderPass(DrawingFrame* frame,
   size.Enlarge(enlarge_pass_texture_amount_.x(),
                enlarge_pass_texture_amount_.y());
   if (!texture->id()) {
-    texture->Allocate(
-        size, ResourceProvider::TEXTURE_HINT_IMMUTABLE_FRAMEBUFFER, RGBA_8888);
+    texture->Allocate(size,
+                      ResourceProvider::TEXTURE_HINT_IMMUTABLE_FRAMEBUFFER,
+                      resource_provider_->best_texture_format());
   }
   DCHECK(texture->id());
 

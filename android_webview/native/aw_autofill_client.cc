@@ -177,11 +177,6 @@ void AwAutofillClient::OnFirstUserGestureObserved() {
   NOTIMPLEMENTED();
 }
 
-void AwAutofillClient::LinkClicked(const GURL& url,
-                                   WindowOpenDisposition disposition) {
-  NOTIMPLEMENTED();
-}
-
 bool AwAutofillClient::IsContextSecure(const GURL& form_origin) {
   content::SSLStatus ssl_status;
   content::NavigationEntry* navigation_entry =
@@ -222,12 +217,23 @@ void AwAutofillClient::ShowUnmaskPrompt(
   NOTIMPLEMENTED();
 }
 
-void AwAutofillClient::OnUnmaskVerificationResult(GetRealPanResult result) {
+void AwAutofillClient::OnUnmaskVerificationResult(PaymentsRpcResult result) {
   NOTIMPLEMENTED();
 }
 
-void AwAutofillClient::ConfirmSaveCreditCard(
-    const base::Closure& save_card_callback) {
+void AwAutofillClient::ConfirmSaveCreditCardLocally(
+    const base::Closure& callback) {
+  NOTIMPLEMENTED();
+}
+
+void AwAutofillClient::ConfirmSaveCreditCardToCloud(
+    const base::Closure& callback,
+    scoped_ptr<base::DictionaryValue> legal_message) {
+  NOTIMPLEMENTED();
+}
+
+void AwAutofillClient::LoadRiskData(
+    const base::Callback<void(const std::string&)>& callback) {
   NOTIMPLEMENTED();
 }
 

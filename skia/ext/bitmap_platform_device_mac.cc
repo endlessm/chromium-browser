@@ -13,6 +13,7 @@
 #include "skia/ext/platform_canvas.h"
 #include "skia/ext/skia_utils_mac.h"
 #include "third_party/skia/include/core/SkMatrix.h"
+#include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/core/SkRegion.h"
 #include "third_party/skia/include/core/SkTypes.h"
 #include "third_party/skia/include/core/SkUtils.h"
@@ -295,28 +296,6 @@ SkCanvas* CreatePlatformCanvas(int width, int height, bool is_opaque,
   skia::RefPtr<SkBaseDevice> dev = skia::AdoptRef(
       BitmapPlatformDevice::CreateWithData(data, width, height, is_opaque));
   return CreateCanvas(dev, failureType);
-}
-
-// Port of PlatformBitmap to mac
-
-PlatformBitmap::~PlatformBitmap() {
-  if (surface_)
-    CGContextRelease(surface_);
-}
-
-bool PlatformBitmap::Allocate(int width, int height, bool is_opaque) {
-  if (RasterDeviceTooBigToAllocate(width, height))
-    return false;
-    
-  if (!bitmap_.tryAllocN32Pixels(width, height, is_opaque))
-    return false;
-
-  if (!is_opaque)
-    bitmap_.eraseColor(0);
-
-  surface_ = CGContextForData(bitmap_.getPixels(), bitmap_.width(),
-                              bitmap_.height());
-  return true;
 }
 
 }  // namespace skia

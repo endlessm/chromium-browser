@@ -33,15 +33,14 @@
  */
 function InspectorBackendClass()
 {
-    this._connection = null;
     this._agentPrototypes = {};
     this._dispatcherPrototypes = {};
     this._initialized = false;
-    this._enums = {};
     this._initProtocolAgentsConstructor();
 }
 
 InspectorBackendClass._DevToolsErrorCode = -32000;
+InspectorBackendClass._DevToolsStubErrorCode = -32015;
 
 /**
  * @param {string} error
@@ -100,30 +99,6 @@ InspectorBackendClass.prototype = {
     },
 
     /**
-     * @return {!InspectorBackendClass.Connection}
-     */
-    connection: function()
-    {
-        if (!this._connection)
-            throw "Main connection was not initialized";
-        return this._connection;
-    },
-
-    /**
-     * @param {!InspectorBackendClass.MainConnection} connection
-     */
-    setConnection: function(connection)
-    {
-        this._connection = connection;
-
-        this._connection.registerAgentsOn(window);
-        for (var type in this._enums) {
-            var domainAndMethod = type.split(".");
-            window[domainAndMethod[0] + "Agent"][domainAndMethod[1]] = this._enums[type];
-        }
-    },
-
-    /**
      * @param {string} domain
      * @return {!InspectorBackendClass.AgentPrototype}
      */
@@ -167,7 +142,12 @@ InspectorBackendClass.prototype = {
      */
     registerEnum: function(type, values)
     {
-        this._enums[type] = values;
+        var domainAndMethod = type.split(".");
+        var agentName = domainAndMethod[0] + "Agent";
+        if (!window[agentName])
+            window[agentName] = {};
+
+        window[agentName][domainAndMethod[1]] = values;
         this._initialized = true;
     },
 
@@ -366,15 +346,6 @@ InspectorBackendClass.Connection.prototype = {
     },
 
     /**
-     * @param {!Object} object
-     */
-    registerAgentsOn: function(object)
-    {
-        for (var domain in this._agents)
-            object[domain + "Agent"]  = {};
-    },
-
-    /**
      * @return {number}
      */
     nextMessageId: function()
@@ -490,10 +461,6 @@ InspectorBackendClass.Connection.prototype = {
                 this.runAfterPendingDispatches();
             return;
         } else {
-            if (messageObject.error) {
-                InspectorBackendClass.reportProtocolError("Generic message format error", messageObject);
-                return;
-            }
             var method = messageObject.method.split(".");
             var domainName = method[0];
             if (!(domainName in this._dispatchers)) {
@@ -519,7 +486,7 @@ InspectorBackendClass.Connection.prototype = {
     },
 
     /**
-     * @param {string=} script
+     * @param {function()=} script
      */
     runAfterPendingDispatches: function(script)
     {
@@ -732,15 +699,16 @@ InspectorBackendClass.StubConnection.prototype = {
      */
     sendMessage: function(messageObject)
     {
-        setTimeout(this._echoResponse.bind(this, messageObject), 0);
+        setTimeout(this._respondWithError.bind(this, messageObject), 0);
     },
 
     /**
      * @param {!Object} messageObject
      */
-    _echoResponse: function(messageObject)
+    _respondWithError: function(messageObject)
     {
-        this.dispatch(messageObject);
+        var error = { message: "This is a stub connection, can't dispatch message.", code:  InspectorBackendClass._DevToolsStubErrorCode, data: messageObject };
+        this.dispatch({ id: messageObject.id, error: error });
     },
 
     __proto__: InspectorBackendClass.Connection.prototype
@@ -760,12 +728,14 @@ InspectorBackendClass.AgentPrototype = function(domain)
 }
 
 InspectorBackendClass.AgentPrototype.PromisifiedDomains = {
+    "Accessibility": true,
+    "Animation": true,
     "CSS": true,
+    "Emulation": true,
     "Profiler": true
 }
 
 InspectorBackendClass.AgentPrototype.prototype = {
-
     /**
      * @param {!InspectorBackendClass.Connection} connection
      */
@@ -957,7 +927,7 @@ InspectorBackendClass.AgentPrototype.prototype = {
      */
     dispatchResponse: function(messageObject, methodName, callback)
     {
-        if (messageObject.error && messageObject.error.code !== InspectorBackendClass._DevToolsErrorCode && !InspectorBackendClass.Options.suppressRequestErrors && !this._suppressErrorLogging) {
+        if (messageObject.error && messageObject.error.code !== InspectorBackendClass._DevToolsErrorCode && messageObject.error.code !== InspectorBackendClass._DevToolsStubErrorCode && !InspectorBackendClass.Options.suppressRequestErrors && !this._suppressErrorLogging) {
             var id = InspectorFrontendHost.isUnderTest() ? "##" : messageObject.id;
             console.error("Request with id = " + id + " failed. " + JSON.stringify(messageObject.error));
         }

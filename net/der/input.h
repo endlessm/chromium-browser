@@ -61,10 +61,16 @@ class NET_EXPORT_PRIVATE Input {
   // is not an option.
   const uint8_t* UnsafeData() const { return data_; }
 
+  // Returns a copy of the data represented by this object as a std::string.
+  std::string AsString() const;
+
  private:
   const uint8_t* data_;
   size_t len_;
 };
+
+// Returns true if |lhs|'s data is lexicographically less than |rhs|'s data.
+NET_EXPORT_PRIVATE bool operator<(const Input& lhs, const Input& rhs);
 
 // This class provides ways to read data from an Input in a bounds-checked way.
 // The ByteReader is designed to read through the input sequentially. Once a

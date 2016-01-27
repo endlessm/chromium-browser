@@ -19,8 +19,9 @@ namespace html_viewer {
 namespace {
 
 std::string ToASCIIOrEmpty(const blink::WebString& string) {
-  return base::IsStringASCII(string) ? base::UTF16ToASCII(string)
-                                     : std::string();
+  return base::IsStringASCII(string)
+      ? base::UTF16ToASCII(base::StringPiece16(string))
+      : std::string();
 }
 
 }  // namespace
@@ -44,7 +45,8 @@ WebMimeRegistryImpl::supportsImagePrefixedMIMEType(
     const blink::WebString& mime_type) {
   std::string ascii_mime_type = ToASCIIOrEmpty(mime_type);
   return (mime_util::IsSupportedImageMimeType(ascii_mime_type) ||
-          (base::StartsWithASCII(ascii_mime_type, "image/", true) &&
+          (base::StartsWith(ascii_mime_type, "image/",
+                            base::CompareCase::SENSITIVE) &&
            mime_util::IsSupportedNonImageMimeType(ascii_mime_type)))
              ? WebMimeRegistry::IsSupported
              : WebMimeRegistry::IsNotSupported;

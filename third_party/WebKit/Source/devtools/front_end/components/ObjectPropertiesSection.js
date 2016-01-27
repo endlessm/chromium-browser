@@ -212,7 +212,8 @@ WebInspector.ObjectPropertyTreeElement.prototype = {
         var propertyValue = /** @type {!WebInspector.RemoteObject} */ (this.property.value);
         console.assert(propertyValue);
         var skipProto = this.treeOutline ? this.treeOutline._skipProto : true;
-        WebInspector.ObjectPropertyTreeElement._populate(this, propertyValue, skipProto);
+        var targetValue = this.property.name !== '__proto__' ? propertyValue : this.property.parentObject;
+        WebInspector.ObjectPropertyTreeElement._populate(this, propertyValue, skipProto, undefined, undefined, undefined, targetValue);
     },
 
     /**
@@ -233,8 +234,7 @@ WebInspector.ObjectPropertyTreeElement.prototype = {
     onattach: function()
     {
         this.update();
-        if (this.property.value)
-            this.setExpandable(!this.property.value.customPreview() && this.property.value.hasChildren && !this.property.wasThrown);
+        this._updateExpandable();
     },
 
     update: function()
@@ -244,6 +244,8 @@ WebInspector.ObjectPropertyTreeElement.prototype = {
             this.nameElement.classList.add("object-properties-section-dimmed");
         if (this.property.isAccessorProperty())
             this.nameElement.classList.add("properties-accessor-property-name");
+        if (this.property.synthetic)
+            this.nameElement.classList.add("synthetic-property");
         if (this.property.symbol)
             this.nameElement.addEventListener("contextmenu", this._contextMenuFired.bind(this, this.property.symbol), false);
 
@@ -304,7 +306,7 @@ WebInspector.ObjectPropertyTreeElement.prototype = {
        this._prompt.detach();
        delete this._prompt;
        this._editableDiv.remove();
-       this.setExpandable(this.property.value.hasChildren && !this.property.wasThrown);
+       this._updateExpandable();
        this.listItemElement.scrollLeft = 0;
        this.listItemElement.classList.remove("editing-sub-part");
     },
@@ -421,6 +423,15 @@ WebInspector.ObjectPropertyTreeElement.prototype = {
 
         this.update();
         this.invalidateChildren();
+        this._updateExpandable();
+    },
+
+    _updateExpandable: function()
+    {
+        if (this.property.value)
+            this.setExpandable(!this.property.value.customPreview() && this.property.value.hasChildren && !this.property.wasThrown);
+        else
+            this.setExpandable(false);
     },
 
     __proto__: TreeElement.prototype
@@ -433,8 +444,9 @@ WebInspector.ObjectPropertyTreeElement.prototype = {
  * @param {?string=} emptyPlaceholder
  * @param {boolean=} flattenProtoChain
  * @param {!Array.<!WebInspector.RemoteObjectProperty>=} extraProperties
+ * @param {!WebInspector.RemoteObject=} targetValue
  */
-WebInspector.ObjectPropertyTreeElement._populate = function(treeElement, value, skipProto, emptyPlaceholder, flattenProtoChain, extraProperties)
+WebInspector.ObjectPropertyTreeElement._populate = function(treeElement, value, skipProto, emptyPlaceholder, flattenProtoChain, extraProperties, targetValue)
 {
     if (value.arrayLength() > WebInspector.ObjectPropertiesSection._arrayLoadThreshold) {
         treeElement.removeChildren();
@@ -457,7 +469,7 @@ WebInspector.ObjectPropertyTreeElement._populate = function(treeElement, value, 
             properties.push(extraProperties[i]);
 
         WebInspector.ObjectPropertyTreeElement.populateWithProperties(treeElement, properties, internalProperties,
-            skipProto, value, emptyPlaceholder);
+            skipProto, targetValue || value, emptyPlaceholder);
     }
 
     if (flattenProtoChain)
@@ -1235,7 +1247,7 @@ WebInspector.ObjectPropertiesSection.formatObjectAsFunction = function(func, ele
          */
         function processToken(token, tokenType, column, newColumn)
         {
-            if (!params && tokenType === "js-variable" && !functionName)
+            if (!params && tokenType === "js-def" && !functionName)
                 functionName = token;
             doneProcessing = doneProcessing || token === ")";
             if (doneProcessing)

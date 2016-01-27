@@ -34,18 +34,20 @@
 
 #include "base/gtest_prod_util.h"
 #include "base/task/cancelable_task_tracker.h"
-#include "chrome/browser/interstitials/security_interstitial_metrics_helper.h"
+#include "chrome/browser/interstitials/chrome_metrics_helper.h"
 #include "chrome/browser/interstitials/security_interstitial_page.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
 #include "content/public/browser/interstitial_page_delegate.h"
 #include "url/gurl.h"
 
-class MalwareDetails;
-class SafeBrowsingBlockingPageFactory;
-
 namespace base {
 class MessageLoop;
 }
+
+namespace safe_browsing {
+
+class SafeBrowsingBlockingPageFactory;
+class ThreatDetails;
 
 class SafeBrowsingBlockingPage : public SecurityInterstitialPage {
  public:
@@ -86,6 +88,9 @@ class SafeBrowsingBlockingPage : public SecurityInterstitialPage {
   void OverrideRendererPrefs(content::RendererPreferences* prefs) override;
   content::InterstitialPageDelegate::TypeID GetTypeForTesting() const override;
 
+  // Checks the threat type to decide if we should report ThreatDetails.
+  static bool ShouldReportThreatDetails(SBThreatType threat_type);
+
  protected:
   friend class SafeBrowsingBlockingPageTest;
   FRIEND_TEST_ALL_PREFIXES(SafeBrowsingBlockingPageTest,
@@ -103,9 +108,9 @@ class SafeBrowsingBlockingPage : public SecurityInterstitialPage {
   void PopulateInterstitialStrings(
       base::DictionaryValue* load_time_data) override;
 
-  // After a malware interstitial where the user opted-in to the
+  // After a safe browsing interstitial where the user opted-in to the
   // report but clicked "proceed anyway", we delay the call to
-  // MalwareDetails::FinishCollection() by this much time (in
+  // ThreatDetails::FinishCollection() by this much time (in
   // milliseconds), in order to get data from the blocked resource itself.
   int64 malware_details_proceed_delay_ms_;
 
@@ -114,15 +119,15 @@ class SafeBrowsingBlockingPage : public SecurityInterstitialPage {
   FRIEND_TEST_ALL_PREFIXES(SafeBrowsingBlockingPageTest,
       MalwareReportsToggling);
 
-  // Checks if we should even show the malware details option. For example, we
+  // Checks if we should even show the threat details option. For example, we
   // don't show it in incognito mode.
-  bool CanShowMalwareDetailsOption();
+  bool CanShowThreatDetailsOption();
 
   // Called when the insterstitial is going away. If there is a
-  // pending malware details object, we look at the user's
-  // preferences, and if the option to send malware details is
+  // pending threat details object, we look at the user's
+  // preferences, and if the option to send threat details is
   // enabled, the report is scheduled to be sent on the |ui_manager_|.
-  void FinishMalwareDetails(int64 delay_ms);
+  void FinishThreatDetails(int64 delay_ms, bool did_proceed, int num_visits);
 
   // A list of SafeBrowsingUIManager::UnsafeResource for a tab that the user
   // should be warned about.  They are queued when displaying more than one
@@ -158,10 +163,10 @@ class SafeBrowsingBlockingPage : public SecurityInterstitialPage {
   // The list of unsafe resources this page is warning about.
   UnsafeResourceList unsafe_resources_;
 
-  // A MalwareDetails object that we start generating when the
+  // A ThreatDetails object that we start generating when the
   // blocking page is shown. The object will be sent when the warning
   // is gone (if the user enables the feature).
-  scoped_refptr<MalwareDetails> malware_details_;
+  scoped_refptr<ThreatDetails> threat_details_;
 
   bool proceeded_;
 
@@ -173,7 +178,7 @@ class SafeBrowsingBlockingPage : public SecurityInterstitialPage {
   } interstitial_reason_;
 
   // The factory used to instantiate SafeBrowsingBlockingPage objects.
-  // Usefull for tests, so they can provide their own implementation of
+  // Useful for tests, so they can provide their own implementation of
   // SafeBrowsingBlockingPage.
   static SafeBrowsingBlockingPageFactory* factory_;
 
@@ -186,6 +191,7 @@ class SafeBrowsingBlockingPage : public SecurityInterstitialPage {
   void PopulatePhishingLoadTimeData(base::DictionaryValue* load_time_data);
 
   std::string GetMetricPrefix() const;
+  std::string GetExtraMetricsSuffix() const;
   std::string GetRapporPrefix() const;
   std::string GetSamplingEventName() const;
 
@@ -202,5 +208,7 @@ class SafeBrowsingBlockingPageFactory {
       content::WebContents* web_contents,
       const SafeBrowsingBlockingPage::UnsafeResourceList& unsafe_resources) = 0;
 };
+
+}  // namespace safe_browsing
 
 #endif  // CHROME_BROWSER_SAFE_BROWSING_SAFE_BROWSING_BLOCKING_PAGE_H_

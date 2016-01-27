@@ -34,29 +34,14 @@ void SetAccountCreationFormsDetectedMessage(
   document.forms(web_forms);
 
   autofill::FormData form_data;
-  WebFormElementToFormData(web_forms[form_index],
-                           blink::WebFormControlElement(),
-                           EXTRACT_NONE,
-                           &form_data,
-                           nullptr /* FormFieldData */);
+  WebFormElementToFormData(
+      web_forms[form_index], blink::WebFormControlElement(),
+      form_util::EXTRACT_NONE, &form_data, nullptr /* FormFieldData */);
 
   std::vector<autofill::FormData> forms;
   forms.push_back(form_data);
   AutofillMsg_AccountCreationFormsDetected msg(0, forms);
   generation_agent->OnMessageReceived(msg);
-}
-
-void ExpectPasswordGenerationAvailable(
-    TestPasswordGenerationAgent* password_generation,
-    bool available) {
-  if (available) {
-    ASSERT_EQ(1u, password_generation->messages().size());
-    EXPECT_EQ(AutofillHostMsg_ShowPasswordGenerationPopup::ID,
-              password_generation->messages()[0]->type());
-  } else {
-    EXPECT_TRUE(password_generation->messages().empty());
-  }
-  password_generation->clear_messages();
 }
 
 }  // namespace autofill

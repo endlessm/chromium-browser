@@ -10,9 +10,15 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/strings/string16.h"
 #include "chrome/browser/ui/cocoa/location_bar/autocomplete_text_field.h"
-#include "chrome/browser/ui/omnibox/omnibox_view.h"
+#include "components/omnibox/browser/omnibox_view.h"
 
+class CommandUpdater;
 class OmniboxPopupView;
+class Profile;
+
+namespace content {
+class WebContents;
+}
 
 namespace ui {
 class Clipboard;
@@ -28,10 +34,17 @@ class OmniboxViewMac : public OmniboxView,
                  AutocompleteTextField* field);
   ~OmniboxViewMac() override;
 
+  // For use when switching tabs, this saves the current state onto the tab so
+  // that it can be restored during a later call to Update().
+  void SaveStateToTab(content::WebContents* tab);
+
+  // Called when the window's active tab changes.
+  void OnTabChanged(const content::WebContents* web_contents);
+
+  // Called to clear the saved state for |web_contents|.
+  void ResetTabState(content::WebContents* web_contents);
+
   // OmniboxView:
-  void SaveStateToTab(content::WebContents* tab) override;
-  void OnTabChanged(const content::WebContents* web_contents) override;
-  void ResetTabState(content::WebContents* web_contents) override;
   void Update() override;
   void OpenMatch(const AutocompleteMatch& match,
                  WindowOpenDisposition disposition,
@@ -172,6 +185,8 @@ class OmniboxViewMac : public OmniboxView,
 
   // Returns true if the caret is at the end of the content.
   bool IsCaretAtEnd() const;
+
+  Profile* profile_;
 
   scoped_ptr<OmniboxPopupView> popup_view_;
 

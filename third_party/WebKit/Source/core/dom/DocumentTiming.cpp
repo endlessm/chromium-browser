@@ -5,54 +5,95 @@
 #include "config.h"
 #include "core/dom/DocumentTiming.h"
 
+#include "core/dom/Document.h"
+#include "core/loader/DocumentLoader.h"
 #include "platform/TraceEvent.h"
+#include "wtf/RawPtr.h"
 
 namespace blink {
 
-DocumentTiming::DocumentTiming()
-    : m_domLoading(0.0)
-    , m_domInteractive(0.0)
-    , m_domContentLoadedEventStart(0.0)
-    , m_domContentLoadedEventEnd(0.0)
-    , m_domComplete(0.0)
-    , m_firstLayout(0.0)
+DocumentTiming::DocumentTiming(Document& document)
+    : m_document(document)
 {
 }
 
-void DocumentTiming::setDomLoading(double domLoading)
+DEFINE_TRACE(DocumentTiming)
 {
-    TRACE_EVENT_MARK_WITH_TIMESTAMP("blink.user_timing", "domLoading", domLoading);
-    m_domLoading = domLoading;
+    visitor->trace(m_document);
 }
 
-void DocumentTiming::setDomInteractive(double domInteractive)
+LocalFrame* DocumentTiming::frame() const
 {
-    TRACE_EVENT_MARK_WITH_TIMESTAMP("blink.user_timing", "domInteractive", domInteractive);
-    m_domInteractive = domInteractive;
+    return m_document ? m_document->frame() : nullptr;
 }
 
-void DocumentTiming::setDomContentLoadedEventStart(double domContentLoadedEventStart)
+void DocumentTiming::notifyDocumentTimingChanged()
 {
-    TRACE_EVENT_MARK_WITH_TIMESTAMP("blink.user_timing", "domContentLoadedEventStart", domContentLoadedEventStart);
-    m_domContentLoadedEventStart = domContentLoadedEventStart;
+    if (m_document && m_document->loader())
+        m_document->loader()->didChangePerformanceTiming();
 }
 
-void DocumentTiming::setDomContentLoadedEventEnd(double domContentLoadedEventEnd)
+void DocumentTiming::markDomLoading()
 {
-    TRACE_EVENT_MARK_WITH_TIMESTAMP("blink.user_timing", "domContentLoadedEventEnd", domContentLoadedEventEnd);
-    m_domContentLoadedEventEnd = domContentLoadedEventEnd;
+    m_domLoading = monotonicallyIncreasingTime();
+    TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "domLoading", m_domLoading, "frame", frame());
+    notifyDocumentTimingChanged();
 }
 
-void DocumentTiming::setDomComplete(double domComplete)
+void DocumentTiming::markDomInteractive()
 {
-    TRACE_EVENT_MARK_WITH_TIMESTAMP("blink.user_timing", "domComplete", domComplete);
-    m_domComplete = domComplete;
+    m_domInteractive = monotonicallyIncreasingTime();
+    TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "domInteractive", m_domInteractive, "frame", frame());
+    notifyDocumentTimingChanged();
 }
 
-void DocumentTiming::setFirstLayout(double firstLayout)
+void DocumentTiming::markDomContentLoadedEventStart()
 {
-    TRACE_EVENT_MARK_WITH_TIMESTAMP("blink.user_timing", "firstLayout", firstLayout);
-    m_firstLayout = firstLayout;
+    m_domContentLoadedEventStart = monotonicallyIncreasingTime();
+    TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "domContentLoadedEventStart", m_domContentLoadedEventStart, "frame", frame());
+    notifyDocumentTimingChanged();
+}
+
+void DocumentTiming::markDomContentLoadedEventEnd()
+{
+    m_domContentLoadedEventEnd = monotonicallyIncreasingTime();
+    TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "domContentLoadedEventEnd", m_domContentLoadedEventEnd, "frame", frame());
+    notifyDocumentTimingChanged();
+}
+
+void DocumentTiming::markDomComplete()
+{
+    m_domComplete = monotonicallyIncreasingTime();
+    TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "domComplete", m_domComplete, "frame", frame());
+    notifyDocumentTimingChanged();
+}
+
+void DocumentTiming::markFirstLayout()
+{
+    m_firstLayout = monotonicallyIncreasingTime();
+    TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "firstLayout", m_firstLayout, "frame", frame());
+    notifyDocumentTimingChanged();
+}
+
+void DocumentTiming::markFirstPaint()
+{
+    m_firstPaint = monotonicallyIncreasingTime();
+    TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "firstPaint", m_firstPaint, "frame", frame());
+    notifyDocumentTimingChanged();
+}
+
+void DocumentTiming::markFirstTextPaint()
+{
+    m_firstTextPaint = monotonicallyIncreasingTime();
+    TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "firstTextPaint", m_firstTextPaint, "frame", frame());
+    notifyDocumentTimingChanged();
+}
+
+void DocumentTiming::markFirstImagePaint()
+{
+    m_firstImagePaint = monotonicallyIncreasingTime();
+    TRACE_EVENT_MARK_WITH_TIMESTAMP1("blink.user_timing", "firstImagePaint", m_firstImagePaint, "frame", frame());
+    notifyDocumentTimingChanged();
 }
 
 } // namespace blink

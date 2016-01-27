@@ -25,11 +25,7 @@ EXTRA_ENV = {
   # CXX_EH_MODE specifies how to deal with C++ exception handling:
   #  * 'none':  Strips out use of C++ exception handling.
   #  * 'sjlj':  Enables the setjmp()+longjmp()-based implementation of
-  #    C++ exception handling.  This is supported in PNaCl's stable
-  #    ABI.
-  #  * 'zerocost':  Enables the zero-cost implementation of C++
-  #    exception handling.  This is not supported in PNaCl's stable
-  #    ABI.
+  #    C++ exception handling.
   'CXX_EH_MODE': 'none',
 
   'FORCE_INTERMEDIATE_LL': '0',
@@ -49,8 +45,6 @@ EXTRA_ENV = {
   'DEFAULTLIBS' : '1',    # Link with default libraries
   'DIAGNOSTIC'  : '0',    # Diagnostic flag detected
   'PIC'         : '0',    # Generate PIC
-  # TODO(robertm): Switch the default to 1
-  'NO_ASM'      : '0',    # Disallow use of inline assembler
   'NEED_DASH_E' : '0',    # Used for stdin inputs, which must have an explicit
                           # type set (using -x) unless -E is specified.
   'VERBOSE'     : '0',    # Verbose (-v)
@@ -63,7 +57,7 @@ EXTRA_ENV = {
 
   'BIAS_NONE'   : '',
   'BIAS_ARM'    : '-D__arm__ -D__ARM_ARCH_7A__ -D__ARMEL__',
-  'BIAS_MIPS32' : '-D__MIPS__ -D__mips__ -D__MIPSEL__',
+  'BIAS_MIPS32' : '-D__mips__',
   'BIAS_X8632'  : '-D__i386__ -D__i386 -D__i686 -D__i686__ -D__pentium4__',
   'BIAS_X8664'  : '-D__amd64__ -D__amd64 -D__x86_64__ -D__x86_64 -D__core2__',
   'BIAS_ARM_NONSFI': '${BIAS_ARM} -D__native_client_nonsfi__',
@@ -77,11 +71,7 @@ EXTRA_ENV = {
                   '-fno-vectorize -fno-slp-vectorize ' +
                   '-fno-common ${PTHREAD ? -pthread} ' +
                   '-nostdinc ${BIAS_%BIAS%} ' +
-                  # BUG: http://code.google.com/p/nativeclient/issues/detail?id=2345
-                  # it would be better to detect asm use inside clang
-                  # as some uses of asm are borderline legit, e.g.
-                  # <prototype> asm("<function-name>");
-                  '${NO_ASM ? -Dasm=ASM_FORBIDDEN -D__asm__=ASM_FORBIDDEN} ' +
+                  '-fno-gnu-inline-asm ' +
                   '-target ${FRONTEND_TRIPLE}',
 
 
@@ -123,8 +113,7 @@ EXTRA_ENV = {
   'LD_ARGS_nostdlib': '-nostdlib ${ld_inputs}',
 
   'LD_ARGS_static':
-    '${CXX_EH_MODE==zerocost ? -l:crt1_for_eh.x : -l:crt1.x} ' +
-    '-l:crti.bc -l:crtbegin.bc '
+    '-l:crt1.x -l:crti.bc -l:crtbegin.bc '
     '${CXX_EH_MODE==sjlj ? -l:sjlj_eh_redirect.bc : '
       '${CXX_EH_MODE==none ? -l:unwind_stubs.bc}} ' +
     '${ld_inputs} ' +
@@ -242,10 +231,7 @@ CustomPatterns = [
   ( '--pnacl-frontend-triple=(.+)', SetTarget),
   ( ('-target','(.+)'),             SetTarget),
   ( ('--target=(.+)'),              SetTarget),
-  ( '--pnacl-exceptions=(none|sjlj|zerocost)', "env.set('CXX_EH_MODE', $0)"),
-  # TODO(mseaborn): Remove "--pnacl-allow-exceptions", which is
-  # superseded by "--pnacl-exceptions".
-  ( '--pnacl-allow-exceptions',     "env.set('CXX_EH_MODE', 'zerocost')"),
+  ( '--pnacl-exceptions=(none|sjlj)', "env.set('CXX_EH_MODE', $0)"),
   ( '(--pnacl-allow-nexe-build-id)', AddLDFlag),
   ( '(--pnacl-disable-abi-check)',  AddLDFlag),
   ( '(--pnacl-disable-pass=.+)',    AddLLVMPassDisableFlag),
@@ -258,8 +244,6 @@ GCCPatterns = [
   ( '-E',              "env.set('GCC_MODE', '-E')"),
   ( '-S',              "env.set('GCC_MODE', '-S')"),
   ( '-c',              "env.set('GCC_MODE', '-c')"),
-
-  ( '-allow-asm',       "env.set('NO_ASM', '0')"),
 
   ( '-nostdinc',       "env.set('STDINC', '0')"),
   ( '-nostdinc\+\+',   "env.set('STDINCCXX', '0')"),

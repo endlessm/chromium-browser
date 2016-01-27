@@ -19,6 +19,7 @@ class Element;
 
 class CanvasRenderingContext2DState final : public NoBaseWillBeGarbageCollectedFinalized<CanvasRenderingContext2DState>, public CSSFontSelectorClient {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(CanvasRenderingContext2DState);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(CanvasRenderingContext2DState);
 public:
     static PassOwnPtrWillBeRawPtr<CanvasRenderingContext2DState> create()
     {
@@ -139,6 +140,8 @@ public:
 
     void setImageSmoothingEnabled(bool);
     bool imageSmoothingEnabled() const;
+    void setImageSmoothingQuality(const String&);
+    String imageSmoothingQuality() const;
 
     void setUnparsedStrokeColor(const String& color) { m_unparsedStrokeColor = color; }
     const String& unparsedStrokeColor() const { return m_unparsedStrokeColor; }
@@ -164,6 +167,8 @@ private:
     void updateLineDash() const;
     void updateStrokeStyle() const;
     void updateFillStyle() const;
+    void updateFilterQuality() const;
+    void updateFilterQualityWithSkFilterQuality(const SkFilterQuality&) const;
     void shadowParameterChanged();
     SkDrawLooper* emptyDrawLooper() const;
     SkDrawLooper* shadowOnlyDrawLooper() const;
@@ -215,6 +220,9 @@ private:
     mutable bool m_fillStyleDirty : 1;
     mutable bool m_strokeStyleDirty : 1;
     mutable bool m_lineDashDirty : 1;
+
+    bool m_imageSmoothingEnabled;
+    SkFilterQuality m_imageSmoothingQuality;
 
     ClipList m_clipList;
 };

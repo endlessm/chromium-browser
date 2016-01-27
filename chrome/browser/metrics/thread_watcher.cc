@@ -16,13 +16,16 @@
 #include "base/strings/string_tokenizer.h"
 #include "base/strings/stringprintf.h"
 #include "base/thread_task_runner_handle.h"
+#include "base/threading/platform_thread.h"
 #include "base/threading/thread_restrictions.h"
 #include "build/build_config.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/metrics/thread_watcher_report_hang.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/logging_chrome.h"
+#include "components/metrics/call_stack_profile_metrics_provider.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/notification_service.h"
 
 #if defined(OS_WIN)
@@ -44,8 +47,8 @@ ThreadWatcher::ThreadWatcher(const WatchingParams& params)
       ping_sequence_number_(0),
       active_(false),
       ping_count_(params.unresponsive_threshold),
-      response_time_histogram_(NULL),
-      unresponsive_time_histogram_(NULL),
+      response_time_histogram_(nullptr),
+      unresponsive_time_histogram_(nullptr),
       unresponsive_count_(0),
       hung_processing_complete_(false),
       unresponsive_threshold_(params.unresponsive_threshold),
@@ -317,7 +320,7 @@ bool ThreadWatcher::IsVeryUnresponsive() {
 // ThreadWatcherList methods and members.
 //
 // static
-ThreadWatcherList* ThreadWatcherList::g_thread_watcher_list_ = NULL;
+ThreadWatcherList* ThreadWatcherList::g_thread_watcher_list_ = nullptr;
 // static
 bool ThreadWatcherList::g_stopped_ = false;
 // static
@@ -391,7 +394,7 @@ void ThreadWatcherList::Register(ThreadWatcher* watcher) {
 // static
 bool ThreadWatcherList::IsRegistered(const BrowserThread::ID thread_id) {
   DCHECK(WatchDogThread::CurrentlyOnWatchDogThread());
-  return NULL != ThreadWatcherList::Find(thread_id);
+  return nullptr != ThreadWatcherList::Find(thread_id);
 }
 
 // static
@@ -436,7 +439,7 @@ ThreadWatcherList::ThreadWatcherList() {
 ThreadWatcherList::~ThreadWatcherList() {
   DCHECK(WatchDogThread::CurrentlyOnWatchDogThread());
   DCHECK(this == g_thread_watcher_list_);
-  g_thread_watcher_list_ = NULL;
+  g_thread_watcher_list_ = nullptr;
 }
 
 // static
@@ -449,10 +452,10 @@ void ThreadWatcherList::ParseCommandLine(
 
   // Increase the unresponsive_threshold on the Stable and Beta channels to
   // reduce the number of crashes due to ThreadWatcher.
-  chrome::VersionInfo::Channel channel = chrome::VersionInfo::GetChannel();
-  if (channel == chrome::VersionInfo::CHANNEL_STABLE) {
+  version_info::Channel channel = chrome::GetChannel();
+  if (channel == version_info::Channel::STABLE) {
     *unresponsive_threshold *= 4;
-  } else if (channel == chrome::VersionInfo::CHANNEL_BETA) {
+  } else if (channel == version_info::Channel::BETA) {
     *unresponsive_threshold *= 2;
   }
 
@@ -469,7 +472,7 @@ void ThreadWatcherList::ParseCommandLine(
   if (command_line.HasSwitch(switches::kCrashOnHangThreads)) {
     crash_on_hang_thread_names =
         command_line.GetSwitchValueASCII(switches::kCrashOnHangThreads);
-  } else if (channel != chrome::VersionInfo::CHANNEL_STABLE) {
+  } else if (channel != version_info::Channel::STABLE) {
     // Default to crashing the browser if UI or IO or FILE threads are not
     // responsive except in stable channel.
     crash_on_hang_thread_names = base::StringPrintf(
@@ -492,11 +495,10 @@ void ThreadWatcherList::ParseCommandLineCrashOnHangThreads(
     uint32 default_crash_seconds,
     CrashOnHangThreadMap* crash_on_hang_threads) {
   base::StringTokenizer tokens(crash_on_hang_thread_names, ",");
-  std::vector<std::string> values;
   while (tokens.GetNext()) {
-    const std::string& token = tokens.token();
-    base::SplitString(token, ':', &values);
-    std::string thread_name = values[0];
+    std::vector<base::StringPiece> values = base::SplitStringPiece(
+        tokens.token_piece(), ":", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
+    std::string thread_name = values[0].as_string();
 
     uint32 live_threads_threshold = default_live_threads_threshold;
     uint32 crash_seconds = default_crash_seconds;
@@ -543,9 +545,9 @@ void ThreadWatcherList::InitializeAndStartWatching(
   // stable channel, disable ThreadWatcher in stable and unknown channels. We
   // will also not collect histogram data in these channels until
   // http://crbug.com/426203 is fixed.
-  chrome::VersionInfo::Channel channel = chrome::VersionInfo::GetChannel();
-  if (channel == chrome::VersionInfo::CHANNEL_STABLE ||
-      channel == chrome::VersionInfo::CHANNEL_UNKNOWN) {
+  version_info::Channel channel = chrome::GetChannel();
+  if (channel == version_info::Channel::STABLE ||
+      channel == version_info::Channel::UNKNOWN) {
     return;
   }
 
@@ -626,11 +628,11 @@ void ThreadWatcherList::DeleteAll() {
 ThreadWatcher* ThreadWatcherList::Find(const BrowserThread::ID& thread_id) {
   DCHECK(WatchDogThread::CurrentlyOnWatchDogThread());
   if (!g_thread_watcher_list_)
-    return NULL;
+    return nullptr;
   RegistrationList::iterator it =
       g_thread_watcher_list_->registered_.find(thread_id);
   if (g_thread_watcher_list_->registered_.end() == it)
-    return NULL;
+    return nullptr;
   return it->second;
 }
 
@@ -643,7 +645,8 @@ void ThreadWatcherList::SetStopped(bool stopped) {
 // ThreadWatcherObserver methods and members.
 //
 // static
-ThreadWatcherObserver* ThreadWatcherObserver::g_thread_watcher_observer_ = NULL;
+ThreadWatcherObserver*
+ThreadWatcherObserver::g_thread_watcher_observer_ = nullptr;
 
 ThreadWatcherObserver::ThreadWatcherObserver(
     const base::TimeDelta& wakeup_interval)
@@ -655,7 +658,7 @@ ThreadWatcherObserver::ThreadWatcherObserver(
 
 ThreadWatcherObserver::~ThreadWatcherObserver() {
   DCHECK(this == g_thread_watcher_observer_);
-  g_thread_watcher_observer_ = NULL;
+  g_thread_watcher_observer_ = nullptr;
 }
 
 // static
@@ -688,9 +691,10 @@ void ThreadWatcherObserver::SetupNotifications(
   observer->registrar_.Add(observer,
                            content::NOTIFICATION_RENDER_WIDGET_HOST_HANG,
                            content::NotificationService::AllSources());
-  observer->registrar_.Add(observer,
-                           chrome::NOTIFICATION_OMNIBOX_OPENED_URL,
-                           content::NotificationService::AllSources());
+  observer->omnibox_url_opened_subscription_ =
+      OmniboxEventGlobalTracker::GetInstance()->RegisterCallback(
+          base::Bind(&ThreadWatcherObserver::OnURLOpenedFromOmnibox,
+                     base::Unretained(observer)));
 }
 
 // static
@@ -706,6 +710,14 @@ void ThreadWatcherObserver::Observe(
     int type,
     const content::NotificationSource& source,
     const content::NotificationDetails& details) {
+  OnUserActivityDetected();
+}
+
+void ThreadWatcherObserver::OnURLOpenedFromOmnibox(OmniboxLog* log) {
+  OnUserActivityDetected();
+}
+
+void ThreadWatcherObserver::OnUserActivityDetected() {
   // There is some user activity, see if thread watchers are to be awakened.
   base::TimeTicks now = base::TimeTicks::Now();
   if ((now - last_wakeup_time_) < wakeup_interval_)
@@ -723,7 +735,7 @@ static base::LazyInstance<base::Lock>::Leaky
     g_watchdog_lock = LAZY_INSTANCE_INITIALIZER;
 
 // The singleton of this class.
-static WatchDogThread* g_watchdog_thread = NULL;
+static WatchDogThread* g_watchdog_thread = nullptr;
 
 WatchDogThread::WatchDogThread() : Thread("BrowserWatchdog") {
 }
@@ -761,7 +773,7 @@ bool WatchDogThread::PostTaskHelper(
     base::AutoLock lock(g_watchdog_lock.Get());
 
     base::MessageLoop* message_loop = g_watchdog_thread ?
-        g_watchdog_thread->message_loop() : NULL;
+        g_watchdog_thread->message_loop() : nullptr;
     if (message_loop) {
       message_loop->task_runner()->PostDelayedTask(from_here, task, delay);
       return true;
@@ -769,6 +781,11 @@ bool WatchDogThread::PostTaskHelper(
   }
 
   return false;
+}
+
+bool WatchDogThread::Started() const {
+  base::AutoLock lock(g_watchdog_lock.Get());
+  return g_watchdog_thread != nullptr;
 }
 
 void WatchDogThread::Init() {
@@ -782,7 +799,7 @@ void WatchDogThread::Init() {
 
 void WatchDogThread::CleanUp() {
   base::AutoLock lock(g_watchdog_lock.Get());
-  g_watchdog_thread = NULL;
+  g_watchdog_thread = nullptr;
 }
 
 namespace {
@@ -835,15 +852,16 @@ class ShutdownWatchDogThread : public base::Watchdog {
  private:
   DISALLOW_COPY_AND_ASSIGN(ShutdownWatchDogThread);
 };
+
 }  // namespace
 
 // StartupTimeBomb methods and members.
 //
 // static
-StartupTimeBomb* StartupTimeBomb::g_startup_timebomb_ = NULL;
+StartupTimeBomb* StartupTimeBomb::g_startup_timebomb_ = nullptr;
 
 StartupTimeBomb::StartupTimeBomb()
-    : startup_watchdog_(NULL),
+    : startup_watchdog_(nullptr),
       thread_id_(base::PlatformThread::CurrentId()) {
   CHECK(!g_startup_timebomb_);
   g_startup_timebomb_ = this;
@@ -854,7 +872,7 @@ StartupTimeBomb::~StartupTimeBomb() {
   DCHECK_EQ(thread_id_, base::PlatformThread::CurrentId());
   if (startup_watchdog_)
     Disarm();
-  g_startup_timebomb_ = NULL;
+  g_startup_timebomb_ = nullptr;
 }
 
 void StartupTimeBomb::Arm(const base::TimeDelta& duration) {
@@ -881,7 +899,7 @@ void StartupTimeBomb::DeleteStartupWatchdog() {
     // very fast.
     base::ThreadRestrictions::SetIOAllowed(true);
     delete startup_watchdog_;
-    startup_watchdog_ = NULL;
+    startup_watchdog_ = nullptr;
     return;
   }
   base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
@@ -897,12 +915,60 @@ void StartupTimeBomb::DisarmStartupTimeBomb() {
     g_startup_timebomb_->Disarm();
 }
 
+base::StackSamplingProfiler::SamplingParams GetJankTimeBombSamplingParams() {
+  base::StackSamplingProfiler::SamplingParams params;
+  params.initial_delay = base::TimeDelta::FromMilliseconds(0);
+  params.bursts = 1;
+  // 5 seconds at 10Hz.
+  params.samples_per_burst = 50;
+  params.sampling_interval = base::TimeDelta::FromMilliseconds(100);
+  return params;
+}
+
+// JankTimeBomb methods and members.
+//
+JankTimeBomb::JankTimeBomb(base::TimeDelta duration)
+    : weak_ptr_factory_(this) {
+  if (IsEnabled()) {
+    WatchDogThread::PostDelayedTask(
+        FROM_HERE,
+        base::Bind(&JankTimeBomb::Alarm,
+                   weak_ptr_factory_.GetWeakPtr(),
+                   base::PlatformThread::CurrentId()),
+        duration);
+  }
+}
+
+JankTimeBomb::~JankTimeBomb() {
+}
+
+bool JankTimeBomb::IsEnabled() const {
+  version_info::Channel channel = chrome::GetChannel();
+  return channel == version_info::Channel::UNKNOWN ||
+      channel == version_info::Channel::CANARY ||
+      channel == version_info::Channel::DEV;
+}
+
+void JankTimeBomb::Alarm(base::PlatformThreadId thread_id) {
+  DCHECK(WatchDogThread::CurrentlyOnWatchDogThread());
+  sampling_profiler_.reset(new base::StackSamplingProfiler(
+      thread_id,
+      GetJankTimeBombSamplingParams(),
+      metrics::CallStackProfileMetricsProvider::GetProfilerCallback(
+          metrics::CallStackProfileMetricsProvider::Params(
+              metrics::CallStackProfileMetricsProvider::JANKY_TASK,
+              true))));
+  // Use synchronous profiler. It will automatically stop collection when
+  // destroyed.
+  sampling_profiler_->Start();
+}
+
 // ShutdownWatcherHelper methods and members.
 //
 // ShutdownWatcherHelper is a wrapper class for detecting hangs during
 // shutdown.
 ShutdownWatcherHelper::ShutdownWatcherHelper()
-    : shutdown_watchdog_(NULL),
+    : shutdown_watchdog_(nullptr),
       thread_id_(base::PlatformThread::CurrentId()) {
 }
 
@@ -911,7 +977,7 @@ ShutdownWatcherHelper::~ShutdownWatcherHelper() {
   if (shutdown_watchdog_) {
     shutdown_watchdog_->Disarm();
     delete shutdown_watchdog_;
-    shutdown_watchdog_ = NULL;
+    shutdown_watchdog_ = nullptr;
   }
 }
 
@@ -920,12 +986,15 @@ void ShutdownWatcherHelper::Arm(const base::TimeDelta& duration) {
   DCHECK(!shutdown_watchdog_);
   base::TimeDelta actual_duration = duration;
 
-  chrome::VersionInfo::Channel channel = chrome::VersionInfo::GetChannel();
-  if (channel == chrome::VersionInfo::CHANNEL_STABLE) {
+  version_info::Channel channel = chrome::GetChannel();
+  if (channel == version_info::Channel::STABLE) {
     actual_duration *= 20;
-  } else if (channel == chrome::VersionInfo::CHANNEL_BETA ||
-             channel == chrome::VersionInfo::CHANNEL_DEV) {
+  } else if (channel == version_info::Channel::BETA) {
     actual_duration *= 10;
+  } else if (channel == version_info::Channel::DEV) {
+    actual_duration *= 4;
+  } else {
+    actual_duration *= 2;
   }
 
 #if defined(OS_WIN)

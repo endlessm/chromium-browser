@@ -165,7 +165,7 @@
  * until the next av_read_frame() call or closing the file. If the caller
  * requires a longer lifetime, av_dup_packet() will make an av_malloc()ed copy
  * of it.
- * In both cases, the packet must be freed with av_free_packet() when it is no
+ * In both cases, the packet must be freed with av_packet_unref() when it is no
  * longer needed.
  *
  * @section lavf_decoding_seek Seeking
@@ -465,8 +465,10 @@ typedef struct AVProbeData {
 #define AVFMT_NOFILE        0x0001
 #define AVFMT_NEEDNUMBER    0x0002 /**< Needs '%d' in filename. */
 #define AVFMT_SHOW_IDS      0x0008 /**< Show format stream IDs numbers. */
+#if FF_API_LAVF_FMT_RAWPICTURE
 #define AVFMT_RAWPICTURE    0x0020 /**< Format wants AVPicture structure for
-                                      raw picture data. */
+                                      raw picture data. @deprecated Not used anymore */
+#endif
 #define AVFMT_GLOBALHEADER  0x0040 /**< Format wants global header. */
 #define AVFMT_NOTIMESTAMPS  0x0080 /**< Format does not need / have any timestamps. */
 #define AVFMT_GENERIC_INDEX 0x0100 /**< Use generic index building code. */
@@ -478,12 +480,7 @@ typedef struct AVProbeData {
 #define AVFMT_NOGENSEARCH   0x4000 /**< Format does not allow to fall back on generic search */
 #define AVFMT_NO_BYTE_SEEK  0x8000 /**< Format does not allow seeking by bytes */
 #define AVFMT_ALLOW_FLUSH  0x10000 /**< Format allows flushing. If not set, the muxer will not receive a NULL packet in the write_packet function. */
-#if LIBAVFORMAT_VERSION_MAJOR <= 54
-#define AVFMT_TS_NONSTRICT 0x8020000 //we try to be compatible to the ABIs of ffmpeg and major forks
-#else
-#define AVFMT_TS_NONSTRICT 0x20000
-#endif
-                                   /**< Format does not require strictly
+#define AVFMT_TS_NONSTRICT 0x20000 /**< Format does not require strictly
                                         increasing timestamps, but they must
                                         still be monotonic */
 #define AVFMT_TS_NEGATIVE  0x40000 /**< Format allows muxing negative
@@ -516,7 +513,7 @@ typedef struct AVOutputFormat {
     enum AVCodecID video_codec;    /**< default video codec */
     enum AVCodecID subtitle_codec; /**< default subtitle codec */
     /**
-     * can use flags: AVFMT_NOFILE, AVFMT_NEEDNUMBER, AVFMT_RAWPICTURE,
+     * can use flags: AVFMT_NOFILE, AVFMT_NEEDNUMBER,
      * AVFMT_GLOBALHEADER, AVFMT_NOTIMESTAMPS, AVFMT_VARIABLE_FPS,
      * AVFMT_NODIMENSIONS, AVFMT_NOSTREAMS, AVFMT_ALLOW_FLUSH,
      * AVFMT_TS_NONSTRICT
@@ -1015,7 +1012,6 @@ typedef struct AVStream {
     /**
      * Number of packets to buffer for codec probing
      */
-#define MAX_PROBE_PACKETS 2500
     int probe_packets;
 
     /**
@@ -1171,6 +1167,8 @@ typedef struct AVStream {
      * - decoding: Set by libavformat to calculate sample_aspect_ratio internally
      */
     AVRational display_aspect_ratio;
+
+    struct FFFrac *priv_pts;
 } AVStream;
 
 AVRational av_stream_get_r_frame_rate(const AVStream *s);
@@ -1362,7 +1360,7 @@ typedef struct AVFormatContext {
      * available. Never set it directly if the file_size and the
      * duration are known as FFmpeg can compute it automatically.
      */
-    int bit_rate;
+    int64_t bit_rate;
 
     unsigned int packet_size;
     int max_delay;
@@ -1396,15 +1394,19 @@ typedef struct AVFormatContext {
 #define AVFMT_FLAG_FAST_SEEK   0x80000 ///< Enable fast, but inaccurate seeks for some formats
 
     /**
-     * @deprecated deprecated in favor of probesize2
+     * Maximum size of the data read from input for determining
+     * the input container format.
+     * Demuxing only, set by the caller before avformat_open_input().
      */
-    unsigned int probesize;
+    int64_t probesize;
 
     /**
-     * @deprecated deprecated in favor of max_analyze_duration2
+     * Maximum duration (in AV_TIME_BASE units) of the data read
+     * from input in avformat_find_stream_info().
+     * Demuxing only, set by the caller before avformat_find_stream_info().
+     * Can be set to 0 to let avformat choose using a heuristic.
      */
-    attribute_deprecated
-    int max_analyze_duration;
+    int64_t max_analyze_duration;
 
     const uint8_t *key;
     int keylen;
@@ -1749,23 +1751,6 @@ typedef struct AVFormatContext {
      * Muxing: set by user via AVOptions (NO direct access)
      */
     int64_t output_ts_offset;
-
-    /**
-     * Maximum duration (in AV_TIME_BASE units) of the data read
-     * from input in avformat_find_stream_info().
-     * Demuxing only, set by the caller before avformat_find_stream_info()
-     * via AVOptions (NO direct access).
-     * Can be set to 0 to let avformat choose using a heuristic.
-     */
-    int64_t max_analyze_duration2;
-
-    /**
-     * Maximum size of the data read from input for determining
-     * the input container format.
-     * Demuxing only, set by the caller before avformat_open_input()
-     * via AVOptions (NO direct access).
-     */
-    int64_t probesize2;
 
     /**
      * dump format separator.
@@ -2153,7 +2138,7 @@ int av_find_best_stream(AVFormatContext *ic,
  * If pkt->buf is NULL, then the packet is valid until the next
  * av_read_frame() or until avformat_close_input(). Otherwise the packet
  * is valid indefinitely. In both cases the packet must be freed with
- * av_free_packet when it is no longer needed. For video, the packet contains
+ * av_packet_unref when it is no longer needed. For video, the packet contains
  * exactly one frame. For audio, it contains an integer number of frames if each
  * frame has a known fixed size (e.g. PCM or ADPCM data). If the audio frames
  * have a variable size (e.g. MPEG audio), then it contains one frame.

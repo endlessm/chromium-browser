@@ -12,6 +12,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "media/base/media_switches.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -40,16 +41,8 @@ class WebRtcBrowserTest : public WebRtcTestBase {
   }
 };
 
-// Flaky on ChromeOS (?): http://crbug.com/443542.
-#if defined(OS_CHROMEOS)
-#define MAYBE_RunsAudioVideoWebRTCCallInTwoTabs \
-    DISABLED_RunsAudioVideoWebRTCCallInTwoTabs
-#else
-#define MAYBE_RunsAudioVideoWebRTCCallInTwoTabs \
-    RunsAudioVideoWebRTCCallInTwoTabs
-#endif
 IN_PROC_BROWSER_TEST_F(WebRtcBrowserTest,
-                       MAYBE_RunsAudioVideoWebRTCCallInTwoTabs) {
+                       RunsAudioVideoWebRTCCallInTwoTabs) {
   if (OnWinXp()) return;
 
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());

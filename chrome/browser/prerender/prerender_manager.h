@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 
-#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
@@ -509,7 +508,7 @@ class PrerenderManager : public base::SupportsWeakPtr<PrerenderManager>,
 
   // RepeatingTimer to perform periodic cleanups of pending prerendered
   // pages.
-  base::RepeatingTimer<PrerenderManager> repeating_timer_;
+  base::RepeatingTimer repeating_timer_;
 
   // Track time of last prerender to limit prerender spam.
   base::TimeTicks last_prerender_start_time_;

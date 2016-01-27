@@ -47,7 +47,8 @@ namespace content {
 
 // This browser test is aimed towards exercising the IndexedDB bindings and
 // the actual implementation that lives in the browser side.
-class IndexedDBBrowserTest : public ContentBrowserTest {
+class IndexedDBBrowserTest : public ContentBrowserTest,
+                             public ::testing::WithParamInterface<const char*> {
  public:
   IndexedDBBrowserTest() : disk_usage_(-1) {}
 
@@ -230,6 +231,10 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, TransactionTest) {
 
 IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, CallbackAccounting) {
   SimpleTest(GetTestUrl("indexeddb", "callback_accounting.html"));
+}
+
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, GetAllMaxMessageSize) {
+  SimpleTest(GetTestUrl("indexeddb", "getall_max_message_size.html"));
 }
 
 IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTest, DoesntHangTest) {
@@ -452,7 +457,14 @@ IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTestWithGCExposed, DISABLED_BlobDidAck) {
   EXPECT_EQ(0UL, blob_context->context()->blob_count());
 }
 
-IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTestWithGCExposed, BlobDidAckPrefetch) {
+// Very flaky on Linux. See crbug.com/459835.
+#if defined(OS_LINUX)
+#define MAYBE_BlobDidAckPrefetch DISABLED_BlobDidAckPrefetch
+#else
+#define MAYBE_BlobDidAckPrefetch BlobDidAckPrefetch
+#endif
+IN_PROC_BROWSER_TEST_F(IndexedDBBrowserTestWithGCExposed,
+                       MAYBE_BlobDidAckPrefetch) {
   SimpleTest(GetTestUrl("indexeddb", "blob_did_ack_prefetch.html"));
   // Wait for idle so that the blob ack has time to be received/processed by
   // the browser process.
@@ -679,21 +691,9 @@ static scoped_ptr<net::test_server::HttpResponse> CorruptDBRequestHandler(
 
 }  // namespace
 
-class IndexedDBBrowserCorruptionTest
-    : public IndexedDBBrowserTest,
-      public ::testing::WithParamInterface<const char*> {
- public:
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    // Experimental for IDBObjectStore.getAll()
-    command_line->AppendSwitch(
-        switches::kEnableExperimentalWebPlatformFeatures);
-  }
-};
-
-IN_PROC_BROWSER_TEST_P(IndexedDBBrowserCorruptionTest,
-                       OperationOnCorruptedOpenDatabase) {
+IN_PROC_BROWSER_TEST_P(IndexedDBBrowserTest, OperationOnCorruptedOpenDatabase) {
   ASSERT_TRUE(embedded_test_server()->Started() ||
-              embedded_test_server()->InitializeAndWaitUntilReady());
+              embedded_test_server()->Start());
   const GURL& origin_url = embedded_test_server()->base_url();
   embedded_test_server()->RegisterRequestHandler(
       base::Bind(&CorruptDBRequestHandler,
@@ -710,8 +710,8 @@ IN_PROC_BROWSER_TEST_P(IndexedDBBrowserCorruptionTest,
   SimpleTest(embedded_test_server()->GetURL(test_file));
 }
 
-INSTANTIATE_TEST_CASE_P(IndexedDBBrowserCorruptionTestInstantiation,
-                        IndexedDBBrowserCorruptionTest,
+INSTANTIATE_TEST_CASE_P(IndexedDBBrowserTestInstantiation,
+                        IndexedDBBrowserTest,
                         ::testing::Values("failGetBlobJournal",
                                           "get",
                                           "getAll",

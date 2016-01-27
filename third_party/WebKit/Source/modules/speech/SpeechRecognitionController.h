@@ -36,6 +36,7 @@ class MediaStreamTrack;
 
 class SpeechRecognitionController final : public NoBaseWillBeGarbageCollectedFinalized<SpeechRecognitionController>, public WillBeHeapSupplement<Page> {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(SpeechRecognitionController);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(SpeechRecognitionController);
 public:
     virtual ~SpeechRecognitionController();
 

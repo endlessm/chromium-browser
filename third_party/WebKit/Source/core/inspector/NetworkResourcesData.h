@@ -43,9 +43,9 @@
 
 namespace blink {
 
+class EncodedFormData;
 class ExecutionContext;
 class Resource;
-class FormData;
 class ResourceResponse;
 class SharedBuffer;
 class TextResourceDecoder;
@@ -55,34 +55,34 @@ class XHRReplayData final
     , public ContextLifecycleObserver {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(XHRReplayData);
 public:
-    static PassRefPtrWillBeRawPtr<XHRReplayData> create(ExecutionContext*, const AtomicString& method, const KURL&, bool async, PassRefPtr<FormData>, bool includeCredentials);
+    static PassRefPtrWillBeRawPtr<XHRReplayData> create(ExecutionContext*, const AtomicString& method, const KURL&, bool async, PassRefPtr<EncodedFormData>, bool includeCredentials);
 
     void addHeader(const AtomicString& key, const AtomicString& value);
     const AtomicString& method() const { return m_method; }
     const KURL& url() const { return m_url; }
     bool async() const { return m_async; }
-    PassRefPtr<FormData> formData() const { return m_formData; }
+    PassRefPtr<EncodedFormData> formData() const { return m_formData; }
     const HTTPHeaderMap& headers() const { return m_headers; }
     bool includeCredentials() const { return m_includeCredentials; }
 
     DECLARE_VIRTUAL_TRACE();
 
 private:
-    XHRReplayData(ExecutionContext*, const AtomicString& method, const KURL&, bool async, PassRefPtr<FormData>, bool includeCredentials);
+    XHRReplayData(ExecutionContext*, const AtomicString& method, const KURL&, bool async, PassRefPtr<EncodedFormData>, bool includeCredentials);
 
     AtomicString m_method;
     KURL m_url;
     bool m_async;
-    RefPtr<FormData> m_formData;
+    RefPtr<EncodedFormData> m_formData;
     HTTPHeaderMap m_headers;
     bool m_includeCredentials;
 };
 
-class NetworkResourcesData {
-    WTF_MAKE_FAST_ALLOCATED(NetworkResourcesData);
+class NetworkResourcesData final : public NoBaseWillBeGarbageCollectedFinalized<NetworkResourcesData> {
+    USING_FAST_MALLOC_WILL_BE_REMOVED(NetworkResourcesData);
 public:
-    class ResourceData {
-        WTF_MAKE_FAST_ALLOCATED(ResourceData);
+    class ResourceData final : public NoBaseWillBeGarbageCollectedFinalized<ResourceData> {
+        USING_FAST_MALLOC_WILL_BE_REMOVED(ResourceData);
         friend class NetworkResourcesData;
     public:
         ResourceData(const String& requestId, const String& loaderId);
@@ -133,6 +133,7 @@ public:
         BlobDataHandle* downloadedFileBlob() const { return m_downloadedFileBlob.get(); }
         void setDownloadedFileBlob(PassRefPtr<BlobDataHandle> blob) { m_downloadedFileBlob = blob; }
 
+        DECLARE_TRACE();
     private:
         bool hasData() const { return m_dataBuffer; }
         size_t dataLength() const;
@@ -144,7 +145,7 @@ public:
         String m_frameId;
         KURL m_url;
         String m_content;
-        RefPtrWillBePersistent<XHRReplayData> m_xhrReplayData;
+        RefPtrWillBeMember<XHRReplayData> m_xhrReplayData;
         bool m_base64Encoded;
         RefPtr<SharedBuffer> m_dataBuffer;
         bool m_isContentEvicted;
@@ -156,12 +157,14 @@ public:
         OwnPtr<TextResourceDecoder> m_decoder;
 
         RefPtr<SharedBuffer> m_buffer;
-        Resource* m_cachedResource;
+        RawPtrWillBeMember<Resource> m_cachedResource;
         RefPtr<BlobDataHandle> m_downloadedFileBlob;
     };
 
-    NetworkResourcesData();
-
+    static PassOwnPtrWillBeRawPtr<NetworkResourcesData> create()
+    {
+        return adoptPtrWillBeNoop(new NetworkResourcesData);
+    }
     ~NetworkResourcesData();
 
     void resourceCreated(const String& requestId, const String& loaderId);
@@ -179,9 +182,12 @@ public:
     void setResourcesDataSizeLimits(size_t maximumResourcesContentSize, size_t maximumSingleResourceContentSize);
     void setXHRReplayData(const String& requestId, XHRReplayData*);
     XHRReplayData* xhrReplayData(const String& requestId);
-    Vector<ResourceData*> resources();
+    WillBeHeapVector<RawPtrWillBeMember<ResourceData>> resources();
 
+    DECLARE_TRACE();
 private:
+    NetworkResourcesData();
+
     ResourceData* resourceDataForRequestId(const String& requestId);
     void ensureNoDataForRequestId(const String& requestId);
     bool ensureFreeSpace(size_t);
@@ -190,7 +196,7 @@ private:
 
     typedef HashMap<String, String> ReusedRequestIds;
     ReusedRequestIds m_reusedXHRReplayDataRequestIds;
-    typedef HashMap<String, ResourceData*> ResourceDataMap;
+    typedef WillBeHeapHashMap<String, RawPtrWillBeMember<ResourceData>> ResourceDataMap;
     ResourceDataMap m_requestIdToResourceDataMap;
     size_t m_contentSize;
     size_t m_maximumResourcesContentSize;

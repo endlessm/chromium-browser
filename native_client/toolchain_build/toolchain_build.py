@@ -36,12 +36,10 @@ GCC_VERSION = '4.9.2'
 # to use in place of the package name when calling GitUrl (below).
 GIT_REVISIONS = {
     'binutils': {
-        'rev': '68b975af7ef47a9d28f21f4c93431f35777a5109',
+        'rev': 'cde986cc330c6d7ebd68e416ab66e0929abe4c8f',
         'upstream-branch': 'upstream/binutils-2_25-branch',
-        'upstream-name': 'binutils-2.25',
-        # This is tag binutils-2_25, but Gerrit won't let us push
-        # non-annotated tags, and the upstream tag is not annotated.
-        'upstream-base': '68b975af7ef47a9d28f21f4c93431f35777a5109',
+        'upstream-name': 'binutils-2.25.1',
+        'upstream-base': 'binutils-2_25_1',
         },
     'gcc': {
         'rev': '336bd0bc1724efd6f8b2a4d7228e389dc1bc48da',
@@ -51,19 +49,17 @@ GIT_REVISIONS = {
         'upstream-base': 'c1283af40b65f1ad862cf5b27e2d9ed10b2076b6',
         },
     'glibc': {
-        'rev': '95af4cffdb730b18ee1478609f1042929a72b361',
-        'upstream-branch': 'upstream/master',
-        'upstream-name': 'glibc-2.21',
-        # Upstream tag glibc-2.21:
-        'upstream-base': '4e42b5b8f89f0e288e68be7ad70f9525aebc2cff',
+        'rev': 'f0489b8314a59fd920ea6794e5e67428626f9260',
+        'upstream-branch': 'upstream/release/2.22/master',
+        'upstream-name': 'glibc-2.22',
+        'upstream-base': 'glibc-2.22',
         },
     'gdb': {
         'rev': '4ad027945e8645f00b857488959fc2a3b5b16d05',
         'repo': 'binutils',
         'upstream-branch': 'upstream/gdb-7.9-branch',
         'upstream-name': 'gdb-7.9.1',
-        # Upstream tag gdb-7.9.1-release:
-        'upstream-base': 'aca9b649bfff6440734703d5d31f88b70ff57824',
+        'upstream-base': 'gdb-7.9.1-release',
         },
     }
 
@@ -185,7 +181,6 @@ LINUX_X86_64_TUPLE = pynacl.platform.PlatformTriple('linux', 'x86-64')
 # Map of native host tuple to extra tuples that it cross-builds for.
 EXTRA_HOSTS_MAP = {
     LINUX_X86_64_TUPLE: [
-        LINUX_X86_32_TUPLE,
         WINDOWS_HOST_TUPLE,
         ],
     }
@@ -212,8 +207,7 @@ STANDARD_TARGETS = [TARGET('arm', '')]
 UPLOAD_HOST_TARGETS = [
     HOST_TARGET('win', 'x86-32', False, STANDARD_TARGETS),
     HOST_TARGET('darwin', 'x86-64', False, STANDARD_TARGETS),
-    HOST_TARGET('linux', 'x86-32', False, STANDARD_TARGETS),
-    HOST_TARGET('linux', 'x86-64', True, STANDARD_TARGETS),
+    HOST_TARGET('linux', 'x86-64', False, STANDARD_TARGETS),
     ]
 
 # GDB is built by toolchain_build but injected into package targets built by
@@ -222,7 +216,7 @@ UPLOAD_HOST_TARGETS = [
 GDB_INJECT_HOSTS = [
   ('win', 'x86-32'),
   ('darwin', 'x86-64'),
-  ('linux', 'x86-32'),
+  ('linux', 'x86-64'),
   ]
 
 GDB_INJECT_PACKAGES = [
@@ -703,6 +697,13 @@ def HostTools(host, target):
                   ConfigureCommand('binutils') +
                   ConfigureHostTool(host) +
                   ConfigureTargetArgs(target) + [
+                      # Ensure that all the NaCl backends get included,
+                      # just for convenience of using the same tools for
+                      # whatever target machine.  The upstream default
+                      # includes all the 32-bit *-nacl targets when any
+                      # *-nacl target is selected (via --target), but only
+                      # includes 64-bit secondary targets for 64-bit hosts.
+                      '--enable-targets=arm-nacl,i686-nacl,x86_64-nacl',
                       '--enable-deterministic-archives',
                       '--enable-gold',
                       ] + WindowsAlternate([], ['--enable-plugins']))
@@ -1003,6 +1004,9 @@ CFLAGS-doasin.c = -mtune=generic-armv7-a
                                'STRIP=%(cwd)s/strip_for_target',
                            ],
                            MakeCommand(host) + [minisdk_root],
+                           # TODO(mcgrathr): Can drop check-abi when
+                           # check is enabled; check includes check-abi.
+                           MakeCommand(host) + [minisdk_root, 'check-abi'],
                            # TODO(mcgrathr): Enable test suite later.
                            #MakeCommand(host) + [minisdk_root, 'check'],
                            ['make', 'install', minisdk_root,

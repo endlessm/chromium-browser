@@ -14,8 +14,10 @@
 #include "cc/resources/shared_bitmap_manager.h"
 #include "content/common/content_export.h"
 #include "content/common/host_discardable_shared_memory_manager.h"
+#include "gpu/command_buffer/common/sync_token.h"
 #include "ipc/ipc_message_macros.h"
 #include "ui/gfx/gpu_memory_buffer.h"
+#include "ui/gfx/ipc/gfx_param_traits.h"
 
 #if defined(OS_MACOSX)
 #include "content/common/mac/io_surface_manager_token.h"
@@ -67,13 +69,16 @@ IPC_STRUCT_TRAITS_BEGIN(gfx::GpuMemoryBufferHandle)
   IPC_STRUCT_TRAITS_MEMBER(id)
   IPC_STRUCT_TRAITS_MEMBER(type)
   IPC_STRUCT_TRAITS_MEMBER(handle)
+  IPC_STRUCT_TRAITS_MEMBER(offset)
+  IPC_STRUCT_TRAITS_MEMBER(stride)
+#if defined(USE_OZONE)
+  IPC_STRUCT_TRAITS_MEMBER(native_pixmap_handle)
+#endif
 IPC_STRUCT_TRAITS_END()
 
-IPC_ENUM_TRAITS_MAX_VALUE(gfx::GpuMemoryBuffer::Format,
-                          gfx::GpuMemoryBuffer::FORMAT_LAST)
-
-IPC_ENUM_TRAITS_MAX_VALUE(gfx::GpuMemoryBuffer::Usage,
-                          gfx::GpuMemoryBuffer::USAGE_LAST)
+IPC_STRUCT_TRAITS_BEGIN(gfx::GpuMemoryBufferId)
+  IPC_STRUCT_TRAITS_MEMBER(id)
+IPC_STRUCT_TRAITS_END()
 
 #undef IPC_MESSAGE_EXPORT
 #define IPC_MESSAGE_EXPORT CONTENT_EXPORT
@@ -127,6 +132,12 @@ IPC_MESSAGE_CONTROL1(ChildProcessMsg_SetIOSurfaceManagerToken,
                      content::IOSurfaceManagerToken /* token */)
 #endif
 
+#if defined(USE_OZONE)
+// Sent to child processes to initialize ClientNativePixmapFactory using
+// a device file descriptor.
+IPC_MESSAGE_CONTROL1(ChildProcessMsg_InitializeClientNativePixmapFactory,
+                     base::FileDescriptor /* device_fd */)
+#endif
 ////////////////////////////////////////////////////////////////////////////////
 // Messages sent from the child process to the browser.
 
@@ -190,17 +201,18 @@ IPC_MESSAGE_CONTROL1(ChildProcessHostMsg_TcmallocStats,
 #endif
 
 // Asks the browser to create a gpu memory buffer.
-IPC_SYNC_MESSAGE_CONTROL4_1(ChildProcessHostMsg_SyncAllocateGpuMemoryBuffer,
+IPC_SYNC_MESSAGE_CONTROL5_1(ChildProcessHostMsg_SyncAllocateGpuMemoryBuffer,
+                            gfx::GpuMemoryBufferId /* new_id */,
                             uint32 /* width */,
                             uint32 /* height */,
-                            gfx::GpuMemoryBuffer::Format,
-                            gfx::GpuMemoryBuffer::Usage,
+                            gfx::BufferFormat,
+                            gfx::BufferUsage,
                             gfx::GpuMemoryBufferHandle)
 
 // Informs the browser that the child deleted a gpu memory buffer.
 IPC_MESSAGE_CONTROL2(ChildProcessHostMsg_DeletedGpuMemoryBuffer,
                      gfx::GpuMemoryBufferId,
-                     uint32 /* sync_point */)
+                     gpu::SyncToken /* sync_token */)
 
 // Asks the browser to create a block of discardable shared memory for the
 // child process.

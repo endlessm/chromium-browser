@@ -19,6 +19,7 @@
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/notification_source.h"
 #include "content/public/browser/render_view_host.h"
+#include "content/public/browser/render_widget_host.h"
 #include "content/public/browser/web_contents.h"
 #include "extensions/browser/extension_system.h"
 #include "extensions/browser/runtime_data.h"
@@ -130,9 +131,6 @@ void ExtensionViewHost::LoadInitialURL() {
     WebContentsModalDialogManager::CreateForWebContents(host_contents());
     WebContentsModalDialogManager::FromWebContents(
         host_contents())->SetDelegate(this);
-    if (!popup_manager_.get())
-      popup_manager_.reset(new web_modal::PopupManager(this));
-    popup_manager_->RegisterWith(host_contents());
   }
 
   ExtensionHost::LoadInitialURL();
@@ -230,15 +228,15 @@ void ExtensionViewHost::RunFileChooser(
 
 
 void ExtensionViewHost::ResizeDueToAutoResize(WebContents* source,
-                                          const gfx::Size& new_size) {
-  view_->ResizeDueToAutoResize(new_size);
+                                              const gfx::Size& new_size) {
+  view_->ResizeDueToAutoResize(source, new_size);
 }
 
 // content::WebContentsObserver overrides:
 
 void ExtensionViewHost::RenderViewCreated(RenderViewHost* render_view_host) {
   ExtensionHost::RenderViewCreated(render_view_host);
-  view_->RenderViewCreated();
+  view_->RenderViewCreated(render_view_host);
 }
 
 // web_modal::WebContentsModalDialogManagerDelegate overrides:

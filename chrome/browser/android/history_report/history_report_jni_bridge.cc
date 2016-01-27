@@ -26,7 +26,7 @@
 
 namespace history_report {
 
-static jlong Init(JNIEnv* env, jobject obj) {
+static jlong Init(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   HistoryReportJniBridge* bridge = new HistoryReportJniBridge(env, obj);
   return reinterpret_cast<intptr_t>(bridge);
 }
@@ -37,7 +37,7 @@ bool RegisterHistoryReportJniBridge(JNIEnv* env) {
 
 HistoryReportJniBridge::HistoryReportJniBridge(JNIEnv* env, jobject obj)
     : weak_java_provider_(env, obj) {
-  DCHECK(content::BrowserThread::CurrentlyOn(content::BrowserThread::UI));
+  DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
   Profile* profile = g_browser_process->profile_manager()->
       GetLastUsedProfile()->GetOriginalProfile();
 
@@ -94,17 +94,13 @@ base::android::ScopedJavaLocalRef<jobjectArray> HistoryReportJniBridge::Query(
     const DeltaFileEntryWithData& entry = (*entries)[i];
     max_seq_no = max_seq_no < entry.SeqNo() ? entry.SeqNo() : max_seq_no;
     history_report::Java_HistoryReportJniBridge_setDeltaFileEntry(
-        env,
-        jentries_array.obj(),
-        i,
-        entry.SeqNo(),
-        base::android::ConvertUTF8ToJavaString(env, entry.Type()).Release(),
-        base::android::ConvertUTF8ToJavaString(env, entry.Id()).Release(),
-        base::android::ConvertUTF8ToJavaString(env, entry.Url()).Release(),
+        env, jentries_array.obj(), i, entry.SeqNo(),
+        base::android::ConvertUTF8ToJavaString(env, entry.Type()).obj(),
+        base::android::ConvertUTF8ToJavaString(env, entry.Id()).obj(),
+        base::android::ConvertUTF8ToJavaString(env, entry.Url()).obj(),
         entry.Score(),
-        base::android::ConvertUTF16ToJavaString(env, entry.Title()).Release(),
-        base::android::ConvertUTF8ToJavaString(env,
-                                               entry.IndexedUrl()).Release());
+        base::android::ConvertUTF16ToJavaString(env, entry.Title()).obj(),
+        base::android::ConvertUTF8ToJavaString(env, entry.IndexedUrl()).obj());
   }
 
   // Check if all entries from delta file were synced and start reporting usage
@@ -129,20 +125,17 @@ HistoryReportJniBridge::GetUsageReportsBatch(JNIEnv* env,
     const UsageReport& report = (*reports)[i];
     std::string key = usage_report_util::ReportToKey(report);
     history_report::Java_HistoryReportJniBridge_setUsageReport(
-        env,
-        jreports_array.obj(),
-        i,
-        base::android::ConvertUTF8ToJavaString(env, key).Release(),
-        base::android::ConvertUTF8ToJavaString(env, report.id()).Release(),
-        report.timestamp_ms(),
-        report.typed_visit());
+        env, jreports_array.obj(), i,
+        base::android::ConvertUTF8ToJavaString(env, key).obj(),
+        base::android::ConvertUTF8ToJavaString(env, report.id()).obj(),
+        report.timestamp_ms(), report.typed_visit());
   }
   return jreports_array;
 }
 
 void HistoryReportJniBridge::RemoveUsageReports(JNIEnv* env,
                                         jobject obj,
-                                        jobjectArray& batch) {
+                                        jobjectArray batch) {
   std::vector<std::string> to_remove;
   base::android::AppendJavaStringArrayToStringVector(env, batch, &to_remove);
   usage_reports_buffer_service_->Remove(to_remove);

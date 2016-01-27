@@ -7,9 +7,11 @@
 #include "android_webview/native/android_protocol_handler.h"
 #include "android_webview/native/aw_autofill_client.h"
 #include "android_webview/native/aw_contents.h"
+#include "android_webview/native/aw_contents_background_thread_client.h"
 #include "android_webview/native/aw_contents_client_bridge.h"
 #include "android_webview/native/aw_contents_io_thread_client_impl.h"
 #include "android_webview/native/aw_contents_statics.h"
+#include "android_webview/native/aw_debug.h"
 #include "android_webview/native/aw_dev_tools_server.h"
 #include "android_webview/native/aw_form_database.h"
 #include "android_webview/native/aw_http_auth_handler.h"
@@ -36,9 +38,12 @@ static base::android::RegistrationMethod kWebViewRegisteredMethods[] = {
   { "AndroidProtocolHandler", RegisterAndroidProtocolHandler },
   { "AwAutofillClient", RegisterAwAutofillClient },
   { "AwContents", RegisterAwContents },
+  { "AwContentsBackgroundThreadClient",
+    RegisterAwContentsBackgroundThreadClient },
   { "AwContentsClientBridge", RegisterAwContentsClientBridge },
   { "AwContentsIoThreadClientImpl", RegisterAwContentsIoThreadClientImpl },
   { "AwContentsStatics", RegisterAwContentsStatics },
+  { "AwDebug", RegisterAwDebug },
   { "AwDevToolsServer", RegisterAwDevToolsServer },
   { "AwFormDatabase", RegisterAwFormDatabase },
   { "AwPicture", RegisterAwPicture },

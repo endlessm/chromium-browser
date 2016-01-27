@@ -32,11 +32,8 @@
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/notification_observer.h"
 #include "content/public/browser/notification_registrar.h"
-#include "net/base/net_util.h"
 #include "net/url_request/url_fetcher_delegate.h"
 #include "url/gurl.h"
-
-class SafeBrowsingService;
 
 namespace base {
 class TimeDelta;

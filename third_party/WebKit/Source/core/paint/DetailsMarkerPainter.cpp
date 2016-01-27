@@ -21,17 +21,17 @@ void DetailsMarkerPainter::paint(const PaintInfo& paintInfo, const LayoutPoint& 
         return;
     }
 
-    if (LayoutObjectDrawingRecorder::useCachedDrawingIfPossible(*paintInfo.context, m_layoutDetailsMarker, paintInfo.phase))
+    if (LayoutObjectDrawingRecorder::useCachedDrawingIfPossible(*paintInfo.context, m_layoutDetailsMarker, paintInfo.phase, paintOffset))
         return;
 
     LayoutPoint boxOrigin(paintOffset + m_layoutDetailsMarker.location());
     LayoutRect overflowRect(m_layoutDetailsMarker.visualOverflowRect());
     overflowRect.moveBy(boxOrigin);
 
-    if (!paintInfo.rect.intersects(pixelSnappedIntRect(overflowRect)))
+    if (!paintInfo.cullRect().intersectsCullRect(overflowRect))
         return;
 
-    LayoutObjectDrawingRecorder layoutDrawingRecorder(*paintInfo.context, m_layoutDetailsMarker, paintInfo.phase, overflowRect);
+    LayoutObjectDrawingRecorder layoutDrawingRecorder(*paintInfo.context, m_layoutDetailsMarker, paintInfo.phase, overflowRect, paintOffset);
     const Color color(m_layoutDetailsMarker.resolveColor(CSSPropertyColor));
     paintInfo.context->setStrokeColor(color);
     paintInfo.context->setStrokeStyle(SolidStroke);

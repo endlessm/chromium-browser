@@ -5,22 +5,39 @@
 """subprocess42 is the answer to life the universe and everything.
 
 It has the particularity of having a Popen implementation that can yield output
-as it is produced while implementing a timeout and not requiring the use of
+as it is produced while implementing a timeout and NOT requiring the use of
 worker threads.
 
-TODO(maruel): Add VOID and TIMED_OUT support like subprocess2.
+Example:
+  Wait for a child process with a timeout, send SIGTERM, wait a grace period
+  then send SIGKILL:
+
+    def wait_terminate_then_kill(proc, timeout, grace):
+      try:
+        return proc.wait(timeout)
+      except subprocess42.TimeoutExpired:
+        proc.terminate()
+        try:
+          return proc.wait(grace)
+        except subprocess42.TimeoutExpired:
+          proc.kill()
+        return proc.wait()
+
+
+TODO(maruel): Add VOID support like subprocess2.
 """
 
 import contextlib
-import logging
+import errno
 import os
 import signal
+import threading
 import time
 
 import subprocess
 
 from subprocess import CalledProcessError, PIPE, STDOUT  # pylint: disable=W0611
-from subprocess import call, check_output  # pylint: disable=W0611
+from subprocess import list2cmdline
 
 
 # Default maxsize argument.
@@ -141,7 +158,7 @@ else:
 
     conn = r[0]
     # Temporarily make it non-blocking.
-    # TODO(maruel): This is not very ifficient when the caller is doing this in
+    # TODO(maruel): This is not very efficient when the caller is doing this in
     # a loop. Add a mechanism to have the caller handle this.
     flags = fcntl.fcntl(conn, fcntl.F_GETFL)
     if not conn.closed:
@@ -158,11 +175,28 @@ else:
         fcntl.fcntl(conn, fcntl.F_SETFL, flags)
 
 
+class TimeoutExpired(Exception):
+  """Compatible with python3 subprocess."""
+  def __init__(self, cmd, timeout, output=None, stderr=None):
+    self.cmd = cmd
+    self.timeout = timeout
+    self.output = output
+    # Non-standard:
+    self.stderr = stderr
+    super(TimeoutExpired, self).__init__(str(self))
+
+  def __str__(self):
+    return "Command '%s' timed out after %s seconds" % (self.cmd, self.timeout)
+
+
 class Popen(subprocess.Popen):
   """Adds timeout support on stdout and stderr.
 
   Inspired by
   http://code.activestate.com/recipes/440554-module-to-allow-asynchronous-subprocess-use-on-win/
+
+  Unlike subprocess, yield_any(), recv_*(), communicate() will close stdout and
+  stderr once the child process closes them, after all the data is read.
 
   Arguments:
   - detached: If True, the process is created in a new process group. On
@@ -173,10 +207,24 @@ class Popen(subprocess.Popen):
   - end: timestamp when this process exited, as seen by this process.
   - detached: If True, the child process was started as a detached process.
   - gid: process group id, if any.
+  - duration: time in seconds the process lasted.
+
+  Additional methods:
+  - yield_any(): yields output until the process terminates.
+  - recv_any(): reads from stdout and/or stderr with optional timeout.
+  - recv_out() & recv_err(): specialized version of recv_any().
   """
+  # subprocess.Popen.__init__() is not threadsafe; there is a race between
+  # creating the exec-error pipe for the child and setting it to CLOEXEC during
+  # which another thread can fork and cause the pipe to be inherited by its
+  # descendents, which will cause the current Popen to hang until all those
+  # descendents exit. Protect this with a lock so that only one fork/exec can
+  # happen at a time.
+  popen_lock = threading.Lock()
+
   def __init__(self, args, **kwargs):
     assert 'creationflags' not in kwargs
-    assert 'preexec_fn' not in kwargs
+    assert 'preexec_fn' not in kwargs, 'Use detached=True instead'
     self.start = time.time()
     self.end = None
     self.gid = None
@@ -186,7 +234,9 @@ class Popen(subprocess.Popen):
         kwargs['creationflags'] = subprocess.CREATE_NEW_PROCESS_GROUP
       else:
         kwargs['preexec_fn'] = lambda: os.setpgid(0, 0)
-    super(Popen, self).__init__(args, **kwargs)
+    with self.popen_lock:
+      super(Popen, self).__init__(args, **kwargs)
+    self.args = args
     if self.detached and not subprocess.mswindows:
       self.gid = os.getpgid(self.pid)
 
@@ -199,12 +249,119 @@ class Popen(subprocess.Popen):
     """
     return (self.end or time.time()) - self.start
 
-  def wait(self):
-    ret = super(Popen, self).wait()
+  # pylint: disable=arguments-differ,redefined-builtin
+  def communicate(self, input=None, timeout=None):
+    """Implements python3's timeout support.
+
+    Unlike wait(), timeout=0 is considered the same as None.
+
+    Raises:
+    - TimeoutExpired when more than timeout seconds were spent waiting for the
+      process.
+    """
+    if not timeout:
+      return super(Popen, self).communicate(input=input)
+
+    assert isinstance(timeout, (int, float)), timeout
+
+    if self.stdin or self.stdout or self.stderr:
+      stdout = '' if self.stdout else None
+      stderr = '' if self.stderr else None
+      t = None
+      if input is not None:
+        assert self.stdin, (
+            'Can\'t use communicate(input) if not using '
+            'Popen(stdin=subprocess42.PIPE')
+        # TODO(maruel): Switch back to non-threading.
+        def write():
+          try:
+            self.stdin.write(input)
+          except IOError:
+            pass
+        t = threading.Thread(name='Popen.communicate', target=write)
+        t.daemon = True
+        t.start()
+
+      try:
+        if self.stdout or self.stderr:
+          start = time.time()
+          end = start + timeout
+          def remaining():
+            return max(end - time.time(), 0)
+          for pipe, data in self.yield_any(timeout=remaining):
+            if pipe is None:
+              raise TimeoutExpired(self.args, timeout, stdout, stderr)
+            assert pipe in ('stdout', 'stderr'), pipe
+            if pipe == 'stdout':
+              stdout += data
+            else:
+              stderr += data
+        else:
+          # Only stdin is piped.
+          self.wait(timeout=timeout)
+      finally:
+        if t:
+          try:
+            self.stdin.close()
+          except IOError:
+            pass
+          t.join()
+    else:
+      # No pipe. The user wanted to use wait().
+      self.wait(timeout=timeout)
+      return None, None
+
+    # Indirectly initialize self.end.
+    self.wait()
+    return stdout, stderr
+
+  def wait(self, timeout=None):  # pylint: disable=arguments-differ
+    """Implements python3's timeout support.
+
+    Raises:
+    - TimeoutExpired when more than timeout seconds were spent waiting for the
+      process.
+    """
+    assert timeout is None or isinstance(timeout, (int, float)), timeout
+    if timeout is None:
+      super(Popen, self).wait()
+    elif self.returncode is None:
+      if subprocess.mswindows:
+        WAIT_TIMEOUT = 258
+        result = subprocess._subprocess.WaitForSingleObject(
+            self._handle, int(timeout * 1000))
+        if result == WAIT_TIMEOUT:
+          raise TimeoutExpired(self.args, timeout)
+        self.returncode = subprocess._subprocess.GetExitCodeProcess(
+            self._handle)
+      else:
+        # If you think the following code is horrible, it's because it is
+        # inspired by python3's stdlib.
+        end = time.time() + timeout
+        delay = 0.001
+        while True:
+          try:
+            pid, sts = subprocess._eintr_retry_call(
+                os.waitpid, self.pid, os.WNOHANG)
+          except OSError as e:
+            if e.errno != errno.ECHILD:
+              raise
+            pid = self.pid
+            sts = 0
+          if pid == self.pid:
+            # This sets self.returncode.
+            self._handle_exitstatus(sts)
+            break
+          remaining = end - time.time()
+          if remaining <= 0:
+            raise TimeoutExpired(self.args, timeout)
+          delay = min(delay * 2, remaining, .05)
+          time.sleep(delay)
+
     if not self.end:
       # communicate() uses wait() internally.
       self.end = time.time()
-    return ret
+    return self.returncode
 
   def poll(self):
     ret = super(Popen, self).poll()
@@ -212,54 +369,44 @@ class Popen(subprocess.Popen):
       self.end = time.time()
     return ret
 
-  def yield_any(self, maxsize=None, hard_timeout=None, soft_timeout=None):
-    """Yields output until the process terminates or is killed by a timeout.
+  def yield_any(self, maxsize=None, timeout=None):
+    """Yields output until the process terminates.
 
-    Yielded values are in the form (pipename, data).
+    Unlike wait(), does not raise TimeoutExpired.
+
+    Yields:
+      (pipename, data) where pipename is either 'stdout', 'stderr' or None in
+      case of timeout or when the child process closed one of the pipe(s) and
+      all pending data on the pipe was read.
 
     Arguments:
     - maxsize: See recv_any(). Can be a callable function.
-    - hard_timeout: If None, the process is never killed. If set, the process is
-          killed after |hard_timeout| seconds. Can be a callable function.
-    - soft_timeout: If None, the call is blocking. If set, yields None, None
-          if no data is available within |soft_timeout| seconds. It resets
-          itself after each yield. Can be a callable function.
+    - timeout: If None, the call is blocking. If set, yields None, None if no
+          data is available within |timeout| seconds. It resets itself after
+          each yield. Can be a callable function.
     """
-    if hard_timeout is not None:
-      # hard_timeout=0 means the process is not even given a little chance to
-      # execute and will be immediately killed.
-      if isinstance(hard_timeout, (int, float)):
-        assert hard_timeout > 0., hard_timeout
-        old_hard_timeout = hard_timeout
-        hard_timeout = lambda: old_hard_timeout
-    if soft_timeout is not None:
-      # soft_timeout=0 effectively means that the pipe is continuously polled.
-      if isinstance(soft_timeout, (int, float)):
-        assert soft_timeout >= 0, soft_timeout
-        old_soft_timeout = soft_timeout
-        soft_timeout = lambda: old_soft_timeout
+    assert self.stdout or self.stderr
+    if timeout is not None:
+      # timeout=0 effectively means that the pipe is continuously polled.
+      if isinstance(timeout, (int, float)):
+        assert timeout >= 0, timeout
+        old_timeout = timeout
+        timeout = lambda: old_timeout
       else:
-        assert callable(soft_timeout), soft_timeout
+        assert callable(timeout), timeout
+
+    if maxsize is not None and not callable(maxsize):
+      assert isinstance(maxsize, (int, float)), maxsize
 
     last_yield = time.time()
     while self.poll() is None:
-      ms = maxsize
-      if callable(maxsize):
-        ms = maxsize()
+      to = (None if timeout is None
+            else max(timeout() - (time.time() - last_yield), 0))
       t, data = self.recv_any(
-          maxsize=ms,
-          timeout=self._calc_timeout(hard_timeout, soft_timeout, last_yield))
-      if data or soft_timeout is not None:
+          maxsize=maxsize() if callable(maxsize) else maxsize, timeout=to)
+      if data or to is 0:
         yield t, data
         last_yield = time.time()
-
-      if hard_timeout and self.duration() >= hard_timeout():
-        break
-
-    if self.poll() is None and hard_timeout:
-      logging.debug('Kill %s %s', self.duration(), hard_timeout())
-      self.kill()
-    self.wait()
 
     # Read all remaining output in the pipes.
     # There is 3 cases:
@@ -278,28 +425,10 @@ class Popen(subprocess.Popen):
         break
       yield t, data
 
-  def _calc_timeout(self, hard_timeout, soft_timeout, last_yield):
-    """Returns the timeout to be used on the next recv_any() in yield_any().
-
-    It depends on both timeout. It returns None if no timeout is used. Otherwise
-    it returns a value >= 0.001. It's not 0 because it's effectively polling, on
-    linux it can peg a single core, so adding 1ms sleep does a tremendous
-    difference.
-    """
-    hard_remaining = (
-        None if hard_timeout is None
-        else max(hard_timeout() - self.duration(), 0))
-    soft_remaining = (
-        None if soft_timeout is None
-        else max(soft_timeout() - (time.time() - last_yield), 0))
-    if hard_remaining is None:
-      return soft_remaining
-    if soft_remaining is None:
-      return hard_remaining
-    return min(hard_remaining, soft_remaining)
-
   def recv_any(self, maxsize=None, timeout=None):
     """Reads from the first pipe available from stdout and stderr.
+
+    Unlike wait(), it does not throw TimeoutExpired.
 
     Arguments:
     - maxsize: Maximum number of bytes to return. Defaults to MAX_SIZE.
@@ -307,7 +436,8 @@ class Popen(subprocess.Popen):
           data is available within |timeout| seconds.
 
     Returns:
-      tuple(int(index) or None, str(data)).
+      tuple(pipename or None, str(data)). pipename is one of 'stdout' or
+      'stderr'.
     """
     # recv_multi_impl will early exit on a closed connection. Loop accordingly
     # to simplify call sites.
@@ -406,49 +536,56 @@ class Popen(subprocess.Popen):
     return data
 
 
-def call_with_timeout(args, timeout, **kwargs):
-  """Runs an executable with an optional timeout.
-
-  timeout 0 or None disables the timeout.
-  """
-  proc = Popen(
-      args,
-      stdin=subprocess.PIPE,
-      stdout=subprocess.PIPE,
-      **kwargs)
-  if timeout:
-    out = ''
-    err = ''
-    for t, data in proc.yield_any(hard_timeout=timeout):
-      if t == 'stdout':
-        out += data
-      else:
-        err += data
-  else:
-    # This code path is much faster.
-    out, err = proc.communicate()
-  return out, err, proc.returncode, proc.duration()
-
-
 @contextlib.contextmanager
 def set_signal_handler(signals, handler):
-  """Temporarilly override signals handler."""
-  previous = dict((s, signal.signal(s, handler)) for s in signals)
-  yield None
-  for s in signals:
-    signal.signal(s, previous[s])
+  """Temporarilly override signals handler.
+
+  Useful when waiting for a child process to handle signals like SIGTERM, so the
+  signal can be propagated to the child process.
+  """
+  previous = {s: signal.signal(s, handler) for s in signals}
+  try:
+    yield
+  finally:
+    for sig, h in previous.iteritems():
+      signal.signal(sig, h)
 
 
-@contextlib.contextmanager
-def Popen_with_handler(args, **kwargs):
-  proc = None
-  def handler(_signum, _frame):
-    if proc:
-      proc.terminate()
+def call(*args, **kwargs):
+  """Adds support for timeout."""
+  timeout = kwargs.pop('timeout', None)
+  return Popen(*args, **kwargs).wait(timeout)
 
-  with set_signal_handler(STOP_SIGNALS, handler):
-    proc = Popen(args, detached=True, **kwargs)
-    try:
-      yield proc
-    finally:
-      proc.kill()
+
+def check_call(*args, **kwargs):
+  """Adds support for timeout."""
+  retcode = call(*args, **kwargs)
+  if retcode:
+    raise CalledProcessError(retcode, kwargs.get('args') or args[0])
+  return 0
+
+
+def check_output(*args, **kwargs):
+  """Adds support for timeout."""
+  timeout = kwargs.pop('timeout', None)
+  if 'stdout' in kwargs:
+    raise ValueError('stdout argument not allowed, it will be overridden.')
+  process = Popen(stdout=PIPE, *args, **kwargs)
+  output, _ = process.communicate(timeout=timeout)
+  retcode = process.poll()
+  if retcode:
+    raise CalledProcessError(retcode, kwargs.get('args') or args[0], output)
+  return output
+
+
+def call_with_timeout(args, timeout, **kwargs):
+  """Runs an executable; kill it in case of timeout."""
+  proc = Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, **kwargs)
+  try:
+    out, err = proc.communicate(timeout=timeout)
+  except TimeoutExpired as e:
+    out = e.output
+    err = e.stderr
+    proc.kill()
+    proc.wait()
+  return out, err, proc.returncode, proc.duration()

@@ -545,7 +545,7 @@ bool NaClIPCAdapter::RewriteMessage(const IPC::Message& msg, uint32_t type) {
           uint32_t size = iter->size();
           nacl_desc.reset(new NaClDescWrapper(NaClDescImcShmMake(
 #if defined(OS_WIN)
-              shm_handle,
+              shm_handle.GetHandle(),
 #else
               base::SharedMemory::GetFdFromSharedMemoryHandle(shm_handle),
 #endif
@@ -615,6 +615,7 @@ scoped_ptr<IPC::Message> CreateOpenResourceReply(
   ppapi::proxy::SerializedHandle::WriteHeader(sh.header(),
                                               new_msg.get());
   new_msg->WriteBool(true);  // valid == true
+  new_msg->WriteBool(false);  // brokerable == false
   // The file descriptor is at index 0. There's only ever one file
   // descriptor provided for this message type, so this will be correct.
   new_msg->WriteInt(0);

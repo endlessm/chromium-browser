@@ -11,6 +11,9 @@
 namespace blink {
 
 class AppBannerCallbacks : public WebAppBannerCallbacks {
+    // FIXME(tasak): when making public/platform classes to use PartitionAlloc,
+    // the following macro should be moved to WebCallbacks defined in public/platformWebCallbacks.h.
+    USING_FAST_MALLOC(AppBannerCallbacks);
 public:
     explicit AppBannerCallbacks(UserChoiceProperty*);
     ~AppBannerCallbacks() override = default;

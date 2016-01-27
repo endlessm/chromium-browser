@@ -2,11 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "content/gpu/gpu_watchdog_thread.h"
+
+#include <errno.h>
+
 #if defined(OS_WIN)
 #include <windows.h>
 #endif
-
-#include "content/gpu/gpu_watchdog_thread.h"
 
 #include "base/bind.h"
 #include "base/bind_helpers.h"
@@ -142,7 +144,7 @@ GpuWatchdogThread::~GpuWatchdogThread() {
 }
 
 void GpuWatchdogThread::OnAcknowledge() {
-  CHECK(base::PlatformThread::CurrentId() == thread_id());
+  CHECK(base::PlatformThread::CurrentId() == GetThreadId());
 
   // The check has already been acknowledged and another has already been
   // scheduled by a previous call to OnAcknowledge. It is normal for a
@@ -170,7 +172,7 @@ void GpuWatchdogThread::OnAcknowledge() {
 }
 
 void GpuWatchdogThread::OnCheck(bool after_suspend) {
-  CHECK(base::PlatformThread::CurrentId() == thread_id());
+  CHECK(base::PlatformThread::CurrentId() == GetThreadId());
 
   // Do not create any new termination tasks if one has already been created
   // or the system is suspended.

@@ -26,6 +26,10 @@
         '<(webrtc_root)/modules/modules.gyp:rtp_rtcp',
         '<(webrtc_root)/modules/modules.gyp:webrtc_utility',
         '<(webrtc_root)/system_wrappers/system_wrappers.gyp:system_wrappers',
+        '<(webrtc_root)/webrtc.gyp:rtc_event_log',
+      ],
+      'export_dependent_settings': [
+        '<(webrtc_root)/modules/modules.gyp:audio_coding_module',
       ],
       'sources': [
         'include/voe_audio_processing.h',
@@ -153,6 +157,8 @@
             '<(webrtc_root)/system_wrappers/system_wrappers.gyp:system_wrappers_default',
             '<(webrtc_root)/test/test.gyp:channel_transport',
             '<(webrtc_root)/test/test.gyp:test_support',
+            '<(webrtc_root)/test/webrtc_test_common.gyp:webrtc_test_common',
+            '<(webrtc_root)/webrtc.gyp:rtc_event_log',
            ],
           'sources': [
             'test/auto_test/automated_mode.cc',
@@ -160,8 +166,8 @@
             'test/auto_test/extended/ec_metrics_test.cc',
             'test/auto_test/fakes/conference_transport.cc',
             'test/auto_test/fakes/conference_transport.h',
-            'test/auto_test/fakes/fake_external_transport.cc',
-            'test/auto_test/fakes/fake_external_transport.h',
+            'test/auto_test/fakes/loudest_filter.cc',
+            'test/auto_test/fakes/loudest_filter.h',
             'test/auto_test/fixtures/after_initialization_fixture.cc',
             'test/auto_test/fixtures/after_initialization_fixture.h',
             'test/auto_test/fixtures/after_streaming_fixture.cc',
@@ -192,6 +198,7 @@
             'test/auto_test/voe_conference_test.cc',
             'test/auto_test/voe_cpu_test.cc',
             'test/auto_test/voe_cpu_test.h',
+            'test/auto_test/voe_output_test.cc',
             'test/auto_test/voe_standard_test.cc',
             'test/auto_test/voe_standard_test.h',
             'test/auto_test/voe_stress_test.cc',
@@ -204,6 +211,11 @@
               # some tests are not supported on android yet, exclude these tests.
               'sources!': [
                 'test/auto_test/standard/hardware_before_streaming_test.cc',
+              ],
+            }],
+            ['enable_protobuf==1', {
+              'defines': [
+                'ENABLE_RTC_EVENT_LOG',
               ],
             }],
           ],
@@ -224,6 +236,7 @@
             '<(webrtc_root)/system_wrappers/system_wrappers.gyp:system_wrappers_default',
             '<(webrtc_root)/test/test.gyp:channel_transport',
             '<(webrtc_root)/test/test.gyp:test_support',
+            '<(webrtc_root)/webrtc.gyp:rtc_event_log',
           ],
           'sources': [
             'test/cmd_test/voe_cmd_test.cc',

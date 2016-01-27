@@ -57,7 +57,29 @@ PassRefPtrWillBeRawPtr<HTMLMeterElement> HTMLMeterElement::create(Document& docu
 
 LayoutObject* HTMLMeterElement::createLayoutObject(const ComputedStyle& style)
 {
-    if (hasOpenShadowRoot() || !LayoutTheme::theme().supportsMeter(style.appearance()))
+    switch (style.appearance()) {
+    case ContinuousCapacityLevelIndicatorPart:
+        UseCounter::count(document(), UseCounter::MeterElementWithContinuousCapacityAppearance);
+        break;
+    case DiscreteCapacityLevelIndicatorPart:
+        UseCounter::count(document(), UseCounter::MeterElementWithDiscreteCapacityAppearance);
+        break;
+    case MeterPart:
+        UseCounter::count(document(), UseCounter::MeterElementWithMeterAppearance);
+        break;
+    case NoControlPart:
+        UseCounter::count(document(), UseCounter::MeterElementWithNoneAppearance);
+        break;
+    case RatingLevelIndicatorPart:
+        UseCounter::count(document(), UseCounter::MeterElementWithRatingAppearance);
+        break;
+    case RelevancyLevelIndicatorPart:
+        UseCounter::count(document(), UseCounter::MeterElementWithRelevancyAppearance);
+        break;
+    default:
+        break;
+    }
+    if (openShadowRoot() || !LayoutTheme::theme().supportsMeter(style.appearance()))
         return LayoutObject::createObject(this, style);
     return new LayoutMeter(this);
 }

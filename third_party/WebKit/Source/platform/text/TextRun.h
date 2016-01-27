@@ -46,7 +46,7 @@ enum TextJustify {
 };
 
 class PLATFORM_EXPORT TextRun {
-    WTF_MAKE_FAST_ALLOCATED(TextRun);
+    USING_FAST_MALLOC(TextRun);
 public:
     enum ExpansionBehaviorFlags {
         ForbidTrailingExpansion = 0 << 0,
@@ -103,7 +103,7 @@ public:
         m_data.characters16 = c;
     }
 
-    TextRun(const String& string, float xpos = 0, float expansion = 0, ExpansionBehavior expansionBehavior = AllowTrailingExpansion | ForbidLeadingExpansion, TextDirection direction = LTR, bool directionalOverride = false, bool normalizeSpace = false)
+    TextRun(const String& string, float xpos = 0, float expansion = 0, ExpansionBehavior expansionBehavior = AllowTrailingExpansion | ForbidLeadingExpansion, TextDirection direction = LTR, bool directionalOverride = false)
         : m_charactersLength(string.length())
         , m_len(string.length())
         , m_xpos(xpos)
@@ -116,7 +116,7 @@ public:
         , m_directionalOverride(directionalOverride)
         , m_disableSpacing(false)
         , m_textJustify(TextJustifyAuto)
-        , m_normalizeSpace(normalizeSpace)
+        , m_normalizeSpace(false)
         , m_tabSize(0)
     {
         if (!m_charactersLength) {
@@ -131,7 +131,7 @@ public:
         }
     }
 
-    TextRun(const StringView& string, float xpos = 0, float expansion = 0, ExpansionBehavior expansionBehavior = AllowTrailingExpansion | ForbidLeadingExpansion, TextDirection direction = LTR, bool directionalOverride = false, bool normalizeSpace = false)
+    TextRun(const StringView& string, float xpos = 0, float expansion = 0, ExpansionBehavior expansionBehavior = AllowTrailingExpansion | ForbidLeadingExpansion, TextDirection direction = LTR, bool directionalOverride = false)
         : m_charactersLength(string.length())
         , m_len(string.length())
         , m_xpos(xpos)
@@ -144,7 +144,7 @@ public:
         , m_directionalOverride(directionalOverride)
         , m_disableSpacing(false)
         , m_textJustify(TextJustifyAuto)
-        , m_normalizeSpace(normalizeSpace)
+        , m_normalizeSpace(false)
         , m_tabSize(0)
     {
         if (!m_charactersLength) {

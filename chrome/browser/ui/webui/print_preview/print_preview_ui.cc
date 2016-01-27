@@ -124,13 +124,13 @@ bool HandleRequestCallback(
     const content::WebUIDataSource::GotDataCallback& callback) {
   // ChromeWebUIDataSource handles most requests except for the print preview
   // data.
-  if (!base::EndsWith(path, "/print.pdf", true))
+  if (!base::EndsWith(path, "/print.pdf", base::CompareCase::SENSITIVE))
     return false;
 
   // Print Preview data.
   scoped_refptr<base::RefCountedBytes> data;
-  std::vector<std::string> url_substr;
-  base::SplitString(path, '/', &url_substr);
+  std::vector<std::string> url_substr = base::SplitString(
+      path, "/", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   int preview_ui_id = -1;
   int page_index = 0;
   if (url_substr.size() == 3 &&
@@ -251,6 +251,8 @@ content::WebUIDataSource* CreatePrintPreviewUISource() {
   source->AddLocalizedString("printPagesLabel",
                              IDS_PRINT_PREVIEW_PRINT_PAGES_LABEL);
   source->AddLocalizedString("optionsLabel", IDS_PRINT_PREVIEW_OPTIONS_LABEL);
+  source->AddLocalizedString("optionDistillPage",
+                             IDS_PRINT_PREVIEW_OPTION_DISTILL_PAGE);
   source->AddLocalizedString("optionHeaderFooter",
                              IDS_PRINT_PREVIEW_OPTION_HEADER_FOOTER);
   source->AddLocalizedString("optionFitToPage",
@@ -396,7 +398,8 @@ PrintPreviewUI::PrintPreviewUI(content::WebUI* web_ui)
       handler_(NULL),
       source_is_modifiable_(true),
       source_has_selection_(false),
-      dialog_closed_(false) {
+      dialog_closed_(false),
+      weak_ptr_factory_(this) {
   // Set up the chrome://print/ data source.
   Profile* profile = Profile::FromWebUI(web_ui);
   content::WebUIDataSource::Add(profile, CreatePrintPreviewUISource());
@@ -660,4 +663,8 @@ void PrintPreviewUI::SetSelectedFileForTesting(const base::FilePath& path) {
 void PrintPreviewUI::SetPdfSavedClosureForTesting(
     const base::Closure& closure) {
   handler_->SetPdfSavedClosureForTesting(closure);
+}
+
+base::WeakPtr<PrintPreviewUI> PrintPreviewUI::GetWeakPtr() {
+  return weak_ptr_factory_.GetWeakPtr();
 }

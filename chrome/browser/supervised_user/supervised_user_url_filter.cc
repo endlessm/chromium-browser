@@ -19,7 +19,7 @@
 #include "chrome/browser/supervised_user/experimental/supervised_user_blacklist.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/policy/core/browser/url_blacklist_manager.h"
-#include "components/url_fixer/url_fixer.h"
+#include "components/url_formatter/url_fixer.h"
 #include "components/url_matcher/url_matcher.h"
 #include "content/public/browser/browser_thread.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
@@ -95,7 +95,7 @@ bool FilterBuilder::AddPattern(const std::string& pattern, int site_id) {
   std::string query;
   bool match_subdomains = true;
   URLBlacklist::SegmentURLCallback callback =
-      static_cast<URLBlacklist::SegmentURLCallback>(url_fixer::SegmentURL);
+      static_cast<URLBlacklist::SegmentURLCallback>(url_formatter::SegmentURL);
   if (!URLBlacklist::FilterToComponents(
           callback, pattern,
           &scheme, &host, &match_subdomains, &port, &path, &query)) {
@@ -113,7 +113,7 @@ bool FilterBuilder::AddPattern(const std::string& pattern, int site_id) {
 }
 
 void FilterBuilder::AddHostnameHash(const std::string& hash, int site_id) {
-  contents_->hash_site_map.insert(std::make_pair(base::StringToUpperASCII(hash),
+  contents_->hash_site_map.insert(std::make_pair(base::ToUpperASCII(hash),
                                                  site_id));
 }
 
@@ -239,7 +239,7 @@ bool SupervisedUserURLFilter::HostMatchesPattern(const std::string& host,
                                                  const std::string& pattern) {
   std::string trimmed_pattern = pattern;
   std::string trimmed_host = host;
-  if (base::EndsWith(pattern, ".*", true)) {
+  if (base::EndsWith(pattern, ".*", base::CompareCase::SENSITIVE)) {
     size_t registry_length = GetRegistryLength(
         trimmed_host, EXCLUDE_UNKNOWN_REGISTRIES, EXCLUDE_PRIVATE_REGISTRIES);
     // A host without a known registry part does not match.
@@ -258,7 +258,8 @@ bool SupervisedUserURLFilter::HostMatchesPattern(const std::string& host,
     // pattern.
     if (trimmed_pattern.empty() ||
         trimmed_pattern.find('*') != std::string::npos ||
-        !base::EndsWith(trimmed_host, trimmed_pattern, true)) {
+        !base::EndsWith(trimmed_host, trimmed_pattern,
+                        base::CompareCase::SENSITIVE)) {
       return false;
     }
 
@@ -349,6 +350,8 @@ bool SupervisedUserURLFilter::GetFilteringBehaviorForURLWithAsyncChecks(
   // Also, if we're blocking anyway, then there's no need to check it.
   if (reason != DEFAULT || behavior == BLOCK || !async_url_checker_) {
     callback.Run(behavior, reason, false);
+    FOR_EACH_OBSERVER(Observer, observers_,
+                      OnURLChecked(url, behavior, reason, false));
     return true;
   }
 
@@ -383,6 +386,11 @@ void SupervisedUserURLFilter::SetDefaultFilteringBehavior(
     FilteringBehavior behavior) {
   DCHECK(CalledOnValidThread());
   default_behavior_ = behavior;
+}
+
+SupervisedUserURLFilter::FilteringBehavior
+SupervisedUserURLFilter::GetDefaultFilteringBehavior() const {
+  return default_behavior_;
 }
 
 void SupervisedUserURLFilter::LoadWhitelists(
@@ -445,11 +453,11 @@ void SupervisedUserURLFilter::Clear() {
   async_url_checker_.reset();
 }
 
-void SupervisedUserURLFilter::AddObserver(Observer* observer) {
+void SupervisedUserURLFilter::AddObserver(Observer* observer) const {
   observers_.AddObserver(observer);
 }
 
-void SupervisedUserURLFilter::RemoveObserver(Observer* observer) {
+void SupervisedUserURLFilter::RemoveObserver(Observer* observer) const {
   observers_.RemoveObserver(observer);
 }
 
@@ -472,4 +480,6 @@ void SupervisedUserURLFilter::CheckCallback(
   DCHECK(default_behavior_ != BLOCK);
 
   callback.Run(behavior, ASYNC_CHECKER, uncertain);
+  FOR_EACH_OBSERVER(Observer, observers_,
+                    OnURLChecked(url, behavior, ASYNC_CHECKER, uncertain));
 }

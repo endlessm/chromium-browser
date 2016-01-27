@@ -34,30 +34,29 @@ public:
     virtual ~WebDisplayItemList() { }
 
     // This grabs a ref on the passed-in SkPicture.
-    virtual void appendDrawingItem(const SkPicture*) = 0;
+    virtual void appendDrawingItem(const WebRect& visualRect, const SkPicture*) { }
 
-    virtual void appendClipItem(const WebRect&, const WebVector<SkRRect>&) = 0;
-    virtual void appendEndClipItem() = 0;
-    virtual void appendClipPathItem(const SkPath&, SkRegion::Op, bool antialias) = 0;
-    virtual void appendEndClipPathItem() = 0;
-    virtual void appendFloatClipItem(const WebFloatRect&) = 0;
-    virtual void appendEndFloatClipItem() = 0;
-    virtual void appendTransformItem(const SkMatrix44&) = 0;
-    virtual void appendEndTransformItem() = 0;
-    virtual void appendCompositingItem(float opacity,
-        SkXfermode::Mode, SkRect* bounds, SkColorFilter*) = 0;
-    virtual void appendEndCompositingItem() = 0;
+    virtual void appendClipItem(const WebRect& visualRect, const WebRect& clipRect, const WebVector<SkRRect>& roundedClipRects) { }
+    virtual void appendEndClipItem(const WebRect& visualRect) { }
+    virtual void appendClipPathItem(const WebRect& visualRect, const SkPath&, SkRegion::Op, bool antialias) { }
+    virtual void appendEndClipPathItem(const WebRect& visualRect) { }
+    virtual void appendFloatClipItem(const WebRect& visualRect, const WebFloatRect& clipRect) { }
+    virtual void appendEndFloatClipItem(const WebRect& visualRect) { }
+    virtual void appendTransformItem(const WebRect& visualRect, const SkMatrix44&) { }
+    virtual void appendEndTransformItem(const WebRect& visualRect) { }
+    virtual void appendCompositingItem(const WebRect& visualRect, float opacity,
+        SkXfermode::Mode, SkRect* bounds, SkColorFilter*) { }
+    virtual void appendEndCompositingItem(const WebRect& visualRect) { }
 
-    virtual void appendFilterItem(const WebFilterOperations&, const WebFloatRect& bounds) = 0;
-    virtual void appendEndFilterItem() = 0;
+    virtual void appendFilterItem(const WebRect& visualRect, const WebFilterOperations&, const WebFloatRect& bounds) { }
+    virtual void appendEndFilterItem(const WebRect& visualRect) { }
 
     // Scroll containers are identified by an opaque pointer.
     using ScrollContainerId = const void*;
-    virtual void appendScrollItem(const WebSize& scrollOffset, ScrollContainerId) = 0;
-    virtual void appendEndScrollItem() = 0;
+    virtual void appendScrollItem(const WebRect& visualRect, const WebSize& scrollOffset, ScrollContainerId) { }
+    virtual void appendEndScrollItem(const WebRect& visualRect) { }
 };
 
 } // namespace blink
 
 #endif // WebDisplayItemList_h
-

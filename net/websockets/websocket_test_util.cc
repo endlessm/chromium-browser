@@ -4,38 +4,40 @@
 
 #include "net/websockets/websocket_test_util.h"
 
+#include <stddef.h>
 #include <algorithm>
 #include <vector>
 
-#include "base/basictypes.h"
 #include "base/memory/scoped_vector.h"
 #include "base/stl_util.h"
 #include "base/strings/stringprintf.h"
 #include "net/proxy/proxy_service.h"
 #include "net/socket/socket_test_util.h"
+#include "url/origin.h"
 
 namespace net {
 
 namespace {
-const uint64 kA =
-    (static_cast<uint64>(0x5851f42d) << 32) + static_cast<uint64>(0x4c957f2d);
-const uint64 kC = 12345;
-const uint64 kM = static_cast<uint64>(1) << 48;
+
+const uint64_t kA = (static_cast<uint64_t>(0x5851f42d) << 32) +
+                    static_cast<uint64_t>(0x4c957f2d);
+const uint64_t kC = 12345;
+const uint64_t kM = static_cast<uint64_t>(1) << 48;
 
 }  // namespace
 
-LinearCongruentialGenerator::LinearCongruentialGenerator(uint32 seed)
+LinearCongruentialGenerator::LinearCongruentialGenerator(uint32_t seed)
     : current_(seed) {}
 
-uint32 LinearCongruentialGenerator::Generate() {
-  uint64 result = current_;
+uint32_t LinearCongruentialGenerator::Generate() {
+  uint64_t result = current_;
   current_ = (current_ * kA + kC) % kM;
-  return static_cast<uint32>(result >> 16);
+  return static_cast<uint32_t>(result >> 16);
 }
 
 std::string WebSocketStandardRequest(const std::string& path,
                                      const std::string& host,
-                                     const std::string& origin,
+                                     const url::Origin& origin,
                                      const std::string& extra_headers) {
   return WebSocketStandardRequestWithCookies(path, host, origin, std::string(),
                                              extra_headers);
@@ -44,7 +46,7 @@ std::string WebSocketStandardRequest(const std::string& path,
 std::string WebSocketStandardRequestWithCookies(
     const std::string& path,
     const std::string& host,
-    const std::string& origin,
+    const url::Origin& origin,
     const std::string& cookies,
     const std::string& extra_headers) {
   // Unrelated changes in net/http may change the order and default-values of
@@ -66,7 +68,7 @@ std::string WebSocketStandardRequestWithCookies(
       "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
       "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\n"
       "%s\r\n",
-      path.c_str(), host.c_str(), origin.c_str(), cookies.c_str(),
+      path.c_str(), host.c_str(), origin.Serialize().c_str(), cookies.c_str(),
       extra_headers.c_str());
 }
 
@@ -163,7 +165,7 @@ void WebSocketTestURLRequestContextHost::AddSSLSocketDataProvider(
 void WebSocketTestURLRequestContextHost::SetProxyConfig(
     const std::string& proxy_rules) {
   DCHECK(!url_request_context_initialized_);
-  proxy_service_.reset(ProxyService::CreateFixed(proxy_rules));
+  proxy_service_ = ProxyService::CreateFixed(proxy_rules);
   url_request_context_.set_proxy_service(proxy_service_.get());
 }
 

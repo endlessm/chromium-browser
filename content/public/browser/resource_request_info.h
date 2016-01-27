@@ -39,7 +39,8 @@ class ResourceRequestInfo {
                                                 bool is_main_frame,
                                                 bool parent_is_main_frame,
                                                 bool allow_download,
-                                                bool is_async);
+                                                bool is_async,
+                                                bool is_using_lofi);
 
   // Returns the associated RenderFrame for a given process. Returns false, if
   // there is no associated RenderFrame. This method does not rely on the
@@ -123,6 +124,9 @@ class ResourceRequestInfo {
 
   // Whether this is a download.
   virtual bool IsDownload() const = 0;
+
+  // Whether this request if using Lo-Fi mode.
+  virtual bool IsUsingLoFi() const = 0;
 
  protected:
   virtual ~ResourceRequestInfo() {}

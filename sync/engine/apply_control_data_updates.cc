@@ -17,15 +17,8 @@
 
 namespace syncer {
 
-using syncable::GET_TYPE_ROOT;
-using syncable::IS_UNAPPLIED_UPDATE;
-using syncable::IS_UNSYNCED;
-using syncable::SERVER_SPECIFICS;
-using syncable::SPECIFICS;
-using syncable::SYNCER;
-
 void ApplyControlDataUpdates(syncable::Directory* dir) {
-  syncable::WriteTransaction trans(FROM_HERE, SYNCER, dir);
+  syncable::WriteTransaction trans(FROM_HERE, syncable::SYNCER, dir);
 
   std::vector<int64> handles;
   dir->GetUnappliedUpdateMetaHandles(
@@ -39,13 +32,25 @@ void ApplyControlDataUpdates(syncable::Directory* dir) {
   ModelTypeSet control_types = ControlTypes();
   for (ModelTypeSet::Iterator iter = control_types.First(); iter.Good();
        iter.Inc()) {
-    syncable::MutableEntry entry(&trans, syncable::GET_TYPE_ROOT, iter.Get());
+    ModelType type = iter.Get();
+    syncable::MutableEntry entry(&trans, syncable::GET_TYPE_ROOT, type);
     if (!entry.good())
       continue;
-    if (!entry.GetIsUnappliedUpdate())
-      continue;
 
-    ModelType type = entry.GetServerModelType();
+    if (!entry.GetIsUnappliedUpdate()) {
+      // If this is a type with client generated root, the root node has been
+      // created locally and might never be updated by the server. In that case
+      // it has to be marked as having the initial download completed (which is
+      // done by changing the root's base version to a value other than
+      // CHANGES_VERSION). This does nothing if the root's base version is
+      // already other than CHANGES_VERSION.
+      if (IsTypeWithClientGeneratedRoot(type)) {
+        dir->MarkInitialSyncEndedForType(&trans, type);
+      }
+      continue;
+    }
+
+    DCHECK_EQ(type, entry.GetServerModelType());
     if (type == NIGORI) {
       // Nigori node applications never fail.
       ApplyNigoriUpdate(&trans,

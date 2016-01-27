@@ -4,22 +4,22 @@
 
 /**
  * @fileoverview
- * 'cr-settings-privacy-page' is the settings page containing privacy and
+ * 'settings-privacy-page' is the settings page containing privacy and
  * security settings.
  *
  * Example:
  *
  *    <iron-animated-pages>
- *      <cr-settings-privacy-page prefs="{{prefs}}">
- *      </cr-settings-privacy-page>
+ *      <settings-privacy-page prefs="{{prefs}}">
+ *      </settings-privacy-page>
  *      ... other pages ...
  *    </iron-animated-pages>
  *
  * @group Chrome Settings Elements
- * @element cr-settings-privacy-page
+ * @element settings-privacy-page
  */
 Polymer({
-  is: 'cr-settings-privacy-page',
+  is: 'settings-privacy-page',
 
   properties: {
     /**
@@ -31,45 +31,26 @@ Polymer({
     },
 
     /**
-     * Route for the page.
+     * The current active route.
      */
-    route: String,
-
-    /**
-     * Whether the page is a subpage.
-     */
-    subpage: {
-      type: Boolean,
-      value: false,
-      readOnly: true,
+    currentRoute: {
+      type: Object,
+      notify: true,
     },
+  },
 
-    /**
-     * ID of the page.
-     */
-    PAGE_ID: {
-      type: String,
-      value: 'privacy',
-      readOnly: true,
-    },
+  /** @private */
+  onManageCertificatesTap_: function() {
+    this.$.pages.setSubpageChain(['manage-certificates']);
+  },
 
-    /**
-     * Title for the page header and navigation menu.
-     */
-    pageTitle: {
-      type: String,
-      value: function() {
-        return loadTimeData.getString('privacyPageTitle');
-      },
-    },
+  /** @private */
+  onSiteSettingsTap_: function() {
+    this.$.pages.setSubpageChain(['site-settings']);
+  },
 
-    /**
-     * Name of the 'iron-icon' to show.
-     */
-    icon: {
-      type: String,
-      value: 'lock',
-      readOnly: true,
-    },
+  /** @private */
+  onClearBrowsingDataTap_: function() {
+    this.$.pages.setSubpageChain(['clear-browsing-data']);
   },
 });

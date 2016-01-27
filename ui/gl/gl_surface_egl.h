@@ -24,14 +24,17 @@ namespace gfx {
 // Get default EGL display for GLSurfaceEGL (differs by platform).
 EGLNativeDisplayType GetPlatformDefaultEGLNativeDisplay();
 
+// If adding a new type, also add it to EGLDisplayType in
+// tools/metrics/histograms/histograms.xml. Don't remove or reorder entries.
 enum DisplayType {
-  DEFAULT,
-  SWIFT_SHADER,
-  ANGLE_WARP,
-  ANGLE_D3D9,
-  ANGLE_D3D11,
-  ANGLE_OPENGL,
-  ANGLE_OPENGLES,
+  DEFAULT = 0,
+  SWIFT_SHADER = 1,
+  ANGLE_WARP = 2,
+  ANGLE_D3D9 = 3,
+  ANGLE_D3D11 = 4,
+  ANGLE_OPENGL = 5,
+  ANGLE_OPENGLES = 6,
+  DISPLAY_TYPE_MAX = 7,
 };
 
 GL_EXPORT void GetEGLInitDisplays(bool supports_angle_d3d,
@@ -45,7 +48,6 @@ class GL_EXPORT GLSurfaceEGL : public GLSurface {
   GLSurfaceEGL();
 
   // Implement GLSurface.
-  void DestroyAndTerminateDisplay() override;
   EGLDisplay GetDisplay() override;
 
   static bool InitializeOneOff();
@@ -77,7 +79,7 @@ class GL_EXPORT NativeViewGLSurfaceEGL : public GLSurfaceEGL {
   EGLConfig GetConfig() override;
   bool Initialize() override;
   void Destroy() override;
-  bool Resize(const gfx::Size& size) override;
+  bool Resize(const gfx::Size& size, float scale_factor) override;
   bool Recreate() override;
   bool IsOffscreen() override;
   gfx::SwapResult SwapBuffers() override;
@@ -132,7 +134,7 @@ class GL_EXPORT PbufferGLSurfaceEGL : public GLSurfaceEGL {
   bool IsOffscreen() override;
   gfx::SwapResult SwapBuffers() override;
   gfx::Size GetSize() override;
-  bool Resize(const gfx::Size& size) override;
+  bool Resize(const gfx::Size& size, float scale_factor) override;
   EGLSurface GetHandle() override;
   void* GetShareHandle() override;
 
@@ -161,7 +163,7 @@ class GL_EXPORT SurfacelessEGL : public GLSurfaceEGL {
   bool IsSurfaceless() const override;
   gfx::SwapResult SwapBuffers() override;
   gfx::Size GetSize() override;
-  bool Resize(const gfx::Size& size) override;
+  bool Resize(const gfx::Size& size, float scale_factor) override;
   EGLSurface GetHandle() override;
   void* GetShareHandle() override;
 

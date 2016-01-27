@@ -21,6 +21,10 @@
  * mem.h. */
 #include <openssl/mem.h>
 
+/* Upstream OpenSSL defines |CRYPTO_LOCK|, etc., in crypto.h rather than
+ * thread.h. */
+#include <openssl/thread.h>
+
 
 #if defined(__cplusplus)
 extern "C" {
@@ -50,14 +54,15 @@ OPENSSL_EXPORT const char *SSLeay_version(int unused);
  * base.h. */
 OPENSSL_EXPORT unsigned long SSLeay(void);
 
+/* CRYPTO_malloc_init returns one. */
+OPENSSL_EXPORT int CRYPTO_malloc_init(void);
+
+/* ENGINE_load_builtin_engines does nothing. */
+OPENSSL_EXPORT void ENGINE_load_builtin_engines(void);
+
 
 #if defined(__cplusplus)
 }  /* extern C */
 #endif
-
-#define CRYPTO_F_CRYPTO_get_ex_new_index 100
-#define CRYPTO_F_CRYPTO_set_ex_data 101
-#define CRYPTO_F_get_class 102
-#define CRYPTO_F_get_func_pointers 103
 
 #endif  /* OPENSSL_HEADER_CRYPTO_H */

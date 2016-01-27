@@ -4,8 +4,9 @@
 
 #include "chrome/browser/history/chrome_history_backend_client.h"
 
-#include "chrome/common/chrome_version_info.h"
+#include "chrome/common/channel_info.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/version_info/version_info.h"
 #include "url/gurl.h"
 
 #if defined(OS_ANDROID)
@@ -64,9 +65,9 @@ bool ChromeHistoryBackendClient::ShouldReportDatabaseError() {
   // TODO(shess): For now, don't report on beta or stable so as not to
   // overwhelm the crash server.  Once the big fish are fried,
   // consider reporting at a reduced rate on the bigger channels.
-  chrome::VersionInfo::Channel channel = chrome::VersionInfo::GetChannel();
-  return channel != chrome::VersionInfo::CHANNEL_STABLE &&
-         channel != chrome::VersionInfo::CHANNEL_BETA;
+  version_info::Channel channel = chrome::GetChannel();
+  return channel != version_info::Channel::STABLE &&
+         channel != version_info::Channel::BETA;
 }
 
 #if defined(OS_ANDROID)

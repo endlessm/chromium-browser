@@ -39,9 +39,10 @@ class CHROMEOS_EXPORT FakeDebugDaemonClient : public DebugDaemonClient {
   void GetWiMaxStatus(const GetWiMaxStatusCallback& callback) override;
   void GetNetworkInterfaces(
       const GetNetworkInterfacesCallback& callback) override;
-  void GetPerfData(uint32_t duration,
-                   const GetPerfDataCallback& callback) override;
   void GetPerfOutput(uint32_t duration,
+                     const GetPerfOutputCallback& callback) override;
+  void GetPerfOutput(uint32_t duration,
+                     const std::vector<std::string>& perf_args,
                      const GetPerfOutputCallback& callback) override;
   void GetScrubbedLogs(const GetLogsCallback& callback) override;
   void GetAllLogs(const GetLogsCallback& callback) override;

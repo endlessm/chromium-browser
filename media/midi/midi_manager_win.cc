@@ -27,6 +27,7 @@
 
 #include "base/bind.h"
 #include "base/containers/hash_tables.h"
+#include "base/macros.h"
 #include "base/message_loop/message_loop.h"
 #include "base/strings/string16.h"
 #include "base/strings/string_number_conversions.h"
@@ -168,7 +169,7 @@ void SendLongMidiMessageInternal(HMIDIOUT midi_out_handle,
   }
 
   // The ownership of |midi_header| is moved to MOM_DONE event handler.
-  midi_header.release();
+  ignore_result(midi_header.release());
 }
 
 template <size_t array_size>
@@ -315,7 +316,8 @@ using PortNumberCache = base::hash_map<
     std::priority_queue<uint32, std::vector<uint32>, std::greater<uint32>>,
     MidiDeviceInfo::Hasher>;
 
-struct MidiInputDeviceState final : base::RefCounted<MidiInputDeviceState> {
+struct MidiInputDeviceState final
+    : base::RefCountedThreadSafe<MidiInputDeviceState> {
   explicit MidiInputDeviceState(const MidiDeviceInfo& device_info)
       : device_info(device_info),
         midi_handle(kInvalidMidiInHandle),
@@ -342,11 +344,12 @@ struct MidiInputDeviceState final : base::RefCounted<MidiInputDeviceState> {
   bool start_time_initialized;
 
  private:
-  friend class base::RefCounted<MidiInputDeviceState>;
+  friend class base::RefCountedThreadSafe<MidiInputDeviceState>;
   ~MidiInputDeviceState() {}
 };
 
-struct MidiOutputDeviceState final : base::RefCounted<MidiOutputDeviceState> {
+struct MidiOutputDeviceState final
+    : base::RefCountedThreadSafe<MidiOutputDeviceState> {
   explicit MidiOutputDeviceState(const MidiDeviceInfo& device_info)
       : device_info(device_info),
         midi_handle(kInvalidMidiOutHandle),
@@ -371,7 +374,7 @@ struct MidiOutputDeviceState final : base::RefCounted<MidiOutputDeviceState> {
   volatile bool closed;
 
  private:
-  friend class base::RefCounted<MidiOutputDeviceState>;
+  friend class base::RefCountedThreadSafe<MidiOutputDeviceState>;
   ~MidiOutputDeviceState() {}
 };
 
@@ -425,7 +428,7 @@ class MidiServiceWinImpl : public MidiServiceWin,
   ~MidiServiceWinImpl() final {
     // Start() and Stop() of the threads, and AddDevicesChangeObserver() and
     // RemoveDevicesChangeObserver() should be called on the same thread.
-    CHECK(thread_checker_.CalledOnValidThread());
+    DCHECK(thread_checker_.CalledOnValidThread());
 
     destructor_started = true;
     base::SystemMonitor::Get()->RemoveDevicesChangedObserver(this);
@@ -479,7 +482,7 @@ class MidiServiceWinImpl : public MidiServiceWin,
   void InitializeAsync(MidiServiceWinDelegate* delegate) final {
     // Start() and Stop() of the threads, and AddDevicesChangeObserver() and
     // RemoveDevicesChangeObserver() should be called on the same thread.
-    CHECK(thread_checker_.CalledOnValidThread());
+    DCHECK(thread_checker_.CalledOnValidThread());
 
     delegate_ = delegate;
 
@@ -536,7 +539,7 @@ class MidiServiceWinImpl : public MidiServiceWin,
 
   // base::SystemMonitor::DevicesChangedObserver overrides:
   void OnDevicesChanged(base::SystemMonitor::DeviceType device_type) final {
-    CHECK(thread_checker_.CalledOnValidThread());
+    DCHECK(thread_checker_.CalledOnValidThread());
     if (destructor_started)
       return;
 
@@ -898,7 +901,7 @@ class MidiServiceWinImpl : public MidiServiceWin,
   /////////////////////////////////////////////////////////////////////////////
 
   void AssertOnSenderThread() {
-    DCHECK_EQ(sender_thread_.thread_id(), base::PlatformThread::CurrentId());
+    DCHECK_EQ(sender_thread_.GetThreadId(), base::PlatformThread::CurrentId());
   }
 
   void SendOnSenderThread(uint32 port_number,
@@ -954,7 +957,7 @@ class MidiServiceWinImpl : public MidiServiceWin,
   /////////////////////////////////////////////////////////////////////////////
 
   void AssertOnTaskThread() {
-    DCHECK_EQ(task_thread_.thread_id(), base::PlatformThread::CurrentId());
+    DCHECK_EQ(task_thread_.GetThreadId(), base::PlatformThread::CurrentId());
   }
 
   void UpdateDeviceListOnTaskThread() {
@@ -1117,13 +1120,16 @@ MidiManagerWin::MidiManagerWin() {
 }
 
 MidiManagerWin::~MidiManagerWin() {
-  midi_service_.reset();
 }
 
 void MidiManagerWin::StartInitialization() {
   midi_service_.reset(new MidiServiceWinImpl);
   // Note that |CompleteInitialization()| will be called from the callback.
   midi_service_->InitializeAsync(this);
+}
+
+void MidiManagerWin::Finalize() {
+  midi_service_.reset();
 }
 
 void MidiManagerWin::DispatchSendMidiData(MidiManagerClient* client,

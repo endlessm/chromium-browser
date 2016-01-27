@@ -20,15 +20,18 @@
 #include "net/quic/test_tools/quic_test_utils.h"
 #include "net/tools/quic/quic_epoll_connection_helper.h"
 #include "net/tools/quic/test_tools/mock_epoll_server.h"
-#include "net/tools/quic/test_tools/quic_test_utils.h"
+#include "net/tools/quic/test_tools/mock_quic_server_session_visitor.h"
 #include "testing/gmock/include/gmock/gmock.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
+using net::test::kTestPort;
 using net::test::BuildUnsizedDataPacket;
 using net::test::NoOpFramerVisitor;
 using net::test::QuicVersionMax;
 using net::test::QuicVersionMin;
 using net::test::ValueRestore;
+using net::test::MockPacketWriter;
+
 using testing::Args;
 using testing::Assign;
 using testing::DoAll;
@@ -93,13 +96,7 @@ class QuicTimeWaitListManagerTest : public ::testing::Test {
  protected:
   QuicTimeWaitListManagerTest()
       : helper_(&epoll_server_),
-        time_wait_list_manager_(&writer_,
-                                &visitor_,
-                                &helper_,
-                                QuicSupportedVersions()),
-        framer_(QuicSupportedVersions(),
-                QuicTime::Zero(),
-                Perspective::IS_SERVER),
+        time_wait_list_manager_(&writer_, &visitor_, &helper_),
         connection_id_(45),
         client_address_(net::test::TestPeerIPAddress(), kTestPort),
         writer_is_blocked_(false) {}
@@ -119,17 +116,19 @@ class QuicTimeWaitListManagerTest : public ::testing::Test {
   }
 
   void AddStatelessConnectionId(QuicConnectionId connection_id) {
+    std::vector<QuicEncryptedPacket*> termination_packets;
+    termination_packets.push_back(new QuicEncryptedPacket(nullptr, 0, false));
     time_wait_list_manager_.AddConnectionIdToTimeWait(
         connection_id, QuicVersionMax(),
-        /*connection_rejected_statelessly=*/true, nullptr);
+        /*connection_rejected_statelessly=*/true, &termination_packets);
   }
 
   void AddConnectionId(QuicConnectionId connection_id,
                        QuicVersion version,
                        bool connection_rejected_statelessly,
-                       QuicEncryptedPacket* packet) {
+                       std::vector<QuicEncryptedPacket*>* packets) {
     time_wait_list_manager_.AddConnectionIdToTimeWait(
-        connection_id, version, connection_rejected_statelessly, packet);
+        connection_id, version, connection_rejected_statelessly, packets);
   }
 
   bool IsConnectionIdInTimeWait(QuicConnectionId connection_id) {
@@ -137,43 +136,17 @@ class QuicTimeWaitListManagerTest : public ::testing::Test {
   }
 
   void ProcessPacket(QuicConnectionId connection_id,
-                     QuicPacketSequenceNumber sequence_number) {
+                     QuicPacketNumber packet_number) {
     QuicEncryptedPacket packet(nullptr, 0);
-    time_wait_list_manager_.ProcessPacket(server_address_,
-                                          client_address_,
-                                          connection_id,
-                                          sequence_number,
-                                          packet);
+    time_wait_list_manager_.ProcessPacket(server_address_, client_address_,
+                                          connection_id, packet_number, packet);
   }
 
   QuicEncryptedPacket* ConstructEncryptedPacket(
-      EncryptionLevel level,
       QuicConnectionId connection_id,
-      QuicPacketSequenceNumber sequence_number) {
-    QuicPacketHeader header;
-    header.public_header.connection_id = connection_id;
-    header.public_header.connection_id_length = PACKET_8BYTE_CONNECTION_ID;
-    header.public_header.version_flag = false;
-    header.public_header.reset_flag = false;
-    header.public_header.sequence_number_length = PACKET_6BYTE_SEQUENCE_NUMBER;
-    header.packet_sequence_number = sequence_number;
-    header.entropy_flag = false;
-    header.entropy_hash = 0;
-    header.fec_flag = false;
-    header.is_in_fec_group = NOT_IN_FEC_GROUP;
-    header.fec_group = 0;
-    QuicStreamFrame stream_frame(1, false, 0, StringPiece("data"));
-    QuicFrame frame(&stream_frame);
-    QuicFrames frames;
-    frames.push_back(frame);
-    scoped_ptr<QuicPacket> packet(
-        BuildUnsizedDataPacket(&framer_, header, frames));
-    EXPECT_TRUE(packet != nullptr);
-    char buffer[kMaxPacketSize];
-    scoped_ptr<QuicEncryptedPacket> encrypted(framer_.EncryptPayload(
-        ENCRYPTION_NONE, sequence_number, *packet, buffer, kMaxPacketSize));
-    EXPECT_TRUE(encrypted != nullptr);
-    return encrypted->Clone();
+      QuicPacketNumber packet_number) {
+    return net::test::ConstructEncryptedPacket(connection_id, false, false,
+                                               packet_number, "data");
   }
 
   NiceMock<MockFakeTimeEpollServer> epoll_server_;
@@ -181,7 +154,6 @@ class QuicTimeWaitListManagerTest : public ::testing::Test {
   StrictMock<MockPacketWriter> writer_;
   StrictMock<MockQuicServerSessionVisitor> visitor_;
   QuicTimeWaitListManager time_wait_list_manager_;
-  QuicFramer framer_;
   QuicConnectionId connection_id_;
   IPEndPoint server_address_;
   IPEndPoint client_address_;
@@ -192,9 +164,8 @@ class ValidatePublicResetPacketPredicate
     : public MatcherInterface<const std::tr1::tuple<const char*, int> > {
  public:
   explicit ValidatePublicResetPacketPredicate(QuicConnectionId connection_id,
-                                              QuicPacketSequenceNumber number)
-      : connection_id_(connection_id), sequence_number_(number) {
-  }
+                                              QuicPacketNumber number)
+      : connection_id_(connection_id), packet_number_(number) {}
 
   bool MatchAndExplain(
       const std::tr1::tuple<const char*, int> packet_buffer,
@@ -208,10 +179,11 @@ class ValidatePublicResetPacketPredicate
     framer.ProcessPacket(encrypted);
     QuicPublicResetPacket packet = visitor.public_reset_packet();
     return connection_id_ == packet.public_header.connection_id &&
-        packet.public_header.reset_flag && !packet.public_header.version_flag &&
-        sequence_number_ == packet.rejected_sequence_number &&
-        net::test::TestPeerIPAddress() == packet.client_address.address() &&
-        kTestPort == packet.client_address.port();
+           packet.public_header.reset_flag &&
+           !packet.public_header.version_flag &&
+           packet_number_ == packet.rejected_packet_number &&
+           net::test::TestPeerIPAddress() == packet.client_address.address() &&
+           kTestPort == packet.client_address.port();
   }
 
   void DescribeTo(::std::ostream* os) const override {}
@@ -220,15 +192,14 @@ class ValidatePublicResetPacketPredicate
 
  private:
   QuicConnectionId connection_id_;
-  QuicPacketSequenceNumber sequence_number_;
+  QuicPacketNumber packet_number_;
 };
 
-
-Matcher<const std::tr1::tuple<const char*, int> > PublicResetPacketEq(
+Matcher<const std::tr1::tuple<const char*, int>> PublicResetPacketEq(
     QuicConnectionId connection_id,
-    QuicPacketSequenceNumber sequence_number) {
-  return MakeMatcher(new ValidatePublicResetPacketPredicate(connection_id,
-                                                            sequence_number));
+    QuicPacketNumber packet_number) {
+  return MakeMatcher(
+      new ValidatePublicResetPacketPredicate(connection_id, packet_number));
 }
 
 TEST_F(QuicTimeWaitListManagerTest, CheckConnectionIdInTimeWait) {
@@ -250,15 +221,37 @@ TEST_F(QuicTimeWaitListManagerTest, CheckStatelessConnectionIdInTimeWait) {
 TEST_F(QuicTimeWaitListManagerTest, SendConnectionClose) {
   const size_t kConnectionCloseLength = 100;
   EXPECT_CALL(visitor_, OnConnectionAddedToTimeWaitList(connection_id_));
+  std::vector<QuicEncryptedPacket*> termination_packets;
+  termination_packets.push_back(new QuicEncryptedPacket(
+      new char[kConnectionCloseLength], kConnectionCloseLength, true));
   AddConnectionId(connection_id_, QuicVersionMax(),
                   /*connection_rejected_statelessly=*/false,
-                  new QuicEncryptedPacket(new char[kConnectionCloseLength],
-                                          kConnectionCloseLength, true));
+                  &termination_packets);
   const int kRandomSequenceNumber = 1;
   EXPECT_CALL(writer_, WritePacket(_, kConnectionCloseLength,
                                    server_address_.address(),
                                    client_address_))
       .WillOnce(Return(WriteResult(WRITE_STATUS_OK, 1)));
+
+  ProcessPacket(connection_id_, kRandomSequenceNumber);
+}
+
+TEST_F(QuicTimeWaitListManagerTest, SendTwoConnectionCloses) {
+  const size_t kConnectionCloseLength = 100;
+  EXPECT_CALL(visitor_, OnConnectionAddedToTimeWaitList(connection_id_));
+  std::vector<QuicEncryptedPacket*> termination_packets;
+  termination_packets.push_back(new QuicEncryptedPacket(
+      new char[kConnectionCloseLength], kConnectionCloseLength, true));
+  termination_packets.push_back(new QuicEncryptedPacket(
+      new char[kConnectionCloseLength], kConnectionCloseLength, true));
+  AddConnectionId(connection_id_, QuicVersionMax(),
+                  /*connection_rejected_statelessly=*/false,
+                  &termination_packets);
+  const int kRandomSequenceNumber = 1;
+  EXPECT_CALL(writer_, WritePacket(_, kConnectionCloseLength,
+                                   server_address_.address(), client_address_))
+      .Times(2)
+      .WillRepeatedly(Return(WriteResult(WRITE_STATUS_OK, 1)));
 
   ProcessPacket(connection_id_, kRandomSequenceNumber);
 }
@@ -281,19 +274,19 @@ TEST_F(QuicTimeWaitListManagerTest, SendPublicResetWithExponentialBackOff) {
   EXPECT_CALL(visitor_, OnConnectionAddedToTimeWaitList(connection_id_));
   AddConnectionId(connection_id_);
   EXPECT_EQ(1u, time_wait_list_manager_.num_connections());
-  for (int sequence_number = 1; sequence_number < 101; ++sequence_number) {
-    if ((sequence_number & (sequence_number - 1)) == 0) {
+  for (int packet_number = 1; packet_number < 101; ++packet_number) {
+    if ((packet_number & (packet_number - 1)) == 0) {
       EXPECT_CALL(writer_, WritePacket(_, _, _, _))
           .WillOnce(Return(WriteResult(WRITE_STATUS_OK, 1)));
     }
-    ProcessPacket(connection_id_, sequence_number);
+    ProcessPacket(connection_id_, packet_number);
     // Send public reset with exponential back off.
-    if ((sequence_number & (sequence_number - 1)) == 0) {
+    if ((packet_number & (packet_number - 1)) == 0) {
       EXPECT_TRUE(QuicTimeWaitListManagerPeer::ShouldSendResponse(
-                      &time_wait_list_manager_, sequence_number));
+          &time_wait_list_manager_, packet_number));
     } else {
       EXPECT_FALSE(QuicTimeWaitListManagerPeer::ShouldSendResponse(
-                       &time_wait_list_manager_, sequence_number));
+          &time_wait_list_manager_, packet_number));
     }
   }
 }
@@ -302,6 +295,11 @@ TEST_F(QuicTimeWaitListManagerTest, NoPublicResetForStatelessConnections) {
   EXPECT_CALL(visitor_, OnConnectionAddedToTimeWaitList(connection_id_));
   AddStatelessConnectionId(connection_id_);
   const int kRandomSequenceNumber = 1;
+
+  EXPECT_CALL(writer_,
+              WritePacket(_, _, server_address_.address(), client_address_))
+      .WillOnce(Return(WriteResult(WRITE_STATUS_OK, 1)));
+
   ProcessPacket(connection_id_, kRandomSequenceNumber);
 }
 
@@ -361,62 +359,52 @@ TEST_F(QuicTimeWaitListManagerTest, SendQueuedPackets) {
   QuicConnectionId connection_id = 1;
   EXPECT_CALL(visitor_, OnConnectionAddedToTimeWaitList(connection_id));
   AddConnectionId(connection_id);
-  QuicPacketSequenceNumber sequence_number = 234;
-  scoped_ptr<QuicEncryptedPacket> packet(ConstructEncryptedPacket(
-      ENCRYPTION_NONE, connection_id, sequence_number));
+  QuicPacketNumber packet_number = 234;
+  scoped_ptr<QuicEncryptedPacket> packet(
+      ConstructEncryptedPacket(connection_id, packet_number));
   // Let first write through.
-  EXPECT_CALL(writer_, WritePacket(_, _,
-                                   server_address_.address(),
-                                   client_address_))
-      .With(Args<0, 1>(PublicResetPacketEq(connection_id,
-                                           sequence_number)))
+  EXPECT_CALL(writer_,
+              WritePacket(_, _, server_address_.address(), client_address_))
+      .With(Args<0, 1>(PublicResetPacketEq(connection_id, packet_number)))
       .WillOnce(Return(WriteResult(WRITE_STATUS_OK, packet->length())));
-  ProcessPacket(connection_id, sequence_number);
+  ProcessPacket(connection_id, packet_number);
 
   // write block for the next packet.
-  EXPECT_CALL(writer_, WritePacket(_, _,
-                                   server_address_.address(),
-                                   client_address_))
-      .With(Args<0, 1>(PublicResetPacketEq(connection_id,
-                                           sequence_number)))
-      .WillOnce(DoAll(
-          Assign(&writer_is_blocked_, true),
-          Return(WriteResult(WRITE_STATUS_BLOCKED, EAGAIN))));
+  EXPECT_CALL(writer_,
+              WritePacket(_, _, server_address_.address(), client_address_))
+      .With(Args<0, 1>(PublicResetPacketEq(connection_id, packet_number)))
+      .WillOnce(DoAll(Assign(&writer_is_blocked_, true),
+                      Return(WriteResult(WRITE_STATUS_BLOCKED, EAGAIN))));
   EXPECT_CALL(visitor_, OnWriteBlocked(&time_wait_list_manager_));
-  ProcessPacket(connection_id, sequence_number);
+  ProcessPacket(connection_id, packet_number);
   // 3rd packet. No public reset should be sent;
-  ProcessPacket(connection_id, sequence_number);
+  ProcessPacket(connection_id, packet_number);
 
   // write packet should not be called since we are write blocked but the
   // should be queued.
   QuicConnectionId other_connection_id = 2;
   EXPECT_CALL(visitor_, OnConnectionAddedToTimeWaitList(other_connection_id));
   AddConnectionId(other_connection_id);
-  QuicPacketSequenceNumber other_sequence_number = 23423;
+  QuicPacketNumber other_packet_number = 23423;
   scoped_ptr<QuicEncryptedPacket> other_packet(
-      ConstructEncryptedPacket(
-          ENCRYPTION_NONE, other_connection_id, other_sequence_number));
+      ConstructEncryptedPacket(other_connection_id, other_packet_number));
   EXPECT_CALL(writer_, WritePacket(_, _, _, _))
       .Times(0);
   EXPECT_CALL(visitor_, OnWriteBlocked(&time_wait_list_manager_));
-  ProcessPacket(other_connection_id, other_sequence_number);
+  ProcessPacket(other_connection_id, other_packet_number);
   EXPECT_EQ(2u, time_wait_list_manager_.num_connections());
 
   // Now expect all the write blocked public reset packets to be sent again.
   writer_is_blocked_ = false;
-  EXPECT_CALL(writer_, WritePacket(_, _,
-                                   server_address_.address(),
-                                   client_address_))
-      .With(Args<0, 1>(PublicResetPacketEq(connection_id,
-                                           sequence_number)))
+  EXPECT_CALL(writer_,
+              WritePacket(_, _, server_address_.address(), client_address_))
+      .With(Args<0, 1>(PublicResetPacketEq(connection_id, packet_number)))
       .WillOnce(Return(WriteResult(WRITE_STATUS_OK, packet->length())));
-  EXPECT_CALL(writer_, WritePacket(_, _,
-                                   server_address_.address(),
-                                   client_address_))
-      .With(Args<0, 1>(PublicResetPacketEq(other_connection_id,
-                                           other_sequence_number)))
-      .WillOnce(Return(WriteResult(WRITE_STATUS_OK,
-                                   other_packet->length())));
+  EXPECT_CALL(writer_,
+              WritePacket(_, _, server_address_.address(), client_address_))
+      .With(Args<0, 1>(
+          PublicResetPacketEq(other_connection_id, other_packet_number)))
+      .WillOnce(Return(WriteResult(WRITE_STATUS_OK, other_packet->length())));
   time_wait_list_manager_.OnCanWrite();
 }
 
@@ -453,10 +441,12 @@ TEST_F(QuicTimeWaitListManagerTest, AddConnectionIdTwice) {
   AddConnectionId(connection_id_);
   EXPECT_TRUE(IsConnectionIdInTimeWait(connection_id_));
   const size_t kConnectionCloseLength = 100;
+  std::vector<QuicEncryptedPacket*> termination_packets;
+  termination_packets.push_back(new QuicEncryptedPacket(
+      new char[kConnectionCloseLength], kConnectionCloseLength, true));
   AddConnectionId(connection_id_, QuicVersionMax(),
                   /*connection_rejected_statelessly=*/false,
-                  new QuicEncryptedPacket(new char[kConnectionCloseLength],
-                                          kConnectionCloseLength, true));
+                  &termination_packets);
   EXPECT_TRUE(IsConnectionIdInTimeWait(connection_id_));
   EXPECT_EQ(1u, time_wait_list_manager_.num_connections());
 

@@ -17,17 +17,15 @@ import android.support.v7.app.MediaRouteChooserDialogFragment;
 import android.support.v7.app.MediaRouteControllerDialogFragment;
 import android.support.v7.app.MediaRouteDialogFactory;
 import android.util.Log;
-import android.widget.Toast;
 
 import com.google.android.gms.cast.CastMediaControlIntent;
 
 import org.chromium.base.ApplicationStatus;
-import org.chromium.base.CommandLine;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.ChromeSwitches;
 import org.chromium.chrome.browser.media.remote.RemoteVideoInfo.PlayerState;
+import org.chromium.ui.widget.Toast;
 
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
@@ -68,13 +66,6 @@ public class RemoteMediaPlayerController implements MediaRouteController.UiListe
     private RemoteMediaPlayerController() {
         mChromeVideoActivity = new WeakReference<Activity>(null);
         mMediaRouteControllers = new ArrayList<MediaRouteController>();
-    }
-
-    /**
-     * @return Whether the remote playback is enabled.
-     */
-    public static boolean isRemotePlaybackEnabled() {
-        return !CommandLine.getInstance().hasSwitch(ChromeSwitches.DISABLE_CAST);
     }
 
     /**
@@ -194,6 +185,11 @@ public class RemoteMediaPlayerController implements MediaRouteController.UiListe
      */
     public void requestRemotePlayback(
             MediaRouteController.MediaStateListener player, MediaRouteController controller) {
+        // If we are already casting then simply switch to new video.
+        if (controller.isBeingCast()) {
+            controller.playerTakesOverCastDevice(player);
+            return;
+        }
         Activity currentActivity = ApplicationStatus.getLastTrackedFocusedActivity();
         mChromeVideoActivity = new WeakReference<Activity>(currentActivity);
 
@@ -278,41 +274,6 @@ public class RemoteMediaPlayerController implements MediaRouteController.UiListe
         createLockScreen();
         TransportControl lockScreen = getLockScreen();
         if (lockScreen != null) lockScreen.show(initialState);
-    }
-
-    /**
-     * Returns the current remote playback position.
-     *
-     * @return The current position of the remote playback in milliseconds.
-     */
-    public int getPosition() {
-        if (mCurrentRouteController == null) return -1;
-        return mCurrentRouteController.getPosition();
-    }
-
-    /**
-     * @return The stream duration in milliseconds.
-     */
-    public int getDuration() {
-        if (mCurrentRouteController == null) return 0;
-        return mCurrentRouteController.getDuration();
-    }
-
-    /**
-     * @return Whether the video is currently being played.
-     */
-    public boolean isPlaying() {
-        return mCurrentRouteController != null && mCurrentRouteController.isPlaying();
-    }
-
-    /**
-     * Initiates a seek request for the remote playback device to the specified position.
-     *
-     * @param msec The position to seek to, in milliseconds.
-     */
-    public void seekTo(int msec) {
-        if (mCurrentRouteController == null) return;
-        mCurrentRouteController.seekTo(msec);
     }
 
     /**

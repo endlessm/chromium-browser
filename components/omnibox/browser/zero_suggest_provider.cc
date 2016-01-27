@@ -14,6 +14,7 @@
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "base/time/time.h"
+#include "components/data_use_measurement/core/data_use_user_data.h"
 #include "components/history/core/browser/history_types.h"
 #include "components/history/core/browser/top_sites.h"
 #include "components/metrics/proto/omnibox_input_type.pb.h"
@@ -25,12 +26,13 @@
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/omnibox_pref_names.h"
 #include "components/omnibox/browser/search_provider.h"
+#include "components/omnibox/browser/verbatim_match.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/search_engines/template_url_service.h"
+#include "components/url_formatter/url_formatter.h"
 #include "components/variations/net/variations_http_header_provider.h"
 #include "net/base/escape.h"
 #include "net/base/load_flags.h"
-#include "net/base/net_util.h"
 #include "net/http/http_request_headers.h"
 #include "net/url_request/url_fetcher.h"
 #include "net/url_request/url_request_status.h"
@@ -59,9 +61,6 @@ void LogOmniboxZeroSuggestRequest(
   UMA_HISTOGRAM_ENUMERATION("Omnibox.ZeroSuggestRequests", request_value,
                             ZERO_SUGGEST_MAX_REQUEST_HISTOGRAM_VALUE);
 }
-
-// The maximum relevance of the top match from this provider.
-const int kDefaultVerbatimZeroSuggestRelevance = 1300;
 
 // Relevance value to use if it was not set explicitly by the server.
 const int kDefaultZeroSuggestRelevance = 100;
@@ -288,8 +287,9 @@ AutocompleteMatch ZeroSuggestProvider::NavigationToMatch(
 
   // Zero suggest results should always omit protocols and never appear bold.
   const std::string languages(client()->GetAcceptLanguages());
-  match.contents = net::FormatUrl(navigation.url(), languages,
-      net::kFormatUrlOmitAll, net::UnescapeRule::SPACES, NULL, NULL, NULL);
+  match.contents = url_formatter::FormatUrl(
+      navigation.url(), languages, url_formatter::kFormatUrlOmitAll,
+      net::UnescapeRule::SPACES, nullptr, nullptr, nullptr);
   match.fill_into_edit +=
       AutocompleteInput::FormattedStringWithEquivalentMeaning(
           navigation.url(), match.contents, client()->GetSchemeClassifier());
@@ -320,6 +320,8 @@ void ZeroSuggestProvider::Run(const GURL& suggest_url) {
     const int kFetcherID = 1;
     fetcher_ = net::URLFetcher::Create(kFetcherID, suggest_url,
                                        net::URLFetcher::GET, this);
+    data_use_measurement::DataUseUserData::AttachToFetcher(
+        fetcher_.get(), data_use_measurement::DataUseUserData::OMNIBOX);
     fetcher_->SetRequestContext(client()->GetRequestContext());
     fetcher_->SetLoadFlags(net::LOAD_DO_NOT_SAVE_COOKIES);
     // Add Chrome experiment state to the request headers.
@@ -409,22 +411,12 @@ void ZeroSuggestProvider::ConvertResultsToAutocompleteMatches() {
 }
 
 AutocompleteMatch ZeroSuggestProvider::MatchForCurrentURL() {
-  AutocompleteMatch match;
-  client()->GetAutocompleteClassifier()->Classify(
-      permanent_text_, false, true, current_page_classification_, &match, NULL);
-  match.allowed_to_be_default_match = true;
-
   // The placeholder suggestion for the current URL has high relevance so
   // that it is in the first suggestion slot and inline autocompleted. It
   // gets dropped as soon as the user types something.
-  match.relevance = GetVerbatimRelevance();
-
-  return match;
-}
-
-int ZeroSuggestProvider::GetVerbatimRelevance() const {
-  return results_.verbatim_relevance >= 0 ?
-      results_.verbatim_relevance : kDefaultVerbatimZeroSuggestRelevance;
+  return VerbatimMatchForURL(client(), permanent_text_,
+                             current_page_classification_,
+                             results_.verbatim_relevance);
 }
 
 bool ZeroSuggestProvider::ShouldShowNonContextualZeroSuggest(

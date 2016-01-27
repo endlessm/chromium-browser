@@ -94,7 +94,6 @@ WebInspector.DefaultScriptMapping.prototype = {
         this._scriptIdForUISourceCode.set(uiSourceCode, script.scriptId);
         this._debuggerWorkspaceBinding.setSourceMapping(this._debuggerModel.target(), uiSourceCode, this);
         this._debuggerWorkspaceBinding.pushSourceMapping(script, this);
-        script.addEventListener(WebInspector.Script.Events.ScriptEdited, this._scriptEdited, this);
     },
 
     /**
@@ -115,16 +114,6 @@ WebInspector.DefaultScriptMapping.prototype = {
     uiLineHasMapping: function(uiSourceCode, lineNumber)
     {
         return true;
-    },
-
-    /**
-     * @param {!WebInspector.Event} event
-     */
-    _scriptEdited: function(event)
-    {
-        var script = /** @type {!WebInspector.Script} */(event.target);
-        var content = /** @type {string} */(event.data);
-        this._uiSourceCodeForScriptId.get(script.scriptId).addRevision(content);
     },
 
     _debuggerReset: function()
@@ -187,11 +176,10 @@ WebInspector.DebuggerProjectDelegate.prototype = {
      */
     addScript: function(script)
     {
-        var contentProvider = script.isInlineScript() && !script.hasSourceURL ? new WebInspector.ConcatenatedScriptsContentProvider([script]) : script;
         var splitURL = WebInspector.ParsedURL.splitURLIntoPathComponents(script.sourceURL);
         var name = splitURL[splitURL.length - 1];
         name = "VM" + script.scriptId + (name ? " " + name : "");
-        return this.addContentProvider("", name, script.sourceURL, script.sourceURL, contentProvider);
+        return this.addContentProvider("", name, script.sourceURL, script);
     },
 
     __proto__: WebInspector.ContentProviderBasedProjectDelegate.prototype

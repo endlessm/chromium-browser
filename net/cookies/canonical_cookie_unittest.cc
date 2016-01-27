@@ -12,27 +12,6 @@
 
 namespace net {
 
-TEST(CanonicalCookieTest, GetCookieSourceFromURL) {
-  EXPECT_EQ("http://example.com/", CanonicalCookie::GetCookieSourceFromURL(
-                                       GURL("http://example.com")));
-  EXPECT_EQ("http://example.com/", CanonicalCookie::GetCookieSourceFromURL(
-                                       GURL("http://example.com/")));
-  EXPECT_EQ("http://example.com/", CanonicalCookie::GetCookieSourceFromURL(
-                                       GURL("http://example.com/test")));
-  EXPECT_EQ("file:///tmp/test.html", CanonicalCookie::GetCookieSourceFromURL(
-                                         GURL("file:///tmp/test.html")));
-  EXPECT_EQ("http://example.com/", CanonicalCookie::GetCookieSourceFromURL(
-                                       GURL("http://example.com:1234/")));
-  EXPECT_EQ("http://example.com/", CanonicalCookie::GetCookieSourceFromURL(
-                                       GURL("https://example.com/")));
-  EXPECT_EQ("http://example.com/", CanonicalCookie::GetCookieSourceFromURL(
-                                       GURL("http://user:pwd@example.com/")));
-  EXPECT_EQ("http://example.com/", CanonicalCookie::GetCookieSourceFromURL(
-                                       GURL("http://example.com/test?foo")));
-  EXPECT_EQ("http://example.com/", CanonicalCookie::GetCookieSourceFromURL(
-                                       GURL("http://example.com/test#foo")));
-}
-
 TEST(CanonicalCookieTest, Constructor) {
   GURL url("http://www.example.com/test");
   base::Time current_time = base::Time::Now();
@@ -40,7 +19,7 @@ TEST(CanonicalCookieTest, Constructor) {
   CanonicalCookie cookie(url, "A", "2", "www.example.com", "/test",
                          current_time, base::Time(), current_time, false, false,
                          false, COOKIE_PRIORITY_DEFAULT);
-  EXPECT_EQ(url.GetOrigin().spec(), cookie.Source());
+  EXPECT_EQ(url.GetOrigin(), cookie.Source());
   EXPECT_EQ("A", cookie.Name());
   EXPECT_EQ("2", cookie.Value());
   EXPECT_EQ("www.example.com", cookie.Domain());
@@ -52,7 +31,7 @@ TEST(CanonicalCookieTest, Constructor) {
   CanonicalCookie cookie2(url, "A", "2", std::string(), std::string(),
                           current_time, base::Time(), current_time, false,
                           false, false, COOKIE_PRIORITY_DEFAULT);
-  EXPECT_EQ(url.GetOrigin().spec(), cookie.Source());
+  EXPECT_EQ(url.GetOrigin(), cookie.Source());
   EXPECT_EQ("A", cookie2.Name());
   EXPECT_EQ("2", cookie2.Value());
   EXPECT_EQ("", cookie2.Domain());
@@ -70,7 +49,7 @@ TEST(CanonicalCookieTest, Create) {
 
   scoped_ptr<CanonicalCookie> cookie(
       CanonicalCookie::Create(url, "A=2", creation_time, options));
-  EXPECT_EQ(url.GetOrigin().spec(), cookie->Source());
+  EXPECT_EQ(url.GetOrigin(), cookie->Source());
   EXPECT_EQ("A", cookie->Name());
   EXPECT_EQ("2", cookie->Value());
   EXPECT_EQ("www.example.com", cookie->Domain());
@@ -79,7 +58,7 @@ TEST(CanonicalCookieTest, Create) {
 
   GURL url2("http://www.foo.com");
   cookie.reset(CanonicalCookie::Create(url2, "B=1", creation_time, options));
-  EXPECT_EQ(url2.GetOrigin().spec(), cookie->Source());
+  EXPECT_EQ(url2.GetOrigin(), cookie->Source());
   EXPECT_EQ("B", cookie->Name());
   EXPECT_EQ("1", cookie->Value());
   EXPECT_EQ("www.foo.com", cookie->Domain());
@@ -105,7 +84,7 @@ TEST(CanonicalCookieTest, Create) {
 
   // Test creating http only cookies.
   CookieOptions first_party_options;
-  first_party_options.set_first_party_url(url);
+  first_party_options.set_first_party(url::Origin(url));
   cookie.reset(CanonicalCookie::Create(url, "A=2; First-Party-Only",
                                        creation_time, httponly_options));
   EXPECT_TRUE(cookie.get());
@@ -116,7 +95,7 @@ TEST(CanonicalCookieTest, Create) {
   cookie.reset(CanonicalCookie::Create(
       url, "A", "2", "www.example.com", "/test", creation_time, base::Time(),
       false, false, false, COOKIE_PRIORITY_DEFAULT));
-  EXPECT_EQ(url.GetOrigin().spec(), cookie->Source());
+  EXPECT_EQ(url.GetOrigin(), cookie->Source());
   EXPECT_EQ("A", cookie->Name());
   EXPECT_EQ("2", cookie->Value());
   EXPECT_EQ(".www.example.com", cookie->Domain());
@@ -128,7 +107,7 @@ TEST(CanonicalCookieTest, Create) {
   cookie.reset(CanonicalCookie::Create(
       url, "A", "2", ".www.example.com", "/test", creation_time, base::Time(),
       false, false, false, COOKIE_PRIORITY_DEFAULT));
-  EXPECT_EQ(url.GetOrigin().spec(), cookie->Source());
+  EXPECT_EQ(url.GetOrigin(), cookie->Source());
   EXPECT_EQ("A", cookie->Name());
   EXPECT_EQ("2", cookie->Value());
   EXPECT_EQ(".www.example.com", cookie->Domain());
@@ -372,26 +351,26 @@ TEST(CanonicalCookieTest, IncludeFirstPartyForFirstPartyURL) {
   cookie.reset(CanonicalCookie::Create(secure_url, "A=2; First-Party-Only",
                                        creation_time, options));
   EXPECT_TRUE(cookie->IsFirstPartyOnly());
-  options.set_first_party_url(GURL());
+  options.set_first_party(url::Origin());
   EXPECT_FALSE(cookie->IncludeForRequestURL(secure_url, options));
 
   // First-party-only cookies are included only if the cookie's origin matches
   // the
   // first-party origin.
-  options.set_first_party_url(secure_url);
+  options.set_first_party(url::Origin(secure_url));
   EXPECT_TRUE(cookie->IncludeForRequestURL(secure_url, options));
-  options.set_first_party_url(insecure_url);
+  options.set_first_party(url::Origin(insecure_url));
   EXPECT_FALSE(cookie->IncludeForRequestURL(secure_url, options));
-  options.set_first_party_url(third_party_url);
+  options.set_first_party(url::Origin(third_party_url));
   EXPECT_FALSE(cookie->IncludeForRequestURL(secure_url, options));
 
   // "First-Party-Only" doesn't override the 'secure' flag.
   cookie.reset(CanonicalCookie::Create(
       secure_url, "A=2; Secure; First-Party-Only", creation_time, options));
-  options.set_first_party_url(secure_url);
+  options.set_first_party(url::Origin(secure_url));
   EXPECT_TRUE(cookie->IncludeForRequestURL(secure_url, options));
   EXPECT_FALSE(cookie->IncludeForRequestURL(insecure_url, options));
-  options.set_first_party_url(insecure_url);
+  options.set_first_party(url::Origin(insecure_url));
   EXPECT_FALSE(cookie->IncludeForRequestURL(secure_url, options));
   EXPECT_FALSE(cookie->IncludeForRequestURL(insecure_url, options));
 
@@ -399,10 +378,10 @@ TEST(CanonicalCookieTest, IncludeFirstPartyForFirstPartyURL) {
   cookie.reset(CanonicalCookie::Create(secure_url_with_path,
                                        "A=2; First-Party-Only; path=/foo/bar",
                                        creation_time, options));
-  options.set_first_party_url(secure_url_with_path);
+  options.set_first_party(url::Origin(secure_url_with_path));
   EXPECT_TRUE(cookie->IncludeForRequestURL(secure_url_with_path, options));
   EXPECT_FALSE(cookie->IncludeForRequestURL(secure_url, options));
-  options.set_first_party_url(secure_url);
+  options.set_first_party(url::Origin(secure_url));
   EXPECT_TRUE(cookie->IncludeForRequestURL(secure_url_with_path, options));
   EXPECT_FALSE(cookie->IncludeForRequestURL(secure_url, options));
 }

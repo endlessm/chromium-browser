@@ -16,10 +16,10 @@ cr.define('options.contentSettings', function() {
    */
   function IsEditableType(contentType) {
     // Exceptions of the following lists are not editable for now.
-    return !(contentType == 'notifications' ||
-             contentType == 'location' ||
+    return !(contentType == 'location' ||
              contentType == 'fullscreen' ||
-             contentType == 'media-stream' ||
+             contentType == 'media-stream-mic' ||
+             contentType == 'media-stream-camera' ||
              contentType == 'midi-sysex' ||
              contentType == 'zoomlevels');
   }
@@ -63,8 +63,6 @@ cr.define('options.contentSettings', function() {
         this.patternLabel = patternCell.querySelector('.static-text');
       var input = patternCell.querySelector('input');
 
-      // TODO(stuartmorgan): Create an createEditableSelectCell abstracting
-      // this code.
       // Setting label for display mode. |pattern| will be null for the 'add new
       // exception' row.
       if (this.pattern) {
@@ -86,14 +84,14 @@ cr.define('options.contentSettings', function() {
       if (this.contentType == 'plugins') {
         var optionDetect = cr.doc.createElement('option');
         optionDetect.textContent = loadTimeData.getString('detectException');
-        optionDetect.value = 'detect';
+        optionDetect.value = 'detect_important_content';
         select.appendChild(optionDetect);
       }
 
       if (this.contentType == 'cookies') {
         var optionSession = cr.doc.createElement('option');
         optionSession.textContent = loadTimeData.getString('sessionException');
-        optionSession.value = 'session';
+        optionSession.value = 'session_only';
         select.appendChild(optionSession);
       }
 
@@ -125,17 +123,6 @@ cr.define('options.contentSettings', function() {
 
       if (this.pattern)
         select.setAttribute('displaymode', 'edit');
-
-      if (this.contentType == 'media-stream') {
-        this.settingLabel.classList.add('media-audio-setting');
-
-        var videoSettingLabel = cr.doc.createElement('span');
-        videoSettingLabel.textContent = this.videoSettingForDisplay();
-        videoSettingLabel.className = 'exception-setting';
-        videoSettingLabel.classList.add('media-video-setting');
-        videoSettingLabel.setAttribute('displaymode', 'static');
-        this.contentElement.appendChild(videoSettingLabel);
-      }
 
       if (this.contentType == 'zoomlevels') {
         this.deletable = true;
@@ -264,16 +251,6 @@ cr.define('options.contentSettings', function() {
     },
 
     /**
-     * media video specific function.
-     * Gets a human-readable video setting string.
-     *
-     * @return {string} The display string.
-     */
-    videoSettingForDisplay: function() {
-      return this.getDisplayStringForSetting(this.dataItem.video);
-    },
-
-    /**
      * Gets a human-readable display string for setting.
      *
      * @param {string} setting The setting to be displayed.
@@ -286,9 +263,9 @@ cr.define('options.contentSettings', function() {
         return loadTimeData.getString('blockException');
       else if (setting == 'ask')
         return loadTimeData.getString('askException');
-      else if (setting == 'session')
+      else if (setting == 'session_only')
         return loadTimeData.getString('sessionException');
-      else if (setting == 'detect')
+      else if (setting == 'detect_important_content')
         return loadTimeData.getString('detectException');
       else if (setting == 'default')
         return '';
@@ -639,9 +616,6 @@ cr.define('options.contentSettings', function() {
         else
           divs[i].hidden = true;
       }
-
-      var mediaHeader = this.pageDiv.querySelector('.media-header');
-      mediaHeader.hidden = type != 'media-stream';
 
       $('exception-behavior-column').hidden = type == 'zoomlevels';
       $('exception-zoom-column').hidden = type != 'zoomlevels';

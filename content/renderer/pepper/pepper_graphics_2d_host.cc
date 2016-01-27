@@ -229,8 +229,8 @@ int32_t PepperGraphics2DHost::OnResourceMessageReceived(
                                       OnHostMsgScroll)
     PPAPI_DISPATCH_HOST_RESOURCE_CALL(PpapiHostMsg_Graphics2D_ReplaceContents,
                                       OnHostMsgReplaceContents)
-    PPAPI_DISPATCH_HOST_RESOURCE_CALL(PpapiHostMsg_Graphics2D_Flush,
-                                      OnHostMsgFlush)
+    PPAPI_DISPATCH_HOST_RESOURCE_CALL_0(PpapiHostMsg_Graphics2D_Flush,
+                                        OnHostMsgFlush)
     PPAPI_DISPATCH_HOST_RESOURCE_CALL(PpapiHostMsg_Graphics2D_SetScale,
                                       OnHostMsgSetScale)
     PPAPI_DISPATCH_HOST_RESOURCE_CALL(PpapiHostMsg_Graphics2D_ReadImageData,
@@ -284,7 +284,7 @@ bool PepperGraphics2DHost::ReadImageData(PP_Resource image,
     SkPaint paint;
     paint.setXfermodeMode(SkXfermode::kSrc_Mode);
     dest_canvas->drawBitmapRect(
-        *image_data_->GetMappedBitmap(), &src_irect, dest_rect, &paint);
+        *image_data_->GetMappedBitmap(), src_irect, dest_rect, &paint);
   }
   return true;
 }
@@ -332,8 +332,7 @@ void PepperGraphics2DHost::Paint(blink::WebCanvas* canvas,
   SkAutoCanvasRestore auto_restore(canvas, true);
   canvas->clipRect(sk_invalidate_rect);
   gfx::Size pixel_image_size(image_data_->width(), image_data_->height());
-  gfx::Size image_size =
-      gfx::ToFlooredSize(gfx::ScaleSize(pixel_image_size, scale_));
+  gfx::Size image_size = gfx::ScaleToFlooredSize(pixel_image_size, scale_);
 
   PepperPluginInstance* plugin_instance =
       renderer_ppapi_host_->GetPluginInstance(pp_instance());
@@ -372,15 +371,10 @@ void PepperGraphics2DHost::Paint(blink::WebCanvas* canvas,
     paint.setXfermodeMode(SkXfermode::kSrc_Mode);
   }
 
-  SkPoint origin;
-  origin.set(SkIntToScalar(plugin_rect.x()), SkIntToScalar(plugin_rect.y()));
-
-  SkPoint pixel_origin = origin;
-
+  SkPoint pixel_origin(PointToSkPoint(plugin_rect.origin()));
   if (scale_ != 1.0f && scale_ > 0.0f) {
     canvas->scale(scale_, scale_);
-    pixel_origin.set(pixel_origin.x() * (1.0f / scale_),
-                     pixel_origin.y() * (1.0f / scale_));
+    pixel_origin.scale(1.0f / scale_);
   }
   canvas->drawBitmap(image, pixel_origin.x(), pixel_origin.y(), &paint);
 }
@@ -504,14 +498,10 @@ int32_t PepperGraphics2DHost::OnHostMsgReplaceContents(
 }
 
 int32_t PepperGraphics2DHost::OnHostMsgFlush(
-    ppapi::host::HostMessageContext* context,
-    const std::vector<ui::LatencyInfo>& latency_info) {
+    ppapi::host::HostMessageContext* context) {
   // Don't allow more than one pending flush at a time.
   if (HasPendingFlush())
     return PP_ERROR_INPROGRESS;
-
-  if (bound_instance_)
-    bound_instance_->AddLatencyInfo(latency_info);
 
   PP_Resource old_image_data = 0;
   flush_reply_context_ = context->MakeReplyMessageContext();
@@ -554,7 +544,7 @@ int32_t PepperGraphics2DHost::OnHostMsgReadImageData(
 
 void PepperGraphics2DHost::ReleaseCallback(scoped_ptr<cc::SharedBitmap> bitmap,
                                            const gfx::Size& bitmap_size,
-                                           uint32 sync_point,
+                                           const gpu::SyncToken& sync_token,
                                            bool lost_resource) {
   cached_bitmap_.reset();
   // Only keep around a cached bitmap if the plugin is currently drawing (has
@@ -731,7 +721,7 @@ void PepperGraphics2DHost::ExecutePaintImageData(PPB_ImageData_Impl* image,
     SkPaint paint;
     paint.setXfermodeMode(SkXfermode::kSrc_Mode);
     backing_canvas->drawBitmapRect(
-        *image->GetMappedBitmap(), &src_irect, dest_rect, &paint);
+        *image->GetMappedBitmap(), src_irect, dest_rect, &paint);
   }
 }
 
@@ -806,18 +796,18 @@ bool PepperGraphics2DHost::ConvertToLogicalPixels(float scale,
   // Take the enclosing rectangle after scaling so a rectangle scaled down then
   // scaled back up by the inverse scale would fully contain the entire area
   // affected by the original rectangle.
-  *op_rect = gfx::ToEnclosingRect(gfx::ScaleRect(*op_rect, scale));
+  *op_rect = gfx::ScaleToEnclosingRect(*op_rect, scale);
   if (delta) {
     gfx::Point original_delta = *delta;
     float inverse_scale = 1.0f / scale;
-    *delta = gfx::ToFlooredPoint(gfx::ScalePoint(*delta, scale));
+    *delta = gfx::ScaleToFlooredPoint(*delta, scale);
 
     gfx::Rect inverse_scaled_rect =
-        gfx::ToEnclosingRect(gfx::ScaleRect(*op_rect, inverse_scale));
+        gfx::ScaleToEnclosingRect(*op_rect, inverse_scale);
     if (original_rect != inverse_scaled_rect)
       return false;
     gfx::Point inverse_scaled_point =
-        gfx::ToFlooredPoint(gfx::ScalePoint(*delta, inverse_scale));
+        gfx::ScaleToFlooredPoint(*delta, inverse_scale);
     if (original_delta != inverse_scaled_point)
       return false;
   }

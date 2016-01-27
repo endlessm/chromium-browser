@@ -132,7 +132,14 @@ const char kAlphaLanguageQueryName[] = "alpha";
 const char kAlphaLanguageQueryValue[] = "1";
 
 // Represent if the language list updater is disabled.
+// Android does not handle well language updates, leading to bugs
+// like crbug.com/555124
+
+#if defined(OS_ANDROID)
+bool update_is_disabled = true;
+#else
 bool update_is_disabled = false;
+#endif  // OS_ANDROID
 
 // Retry parameter for fetching.
 const int kMaxRetryOn5xx = 5;
@@ -289,8 +296,8 @@ bool TranslateLanguageList::SetSupportedLanguages(
   //   "al": {"XX": 1, ...}
   // }
   // Where "tl" and "al" are set in kTargetLanguagesKey and kAlphaLanguagesKey.
-  scoped_ptr<base::Value> json_value(base::JSONReader::DeprecatedRead(
-      language_list, base::JSON_ALLOW_TRAILING_COMMAS));
+  scoped_ptr<base::Value> json_value =
+      base::JSONReader::Read(language_list, base::JSON_ALLOW_TRAILING_COMMAS);
 
   if (json_value == NULL || !json_value->IsType(base::Value::TYPE_DICTIONARY)) {
     NotifyEvent(__LINE__, "Language list is invalid");

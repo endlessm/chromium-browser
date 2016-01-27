@@ -4,10 +4,14 @@
 
 #include <sys/types.h>  // Include something that will define __BIONIC__.
 
+#include "nacl_io/kernel_wrap.h" // IRT_EXT is turned on in this header.
+
 // The entire file is wrapped in this #if. We do this so this .cc file can be
 // compiled, even on a non-bionic build.
 
-#if defined(__native_client__) && defined(__BIONIC__)
+#if !defined(NACL_IO_IRT_EXT) && defined(__native_client__) && \
+    defined(__BIONIC__)
+
 #include <alloca.h>
 #include <assert.h>
 #include <dirent.h>
@@ -18,8 +22,8 @@
 #include <sys/time.h>
 
 #include "nacl_io/kernel_intercept.h"
-#include "nacl_io/kernel_wrap.h"
 #include "nacl_io/kernel_wrap_real.h"
+#include "nacl_io/nacl_abi_types.h"
 #include "nacl_io/osmman.h"
 
 namespace {
@@ -59,36 +63,6 @@ void nacl_stat_to_stat(const nacl_abi_stat* nacl_buf, struct stat* buf) {
 }
 
 }  // namespace
-
-// From native_client/src/trusted/service_runtime/include/sys/dirent.h
-
-#ifndef nacl_abi___ino_t_defined
-#define nacl_abi___ino_t_defined
-typedef int64_t nacl_abi___ino_t;
-typedef nacl_abi___ino_t nacl_abi_ino_t;
-#endif
-
-#ifndef nacl_abi___off_t_defined
-#define nacl_abi___off_t_defined
-typedef int64_t nacl_abi__off_t;
-typedef nacl_abi__off_t nacl_abi_off_t;
-#endif
-
-/* We need a way to define the maximum size of a name. */
-#ifndef MAXNAMLEN
-# ifdef NAME_MAX
-#  define MAXNAMLEN NAME_MAX
-# else
-#  define MAXNAMLEN 255
-# endif
-#endif
-
-struct nacl_abi_dirent {
-  nacl_abi_ino_t nacl_abi_d_ino;
-  nacl_abi_off_t nacl_abi_d_off;
-  uint16_t       nacl_abi_d_reclen;
-  char           nacl_abi_d_name[MAXNAMLEN + 1];
-};
 
 static const int d_name_shift = offsetof (dirent, d_name) -
   offsetof (struct nacl_abi_dirent, nacl_abi_d_name);
@@ -204,7 +178,7 @@ int WRAP(getdents)(int fd, dirent* nacl_buf, size_t nacl_count, size_t* nread) {
   int offset = 0;
   int count;
 
-  count = ki_getdents(fd, buf, nacl_count);
+  count = ki_getdents(fd, (dirent*)buf, nacl_count);
   RTN_ERRNO_IF(count < 0);
 
   while (offset < count) {

@@ -10,6 +10,7 @@
 #include "base/prefs/scoped_user_pref_update.h"
 #include "base/synchronization/cancellation_flag.h"
 #include "chrome/browser/browsing_data/browsing_data_helper.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/google/google_url_tracker_factory.h"
 #include "chrome/browser/profile_resetter/brandcoded_default_settings.h"
@@ -20,7 +21,11 @@
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/installer/util/browser_distribution.h"
+#include "components/content_settings/core/browser/content_settings_info.h"
+#include "components/content_settings/core/browser/content_settings_registry.h"
 #include "components/content_settings/core/browser/host_content_settings_map.h"
+#include "components/content_settings/core/browser/website_settings_info.h"
+#include "components/content_settings/core/browser/website_settings_registry.h"
 #include "components/google/core/browser/google_url_tracker.h"
 #include "components/search_engines/search_engines_pref_names.h"
 #include "components/search_engines/template_url_prepopulate_data.h"
@@ -215,17 +220,20 @@ void ProfileResetter::ResetHomepage() {
 
 void ProfileResetter::ResetContentSettings() {
   DCHECK(CalledOnValidThread());
-  PrefService* prefs = profile_->GetPrefs();
-  HostContentSettingsMap* map = profile_->GetHostContentSettingsMap();
+  HostContentSettingsMap* map =
+      HostContentSettingsMapFactory::GetForProfile(profile_);
 
-  for (int type = 0; type < CONTENT_SETTINGS_NUM_TYPES; ++type) {
-    map->ClearSettingsForOneType(static_cast<ContentSettingsType>(type));
-    if (HostContentSettingsMap::IsSettingAllowedForType(
-            prefs,
-            CONTENT_SETTING_DEFAULT,
-            static_cast<ContentSettingsType>(type)))
-      map->SetDefaultContentSetting(static_cast<ContentSettingsType>(type),
-                                    CONTENT_SETTING_DEFAULT);
+  for (const content_settings::WebsiteSettingsInfo* info :
+       *content_settings::WebsiteSettingsRegistry::GetInstance()) {
+    map->ClearSettingsForOneType(info->type());
+  }
+
+  // TODO(raymes): The default value isn't really used for website settings
+  // right now, but if it were we should probably reset that here too.
+  for (const content_settings::ContentSettingsInfo* info :
+       *content_settings::ContentSettingsRegistry::GetInstance()) {
+    map->SetDefaultContentSetting(info->website_settings_info()->type(),
+                                  CONTENT_SETTING_DEFAULT);
   }
   MarkAsDone(CONTENT_SETTINGS);
 }

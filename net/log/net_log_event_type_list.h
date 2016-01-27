@@ -253,6 +253,14 @@ EVENT_TYPE(PROXY_SERVICE_WAITING_FOR_INIT_PAC)
 //   }
 EVENT_TYPE(PROXY_SERVICE_RESOLVED_PROXY_LIST)
 
+// This event is emitted after proxies marked as bad have been deprioritized.
+//
+// It contains these parameters:
+//   {
+//      "pac_string": <List of valid proxy servers, in PAC format>,
+//   }
+EVENT_TYPE(PROXY_SERVICE_DEPRIORITIZED_BAD_PROXIES)
+
 // This event is emitted whenever the proxy settings used by ProxyService
 // change.
 //
@@ -918,7 +926,7 @@ EVENT_TYPE(ENTRY_WRITE_DATA)
 // For the BEGIN phase, the following parameters are attached:
 //   {
 //     "offset": <Offset at which to start reading>,
-//     "buff_len": <Bytes to read/write>,
+//     "buf_len": <Bytes to read/write>,
 //   }
 EVENT_TYPE(SPARSE_READ)
 EVENT_TYPE(SPARSE_WRITE)
@@ -937,7 +945,7 @@ EVENT_TYPE(SPARSE_WRITE_CHILD_DATA)
 //
 // For the BEGIN phase, the following parameters are attached:
 //   {
-//     "buff_len": <Bytes to read/write>,
+//     "buf_len": <Bytes to read/write>,
 //     "offset": <Offset at which to start reading>,
 //   }
 //
@@ -1433,6 +1441,11 @@ EVENT_TYPE(QUIC_SESSION)
 //   }
 EVENT_TYPE(QUIC_SESSION_CLOSE_ON_ERROR)
 
+// Session verification of a certificate from the server failed.
+//   {
+//   }
+EVENT_TYPE(QUIC_SESSION_CERTIFICATE_VERIFY_FAILED)
+
 // Session verified a certificate from the server.
 //   {
 //     "subjects": <list of DNS names that the certificate is valid for>,
@@ -1465,17 +1478,28 @@ EVENT_TYPE(QUIC_SESSION_PACKET_SENT)
 //   }
 EVENT_TYPE(QUIC_SESSION_PACKET_RETRANSMITTED)
 
-// Session received a QUIC packet header for a valid packet.
+// Session received a QUIC packet with a sequence number that had previously
+// been received.
+//   {
+//     "packet_sequence_number": <The packet's full 64-bit sequence number>
+//   }
+EVENT_TYPE(QUIC_SESSION_DUPLICATE_PACKET_RECEIVED)
+
+// Session received a QUIC packet header, which has not yet been authenticated.
 //   {
 //     "connection_id": <The 64-bit CONNECTION_ID for this connection, as a
 //                       base-10 string>,
-//     "public_flags": <The public flags set for this packet>,
+//     "reset_flag": <True if the reset flag is set for this packet>,
+//     "version_flag": <True if the version flag is set for this packet>,
 //     "packet_sequence_number": <The packet's full 64-bit sequence number,
 //                                as a base-10 string.>,
 //     "private_flags": <The private flags set for this packet>,
 //     "fec_group": <The FEC group of this packet>,
 //   }
-EVENT_TYPE(QUIC_SESSION_PACKET_HEADER_RECEIVED)
+EVENT_TYPE(QUIC_SESSION_UNAUTHENTICATED_PACKET_HEADER_RECEIVED)
+
+// Session has authenticated a QUIC packet.
+EVENT_TYPE(QUIC_SESSION_PACKET_AUTHENTICATED)
 
 // Session received a STREAM frame.
 //   {
@@ -2624,3 +2648,32 @@ EVENT_TYPE(DATA_REDUCTION_PROXY_FALLBACK)
 //                            request will be made>,
 //  }
 EVENT_TYPE(DATA_REDUCTION_PROXY_CONFIG_REQUEST)
+
+// -----------------------------------------------------------------------------
+// Safe Browsing related events
+// -----------------------------------------------------------------------------
+
+// The start/end of an async URL check by Safe Browsing. Will only show up if
+// it can't be classified as "safe" synchronously.
+//
+// The BEGIN phase contains the following parameters:
+//  {
+//    "url": <The URL being checked>,
+//  }
+//
+// The END phase contains the following parameters:
+//  {
+//    "result": <"safe", "unsafe", or "request_canceled">
+//  }
+EVENT_TYPE(SAFE_BROWSING_CHECKING_URL)
+
+// The start/end of some portion of the SAFE_BROWSING_CHECKING_URL during which
+// the request is delayed due to that check.
+//
+// The BEGIN phase contains the following parameters:
+//  {
+//    "url": <The URL being checked>,
+//    "defer_reason" : < "at_start", "at_response", "redirect",
+//                       "resumed_redirect", "unchecked_redirect">
+//  }
+EVENT_TYPE(SAFE_BROWSING_DEFERRED)

@@ -8,7 +8,7 @@
 namespace scheduler {
 namespace switches {
 
-extern const char kDisableBlinkScheduler[];
+extern const char kEnableVirtualizedTime[];
 
 }  // namespace switches
 }  // namespace scheduler

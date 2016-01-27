@@ -1005,6 +1005,9 @@ static int read_sm_data(AVFormatContext *s, AVIOContext *bc, AVPacket *pkt, int 
         AV_WL32(dst+4, skip_end);
     }
 
+    if (avio_tell(bc) >= maxpos)
+        return AVERROR_INVALIDDATA;
+
     return 0;
 }
 
@@ -1154,7 +1157,7 @@ static int decode_frame(NUTContext *nut, AVPacket *pkt, int frame_code)
 
     return 0;
 fail:
-    av_free_packet(pkt);
+    av_packet_unref(pkt);
     return ret;
 }
 
@@ -1268,7 +1271,7 @@ static int read_seek(AVFormatContext *s, int stream_index,
         pos2 = st->index_entries[index].pos;
         ts   = st->index_entries[index].timestamp;
     } else {
-        av_tree_find(nut->syncpoints, &dummy, (void *) ff_nut_sp_pts_cmp,
+        av_tree_find(nut->syncpoints, &dummy, ff_nut_sp_pts_cmp,
                      (void **) next_node);
         av_log(s, AV_LOG_DEBUG, "%"PRIu64"-%"PRIu64" %"PRId64"-%"PRId64"\n",
                next_node[0]->pos, next_node[1]->pos, next_node[0]->ts,
@@ -1277,11 +1280,13 @@ static int read_seek(AVFormatContext *s, int stream_index,
                             next_node[1]->pos, next_node[1]->pos,
                             next_node[0]->ts, next_node[1]->ts,
                             AVSEEK_FLAG_BACKWARD, &ts, nut_read_timestamp);
+        if (pos < 0)
+            return pos;
 
         if (!(flags & AVSEEK_FLAG_BACKWARD)) {
             dummy.pos    = pos + 16;
             next_node[1] = &nopts_sp;
-            av_tree_find(nut->syncpoints, &dummy, (void *) ff_nut_sp_pos_cmp,
+            av_tree_find(nut->syncpoints, &dummy, ff_nut_sp_pos_cmp,
                          (void **) next_node);
             pos2 = ff_gen_search(s, -2, dummy.pos, next_node[0]->pos,
                                  next_node[1]->pos, next_node[1]->pos,
@@ -1292,7 +1297,7 @@ static int read_seek(AVFormatContext *s, int stream_index,
             // FIXME dir but I think it does not matter
         }
         dummy.pos = pos;
-        sp = av_tree_find(nut->syncpoints, &dummy, (void *) ff_nut_sp_pos_cmp,
+        sp = av_tree_find(nut->syncpoints, &dummy, ff_nut_sp_pos_cmp,
                           NULL);
 
         av_assert0(sp);

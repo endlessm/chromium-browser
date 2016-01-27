@@ -9,10 +9,12 @@
 #include "base/metrics/histogram.h"
 #include "base/strings/string_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "components/url_formatter/url_formatter.h"
 #include "content/common/navigation_params.h"
+#include "content/common/page_state_serialization.h"
+#include "content/common/site_isolation_policy.h"
 #include "content/public/common/content_constants.h"
 #include "content/public/common/url_constants.h"
-#include "net/base/net_util.h"
 #include "ui/gfx/text_elider.h"
 
 // Use this to get a new unique ID for a NavigationEntry during construction.
@@ -100,7 +102,7 @@ NavigationEntryImpl::NavigationEntryImpl(SiteInstanceImpl* instance,
                                          ui::PageTransition transition_type,
                                          bool is_renderer_initiated)
     : frame_tree_(new TreeNode(
-          new FrameNavigationEntry(-1, -1, -1, instance, url, referrer))),
+          new FrameNavigationEntry(-1, "", -1, -1, instance, url, referrer))),
       unique_id_(GetUniqueIDInConstructor()),
       bindings_(kInvalidBindings),
       page_type_(PAGE_TYPE_NORMAL),
@@ -118,6 +120,9 @@ NavigationEntryImpl::NavigationEntryImpl(SiteInstanceImpl* instance,
       should_clear_history_list_(false),
       can_load_local_resources_(false),
       frame_tree_node_id_(-1) {
+#if defined(OS_ANDROID)
+  has_user_gesture_ = false;
+#endif
 }
 
 NavigationEntryImpl::~NavigationEntryImpl() {
@@ -176,6 +181,17 @@ const base::string16& NavigationEntryImpl::GetTitle() const {
 
 void NavigationEntryImpl::SetPageState(const PageState& state) {
   frame_tree_->frame_entry->set_page_state(state);
+
+  if (SiteIsolationPolicy::UseSubframeNavigationEntries()) {
+    // Also get the root ISN and DSN out of the PageState.
+    ExplodedPageState exploded_state;
+    if (!DecodePageState(state.ToEncodedData(), &exploded_state))
+      return;
+    frame_tree_->frame_entry->set_item_sequence_number(
+        exploded_state.top.item_sequence_number);
+    frame_tree_->frame_entry->set_document_sequence_number(
+        exploded_state.top.document_sequence_number);
+  }
 }
 
 const PageState& NavigationEntryImpl::GetPageState() const {
@@ -222,9 +238,9 @@ const base::string16& NavigationEntryImpl::GetTitleForDisplay(
   // Use the virtual URL first if any, and fall back on using the real URL.
   base::string16 title;
   if (!virtual_url_.is_empty()) {
-    title = net::FormatUrl(virtual_url_, languages);
+    title = url_formatter::FormatUrl(virtual_url_, languages);
   } else if (!GetURL().is_empty()) {
-    title = net::FormatUrl(GetURL(), languages);
+    title = url_formatter::FormatUrl(GetURL(), languages);
   }
 
   // For file:// URLs use the filename as the title, not the full path.
@@ -438,7 +454,9 @@ CommonNavigationParams NavigationEntryImpl::ConstructCommonNavigationParams(
     const GURL& dest_url,
     const Referrer& dest_referrer,
     const FrameNavigationEntry& frame_entry,
-    FrameMsg_Navigate_Type::Value navigation_type) const {
+    FrameMsg_Navigate_Type::Value navigation_type,
+    LoFiState lofi_state,
+    const base::TimeTicks& navigation_start) const {
   FrameMsg_UILoadMetricsReportType::Value report_type =
       FrameMsg_UILoadMetricsReportType::NO_REPORT;
   base::TimeTicks ui_timestamp = base::TimeTicks();
@@ -450,8 +468,9 @@ CommonNavigationParams NavigationEntryImpl::ConstructCommonNavigationParams(
 
   return CommonNavigationParams(
       dest_url, dest_referrer, GetTransitionType(), navigation_type,
-      !IsViewSourceMode(), ui_timestamp, report_type, GetBaseURLForDataURL(),
-      GetHistoryURLForDataURL());
+      !IsViewSourceMode(), should_replace_entry(), ui_timestamp, report_type,
+      GetBaseURLForDataURL(), GetHistoryURLForDataURL(), lofi_state,
+      navigation_start);
 }
 
 StartNavigationParams NavigationEntryImpl::ConstructStartNavigationParams()
@@ -464,15 +483,17 @@ StartNavigationParams NavigationEntryImpl::ConstructStartNavigationParams()
             GetBrowserInitiatedPostData()->size());
   }
 
-  return StartNavigationParams(
-      GetHasPostData(), extra_headers(), browser_initiated_post_data,
-      should_replace_entry(), transferred_global_request_id().child_id,
-      transferred_global_request_id().request_id);
+  return StartNavigationParams(GetHasPostData(), extra_headers(),
+                               browser_initiated_post_data,
+#if defined(OS_ANDROID)
+                               has_user_gesture(),
+#endif
+                               transferred_global_request_id().child_id,
+                               transferred_global_request_id().request_id);
 }
 
 RequestNavigationParams NavigationEntryImpl::ConstructRequestNavigationParams(
     const FrameNavigationEntry& frame_entry,
-    base::TimeTicks navigation_start,
     bool is_same_document_history_load,
     bool has_committed_real_load,
     bool intended_as_new_entry,
@@ -498,12 +519,11 @@ RequestNavigationParams NavigationEntryImpl::ConstructRequestNavigationParams(
     current_length_to_send = 0;
   }
   return RequestNavigationParams(
-      GetIsOverridingUserAgent(), navigation_start, redirects,
-      GetCanLoadLocalResources(), base::Time::Now(), frame_entry.page_state(),
-      GetPageID(), GetUniqueID(), is_same_document_history_load,
-      has_committed_real_load, intended_as_new_entry, pending_offset_to_send,
-      current_offset_to_send, current_length_to_send,
-      should_clear_history_list());
+      GetIsOverridingUserAgent(), redirects, GetCanLoadLocalResources(),
+      base::Time::Now(), frame_entry.page_state(), GetPageID(), GetUniqueID(),
+      is_same_document_history_load, has_committed_real_load,
+      intended_as_new_entry, pending_offset_to_send, current_offset_to_send,
+      current_length_to_send, should_clear_history_list());
 }
 
 void NavigationEntryImpl::ResetForCommit() {
@@ -527,13 +547,15 @@ void NavigationEntryImpl::ResetForCommit() {
 #endif
 }
 
-void NavigationEntryImpl::AddOrUpdateFrameEntry(FrameTreeNode* frame_tree_node,
-                                                int64 item_sequence_number,
-                                                int64 document_sequence_number,
-                                                SiteInstanceImpl* site_instance,
-                                                const GURL& url,
-                                                const Referrer& referrer,
-                                                const PageState& page_state) {
+void NavigationEntryImpl::AddOrUpdateFrameEntry(
+    FrameTreeNode* frame_tree_node,
+    const std::string& frame_unique_name,
+    int64 item_sequence_number,
+    int64 document_sequence_number,
+    SiteInstanceImpl* site_instance,
+    const GURL& url,
+    const Referrer& referrer,
+    const PageState& page_state) {
   // We should already have a TreeNode for the parent node by the time this node
   // commits.  Find it first.
   DCHECK(frame_tree_node->parent());
@@ -541,11 +563,7 @@ void NavigationEntryImpl::AddOrUpdateFrameEntry(FrameTreeNode* frame_tree_node,
       FindFrameEntry(frame_tree_node->parent());
   if (!parent_node) {
     // The renderer should not send a commit for a subframe before its parent.
-    // However, we may see commits of subframes when their parent or ancestor is
-    // still the initial about:blank page, and we don't currently keep a
-    // FrameNavigationEntry for that.  We ignore such commits, similar to how we
-    // handle them at the top level.
-    // TODO(creis): Consider creating FNEs for initial about:blank commits.
+    // TODO(creis): Kill the renderer if we get here.
     return;
   }
 
@@ -554,21 +572,19 @@ void NavigationEntryImpl::AddOrUpdateFrameEntry(FrameTreeNode* frame_tree_node,
   for (TreeNode* child : parent_node->children) {
     if (child->frame_entry->frame_tree_node_id() == frame_tree_node_id) {
       // Update the existing FrameNavigationEntry (e.g., for replaceState).
-      child->frame_entry->UpdateEntry(item_sequence_number,
+      child->frame_entry->UpdateEntry(frame_unique_name, item_sequence_number,
                                       document_sequence_number, site_instance,
                                       url, referrer, page_state);
       return;
     }
   }
 
-  // No entry exists yet, so create a new one unless it's for about:blank.
+  // No entry exists yet, so create a new one.
   // Unordered list, since we expect to look up entries by frame sequence number
   // or unique name.
-  if (url == GURL(url::kAboutBlankURL))
-    return;
   FrameNavigationEntry* frame_entry = new FrameNavigationEntry(
-      frame_tree_node_id, item_sequence_number, document_sequence_number,
-      site_instance, url, referrer);
+      frame_tree_node_id, frame_unique_name, item_sequence_number,
+      document_sequence_number, site_instance, url, referrer);
   frame_entry->set_page_state(page_state);
   parent_node->children.push_back(
       new NavigationEntryImpl::TreeNode(frame_entry));
@@ -601,8 +617,8 @@ NavigationEntryImpl::TreeNode* NavigationEntryImpl::FindFrameEntry(
     work_queue.pop();
     if (node->MatchesFrame(frame_tree_node)) {
       // Only the root TreeNode should have a FTN ID of -1.
-      DCHECK_IMPLIES(node->frame_entry->frame_tree_node_id() == -1,
-                     node == root_node());
+      DCHECK(node->frame_entry->frame_tree_node_id() != -1 ||
+             node == root_node());
       return node;
     }
     // Enqueue any children and keep looking.

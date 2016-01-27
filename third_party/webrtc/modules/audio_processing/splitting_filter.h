@@ -15,7 +15,7 @@
 #include <vector>
 
 #include "webrtc/modules/audio_processing/three_band_filter_bank.h"
-#include "webrtc/system_wrappers/interface/scoped_vector.h"
+#include "webrtc/system_wrappers/include/scoped_vector.h"
 
 namespace webrtc {
 
@@ -45,7 +45,7 @@ struct TwoBandsStates {
 // used.
 class SplittingFilter {
  public:
-  SplittingFilter(int num_channels, int num_bands, int num_frames);
+  SplittingFilter(int num_channels, size_t num_bands, size_t num_frames);
 
   void Analysis(const IFChannelBuffer* data, IFChannelBuffer* bands);
   void Synthesis(const IFChannelBuffer* bands, IFChannelBuffer* data);
@@ -58,7 +58,7 @@ class SplittingFilter {
   void ThreeBandsSynthesis(const IFChannelBuffer* bands, IFChannelBuffer* data);
   void InitBuffers();
 
-  const int num_bands_;
+  const size_t num_bands_;
   std::vector<TwoBandsStates> two_bands_states_;
   ScopedVector<ThreeBandFilterBank> three_band_filter_banks_;
 };

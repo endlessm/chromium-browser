@@ -22,6 +22,7 @@
 #include "sync/internal_api/public/base/model_type.h"
 #include "sync/internal_api/public/change_record.h"
 #include "sync/internal_api/public/configure_reason.h"
+#include "sync/internal_api/public/connection_status.h"
 #include "sync/internal_api/public/engine/model_safe_worker.h"
 #include "sync/internal_api/public/engine/sync_status.h"
 #include "sync/internal_api/public/events/protocol_event.h"
@@ -30,7 +31,6 @@
 #include "sync/internal_api/public/shutdown_reason.h"
 #include "sync/internal_api/public/sync_context_proxy.h"
 #include "sync/internal_api/public/sync_encryption_handler.h"
-#include "sync/internal_api/public/util/unrecoverable_error_handler.h"
 #include "sync/internal_api/public/util/weak_handle.h"
 #include "sync/protocol/sync_protocol_error.h"
 
@@ -51,24 +51,16 @@ class InternalComponentsFactory;
 class JsBackend;
 class JsEventHandler;
 class ProtocolEvent;
-class SyncContextProxy;
 class SyncEncryptionHandler;
 class SyncScheduler;
 class TypeDebugInfoObserver;
+class UnrecoverableErrorHandler;
 struct Experiments;
 struct UserShare;
 
 namespace sessions {
 class SyncSessionSnapshot;
 }  // namespace sessions
-
-// Used by SyncManager::OnConnectionStatusChange().
-enum ConnectionStatus {
-  CONNECTION_NOT_ATTEMPTED,
-  CONNECTION_OK,
-  CONNECTION_AUTH_ERROR,
-  CONNECTION_SERVER_ERROR
-};
 
 // Contains everything needed to talk to and identify a user account.
 struct SYNC_EXPORT SyncCredentials {
@@ -261,7 +253,7 @@ class SYNC_EXPORT SyncManager {
     // Must outlive SyncManager.
     Encryptor* encryptor;
 
-    scoped_ptr<UnrecoverableErrorHandler> unrecoverable_error_handler;
+    WeakHandle<UnrecoverableErrorHandler> unrecoverable_error_handler;
     base::Closure report_unrecoverable_error_function;
 
     // Carries shutdown requests across threads and will be used to cut short
@@ -277,6 +269,8 @@ class SYNC_EXPORT SyncManager {
     // encryption.
     PassphraseTransitionClearDataOption clear_data_option;
   };
+
+  typedef base::Callback<void(void)> ClearServerDataCallback;
 
   SyncManager();
   virtual ~SyncManager();
@@ -362,7 +356,7 @@ class SYNC_EXPORT SyncManager {
   virtual UserShare* GetUserShare() = 0;
 
   // Returns an instance of the main interface for non-blocking sync types.
-  virtual syncer::SyncContextProxy* GetSyncContextProxy() = 0;
+  virtual syncer_v2::SyncContextProxy* GetSyncContextProxy() = 0;
 
   // Returns the cache_guid of the currently open database.
   // Requires that the SyncManager be initialized.
@@ -400,6 +394,13 @@ class SYNC_EXPORT SyncManager {
   // Request that all current counter values be emitted as though they had just
   // been updated.  Useful for initializing new observers' state.
   virtual void RequestEmitDebugInfo() = 0;
+
+  // Clears server data and invokes |callback| when complete.
+  //
+  // This is an asynchronous operation that requires interaction with the sync
+  // server. The operation will automatically be retried with backoff until it
+  // completes successfully or sync is shutdown.
+  virtual void ClearServerData(const ClearServerDataCallback& callback) = 0;
 };
 
 }  // namespace syncer

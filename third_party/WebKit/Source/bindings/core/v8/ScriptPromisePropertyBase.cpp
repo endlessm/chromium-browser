@@ -103,6 +103,7 @@ void ScriptPromisePropertyBase::resolveOrReject(State targetState)
 
 void ScriptPromisePropertyBase::resetBase()
 {
+    checkThis();
     clearWrappers();
     m_state = Pending;
 }
@@ -152,15 +153,29 @@ v8::Local<v8::Object> ScriptPromisePropertyBase::ensureHolderWrapper(ScriptState
 
 void ScriptPromisePropertyBase::clearWrappers()
 {
+    checkThis();
+    checkWrappers();
     v8::HandleScope handleScope(m_isolate);
     for (WeakPersistentSet::iterator i = m_wrappers.begin(); i != m_wrappers.end(); ++i) {
         v8::Local<v8::Object> wrapper = (*i)->newLocal(m_isolate);
         if (!wrapper.IsEmpty()) {
-            wrapper->DeleteHiddenValue(resolverName());
-            wrapper->DeleteHiddenValue(promiseName());
+            V8HiddenValue::deleteHiddenValue(m_isolate, wrapper, resolverName());
+            V8HiddenValue::deleteHiddenValue(m_isolate, wrapper, promiseName());
         }
     }
     m_wrappers.clear();
+}
+
+void ScriptPromisePropertyBase::checkThis()
+{
+    RELEASE_ASSERT(this);
+}
+
+void ScriptPromisePropertyBase::checkWrappers()
+{
+    for (WeakPersistentSet::iterator i = m_wrappers.begin(); i != m_wrappers.end(); ++i) {
+        RELEASE_ASSERT(*i);
+    }
 }
 
 v8::Local<v8::String> ScriptPromisePropertyBase::promiseName()

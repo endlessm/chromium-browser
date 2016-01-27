@@ -237,29 +237,10 @@ PassRefPtrWillBeRawPtr<Node> Text::cloneNode(bool /*deep*/)
     return cloneWithData(data());
 }
 
-static inline bool hasGeneratedAnonymousTableCells(const LayoutObject& parent)
-{
-    // We're checking whether the table part has generated anonymous table
-    // part wrappers to hold its contents, so inspecting its first child will suffice.
-    LayoutObject* child = parent.slowFirstChild();
-    if (!child || !child->isAnonymous())
-        return false;
-    if (child->isTableCell())
-        return true;
-    if (child->isTableSection() || child->isTableRow())
-        return hasGeneratedAnonymousTableCells(*child);
-    return false;
-}
-
-static inline bool canHaveWhitespaceChildren(const LayoutObject& parent)
+static inline bool canHaveWhitespaceChildren(const LayoutObject& parent, Text* text)
 {
     // <button> should allow whitespace even though LayoutFlexibleBox doesn't.
     if (parent.isLayoutButton())
-        return true;
-
-    // Allow whitespace when the text is inside a table, section or row element that
-    // has generated anonymous table cells to hold its contents.
-    if (hasGeneratedAnonymousTableCells(parent))
         return true;
 
     if (parent.isTable() || parent.isTableRow() || parent.isTableSection()
@@ -268,8 +249,9 @@ static inline bool canHaveWhitespaceChildren(const LayoutObject& parent)
         || parent.isSVGRoot()
         || parent.isSVGContainer()
         || parent.isSVGImage()
-        || parent.isSVGShape())
+        || parent.isSVGShape()) {
         return false;
+    }
     return true;
 }
 
@@ -290,7 +272,7 @@ bool Text::textLayoutObjectIsNeeded(const ComputedStyle& style, const LayoutObje
     if (!containsOnlyWhitespace())
         return true;
 
-    if (!canHaveWhitespaceChildren(parent))
+    if (!canHaveWhitespaceChildren(parent, this))
         return false;
 
     // pre-wrap in SVG never makes layoutObject.

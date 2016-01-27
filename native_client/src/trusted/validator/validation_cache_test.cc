@@ -8,6 +8,7 @@
 
 #include <fcntl.h>
 
+#include "native_client/src/include/build_config.h"
 #include "native_client/src/include/nacl_compiler_annotations.h"
 #include "native_client/src/shared/platform/nacl_host_desc.h"
 #include "native_client/src/shared/platform/nacl_log.h"
@@ -24,31 +25,43 @@
 #define CONTEXT_MARKER 31
 #define QUERY_MARKER 37
 
-#define CODE_SIZE 32
+#define CODE_SIZE 64
 
-#if defined(__mips__)
+#if NACL_ARCH(NACL_BUILD_ARCH) == NACL_mips
 # define NOP 0x00
 #else  // x86
 # define NOP 0x90
 #endif
 
 
-#if defined(__mips__)
+#if NACL_ARCH(NACL_BUILD_ARCH) == NACL_mips
 // jr ra
-const char ret[CODE_SIZE + 1] =
-    "\x08\x00\xe0\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
-    "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+const uint8_t ret[] = { 0x08, 0x00, 0xe0, 0x03 };
 #else  // x86
 // ret
-const char ret[CODE_SIZE + 1] =
-    "\xc3\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
-    "\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90";
+const uint8_t ret[] = { 0xc3 };
 #endif
 
-// pblendw $0xc0,%xmm0,%xmm2
-const char sse41[CODE_SIZE + 1] =
-    "\x66\x0f\x3a\x0e\xd0\xc0\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90"
-    "\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90";
+// Example of an instruction which may get "stubbed out" (replaced with
+// HLTs) if the CPU does not support it.
+const uint8_t sse41[] =
+    { 0x66, 0x0f, 0x3a, 0x0e, 0xd0, 0xc0 };  // pblendw $0xc0,%xmm0,%xmm2
+
+const uint8_t sse41_plus_nontemporal[] =
+    { 0x66, 0x0f, 0x3a, 0x0e, 0xd0, 0xc0,  // pblendw $0xc0,%xmm0,%xmm2
+      0x0f, 0x18, 0x04, 0x24 };  // prefetchnta (%rsp)
+
+// Example of a valid JMP to outside the bundle, in a bundle containing an
+// instruction that gets stubbed out.
+const uint8_t sse41_plus_valid_jmp[] =
+    { 0x66, 0x0f, 0x3a, 0x0e, 0xd0, 0xc0,  // pblendw $0xc0,%xmm0,%xmm2
+      0xeb, 0x19 };  // jmp to a non-bundle-aligned nop in the next bundle
+
+// Example of an invalid JMP to outside the bundle, in a bundle containing
+// an instruction that gets stubbed out.
+const uint8_t sse41_plus_invalid_jmp[] =
+    { 0x66, 0x0f, 0x3a, 0x0e, 0xd0, 0xc0,  // pblendw $0xc0,%xmm0,%xmm2
+      0xeb, 0x39 };  // jmp to non-bundle-aligned address beyond the chunk end
 
 struct MockContext {
   int marker; /* Sanity check that we're getting the right object. */
@@ -166,9 +179,10 @@ class ValidationCachingInterfaceTests : public ::testing::Test {
   }
 
   NaClValidationStatus Validate() {
-    return validator->Validate(0, code_buffer, 32,
+    return validator->Validate(0, code_buffer, CODE_SIZE,
                                FALSE,  /* stubout_mode */
-                               FALSE,  /* readonly_test */
+                               0,      /* flags */
+                               FALSE,  /* readonly_text */
                                cpu_features,
                                metadata_ptr,
                                &cache);
@@ -194,7 +208,8 @@ TEST_F(ValidationCachingInterfaceTests, NoCache) {
   NaClValidationStatus status = validator->Validate(
       0, code_buffer, CODE_SIZE,
       FALSE, /* stubout_mode */
-      FALSE, /* readonly_test */
+      0,     /* flags */
+      FALSE, /* readonly_text */
       cpu_features,
       NULL, /* metadata */
       NULL);
@@ -215,9 +230,9 @@ TEST_F(ValidationCachingInterfaceTests, CacheMiss) {
   EXPECT_EQ(true, context.query_destroyed);
 }
 
-#if defined(__x86_64__) || defined(__i386__)
+#if NACL_ARCH(NACL_BUILD_ARCH) == NACL_x86
 TEST_F(ValidationCachingInterfaceTests, SSE4Allowed) {
-  memcpy(code_buffer, sse41, CODE_SIZE);
+  memcpy(code_buffer, sse41, sizeof(sse41));
   context.query_result = 0;
   context.set_validates_expected = true;
   NaClValidationStatus status = Validate();
@@ -226,7 +241,32 @@ TEST_F(ValidationCachingInterfaceTests, SSE4Allowed) {
 }
 
 TEST_F(ValidationCachingInterfaceTests, SSE4Stubout) {
-  memcpy(code_buffer, sse41, CODE_SIZE);
+  // Check that the validation is not cached if the validator modifies the
+  // the code (by stubbing out instructions).
+  memcpy(code_buffer, sse41, sizeof(sse41));
+  context.query_result = 0;
+  /* TODO(jfb) Use a safe cast here, this test should only run for x86. */
+  NaClSetCPUFeatureX86((NaClCPUFeaturesX86 *) cpu_features,
+                       NaClCPUFeatureX86_SSE41, 0);
+  NaClValidationStatus status = Validate();
+  EXPECT_EQ(NaClValidationSucceeded, status);
+  EXPECT_EQ(true, context.query_destroyed);
+
+  // Check that the SSE4.1 instruction gets overwritten with HLTs.
+  for (size_t index = 0; index < CODE_SIZE; ++index) {
+    if (index < sizeof(sse41)) {
+      EXPECT_EQ(0xf4 /* HLT */, code_buffer[index]);
+    } else {
+      EXPECT_EQ(NOP, code_buffer[index]);
+    }
+  }
+}
+
+TEST_F(ValidationCachingInterfaceTests, NonTemporalStubout) {
+  // The validation should not be cached if the validator modifies the
+  // code.  This test checks for a regression where that property was
+  // broken if the code contained a non-temporal instruction.
+  memcpy(code_buffer, sse41_plus_nontemporal, sizeof(sse41_plus_nontemporal));
   context.query_result = 0;
   /* TODO(jfb) Use a safe cast here, this test should only run for x86. */
   NaClSetCPUFeatureX86((NaClCPUFeaturesX86 *) cpu_features,
@@ -235,10 +275,65 @@ TEST_F(ValidationCachingInterfaceTests, SSE4Stubout) {
   EXPECT_EQ(NaClValidationSucceeded, status);
   EXPECT_EQ(true, context.query_destroyed);
 }
+
+TEST_F(ValidationCachingInterfaceTests, RevalidationOfValidJump) {
+  // This tests a case where an instruction gets rewritten (replaced with
+  // HLTs).  In this case, the validator should revalidate the bundle after
+  // modifying it.  This test case checks that the revalidation logic
+  // correctly handles JMPs to outside the bundle.
+  //
+  // This isn't strictly related to validation caching, but it is
+  // convenient to reuse its text fixtures.
+  memcpy(code_buffer, sse41_plus_valid_jmp, sizeof(sse41_plus_valid_jmp));
+  context.query_result = 0;
+  /* TODO(jfb) Use a safe cast here, this test should only run for x86. */
+  NaClSetCPUFeatureX86((NaClCPUFeaturesX86 *) cpu_features,
+                       NaClCPUFeatureX86_SSE41, 0);
+  NaClValidationStatus status = Validate();
+  EXPECT_EQ(NaClValidationSucceeded, status);
+  EXPECT_EQ(true, context.query_destroyed);
+}
+
+TEST_F(ValidationCachingInterfaceTests, RevalidationOfInvalidJump) {
+  // Like RevalidationOfValidJump, this is another test case for the
+  // revalidation logic.  This test checks that we don't allow an invalid
+  // jump to outside the code chunk.
+  memcpy(code_buffer, sse41_plus_invalid_jmp, sizeof(sse41_plus_invalid_jmp));
+  context.query_result = 0;
+  /* TODO(jfb) Use a safe cast here, this test should only run for x86. */
+  NaClSetCPUFeatureX86((NaClCPUFeaturesX86 *) cpu_features,
+                       NaClCPUFeatureX86_SSE41, 0);
+  NaClValidationStatus status = Validate();
+  EXPECT_EQ(NaClValidationFailed, status);
+  EXPECT_EQ(true, context.query_destroyed);
+}
+
+TEST_F(ValidationCachingInterfaceTests, MultipleStubout) {
+  // If a bundle contains multiple instructions that need to be rewritten,
+  // check that the revalidation logic handles this correctly.
+  memcpy(code_buffer, sse41, sizeof(sse41));
+  memcpy(code_buffer + sizeof(sse41), sse41, sizeof(sse41));
+  context.query_result = 0;
+  /* TODO(jfb) Use a safe cast here, this test should only run for x86. */
+  NaClSetCPUFeatureX86((NaClCPUFeaturesX86 *) cpu_features,
+                       NaClCPUFeatureX86_SSE41, 0);
+  NaClValidationStatus status = Validate();
+  EXPECT_EQ(NaClValidationSucceeded, status);
+  EXPECT_EQ(true, context.query_destroyed);
+
+  // Check that the SSE4.1 instructions get overwritten with HLTs.
+  for (size_t index = 0; index < CODE_SIZE; ++index) {
+    if (index < sizeof(sse41) * 2) {
+      EXPECT_EQ(0xf4 /* HLT */, code_buffer[index]);
+    } else {
+      EXPECT_EQ(NOP, code_buffer[index]);
+    }
+  }
+}
 #endif
 
 TEST_F(ValidationCachingInterfaceTests, IllegalInst) {
-  memcpy(code_buffer, ret, CODE_SIZE);
+  memcpy(code_buffer, ret, sizeof(ret));
   context.query_result = 0;
   NaClValidationStatus status = Validate();
   EXPECT_EQ(NaClValidationFailed, status);
@@ -246,7 +341,7 @@ TEST_F(ValidationCachingInterfaceTests, IllegalInst) {
 }
 
 TEST_F(ValidationCachingInterfaceTests, IllegalCacheHit) {
-  memcpy(code_buffer, ret, CODE_SIZE);
+  memcpy(code_buffer, ret, sizeof(ret));
   NaClValidationStatus status = Validate();
   // Success proves the cache shortcircuted validation.
   EXPECT_EQ(NaClValidationSucceeded, status);

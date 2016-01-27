@@ -46,7 +46,7 @@ namespace blink {
 // from a V8 object. Instances of this class must not outlive V8's handle scope
 // because they hold a V8 value without putting it on persistent handles.
 class CORE_EXPORT Dictionary final {
-    ALLOW_ONLY_INLINE_ALLOCATION();
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     Dictionary();
     Dictionary(const v8::Local<v8::Value>& options, v8::Isolate*, ExceptionState&);
@@ -95,6 +95,7 @@ struct NativeValueTraits<Dictionary> {
 // DictionaryHelper is a collection of static methods for getting or
 // converting a value from Dictionary.
 struct DictionaryHelper {
+    STATIC_ONLY(DictionaryHelper);
     template <typename T>
     static bool get(const Dictionary&, const String& key, T& value);
     template <typename T>

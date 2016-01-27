@@ -43,8 +43,6 @@ browser_app="${app_path}"
 framework="${versioned_dir}/@MAC_PRODUCT_NAME@ Framework.framework"
 crashpad_handler="${framework}/Helpers/crashpad_handler"
 helper_app="${versioned_dir}/@MAC_PRODUCT_NAME@ Helper.app"
-helper_eh_app="${versioned_dir}/@MAC_PRODUCT_NAME@ Helper EH.app"
-helper_np_app="${versioned_dir}/@MAC_PRODUCT_NAME@ Helper NP.app"
 
 requirement_string="\
 designated => \
@@ -52,9 +50,11 @@ designated => \
 and certificate leaf = H\"85cee8254216185620ddc8851c7a9fc4dfe120ef\"\
 "
 
+enforcement_flags="restrict"
+
 codesign --sign "${codesign_id}" --keychain "${codesign_keychain}" \
     "${browser_app}" --resource-rules "${browser_app_rules}" \
-    -r="${requirement_string}"
+    -r="${requirement_string}" --options "${enforcement_flags}"
 
 # Show the signature.
 codesign --display -r- -vvvvvv "${browser_app}"
@@ -67,8 +67,6 @@ codesign --display -r- -vvvvvv "${browser_app}"
 codesign --verify --deep -vvvvvv "${crashpad_handler}"
 codesign --verify -vvvvvv "${framework}"
 codesign --verify --deep -vvvvvv "${helper_app}"
-codesign --verify --deep -vvvvvv "${helper_eh_app}"
-codesign --verify --deep -vvvvvv "${helper_np_app}"
 codesign --verify --deep --no-strict -vvvvvv "${browser_app}"
 
 # Verify with spctl, which uses the same rules that Gatekeeper does for

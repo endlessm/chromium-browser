@@ -9,6 +9,7 @@
 #include "base/strings/stringprintf.h"
 #include "base/sys_info.h"
 #include "build/build_config.h"
+#include "build/util/webkit_version.h"
 
 #if defined(OS_POSIX) && !defined(OS_MACOSX)
 #include <sys/utsname.h>
@@ -18,20 +19,7 @@
 #include "base/win/windows_version.h"
 #endif
 
-// Generated
-#include "webkit_version.h"  // NOLINT
-
 namespace content {
-
-namespace {
-
-#if defined(OS_ANDROID)
-std::string GetAndroidDeviceName() {
-  return base::SysInfo::GetDeviceName();
-}
-#endif
-
-}  // namespace
 
 std::string GetWebKitVersion() {
   return base::StringPrintf("%d.%d (%s)",
@@ -107,7 +95,7 @@ std::string BuildOSCpuInfo() {
   // Send information about the device.
   bool semicolon_inserted = false;
   std::string android_build_codename = base::SysInfo::GetAndroidBuildCodename();
-  std::string android_device_name = GetAndroidDeviceName();
+  std::string android_device_name = base::SysInfo::HardwareModelName();
   if ("REL" == android_build_codename && android_device_name.size() > 0) {
     android_info_str += "; " + android_device_name;
     semicolon_inserted = true;

@@ -22,11 +22,17 @@ function toggleHelpBox() {
 }
 
 function diagnoseErrors() {
+<if expr="not chromeos">
+    if (window.errorPageController)
+      errorPageController.diagnoseErrorsButtonClick();
+</if>
+<if expr="chromeos">
   var extensionId = 'idddmepepmjcgiedknnmlbadcokidhoa';
   var diagnoseFrame = document.getElementById('diagnose-frame');
   diagnoseFrame.innerHTML =
       '<iframe src="chrome-extension://' + extensionId +
       '/index.html"></iframe>';
+</if>
 }
 
 // Subframes use a different layout but the same html file.  This is to make it
@@ -108,6 +114,18 @@ function showSavedCopyButtonClick() {
   }
 }
 
+function showOfflinePagesButtonClick() {
+  if (window.errorPageController) {
+    errorPageController.showOfflinePagesButtonClick();
+  }
+}
+
+function showOfflineCopyButtonClick() {
+  if (window.errorPageController) {
+    errorPageController.showOfflineCopyButtonClick();
+  }
+}
+
 function detailsButtonClick() {
   if (window.errorPageController)
     errorPageController.detailsButtonClick();
@@ -126,8 +144,7 @@ function setUpCachedButton(buttonStrings) {
     e.preventDefault();
     trackClick(trackingId);
     if (window.errorPageController) {
-      errorPageController.trackCachedCopyButtonClick(
-          buttonStrings.defaultLabel);
+      errorPageController.trackCachedCopyButtonClick();
     }
     location = url;
   };
@@ -145,6 +162,22 @@ function onDocumentLoad() {
   var reloadButton = document.getElementById('reload-button');
   var detailsButton = document.getElementById('details-button');
   var showSavedCopyButton = document.getElementById('show-saved-copy-button');
+  var showOfflinePagesButton =
+      document.getElementById('show-offline-pages-button');
+  var showOfflineCopyButton =
+      document.getElementById('show-offline-copy-button');
+
+  var reloadButtonVisible = loadTimeData.valueExists('reloadButton') &&
+      loadTimeData.getValue('reloadButton').msg;
+  var showSavedCopyButtonVisible =
+      loadTimeData.valueExists('showSavedCopyButton') &&
+      loadTimeData.getValue('showSavedCopyButton').msg;
+  var showOfflinePagesButtonVisible =
+      loadTimeData.valueExists('showOfflinePagesButton') &&
+      loadTimeData.getValue('showOfflinePagesButton').msg;
+  var showOfflineCopyButtonVisible =
+      loadTimeData.valueExists('showOfflineCopyButton') &&
+      loadTimeData.getValue('showOfflineCopyButton').msg;
 
   var primaryButton, secondaryButton;
   if (showSavedCopyButton.primary) {
@@ -164,8 +197,15 @@ function onDocumentLoad() {
     controlButtonDiv.insertBefore(primaryButton, secondaryButton);
   }
 
+  // Check for Google cached copy suggestion.
+  if (loadTimeData.valueExists('cacheButton')) {
+    setUpCachedButton(loadTimeData.getValue('cacheButton'));
+  }
+
   if (reloadButton.style.display == 'none' &&
-      showSavedCopyButton.style.display == 'none') {
+      showSavedCopyButton.style.display == 'none' &&
+      showOfflinePagesButton.style.display == 'none' &&
+      showOfflineCopyButton.style.display == 'none') {
     detailsButton.classList.add('singular');
   }
 
@@ -178,17 +218,14 @@ function onDocumentLoad() {
 </if>
 
   // Show control buttons.
-  if (loadTimeData.valueExists('reloadButton') &&
-          loadTimeData.getValue('reloadButton').msg ||
-      loadTimeData.valueExists('showSavedCopyButton') &&
-          loadTimeData.getValue('showSavedCopyButton').msg) {
+  if (reloadButtonVisible || showSavedCopyButtonVisible ||
+      showOfflinePagesButtonVisible || showOfflineCopyButton) {
     controlButtonDiv.hidden = false;
 
     // Set the secondary button state in the cases of two call to actions.
-    if (loadTimeData.valueExists('reloadButton') &&
-            loadTimeData.getValue('reloadButton').msg &&
-        loadTimeData.valueExists('showSavedCopyButton') &&
-            loadTimeData.getValue('showSavedCopyButton').msg) {
+    if ((reloadButtonVisible || showOfflinePagesButtonVisible ||
+         showOfflineCopyButton) &&
+        showSavedCopyButtonVisible) {
       secondaryButton.classList.add('secondary-button');
     }
   }
@@ -198,11 +235,6 @@ function onDocumentLoad() {
     var p = document.querySelector('#main-message p');
     p.innerHTML = loadTimeData.getString('primaryParagraph');
     p.hidden = false;
-  }
-
-  // Check for Google cached copy suggestion.
-  if (loadTimeData.valueExists('cacheButton')) {
-    setUpCachedButton(loadTimeData.getValue('cacheButton'));
   }
 }
 

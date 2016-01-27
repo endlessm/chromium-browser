@@ -42,6 +42,7 @@ class WebSharedWorkerRepositoryClient;
 
 class SharedWorkerRepositoryClientImpl final : public SharedWorkerRepositoryClient {
     WTF_MAKE_NONCOPYABLE(SharedWorkerRepositoryClientImpl);
+    USING_FAST_MALLOC(SharedWorkerRepositoryClientImpl);
 public:
     static PassOwnPtr<SharedWorkerRepositoryClientImpl> create(WebSharedWorkerRepositoryClient* client)
     {
@@ -50,7 +51,7 @@ public:
 
     ~SharedWorkerRepositoryClientImpl() override { }
 
-    void connect(PassRefPtrWillBeRawPtr<SharedWorker>, PassOwnPtr<WebMessagePortChannel>, const KURL&, const String& name, ExceptionState&) override;
+    void connect(SharedWorker*, PassOwnPtr<WebMessagePortChannel>, const KURL&, const String& name, ExceptionState&) override;
     void documentDetached(Document*) override;
 
 private:

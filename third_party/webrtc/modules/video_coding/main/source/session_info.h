@@ -13,7 +13,7 @@
 
 #include <list>
 
-#include "webrtc/modules/interface/module_common_types.h"
+#include "webrtc/modules/include/module_common_types.h"
 #include "webrtc/modules/video_coding/main/interface/video_coding.h"
 #include "webrtc/modules/video_coding/main/source/packet.h"
 #include "webrtc/typedefs.h"
@@ -87,6 +87,8 @@ class VCMSessionInfo {
   bool LayerSync() const;
   int Tl0PicId() const;
   bool NonReference() const;
+
+  void SetGofInfo(const GofInfoVP9& gof_info, size_t idx);
 
   // The number of packets discarded because the decoder can't make use of
   // them.

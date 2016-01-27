@@ -13,7 +13,6 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/lifetime/application_lifetime.h"
-#include "chrome/browser/metrics/metrics_services_manager.h"
 #include "chrome/browser/plugins/plugin_finder.h"
 #include "chrome/browser/plugins/plugin_infobar_delegates.h"
 #include "chrome/browser/profiles/profile.h"
@@ -26,6 +25,7 @@
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar.h"
 #include "components/infobars/core/simple_alert_infobar_delegate.h"
+#include "components/metrics_services_manager/metrics_services_manager.h"
 #include "content/public/browser/plugin_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_view_host.h"
@@ -34,6 +34,7 @@
 #include "content/public/common/webplugininfo.h"
 #include "grit/theme_resources.h"
 #include "ui/base/l10n/l10n_util.h"
+#include "ui/gfx/vector_icons_public.h"
 
 #if defined(ENABLE_PLUGIN_INSTALLATION)
 #if defined(OS_WIN)
@@ -135,7 +136,8 @@ class ReloadPluginInfoBarDelegate : public ConfirmInfoBarDelegate {
   ~ReloadPluginInfoBarDelegate() override;
 
   // ConfirmInfobarDelegate:
-  int GetIconID() const override;
+  int GetIconId() const override;
+  gfx::VectorIconId GetVectorIconId() const override;
   base::string16 GetMessageText() const override;
   int GetButtons() const override;
   base::string16 GetButtonLabel(InfoBarButton button) const override;
@@ -163,8 +165,16 @@ ReloadPluginInfoBarDelegate::ReloadPluginInfoBarDelegate(
 
 ReloadPluginInfoBarDelegate::~ReloadPluginInfoBarDelegate(){ }
 
-int ReloadPluginInfoBarDelegate::GetIconID() const {
+int ReloadPluginInfoBarDelegate::GetIconId() const {
   return IDR_INFOBAR_PLUGIN_CRASHED;
+}
+
+gfx::VectorIconId ReloadPluginInfoBarDelegate::GetVectorIconId() const {
+#if !defined(OS_MACOSX) && !defined(OS_IOS) && !defined(OS_ANDROID)
+  return gfx::VectorIconId::EXTENSION_CRASHED;
+#else
+  return gfx::VectorIconId::VECTOR_ICON_NONE;
+#endif
 }
 
 base::string16 ReloadPluginInfoBarDelegate::GetMessageText() const {
@@ -407,6 +417,11 @@ void PluginObserver::OnCouldNotLoadPlugin(const base::FilePath& plugin_path) {
   SimpleAlertInfoBarDelegate::Create(
       InfoBarService::FromWebContents(web_contents()),
       IDR_INFOBAR_PLUGIN_CRASHED,
+#if !defined(OS_MACOSX) && !defined(OS_IOS) && !defined(OS_ANDROID)
+      gfx::VectorIconId::EXTENSION_CRASHED,
+#else
+      gfx::VectorIconId::VECTOR_ICON_NONE,
+#endif
       l10n_util::GetStringFUTF16(IDS_PLUGIN_INITIALIZATION_ERROR_PROMPT,
                                  plugin_name),
       true);
@@ -417,19 +432,6 @@ void PluginObserver::OnNPAPINotSupported(const std::string& identifier) {
 #if !defined(USE_AURA)
   DCHECK(base::win::IsMetroProcess());
 #endif
-
-  Profile* profile =
-      Profile::FromBrowserContext(web_contents()->GetBrowserContext());
-  if (profile->IsOffTheRecord())
-    return;
-  HostContentSettingsMap* content_settings =
-      profile->GetHostContentSettingsMap();
-  if (content_settings->GetContentSetting(
-      web_contents()->GetURL(),
-      web_contents()->GetURL(),
-      CONTENT_SETTINGS_TYPE_METRO_SWITCH_TO_DESKTOP,
-      std::string()) == CONTENT_SETTING_BLOCK)
-    return;
 
   scoped_ptr<PluginMetadata> plugin;
   bool ret = PluginFinder::GetInstance()->FindPluginWithIdentifier(

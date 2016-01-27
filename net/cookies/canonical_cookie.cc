@@ -135,7 +135,7 @@ CanonicalCookie::CanonicalCookie(const GURL& url,
                                  bool httponly,
                                  bool firstpartyonly,
                                  CookiePriority priority)
-    : source_(GetCookieSourceFromURL(url)),
+    : source_(url.SchemeIsFile() ? url : url.GetOrigin()),
       name_(name),
       value_(value),
       domain_(domain),
@@ -146,11 +146,10 @@ CanonicalCookie::CanonicalCookie(const GURL& url,
       secure_(secure),
       httponly_(httponly),
       first_party_only_(firstpartyonly),
-      priority_(priority) {
-}
+      priority_(priority) {}
 
 CanonicalCookie::CanonicalCookie(const GURL& url, const ParsedCookie& pc)
-    : source_(GetCookieSourceFromURL(url)),
+    : source_(url.SchemeIsFile() ? url : url.GetOrigin()),
       name_(pc.Name()),
       value_(pc.Value()),
       path_(CanonPath(url, pc)),
@@ -178,18 +177,6 @@ CanonicalCookie::CanonicalCookie(const GURL& url, const ParsedCookie& pc)
 }
 
 CanonicalCookie::~CanonicalCookie() {
-}
-
-std::string CanonicalCookie::GetCookieSourceFromURL(const GURL& url) {
-  if (url.SchemeIsFile())
-    return url.spec();
-
-  url::Replacements<char> replacements;
-  replacements.ClearPort();
-  if (url.SchemeIsCryptographic())
-    replacements.SetScheme("http", url::Component(0, 4));
-
-  return url.GetOrigin().ReplaceComponents(replacements).spec();
 }
 
 // static
@@ -248,6 +235,7 @@ CanonicalCookie* CanonicalCookie::Create(const GURL& url,
 
   std::string cookie_domain;
   if (!GetCookieDomain(url, parsed_cookie, &cookie_domain)) {
+    VLOG(kVlogSetCookies) << "Create() failed to get a cookie domain";
     return NULL;
   }
 
@@ -404,11 +392,12 @@ bool CanonicalCookie::IncludeForRequestURL(const GURL& url,
   if (!IsOnPath(url.path()))
     return false;
 
-  // Include first-party-only cookies iff |options| tells us to include all of
-  // them, or if a first-party URL is set and its origin matches the origin of
-  // |url|.
+  // Include first-party-only cookies if:
+  //
+  // * |options| tells us to include all of them
+  // * a first-party origin is set, and they matches the origin of |url|
   if (IsFirstPartyOnly() && !options.include_first_party_only() &&
-      options.first_party_url().GetOrigin() != url.GetOrigin()) {
+      !options.first_party().IsSameOriginWith(url::Origin(url))) {
     return false;
   }
 

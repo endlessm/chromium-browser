@@ -17,6 +17,7 @@
 #include "content/common/content_export.h"
 #include "content/common/p2p_socket_type.h"
 #include "net/base/ip_endpoint.h"
+#include "net/udp/diff_serv_code_point.h"
 #include "net/udp/udp_server_socket.h"
 #include "third_party/webrtc/base/asyncpacketsocket.h"
 
@@ -70,8 +71,14 @@ class CONTENT_EXPORT P2PSocketHostUdp : public P2PSocketHost {
   void HandleReadResult(int result);
 
   void DoSend(const PendingPacket& packet);
-  void OnSend(uint64 packet_id, uint64 tick_received, int result);
-  void HandleSendResult(uint64 packet_id, uint64 tick_received, int result);
+  void OnSend(uint64_t packet_id,
+              int32_t transport_sequence_number,
+              base::TimeTicks send_time,
+              int result);
+  void HandleSendResult(uint64_t packet_id,
+                        int32_t transport_sequence_number,
+                        base::TimeTicks send_time,
+                        int result);
 
   scoped_ptr<net::DatagramServerSocket> socket_;
   scoped_refptr<net::IOBuffer> recv_buffer_;

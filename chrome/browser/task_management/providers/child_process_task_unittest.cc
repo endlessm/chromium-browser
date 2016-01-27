@@ -6,6 +6,7 @@
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/task_management/providers/child_process_task.h"
 #include "chrome/browser/task_management/providers/child_process_task_provider.h"
+#include "chrome/browser/task_management/task_manager_observer.h"
 #include "chrome/grit/generated_resources.h"
 #include "components/nacl/common/nacl_process_type.h"
 #include "content/public/browser/child_process_data.h"
@@ -106,7 +107,7 @@ TEST_F(ChildProcessTaskTest, TestAll) {
   // added.
   ChildProcessData data1(0);
   ASSERT_EQ(base::kNullProcessHandle, data1.handle);
-  provider.BrowserChildProcessHostConnected(data1);
+  provider.BrowserChildProcessLaunchedAndConnected(data1);
   EXPECT_TRUE(provided_tasks_.empty());
 
   const int unique_id = 245;
@@ -118,7 +119,7 @@ TEST_F(ChildProcessTaskTest, TestAll) {
   data2.handle = base::GetCurrentProcessHandle();
   data2.name = name;
   data2.id = unique_id;
-  provider.BrowserChildProcessHostConnected(data2);
+  provider.BrowserChildProcessLaunchedAndConnected(data2);
   ASSERT_EQ(1U, provided_tasks_.size());
 
   Task* task = provided_tasks_.begin()->second;
@@ -140,7 +141,8 @@ TEST_F(ChildProcessTaskTest, TestAll) {
   ASSERT_EQ(task, found_task);
   const int64 bytes_read = 1024;
   found_task->OnNetworkBytesRead(bytes_read);
-  found_task->Refresh(base::TimeDelta::FromSeconds(1));
+  found_task->Refresh(base::TimeDelta::FromSeconds(1),
+                      REFRESH_TYPE_NETWORK_USAGE);
 
   EXPECT_TRUE(task->ReportsNetworkUsage());
   EXPECT_EQ(bytes_read, task->network_usage());
@@ -165,7 +167,7 @@ TEST_F(ChildProcessTaskTest, ProcessTypeToTaskType) {
     // Add the task.
     ChildProcessData data(types_pair.process_type_);
     data.handle = base::GetCurrentProcessHandle();
-    provider.BrowserChildProcessHostConnected(data);
+    provider.BrowserChildProcessLaunchedAndConnected(data);
     ASSERT_EQ(1U, provided_tasks_.size());
     Task* task = provided_tasks_.begin()->second;
     EXPECT_EQ(base::GetCurrentProcessHandle(), task->process_handle());

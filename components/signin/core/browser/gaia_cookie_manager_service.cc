@@ -57,6 +57,10 @@ const net::BackoffEntry::Policy kBackoffPolicy = {
 
 const int kMaxFetcherRetries = 8;
 
+// Name of the GAIA cookie that is being observed to detect when available
+// accounts have changed in the content-area.
+const char* kGaiaCookieName = "APISID";
+
 enum GaiaCookieRequestType {
   ADD_ACCOUNT,
   LOG_OUT_ALL_ACCOUNTS,
@@ -114,7 +118,7 @@ GaiaCookieManagerService::ExternalCcResultFetcher::GetExternalCcResult() {
        ++it) {
     results.push_back(it->first + ":" + it->second);
   }
-  return JoinString(results, ",");
+  return base::JoinString(results, ",");
 }
 
 void GaiaCookieManagerService::ExternalCcResultFetcher::Start() {
@@ -283,8 +287,7 @@ GaiaCookieManagerService::GaiaCookieManagerService(
       fetcher_retries_(0),
       source_(source),
       external_cc_result_fetched_(false),
-      list_accounts_fetched_once_(false) {
-}
+      list_accounts_stale_(true) {}
 
 GaiaCookieManagerService::~GaiaCookieManagerService() {
   CancelAll();
@@ -293,8 +296,7 @@ GaiaCookieManagerService::~GaiaCookieManagerService() {
 
 void GaiaCookieManagerService::Init() {
   cookie_changed_subscription_ = signin_client_->AddCookieChangedCallback(
-      GaiaUrls::GetInstance()->google_url(),
-      "APISID",
+      GaiaUrls::GetInstance()->google_url(), kGaiaCookieName,
       base::Bind(&GaiaCookieManagerService::OnCookieChanged,
                  base::Unretained(this)));
 }
@@ -343,23 +345,37 @@ bool GaiaCookieManagerService::ListAccounts(
   DCHECK(accounts);
   accounts->clear();
 
-  // There is a fetch currently executing (the results being provided in the
-  // parameter don't align with the fetches that have been started), or the list
-  // of accounts haven't been fetched even once.
-  if (!requests_.empty())
-    return false;
+  if (!list_accounts_stale_) {
+    accounts->assign(listed_accounts_.begin(), listed_accounts_.end());
+    return true;
+  }
 
-  if (!list_accounts_fetched_once_) {
+  TriggerListAccounts();
+  return false;
+}
+
+void GaiaCookieManagerService::TriggerListAccounts() {
+  if (requests_.empty()) {
     fetcher_retries_ = 0;
     requests_.push_back(GaiaCookieRequest::CreateListAccountsRequest());
     signin_client_->DelayNetworkCall(
         base::Bind(&GaiaCookieManagerService::StartFetchingListAccounts,
                    base::Unretained(this)));
-    return false;
+  } else if (std::find_if(requests_.begin(), requests_.end(),
+                          [](const GaiaCookieRequest& request) {
+                            return request.request_type() == LIST_ACCOUNTS;
+                          }) == requests_.end()) {
+    requests_.push_back(GaiaCookieRequest::CreateListAccountsRequest());
   }
+}
 
-  accounts->assign(listed_accounts_.begin(), listed_accounts_.end());
-  return true;
+void GaiaCookieManagerService::ForceOnCookieChangedProcessing() {
+  GURL google_url = GaiaUrls::GetInstance()->google_url();
+  net::CanonicalCookie cookie(google_url, kGaiaCookieName, "",
+                              google_url.host(), "", base::Time(), base::Time(),
+                              base::Time(), false, false, false,
+                              net::COOKIE_PRIORITY_DEFAULT);
+  OnCookieChanged(cookie, true);
 }
 
 void GaiaCookieManagerService::LogOutAllAccounts() {
@@ -427,14 +443,16 @@ void GaiaCookieManagerService::CancelAll() {
   fetcher_timer_.Stop();
 }
 
-// It is unknown if the cookie was changed because of processing initiated by
-// this class or other (such as the user clearing all cookies or a cookie being
-// evicted).
 void GaiaCookieManagerService::OnCookieChanged(
     const net::CanonicalCookie& cookie,
     bool removed) {
-  DCHECK_EQ("APISID", cookie.Name());
+  DCHECK_EQ(kGaiaCookieName, cookie.Name());
   DCHECK_EQ(GaiaUrls::GetInstance()->google_url().host(), cookie.Domain());
+  // Ignore changes to the cookie while requests are pending.  These changes
+  // are caused by the service itself as it adds accounts.  A side effects is
+  // that any changes to the gaia cookie outside of this class, while requests
+  // are pending, will be lost.  However, trying to process these changes could
+  // cause an endless loop (see crbug.com/516070).
   if (requests_.empty()) {
     requests_.push_back(GaiaCookieRequest::CreateListAccountsRequest());
     fetcher_retries_ = 0;
@@ -442,25 +460,7 @@ void GaiaCookieManagerService::OnCookieChanged(
         base::Bind(&GaiaCookieManagerService::StartFetchingListAccounts,
                    base::Unretained(this)));
   } else {
-    // Remove all pending ListAccount calls; for efficiency, only call
-    // after all pending requests are processed.
-    // Track requests to keep; all other unstarted requests will be removed.
-    std::vector<GaiaCookieRequest> requests_to_keep;
-
-    // Check all pending, non-executing requests.
-    for (auto it = requests_.begin() + 1; it != requests_.end(); ++it) {
-      // Keep all requests except for LIST_ACCOUNTS.
-      if (it->request_type() != GaiaCookieRequestType::LIST_ACCOUNTS)
-        requests_to_keep.push_back(*it);
-    }
-
-    // Remove all but the executing request. Re-add all requests being kept.
-    if (requests_.size() > 1) {
-      requests_.erase(requests_.begin() + 1, requests_.end());
-      requests_.insert(
-          requests_.end(), requests_to_keep.begin(), requests_to_keep.end());
-    }
-    requests_.push_back(GaiaCookieRequest::CreateListAccountsRequest());
+    list_accounts_stale_ = true;
   }
 }
 
@@ -567,7 +567,7 @@ void GaiaCookieManagerService::OnListAccountsSuccess(const std::string& data) {
         signin_client_->GetPrefs(), account.gaia_id, account.email);
   }
 
-  list_accounts_fetched_once_ = true;
+  list_accounts_stale_ = false;
   HandleNextRequest();
   // HandleNextRequest before sending out the notification because some
   // services, in response to OnGaiaAccountsInCookieUpdated, may try in return

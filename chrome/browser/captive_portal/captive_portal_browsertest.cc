@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "base/base_switches.h"
 #include "base/basictypes.h"
 #include "base/bind.h"
 #include "base/command_line.h"
@@ -32,11 +33,10 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
-#include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/tab_contents/tab_contents_iterator.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
@@ -54,7 +54,10 @@
 #include "content/public/common/url_constants.h"
 #include "content/public/test/browser_test_utils.h"
 #include "net/base/net_errors.h"
+#include "net/base/test_data_directory.h"
+#include "net/cert/x509_certificate.h"
 #include "net/http/transport_security_state.h"
+#include "net/test/cert_test_util.h"
 #include "net/test/url_request/url_request_failed_job.h"
 #include "net/test/url_request/url_request_mock_http_job.h"
 #include "net/url_request/url_request.h"
@@ -144,7 +147,8 @@ class URLRequestTimeoutOnDemandJob : public net::URLRequestJob,
 
   // Fails all active URLRequestTimeoutOnDemandJobs with SSL cert errors.
   // |expected_num_jobs| behaves just as in FailJobs.
-  static void FailJobsWithCertError(int expected_num_jobs);
+  static void FailJobsWithCertError(int expected_num_jobs,
+                                    const net::SSLInfo& ssl_info);
 
   // Abandon all active URLRequestTimeoutOnDemandJobs.  |expected_num_jobs|
   // behaves just as in FailJobs.
@@ -169,9 +173,9 @@ class URLRequestTimeoutOnDemandJob : public net::URLRequestJob,
   bool RemoveFromList();
 
   static void WaitForJobsOnIOThread(int num_jobs);
-  static void FailOrAbandonJobsOnIOThread(
-      int expected_num_jobs,
-      EndJobOperation end_job_operation);
+  static void FailOrAbandonJobsOnIOThread(int expected_num_jobs,
+                                          EndJobOperation end_job_operation,
+                                          const net::SSLInfo& ssl_info);
 
   // Checks if there are at least |num_jobs_to_wait_for_| jobs in
   // |job_list_|.  If so, exits the message loop on the UI thread, which
@@ -239,18 +243,17 @@ void URLRequestTimeoutOnDemandJob::FailJobs(int expected_num_jobs) {
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
       base::Bind(&URLRequestTimeoutOnDemandJob::FailOrAbandonJobsOnIOThread,
-                 expected_num_jobs,
-                 FAIL_JOBS));
+                 expected_num_jobs, FAIL_JOBS, net::SSLInfo()));
 }
 
 // static
 void URLRequestTimeoutOnDemandJob::FailJobsWithCertError(
-    int expected_num_jobs) {
+    int expected_num_jobs,
+    const net::SSLInfo& ssl_info) {
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
       base::Bind(&URLRequestTimeoutOnDemandJob::FailOrAbandonJobsOnIOThread,
-                 expected_num_jobs,
-                 FAIL_JOBS_WITH_CERT_ERROR));
+                 expected_num_jobs, FAIL_JOBS_WITH_CERT_ERROR, ssl_info));
 }
 
 // static
@@ -258,8 +261,7 @@ void URLRequestTimeoutOnDemandJob::AbandonJobs(int expected_num_jobs) {
   content::BrowserThread::PostTask(
       content::BrowserThread::IO, FROM_HERE,
       base::Bind(&URLRequestTimeoutOnDemandJob::FailOrAbandonJobsOnIOThread,
-                 expected_num_jobs,
-                 ABANDON_JOBS));
+                 expected_num_jobs, ABANDON_JOBS, net::SSLInfo()));
 }
 
 URLRequestTimeoutOnDemandJob::URLRequestTimeoutOnDemandJob(
@@ -317,14 +319,15 @@ void URLRequestTimeoutOnDemandJob::MaybeStopWaitingForJobsOnIOThread() {
     last_num_jobs_to_wait_for_ = num_jobs_to_wait_for_;
     num_jobs_to_wait_for_ = 0;
     BrowserThread::PostTask(BrowserThread::UI, FROM_HERE,
-                            base::MessageLoop::QuitClosure());
+                            base::MessageLoop::QuitWhenIdleClosure());
   }
 }
 
 // static
 void URLRequestTimeoutOnDemandJob::FailOrAbandonJobsOnIOThread(
     int expected_num_jobs,
-    EndJobOperation end_job_operation) {
+    EndJobOperation end_job_operation,
+    const net::SSLInfo& ssl_info) {
   ASSERT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::IO));
   ASSERT_LT(0, expected_num_jobs);
   EXPECT_EQ(last_num_jobs_to_wait_for_, expected_num_jobs);
@@ -343,11 +346,7 @@ void URLRequestTimeoutOnDemandJob::FailOrAbandonJobsOnIOThread(
                                 net::ERR_CONNECTION_TIMED_OUT));
     } else if (end_job_operation == FAIL_JOBS_WITH_CERT_ERROR) {
       DCHECK(job->request()->url().SchemeIsCryptographic());
-      net::SSLInfo info;
-      info.cert_status = net::CERT_STATUS_COMMON_NAME_INVALID;
-      info.cert = new net::X509Certificate(
-          "bad.host", "CA", base::Time::Max(), base::Time::Max());
-      job->NotifySSLCertificateError(info, true);
+      job->NotifySSLCertificateError(ssl_info, true);
     }
   }
 
@@ -652,7 +651,7 @@ void MultiNavigationObserver::Observe(
   if (waiting_for_navigation_ &&
       num_navigations_to_wait_for_ == num_navigations_) {
     waiting_for_navigation_ = false;
-    base::MessageLoopForUI::current()->Quit();
+    base::MessageLoopForUI::current()->QuitWhenIdle();
   }
 }
 
@@ -742,7 +741,7 @@ void FailLoadsAfterLoginObserver::Observe(
       tabs_needing_navigation_.size() ==
           tabs_navigated_to_final_destination_.size()) {
     waiting_for_navigation_ = false;
-    base::MessageLoopForUI::current()->Quit();
+    base::MessageLoopForUI::current()->QuitWhenIdle();
   }
 }
 
@@ -836,7 +835,7 @@ void CaptivePortalObserver::Observe(
   if (waiting_for_result_ &&
       num_results_to_wait_for_ == num_results_received_) {
     waiting_for_result_ = false;
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
   }
 }
 
@@ -1121,7 +1120,7 @@ void CaptivePortalBrowserTest::SetUpOnMainThread() {
   // Set SSL interstitial delay long enough so that a captive portal result
   // is guaranteed to arrive during this window, and a captive portal
   // error page is displayed instead of an SSL interstitial.
-  SSLErrorHandler::SetInterstitialDelayTypeForTest(SSLErrorHandler::LONG);
+  SSLErrorHandler::SetInterstitialDelayForTest(base::TimeDelta::FromHours(1));
 }
 
 void CaptivePortalBrowserTest::TearDownOnMainThread() {
@@ -2075,6 +2074,9 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest,
   broken_tab_contents->Stop();
   test_navigation_observer.WaitForNavigations(1);
 
+  // Make sure that the |ssl_error_handler| is deleted if page load is stopped.
+  EXPECT_TRUE(nullptr == SSLErrorHandler::FromWebContents(broken_tab_contents));
+
   EXPECT_FALSE(broken_tab_contents->ShowingInterstitialPage());
   EXPECT_FALSE(broken_tab_contents->IsLoading());
   EXPECT_EQ(0, portal_observer1.num_results_received());
@@ -2129,6 +2131,9 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest,
   MultiNavigationObserver test_navigation_observer;
   chrome::Reload(browser(), CURRENT_TAB);
   test_navigation_observer.WaitForNavigations(2);
+
+  // Make sure that the |ssl_error_handler| is deleted.
+  EXPECT_TRUE(nullptr == SSLErrorHandler::FromWebContents(broken_tab_contents));
 
   EXPECT_FALSE(broken_tab_contents->ShowingInterstitialPage());
   EXPECT_FALSE(broken_tab_contents->IsLoading());
@@ -2186,14 +2191,16 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest,
   // a load stop notification before starting a new navigation.
   MultiNavigationObserver test_navigation_observer;
   browser()->OpenURL(content::OpenURLParams(
-      URLRequestMockHTTPJob::GetMockUrl(
-          base::FilePath(FILE_PATH_LITERAL("title2.html"))),
+      URLRequestMockHTTPJob::GetMockUrl("title2.html"),
       content::Referrer(),
       CURRENT_TAB,
       ui::PAGE_TRANSITION_TYPED, false));
   // Expect two navigations: First one for stopping the hanging page, second one
   // for completing the load of the above navigation.
   test_navigation_observer.WaitForNavigations(2);
+
+  // Make sure that the |ssl_error_handler| is deleted.
+  EXPECT_TRUE(nullptr == SSLErrorHandler::FromWebContents(broken_tab_contents));
 
   EXPECT_FALSE(broken_tab_contents->ShowingInterstitialPage());
   EXPECT_FALSE(broken_tab_contents->IsLoading());
@@ -2355,7 +2362,7 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest, SSLCertErrorLogin) {
   // Set SSL interstitial delay to zero so that a captive portal result can not
   // arrive during this window, so an SSL interstitial is displayed instead
   // of a captive portal error page.
-  SSLErrorHandler::SetInterstitialDelayTypeForTest(SSLErrorHandler::NONE);
+  SSLErrorHandler::SetInterstitialDelayForTest(base::TimeDelta());
   TabStripModel* tab_strip_model = browser()->tab_strip_model();
   WebContents* broken_tab_contents = tab_strip_model->GetActiveWebContents();
 
@@ -2428,8 +2435,7 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest, TwoBrokenTabs) {
   CaptivePortalObserver portal_observer(browser()->profile());
   ui_test_utils::NavigateToURLWithDisposition(
       browser(),
-      URLRequestMockHTTPJob::GetMockUrl(
-          base::FilePath(FILE_PATH_LITERAL("title2.html"))),
+      URLRequestMockHTTPJob::GetMockUrl("title2.html"),
       NEW_FOREGROUND_TAB,
       ui_test_utils::BROWSER_TEST_WAIT_FOR_NAVIGATION);
 
@@ -2494,8 +2500,7 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest, NavigateBrokenTab) {
   TabStripModel* tab_strip_model = browser()->tab_strip_model();
   tab_strip_model->ActivateTabAt(0, true);
   ui_test_utils::NavigateToURL(
-      browser(), URLRequestMockHTTPJob::GetMockUrl(
-                     base::FilePath(FILE_PATH_LITERAL("title2.html"))));
+      browser(), URLRequestMockHTTPJob::GetMockUrl("title2.html"));
   EXPECT_EQ(CaptivePortalTabReloader::STATE_NONE,
             GetStateOfTabReloaderAt(browser(), 0));
 
@@ -2541,8 +2546,7 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest,
                        NavigateLoadingTabToTimeoutThreeSites) {
   RunNavigateLoadingTabToTimeoutTest(
       browser(),
-      URLRequestMockHTTPJob::GetMockUrl(
-          base::FilePath(FILE_PATH_LITERAL("title.html"))),
+      URLRequestMockHTTPJob::GetMockUrl("title.html"),
       GURL(kMockHttpsUrl),
       GURL(kMockHttpsUrl2));
 }
@@ -2551,9 +2555,7 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest,
 IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest, GoBack) {
   // Navigate to a working page.
   ui_test_utils::NavigateToURL(
-      browser(),
-      URLRequestMockHTTPJob::GetMockUrl(
-          base::FilePath(FILE_PATH_LITERAL("title2.html"))));
+      browser(), URLRequestMockHTTPJob::GetMockUrl("title2.html"));
 
   // Go to the error page.
   SlowLoadBehindCaptivePortal(browser(), true);
@@ -2585,8 +2587,7 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest, GoBackToTimeout) {
 
   // Navigate to a working page.
   ui_test_utils::NavigateToURL(
-      browser(), URLRequestMockHTTPJob::GetMockUrl(
-                     base::FilePath(FILE_PATH_LITERAL("title2.html"))));
+      browser(), URLRequestMockHTTPJob::GetMockUrl("title2.html"));
   ASSERT_EQ(CaptivePortalTabReloader::STATE_NONE,
             GetStateOfTabReloaderAt(browser(), 0));
 
@@ -2854,7 +2855,11 @@ IN_PROC_BROWSER_TEST_F(CaptivePortalBrowserTest,
 
   CaptivePortalObserver portal_observer(browser()->profile());
   MultiNavigationObserver navigation_observer;
-  URLRequestTimeoutOnDemandJob::FailJobsWithCertError(1);
+  net::SSLInfo info;
+  info.cert_status = net::CERT_STATUS_COMMON_NAME_INVALID;
+  info.cert =
+      net::ImportCertFromFile(net::GetTestCertsDirectory(), "ok_cert.pem");
+  URLRequestTimeoutOnDemandJob::FailJobsWithCertError(1, info);
   navigation_observer.WaitForNavigations(1);
 
   EXPECT_EQ(CaptivePortalTabReloader::STATE_NEEDS_RELOAD,

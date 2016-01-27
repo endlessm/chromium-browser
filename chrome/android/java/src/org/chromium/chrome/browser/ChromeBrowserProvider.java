@@ -28,10 +28,9 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.util.LongSparseArray;
 
-import org.chromium.base.BuildInfo;
-import org.chromium.base.CalledByNative;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.base.annotations.CalledByNative;
 import org.chromium.base.annotations.CalledByNativeUnchecked;
 import org.chromium.base.annotations.SuppressFBWarnings;
 import org.chromium.base.library_loader.LibraryProcessType;
@@ -365,7 +364,11 @@ public class ChromeBrowserProvider extends ContentProvider {
     @Override
     public Cursor query(Uri uri, String[] projection, String selection, String[] selectionArgs,
             String sortOrder) {
-        if (!canHandleContentProviderApiCall() || !hasReadAccess()) return null;
+        if (!canHandleContentProviderApiCall()) return null;
+
+        // Starting with M, other apps are no longer allowed to access bookmarks. But returning null
+        // might break old apps, so return an empty Cursor instead.
+        if (!hasReadAccess()) return new MatrixCursor(BOOKMARK_DEFAULT_PROJECTION, 0);
 
         // Check for invalid id values if provided.
         long bookmarkId = getContentUriId(uri);
@@ -1355,17 +1358,18 @@ public class ChromeBrowserProvider extends ContentProvider {
     }
 
     private boolean hasPermission(String permission) {
-        if (BuildInfo.isMncOrLater()) {
+        boolean isSystemOrGoogleCaller = ExternalAuthUtils.getInstance().isCallerValid(
+                getContext(), ExternalAuthUtils.FLAG_SHOULD_BE_GOOGLE_SIGNED
+                        | ExternalAuthUtils.FLAG_SHOULD_BE_SYSTEM);
+        if (isSystemOrGoogleCaller) return true;
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             return getContext().checkCallingOrSelfPermission(
                     getReadWritePermissionNameForBookmarkFolders())
                     == PackageManager.PERMISSION_GRANTED;
         } else {
-            boolean hasPermission = getContext().checkCallingOrSelfPermission(permission)
+            return getContext().checkCallingOrSelfPermission(permission)
                     == PackageManager.PERMISSION_GRANTED;
-            boolean isSystemOrGoogleCaller = ExternalAuthUtils.getInstance().isCallerValid(
-                    getContext(), ExternalAuthUtils.FLAG_SHOULD_BE_GOOGLE_SIGNED
-                            | ExternalAuthUtils.FLAG_SHOULD_BE_SYSTEM);
-            return hasPermission || isSystemOrGoogleCaller;
         }
     }
 

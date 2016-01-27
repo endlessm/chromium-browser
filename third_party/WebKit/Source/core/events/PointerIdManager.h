@@ -5,6 +5,8 @@
 #ifndef PointerIdManager_h
 #define PointerIdManager_h
 
+#include "public/platform/WebPointerProperties.h"
+#include "wtf/Allocator.h"
 #include "wtf/ListHashSet.h"
 
 namespace blink {
@@ -13,26 +15,19 @@ namespace blink {
   Helper class for tracking the primary pointer id for each type of PointerEvents.
 */
 class PointerIdManager {
+    DISALLOW_NEW();
 public:
-    // TODO(mustaq): Move this enum to PointerEvent.h? Change the spec to use enums?
-    enum PointerType {
-        PointerTypeUnknown = 0,
-        PointerTypeMouse,
-        PointerTypePen,
-        PointerTypeTouch,
-        PointerTypeLastEntry // Must be the last entry in the list
-    };
-
     PointerIdManager();
     ~PointerIdManager();
     void clear();
-    void add(PointerType, unsigned);
-    void remove(PointerType, unsigned);
-    bool isPrimary(PointerType, unsigned);
+    void add(WebPointerProperties::PointerType, unsigned);
+    void remove(WebPointerProperties::PointerType, unsigned);
+    bool isPrimary(WebPointerProperties::PointerType, unsigned);
 
 private:
-    ListHashSet<unsigned> m_ids[PointerTypeLastEntry];
-    bool m_hasPrimaryId[PointerTypeLastEntry];
+    // TODO(crbug.com/537319): Switch to /one/ set of ids to guarantee uniqueness.
+    ListHashSet<unsigned> m_ids[static_cast<int>(WebPointerProperties::PointerType::LastEntry) + 1];
+    bool m_hasPrimaryId[static_cast<int>(WebPointerProperties::PointerType::LastEntry) + 1];
 };
 
 } // namespace blink

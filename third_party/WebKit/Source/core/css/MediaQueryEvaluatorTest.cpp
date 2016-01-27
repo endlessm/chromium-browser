@@ -54,7 +54,7 @@ TestCase screenTestCases[] = {
     {"(hover: hover)", 1},
     {"(hover: on-demand)", 0},
     {"(hover: none)", 0},
-    {"(display-mode)", 0},
+    {"(display-mode)", 1},
     {"(display-mode: fullscreen)", 0},
     {"(display-mode: standalone)", 0},
     {"(display-mode: minimal-ui)", 0},
@@ -126,7 +126,7 @@ TEST(MediaQueryEvaluatorTest, Cached)
     data.mediaType = MediaTypeNames::screen;
     data.strictMode = true;
     data.displayMode = WebDisplayModeBrowser;
-    RefPtr<MediaValues> mediaValues = MediaValuesCached::create(data);
+    RefPtrWillBeRawPtr<MediaValues> mediaValues = MediaValuesCached::create(data);
 
     MediaQueryEvaluator mediaQueryEvaluator(*mediaValues);
     testMQEvaluator(screenTestCases, mediaQueryEvaluator);

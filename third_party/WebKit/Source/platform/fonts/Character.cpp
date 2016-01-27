@@ -107,6 +107,8 @@ CodePath Character::characterRangeCodePath(const UChar* characters, unsigned len
         0x2CEF, 0x2CF1,
         // U+302A through U+302F Ideographic and Hangul Tone marks
         0x302A, 0x302F,
+        // Combining Katakana-Hiragana Voiced/Semi-voiced Sound Mark
+        0x3099, 0x309A,
         // U+A67C through U+A67D Combining marks for old Cyrillic
         0xA67C, 0xA67D,
         // U+A6F0 through U+A6F1 Combining mark for Bamum
@@ -144,6 +146,14 @@ CodePath Character::characterRangeCodePath(const UChar* characters, unsigned len
             if (supplementaryCharacter < 0x1F1E6) // U+1F1E6 through U+1F1FF Regional Indicator Symbols
                 continue;
             if (supplementaryCharacter <= 0x1F1FF)
+                return ComplexPath;
+
+            // Man and Woman Emojies,
+            // in order to support emoji joiner combinations for family and couple pictographs.
+            // Compare http://unicode.org/reports/tr51/#Emoji_ZWJ_Sequences
+            if (supplementaryCharacter < 0x1F468)
+                continue;
+            if (supplementaryCharacter <= 0x1F469)
                 return ComplexPath;
 
             if (supplementaryCharacter < 0xE0100) // U+E0100 through U+E01EF Unicode variation selectors.

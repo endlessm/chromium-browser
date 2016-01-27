@@ -27,33 +27,55 @@ class MockMediaRouter : public MediaRouter {
                void(const MediaSource::Id& source,
                     const MediaSink::Id& sink_id,
                     const GURL& origin,
-                    int tab_id,
-                    const MediaRouteResponseCallback& callback));
+                    content::WebContents* web_contents,
+                    const std::vector<MediaRouteResponseCallback>& callbacks));
   MOCK_METHOD5(JoinRoute,
                void(const MediaSource::Id& source,
                     const std::string& presentation_id,
                     const GURL& origin,
-                    int tab_id,
-                    const MediaRouteResponseCallback& callback));
+                    content::WebContents* web_contents,
+                    const std::vector<MediaRouteResponseCallback>& callbacks));
   MOCK_METHOD1(CloseRoute, void(const MediaRoute::Id& route_id));
   MOCK_METHOD3(SendRouteMessage,
                void(const MediaRoute::Id& route_id,
                     const std::string& message,
                     const SendRouteMessageCallback& callback));
-  MOCK_METHOD2(ListenForRouteMessages,
-               void(const std::vector<MediaRoute::Id>& route_ids,
-                    const PresentationSessionMessageCallback& message_cb));
+  void SendRouteBinaryMessage(
+      const MediaRoute::Id& route_id,
+      scoped_ptr<std::vector<uint8>> data,
+      const SendRouteMessageCallback& callback) override {
+    SendRouteBinaryMessageInternal(route_id, data.get(), callback);
+  }
+  MOCK_METHOD3(SendRouteBinaryMessageInternal,
+               void(const MediaRoute::Id& route_id,
+                    std::vector<uint8>* data,
+                    const SendRouteMessageCallback& callback));
+  MOCK_METHOD1(AddIssue, void(const Issue& issue));
   MOCK_METHOD1(ClearIssue, void(const Issue::Id& issue_id));
+  MOCK_METHOD1(OnPresentationSessionDetached,
+               void(const MediaRoute::Id& route_id));
+  MOCK_CONST_METHOD0(HasLocalRoute, bool());
   MOCK_METHOD1(RegisterIssuesObserver, void(IssuesObserver* observer));
   MOCK_METHOD1(UnregisterIssuesObserver, void(IssuesObserver* observer));
-
-  MOCK_METHOD1(RegisterMediaSinksObserver, void(MediaSinksObserver* observer));
+  MOCK_METHOD1(RegisterMediaSinksObserver, bool(MediaSinksObserver* observer));
   MOCK_METHOD1(UnregisterMediaSinksObserver,
                void(MediaSinksObserver* observer));
   MOCK_METHOD1(RegisterMediaRoutesObserver,
                void(MediaRoutesObserver* observer));
   MOCK_METHOD1(UnregisterMediaRoutesObserver,
                void(MediaRoutesObserver* observer));
+  MOCK_METHOD1(RegisterPresentationSessionMessagesObserver,
+               void(PresentationSessionMessagesObserver* observer));
+  MOCK_METHOD1(UnregisterPresentationSessionMessagesObserver,
+               void(PresentationSessionMessagesObserver* observer));
+  MOCK_METHOD1(RegisterLocalMediaRoutesObserver,
+               void(LocalMediaRoutesObserver* observer));
+  MOCK_METHOD1(UnregisterLocalMediaRoutesObserver,
+               void(LocalMediaRoutesObserver* observer));
+  MOCK_METHOD1(RegisterPresentationConnectionStateObserver,
+               void(PresentationConnectionStateObserver* observer));
+  MOCK_METHOD1(UnregisterPresentationConnectionStateObserver,
+               void(PresentationConnectionStateObserver* observer));
 };
 
 }  // namespace media_router

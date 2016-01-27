@@ -114,7 +114,6 @@ void ToolbarActionsBarUnitTest::SetUp() {
           profile());
 
   ToolbarActionsBar::disable_animations_for_testing_ = true;
-  ToolbarActionsBar::set_send_overflowed_action_changes_for_testing(false);
   browser_action_test_util_.reset(new BrowserActionTestUtil(browser(), false));
 
   if (use_redesign_) {
@@ -320,7 +319,7 @@ TEST_F(ToolbarActionsBarUnitTest, ToolbarActionsReorderOnPrefChange) {
     EXPECT_TRUE(VerifyToolbarOrder(expected_names, 3u, 3u));
   }
 
-  extensions::ExtensionIdList new_order;
+  std::vector<std::string> new_order;
   new_order.push_back(toolbar_actions_bar()->toolbar_actions_unordered()[1]->
       GetId());
   new_order.push_back(toolbar_actions_bar()->toolbar_actions_unordered()[2]->
@@ -330,6 +329,74 @@ TEST_F(ToolbarActionsBarUnitTest, ToolbarActionsReorderOnPrefChange) {
   {
     // The order should now reflect the prefs, and be 1, 2, 0.
     const char* expected_names[] = { kExtension1, kExtension2, kExtension0 };
+    EXPECT_TRUE(VerifyToolbarOrder(expected_names, 3u, 3u));
+  }
+}
+
+TEST_F(ToolbarActionsBarUnitTest, TestHighlightMode) {
+  std::vector<std::string> ids;
+  for (int i = 0; i < 3; ++i) {
+    ids.push_back(CreateAndAddExtension(
+                      base::StringPrintf("extension %d", i),
+                      extensions::extension_action_test_util::BROWSER_ACTION)
+                      ->id());
+  }
+  EXPECT_EQ(3u, toolbar_actions_bar()->GetIconCount());
+  const char kExtension0[] = "extension 0";
+  const char kExtension1[] = "extension 1";
+  const char kExtension2[] = "extension 2";
+
+  {
+    // The order should start as 0, 1, 2.
+    const char* expected_names[] = {kExtension0, kExtension1, kExtension2};
+    EXPECT_TRUE(VerifyToolbarOrder(expected_names, 3u, 3u));
+  }
+
+  std::vector<std::string> ids_to_highlight;
+  ids_to_highlight.push_back(ids[0]);
+  ids_to_highlight.push_back(ids[2]);
+  toolbar_model()->HighlightActions(ids_to_highlight,
+                                    ToolbarActionsModel::HIGHLIGHT_WARNING);
+
+  {
+    // The order should now be 0, 2, since 1 is not being highlighted.
+    const char* expected_names[] = {kExtension0, kExtension2};
+    EXPECT_TRUE(VerifyToolbarOrder(expected_names, 2u, 2u));
+  }
+
+  toolbar_model()->StopHighlighting();
+
+  {
+    // The order should go back to normal.
+    const char* expected_names[] = {kExtension0, kExtension1, kExtension2};
+    EXPECT_TRUE(VerifyToolbarOrder(expected_names, 3u, 3u));
+  }
+
+  ids_to_highlight.push_back(ids[1]);
+  toolbar_model()->HighlightActions(ids_to_highlight,
+                                    ToolbarActionsModel::HIGHLIGHT_WARNING);
+  {
+    // All actions should be highlighted (in the order of the vector passed in,
+    // so with '1' at the end).
+    const char* expected_names[] = {kExtension0, kExtension2, kExtension1};
+    EXPECT_TRUE(VerifyToolbarOrder(expected_names, 3u, 3u));
+  }
+
+  ids_to_highlight.clear();
+  ids_to_highlight.push_back(ids[1]);
+  toolbar_model()->HighlightActions(ids_to_highlight,
+                                    ToolbarActionsModel::HIGHLIGHT_WARNING);
+
+  {
+    // Only extension 1 should be visible.
+    const char* expected_names[] = {kExtension1};
+    EXPECT_TRUE(VerifyToolbarOrder(expected_names, 1u, 1u));
+  }
+
+  toolbar_model()->StopHighlighting();
+  {
+    // And, again, back to normal.
+    const char* expected_names[] = {kExtension0, kExtension1, kExtension2};
     EXPECT_TRUE(VerifyToolbarOrder(expected_names, 3u, 3u));
   }
 }
@@ -382,4 +449,119 @@ TEST_F(ToolbarActionsBarRedesignUnitTest, IconSurfacingBubbleAppearance) {
                   one_week_ago.ToInternalValue());
   EXPECT_TRUE(
       prefs->GetBoolean(prefs::kToolbarIconSurfacingBubbleAcknowledged));
+}
+
+// Test the bounds calculation for different indices.
+TEST_F(ToolbarActionsBarRedesignUnitTest, TestActionFrameBounds) {
+  const int kIconWidth = ToolbarActionsBar::IconWidth(false);
+  const int kIconHeight = ToolbarActionsBar::IconHeight();
+  const int kIconWidthWithPadding = ToolbarActionsBar::IconWidth(true);
+  const int kIconsPerOverflowRow = 3;
+  const int kNumExtensions = 7;
+  const int kSpacing =
+      toolbar_actions_bar()->platform_settings().item_spacing;
+
+  // Initialization: 7 total extensions, with 3 visible per row in overflow.
+  // Start with all visible on the main bar.
+  for (int i = 0; i < kNumExtensions; ++i) {
+    CreateAndAddExtension(
+        base::StringPrintf("extension %d", i),
+        extensions::extension_action_test_util::BROWSER_ACTION);
+  }
+  toolbar_model()->SetVisibleIconCount(kNumExtensions);
+  overflow_bar()->SetOverflowRowWidth(
+      kIconWidthWithPadding * kIconsPerOverflowRow + 3);
+  EXPECT_EQ(kIconsPerOverflowRow,
+            overflow_bar()->platform_settings().icons_per_overflow_menu_row);
+
+  // Check main bar calculations. Actions should be laid out in a line, so
+  // all on the same (0) y-axis.
+  EXPECT_EQ(gfx::Rect(kSpacing, 0, kIconWidth, kIconHeight),
+            toolbar_actions_bar()->GetFrameForIndex(0));
+  EXPECT_EQ(gfx::Rect(kSpacing + kIconWidthWithPadding, 0, kIconWidth,
+                      kIconHeight),
+            toolbar_actions_bar()->GetFrameForIndex(1));
+  EXPECT_EQ(gfx::Rect(kSpacing + kIconWidthWithPadding * (kNumExtensions - 1),
+                      0, kIconWidth, kIconHeight),
+            toolbar_actions_bar()->GetFrameForIndex(kNumExtensions - 1));
+
+  // Check overflow bar calculations.
+  toolbar_model()->SetVisibleIconCount(3);
+  // Any actions that are shown on the main bar should have an empty rect for
+  // the frame.
+  EXPECT_EQ(gfx::Rect(), overflow_bar()->GetFrameForIndex(0));
+  EXPECT_EQ(gfx::Rect(), overflow_bar()->GetFrameForIndex(2));
+
+  // Other actions should start from their relative index; that is, the first
+  // action shown should be in the first spot's bounds, even though it's the
+  // third action by index.
+  EXPECT_EQ(gfx::Rect(kSpacing, 0, kIconWidth, kIconHeight),
+            overflow_bar()->GetFrameForIndex(3));
+  EXPECT_EQ(gfx::Rect(kSpacing + kIconWidthWithPadding, 0, kIconWidth,
+                      kIconHeight),
+            overflow_bar()->GetFrameForIndex(4));
+  EXPECT_EQ(gfx::Rect(kSpacing + kIconWidthWithPadding * 2, 0, kIconWidth,
+                      kIconHeight),
+            overflow_bar()->GetFrameForIndex(5));
+  // And the actions should wrap, so that it starts back at the left on a new
+  // row.
+  EXPECT_EQ(gfx::Rect(kSpacing, kIconHeight, kIconWidth, kIconHeight),
+            overflow_bar()->GetFrameForIndex(6));
+
+  // Check with > 2 rows.
+  toolbar_model()->SetVisibleIconCount(0);
+  EXPECT_EQ(gfx::Rect(kSpacing, 0, kIconWidth, kIconHeight),
+            overflow_bar()->GetFrameForIndex(0));
+  EXPECT_EQ(gfx::Rect(kSpacing, kIconHeight * 2, kIconWidth, kIconHeight),
+            overflow_bar()->GetFrameForIndex(6));
+}
+
+TEST_F(ToolbarActionsBarRedesignUnitTest, TestStartAndEndIndexes) {
+  for (int i = 0; i < 3; ++i) {
+    CreateAndAddExtension(
+        base::StringPrintf("extension %d", i),
+        extensions::extension_action_test_util::BROWSER_ACTION);
+  }
+  // At the start, all icons should be present on the main bar, and no
+  // overflow should be needed.
+  EXPECT_EQ(3u, toolbar_actions_bar()->GetIconCount());
+  EXPECT_EQ(0u, toolbar_actions_bar()->GetStartIndexInBounds());
+  EXPECT_EQ(3u, toolbar_actions_bar()->GetEndIndexInBounds());
+  EXPECT_EQ(3u, overflow_bar()->GetStartIndexInBounds());
+  EXPECT_EQ(3u, overflow_bar()->GetEndIndexInBounds());
+  EXPECT_FALSE(toolbar_actions_bar()->NeedsOverflow());
+
+  // Shrink the width of the view to be a little over enough for one icon.
+  browser_action_test_util()->SetWidth(ToolbarActionsBar::IconWidth(true) + 5);
+  // Tricky: GetIconCount() is what we use to determine our preferred size,
+  // stored pref size, etc, and should not be affected by a minimum size that is
+  // too small to show everything. It should remain constant.
+  EXPECT_EQ(3u, toolbar_actions_bar()->GetIconCount());
+  // The main container should display only the first icon, with the overflow
+  // displaying the rest.
+  EXPECT_EQ(0u, toolbar_actions_bar()->GetStartIndexInBounds());
+  EXPECT_EQ(1u, toolbar_actions_bar()->GetEndIndexInBounds());
+  EXPECT_EQ(1u, overflow_bar()->GetStartIndexInBounds());
+  EXPECT_EQ(3u, overflow_bar()->GetEndIndexInBounds());
+  EXPECT_TRUE(toolbar_actions_bar()->NeedsOverflow());
+
+  // Shrink the container again to be too small to display even one icon.
+  // The overflow container should be displaying everything.
+  browser_action_test_util()->SetWidth(ToolbarActionsBar::IconWidth(true) - 10);
+  EXPECT_EQ(3u, toolbar_actions_bar()->GetIconCount());
+  EXPECT_EQ(0u, toolbar_actions_bar()->GetStartIndexInBounds());
+  EXPECT_EQ(0u, toolbar_actions_bar()->GetEndIndexInBounds());
+  EXPECT_EQ(0u, overflow_bar()->GetStartIndexInBounds());
+  EXPECT_EQ(3u, overflow_bar()->GetEndIndexInBounds());
+  EXPECT_TRUE(toolbar_actions_bar()->NeedsOverflow());
+
+  // Set the width back to the preferred width. All should be back to normal.
+  browser_action_test_util()->SetWidth(
+      toolbar_actions_bar()->GetPreferredSize().width());
+  EXPECT_EQ(3u, toolbar_actions_bar()->GetIconCount());
+  EXPECT_EQ(0u, toolbar_actions_bar()->GetStartIndexInBounds());
+  EXPECT_EQ(3u, toolbar_actions_bar()->GetEndIndexInBounds());
+  EXPECT_EQ(3u, overflow_bar()->GetStartIndexInBounds());
+  EXPECT_EQ(3u, overflow_bar()->GetEndIndexInBounds());
+  EXPECT_FALSE(toolbar_actions_bar()->NeedsOverflow());
 }

@@ -113,10 +113,6 @@ public:
     virtual void setFromStrings(const WebString& name, const WebString& value) = 0;
 
     virtual bool mainFrameResizesAreOrientationChanges() const = 0;
-    virtual int availablePointerTypes() const = 0;
-    virtual PointerType primaryPointerType() const = 0;
-    virtual int availableHoverTypes() const = 0;
-    virtual HoverType primaryHoverType() const = 0;
     virtual bool shrinksViewportContentToFit() const = 0;
     virtual bool viewportEnabled() const = 0;
     virtual void setAccelerated2dCanvasEnabled(bool) = 0;
@@ -144,6 +140,7 @@ public:
     virtual void setAntialiased2dCanvasEnabled(bool) = 0;
     virtual void setAntialiasedClips2dCanvasEnabled(bool) = 0;
     virtual void setAsynchronousSpellCheckingEnabled(bool) = 0;
+    virtual void setAutoplayExperimentMode(const WebString&) = 0;
     virtual void setAutoZoomFocusedNodeToLegibleScale(bool) = 0;
     virtual void setCaretBrowsingEnabled(bool) = 0;
     virtual void setClobberUserAgentInitialScaleQuirk(bool) = 0;
@@ -180,7 +177,6 @@ public:
     virtual void setImagesEnabled(bool) = 0;
     virtual void setInlineTextBoxAccessibilityEnabled(bool) = 0;
     virtual void setInvertViewportScrollOrder(bool) = 0;
-    virtual void setJavaEnabled(bool) = 0;
     virtual void setJavaScriptCanAccessClipboard(bool) = 0;
     virtual void setJavaScriptCanOpenWindowsAutomatically(bool) = 0;
     virtual void setJavaScriptEnabled(bool) = 0;
@@ -209,6 +205,7 @@ public:
     virtual void setPrimaryPointerType(PointerType) = 0;
     virtual void setAvailableHoverTypes(int) = 0;
     virtual void setPrimaryHoverType(HoverType) = 0;
+    virtual void setPreferHiddenVolumeControls(bool) = 0;
     virtual void setRenderVSyncNotificationEnabled(bool) = 0;
     virtual void setReportScreenSizeInPhysicalPixelsQuirk(bool) = 0;
     virtual void setRootLayerScrolls(bool) = 0;
@@ -236,7 +233,9 @@ public:
     virtual void setSpatialNavigationEnabled(bool) = 0;
     virtual void setStandardFontFamily(const WebString&, UScriptCode = USCRIPT_COMMON) = 0;
     virtual void setStrictMixedContentChecking(bool) = 0;
+    virtual void setStrictMixedContentCheckingForPlugin(bool) = 0;
     virtual void setStrictPowerfulFeatureRestrictions(bool) = 0;
+    virtual void setStrictlyBlockBlockableMixedContent(bool) = 0;
     virtual void setSupportDeprecatedTargetDensityDPI(bool) = 0;
     virtual void setSupportsMultipleWindows(bool) = 0;
     virtual void setSyncXHRInDocumentsEnabled(bool) = 0;
@@ -253,7 +252,6 @@ public:
     virtual void setTextTrackTextSize(const WebString&) = 0;
     virtual void setThreadedScrollingEnabled(bool) = 0;
     virtual void setTouchDragDropEnabled(bool) = 0;
-    virtual void setTouchEditingEnabled(bool) = 0;
     virtual void setUnifiedTextCheckerEnabled(bool) = 0;
     virtual void setUnsafePluginPastingEnabled(bool) = 0;
     virtual void setUseLegacyBackgroundSizeShorthandBehavior(bool) = 0;

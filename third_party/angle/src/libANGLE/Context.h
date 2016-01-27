@@ -55,7 +55,7 @@ class VertexArray;
 class Sampler;
 class TransformFeedback;
 
-class Context final : angle::NonCopyable
+class Context final : public ValidationContext
 {
   public:
     Context(const egl::Config *config, int clientVersion, const Context *shareContext, rx::Renderer *renderer, bool notifyResets, bool robustAccess);
@@ -164,10 +164,28 @@ class Context final : angle::NonCopyable
     bool getQueryParameterInfo(GLenum pname, GLenum *type, unsigned int *numParams);
     bool getIndexedQueryParameterInfo(GLenum target, GLenum *type, unsigned int *numParams);
 
-    Error drawArrays(GLenum mode, GLint first, GLsizei count, GLsizei instances);
-    Error drawElements(GLenum mode, GLsizei count, GLenum type,
-                       const GLvoid *indices, GLsizei instances,
-                       const RangeUI &indexRange);
+    Error drawArrays(GLenum mode, GLint first, GLsizei count);
+    Error drawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instanceCount);
+
+    Error drawElements(GLenum mode,
+                       GLsizei count,
+                       GLenum type,
+                       const GLvoid *indices,
+                       const IndexRange &indexRange);
+    Error drawElementsInstanced(GLenum mode,
+                                GLsizei count,
+                                GLenum type,
+                                const GLvoid *indices,
+                                GLsizei instances,
+                                const IndexRange &indexRange);
+    Error drawRangeElements(GLenum mode,
+                            GLuint start,
+                            GLuint end,
+                            GLsizei count,
+                            GLenum type,
+                            const GLvoid *indices,
+                            const IndexRange &indexRange);
+
     Error flush();
     Error finish();
 
@@ -175,21 +193,15 @@ class Context final : angle::NonCopyable
     void pushGroupMarker(GLsizei length, const char *marker);
     void popGroupMarker();
 
-    void recordError(const Error &error);
+    void recordError(const Error &error) override;
 
     GLenum getError();
     GLenum getResetStatus();
     virtual bool isResetNotificationEnabled();
 
-    virtual int getClientVersion() const;
-
     const egl::Config *getConfig() const;
     EGLenum getClientType() const;
     EGLenum getRenderBuffer() const;
-
-    const Caps &getCaps() const;
-    const TextureCapsMap &getTextureCaps() const;
-    const Extensions &getExtensions() const;
 
     const std::string &getRendererString() const;
 
@@ -200,9 +212,9 @@ class Context final : angle::NonCopyable
     rx::Renderer *getRenderer() { return mRenderer; }
 
     State &getState() { return mState; }
-    const State &getState() const { return mState; }
 
-    const Data &getData() const { return mData; }
+    void syncRendererState();
+    void syncRendererState(const State::DirtyBits &bitMask);
 
   private:
     void detachBuffer(GLuint buffer);
@@ -222,6 +234,7 @@ class Context final : angle::NonCopyable
     Caps mCaps;
     TextureCapsMap mTextureCaps;
     Extensions mExtensions;
+    Limitations mLimitations;
 
     // Shader compiler
     Compiler *mCompiler;
@@ -271,11 +284,9 @@ class Context final : angle::NonCopyable
     GLenum mResetStatus;
     GLenum mResetStrategy;
     bool mRobustAccess;
+    egl::Surface *mCurrentSurface;
 
     ResourceManager *mResourceManager;
-
-    // Cache the Data object to avoid re-calling the constructor
-    Data mData;
 };
 
 }

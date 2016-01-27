@@ -14,36 +14,43 @@ namespace blink {
 
 class RoundedRect;
 
-class PLATFORM_EXPORT FloatClipDisplayItem : public PairedBeginDisplayItem {
+class PLATFORM_EXPORT FloatClipDisplayItem final : public PairedBeginDisplayItem {
 public:
     FloatClipDisplayItem(const DisplayItemClientWrapper& client, Type type, const FloatRect& clipRect)
-        : PairedBeginDisplayItem(client, type)
+        : PairedBeginDisplayItem(client, type, sizeof(*this))
         , m_clipRect(clipRect)
     {
         ASSERT(isFloatClipType(type));
     }
 
-    void replay(GraphicsContext&) override;
-    void appendToWebDisplayItemList(WebDisplayItemList*) const override;
+    void replay(GraphicsContext&) const override;
+    void appendToWebDisplayItemList(const IntRect&, WebDisplayItemList*) const override;
 
 private:
 #ifndef NDEBUG
     void dumpPropertiesAsDebugString(WTF::StringBuilder&) const override;
 #endif
+#if ENABLE(ASSERT)
+    bool equals(const DisplayItem& other) const final
+    {
+        return DisplayItem::equals(other)
+            && m_clipRect == static_cast<const FloatClipDisplayItem&>(other).m_clipRect;
+    }
+#endif
 
     const FloatRect m_clipRect;
 };
 
-class PLATFORM_EXPORT EndFloatClipDisplayItem : public PairedEndDisplayItem {
+class PLATFORM_EXPORT EndFloatClipDisplayItem final : public PairedEndDisplayItem {
 public:
     EndFloatClipDisplayItem(const DisplayItemClientWrapper& client, Type type)
-        : PairedEndDisplayItem(client, type)
+        : PairedEndDisplayItem(client, type, sizeof(*this))
     {
         ASSERT(isEndFloatClipType(type));
     }
 
-    void replay(GraphicsContext&) override;
-    void appendToWebDisplayItemList(WebDisplayItemList*) const override;
+    void replay(GraphicsContext&) const override;
+    void appendToWebDisplayItemList(const IntRect&, WebDisplayItemList*) const override;
 
 private:
 #if ENABLE(ASSERT)

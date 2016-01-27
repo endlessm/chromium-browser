@@ -25,10 +25,13 @@ enum SkPathOpsMask {
 class SkOpCoincidence;
 class SkOpContour;
 class SkOpContourHead;
+class SkIntersections;
+class SkIntersectionHelper;
 
 class SkOpGlobalState {
 public:
-    SkOpGlobalState(SkOpCoincidence* coincidence, SkOpContourHead* head);
+    SkOpGlobalState(SkOpCoincidence* coincidence, SkOpContourHead* head
+                    SkDEBUGPARAMS(const char* testName));
 
     enum Phase {
         kIntersecting,
@@ -40,7 +43,7 @@ public:
         kMaxWindingTries = 10
     };
 
-    bool angleCoincidence() {
+    bool angleCoincidence() const {
         return fAngleCoincidence;
     }
 
@@ -67,6 +70,15 @@ public:
     bool debugRunFail() const;
     const class SkOpSegment* debugSegment(int id) const;
     const class SkOpSpanBase* debugSpan(int id) const;
+    const char* debugTestName() const { return fDebugTestName; }
+#endif
+
+#if DEBUG_T_SECT_LOOP_COUNT
+    void debugAddLoopCount(SkIntersections* , const SkIntersectionHelper& ,
+        const SkIntersectionHelper& );
+    void debugDoYourWorst(SkOpGlobalState* );
+    void debugLoopReport();
+    void debugResetLoopCounts();
 #endif
 
     int nested() const {
@@ -78,9 +90,14 @@ public:
         return ++fAngleID;
     }
 
+    int nextCoinID() {
+        return ++fCoinID;
+    }
+
     int nextContourID() {
         return ++fContourID;
     }
+
     int nextPtTID() {
         return ++fPtTID;
     }
@@ -128,11 +145,19 @@ private:
     bool fAngleCoincidence;
     Phase fPhase;
 #ifdef SK_DEBUG
+    const char* fDebugTestName;
     int fAngleID;
+    int fCoinID;
     int fContourID;
     int fPtTID;
     int fSegmentID;
     int fSpanID;
+#endif
+#if DEBUG_T_SECT_LOOP_COUNT
+    int fDebugLoopCount[3];
+    SkPath::Verb fDebugWorstVerb[6];
+    SkPoint fDebugWorstPts[24];
+    float fDebugWorstWeight[6];
 #endif
 };
 

@@ -26,7 +26,6 @@
 #include "config.h"
 #include "core/css/CSSImageGeneratorValue.h"
 
-#include "core/css/CSSCanvasValue.h"
 #include "core/css/CSSCrossfadeValue.h"
 #include "core/css/CSSGradientValue.h"
 #include "platform/graphics/Image.h"
@@ -42,7 +41,7 @@ CSSImageGeneratorValue::~CSSImageGeneratorValue()
 {
 }
 
-void CSSImageGeneratorValue::addClient(LayoutObject* layoutObject, const IntSize& size)
+void CSSImageGeneratorValue::addClient(const LayoutObject* layoutObject, const IntSize& size)
 {
     ASSERT(layoutObject);
 #if !ENABLE(OILPAN)
@@ -50,7 +49,7 @@ void CSSImageGeneratorValue::addClient(LayoutObject* layoutObject, const IntSize
 #else
     if (m_clients.isEmpty()) {
         ASSERT(!m_keepAlive);
-        m_keepAlive = adoptPtr(new Persistent<CSSImageGeneratorValue>(this));
+        m_keepAlive = this;
     }
 #endif
 
@@ -58,15 +57,22 @@ void CSSImageGeneratorValue::addClient(LayoutObject* layoutObject, const IntSize
         m_sizes.add(size);
 
     LayoutObjectSizeCountMap::iterator it = m_clients.find(layoutObject);
-    if (it == m_clients.end())
+    if (it == m_clients.end()) {
         m_clients.add(layoutObject, SizeAndCount(size, 1));
-    else {
+    } else {
         SizeAndCount& sizeCount = it->value;
         ++sizeCount.count;
     }
 }
 
-void CSSImageGeneratorValue::removeClient(LayoutObject* layoutObject)
+PassRefPtrWillBeRawPtr<CSSImageGeneratorValue> CSSImageGeneratorValue::valueWithURLsMadeAbsolute()
+{
+    if (isCrossfadeValue())
+        return toCSSCrossfadeValue(this)->valueWithURLsMadeAbsolute();
+    return this;
+}
+
+void CSSImageGeneratorValue::removeClient(const LayoutObject* layoutObject)
 {
     ASSERT(layoutObject);
     LayoutObjectSizeCountMap::iterator it = m_clients.find(layoutObject);
@@ -89,12 +95,12 @@ void CSSImageGeneratorValue::removeClient(LayoutObject* layoutObject)
 #else
     if (m_clients.isEmpty()) {
         ASSERT(m_keepAlive);
-        m_keepAlive = nullptr;
+        m_keepAlive.clear();
     }
 #endif
 }
 
-Image* CSSImageGeneratorValue::getImage(LayoutObject* layoutObject, const IntSize& size)
+Image* CSSImageGeneratorValue::getImage(const LayoutObject* layoutObject, const IntSize& size)
 {
     LayoutObjectSizeCountMap::iterator it = m_clients.find(layoutObject);
     if (it != m_clients.end()) {
@@ -109,7 +115,7 @@ Image* CSSImageGeneratorValue::getImage(LayoutObject* layoutObject, const IntSiz
 
     // Don't generate an image for empty sizes.
     if (size.isEmpty())
-        return 0;
+        return nullptr;
 
     // Look up the image in our cache.
     return m_images.get(size);
@@ -120,11 +126,9 @@ void CSSImageGeneratorValue::putImage(const IntSize& size, PassRefPtr<Image> ima
     m_images.add(size, image);
 }
 
-PassRefPtr<Image> CSSImageGeneratorValue::image(LayoutObject* layoutObject, const IntSize& size)
+PassRefPtr<Image> CSSImageGeneratorValue::image(const LayoutObject* layoutObject, const IntSize& size)
 {
     switch (classType()) {
-    case CanvasClass:
-        return toCSSCanvasValue(this)->image(layoutObject, size);
     case CrossfadeClass:
         return toCSSCrossfadeValue(this)->image(layoutObject, size);
     case LinearGradientClass:
@@ -140,8 +144,6 @@ PassRefPtr<Image> CSSImageGeneratorValue::image(LayoutObject* layoutObject, cons
 bool CSSImageGeneratorValue::isFixedSize() const
 {
     switch (classType()) {
-    case CanvasClass:
-        return toCSSCanvasValue(this)->isFixedSize();
     case CrossfadeClass:
         return toCSSCrossfadeValue(this)->isFixedSize();
     case LinearGradientClass:
@@ -157,8 +159,6 @@ bool CSSImageGeneratorValue::isFixedSize() const
 IntSize CSSImageGeneratorValue::fixedSize(const LayoutObject* layoutObject)
 {
     switch (classType()) {
-    case CanvasClass:
-        return toCSSCanvasValue(this)->fixedSize(layoutObject);
     case CrossfadeClass:
         return toCSSCrossfadeValue(this)->fixedSize(layoutObject);
     case LinearGradientClass:
@@ -176,8 +176,6 @@ bool CSSImageGeneratorValue::isPending() const
     switch (classType()) {
     case CrossfadeClass:
         return toCSSCrossfadeValue(this)->isPending();
-    case CanvasClass:
-        return toCSSCanvasValue(this)->isPending();
     case LinearGradientClass:
         return toCSSLinearGradientValue(this)->isPending();
     case RadialGradientClass:
@@ -193,8 +191,6 @@ bool CSSImageGeneratorValue::knownToBeOpaque(const LayoutObject* layoutObject) c
     switch (classType()) {
     case CrossfadeClass:
         return toCSSCrossfadeValue(this)->knownToBeOpaque(layoutObject);
-    case CanvasClass:
-        return false;
     case LinearGradientClass:
         return toCSSLinearGradientValue(this)->knownToBeOpaque(layoutObject);
     case RadialGradientClass:
@@ -210,9 +206,6 @@ void CSSImageGeneratorValue::loadSubimages(Document* document)
     switch (classType()) {
     case CrossfadeClass:
         toCSSCrossfadeValue(this)->loadSubimages(document);
-        break;
-    case CanvasClass:
-        toCSSCanvasValue(this)->loadSubimages(document);
         break;
     case LinearGradientClass:
         toCSSLinearGradientValue(this)->loadSubimages(document);

@@ -36,4 +36,6 @@ dictionary TestDictionary {
     Uint8Array uint8ArrayMember;
     EventTarget eventTargetMember;
     any anyMember = null;
+    Dictionary dictionaryMember;
+    [RuntimeEnabled=runtimeFeature] boolean runtimeMember;
 };

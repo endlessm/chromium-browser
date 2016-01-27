@@ -146,6 +146,11 @@ size_t split(const std::string& source, char delimiter,
 size_t tokenize(const std::string& source, char delimiter,
                 std::vector<std::string>* fields);
 
+// Tokenize, including the empty tokens.
+size_t tokenize_with_empty_tokens(const std::string& source,
+                                  char delimiter,
+                                  std::vector<std::string>* fields);
+
 // Tokenize and append the tokens to fields. Return the new size of fields.
 size_t tokenize_append(const std::string& source, char delimiter,
                        std::vector<std::string>* fields);
@@ -176,7 +181,7 @@ bool tokenize_first(const std::string& source,
 
 template <class T>
 static bool ToString(const T &t, std::string* s) {
-  DCHECK(s);
+  RTC_DCHECK(s);
   std::ostringstream oss;
   oss << std::boolalpha << t;
   *s = oss.str();
@@ -185,7 +190,7 @@ static bool ToString(const T &t, std::string* s) {
 
 template <class T>
 static bool FromString(const std::string& s, T* t) {
-  DCHECK(t);
+  RTC_DCHECK(t);
   std::istringstream iss(s);
   iss >> std::boolalpha >> *t;
   return !iss.fail();

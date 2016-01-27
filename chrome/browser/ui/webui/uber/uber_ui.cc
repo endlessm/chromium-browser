@@ -8,6 +8,7 @@
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/webui/chrome_web_ui_controller_factory.h"
 #include "chrome/browser/ui/webui/extensions/extensions_ui.h"
+#include "chrome/browser/ui/webui/log_web_ui_url.h"
 #include "chrome/browser/ui/webui/options/options_ui.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/chrome_manifest_url_handlers.h"
@@ -89,26 +90,21 @@ content::WebUIDataSource* CreateUberFrameHTMLSource(
   source->AddLocalizedString("shortProductName", IDS_SHORT_PRODUCT_NAME);
 #endif  // defined(OS_CHROMEOS)
 
-  // Group settings and help separately if settings in a window is enabled.
-  std::string settings_group("settings_group");
-  std::string other_group(
-      ::switches::SettingsWindowEnabled() ? "other_group" : "settings_group");
+  source->AddBoolean("hideExtensions", ::switches::MdExtensionsEnabled());
+  source->AddBoolean("hideSettingsAndHelp",
+                     ::switches::SettingsWindowEnabled());
   source->AddString("extensionsHost", chrome::kChromeUIExtensionsHost);
   source->AddLocalizedString("extensionsDisplayName",
                              IDS_MANAGE_EXTENSIONS_SETTING_WINDOWS_TITLE);
-  source->AddString("extensionsGroup", other_group);
   source->AddString("helpHost", chrome::kChromeUIHelpHost);
   source->AddLocalizedString("helpDisplayName", IDS_ABOUT_TITLE);
-  source->AddString("helpGroup", settings_group);
   source->AddString("historyHost", chrome::kChromeUIHistoryHost);
   source->AddLocalizedString("historyDisplayName", IDS_HISTORY_TITLE);
-  source->AddString("historyGroup", other_group);
   source->AddString("settingsHost", chrome::kChromeUISettingsHost);
   source->AddLocalizedString("settingsDisplayName", IDS_SETTINGS_TITLE);
-  source->AddString("settingsGroup", settings_group);
-  bool overridesHistory =
+  bool overrides_history =
       HasExtensionType(browser_context, chrome::kChromeUIHistoryHost);
-  source->AddString("overridesHistory", overridesHistory ? "yes" : "no");
+  source->AddString("overridesHistory", overrides_history ? "yes" : "no");
   source->DisableDenyXFrameOptions();
   source->OverrideContentSecurityPolicyFrameSrc("frame-src chrome:;");
 
@@ -130,7 +126,27 @@ void UpdateHistoryNavigation(content::WebUI* web_ui) {
 
 }  // namespace
 
-UberUI::UberUI(content::WebUI* web_ui) : WebUIController(web_ui) {
+SubframeLogger::SubframeLogger(content::WebContents* contents)
+    : WebContentsObserver(contents) {}
+
+SubframeLogger::~SubframeLogger() {}
+
+void SubframeLogger::DidCommitProvisionalLoadForFrame(
+    content::RenderFrameHost* render_frame_host,
+    const GURL& url,
+    ui::PageTransition transition_type) {
+  if (url == GURL(chrome::kChromeUIExtensionsFrameURL) ||
+      url == GURL(chrome::kChromeUIHelpFrameURL) ||
+      url == GURL(chrome::kChromeUIHistoryFrameURL) ||
+      url == GURL(chrome::kChromeUISettingsFrameURL) ||
+      url == GURL(chrome::kChromeUIUberFrameURL)) {
+    webui::LogWebUIUrl(url);
+  }
+}
+
+UberUI::UberUI(content::WebUI* web_ui)
+    : WebUIController(web_ui),
+      subframe_logger_(web_ui->GetWebContents()) {
   content::WebUIDataSource::Add(web_ui->GetWebContents()->GetBrowserContext(),
                                 CreateUberHTMLSource());
 
@@ -152,11 +168,8 @@ UberUI::~UberUI() {
 
 void UberUI::RegisterSubpage(const std::string& page_url,
                              const std::string& page_host) {
-  GURL page_gurl(page_url);
-  content::WebUI* webui = web_ui()->GetWebContents()->CreateWebUI(page_gurl);
-
-  webui->OverrideJavaScriptFrame(page_host);
-  sub_uis_[page_url] = webui;
+  sub_uis_[page_url] = web_ui()->GetWebContents()->CreateSubframeWebUI(
+      GURL(page_url), page_host);
 }
 
 content::WebUI* UberUI::GetSubpage(const std::string& page_url) {

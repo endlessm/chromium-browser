@@ -19,7 +19,15 @@
 
 namespace base {
 class Thread;
+class Time;
+class TimeDelta;
 }
+
+// An empty syncer::NetworkTimeUpdateCallback. Used in various tests to
+// instantiate ProfileSyncService.
+void EmptyNetworkTimeUpdate(const base::Time&,
+                            const base::TimeDelta&,
+                            const base::TimeDelta&);
 
 ACTION_P(Notify, type) {
   content::NotificationService::current()->Notify(
@@ -30,7 +38,7 @@ ACTION_P(Notify, type) {
 
 ACTION(QuitUIMessageLoop) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
-  base::MessageLoop::current()->Quit();
+  base::MessageLoop::current()->QuitWhenIdle();
 }
 
 class SyncServiceObserverMock : public sync_driver::SyncServiceObserver {

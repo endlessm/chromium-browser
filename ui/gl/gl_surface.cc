@@ -17,10 +17,6 @@
 #include "ui/gl/gl_implementation.h"
 #include "ui/gl/gl_switches.h"
 
-#if defined(USE_X11)
-#include <X11/Xlib.h>
-#endif
-
 namespace gfx {
 
 namespace {
@@ -32,7 +28,7 @@ base::LazyInstance<base::ThreadLocalPointer<GLSurface> >::Leaky
 bool GLSurface::InitializeOneOff() {
   DCHECK_EQ(kGLImplementationNone, GetGLImplementation());
 
-  TRACE_EVENT0("gpu", "GLSurface::InitializeOneOff");
+  TRACE_EVENT0("gpu,startup", "GLSurface::InitializeOneOff");
 
   std::vector<GLImplementation> allowed_impls;
   GetAllowedGLImplementations(&allowed_impls);
@@ -97,81 +93,13 @@ bool GLSurface::InitializeOneOffImplementation(GLImplementation impl,
   return initialized;
 }
 
-// static
-void GLSurface::InitializeOneOffForTests() {
-  DCHECK_EQ(kGLImplementationNone, GetGLImplementation());
-
-#if defined(USE_X11)
-  XInitThreads();
-#endif
-
-  bool use_osmesa = true;
-
-  // We usually use OSMesa as this works on all bots. The command line can
-  // override this behaviour to use hardware GL.
-  if (base::CommandLine::ForCurrentProcess()->HasSwitch(
-          switches::kUseGpuInTests))
-    use_osmesa = false;
-
-#if defined(OS_ANDROID)
-  // On Android we always use hardware GL.
-  use_osmesa = false;
-#endif
-
-  std::vector<GLImplementation> allowed_impls;
-  GetAllowedGLImplementations(&allowed_impls);
-  DCHECK(!allowed_impls.empty());
-
-  GLImplementation impl = allowed_impls[0];
-  if (use_osmesa)
-    impl = kGLImplementationOSMesaGL;
-
-  DCHECK(!base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kUseGL))
-      << "kUseGL has not effect in tests";
-
-  bool fallback_to_osmesa = false;
-  bool gpu_service_logging = false;
-  bool disable_gl_drawing = true;
-
-  CHECK(InitializeOneOffImplementation(
-      impl, fallback_to_osmesa, gpu_service_logging, disable_gl_drawing));
-}
-
-// static
-void GLSurface::InitializeOneOffWithMockBindingsForTests() {
-  DCHECK(!base::CommandLine::ForCurrentProcess()->HasSwitch(switches::kUseGL))
-      << "kUseGL has not effect in tests";
-
-  // This method may be called multiple times in the same process to set up
-  // mock bindings in different ways.
-  ClearGLBindings();
-
-  bool fallback_to_osmesa = false;
-  bool gpu_service_logging = false;
-  bool disable_gl_drawing = false;
-
-  CHECK(InitializeOneOffImplementation(kGLImplementationMockGL,
-                                       fallback_to_osmesa,
-                                       gpu_service_logging,
-                                       disable_gl_drawing));
-}
-
-// static
-void GLSurface::InitializeDynamicMockBindingsForTests(GLContext* context) {
-  CHECK(InitializeDynamicGLBindings(kGLImplementationMockGL, context));
-}
-
 GLSurface::GLSurface() {}
 
 bool GLSurface::Initialize() {
   return true;
 }
 
-void GLSurface::DestroyAndTerminateDisplay() {
-  Destroy();
-}
-
-bool GLSurface::Resize(const gfx::Size& size) {
+bool GLSurface::Resize(const gfx::Size& size, float scale_factor) {
   NOTIMPLEMENTED();
   return false;
 }
@@ -254,9 +182,19 @@ VSyncProvider* GLSurface::GetVSyncProvider() {
 
 bool GLSurface::ScheduleOverlayPlane(int z_order,
                                      OverlayTransform transform,
-                                     GLImage* image,
+                                     gl::GLImage* image,
                                      const Rect& bounds_rect,
                                      const RectF& crop_rect) {
+  NOTIMPLEMENTED();
+  return false;
+}
+
+bool GLSurface::ScheduleCALayer(gl::GLImage* contents_image,
+                                const RectF& contents_rect,
+                                float opacity,
+                                unsigned background_color,
+                                const SizeF& bounds_size,
+                                const gfx::Transform& transform) {
   NOTIMPLEMENTED();
   return false;
 }
@@ -304,8 +242,8 @@ void GLSurfaceAdapter::Destroy() {
   surface_->Destroy();
 }
 
-bool GLSurfaceAdapter::Resize(const gfx::Size& size) {
-  return surface_->Resize(size);
+bool GLSurfaceAdapter::Resize(const gfx::Size& size, float scale_factor) {
+  return surface_->Resize(size, scale_factor);
 }
 
 bool GLSurfaceAdapter::Recreate() {
@@ -392,7 +330,7 @@ VSyncProvider* GLSurfaceAdapter::GetVSyncProvider() {
 
 bool GLSurfaceAdapter::ScheduleOverlayPlane(int z_order,
                                             OverlayTransform transform,
-                                            GLImage* image,
+                                            gl::GLImage* image,
                                             const Rect& bounds_rect,
                                             const RectF& crop_rect) {
   return surface_->ScheduleOverlayPlane(

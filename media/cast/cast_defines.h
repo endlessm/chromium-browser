@@ -20,9 +20,8 @@
 namespace media {
 namespace cast {
 
-const int64 kDontShowTimeoutMs = 33;
-const float kDefaultCongestionControlBackOff = 0.875f;
 const uint32 kVideoFrequency = 90000;
+const int kMinSampleRateForEncoding = 8000;
 const uint32 kStartFrameId = UINT32_C(0xffffffff);
 
 // This is an important system-wide constant.  This limits how much history the
@@ -75,6 +74,10 @@ enum DefaultSettings {
   kDefaultRtcpIntervalMs = 500,
   kDefaultRtpHistoryMs = 1000,
   kDefaultRtpMaxDelayMs = 100,
+  kDefaultRtpAudioPayloadType = 127,
+  kDefaultRtpVideoPayloadType = 96,
+  kDefaultMinVideoBitRate = 50,
+  kDefaultMaxVideoBitRate = 2000,
 };
 
 enum PacketType {

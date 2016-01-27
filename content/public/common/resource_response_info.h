@@ -17,7 +17,7 @@
 #include "net/base/load_timing_info.h"
 #include "net/http/http_response_headers.h"
 #include "net/http/http_response_info.h"
-#include "third_party/WebKit/public/platform/WebServiceWorkerResponseType.h"
+#include "third_party/WebKit/public/platform/modules/serviceworker/WebServiceWorkerResponseType.h"
 #include "url/gurl.h"
 
 namespace content {
@@ -69,8 +69,8 @@ struct ResourceResponseInfo {
   net::LoadTimingInfo load_timing;
 
   // Actual request and response headers, as obtained from the network stack.
-  // Only present if request had LOAD_REPORT_RAW_HEADERS in load_flags, and
-  // requesting renderer had CanReadRowCookies permission.
+  // Only present if the renderer set report_raw_headers to true and had the
+  // CanReadRawCookies permission.
   scoped_refptr<ResourceDevToolsInfo> devtools_info;
 
   // The path to a file that will contain the response body.  It may only
@@ -129,6 +129,9 @@ struct ResourceResponseInfo {
   // If the response is not provided by the ServiceWorker, kept empty.
   // TODO(ksakamoto): Move this to net::LoadTimingInfo.
   base::TimeTicks service_worker_ready_time;
+
+  // Whether or not the request was for a LoFi version of the resource.
+  bool is_using_lofi;
 };
 
 }  // namespace content

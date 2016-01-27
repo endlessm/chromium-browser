@@ -15,10 +15,9 @@
 
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/engine_configurations.h"
-#include "webrtc/modules/rtp_rtcp/interface/receive_statistics.h"
-#include "webrtc/modules/rtp_rtcp/interface/rtp_rtcp_defines.h"
+#include "webrtc/modules/rtp_rtcp/include/receive_statistics.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
 #include "webrtc/typedefs.h"
-#include "webrtc/video_engine/vie_defines.h"
 
 namespace webrtc {
 
@@ -36,7 +35,7 @@ struct ReceiveBandwidthEstimatorStats;
 
 class ViEReceiver : public RtpData {
  public:
-  ViEReceiver(const int32_t channel_id, VideoCodingModule* module_vcm,
+  ViEReceiver(VideoCodingModule* module_vcm,
               RemoteBitrateEstimator* remote_bitrate_estimator,
               RtpFeedback* rtp_feedback);
   ~ViEReceiver();
@@ -46,6 +45,11 @@ class ViEReceiver : public RtpData {
 
   void SetNackStatus(bool enable, int max_nack_reordering_threshold);
   void SetRtxPayloadType(int payload_type, int associated_payload_type);
+  // If set to true, the RTX payload type mapping supplied in
+  // |SetRtxPayloadType| will be used when restoring RTX packets. Without it,
+  // RTX packets will always be restored to the last non-RTX packet payload type
+  // received.
+  void SetUseRtxPayloadMappingOnRestore(bool val);
   void SetRtxSsrc(uint32_t ssrc);
   bool GetRtxSsrc(uint32_t* ssrc) const;
 
@@ -58,11 +62,12 @@ class ViEReceiver : public RtpData {
 
   RtpReceiver* GetRtpReceiver() const;
 
-  void RegisterSimulcastRtpRtcpModules(const std::list<RtpRtcp*>& rtp_modules);
+  void RegisterRtpRtcpModules(const std::vector<RtpRtcp*>& rtp_modules);
 
   bool SetReceiveTimestampOffsetStatus(bool enable, int id);
   bool SetReceiveAbsoluteSendTimeStatus(bool enable, int id);
   bool SetReceiveVideoRotationStatus(bool enable, int id);
+  bool SetReceiveTransportSequenceNumber(bool enable, int id);
 
   void StartReceive();
   void StopReceive();
@@ -102,20 +107,21 @@ class ViEReceiver : public RtpData {
   rtc::scoped_ptr<RtpHeaderParser> rtp_header_parser_;
   rtc::scoped_ptr<RTPPayloadRegistry> rtp_payload_registry_;
   rtc::scoped_ptr<RtpReceiver> rtp_receiver_;
-  rtc::scoped_ptr<ReceiveStatistics> rtp_receive_statistics_;
+  const rtc::scoped_ptr<ReceiveStatistics> rtp_receive_statistics_;
   rtc::scoped_ptr<FecReceiver> fec_receiver_;
   RtpRtcp* rtp_rtcp_;
-  std::list<RtpRtcp*> rtp_rtcp_simulcast_;
+  std::vector<RtpRtcp*> rtp_rtcp_simulcast_;
   VideoCodingModule* vcm_;
   RemoteBitrateEstimator* remote_bitrate_estimator_;
 
   rtc::scoped_ptr<RemoteNtpTimeEstimator> ntp_estimator_;
 
   bool receiving_;
-  uint8_t restored_packet_[kViEMaxMtu];
+  uint8_t restored_packet_[IP_PACKET_SIZE];
   bool restored_packet_in_use_;
   bool receiving_ast_enabled_;
   bool receiving_cvo_enabled_;
+  bool receiving_tsn_enabled_;
   int64_t last_packet_log_ms_;
 };
 

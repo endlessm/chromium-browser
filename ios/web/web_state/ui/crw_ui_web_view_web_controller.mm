@@ -4,6 +4,7 @@
 
 #import "ios/web/web_state/ui/crw_ui_web_view_web_controller.h"
 
+#import "base/ios/ios_util.h"
 #import "base/ios/ns_error_util.h"
 #import "base/ios/weak_nsobject.h"
 #include "base/json/json_reader.h"
@@ -12,7 +13,6 @@
 #import "base/mac/scoped_nsobject.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/metrics/field_trial.h"
-#include "base/metrics/histogram.h"
 #include "base/strings/string_util.h"
 #include "base/strings/sys_string_conversions.h"
 #include "base/timer/timer.h"
@@ -20,6 +20,7 @@
 #import "ios/net/nsurlrequest_util.h"
 #import "ios/web/navigation/crw_session_controller.h"
 #import "ios/web/navigation/crw_session_entry.h"
+#import "ios/web/navigation/navigation_item_impl.h"
 #include "ios/web/net/clients/crw_redirect_network_client_factory.h"
 #import "ios/web/net/crw_url_verifying_protocol_handler.h"
 #include "ios/web/net/request_group_util.h"
@@ -339,27 +340,15 @@ const size_t kMaxMessageQueueSize = 262144;
 
     // UIWebViews require a redirect network client in order to accurately
     // detect server redirects.
-    redirect_client_factory_.reset(
-        [[CRWRedirectNetworkClientFactory alloc] initWithDelegate:self]);
-    // WeakNSObjects cannot be dereferenced outside of the main thread, and
-    // CRWWebController must be deallocated from the main thread.  Keep a
-    // reference to self on the main thread and release it after successfully
-    // adding the redirect client factory to the RequestTracker on the IO
-    // thread.
-    __block base::scoped_nsobject<CRWUIWebViewWebController> scopedSelf(
-        [self retain]);
-    web::WebThread::PostTaskAndReply(
-        web::WebThread::IO, FROM_HERE, base::BindBlock(^{
-          // Only add the factory if there is a valid request tracker.
-          web::WebStateImpl* webState = [scopedSelf webStateImpl];
-          if (webState && webState->GetRequestTracker()) {
-            webState->GetRequestTracker()->AddNetworkClientFactory(
-                redirect_client_factory_);
-          }
-        }),
-        base::BindBlock(^{
-          scopedSelf.reset();
-        }));
+    scoped_refptr<web::RequestTrackerImpl> requestTracker =
+        self.webStateImpl->GetRequestTracker();
+    if (requestTracker) {
+      redirect_client_factory_.reset(
+          [[CRWRedirectNetworkClientFactory alloc] initWithDelegate:self]);
+      requestTracker->PostIOTask(
+          base::Bind(&net::RequestTracker::AddNetworkClientFactory,
+                     requestTracker, redirect_client_factory_));
+    }
   }
   return self;
 }
@@ -545,6 +534,13 @@ const size_t kMaxMessageQueueSize = 262144;
       [self useDesktopUserAgent]);
 }
 
+- (BOOL)isCurrentNavigationItemPOST {
+  DCHECK([self currentSessionEntry]);
+  NSData* currentPOSTData =
+      [self currentSessionEntry].navigationItemImpl->GetPostData();
+  return currentPOSTData != nil;
+}
+
 // The core.js cannot pass messages back to obj-c  if it is injected
 // to |WEB_VIEW_DOCUMENT| because it does not support iframe creation used
 // by core.js to communicate back. That functionality is only supported
@@ -555,13 +551,25 @@ const size_t kMaxMessageQueueSize = 262144;
   if (!_uiWebView) {
     return web::WEB_VIEW_DOCUMENT_TYPE_GENERIC;
   }
-  NSString* documentType =
-      [_uiWebView stringByEvaluatingJavaScriptFromString:
-          @"'' + document"];
-  if ([documentType isEqualToString:@"[object HTMLDocument]"])
-    return web::WEB_VIEW_DOCUMENT_TYPE_HTML;
-  else if ([documentType isEqualToString:@"[object Document]"])
-    return web::WEB_VIEW_DOCUMENT_TYPE_GENERIC;
+
+  if (base::ios::IsRunningOnIOS9OrLater()) {
+    // On iOS 9, evaluating '' + document always results in [object
+    // HTMLDocument], even for PDFs. However, document.contentType is properly
+    // defined.
+    NSString* MIMEType = [_uiWebView
+        stringByEvaluatingJavaScriptFromString:@"document.contentType"];
+    return [self documentTypeFromMIMEType:MIMEType];
+  } else {
+    // On iOS 8 and below, document.contentType is always undefined. Use this
+    // instead.
+    NSString* documentType =
+        [_uiWebView stringByEvaluatingJavaScriptFromString:@"'' + document"];
+    if ([documentType isEqualToString:@"[object HTMLDocument]"])
+      return web::WEB_VIEW_DOCUMENT_TYPE_HTML;
+    else if ([documentType isEqualToString:@"[object Document]"])
+      return web::WEB_VIEW_DOCUMENT_TYPE_GENERIC;
+  }
+
   return web::WEB_VIEW_DOCUMENT_TYPE_UNKNOWN;
 }
 
@@ -617,6 +625,51 @@ const size_t kMaxMessageQueueSize = 262144;
     DLOG_IF(ERROR, wrongRequestGroupID) << "Incorrect user agent in UIWebView";
   }
 #endif  // !defined(NDEBUG)
+}
+
+- (void)loadRequestForCurrentNavigationItem {
+  DCHECK(self.webView && !self.nativeController);
+  NSMutableURLRequest* request = [self requestForCurrentNavigationItem];
+
+  ProceduralBlock GETBlock = ^{
+    [self registerLoadRequest:[self currentNavigationURL]
+                     referrer:[self currentSessionEntryReferrer]
+                   transition:[self currentTransition]];
+    [self loadRequest:request];
+  };
+
+  // If there is no POST data, load the request as a GET right away.
+  DCHECK([self currentSessionEntry]);
+  web::NavigationItemImpl* currentItem =
+      [self currentSessionEntry].navigationItemImpl;
+  NSData* POSTData = currentItem->GetPostData();
+  if (!POSTData) {
+    GETBlock();
+    return;
+  }
+
+  ProceduralBlock POSTBlock = ^{
+    [request setHTTPMethod:@"POST"];
+    [request setHTTPBody:POSTData];
+    [request setAllHTTPHeaderFields:[self currentHTTPHeaders]];
+    [self registerLoadRequest:[self currentNavigationURL]
+                     referrer:[self currentSessionEntryReferrer]
+                   transition:[self currentTransition]];
+    [self loadRequest:request];
+  };
+
+  // If POST data is empty or the user does not need to confirm,
+  // load the request right away.
+  if (!POSTData.length || currentItem->ShouldSkipResubmitDataConfirmation()) {
+    POSTBlock();
+    return;
+  }
+
+  // Prompt the user to confirm the POST request.
+  [self.delegate webController:self
+      onFormResubmissionForRequest:request
+                     continueBlock:POSTBlock
+                       cancelBlock:GETBlock];
 }
 
 - (void)setPageChangeProbability:(web::PageChangeProbability)probability {
@@ -806,15 +859,49 @@ const size_t kMaxMessageQueueSize = 262144;
   self.webScrollView.zoomScale = zoomScale;
 }
 
-- (BOOL)shouldAbortLoadForCancelledError:(NSError*)cancelledError {
+- (void)handleCancelledError:(NSError*)error {
   // NSURLErrorCancelled errors generated by the Chrome net stack should be
   // aborted.  If the error was generated by the UIWebView, it will not have
   // an underlying net error and will be automatically retried by the web view.
-  DCHECK_EQ(cancelledError.code, NSURLErrorCancelled);
-  NSError* underlyingError =
-      base::ios::GetFinalUnderlyingErrorFromError(cancelledError);
+  DCHECK_EQ(error.code, NSURLErrorCancelled);
+  NSError* underlyingError = base::ios::GetFinalUnderlyingErrorFromError(error);
   NSString* netDomain = base::SysUTF8ToNSString(net::kErrorDomain);
-  return [underlyingError.domain isEqualToString:netDomain];
+  BOOL shouldAbortLoadForCancelledError =
+      [underlyingError.domain isEqualToString:netDomain];
+  if (!shouldAbortLoadForCancelledError)
+    return;
+
+  // NSURLCancelled errors with underlying errors are generated from the
+  // Chrome network stack.  Abort the load in this case.
+  [self abortLoad];
+
+  switch (underlyingError.code) {
+    case net::ERR_ABORTED:
+      // |NSURLErrorCancelled| errors with underlying net error code
+      // |net::ERR_ABORTED| are used by the Chrome network stack to
+      // indicate that the current load should be aborted and the pending
+      // entry should be discarded.
+      [[self sessionController] discardNonCommittedEntries];
+      break;
+    case net::ERR_BLOCKED_BY_CLIENT:
+      // |NSURLErrorCancelled| errors with underlying net error code
+      // |net::ERR_BLOCKED_BY_CLIENT| are used by the Chrome network stack
+      // to indicate that the current load should be aborted and the pending
+      // entry should be kept.
+      break;
+    default:
+      NOTREACHED();
+  }
+}
+
+- (void)loadCompletedForURL:(const GURL&)loadedURL {
+  // This is not actually the right place to call this, and is here to preserve
+  // the existing UIWebView behavior during the WKWebView transition. This
+  // should actually be called at the point where the web view URL is known to
+  // have actually changed, but currently there's not a clear way of knowing
+  // when that happens as a result of a load (vs. an in-page navigation), and
+  // over-calling this would regress other behavior.
+  self.webStateImpl->OnNavigationCommitted(loadedURL);
 }
 
 #pragma mark - JS to ObjC messaging
@@ -829,9 +916,7 @@ const size_t kMaxMessageQueueSize = 262144;
   // Messages are queued and processed asynchronously. However, user
   // may initiate JavaScript at arbitrary times (e.g. through Omnibox
   // "javascript:alert('foo')"). This delays processing of queued messages
-  // until JavaScript execution is completed.
-  // TODO(pkl): This should have a unit test or UI Automation test case.
-  // See crbug.com/228125
+  // until JavaScript execution is completed. See crbug/228125 for details.
   if (_inJavaScriptContext) {
     [self performSelector:@selector(respondToJSInvoke)
                withObject:nil
@@ -881,8 +966,7 @@ const size_t kMaxMessageQueueSize = 262144;
     DLOG(WARNING) << "Messages from JS ignored due to excessive length";
     return;
   }
-  NSString* commandString = [[nsurl fragment]
-      stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+  NSString* commandString = [nsurl.fragment stringByRemovingPercentEncoding];
 
   GURL originURL(net::GURLWithNSURL(request.mainDocumentURL));
 
@@ -1273,9 +1357,9 @@ const size_t kMaxMessageQueueSize = 262144;
   // navigation has happened before the UIWebView is set here (ideally by
   // unifying the creation and setting flow).
   _spoofableRequest = YES;
-  _inJavaScriptContext = NO;
 
   if (webView) {
+    _inJavaScriptContext = NO;
     // Do initial injection even before loading another page, since the window
     // object is re-used.
     [self injectEarlyInjectionScripts];

@@ -28,7 +28,7 @@
 
 #include "core/CoreExport.h"
 #include "platform/heap/Handle.h"
-#include "wtf/FastAllocBase.h"
+#include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 #include "wtf/HashMap.h"
 #include "wtf/Noncopyable.h"
@@ -44,7 +44,7 @@ struct ProgressItem;
 // browser which shows a progress bar during loading.
 // We should find a better way for Android to get this data and remove this!
 class CORE_EXPORT ProgressTracker final : public NoBaseWillBeGarbageCollectedFinalized<ProgressTracker> {
-    WTF_MAKE_NONCOPYABLE(ProgressTracker); WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(ProgressTracker);
+    WTF_MAKE_NONCOPYABLE(ProgressTracker); USING_FAST_MALLOC_WILL_BE_REMOVED(ProgressTracker);
 public:
     static PassOwnPtrWillBeRawPtr<ProgressTracker> create(LocalFrame*);
 
@@ -57,6 +57,8 @@ public:
     void progressStarted();
     void progressCompleted();
 
+    void finishedParsing();
+
     void incrementProgress(unsigned long identifier, const ResourceResponse&);
     void incrementProgress(unsigned long identifier, int);
     void completeProgress(unsigned long identifier);
@@ -67,9 +69,12 @@ public:
 private:
     explicit ProgressTracker(LocalFrame*);
 
+    void incrementProgressForMainResourceOnly(unsigned long identifier, int length);
+    void sendFinalProgress();
     void reset();
 
     RawPtrWillBeMember<LocalFrame> m_frame;
+    unsigned long m_mainResourceIdentifier;
     long long m_totalPageAndResourceBytesToLoad;
     long long m_totalBytesReceived;
     double m_lastNotifiedProgressValue;

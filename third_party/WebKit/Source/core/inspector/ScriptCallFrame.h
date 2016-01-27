@@ -32,6 +32,7 @@
 #define ScriptCallFrame_h
 
 #include "core/InspectorTypeBuilder.h"
+#include "wtf/Allocator.h"
 #include "wtf/Forward.h"
 #include "wtf/text/WTFString.h"
 
@@ -40,6 +41,7 @@ namespace blink {
 class TracedValue;
 
 class ScriptCallFrame  {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     ScriptCallFrame();
     ScriptCallFrame(const String& functionName, const String& scriptId, const String& scriptName, unsigned lineNumber, unsigned column = 0);

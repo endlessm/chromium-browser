@@ -32,39 +32,39 @@
 #define MockImageResourceClient_h
 
 #include "core/fetch/ImageResourceClient.h"
-
-#include <gtest/gtest.h>
+#include "platform/heap/Handle.h"
 
 namespace blink {
 
+template<typename T> class ResourcePtr;
+
+class Resource;
+
 class MockImageResourceClient final : public ImageResourceClient {
 public:
-    MockImageResourceClient()
-        : m_imageChangedCount(0)
-        , m_notifyFinishedCalled(false)
-    {
-    }
+    explicit MockImageResourceClient(const ResourcePtr<Resource>&);
+    ~MockImageResourceClient() override;
 
-    ~MockImageResourceClient() override {}
     void imageChanged(ImageResource*, const IntRect*) override
     {
         m_imageChangedCount++;
     }
 
-    void notifyFinished(Resource*) override
-    {
-        ASSERT_FALSE(m_notifyFinishedCalled);
-        m_notifyFinishedCalled = true;
-    }
+    void notifyFinished(Resource*) override;
+    String debugName() const override { return "MockImageResourceClient"; }
 
     int imageChangedCount() const { return m_imageChangedCount; }
     bool notifyFinishedCalled() const { return m_notifyFinishedCalled; }
 
+    void removeAsClient();
+
 private:
+    // TODO(Oilpan): properly trace when ImageResourceClient is on the heap.
+    RawPtrWillBeUntracedMember<Resource> m_resource;
     int m_imageChangedCount;
     bool m_notifyFinishedCalled;
 };
 
 } // namespace blink
 
-#endif // ImageResourceTest_h
+#endif // MockImageResourceClient_h

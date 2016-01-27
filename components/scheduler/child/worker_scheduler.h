@@ -15,11 +15,13 @@ class MessageLoop;
 }
 
 namespace scheduler {
+class SchedulerTqmDelegate;
 
 class SCHEDULER_EXPORT WorkerScheduler : public ChildScheduler {
  public:
   ~WorkerScheduler() override;
-  static scoped_ptr<WorkerScheduler> Create(base::MessageLoop* message_loop);
+  static scoped_ptr<WorkerScheduler> Create(
+      scoped_refptr<SchedulerTqmDelegate> main_task_runner);
 
   // Must be called before the scheduler can be used. Does any post construction
   // initialization needed such as initializing idle period detection.

@@ -10,6 +10,7 @@
 
 #include "base/basictypes.h"
 #include "components/autofill/core/browser/autofill_client.h"
+#include "components/autofill/core/browser/autofill_download_manager.h"
 #include "components/autofill/core/browser/autofill_profile.h"
 #include "components/autofill/core/browser/credit_card.h"
 #include "components/autofill/core/browser/field_types.h"
@@ -22,6 +23,22 @@ namespace autofill {
 
 class AutofillMetrics {
  public:
+  enum AutofillProfileAction {
+    EXISTING_PROFILE_USED,
+    EXISTING_PROFILE_UPDATED,
+    NEW_PROFILE_CREATED,
+    AUTOFILL_PROFILE_ACTION_ENUM_SIZE,
+  };
+
+  enum AutofillFormSubmittedState {
+    NON_FILLABLE_FORM_OR_NEW_DATA,
+    FILLABLE_FORM_AUTOFILLED_ALL,
+    FILLABLE_FORM_AUTOFILLED_SOME,
+    FILLABLE_FORM_AUTOFILLED_NONE_DID_SHOW_SUGGESTIONS,
+    FILLABLE_FORM_AUTOFILLED_NONE_DID_NOT_SHOW_SUGGESTIONS,
+    AUTOFILL_FORM_SUBMITTED_STATE_ENUM_SIZE,
+  };
+
   enum DeveloperEngagementMetric {
     // Parsed a form that is potentially autofillable.
     FILLABLE_FORM_PARSED = 0,
@@ -332,17 +349,17 @@ class AutofillMetrics {
     NUM_UNMASK_PROMPT_EVENTS,
   };
 
-  // Possible results of the GetRealPan call.
-  enum GetRealPanResult {
+  // Possible results of Payments RPCs.
+  enum PaymentsRpcResult {
     // Request succeeded.
-    GET_REAL_PAN_RESULT_SUCCESS = 0,
+    PAYMENTS_RESULT_SUCCESS = 0,
     // Request failed; try again.
-    GET_REAL_PAN_RESULT_TRY_AGAIN_FAILURE,
+    PAYMENTS_RESULT_TRY_AGAIN_FAILURE,
     // Request failed; don't try again.
-    GET_REAL_PAN_RESULT_PERMANENT_FAILURE,
-    // Unable to connect to Wallet servers.
-    GET_REAL_PAN_RESULT_NETWORK_ERROR,
-    NUM_GET_REAL_PAN_RESULTS,
+    PAYMENTS_RESULT_PERMANENT_FAILURE,
+    // Unable to connect to Payments servers.
+    PAYMENTS_RESULT_NETWORK_ERROR,
+    NUM_PAYMENTS_RESULTS,
   };
 
   // For measuring the network request time of various Wallet API calls. See
@@ -420,14 +437,6 @@ class AutofillMetrics {
     NUM_WALLET_REQUIRED_ACTIONS
   };
 
-  // For measuring the increased load on the Autofill server if the restriction
-  // on querying for password forms with fewer than 3 fields were omitted.
-  enum PasswordFormQueryVolumeMetric {
-    NEW_PASSWORD_QUERY,
-    CURRENT_QUERY,
-    NUM_PASSWORD_FORM_QUERY_VOLUME_METRIC,
-  };
-
   static void LogCreditCardInfoBarMetric(InfoBarMetric metric);
   static void LogScanCreditCardPromptMetric(ScanCreditCardPromptMetric metric);
 
@@ -493,15 +502,15 @@ class AutofillMetrics {
   static void LogTimeBeforeAbandonUnmasking(const base::TimeDelta& duration);
 
   // Logs |result| to the get real pan result histogram.
-  static void LogRealPanResult(AutofillClient::GetRealPanResult result);
+  static void LogRealPanResult(AutofillClient::PaymentsRpcResult result);
 
   // Logs |result| to duration of the GetRealPan RPC.
   static void LogRealPanDuration(const base::TimeDelta& duration,
-                                 AutofillClient::GetRealPanResult result);
+                                 AutofillClient::PaymentsRpcResult result);
 
   // Logs |result| to the get real pan result histogram.
   static void LogUnmaskingDuration(const base::TimeDelta& duration,
-                                   AutofillClient::GetRealPanResult result);
+                                   AutofillClient::PaymentsRpcResult result);
 
   // Logs |metric| to the Wallet errors histogram.
   static void LogWalletErrorMetric(WalletErrorMetric metric);
@@ -561,12 +570,33 @@ class AutofillMetrics {
   // form.
   static void LogAddressSuggestionsCount(size_t num_suggestions);
 
-  // Log the index of the selected suggestion in the Autofill popup.
-  static void LogSuggestionAcceptedIndex(int index);
+  // Log the index of the selected Autofill suggestion in the popup.
+  static void LogAutofillSuggestionAcceptedIndex(int index);
 
-  // Log password form query: current and if one-to-two fields password forms
-  // were allowed.
-  static void LogPasswordFormQueryVolume(PasswordFormQueryVolumeMetric metric);
+  // Log the index of the selected Autocomplete suggestion in the popup.
+  static void LogAutocompleteSuggestionAcceptedIndex(int index);
+
+  // Log how many autofilled fields in a given form were edited before
+  // submission.
+  static void LogNumberOfEditedAutofilledFieldsAtSubmission(
+      size_t num_edited_autofilled_fields);
+
+  // This should be called each time a server response is parsed for a form.
+  static void LogServerResponseHasDataForForm(bool has_data);
+
+  // This should be called at each form submission to indicate what profile
+  // action happened.
+  static void LogProfileActionOnFormSubmitted(AutofillProfileAction action);
+
+  // This should be called at each form submission to indicate the autofilled
+  // state of the form.
+  static void LogAutofillFormSubmittedState(AutofillFormSubmittedState state);
+
+  // Log the compression ratio obtained by compressing with gzip. Logs for the
+  // query or upload request, depending on |type|.
+  static void LogPayloadCompressionRatio(
+      int compression_ratio,
+      AutofillDownloadManager::RequestType type);
 
   // Utility to autofill form events in the relevant histograms depending on
   // the presence of server and/or local data.

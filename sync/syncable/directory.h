@@ -248,11 +248,12 @@ class SYNC_EXPORT Directory {
   // Does not take ownership of |encryptor|.
   // |report_unrecoverable_error_function| may be NULL.
   // Takes ownership of |store|.
-  Directory(DirectoryBackingStore* store,
-            UnrecoverableErrorHandler* unrecoverable_error_handler,
-            const base::Closure& report_unrecoverable_error_function,
-            NigoriHandler* nigori_handler,
-            Cryptographer* cryptographer);
+  Directory(
+      DirectoryBackingStore* store,
+      const WeakHandle<UnrecoverableErrorHandler>& unrecoverable_error_handler,
+      const base::Closure& report_unrecoverable_error_function,
+      NigoriHandler* nigori_handler,
+      Cryptographer* cryptographer);
   virtual ~Directory();
 
   // Does not take ownership of |delegate|, which must not be NULL.
@@ -299,8 +300,16 @@ class SYNC_EXPORT Directory {
                           ModelType type,
                           const sync_pb::DataTypeContext& context);
 
+  // Returns types for which the initial sync has ended.
   ModelTypeSet InitialSyncEndedTypes();
+
+  // Returns true if the initial sync for |type| has completed.
   bool InitialSyncEndedForType(ModelType type);
+  bool InitialSyncEndedForType(BaseTransaction* trans, ModelType type);
+
+  // Marks the |type| as having its intial sync complete.
+  // This applies only to types with implicitly created root folders.
+  void MarkInitialSyncEndedForType(BaseWriteTransaction* trans, ModelType type);
 
   // (Account) Store birthday is opaque to the client, so we keep it in the
   // format it is in the proto buffer in case we switch to a binary birthday
@@ -619,9 +628,6 @@ class SYNC_EXPORT Directory {
   // detected.
   void OnCatastrophicError();
 
-  // Returns true if the initial sync for |type| has completed.
-  bool InitialSyncEndedForType(BaseTransaction* trans, ModelType type);
-
   // Stops sending events to the delegate and the transaction
   // observer.
   void Close();
@@ -636,7 +642,7 @@ class SYNC_EXPORT Directory {
 
   scoped_ptr<DirectoryBackingStore> store_;
 
-  UnrecoverableErrorHandler* const unrecoverable_error_handler_;
+  const WeakHandle<UnrecoverableErrorHandler> unrecoverable_error_handler_;
   base::Closure report_unrecoverable_error_function_;
   bool unrecoverable_error_set_;
 

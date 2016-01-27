@@ -8,18 +8,18 @@ import android.util.Pair;
 
 import org.chromium.base.ThreadUtils;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.Tab;
 import org.chromium.chrome.browser.TabLoadStatus;
 import org.chromium.chrome.browser.omnibox.LocationBarLayout;
 import org.chromium.chrome.browser.omnibox.OmniboxResultsAdapter;
 import org.chromium.chrome.browser.omnibox.OmniboxResultsAdapter.OmniboxResultItem;
 import org.chromium.chrome.browser.omnibox.OmniboxResultsAdapter.OmniboxSuggestionDelegate;
 import org.chromium.chrome.browser.omnibox.OmniboxSuggestion;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeTabbedActivityTestBase;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
 
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -32,14 +32,12 @@ public class PrerenderTestHelper {
     private static final int MAX_NUM_REPEATS_FOR_TRAINING = 7;
 
     private static boolean hasTabPrerenderedUrl(final Tab tab, final String url) {
-        final AtomicBoolean result = new AtomicBoolean();
-        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+        return ThreadUtils.runOnUiThreadBlockingNoException(new Callable<Boolean>() {
             @Override
-            public void run() {
-                result.set(tab.hasPrerenderedUrl(url));
+            public Boolean call() {
+                return tab.hasPrerenderedUrl(url);
             }
         });
-        return result.get();
     }
 
     /**

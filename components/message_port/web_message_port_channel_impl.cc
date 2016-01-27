@@ -7,9 +7,9 @@
 #include "base/bind.h"
 #include "base/logging.h"
 #include "base/strings/string16.h"
+#include "mojo/public/cpp/system/message_pipe.h"
 #include "third_party/WebKit/public/platform/WebMessagePortChannelClient.h"
 #include "third_party/WebKit/public/platform/WebString.h"
-#include "third_party/mojo/src/mojo/public/cpp/system/message_pipe.h"
 
 using blink::WebMessagePortChannel;
 using blink::WebMessagePortChannelArray;
@@ -124,7 +124,15 @@ void WebMessagePortChannelImpl::WaitForNextMessage() {
 }
 
 void WebMessagePortChannelImpl::OnMessageAvailable(MojoResult result) {
+  // |result| can be MOJO_RESULT_ABORTED when the message loop shuts down, or
+  // MOJO_RESULT_FAILED_PRECONDITION when the end-of-file is reached.
+  if (result == MOJO_RESULT_ABORTED ||
+      result == MOJO_RESULT_FAILED_PRECONDITION)
+    return;
+
   DCHECK_EQ(MOJO_RESULT_OK, result);
+  if (!client_)
+    return;
   client_->messageAvailable();
   WaitForNextMessage();
 }

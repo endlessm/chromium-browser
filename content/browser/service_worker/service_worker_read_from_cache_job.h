@@ -11,6 +11,7 @@
 #include "base/memory/weak_ptr.h"
 #include "content/browser/service_worker/service_worker_disk_cache.h"
 #include "content/common/content_export.h"
+#include "content/public/common/resource_type.h"
 #include "net/http/http_byte_range.h"
 #include "net/url_request/url_request_job.h"
 
@@ -29,12 +30,17 @@ class CONTENT_EXPORT ServiceWorkerReadFromCacheJob
   ServiceWorkerReadFromCacheJob(
       net::URLRequest* request,
       net::NetworkDelegate* network_delegate,
+      ResourceType resource_type,
       base::WeakPtr<ServiceWorkerContextCore> context,
       const scoped_refptr<ServiceWorkerVersion>& version,
-      int64 response_id);
+      int64 resource_id);
 
  private:
   ~ServiceWorkerReadFromCacheJob() override;
+
+  bool is_main_script() const {
+    return resource_type_ == RESOURCE_TYPE_SERVICE_WORKER;
+  }
 
   // net::URLRequestJob overrides
   void Start() override;
@@ -57,9 +63,10 @@ class CONTENT_EXPORT ServiceWorkerReadFromCacheJob
   void SetupRangeResponse(int response_data_size);
   void Done(const net::URLRequestStatus& status);
 
+  ResourceType resource_type_;
   base::WeakPtr<ServiceWorkerContextCore> context_;
   scoped_refptr<ServiceWorkerVersion> version_;
-  int64 response_id_;
+  int64 resource_id_;
   scoped_ptr<ServiceWorkerResponseReader> reader_;
   scoped_refptr<HttpResponseInfoIOBuffer> http_info_io_buffer_;
   scoped_ptr<net::HttpResponseInfo> http_info_;

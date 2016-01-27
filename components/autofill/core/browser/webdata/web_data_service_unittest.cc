@@ -11,7 +11,6 @@
 #include "base/location.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
-#include "base/memory/scoped_vector.h"
 #include "base/single_thread_task_runner.h"
 #include "base/stl_util.h"
 #include "base/strings/string16.h"
@@ -60,7 +59,7 @@ class AutofillWebDataServiceConsumer: public WebDataServiceConsumer {
         static_cast<const WDResult<T>*>(result);
     result_ = wrapped_result->GetValue();
 
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
   }
 
   WebDataServiceBase::Handle handle() { return handle_; }
@@ -72,11 +71,11 @@ class AutofillWebDataServiceConsumer: public WebDataServiceConsumer {
   DISALLOW_COPY_AND_ASSIGN(AutofillWebDataServiceConsumer);
 };
 
+const int kWebDataServiceTimeoutSeconds = 8;
+
 }  // namespace
 
 namespace autofill {
-
-static const int kWebDataServiceTimeoutSeconds = 8;
 
 ACTION_P(SignalEvent, event) {
   event->Signal();
@@ -104,7 +103,7 @@ class WebDataServiceTest : public testing::Test {
 
     wdbs_ = new WebDatabaseService(path, base::ThreadTaskRunnerHandle::Get(),
                                    db_thread_.task_runner());
-    wdbs_->AddTable(scoped_ptr<WebDatabaseTable>(new AutofillTable("en-US")));
+    wdbs_->AddTable(make_scoped_ptr(new AutofillTable));
     wdbs_->LoadDatabase();
 
     wds_ = new AutofillWebDataService(
@@ -121,7 +120,7 @@ class WebDataServiceTest : public testing::Test {
     WaitForDatabaseThread();
 
     base::ThreadTaskRunnerHandle::Get()->PostTask(
-        FROM_HERE, base::MessageLoop::QuitClosure());
+        FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
     base::MessageLoop::current()->Run();
     db_thread_.Stop();
   }

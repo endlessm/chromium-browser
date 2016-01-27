@@ -40,7 +40,7 @@ WebInspector.FilterBar = function(name, visibleByDefault)
     this._element = createElementWithClass("div", "filter-bar hidden");
 
     this._filterButton = new WebInspector.ToolbarButton(WebInspector.UIString("Filter"), "filter-toolbar-item", 3);
-    this._filterButton.element.addEventListener("click", this._handleFilterButtonClick.bind(this), false);
+    this._filterButton.addEventListener("click", this._handleFilterButtonClick, this);
 
     this._filters = [];
 
@@ -52,6 +52,10 @@ WebInspector.FilterBar.FilterBarState = {
     Inactive : "inactive",
     Active : "active",
     Shown : "shown"
+};
+
+WebInspector.FilterBar.Events = {
+    Toggled: "Toggled"
 };
 
 WebInspector.FilterBar.prototype = {
@@ -119,7 +123,7 @@ WebInspector.FilterBar.prototype = {
     },
 
     /**
-     * @param {!Event} event
+     * @param {!WebInspector.Event} event
      */
     _handleFilterButtonClick: function(event)
     {
@@ -148,6 +152,7 @@ WebInspector.FilterBar.prototype = {
                 }
             }
         }
+        this.dispatchEventToListeners(WebInspector.FilterBar.Events.Toggled);
     },
 
     clear: function()
@@ -455,7 +460,7 @@ WebInspector.TextFilterUI.SuggestionBuilder.prototype = {
 WebInspector.NamedBitSetFilterUI = function(items, setting)
 {
     this._filtersElement = createElementWithClass("div", "filter-bitset-filter");
-    this._filtersElement.title = WebInspector.UIString("Use %s Click to select multiple types.", WebInspector.KeyboardShortcut.shortcutToString("", WebInspector.KeyboardShortcut.Modifiers.CtrlOrMeta));
+    this._filtersElement.title = WebInspector.UIString("%sClick to select multiple types", WebInspector.KeyboardShortcut.shortcutToString("", WebInspector.KeyboardShortcut.Modifiers.CtrlOrMeta));
 
     this._allowedTypes = {};
     this._typeFilterElements = {};
@@ -624,10 +629,9 @@ WebInspector.ComboBoxFilterUI.prototype = {
     },
 
     /**
-     * @param {string} typeName
      * @return {*}
      */
-    value: function(typeName)
+    value: function()
     {
         var option = this._options[this._filterComboBox.selectedIndex()];
         return option.value;
@@ -710,6 +714,14 @@ WebInspector.CheckboxFilterUI.prototype = {
     element: function()
     {
         return this._filterElement;
+    },
+
+    /**
+     * @return {!Element}
+     */
+    labelElement: function()
+    {
+        return this._label;
     },
 
     _fireUpdated: function()

@@ -1,6 +1,4 @@
-
-
-  /**
+/**
    * @demo demo/index.html
    * @polymerBehavior
    */
@@ -48,22 +46,20 @@
     ],
 
     ready: function() {
-      // TODO(sjmiles): ensure read-only property is valued so the compound
-      // observer will fire
-      if (this.focused === undefined) {
-        this._setFocused(false);
-      }
       this.addEventListener('focus', this._boundFocusBlurHandler, true);
       this.addEventListener('blur', this._boundFocusBlurHandler, true);
     },
 
     _focusBlurHandler: function(event) {
-      var target = event.path ? event.path[0] : event.target;
-      if (target === this) {
-        var focused = event.type === 'focus';
-        this._setFocused(focused);
-      } else if (!this.shadowRoot) {
-        event.stopPropagation();
+      // NOTE(cdata):  if we are in ShadowDOM land, `event.target` will
+      // eventually become `this` due to retargeting; if we are not in
+      // ShadowDOM land, `event.target` will eventually become `this` due
+      // to the second conditional which fires a synthetic event (that is also
+      // handled). In either case, we can disregard `event.path`.
+
+      if (event.target === this) {
+        this._setFocused(event.type === 'focus');
+      } else if (!this.shadowRoot && !this.isLightDescendant(event.target)) {
         this.fire(event.type, {sourceEvent: event}, {
           node: this,
           bubbles: event.bubbles,
@@ -92,4 +88,3 @@
     }
 
   };
-

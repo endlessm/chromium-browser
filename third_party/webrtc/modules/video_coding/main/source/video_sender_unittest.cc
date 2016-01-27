@@ -14,13 +14,14 @@
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common.h"
 #include "webrtc/modules/video_coding/codecs/interface/mock/mock_video_codec_interface.h"
+#include "webrtc/modules/video_coding/codecs/vp8/include/vp8.h"
 #include "webrtc/modules/video_coding/codecs/vp8/include/vp8_common_types.h"
 #include "webrtc/modules/video_coding/codecs/vp8/temporal_layers.h"
 #include "webrtc/modules/video_coding/main/interface/mock/mock_vcm_callbacks.h"
 #include "webrtc/modules/video_coding/main/interface/video_coding.h"
 #include "webrtc/modules/video_coding/main/source/video_coding_impl.h"
 #include "webrtc/modules/video_coding/main/test/test_util.h"
-#include "webrtc/system_wrappers/interface/clock.h"
+#include "webrtc/system_wrappers/include/clock.h"
 #include "webrtc/test/frame_generator.h"
 #include "webrtc/test/testsupport/fileutils.h"
 #include "webrtc/test/testsupport/gtest_disable.h"
@@ -190,6 +191,8 @@ class TestVideoSender : public ::testing::Test {
   SimulatedClock clock_;
   PacketizationCallback packetization_callback_;
   MockEncodedImageCallback post_encode_callback_;
+  // Used by subclassing tests, need to outlive sender_.
+  rtc::scoped_ptr<VideoEncoder> encoder_;
   rtc::scoped_ptr<VideoSender> sender_;
   rtc::scoped_ptr<FrameGenerator> generator_;
 };
@@ -233,16 +236,16 @@ class TestVideoSenderWithMockEncoder : public TestVideoSender {
       // No intra request expected.
       EXPECT_CALL(
           encoder_,
-          Encode(_,
-                 _,
-                 Pointee(ElementsAre(kDeltaFrame, kDeltaFrame, kDeltaFrame))))
-          .Times(1).WillRepeatedly(Return(0));
+          Encode(_, _, Pointee(ElementsAre(kVideoFrameDelta, kVideoFrameDelta,
+                                           kVideoFrameDelta))))
+          .Times(1)
+          .WillRepeatedly(Return(0));
       return;
     }
     assert(stream >= 0);
     assert(stream < kNumberOfStreams);
-    std::vector<VideoFrameType> frame_types(kNumberOfStreams, kDeltaFrame);
-    frame_types[stream] = kKeyFrame;
+    std::vector<FrameType> frame_types(kNumberOfStreams, kVideoFrameDelta);
+    frame_types[stream] = kVideoFrameKey;
     EXPECT_CALL(
         encoder_,
         Encode(_,
@@ -315,7 +318,7 @@ TEST_F(TestVideoSenderWithMockEncoder, TestIntraRequestsInternalCapture) {
 }
 
 TEST_F(TestVideoSenderWithMockEncoder, EncoderFramerateUpdatedViaProcess) {
-  sender_->SetChannelParameters(settings_.startBitrate, 0, 200);
+  sender_->SetChannelParameters(settings_.startBitrate * 1000, 0, 200);
   const int64_t kRateStatsWindowMs = 2000;
   const uint32_t kInputFps = 20;
   int64_t start_time = clock_.TimeInMilliseconds();
@@ -325,6 +328,39 @@ TEST_F(TestVideoSenderWithMockEncoder, EncoderFramerateUpdatedViaProcess) {
   }
   EXPECT_CALL(encoder_, SetRates(_, kInputFps)).Times(1).WillOnce(Return(0));
   sender_->Process();
+  AddFrame();
+}
+
+TEST_F(TestVideoSenderWithMockEncoder,
+       NoRedundantSetChannelParameterOrSetRatesCalls) {
+  const uint8_t kLossRate = 4;
+  const uint8_t kRtt = 200;
+  const int64_t kRateStatsWindowMs = 2000;
+  const uint32_t kInputFps = 20;
+  int64_t start_time = clock_.TimeInMilliseconds();
+  // Expect initial call to SetChannelParameters. Rates are initialized through
+  // InitEncode and expects no additional call before the framerate (or bitrate)
+  // updates.
+  EXPECT_CALL(encoder_, SetChannelParameters(kLossRate, kRtt))
+      .Times(1)
+      .WillOnce(Return(0));
+  sender_->SetChannelParameters(settings_.startBitrate * 1000, kLossRate, kRtt);
+  while (clock_.TimeInMilliseconds() < start_time + kRateStatsWindowMs) {
+    AddFrame();
+    clock_.AdvanceTimeMilliseconds(1000 / kInputFps);
+  }
+  // After process, input framerate should be updated but not ChannelParameters
+  // as they are the same as before.
+  EXPECT_CALL(encoder_, SetRates(_, kInputFps)).Times(1).WillOnce(Return(0));
+  sender_->Process();
+  AddFrame();
+  // Call to SetChannelParameters with changed bitrate should call encoder
+  // SetRates but not encoder SetChannelParameters (that are unchanged).
+  EXPECT_CALL(encoder_, SetRates(2 * settings_.startBitrate, kInputFps))
+      .Times(1)
+      .WillOnce(Return(0));
+  sender_->SetChannelParameters(2 * settings_.startBitrate * 1000, kLossRate,
+                                kRtt);
   AddFrame();
 }
 
@@ -347,6 +383,9 @@ class TestVideoSenderWithVp8 : public TestVideoSender {
     codec_.minBitrate = 10;
     codec_.startBitrate = codec_bitrate_kbps_;
     codec_.maxBitrate = codec_bitrate_kbps_;
+    encoder_.reset(VP8Encoder::Create());
+    ASSERT_EQ(0, sender_->RegisterExternalEncoder(encoder_.get(), codec_.plType,
+                                                  false));
     EXPECT_EQ(0, sender_->RegisterSendCodec(&codec_, 1, 1200));
   }
 

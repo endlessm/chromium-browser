@@ -80,9 +80,8 @@ enum Precedence {
 };
 
 int CountLines(const std::string& str) {
-  std::vector<std::string> lines;
-  base::SplitStringDontTrim(str, '\n', &lines);
-  return static_cast<int>(lines.size());
+  return static_cast<int>(base::SplitStringPiece(
+      str, "\n", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL).size());
 }
 
 class Printer {
@@ -300,9 +299,9 @@ void Printer::AnnotatePreferredMultilineAssignment(const BinaryOpNode* binop) {
   // things, but not flags things.
   if (binop->op().value() == "=" && ident && list) {
     const base::StringPiece lhs = ident->value().value();
-    if (lhs == "data" || lhs == "datadeps" || lhs == "deps" ||
-        lhs == "inputs" || lhs == "outputs" || lhs == "public" ||
-        lhs == "public_deps" || lhs == "sources") {
+    if (lhs == "data" || lhs == "datadeps" || lhs == "data_deps" ||
+        lhs == "deps" || lhs == "inputs" || lhs == "outputs" ||
+        lhs == "public" || lhs == "public_deps" || lhs == "sources") {
       const_cast<ListNode*>(list)->set_prefer_multiline(true);
     }
   }
@@ -394,8 +393,8 @@ void Printer::Block(const ParseNode* root) {
 
 int Printer::AssessPenalty(const std::string& output) {
   int penalty = 0;
-  std::vector<std::string> lines;
-  base::SplitStringDontTrim(output, '\n', &lines);
+  std::vector<std::string> lines = base::SplitString(
+      output, "\n", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL);
   penalty += static_cast<int>(lines.size() - 1) * GetPenaltyForLineBreak();
   for (const auto& line : lines) {
     if (line.size() > kMaximumWidth)
@@ -405,9 +404,8 @@ int Printer::AssessPenalty(const std::string& output) {
 }
 
 bool Printer::ExceedsMaximumWidth(const std::string& output) {
-  std::vector<std::string> lines;
-  base::SplitStringDontTrim(output, '\n', &lines);
-  for (const auto& line : lines) {
+  for (const auto& line : base::SplitString(
+           output, "\n", base::KEEP_WHITESPACE, base::SPLIT_WANT_ALL)) {
     if (line.size() > kMaximumWidth)
       return true;
   }

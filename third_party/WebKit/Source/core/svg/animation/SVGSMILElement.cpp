@@ -39,6 +39,7 @@
 #include "core/svg/SVGURIReference.h"
 #include "core/svg/animation/SMILTimeContainer.h"
 #include "platform/FloatConversion.h"
+#include "platform/heap/Handle.h"
 #include "wtf/MathExtras.h"
 #include "wtf/StdLibExtras.h"
 #include "wtf/Vector.h"
@@ -107,9 +108,9 @@ static const double invalidCachedTime = -1.;
 
 class ConditionEventListener final : public EventListener {
 public:
-    static PassRefPtr<ConditionEventListener> create(SVGSMILElement* animation, SVGSMILElement::Condition* condition)
+    static PassRefPtrWillBeRawPtr<ConditionEventListener> create(SVGSMILElement* animation, SVGSMILElement::Condition* condition)
     {
-        return adoptRef(new ConditionEventListener(animation, condition));
+        return adoptRefWillBeNoop(new ConditionEventListener(animation, condition));
     }
 
     static const ConditionEventListener* cast(const EventListener* listener)
@@ -119,11 +120,18 @@ public:
             : nullptr;
     }
 
-    bool operator==(const EventListener& other) override;
+    bool operator==(const EventListener& other) const override;
 
     void disconnectAnimation()
     {
         m_animation = nullptr;
+    }
+
+    DEFINE_INLINE_VIRTUAL_TRACE()
+    {
+        visitor->trace(m_animation);
+        visitor->trace(m_condition);
+        EventListener::trace(visitor);
     }
 
 private:
@@ -136,11 +144,11 @@ private:
 
     void handleEvent(ExecutionContext*, Event*) override;
 
-    SVGSMILElement* m_animation;
-    SVGSMILElement::Condition* m_condition;
+    RawPtrWillBeMember<SVGSMILElement> m_animation;
+    RawPtrWillBeMember<SVGSMILElement::Condition> m_condition;
 };
 
-bool ConditionEventListener::operator==(const EventListener& listener)
+bool ConditionEventListener::operator==(const EventListener& listener) const
 {
     if (const ConditionEventListener* conditionEventListener = ConditionEventListener::cast(&listener))
         return m_animation == conditionEventListener->m_animation && m_condition == conditionEventListener->m_condition;
@@ -154,7 +162,7 @@ void ConditionEventListener::handleEvent(ExecutionContext*, Event* event)
     m_animation->handleConditionEvent(event, m_condition);
 }
 
-void SVGSMILElement::Condition::setEventListener(PassRefPtr<ConditionEventListener> eventListener)
+void SVGSMILElement::Condition::setEventListener(PassRefPtrWillBeRawPtr<ConditionEventListener> eventListener)
 {
     m_eventListener = eventListener;
 }
@@ -1346,6 +1354,7 @@ SVGSMILElement::Condition::~Condition()
 DEFINE_TRACE(SVGSMILElement::Condition)
 {
     visitor->trace(m_syncBase);
+    visitor->trace(m_eventListener);
 }
 
 DEFINE_TRACE(SVGSMILElement)

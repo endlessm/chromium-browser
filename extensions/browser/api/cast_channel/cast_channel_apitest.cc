@@ -30,7 +30,7 @@
 // TODO(mfoltz): Mock out the ApiResourceManager to resolve threading issues
 // (crbug.com/398242) and simulate unloading of the extension.
 
-namespace cast_channel = extensions::core_api::cast_channel;
+namespace cast_channel = extensions::api::cast_channel;
 using cast_channel::CastMessage;
 using cast_channel::CastSocket;
 using cast_channel::CastTransport;
@@ -413,6 +413,7 @@ IN_PROC_BROWSER_TEST_F(CastChannelAPITest, TestSendInvalidMessageInfo) {
       cast_channel_send_function.get(),
       "[{\"channelId\": 1, "
       "\"keepAlive\": true, "
+      "\"audioOnly\": false, "
       "\"connectInfo\": "
       "{\"ipAddress\": \"127.0.0.1\", \"port\": 8009, "
       "\"auth\": \"ssl\"}, \"readyState\": \"open\"}, "
@@ -427,6 +428,7 @@ IN_PROC_BROWSER_TEST_F(CastChannelAPITest, TestSendInvalidMessageInfo) {
       cast_channel_send_function.get(),
       "[{\"channelId\": 1, "
       "\"keepAlive\": true, "
+      "\"audioOnly\": false, "
       "\"connectInfo\": "
       "{\"ipAddress\": \"127.0.0.1\", \"port\": 8009, "
       "\"auth\": \"ssl\"}, \"readyState\": \"open\"}, "
@@ -441,6 +443,7 @@ IN_PROC_BROWSER_TEST_F(CastChannelAPITest, TestSendInvalidMessageInfo) {
       cast_channel_send_function.get(),
       "[{\"channelId\": 1, "
       "\"keepAlive\": true, "
+      "\"audioOnly\": false, "
       "\"connectInfo\": "
       "{\"ipAddress\": \"127.0.0.1\", \"port\": 8009, "
       "\"auth\": \"ssl\"}, \"readyState\": \"open\"}, "
@@ -455,6 +458,7 @@ IN_PROC_BROWSER_TEST_F(CastChannelAPITest, TestSendInvalidMessageInfo) {
       cast_channel_send_function.get(),
       "[{\"channelId\": 1, "
       "\"keepAlive\": true, "
+      "\"audioOnly\": false, "
       "\"connectInfo\": "
       "{\"ipAddress\": \"127.0.0.1\", \"port\": 8009, "
       "\"auth\": \"ssl\"}, \"readyState\": \"open\"}, "

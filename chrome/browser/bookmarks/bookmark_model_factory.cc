@@ -18,12 +18,17 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/bookmarks/browser/bookmark_utils.h"
 #include "components/bookmarks/browser/startup_task_runner_service.h"
-#include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/keyed_service/content/browser_context_dependency_manager.h"
-#include "components/pref_registry/pref_registry_syncable.h"
 #include "components/undo/bookmark_undo_service.h"
 #include "content/public/browser/browser_thread.h"
+
+#if defined(OS_ANDROID)
+#include "chrome/browser/android/offline_pages/offline_page_model_factory.h"
+#include "components/offline_pages/offline_page_feature.h"
+#include "components/offline_pages/offline_page_model.h"
+#endif  // defined(OS_ANDROID)
 
 using bookmarks::BookmarkModel;
 
@@ -41,7 +46,7 @@ BookmarkModel* BookmarkModelFactory::GetForProfileIfExists(Profile* profile) {
 
 // static
 BookmarkModelFactory* BookmarkModelFactory::GetInstance() {
-  return Singleton<BookmarkModelFactory>::get();
+  return base::Singleton<BookmarkModelFactory>::get();
 }
 
 BookmarkModelFactory::BookmarkModelFactory()
@@ -51,6 +56,10 @@ BookmarkModelFactory::BookmarkModelFactory()
   DependsOn(BookmarkUndoServiceFactory::GetInstance());
   DependsOn(ChromeBookmarkClientFactory::GetInstance());
   DependsOn(StartupTaskRunnerServiceFactory::GetInstance());
+#if defined(OS_ANDROID)
+  if (offline_pages::IsOfflinePagesEnabled())
+    DependsOn(offline_pages::OfflinePageModelFactory::GetInstance());
+#endif
 }
 
 BookmarkModelFactory::~BookmarkModelFactory() {
@@ -78,19 +87,20 @@ KeyedService* BookmarkModelFactory::BuildServiceInstanceFor(
 #endif  // !defined(OS_IOS) && !defined(OS_ANDROID)
   if (register_bookmark_undo_service_as_observer)
     BookmarkUndoServiceFactory::GetForProfile(profile)->Start(bookmark_model);
+
+#if defined(OS_ANDROID)
+  if (offline_pages::IsOfflinePagesEnabled()) {
+    offline_pages::OfflinePageModelFactory::GetForBrowserContext(profile)->
+        Start(bookmark_model);
+  }
+#endif  // defined(OS_ANDROID)
+
   return bookmark_model;
 }
 
 void BookmarkModelFactory::RegisterProfilePrefs(
     user_prefs::PrefRegistrySyncable* registry) {
-  // Don't sync this, as otherwise, due to a limitation in sync, it
-  // will cause a deadlock (see http://crbug.com/97955).  If we truly
-  // want to sync the expanded state of folders, it should be part of
-  // bookmark sync itself (i.e., a property of the sync folder nodes).
-  registry->RegisterListPref(bookmarks::prefs::kBookmarkEditorExpandedNodes,
-                             new base::ListValue);
-  registry->RegisterListPref(bookmarks::prefs::kManagedBookmarks);
-  registry->RegisterListPref(bookmarks::prefs::kSupervisedBookmarks);
+  bookmarks::RegisterProfilePrefs(registry);
 }
 
 content::BrowserContext* BookmarkModelFactory::GetBrowserContextToUse(

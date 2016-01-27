@@ -61,7 +61,7 @@ ExtensionActionViewController::~ExtensionActionViewController() {
   DCHECK(!is_showing_popup());
 }
 
-const std::string& ExtensionActionViewController::GetId() const {
+std::string ExtensionActionViewController::GetId() const {
   return extension_->id();
 }
 
@@ -142,9 +142,10 @@ void ExtensionActionViewController::HidePopup() {
     popup_host_->Close();
     // We need to do these actions synchronously (instead of closing and then
     // performing the rest of the cleanup in OnExtensionHostDestroyed()) because
-    // the extension host can close asynchronously, and we need to keep the view
+    // the extension host may close asynchronously, and we need to keep the view
     // delegate up-to-date.
-    OnPopupClosed();
+    if (popup_host_)
+      OnPopupClosed();
   }
 }
 
@@ -156,17 +157,17 @@ ui::MenuModel* ExtensionActionViewController::GetContextMenu() {
   if (!ExtensionIsValid() || !extension()->ShowConfigureContextMenus())
     return nullptr;
 
-  ExtensionContextMenuModel::ButtonVisibility visibility =
-      ExtensionContextMenuModel::VISIBLE;
+  extensions::ExtensionContextMenuModel::ButtonVisibility visibility =
+      extensions::ExtensionContextMenuModel::VISIBLE;
   if (toolbar_actions_bar_) {
     if (toolbar_actions_bar_->popped_out_action() == this)
-      visibility = ExtensionContextMenuModel::TRANSITIVELY_VISIBLE;
-    else if (!toolbar_actions_bar_->IsActionVisible(this))
-      visibility = ExtensionContextMenuModel::OVERFLOWED;
+      visibility = extensions::ExtensionContextMenuModel::TRANSITIVELY_VISIBLE;
+    else if (!toolbar_actions_bar_->IsActionVisibleOnMainBar(this))
+      visibility = extensions::ExtensionContextMenuModel::OVERFLOWED;
     // Else, VISIBLE is correct.
   }
   // Reconstruct the menu every time because the menu's contents are dynamic.
-  context_menu_model_ = make_scoped_refptr(new ExtensionContextMenuModel(
+  context_menu_model_.reset(new extensions::ExtensionContextMenuModel(
       extension(), browser_, visibility, this));
   return context_menu_model_.get();
 }
@@ -177,10 +178,6 @@ void ExtensionActionViewController::OnContextMenuClosed() {
       !is_showing_popup()) {
     toolbar_actions_bar_->UndoPopOut();
   }
-}
-
-bool ExtensionActionViewController::CanDrag() const {
-  return true;
 }
 
 bool ExtensionActionViewController::ExecuteAction(bool by_user) {
@@ -318,7 +315,7 @@ bool ExtensionActionViewController::TriggerPopupWithUrl(
     toolbar_actions_bar_->SetPopupOwner(this);
 
   if (toolbar_actions_bar_ &&
-      !toolbar_actions_bar_->IsActionVisible(this) &&
+      !toolbar_actions_bar_->IsActionVisibleOnMainBar(this) &&
       extensions::FeatureSwitch::extension_action_redesign()->IsEnabled()) {
     platform_delegate_->CloseOverflowMenu();
     toolbar_actions_bar_->PopOutAction(

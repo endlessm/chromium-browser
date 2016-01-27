@@ -54,7 +54,6 @@ private:
     explicit HTMLLabelElement(Document&, HTMLFormElement*);
     bool isInInteractiveContent(Node*) const;
 
-    bool layoutObjectIsFocusable() const override;
     bool isInteractiveContent() const override;
     void accessKeyAction(bool sendMouseEvents) override;
 
@@ -69,7 +68,7 @@ private:
     // Overridden to either click() or focus() the corresponding control.
     void defaultEventHandler(Event*) override;
 
-    void focus(bool restorePreviousSelection, WebFocusType) override;
+    void focus(const FocusParams&) override;
 
     // FormAssociatedElement methods
     bool isFormControlElement() const override { return false; }

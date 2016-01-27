@@ -19,6 +19,7 @@
 #include "chrome/browser/ui/website_settings/permission_bubble_manager.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "media/base/media_switches.h"
 #include "net/test/python_utils.h"
@@ -280,7 +281,8 @@ IN_PROC_BROWSER_TEST_F(WebRtcApprtcBrowserTest, MANUAL_WorksOnApprtc) {
 }
 
 #if defined(OS_LINUX)
-#define MAYBE_MANUAL_FirefoxApprtcInteropTest MANUAL_FirefoxApprtcInteropTest
+// TODO(phoglund): disabled due to https://crbug.com/545862.
+#define MAYBE_MANUAL_FirefoxApprtcInteropTest DISABLED_MANUAL_FirefoxApprtcInteropTest
 #else
 // Not implemented yet on Windows and Mac.
 #define MAYBE_MANUAL_FirefoxApprtcInteropTest DISABLED_MANUAL_FirefoxApprtcInteropTest

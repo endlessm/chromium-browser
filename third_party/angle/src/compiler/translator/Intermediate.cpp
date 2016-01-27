@@ -281,22 +281,32 @@ TIntermNode *TIntermediate::addSelection(
     return node;
 }
 
-TIntermTyped *TIntermediate::addComma(
-    TIntermTyped *left, TIntermTyped *right, const TSourceLoc &line)
+TIntermTyped *TIntermediate::addComma(TIntermTyped *left,
+                                      TIntermTyped *right,
+                                      const TSourceLoc &line,
+                                      int shaderVersion)
 {
-    if (left->getType().getQualifier() == EvqConst &&
-        right->getType().getQualifier() == EvqConst)
+    TQualifier resultQualifier = EvqConst;
+    // ESSL3.00 section 12.43: The result of a sequence operator is not a constant-expression.
+    if (shaderVersion >= 300 || left->getQualifier() != EvqConst ||
+        right->getQualifier() != EvqConst)
     {
-        return right;
+        resultQualifier = EvqTemporary;
+    }
+
+    TIntermTyped *commaNode = nullptr;
+    if (!left->hasSideEffects())
+    {
+        commaNode = right;
     }
     else
     {
-        TIntermTyped *commaAggregate = growAggregate(left, right, line);
-        commaAggregate->getAsAggregate()->setOp(EOpComma);
-        commaAggregate->setType(right->getType());
-        commaAggregate->getTypePointer()->setQualifier(EvqTemporary);
-        return commaAggregate;
+        commaNode = growAggregate(left, right, line);
+        commaNode->getAsAggregate()->setOp(EOpComma);
+        commaNode->setType(right->getType());
     }
+    commaNode->getTypePointer()->setQualifier(resultQualifier);
+    return commaNode;
 }
 
 //
@@ -309,15 +319,20 @@ TIntermTyped *TIntermediate::addComma(
 TIntermTyped *TIntermediate::addSelection(TIntermTyped *cond, TIntermTyped *trueBlock, TIntermTyped *falseBlock,
                                           const TSourceLoc &line)
 {
+    TQualifier resultQualifier = EvqTemporary;
+    if (cond->getQualifier() == EvqConst && trueBlock->getQualifier() == EvqConst &&
+        falseBlock->getQualifier() == EvqConst)
+    {
+        resultQualifier = EvqConst;
+    }
     // Right now it's safe to fold ternary operators only when all operands
     // are constant. If only the condition is constant, it's theoretically
     // possible to fold the ternary operator, but that requires making sure
     // that the node returned from here won't be treated as a constant
     // expression in case the node that gets eliminated was not a constant
     // expression.
-    if (cond->getAsConstantUnion() &&
-        trueBlock->getAsConstantUnion() &&
-        falseBlock->getAsConstantUnion())
+    if (resultQualifier == EvqConst && cond->getAsConstantUnion() &&
+        trueBlock->getAsConstantUnion() && falseBlock->getAsConstantUnion())
     {
         if (cond->getAsConstantUnion()->getBConst(0))
             return trueBlock;
@@ -329,7 +344,7 @@ TIntermTyped *TIntermediate::addSelection(TIntermTyped *cond, TIntermTyped *true
     // Make a selection node.
     //
     TIntermSelection *node = new TIntermSelection(cond, trueBlock, falseBlock, trueBlock->getType());
-    node->getTypePointer()->setQualifier(EvqTemporary);
+    node->getTypePointer()->setQualifier(resultQualifier);
     node->setLine(line);
 
     return node;
@@ -426,19 +441,27 @@ TIntermBranch* TIntermediate::addBranch(
 // This is to be executed once the final root is put on top by the parsing
 // process.
 //
-bool TIntermediate::postProcess(TIntermNode *root)
+TIntermAggregate *TIntermediate::postProcess(TIntermNode *root)
 {
-    if (root == NULL)
-        return true;
+    if (root == nullptr)
+        return nullptr;
 
     //
-    // First, finish off the top level sequence, if any
+    // Finish off the top level sequence, if any
     //
     TIntermAggregate *aggRoot = root->getAsAggregate();
-    if (aggRoot && aggRoot->getOp() == EOpNull)
+    if (aggRoot != nullptr && aggRoot->getOp() == EOpNull)
+    {
         aggRoot->setOp(EOpSequence);
+    }
+    else if (aggRoot == nullptr || aggRoot->getOp() != EOpSequence)
+    {
+        aggRoot = new TIntermAggregate(EOpSequence);
+        aggRoot->setLine(root->getLine());
+        aggRoot->getSequence()->push_back(root);
+    }
 
-    return true;
+    return aggRoot;
 }
 
 TIntermTyped *TIntermediate::foldAggregateBuiltIn(TIntermAggregate *aggregate)

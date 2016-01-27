@@ -13,14 +13,14 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
-#include "chrome/browser/ui/omnibox/omnibox_popup_model.h"
-#include "chrome/browser/ui/omnibox/omnibox_view.h"
 #include "chrome/browser/ui/search/instant_search_prerenderer.h"
 #include "chrome/browser/ui/search/search_model.h"
 #include "chrome/browser/ui/search/search_tab_helper.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/instant_types.h"
 #include "chrome/common/url_constants.h"
+#include "components/omnibox/browser/omnibox_popup_model.h"
+#include "components/omnibox/browser/omnibox_view.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/user_metrics.h"
@@ -75,7 +75,7 @@ bool BrowserInstantController::OpenInstant(WindowOpenDisposition disposition,
   DCHECK(disposition == CURRENT_TAB) << disposition;
 
   const base::string16& search_terms =
-      chrome::ExtractSearchTermsFromURL(profile(), url);
+      search::ExtractSearchTermsFromURL(profile(), url);
   EmbeddedSearchRequestParams request_params(url);
   if (search_terms.empty())
     return false;
@@ -95,7 +95,7 @@ bool BrowserInstantController::OpenInstant(WindowOpenDisposition disposition,
 
   // If we will not be replacing search terms from this URL, don't send to
   // InstantController.
-  if (!chrome::IsQueryExtractionAllowedForURL(profile(), url))
+  if (!search::IsQueryExtractionAllowedForURL(profile(), url))
     return false;
   return instant_.SubmitQuery(search_terms, request_params);
 }
@@ -166,8 +166,8 @@ void BrowserInstantController::DefaultSearchProviderChanged(
     if (google_base_url_domain_changed &&
         SearchTabHelper::FromWebContents(contents)->model()->mode().is_ntp()) {
       // Replace the server NTP with the local NTP.
-      content::NavigationController::LoadURLParams
-          params(chrome::GetLocalInstantURL(profile()));
+      content::NavigationController::LoadURLParams params(
+          search::GetLocalInstantURL(profile()));
       params.should_replace_current_entry = true;
       params.referrer = content::Referrer();
       params.transition_type = ui::PAGE_TRANSITION_RELOAD;

@@ -32,6 +32,11 @@ void WebFaviconDriver::CreateForWebState(
                                               history_service, bookmark_model));
 }
 
+void WebFaviconDriver::FetchFavicon(const GURL& url) {
+  fetch_favicon_url_ = url;
+  FaviconDriverImpl::FetchFavicon(url);
+}
+
 gfx::Image WebFaviconDriver::GetFavicon() const {
   web::NavigationItem* item =
       web_state()->GetNavigationManager()->GetLastCommittedItem();
@@ -67,16 +72,6 @@ GURL WebFaviconDriver::GetActiveURL() {
   return item ? item->GetURL() : GURL();
 }
 
-base::string16 WebFaviconDriver::GetActiveTitle() {
-  web::NavigationItem* item =
-      web_state()->GetNavigationManager()->GetVisibleItem();
-  return item ? item->GetTitle() : base::string16();
-}
-
-bool WebFaviconDriver::GetActiveFaviconValidity() {
-  return GetFaviconStatus().valid;
-}
-
 void WebFaviconDriver::SetActiveFaviconValidity(bool validity) {
   GetFaviconStatus().valid = validity;
 }
@@ -87,10 +82,6 @@ GURL WebFaviconDriver::GetActiveFaviconURL() {
 
 void WebFaviconDriver::SetActiveFaviconURL(const GURL& url) {
   GetFaviconStatus().url = url;
-}
-
-gfx::Image WebFaviconDriver::GetActiveFaviconImage() {
-  return GetFaviconStatus().image;
 }
 
 void WebFaviconDriver::SetActiveFaviconImage(const gfx::Image& image) {
@@ -116,7 +107,7 @@ WebFaviconDriver::~WebFaviconDriver() {
 void WebFaviconDriver::FaviconUrlUpdated(
     const std::vector<web::FaviconURL>& candidates) {
   DCHECK(!candidates.empty());
-  OnUpdateFaviconURL(FaviconURLsFromWebFaviconURLs(candidates));
+  OnUpdateFaviconURL(GetActiveURL(), FaviconURLsFromWebFaviconURLs(candidates));
 }
 
 }  // namespace favicon

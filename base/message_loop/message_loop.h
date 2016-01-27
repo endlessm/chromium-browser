@@ -242,9 +242,6 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   // Return as soon as all items that can be run are taken care of.
   void RunUntilIdle();
 
-  // TODO(jbates) remove this. crbug.com/131220. See QuitWhenIdle().
-  void Quit() { QuitWhenIdle(); }
-
   // Deprecated: use RunLoop instead.
   //
   // Signals the Run method to return when it becomes idle. It will continue to
@@ -267,9 +264,6 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   // This method is a variant of Quit, that does not wait for pending messages
   // to be processed before returning from Run.
   void QuitNow();
-
-  // TODO(jbates) remove this. crbug.com/131220. See QuitWhenIdleClosure().
-  static Closure QuitClosure() { return QuitWhenIdleClosure(); }
 
   // Deprecated: use RunLoop instead.
   // Construct a Closure that will call QuitWhenIdle(). Useful to schedule an
@@ -308,18 +302,18 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   void SetTaskRunner(scoped_refptr<SingleThreadTaskRunner> task_runner);
 
   // Enables or disables the recursive task processing. This happens in the case
-  // of recursive message loops. Some unwanted message loop may occurs when
+  // of recursive message loops. Some unwanted message loops may occur when
   // using common controls or printer functions. By default, recursive task
   // processing is disabled.
   //
-  // Please utilize |ScopedNestableTaskAllower| instead of calling these methods
-  // directly.  In general nestable message loops are to be avoided.  They are
+  // Please use |ScopedNestableTaskAllower| instead of calling these methods
+  // directly.  In general, nestable message loops are to be avoided.  They are
   // dangerous and difficult to get right, so please use with extreme caution.
   //
   // The specific case where tasks get queued is:
   // - The thread is running a message loop.
-  // - It receives a task #1 and execute it.
-  // - The task #1 implicitly start a message loop, like a MessageBox in the
+  // - It receives a task #1 and executes it.
+  // - The task #1 implicitly starts a message loop, like a MessageBox in the
   //   unit test. This can also be StartDoc or GetSaveFileName.
   // - The thread receives a task #2 before or while in this second message
   //   loop.
@@ -420,7 +414,7 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   // and then pass it to the thread where the message loop actually runs.
   // The message loop's BindToCurrentThread() method must be called on the
   // thread the message loop runs on, before calling Run().
-  // Before BindToCurrentThread() is called only Post*Task() functions can
+  // Before BindToCurrentThread() is called, only Post*Task() functions can
   // be called on the message loop.
   static scoped_ptr<MessageLoop> CreateUnbound(
       Type type,
@@ -432,6 +426,10 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
 
   // Configure various members and bind this message loop to the current thread.
   void BindToCurrentThread();
+
+  // Sets the ThreadTaskRunnerHandle for the current thread to point to the
+  // task runner for this message loop.
+  void SetThreadTaskRunnerHandle();
 
   // Invokes the actual run loop using the message pump.
   void RunHandler();
@@ -507,7 +505,7 @@ class BASE_EXPORT MessageLoop : public MessagePump::Delegate {
   bool nestable_tasks_allowed_;
 
 #if defined(OS_WIN)
-  // Should be set to true before calling Windows APIs like TrackPopupMenu, etc
+  // Should be set to true before calling Windows APIs like TrackPopupMenu, etc.
   // which enter a modal message loop.
   bool os_modal_loop_;
 #endif

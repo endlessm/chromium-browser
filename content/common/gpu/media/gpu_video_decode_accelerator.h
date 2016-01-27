@@ -20,6 +20,8 @@
 #include "media/video/video_decode_accelerator.h"
 #include "ui/gfx/geometry/size.h"
 
+struct AcceleratedVideoDecoderMsg_Decode_Params;
+
 namespace content {
 
 class GpuVideoDecodeAccelerator
@@ -36,19 +38,25 @@ class GpuVideoDecodeAccelerator
       GpuCommandBufferStub* stub,
       const scoped_refptr<base::SingleThreadTaskRunner>& io_task_runner);
 
+  // Static query for supported profiles. This query calls the appropriate
+  // platform-specific version. The returned supported profiles vector will
+  // not contain duplicates.
+  static gpu::VideoDecodeAcceleratorSupportedProfiles GetSupportedProfiles();
+
   // IPC::Listener implementation.
   bool OnMessageReceived(const IPC::Message& message) override;
 
   // media::VideoDecodeAccelerator::Client implementation.
+  void NotifyCdmAttached(bool success) override;
   void ProvidePictureBuffers(uint32 requested_num_of_buffers,
                              const gfx::Size& dimensions,
                              uint32 texture_target) override;
   void DismissPictureBuffer(int32 picture_buffer_id) override;
   void PictureReady(const media::Picture& picture) override;
-  void NotifyError(media::VideoDecodeAccelerator::Error error) override;
   void NotifyEndOfBitstreamBuffer(int32 bitstream_buffer_id) override;
   void NotifyFlushDone() override;
   void NotifyResetDone() override;
+  void NotifyError(media::VideoDecodeAccelerator::Error error) override;
 
   // GpuCommandBufferStub::DestructionObserver implementation.
   void OnWillDestroyStub() override;
@@ -62,11 +70,6 @@ class GpuVideoDecodeAccelerator
   // VDA can decode on IO thread.
   void Initialize(const media::VideoCodecProfile profile,
                   IPC::Message* init_done_msg);
-
-  // Static query for supported profiles. This query calls the appropriate
-  // platform-specific version. The returned supported profiles vector will
-  // not contain duplicates.
-  static gpu::VideoDecodeAcceleratorSupportedProfiles GetSupportedProfiles();
 
  private:
   typedef scoped_ptr<media::VideoDecodeAccelerator>(
@@ -86,7 +89,8 @@ class GpuVideoDecodeAccelerator
   ~GpuVideoDecodeAccelerator() override;
 
   // Handlers for IPC messages.
-  void OnDecode(base::SharedMemoryHandle handle, int32 id, uint32 size);
+  void OnSetCdm(int cdm_id);
+  void OnDecode(const AcceleratedVideoDecoderMsg_Decode_Params& params);
   void OnAssignPictureBuffers(const std::vector<int32>& buffer_ids,
                               const std::vector<uint32>& texture_ids);
   void OnReusePictureBuffer(int32 picture_buffer_id);
@@ -106,7 +110,7 @@ class GpuVideoDecodeAccelerator
   // Helper to bind |image| to the texture specified by |client_texture_id|.
   void BindImage(uint32 client_texture_id,
                  uint32 texture_target,
-                 scoped_refptr<gfx::GLImage> image);
+                 scoped_refptr<gl::GLImage> image);
 
   // Route ID to communicate with the host.
   const int32 host_route_id_;

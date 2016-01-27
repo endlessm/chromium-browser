@@ -4,6 +4,7 @@
 
 #import "ios/web/web_state/crw_web_view_proxy_impl.h"
 
+#include "base/ios/ios_util.h"
 #include "base/ios/weak_nsobject.h"
 #include "base/mac/scoped_nsobject.h"
 #import "ios/web/public/web_state/crw_web_view_scroll_view_proxy.h"
@@ -68,7 +69,7 @@ UIView* GetFirstResponderSubview(UIView* view) {
   base::WeakNSObject<CRWContentView> _contentView;
   base::WeakNSObject<CRWWebController> _webController;
   base::scoped_nsobject<NSMutableDictionary> _registeredInsets;
-  // The WebViewScrollViewProxy is a wrapper around the UIWebView's
+  // The WebViewScrollViewProxy is a wrapper around the web view's
   // UIScrollView to give components access in a limited and controlled manner.
   base::scoped_nsobject<CRWWebViewScrollViewProxy> _contentViewScrollViewProxy;
 }
@@ -90,6 +91,18 @@ UIView* GetFirstResponderSubview(UIView* view) {
 
 - (CGRect)bounds {
   return [_contentView bounds];
+}
+
+- (CGRect)frame {
+  return [_contentView frame];
+}
+
+- (CGFloat)topContentPadding {
+  return [_contentView topContentPadding];
+}
+
+- (void)setTopContentPadding:(CGFloat)newTopContentPadding {
+  [_contentView setTopContentPadding:newTopContentPadding];
 }
 
 - (NSArray*)gestureRecognizers {
@@ -133,12 +146,23 @@ UIView* GetFirstResponderSubview(UIView* view) {
   return _contentView != nil && [_webController contentIsHTML];
 }
 
-- (UIView*)getKeyboardAccessory {
+- (UIView*)keyboardAccessory {
   if (!_contentView)
     return nil;
   UIView* firstResponder = GetFirstResponderSubview(_contentView);
   return firstResponder.inputAccessoryView;
 }
+
+#if defined(__IPHONE_9_0) && __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_9_0
+- (UITextInputAssistantItem*)inputAssistantItem {
+  DCHECK(base::ios::IsRunningOnIOS9OrLater())
+      << "Cannot retrieve inputAssistantItem on iOS versions earlier than 9.";
+  if (!_contentView)
+    return nil;
+  UIView* firstResponder = GetFirstResponderSubview(_contentView);
+  return firstResponder.inputAssistantItem;
+}
+#endif
 
 - (BOOL)keyboardDisplayRequiresUserAction {
   return [_webController keyboardDisplayRequiresUserAction];

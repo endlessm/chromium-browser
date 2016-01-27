@@ -43,20 +43,6 @@ namespace em = enterprise_management;
 
 namespace {
 
-// A test implementation of PlatformEventSource that we can instantiate to make
-// sure that the PlatformEventSource has an instance while in unit tests (X11
-// platforms don't have a PlatformEventSource by default, while Ozone tests do).
-#if defined(USE_X11)
-class TestPlatformEventSource : public ui::PlatformEventSource {
- public:
-  TestPlatformEventSource() {}
-  ~TestPlatformEventSource() override {}
-
- private:
-  DISALLOW_COPY_AND_ASSIGN(TestPlatformEventSource);
-};
-#endif
-
 class MockDeviceStatusCollector : public policy::DeviceStatusCollector {
  public:
   explicit MockDeviceStatusCollector(PrefService* local_state)
@@ -65,7 +51,8 @@ class MockDeviceStatusCollector : public policy::DeviceStatusCollector {
             nullptr,
             policy::DeviceStatusCollector::LocationUpdateRequester(),
             policy::DeviceStatusCollector::VolumeInfoFetcher(),
-            policy::DeviceStatusCollector::CPUStatisticsFetcher()) {}
+            policy::DeviceStatusCollector::CPUStatisticsFetcher(),
+            policy::DeviceStatusCollector::CPUTempFetcher()) {}
 
   MOCK_METHOD1(GetDeviceStatus, bool(em::DeviceStatusReportRequest*));
   MOCK_METHOD1(GetDeviceSessionStatus, bool(em::SessionStatusReportRequest*));
@@ -141,9 +128,6 @@ class StatusUploaderTest : public testing::Test {
   scoped_refptr<base::TestSimpleTaskRunner> task_runner_;
   chromeos::ScopedCrosSettingsTestHelper settings_helper_;
   scoped_ptr<MockDeviceStatusCollector> collector_;
-#if defined(USE_X11)
-  TestPlatformEventSource platform_event_source_;
-#endif
   ui::UserActivityDetector detector_;
   MockCloudPolicyClient client_;
   MockDeviceManagementService device_management_service_;

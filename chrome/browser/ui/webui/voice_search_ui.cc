@@ -22,14 +22,15 @@
 #include "chrome/browser/search/hotword_service_factory.h"
 #include "chrome/browser/ui/app_list/start_page_service.h"
 #include "chrome/browser/ui/webui/version_handler.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_content_client.h"
 #include "chrome/common/chrome_paths.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/extensions/extension_constants.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/plugin_service.h"
 #include "content/public/browser/url_data_source.h"
@@ -41,6 +42,7 @@
 #include "extensions/browser/extension_system.h"
 #include "extensions/common/extension.h"
 #include "grit/browser_resources.h"
+#include "grit/components_strings.h"
 #include "ui/base/l10n/l10n_util.h"
 #include "v8/include/v8.h"
 
@@ -209,14 +211,13 @@ class VoiceSearchDomHandler : public WebUIMessageHandler {
   // Adds information regarding the system and chrome version info to list.
   void AddOperatingSystemInfo(base::ListValue* list)  {
     // Obtain the Chrome version info.
-    chrome::VersionInfo version_info;
     AddPair(list,
             l10n_util::GetStringUTF8(IDS_PRODUCT_NAME),
-            version_info.Version() + " (" +
-            chrome::VersionInfo::GetVersionStringModifier() + ")");
+            version_info::GetVersionNumber() + " (" +
+            chrome::GetChannelString() + ")");
 
     // OS version information.
-    std::string os_label = version_info.OSType();
+    std::string os_label = version_info::GetOSType();
 #if defined(OS_WIN)
     base::win::OSInfo* os = base::win::OSInfo::GetInstance();
     switch (os->version()) {
@@ -247,7 +248,7 @@ class VoiceSearchDomHandler : public WebUIMessageHandler {
     if (os->architecture() == base::win::OSInfo::X64_ARCHITECTURE)
       os_label += " 64 bit";
 #endif
-    AddPair(list, l10n_util::GetStringUTF8(IDS_ABOUT_VERSION_OS), os_label);
+    AddPair(list, l10n_util::GetStringUTF8(IDS_VERSION_UI_OS), os_label);
 
     AddLineBreak(list);
   }

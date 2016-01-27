@@ -26,18 +26,19 @@
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
 #include "chrome/test/base/testing_profile.h"
-#include "components/web_modal/popup_manager.h"
 #include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
+#include "content/public/test/web_contents_tester.h"
 #include "extensions/common/extension.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using content::SiteInstance;
 using content::WebContents;
+using content::WebContentsTester;
 using extensions::Extension;
 
 namespace {
@@ -246,11 +247,11 @@ class TabStripModelTest : public ChromeRenderViewHostTestHarness {
       model->SetTabPinned(i, true);
 
     ui::ListSelectionModel selection_model;
-    std::vector<std::string> selection;
-    base::SplitStringAlongWhitespace(selected_tabs, &selection);
-    for (size_t i = 0; i < selection.size(); ++i) {
+    for (const base::StringPiece& sel : base::SplitStringPiece(
+             selected_tabs, base::kWhitespaceASCII,
+             base::TRIM_WHITESPACE, base::SPLIT_WANT_NONEMPTY)) {
       int value;
-      ASSERT_TRUE(base::StringToInt(selection[i], &value));
+      ASSERT_TRUE(base::StringToInt(sel, &value));
       selection_model.AddIndexToSelection(value);
     }
     selection_model.set_active(selection_model.selected_indices()[0]);
@@ -262,7 +263,6 @@ class MockTabStripModelObserver : public TabStripModelObserver {
  public:
   explicit MockTabStripModelObserver(TabStripModel* model)
       : empty_(true),
-        deleted_(false),
         model_(model) {}
   ~MockTabStripModelObserver() override {}
 
@@ -407,21 +407,18 @@ class MockTabStripModelObserver : public TabStripModelObserver {
   void CloseAllTabsCanceled() override {
     states_.push_back(State(NULL, -1, CLOSE_ALL_CANCELED));
   }
-  void TabStripModelDeleted() override { deleted_ = true; }
 
   void ClearStates() {
     states_.clear();
   }
 
   bool empty() const { return empty_; }
-  bool deleted() const { return deleted_; }
   TabStripModel* model() { return model_; }
 
  private:
   std::vector<State> states_;
 
   bool empty_;
-  bool deleted_;
   TabStripModel* model_;
 
   DISALLOW_COPY_AND_ASSIGN(MockTabStripModelObserver);
@@ -2119,65 +2116,6 @@ TEST_F(TabStripModelTest, ReplaceSendsSelected) {
   strip.CloseAllTabs();
 }
 
-// Ensures discarding tabs leaves TabStripModel in a good state.
-TEST_F(TabStripModelTest, DiscardWebContentsAt) {
-  typedef MockTabStripModelObserver::State State;
-
-  TabStripDummyDelegate delegate;
-  TabStripModel tabstrip(&delegate, profile());
-
-  // Fill it with some tabs.
-  WebContents* contents1 = CreateWebContents();
-  tabstrip.AppendWebContents(contents1, true);
-  WebContents* contents2 = CreateWebContents();
-  tabstrip.AppendWebContents(contents2, true);
-
-  // Start watching for events after the appends to avoid observing state
-  // transitions that aren't relevant to this test.
-  MockTabStripModelObserver tabstrip_observer(&tabstrip);
-  tabstrip.AddObserver(&tabstrip_observer);
-
-  // Discard one of the tabs.
-  WebContents* null_contents1 = tabstrip.DiscardWebContentsAt(0);
-  ASSERT_EQ(2, tabstrip.count());
-  EXPECT_TRUE(tabstrip.IsTabDiscarded(0));
-  EXPECT_FALSE(tabstrip.IsTabDiscarded(1));
-  ASSERT_EQ(null_contents1, tabstrip.GetWebContentsAt(0));
-  ASSERT_EQ(contents2, tabstrip.GetWebContentsAt(1));
-  ASSERT_EQ(1, tabstrip_observer.GetStateCount());
-  State state1(null_contents1, 0, MockTabStripModelObserver::REPLACED);
-  state1.src_contents = contents1;
-  EXPECT_TRUE(tabstrip_observer.StateEquals(0, state1));
-  tabstrip_observer.ClearStates();
-
-  // Discard the same tab again.
-  WebContents* null_contents2 = tabstrip.DiscardWebContentsAt(0);
-  ASSERT_EQ(2, tabstrip.count());
-  EXPECT_TRUE(tabstrip.IsTabDiscarded(0));
-  EXPECT_FALSE(tabstrip.IsTabDiscarded(1));
-  ASSERT_EQ(null_contents2, tabstrip.GetWebContentsAt(0));
-  ASSERT_EQ(contents2, tabstrip.GetWebContentsAt(1));
-  ASSERT_EQ(1, tabstrip_observer.GetStateCount());
-  State state2(null_contents2, 0, MockTabStripModelObserver::REPLACED);
-  state2.src_contents = null_contents1;
-  EXPECT_TRUE(tabstrip_observer.StateEquals(0, state2));
-  tabstrip_observer.ClearStates();
-
-  // Activating the tab should clear its discard state.
-  tabstrip.ActivateTabAt(0, true /* user_gesture */);
-  ASSERT_EQ(2, tabstrip.count());
-  EXPECT_FALSE(tabstrip.IsTabDiscarded(0));
-  EXPECT_FALSE(tabstrip.IsTabDiscarded(1));
-
-  // Don't discard active tab.
-  tabstrip.DiscardWebContentsAt(0);
-  ASSERT_EQ(2, tabstrip.count());
-  EXPECT_FALSE(tabstrip.IsTabDiscarded(0));
-  EXPECT_FALSE(tabstrip.IsTabDiscarded(1));
-
-  tabstrip.CloseAllTabs();
-}
-
 // Makes sure TabStripModel handles the case of deleting a tab while removing
 // another tab.
 TEST_F(TabStripModelTest, DeleteFromDestroy) {
@@ -2219,7 +2157,6 @@ TEST_F(TabStripModelTest, DeleteTabStripFromDestroy) {
   DeleteWebContentsOnDestroyedObserver observer(contents2, contents1, strip);
   strip->CloseAllTabs();
   EXPECT_TRUE(tab_strip_model_observer.empty());
-  EXPECT_TRUE(tab_strip_model_observer.deleted());
 }
 
 TEST_F(TabStripModelTest, MoveSelectedTabsTo) {
@@ -2527,8 +2464,6 @@ TEST_F(TabStripModelTest, TabBlockedState) {
   // Setup a SingleWebContentsDialogManager for tab |contents2|.
   web_modal::WebContentsModalDialogManager* modal_dialog_manager =
       web_modal::WebContentsModalDialogManager::FromWebContents(contents2);
-  web_modal::PopupManager popup_manager(NULL);
-  popup_manager.RegisterWith(contents2);
 
   // Show a dialog that blocks tab |contents2|.
   // DummySingleWebContentsDialogManager doesn't care about the

@@ -20,7 +20,13 @@
 #include "content/common/gpu/gpu_config.h"
 #include "content/common/gpu/x_util.h"
 #include "gpu/config/gpu_info.h"
+#include "mojo/common/weak_binding_set.h"
+#include "mojo/public/cpp/bindings/interface_request.h"
 #include "ui/gfx/native_widget_types.h"
+
+namespace gpu {
+class SyncPointManager;
+}
 
 namespace sandbox {
 class TargetServices;
@@ -28,7 +34,9 @@ class TargetServices;
 
 namespace content {
 class GpuMemoryBufferFactory;
+class GpuProcessControlImpl;
 class GpuWatchdogThread;
+class ProcessControl;
 
 // The main thread of the GPU child process. There will only ever be one of
 // these per process. It does process initialization and shutdown. It forwards
@@ -42,14 +50,14 @@ class GpuChildThread : public ChildThreadImpl {
                  bool dead_on_arrival,
                  const gpu::GPUInfo& gpu_info,
                  const DeferredMessages& deferred_messages,
-                 GpuMemoryBufferFactory* gpu_memory_buffer_factory);
+                 GpuMemoryBufferFactory* gpu_memory_buffer_factory,
+                 gpu::SyncPointManager* sync_point_manager);
 
   GpuChildThread(const InProcessChildThreadParams& params,
-                 GpuMemoryBufferFactory* gpu_memory_buffer_factory);
+                 GpuMemoryBufferFactory* gpu_memory_buffer_factory,
+                 gpu::SyncPointManager* sync_point_manager);
 
   ~GpuChildThread() override;
-
-  static gfx::GpuMemoryBufferType GetGpuMemoryBufferFactoryType();
 
   void Shutdown() override;
 
@@ -59,10 +67,12 @@ class GpuChildThread : public ChildThreadImpl {
   // ChildThread overrides.
   bool Send(IPC::Message* msg) override;
   bool OnControlMessageReceived(const IPC::Message& msg) override;
+  bool OnMessageReceived(const IPC::Message& msg) override;
 
  private:
   // Message handlers.
   void OnInitialize();
+  void OnFinalize();
   void OnCollectGraphicsInfo();
   void OnGetVideoMemoryUsageStats();
   void OnSetVideoMemoryWindowCount(uint32 window_count);
@@ -77,6 +87,9 @@ class GpuChildThread : public ChildThreadImpl {
   void OnGetGpuTcmalloc();
 #endif
 
+  void BindProcessControlRequest(
+      mojo::InterfaceRequest<ProcessControl> request);
+
   // Set this flag to true if a fatal error occurred before we receive the
   // OnInitialize message, in which case we just declare ourselves DOA.
   bool dead_on_arrival_;
@@ -87,6 +100,9 @@ class GpuChildThread : public ChildThreadImpl {
   // Windows specific client sandbox interface.
   sandbox::TargetServices* target_services_;
 #endif
+
+  // Non-owning.
+  gpu::SyncPointManager* sync_point_manager_;
 
   scoped_ptr<GpuChannelManager> gpu_channel_manager_;
 
@@ -101,6 +117,12 @@ class GpuChildThread : public ChildThreadImpl {
 
   // The GpuMemoryBufferFactory instance used to allocate GpuMemoryBuffers.
   GpuMemoryBufferFactory* const gpu_memory_buffer_factory_;
+
+  // Process control for Mojo application hosting.
+  scoped_ptr<GpuProcessControlImpl> process_control_;
+
+  // Bindings to the ProcessControl impl.
+  mojo::WeakBindingSet<ProcessControl> process_control_bindings_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuChildThread);
 };

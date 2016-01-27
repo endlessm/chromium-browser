@@ -10,14 +10,6 @@
 #include "chrome/browser/android/contextualsearch/contextual_search_context.h"
 #include "chrome/browser/android/contextualsearch/contextual_search_delegate.h"
 
-namespace content {
-class WebContents;
-}  // namespace content
-
-namespace web_contents_delegate_android {
-class WebContentsDelegateAndroid;
-}  // namespace web_contents_delegate_android
-
 // Manages the native extraction and request logic for Contextual Search,
 // and interacts with the Java ContextualSearchManager for UX.
 // Most of the work is done by the associated ContextualSearchDelegate.
@@ -54,49 +46,20 @@ class ContextualSearchManager {
                              jobject j_base_content_view_core,
                              jboolean j_may_send_base_page_url);
 
-  // Removes a search URL from history. |search_start_time_ms| represents the
-  // time at which |search_url| was committed.
-  void RemoveLastSearchVisit(JNIEnv* env,
-                             jobject obj,
-                             jstring search_url,
-                             jlong search_start_time_ms);
+  // Gets the target language for translation purposes.
+  base::android::ScopedJavaLocalRef<jstring> GetTargetLanguage(JNIEnv* env,
+                                                               jobject obj);
 
-  // Takes ownership of the WebContents associated with the given
-  // |ContentViewCore| which holds the Contextual Search Results.
-  void SetWebContents(JNIEnv* env, jobject obj, jobject jcontent_view_core,
-                      jobject jweb_contents_delegate);
-
-  // Destroys the WebContents.
-  void DestroyWebContents(JNIEnv* env, jobject jobj);
-
-  // Release ownership of WebContents.
-  void ReleaseWebContents(JNIEnv* env, jobject jobj);
-
-  // Destroys the WebContents of a ContentViewCore.
-  void DestroyWebContentsFromContentViewCore(JNIEnv* env,
-                                             jobject jobj,
-                                             jobject jcontent_view_core);
-
-  // Sets the delegate used to convert navigations to intents.
-  void SetInterceptNavigationDelegate(JNIEnv* env,
-                                      jobject obj,
-                                      jobject delegate,
-                                      jobject jweb_contents);
+  // Gets the accept-languages preference string.
+  base::android::ScopedJavaLocalRef<jstring> GetAcceptLanguages(JNIEnv* env,
+                                                                jobject obj);
 
  private:
-  // TODO(donnd): encapsulate these response parameters?
-  void OnSearchTermResolutionResponse(bool is_invalid,
-                                      int response_code,
-                                      const std::string& search_term,
-                                      const std::string& display_text,
-                                      const std::string& alternate_term,
-                                      bool prevent_preload,
-                                      int selection_start_adjust,
-                                      int selection_end_adjust);
+  void OnSearchTermResolutionResponse(
+      const ResolvedSearchTerm& resolved_search_term);
 
   // Calls back to Java with the surrounding text to be displayed.
-  void OnSurroundingTextAvailable(const std::string& before_text,
-                                  const std::string& after_text);
+  void OnSurroundingTextAvailable(const std::string& after_text);
 
   // Calls back to Java with notification for Icing selection.
   void OnIcingSelectionAvailable(const std::string& encoding,
@@ -109,14 +72,6 @@ class ContextualSearchManager {
 
   // The delegate we're using the do the real work.
   scoped_ptr<ContextualSearchDelegate> delegate_;
-
-  // Used if we need to clear history.
-  base::CancelableTaskTracker history_task_tracker_;
-
-  // The WebContents that holds the Contextual Search Results.
-  scoped_ptr<content::WebContents> web_contents_;
-  scoped_ptr<web_contents_delegate_android::WebContentsDelegateAndroid>
-      web_contents_delegate_;
 
   DISALLOW_COPY_AND_ASSIGN(ContextualSearchManager);
 };

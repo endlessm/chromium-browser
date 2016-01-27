@@ -1,6 +1,4 @@
-
-
-  /**
+/**
    * Use `Polymer.NeonAnimationBehavior` to implement an animation.
    * @polymerBehavior
    */
@@ -65,10 +63,6 @@
     /**
      * Called when the animation finishes.
      */
-    complete: function() {
-      // FIXME not sure about non-bubbling event
-      this.fire(this.animationEndEvent, null, {bubbles: false});
-    }
+    complete: function() {}
 
   };
-

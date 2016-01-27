@@ -31,20 +31,18 @@
     ['OS == "win"', {
       'targets': [
         {
-          # GN: //content:content_startup_helper_win
-          'target_name': 'content_startup_helper_win',
+          # GN: //content:sandbox_helper_win
+          'target_name': 'sandbox_helper_win',
           'type': 'static_library',
           'include_dirs': [
             '..',
           ],
           'dependencies': [
-            '../base/base.gyp:base',
-            '../base/base.gyp:base_i18n',
             '../sandbox/sandbox.gyp:sandbox',
           ],
           'sources': [
-            'app/startup_helper_win.cc',
-            'public/app/startup_helper_win.h',
+            'app/sandbox_helper_win.cc',
+            'public/app/sandbox_helper_win.h',
           ],
         }
       ],
@@ -152,7 +150,7 @@
             'content_browser.gypi',
             # Disable LTO due to ELF section name out of range
             # crbug.com/422251
-            '../build/android/disable_lto.gypi',
+            '../build/android/disable_gcc_lto.gypi',
           ],
           'dependencies': [
             'content_common',
@@ -430,6 +428,7 @@
           'dependencies': [
             '../base/base.gyp:base',
             '../device/battery/battery.gyp:device_battery_java',
+            '../device/bluetooth/bluetooth.gyp:device_bluetooth_java',
             '../device/vibration/vibration.gyp:device_vibration_java',
             '../media/media.gyp:media_java',
             '../mojo/mojo_base.gyp:mojo_application_bindings',
@@ -448,6 +447,8 @@
             'content_common',
             'content_strings_grd',
             'content_gamepad_mapping',
+            'device_sensors_consts_java',
+            'sensor_manager_android_java',
             'gesture_event_type_java',
             'invalidate_types_java',
             'navigation_controller_java',
@@ -486,6 +487,22 @@
           'includes': [
             '../build/java_strings_grd.gypi',
           ],
+        },
+        {
+          'target_name': 'device_sensors_consts_java',
+          'type': 'none',
+          'variables': {
+            'source_file': 'browser/device_sensors/device_sensors_consts.h',
+          },
+          'includes': [ '../build/android/java_cpp_enum.gypi' ],
+        },
+        {
+          'target_name': 'sensor_manager_android_java',
+          'type': 'none',
+          'variables': {
+            'source_file': 'browser/device_sensors/sensor_manager_android.h',
+          },
+          'includes': [ '../build/android/java_cpp_enum.gypi' ],
         },
         {
           'target_name': 'content_gamepad_mapping',
@@ -585,54 +602,52 @@
           'includes': [ '../build/jar_file_jni_generator.gypi' ],
         },
         {
-          'target_name': 'motionevent_jni_headers',
-          'type': 'none',
-          'variables': {
-             'jni_gen_package': 'content',
-             'input_java_class': 'android/view/MotionEvent.class',
-           },
-          'includes': [ '../build/jar_file_jni_generator.gypi' ],
-        },
-        {
           'target_name': 'content_jni_headers',
           'type': 'none',
           'dependencies': [
             'java_set_jni_headers',
-            'motionevent_jni_headers'
           ],
           'includes': [ 'content_jni.gypi' ],
-        },
-        {
-          'target_name': 'content_icudata',
-          'type': 'none',
           'conditions': [
-            ['icu_use_data_file_flag==1', {
-              'copies': [
-                {
-                  'destination': '<(PRODUCT_DIR)/content_shell/assets',
-                  'files': [
-                    '<(PRODUCT_DIR)/icudtl.dat',
-                  ],
-                },
+            ['enable_webvr==1', {
+              'sources': [
+                'public/android/java/src/org/chromium/content/browser/input/CardboardVRDevice.java',
+              ],
+              'dependencies': [
+                '../third_party/cardboard-java/cardboard.gyp:cardboard_jar',
               ],
             }],
           ],
         },
         {
-          'target_name': 'content_v8_external_data',
+          'target_name': 'content_shell_assets_copy',
           'type': 'none',
-          'conditions': [
-            ['v8_use_external_startup_data==1', {
-              'copies': [
-                {
-                  'destination': '<(PRODUCT_DIR)/content_shell/assets',
-                  'files': [
-                    '<(PRODUCT_DIR)/natives_blob.bin',
-                    '<(PRODUCT_DIR)/snapshot_blob.bin',
-                  ],
-                },
-              ],
-            }],
+          'dependencies': ['content_shell_and_tests.gyp:content_shell_pak'],
+          'variables': {
+            'src_files': ['<(PRODUCT_DIR)/content_shell.pak'],
+            'conditions': [
+              ['v8_use_external_startup_data==1', {
+                'dependencies': ['<(DEPTH)/v8/tools/gyp/v8.gyp:v8_external_snapshot'],
+                'renaming_sources': [
+                  '<(PRODUCT_DIR)/natives_blob.bin',
+                  '<(PRODUCT_DIR)/snapshot_blob.bin',
+                ],
+                'renaming_destinations': [
+                  'natives_blob_<(arch_suffix).bin',
+                  'snapshot_blob_<(arch_suffix).bin',
+                ],
+              }],
+              ['icu_use_data_file_flag==1', {
+                'dependencies': ['<(DEPTH)/third_party/icu/icu.gyp:icudata'],
+                'src_files': ['<(PRODUCT_DIR)/icudtl.dat'],
+              }],
+            ],
+            'dest_path': '<(PRODUCT_DIR)/content_shell/assets',
+            'clear': 1,
+          },
+          'includes': [
+            '../build/android/copy_ex.gypi',
+            '../build/android/v8_external_startup_data_arch_suffix.gypi',
           ],
         },
       ],

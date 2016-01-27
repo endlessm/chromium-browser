@@ -18,7 +18,7 @@ static FloatRect mapImageFilterRect(SkImageFilter* filter, const FloatRect& boun
     return filterBounds;
 }
 
-void BeginFilterDisplayItem::replay(GraphicsContext& context)
+void BeginFilterDisplayItem::replay(GraphicsContext& context) const
 {
     context.save();
 
@@ -29,9 +29,9 @@ void BeginFilterDisplayItem::replay(GraphicsContext& context)
     context.translate(-m_bounds.x(), -m_bounds.y());
 }
 
-void BeginFilterDisplayItem::appendToWebDisplayItemList(WebDisplayItemList* list) const
+void BeginFilterDisplayItem::appendToWebDisplayItemList(const IntRect& visualRect, WebDisplayItemList* list) const
 {
-    list->appendFilterItem(*m_webFilterOperations, m_bounds);
+    list->appendFilterItem(visualRect, *m_webFilterOperations, m_bounds);
 }
 
 bool BeginFilterDisplayItem::drawsContent() const
@@ -50,15 +50,15 @@ void BeginFilterDisplayItem::dumpPropertiesAsDebugString(WTF::StringBuilder& str
 }
 #endif
 
-void EndFilterDisplayItem::replay(GraphicsContext& context)
+void EndFilterDisplayItem::replay(GraphicsContext& context) const
 {
     context.endLayer();
     context.restore();
 }
 
-void EndFilterDisplayItem::appendToWebDisplayItemList(WebDisplayItemList* list) const
+void EndFilterDisplayItem::appendToWebDisplayItemList(const IntRect& visualRect, WebDisplayItemList* list) const
 {
-    list->appendEndFilterItem();
+    list->appendEndFilterItem(visualRect);
 }
 
 } // namespace blink

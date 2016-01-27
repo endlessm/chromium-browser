@@ -16,6 +16,7 @@
 
 #include "base/callback.h"
 #include "base/containers/hash_tables.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/ref_counted.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
@@ -23,11 +24,8 @@
 #include "base/time/time.h"
 #include "chrome/browser/safe_browsing/database_manager.h"
 #include "chrome/browser/safe_browsing/protocol_manager.h"
-#include "chrome/browser/safe_browsing/safe_browsing_util.h"
+#include "components/safe_browsing_db/util.h"
 #include "url/gurl.h"
-
-class SafeBrowsingService;
-class SafeBrowsingDatabase;
 
 namespace net {
 class URLRequestContext;
@@ -35,9 +33,11 @@ class URLRequestContextGetter;
 }
 
 namespace safe_browsing {
+
+class SafeBrowsingService;
+class SafeBrowsingDatabase;
 class ClientSideDetectionService;
 class DownloadProtectionService;
-}
 
 // Implemetation that manages a local database on disk.
 //
@@ -56,7 +56,7 @@ class LocalSafeBrowsingDatabaseManager
     SafeBrowsingCheck(const std::vector<GURL>& urls,
                       const std::vector<SBFullHash>& full_hashes,
                       Client* client,
-                      safe_browsing_util::ListType check_type,
+                      ListType check_type,
                       const std::vector<SBThreatType>& expected_threats);
     ~SafeBrowsingCheck();
 
@@ -70,9 +70,10 @@ class LocalSafeBrowsingDatabaseManager
     std::vector<SBThreatType> full_hash_results;
 
     SafeBrowsingDatabaseManager::Client* client;
+    bool is_extended_reporting;
     bool need_get_hash;
     base::TimeTicks start;  // When check was sent to SB service.
-    safe_browsing_util::ListType check_type;  // See comment in constructor.
+    ListType check_type;  // See comment in constructor.
     std::vector<SBThreatType> expected_threats;
     std::vector<SBPrefix> prefix_hits;
     std::vector<SBFullHashResult> cache_hits;
@@ -100,6 +101,10 @@ class LocalSafeBrowsingDatabaseManager
   // SafeBrowsingDatabaseManager overrides
   //
 
+  bool IsSupported() const override;
+  safe_browsing::ThreatSource GetThreatSource() const override;
+  bool ChecksAreAlwaysAsync() const override;
+  bool CanCheckResourceType(content::ResourceType resource_type) const override;
   bool CanCheckUrl(const GURL& url) const override;
 
   bool CheckBrowseUrl(const GURL& url, Client* client) override;
@@ -149,13 +154,13 @@ class LocalSafeBrowsingDatabaseManager
 
   // Clients that we've queued up for checking later once the database is ready.
   struct QueuedCheck {
-    QueuedCheck(const safe_browsing_util::ListType check_type,
+    QueuedCheck(const ListType check_type,
                 Client* client,
                 const GURL& url,
                 const std::vector<SBThreatType>& expected_threats,
                 const base::TimeTicks& start);
     ~QueuedCheck();
-    safe_browsing_util::ListType check_type;
+    ListType check_type;
     Client* client;
     GURL url;
     std::vector<SBThreatType> expected_threats;
@@ -198,12 +203,29 @@ class LocalSafeBrowsingDatabaseManager
   // Called on the IO thread with the check result.
   void OnCheckDone(SafeBrowsingCheck* info);
 
+  // Called on the UI thread to prepare hash request.
+  void OnRequestFullHash(SafeBrowsingCheck* check);
+
+  // Called on the UI thread to determine if current profile is opted into
+  // extended reporting.
+  bool GetExtendedReporting();
+
+  // Called on the IO thread to request full hash.
+  void RequestFullHash(SafeBrowsingCheck* check);
+
   // Called on the database thread to retrieve chunks.
   void GetAllChunksFromDatabase(GetChunksCallback callback);
+
+  // Called on the UI thread to prepare GetAllChunksFromDatabase.
+  void BeforeGetAllChunksFromDatabase(
+      const std::vector<SBListChunkRanges>& lists,
+      bool database_error,
+      GetChunksCallback callback);
 
   // Called on the IO thread with the results of all chunks.
   void OnGetAllChunksFromDatabase(const std::vector<SBListChunkRanges>& lists,
                                   bool database_error,
+                                  bool is_extended_reporting,
                                   GetChunksCallback callback);
 
   // Called on the IO thread after the database reports that it added a chunk.
@@ -339,5 +361,7 @@ class LocalSafeBrowsingDatabaseManager
 
   DISALLOW_COPY_AND_ASSIGN(LocalSafeBrowsingDatabaseManager);
 };  // class LocalSafeBrowsingDatabaseManager
+
+}  // namespace safe_browsing
 
 #endif  // CHROME_BROWSER_SAFE_BROWSING_LOCAL_DATABASE_MANAGER_H_

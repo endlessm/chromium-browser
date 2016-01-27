@@ -8,12 +8,14 @@
 #include "bindings/core/v8/ScriptValueSerializer.h"
 #include "bindings/core/v8/SerializedScriptValue.h"
 #include "core/CoreExport.h"
+#include "wtf/Allocator.h"
 #include "wtf/Noncopyable.h"
 
 namespace blink {
 
 class CORE_EXPORT SerializedScriptValueFactory {
     WTF_MAKE_NONCOPYABLE(SerializedScriptValueFactory);
+    USING_FAST_MALLOC(SerializedScriptValueFactory);
 public:
     SerializedScriptValueFactory() { }
 

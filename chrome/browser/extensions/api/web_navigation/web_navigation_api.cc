@@ -74,7 +74,7 @@ WebNavigationEventRouter::PendingWebContents::PendingWebContents(
 WebNavigationEventRouter::PendingWebContents::~PendingWebContents() {}
 
 WebNavigationEventRouter::WebNavigationEventRouter(Profile* profile)
-    : profile_(profile) {
+    : profile_(profile), browser_tab_strip_tracker_(this, this, nullptr) {
   CHECK(registrar_.IsEmpty());
   registrar_.Add(this,
                  chrome::NOTIFICATION_RETARGETING,
@@ -86,27 +86,15 @@ WebNavigationEventRouter::WebNavigationEventRouter(Profile* profile)
                  content::NOTIFICATION_WEB_CONTENTS_DESTROYED,
                  content::NotificationService::AllSources());
 
-  BrowserList::AddObserver(this);
-  for (chrome::BrowserIterator it; !it.done(); it.Next())
-    OnBrowserAdded(*it);
+  browser_tab_strip_tracker_.Init(
+      BrowserTabStripTracker::InitWith::ALL_BROWERS);
 }
 
 WebNavigationEventRouter::~WebNavigationEventRouter() {
-  for (chrome::BrowserIterator it; !it.done(); it.Next())
-    OnBrowserRemoved(*it);
-  BrowserList::RemoveObserver(this);
 }
 
-void WebNavigationEventRouter::OnBrowserAdded(Browser* browser) {
-  if (!profile_->IsSameProfile(browser->profile()))
-    return;
-  browser->tab_strip_model()->AddObserver(this);
-}
-
-void WebNavigationEventRouter::OnBrowserRemoved(Browser* browser) {
-  if (!profile_->IsSameProfile(browser->profile()))
-    return;
-  browser->tab_strip_model()->RemoveObserver(this);
+bool WebNavigationEventRouter::ShouldTrackBrowser(Browser* browser) {
+  return profile_->IsSameProfile(browser->profile());
 }
 
 void WebNavigationEventRouter::TabReplacedAt(
@@ -319,21 +307,25 @@ void WebNavigationTabObserver::DidCommitProvisionalLoadForFrame(
   if (!navigation_state_.CanSendEvents(render_frame_host))
     return;
 
+  events::HistogramValue histogram_value = events::UNKNOWN;
   std::string event_name;
   if (is_reference_fragment_navigation) {
+    histogram_value = events::WEB_NAVIGATION_ON_REFERENCE_FRAGMENT_UPDATED;
     event_name = web_navigation::OnReferenceFragmentUpdated::kEventName;
   } else if (is_history_state_modification) {
+    histogram_value = events::WEB_NAVIGATION_ON_HISTORY_STATE_UPDATED;
     event_name = web_navigation::OnHistoryStateUpdated::kEventName;
   } else {
     if (navigation_state_.GetIsServerRedirected(render_frame_host)) {
       transition_type = ui::PageTransitionFromInt(
           transition_type | ui::PAGE_TRANSITION_SERVER_REDIRECT);
     }
+    histogram_value = events::WEB_NAVIGATION_ON_COMMITTED;
     event_name = web_navigation::OnCommitted::kEventName;
   }
-  helpers::DispatchOnCommitted(event_name, web_contents(), render_frame_host,
-                               navigation_state_.GetUrl(render_frame_host),
-                               transition_type);
+  helpers::DispatchOnCommitted(
+      histogram_value, event_name, web_contents(), render_frame_host,
+      navigation_state_.GetUrl(render_frame_host), transition_type);
 }
 
 void WebNavigationTabObserver::DidFailProvisionalLoad(
@@ -394,12 +386,16 @@ void WebNavigationTabObserver::DidFinishLoad(
   navigation_state_.SetNavigationCompleted(render_frame_host);
   if (!navigation_state_.CanSendEvents(render_frame_host))
     return;
-  DCHECK(navigation_state_.GetUrl(render_frame_host) == validated_url ||
-         (navigation_state_.GetUrl(render_frame_host) ==
-              GURL(content::kAboutSrcDocURL) &&
-          validated_url == GURL(url::kAboutBlankURL)))
-      << "validated URL is " << validated_url << " but we expected "
-      << navigation_state_.GetUrl(render_frame_host);
+
+  // A new navigation might have started before the old one completed.
+  // Ignore the old navigation completion in that case.
+  // srcdoc iframes will report a url of about:blank, still let it through.
+  if (navigation_state_.GetUrl(render_frame_host) != validated_url &&
+      (navigation_state_.GetUrl(render_frame_host) !=
+           GURL(content::kAboutSrcDocURL) ||
+       validated_url != GURL(url::kAboutBlankURL))) {
+    return;
+  }
 
   // The load might already have finished by the time we finished parsing. For
   // compatibility reasons, we artifically delay the load completed signal until

@@ -98,7 +98,7 @@ class OverscrollNavigationOverlayTest : public RenderViewHostImplTestHarness {
   }
 
   void ReceivePaintUpdate() {
-    FrameHostMsg_DidFirstVisuallyNonEmptyPaint msg(
+    ViewHostMsg_DidFirstVisuallyNonEmptyPaint msg(
         main_test_rfh()->GetRoutingID());
     RenderViewHostTester::TestOnMessageReceived(test_rvh(), msg);
   }
@@ -193,7 +193,7 @@ class OverscrollNavigationOverlayTest : public RenderViewHostImplTestHarness {
     RenderViewHostTester::TestOnMessageReceived(test_rvh(), rect);
 
     // Reset pending flags for size/paint.
-    test_rvh()->ResetSizeAndRepaintPendingFlags();
+    test_rvh()->GetWidget()->ResetSizeAndRepaintPendingFlags();
 
     // Create the overlay, and set the contents of the overlay window.
     overlay_.reset(new OverscrollNavigationOverlay(contents(), root_window()));

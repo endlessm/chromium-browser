@@ -17,7 +17,8 @@
 #include "chrome/browser/autocomplete/shortcuts_backend_factory.h"
 #include "chrome/browser/bookmarks/bookmark_model_factory.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/predictors/autocomplete_action_predictor.h"
+#include "chrome/browser/predictors/autocomplete_action_predictor_factory.h"
 #include "chrome/browser/profiles/incognito_helpers.h"
 #include "chrome/browser/profiles/profile_android.h"
 #include "chrome/browser/profiles/profile_manager.h"
@@ -25,7 +26,6 @@
 #include "chrome/browser/search_engines/template_url_service_factory.h"
 #include "chrome/browser/sessions/session_tab_helper.h"
 #include "chrome/browser/ui/search/instant_search_prerenderer.h"
-#include "chrome/browser/ui/toolbar/toolbar_model.h"
 #include "chrome/common/instant_types.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
@@ -37,19 +37,18 @@
 #include "components/omnibox/browser/autocomplete_input.h"
 #include "components/omnibox/browser/autocomplete_match.h"
 #include "components/omnibox/browser/autocomplete_match_type.h"
+#include "components/omnibox/browser/omnibox_event_global_tracker.h"
 #include "components/omnibox/browser/omnibox_field_trial.h"
 #include "components/omnibox/browser/omnibox_log.h"
 #include "components/omnibox/browser/search_provider.h"
 #include "components/search/search.h"
 #include "components/search_engines/template_url_service.h"
-#include "content/public/browser/notification_details.h"
-#include "content/public/browser/notification_service.h"
-#include "content/public/browser/notification_source.h"
+#include "components/toolbar/toolbar_model.h"
+#include "components/url_formatter/url_formatter.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/common/url_constants.h"
 #include "jni/AutocompleteController_jni.h"
 #include "net/base/escape.h"
-#include "net/base/net_util.h"
 #include "net/base/registry_controlled_domains/registry_controlled_domain.h"
 
 using base::android::AttachCurrentThread;
@@ -81,7 +80,7 @@ class ZeroSuggestPrefetcher : public AutocompleteControllerDelegate {
   void OnResultChanged(bool default_match_changed) override;
 
   scoped_ptr<AutocompleteController> controller_;
-  base::OneShotTimer<ZeroSuggestPrefetcher> expire_timer_;
+  base::OneShotTimer expire_timer_;
 };
 
 ZeroSuggestPrefetcher::ZeroSuggestPrefetcher(Profile* profile)
@@ -223,7 +222,9 @@ void AutocompleteControllerAndroid::OnSuggestionSelected(
       content::WebContents::FromJavaWebContents(j_web_contents);
 
   OmniboxLog log(
-      input_.text(),
+      // For zero suggest, record an empty input string instead of the
+      // current URL.
+      input_.from_omnibox_focus() ? base::string16() : input_.text(),
       false, /* don't know */
       input_.type(),
       true,
@@ -237,10 +238,10 @@ void AutocompleteControllerAndroid::OnSuggestionSelected(
       autocomplete_controller_->result());
   autocomplete_controller_->AddProvidersInfo(&log.providers_info);
 
-  content::NotificationService::current()->Notify(
-      chrome::NOTIFICATION_OMNIBOX_OPENED_URL,
-      content::Source<Profile>(profile_),
-      content::Details<OmniboxLog>(&log));
+  OmniboxEventGlobalTracker::GetInstance()->OnURLOpened(&log);
+
+  predictors::AutocompleteActionPredictorFactory::GetForProfile(profile_)
+      ->OnOmniboxOpenedUrl(log);
 }
 
 void AutocompleteControllerAndroid::DeleteSuggestion(JNIEnv* env,
@@ -296,7 +297,7 @@ AutocompleteControllerAndroid::Factory::GetForProfile(
 
 AutocompleteControllerAndroid::Factory*
 AutocompleteControllerAndroid::Factory::GetInstance() {
-  return Singleton<AutocompleteControllerAndroid::Factory>::get();
+  return base::Singleton<AutocompleteControllerAndroid::Factory>::get();
 }
 
 content::BrowserContext*
@@ -337,8 +338,8 @@ void AutocompleteControllerAndroid::OnResultChanged(
   const AutocompleteResult::const_iterator default_match(
       result.default_match());
   if ((default_match != result.end()) && default_match_changed &&
-      chrome::IsInstantExtendedAPIEnabled() &&
-      chrome::ShouldPrefetchSearchResults()) {
+      search::IsInstantExtendedAPIEnabled() &&
+      search::ShouldPrefetchSearchResults()) {
     InstantSuggestion prefetch_suggestion;
     // If the default match should be prefetched, do that.
     if (SearchProvider::ShouldPrefetch(*default_match)) {
@@ -404,7 +405,7 @@ AutocompleteControllerAndroid::ClassifyPage(const GURL& gurl,
   const std::string& url = gurl.spec();
 
   if (gurl.SchemeIs(content::kChromeUIScheme) &&
-      gurl.host() == chrome::kChromeUINewTabHost) {
+      gurl.host_piece() == chrome::kChromeUINewTabHost) {
     return OmniboxEventProto::NTP;
   }
 
@@ -454,6 +455,7 @@ AutocompleteControllerAndroid::BuildOmniboxSuggestion(
   return Java_AutocompleteController_buildOmniboxSuggestion(
       env,
       match.type,
+      AutocompleteMatch::IsSearchType(match.type),
       match.relevance,
       match.transition,
       contents.obj(),
@@ -475,8 +477,9 @@ base::string16 AutocompleteControllerAndroid::FormatURLUsingAcceptLanguages(
   std::string languages(
       profile_->GetPrefs()->GetString(prefs::kAcceptLanguages));
 
-  return net::FormatUrl(url, languages, net::kFormatUrlOmitAll,
-      net::UnescapeRule::SPACES, NULL, NULL, NULL);
+  return url_formatter::FormatUrl(
+      url, languages, url_formatter::kFormatUrlOmitAll,
+      net::UnescapeRule::SPACES, nullptr, nullptr, nullptr);
 }
 
 ScopedJavaLocalRef<jobject>
@@ -508,7 +511,9 @@ AutocompleteControllerAndroid::GetTopSynchronousResult(
   return BuildOmniboxSuggestion(env, *result.begin());
 }
 
-static jlong Init(JNIEnv* env, jobject obj, jobject jprofile) {
+static jlong Init(JNIEnv* env,
+                  const JavaParamRef<jobject>& obj,
+                  const JavaParamRef<jobject>& jprofile) {
   Profile* profile = ProfileAndroid::FromProfileAndroid(jprofile);
   if (!profile)
     return 0;
@@ -518,11 +523,13 @@ static jlong Init(JNIEnv* env, jobject obj, jobject jprofile) {
   return reinterpret_cast<intptr_t>(native_bridge);
 }
 
-static jstring QualifyPartialURLQuery(
-    JNIEnv* env, jclass clazz, jstring jquery) {
+static ScopedJavaLocalRef<jstring> QualifyPartialURLQuery(
+    JNIEnv* env,
+    const JavaParamRef<jclass>& clazz,
+    const JavaParamRef<jstring>& jquery) {
   Profile* profile = ProfileManager::GetActiveUserProfile();
   if (!profile)
-    return NULL;
+    return ScopedJavaLocalRef<jstring>();
   AutocompleteMatch match;
   base::string16 query_string(ConvertJavaStringToUTF16(env, jquery));
   AutocompleteClassifierFactory::GetForProfile(profile)->Classify(
@@ -533,19 +540,20 @@ static jstring QualifyPartialURLQuery(
       &match,
       NULL);
   if (!match.destination_url.is_valid())
-    return NULL;
+    return ScopedJavaLocalRef<jstring>();
 
   // Only return a URL if the match is a URL type.
   if (match.type != AutocompleteMatchType::URL_WHAT_YOU_TYPED &&
       match.type != AutocompleteMatchType::HISTORY_URL &&
       match.type != AutocompleteMatchType::NAVSUGGEST)
-    return NULL;
+    return ScopedJavaLocalRef<jstring>();
 
   // As we are returning to Java, it is fine to call Release().
-  return ConvertUTF8ToJavaString(env, match.destination_url.spec()).Release();
+  return ConvertUTF8ToJavaString(env, match.destination_url.spec());
 }
 
-static void PrefetchZeroSuggestResults(JNIEnv* env, jclass clazz) {
+static void PrefetchZeroSuggestResults(JNIEnv* env,
+                                       const JavaParamRef<jclass>& clazz) {
   Profile* profile = ProfileManager::GetActiveUserProfile();
   if (!profile)
     return;

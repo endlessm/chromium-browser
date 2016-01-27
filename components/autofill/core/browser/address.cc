@@ -71,7 +71,7 @@ base::string16 Address::GetRawInfo(ServerFieldType type) const {
       return base::ASCIIToUTF16(country_code_);
 
     case ADDRESS_HOME_STREET_ADDRESS:
-      return JoinString(street_address_, '\n');
+      return base::JoinString(street_address_, base::ASCIIToUTF16("\n"));
 
     default:
       NOTREACHED();
@@ -130,7 +130,9 @@ void Address::SetRawInfo(ServerFieldType type, const base::string16& value) {
       break;
 
     case ADDRESS_HOME_STREET_ADDRESS:
-      base::SplitString(value, base::char16('\n'), &street_address_);
+      street_address_ = base::SplitString(
+          value, base::ASCIIToUTF16("\n"),
+          base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
       break;
 
     default:
@@ -159,7 +161,7 @@ bool Address::SetInfo(const AutofillType& type,
       return false;
     }
 
-    country_code_ = base::StringToUpperASCII(base::UTF16ToASCII(value));
+    country_code_ = base::ToUpperASCII(base::UTF16ToASCII(value));
     return true;
   } else if (type.html_type() == HTML_TYPE_FULL_ADDRESS) {
     // Parsing a full address is too hard.

@@ -15,6 +15,7 @@
 #include "media/base/decoder_buffer.h"
 #include "media/base/media.h"
 #include "media/base/media_switches.h"
+#include "media/base/media_util.h"
 #include "media/cast/sender/h264_vt_encoder.h"
 #include "media/cast/sender/video_frame_factory.h"
 #include "media/cast/test/utility/default_config.h"
@@ -252,7 +253,7 @@ class H264VideoToolboxEncoderTest : public ::testing::Test {
     video_sender_config_.codec = CODEC_VIDEO_H264;
     const gfx::Size size(kVideoWidth, kVideoHeight);
     frame_ = media::VideoFrame::CreateFrame(
-        VideoFrame::I420, size, gfx::Rect(size), size, base::TimeDelta());
+        PIXEL_FORMAT_I420, size, gfx::Rect(size), size, base::TimeDelta());
     PopulateVideoFrame(frame_.get(), 123);
   }
 
@@ -306,8 +307,9 @@ TEST_F(H264VideoToolboxEncoderTest, CheckFrameMetadataSequence) {
 #if defined(USE_PROPRIETARY_CODECS)
 TEST_F(H264VideoToolboxEncoderTest, CheckFramesAreDecodable) {
   VideoDecoderConfig config(kCodecH264, H264PROFILE_MAIN, frame_->format(),
-                            frame_->coded_size(), frame_->visible_rect(),
-                            frame_->natural_size(), nullptr, 0, false);
+                            COLOR_SPACE_UNSPECIFIED, frame_->coded_size(),
+                            frame_->visible_rect(), frame_->natural_size(),
+                            EmptyExtraData(), false);
   scoped_refptr<EndToEndFrameChecker> checker(new EndToEndFrameChecker(config));
 
   VideoEncoder::FrameEncodedCallback cb =

@@ -5,8 +5,8 @@
 #include "chrome/browser/ui/views/location_bar/page_info_helper.h"
 
 #include "chrome/browser/search/search.h"
-#include "chrome/browser/ui/omnibox/omnibox_view.h"
 #include "chrome/browser/ui/views/location_bar/location_bar_view.h"
+#include "components/omnibox/browser/omnibox_view.h"
 #include "content/public/browser/navigation_controller.h"
 #include "content/public/browser/navigation_entry.h"
 #include "content/public/browser/web_contents.h"
@@ -36,6 +36,9 @@ void PageInfoHelper::ProcessEvent(const ui::LocatedEvent& event) {
   if (!nav_entry)
     return;
 
+  SecurityStateModel* security_model = SecurityStateModel::FromWebContents(tab);
+  DCHECK(security_model);
+
   location_bar_->delegate()->ShowWebsiteSettings(
-      tab, nav_entry->GetURL(), nav_entry->GetSSL());
+      tab, nav_entry->GetURL(), security_model->GetSecurityInfo());
 }

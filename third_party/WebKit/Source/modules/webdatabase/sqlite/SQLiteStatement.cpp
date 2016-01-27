@@ -29,9 +29,9 @@
 #include "modules/webdatabase/sqlite/SQLValue.h"
 #include "platform/Logging.h"
 #include "platform/heap/SafePoint.h"
+#include "third_party/sqlite/sqlite3.h"
 #include "wtf/Assertions.h"
 #include "wtf/text/CString.h"
-#include <sqlite3.h>
 
 // SQLite 3.6.16 makes sqlite3_prepare_v2 automatically retry preparing the statement
 // once if the database scheme has changed. We rely on this behavior.
@@ -107,7 +107,7 @@ int SQLiteStatement::prepare()
     *statement = nullptr;
     int error;
     {
-        SafePointScope scope(ThreadState::HeapPointersOnStack);
+        SafePointScope scope(BlinkGC::HeapPointersOnStack);
 
         WTF_LOG(SQLDatabase, "SQL - prepare - %s", query.data());
 
@@ -132,7 +132,7 @@ int SQLiteStatement::prepare()
 
 int SQLiteStatement::step()
 {
-    SafePointScope scope(ThreadState::HeapPointersOnStack);
+    SafePointScope scope(BlinkGC::HeapPointersOnStack);
     //ASSERT(m_isPrepared);
 
     if (!m_statement)
@@ -268,7 +268,7 @@ SQLValue SQLiteStatement::getColumnValue(int col)
         case SQLITE_BLOB:       // SQLValue and JS don't represent blobs, so use TEXT -case
         case SQLITE_TEXT: {
             const UChar* string = reinterpret_cast<const UChar*>(sqlite3_value_text16(value));
-            unsigned length = WTF::lengthOfNullTerminatedString(string);
+            unsigned length = sqlite3_value_bytes16(value) / sizeof(UChar);
             return SQLValue(StringImpl::create8BitIfPossible(string, length));
         }
         case SQLITE_NULL:

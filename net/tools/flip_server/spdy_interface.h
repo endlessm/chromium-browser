@@ -109,6 +109,20 @@ class SpdySM : public BufferedSpdyFramerVisitorInterface, public SMInterface {
   // |len| The number of padding octets.
   void OnStreamPadding(SpdyStreamId stream_id, size_t len) override;
 
+  // Called just before processing the payload of a frame containing header
+  // data. Should return an implementation of SpdyHeadersHandlerInterface that
+  // will receive headers for stream |stream_id|. The caller will not take
+  // ownership of the headers handler. The same instance should be returned
+  // for all header frames comprising a logical header block (i.e. until
+  // OnHeaderFrameEnd() is called with end_headers == true).
+  SpdyHeadersHandlerInterface* OnHeaderFrameStart(
+      SpdyStreamId stream_id) override;
+
+  // Called after processing the payload of a frame containing header data.
+  // |end_headers| is true if there will not be any subsequent CONTINUATION
+  // frames.
+  void OnHeaderFrameEnd(SpdyStreamId stream_id, bool end_headers) override;
+
   // Called when a SETTINGS frame is received.
   // |clear_persisted| True if the respective flag is set on the SETTINGS frame.
   void OnSettings(bool clear_persisted) override {}
@@ -125,7 +139,8 @@ class SpdySM : public BufferedSpdyFramerVisitorInterface, public SMInterface {
 
   // Called when a GOAWAY frame has been parsed.
   void OnGoAway(SpdyStreamId last_accepted_stream_id,
-                SpdyGoAwayStatus status) override {}
+                SpdyGoAwayStatus status,
+                StringPiece debug_data) override {}
 
   // Called when a WINDOW_UPDATE frame has been parsed.
   void OnWindowUpdate(SpdyStreamId stream_id, int delta_window_size) override {}

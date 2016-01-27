@@ -50,11 +50,15 @@ class UI_TOUCH_SELECTION_EXPORT TouchSelectionController
     Config();
     ~Config();
 
-    // Defaults to 100 ms.
-    base::TimeDelta tap_timeout;
+    // Maximum allowed time for handle tap detection. Defaults to 300 ms.
+    base::TimeDelta max_tap_duration;
 
     // Defaults to 8 DIPs.
     float tap_slop;
+
+    // Controls whether adaptive orientation for selection handles is enabled.
+    // Defaults to false.
+    bool enable_adaptive_handle_orientation;
 
     // Controls whether drag selection after a longpress is enabled.
     // Defaults to false.
@@ -62,6 +66,8 @@ class UI_TOUCH_SELECTION_EXPORT TouchSelectionController
 
     // Controls whether an insertion handle is shown on a tap for an empty
     // editable text. Defauls to false.
+    // TODO(mohsen): This flag used to be set to |true| on Aura. That's not the
+    // case anymore and it is always |false|. Consider removing it.
     bool show_on_tap_for_empty_editable;
   };
 
@@ -75,6 +81,10 @@ class UI_TOUCH_SELECTION_EXPORT TouchSelectionController
   void OnSelectionBoundsChanged(const SelectionBound& start,
                                 const SelectionBound& end);
 
+  // To be called when the viewport rect has been changed. This is used for
+  // setting the state of the handles.
+  void OnViewportChanged(const gfx::RectF viewport_rect);
+
   // Allows touch-dragging of the handle.
   // Returns true iff the event was consumed, in which case the caller should
   // cease further handling of the event.
@@ -82,7 +92,9 @@ class UI_TOUCH_SELECTION_EXPORT TouchSelectionController
 
   // To be called before forwarding a tap event. This allows automatically
   // showing the insertion handle from subsequent bounds changes.
-  bool WillHandleTapEvent(const gfx::PointF& location);
+  // |tap_count| is tap index in a repeated sequence, i.e., 1 for the first
+  // tap, 2 for the second tap, etc...
+  bool WillHandleTapEvent(const gfx::PointF& location, int tap_count);
 
   // To be called before forwarding a longpress event. This allows automatically
   // showing the selection or insertion handles from subsequent bounds changes.
@@ -133,7 +145,7 @@ class UI_TOUCH_SELECTION_EXPORT TouchSelectionController
  private:
   friend class TouchSelectionControllerTestApi;
 
-  enum InputEventType { TAP, LONG_PRESS, INPUT_EVENT_TYPE_NONE };
+  enum InputEventType { TAP, REPEATED_TAP, LONG_PRESS, INPUT_EVENT_TYPE_NONE };
 
   // TouchHandleClient implementation.
   void OnDragBegin(const TouchSelectionDraggable& draggable,
@@ -145,7 +157,8 @@ class UI_TOUCH_SELECTION_EXPORT TouchSelectionController
   void OnHandleTapped(const TouchHandle& handle) override;
   void SetNeedsAnimate() override;
   scoped_ptr<TouchHandleDrawable> CreateDrawable() override;
-  base::TimeDelta GetTapTimeout() const override;
+  base::TimeDelta GetMaxTapDuration() const override;
+  bool IsAdaptiveHandleOrientationEnabled() const override;
 
   // LongPressDragSelectorClient implementation.
   void OnLongPressDragActiveStateChanged() override;
@@ -166,6 +179,7 @@ class UI_TOUCH_SELECTION_EXPORT TouchSelectionController
   bool ActivateSelectionIfNecessary();
   void DeactivateSelection();
   void ForceNextUpdateIfInactive();
+  void UpdateHandleLayoutIfNecessary();
 
   bool WillHandleTouchEventForLongPressDrag(const MotionEvent& event);
   void SetTemporarilyHiddenForLongPressDrag(bool hidden);
@@ -215,6 +229,8 @@ class UI_TOUCH_SELECTION_EXPORT TouchSelectionController
 
   // Longpress drag allows direct manipulation of longpress-initiated selection.
   LongPressDragSelector longpress_drag_selector_;
+
+  gfx::RectF viewport_rect_;
 
   base::TimeTicks selection_start_time_;
   // Whether a selection handle was dragged during the current 'selection

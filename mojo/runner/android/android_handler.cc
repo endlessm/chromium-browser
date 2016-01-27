@@ -14,7 +14,7 @@
 #include "mojo/common/data_pipe_utils.h"
 #include "mojo/public/c/system/main.h"
 #include "mojo/runner/android/run_android_application_function.h"
-#include "mojo/runner/native_application_support.h"
+#include "mojo/runner/host/native_application_support.h"
 #include "mojo/util/filename_util.h"
 #include "url/gurl.h"
 
@@ -36,17 +36,14 @@ namespace {
 void RunAndroidApplication(JNIEnv* env,
                            jobject j_context,
                            const base::FilePath& app_path,
-                           jint j_handle,
-                           bool is_cached_app) {
+                           jint j_handle) {
   InterfaceRequest<Application> application_request =
       MakeRequest<Application>(MakeScopedHandle(MessagePipeHandle(j_handle)));
 
   // Load the library, so that we can set the application context there if
   // needed.
   // TODO(vtl): We'd use a ScopedNativeLibrary, but it doesn't have .get()!
-  base::NativeLibrary app_library = LoadNativeApplication(
-      app_path, is_cached_app ? shell::NativeApplicationCleanup::DONT_DELETE
-                              : shell::NativeApplicationCleanup::DELETE);
+  base::NativeLibrary app_library = LoadNativeApplication(app_path);
   if (!app_library)
     return;
 

@@ -21,7 +21,6 @@
       'target_name': 'crashpad_client',
       'type': 'static_library',
       'dependencies': [
-        '../compat/compat.gyp:crashpad_compat',
         '../third_party/mini_chromium/mini_chromium.gyp:base',
         '../util/util.gyp:crashpad_util',
       ],
@@ -40,7 +39,8 @@
         'crashpad_client_win.cc',
         'crashpad_info.cc',
         'crashpad_info.h',
-        'registration_protocol_win.h',
+        'prune_crash_reports.cc',
+        'prune_crash_reports.h',
         'settings.cc',
         'settings.h',
         'simple_string_dictionary.cc',
@@ -48,6 +48,7 @@
         'simulate_crash.h',
         'simulate_crash_mac.cc',
         'simulate_crash_mac.h',
+        'simulate_crash_win.h',
       ],
       'conditions': [
         ['OS=="win"', {

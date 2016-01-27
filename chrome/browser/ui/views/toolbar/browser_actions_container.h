@@ -20,7 +20,6 @@
 #include "ui/views/view.h"
 #include "ui/views/widget/widget_observer.h"
 
-class BrowserActionsContainerObserver;
 class ExtensionPopup;
 
 namespace extensions {
@@ -64,7 +63,7 @@ class ResizeArea;
 //      - The container is set to a width smaller than needed to show all icons.
 //      - There is no other container in 'overflow' mode to handle the
 //        non-visible icons for this container.
-//   s: ToolbarView::kStandardSpacing pixels of empty space (before the wrench
+//   s: ToolbarView::kStandardSpacing pixels of empty space (before the app
 //      menu).
 // The reason the container contains the trailing space "s", rather than having
 // it be handled by the parent view, is so that when the chevron is invisible
@@ -168,7 +167,7 @@ class BrowserActionsContainer
   }
 
   // Returns the ID of the action represented by the view at |index|.
-  const std::string& GetIdAt(size_t index) const;
+  std::string GetIdAt(size_t index) const;
 
   // Returns the ToolbarActionView* associated with the given |extension|, or
   // NULL if none exists.
@@ -190,9 +189,10 @@ class BrowserActionsContainer
   void ExecuteExtensionCommand(const extensions::Extension* extension,
                                const extensions::Command& command);
 
-  // Add or remove an observer.
-  void AddObserver(BrowserActionsContainerObserver* observer);
-  void RemoveObserver(BrowserActionsContainerObserver* observer);
+  // Returns the preferred width given the limit of |max_width|. (Unlike most
+  // views, since we don't want to show part of an icon or a large space after
+  // the omnibox, this is probably *not* |max_width|).
+  int GetWidthForMaxWidth(int max_width) const;
 
   // Overridden from views::View:
   gfx::Size GetPreferredSize() const override;
@@ -202,7 +202,7 @@ class BrowserActionsContainer
   void OnMouseEntered(const ui::MouseEvent& event) override;
   bool GetDropFormats(
       int* formats,
-      std::set<ui::OSExchangeData::CustomFormat>* custom_formats) override;
+      std::set<ui::Clipboard::FormatType>* format_types) override;
   bool AreDropTypesRequired() override;
   bool CanDrop(const ui::OSExchangeData& data) override;
   int OnDragUpdated(const ui::DropTargetEvent& event) override;
@@ -232,6 +232,7 @@ class BrowserActionsContainer
   bool ShownInsideMenu() const override;
   void OnToolbarActionViewDragDone() override;
   views::MenuButton* GetOverflowReferenceView() override;
+  void OnMouseEnteredToolbarActionView() override;
 
   // ToolbarActionsBarDelegate:
   void AddViewForAction(ToolbarActionViewController* action,
@@ -243,12 +244,10 @@ class BrowserActionsContainer
                         int target_width,
                         bool suppress_chevron) override;
   void SetChevronVisibility(bool chevron_visible) override;
-  int GetWidth() const override;
+  int GetWidth(GetWidthTime get_width_time) const override;
   bool IsAnimating() const override;
   void StopAnimating() override;
   int GetChevronWidth() const override;
-  void OnOverflowedActionWantsToRunChanged(
-      bool overflowed_action_wants_to_run) override;
   void ShowExtensionMessageBubble(
       scoped_ptr<extensions::ExtensionMessageBubbleController> controller,
       ToolbarActionViewController* anchor_action) override;
@@ -262,6 +261,8 @@ class BrowserActionsContainer
       override;
 
   views::BubbleDelegateView* active_bubble() { return active_bubble_; }
+
+  ChevronMenuButton* chevron_for_testing() { return chevron_; }
 
  protected:
   // Overridden from views::View:
@@ -303,9 +304,6 @@ class BrowserActionsContainer
   // the difference between main and overflow.
   BrowserActionsContainer* main_container_;
 
-  // The current width of the container.
-  int container_width_;
-
   // The resize area for the container.
   views::ResizeArea* resize_area_;
 
@@ -314,7 +312,8 @@ class BrowserActionsContainer
   ChevronMenuButton* chevron_;
 
   // The painter used when we are highlighting a subset of extensions.
-  scoped_ptr<views::Painter> highlight_painter_;
+  scoped_ptr<views::Painter> info_highlight_painter_;
+  scoped_ptr<views::Painter> warning_highlight_painter_;
 
   // The animation that happens when the container snaps to place.
   scoped_ptr<gfx::SlideAnimation> resize_animation_;
@@ -327,6 +326,10 @@ class BrowserActionsContainer
 
   // Whether or not the info bubble has been shown, if it should be.
   bool shown_bubble_;
+
+  // When the container is resizing, this is the width at which it started.
+  // If the container is not resizing, -1.
+  int resize_starting_width_;
 
   // This is used while the user is resizing (and when the animations are in
   // progress) to know how wide the delta is between the current state and what
@@ -346,8 +349,6 @@ class BrowserActionsContainer
 
   // The extension bubble that is actively showing, if any.
   views::BubbleDelegateView* active_bubble_;
-
-  base::ObserverList<BrowserActionsContainerObserver> observers_;
 
   DISALLOW_COPY_AND_ASSIGN(BrowserActionsContainer);
 };

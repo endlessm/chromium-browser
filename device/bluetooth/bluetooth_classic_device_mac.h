@@ -18,9 +18,12 @@
 
 namespace device {
 
+class BluetoothAdapterMac;
+
 class BluetoothClassicDeviceMac : public BluetoothDeviceMac {
  public:
-  explicit BluetoothClassicDeviceMac(IOBluetoothDevice* device);
+  explicit BluetoothClassicDeviceMac(BluetoothAdapterMac* adapter,
+                                     IOBluetoothDevice* device);
   ~BluetoothClassicDeviceMac() override;
 
   // BluetoothDevice override
@@ -32,6 +35,7 @@ class BluetoothClassicDeviceMac : public BluetoothDeviceMac {
   uint16 GetDeviceID() const override;
   bool IsPaired() const override;
   bool IsConnected() const override;
+  bool IsGattConnected() const override;
   bool IsConnectable() const override;
   bool IsConnecting() const override;
   UUIDList GetUUIDs() const override;
@@ -51,7 +55,8 @@ class BluetoothClassicDeviceMac : public BluetoothDeviceMac {
   void CancelPairing() override;
   void Disconnect(const base::Closure& callback,
                   const ErrorCallback& error_callback) override;
-  void Forget(const ErrorCallback& error_callback) override;
+  void Forget(const base::Closure& callback,
+              const ErrorCallback& error_callback) override;
   void ConnectToService(
       const BluetoothUUID& uuid,
       const ConnectToServiceCallback& callback,
@@ -74,6 +79,8 @@ class BluetoothClassicDeviceMac : public BluetoothDeviceMac {
  protected:
   // BluetoothDevice override
   std::string GetDeviceName() const override;
+  void CreateGattConnectionImpl() override;
+  void DisconnectGatt() override;
 
  private:
   friend class BluetoothAdapterMac;

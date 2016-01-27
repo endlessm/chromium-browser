@@ -37,9 +37,8 @@ namespace content {
 class CONTENT_EXPORT RTCVideoEncoder
     : NON_EXPORTED_BASE(public webrtc::VideoEncoder) {
  public:
-  RTCVideoEncoder(
-      webrtc::VideoCodecType type,
-      const scoped_refptr<media::GpuVideoAcceleratorFactories>& gpu_factories);
+  RTCVideoEncoder(webrtc::VideoCodecType type,
+                  media::GpuVideoAcceleratorFactories* gpu_factories);
   ~RTCVideoEncoder() override;
 
   // webrtc::VideoEncoder implementation.  Tasks are posted to |impl_| using the
@@ -50,7 +49,7 @@ class CONTENT_EXPORT RTCVideoEncoder
   int32_t Encode(
       const webrtc::VideoFrame& input_image,
       const webrtc::CodecSpecificInfo* codec_specific_info,
-      const std::vector<webrtc::VideoFrameType>* frame_types) override;
+      const std::vector<webrtc::FrameType>* frame_types) override;
   int32_t RegisterEncodeCompleteCallback(
       webrtc::EncodedImageCallback* callback) override;
   int32_t Release() override;
@@ -77,7 +76,7 @@ class CONTENT_EXPORT RTCVideoEncoder
   const webrtc::VideoCodecType video_codec_type_;
 
   // Factory for creating VEAs, shared memory buffers, etc.
-  const scoped_refptr<media::GpuVideoAcceleratorFactories> gpu_factories_;
+  media::GpuVideoAcceleratorFactories* gpu_factories_;
 
   // webrtc::VideoEncoder encode complete callback.
   webrtc::EncodedImageCallback* encoded_image_callback_;

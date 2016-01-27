@@ -114,6 +114,19 @@ class TrybotBrowserFinderTest(unittest.TestCase):
     self.assertEquals(['android_nexus4_perf_bisect'],
                       browser._builder_names.get('android'))
 
+  def test_support_with_chrome_root(self):
+    finder_options = browser_options.BrowserFinderOptions()
+    finder_options.profile_dir = None
+    finder_options.chrome_root = '/a/b/c'
+    self._MockTryserverJson({
+        'android_nexus4_perf_bisect': 'stuff',
+        'mac_10_9_perf_bisect': 'otherstuff',
+        'win_perf_bisect_builder': 'not a trybot',
+    })
+    browser = trybot_browser_finder.PossibleTrybotBrowser(
+        'trybot-android-nexus4', finder_options)
+    self.assertTrue(browser.SupportsOptions(finder_options))
+
   def test_constructor_trybot_all(self):
     finder_options = browser_options.BrowserFinderOptions()
     self._MockTryserverJson({
@@ -349,7 +362,7 @@ class TrybotBrowserFinderTest(unittest.TestCase):
     self.assertEquals(
         ('config = {\n'
          '  "command": "./tools/perf/run_benchmark '
-         '--browser=android-chrome-shell sunspider",\n'
+         '--browser=android-chromium sunspider",\n'
          '  "max_time_minutes": "120",\n'
          '  "repeat_count": "1",\n'
          '  "target_arch": "ia32",\n'

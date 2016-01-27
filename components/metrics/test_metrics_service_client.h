@@ -21,6 +21,7 @@ class TestMetricsServiceClient : public MetricsServiceClient {
   ~TestMetricsServiceClient() override;
 
   // MetricsServiceClient:
+  metrics::MetricsService* GetMetricsService() override;
   void SetMetricsClientId(const std::string& client_id) override;
   void OnRecordingDisabled() override;
   bool IsOffTheRecordSessionActive() override;
@@ -30,8 +31,9 @@ class TestMetricsServiceClient : public MetricsServiceClient {
   SystemProfileProto::Channel GetChannel() override;
   std::string GetVersionString() override;
   void OnLogUploadComplete() override;
-  void StartGatheringMetrics(const base::Closure& done_callback) override;
-  void CollectFinalMetrics(const base::Closure& done_callback) override;
+  void InitializeSystemProfileMetrics(
+      const base::Closure& done_callback) override;
+  void CollectFinalMetricsForLog(const base::Closure& done_callback) override;
   scoped_ptr<MetricsLogUploader> CreateUploader(
       const base::Callback<void(int)>& on_upload_complete) override;
   base::TimeDelta GetStandardUploadInterval() override;

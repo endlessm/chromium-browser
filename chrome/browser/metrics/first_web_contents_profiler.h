@@ -6,7 +6,6 @@
 #define CHROME_BROWSER_METRICS_FIRST_WEB_CONTENTS_PROFILER_H_
 
 #include "base/memory/scoped_ptr.h"
-#include "base/metrics/histogram.h"
 #include "content/public/browser/web_contents_observer.h"
 
 namespace content {
@@ -34,59 +33,65 @@ class FirstWebContentsProfiler : public content::WebContentsObserver {
       Delegate* delegate);
 
  private:
+  // Reasons for which profiling is deemed complete. Logged in UMA (do not re-
+  // order or re-assign).
+  enum FinishReason {
+    // All metrics were successfully gathered.
+    DONE = 0,
+    // Abandon if blocking UI was shown during startup.
+    ABANDON_BLOCKING_UI = 1,
+    // Abandon if the content is hidden (lowers scheduling priority).
+    ABANDON_CONTENT_HIDDEN = 2,
+    // Abandon if the content is destroyed.
+    ABANDON_CONTENT_DESTROYED = 3,
+    // Abandon if the WebContents navigates away from its initial page.
+    ABANDON_NEW_NAVIGATION = 4,
+    // Abandon if the WebContents fails to load (e.g. network error, etc.).
+    ABANDON_NAVIGATION_ERROR = 5,
+    ENUM_MAX
+  };
+
   FirstWebContentsProfiler(content::WebContents* web_contents,
                            Delegate* delegate);
 
   // content::WebContentsObserver:
   void DidFirstVisuallyNonEmptyPaint() override;
   void DocumentOnLoadCompletedInMainFrame() override;
+  void DidStartNavigation(
+      content::NavigationHandle* navigation_handle) override;
+  void DidFinishNavigation(
+      content::NavigationHandle* navigation_handle) override;
+  void WasHidden() override;
   void WebContentsDestroyed() override;
 
-  // Whether this instance has finished collecting all of its metrics.
+  // Whether this instance has finished collecting first-paint and main-frame-
+  // load metrics (navigation metrics are recorded on a best effort but don't
+  // prevent the FirstWebContentsProfiler from calling it).
   bool IsFinishedCollectingMetrics();
 
   // Informs the delegate that this instance has finished collecting all of its
-  // metrics.
-  void FinishedCollectingMetrics();
+  // metrics. Logs |finish_reason| to UMA.
+  void FinishedCollectingMetrics(FinishReason finish_reason);
 
-  // Initialize histograms for unresponsiveness metrics.
-  void InitHistograms();
-
-  // Whether the "NonEmptyPaint" metric has been collected. If an attempt is
-  // made to collect the metric but the attempt fails, this member is set to
-  // true to prevent this class from sitting around forever attempting to
-  // collect the metric.
+  // Whether an attempt was made to collect the "NonEmptyPaint" metric.
   bool collected_paint_metric_;
 
-  // Whether the "MainFrameLoad" metric has been collected. If an attempt is
-  // made to collect the metric but the attempt fails, this member is set to
-  // true to prevent this class from sitting around forever attempting to
-  // collect the metric.
+  // Whether an attempt was made to collect the "MainFrameLoad" metric.
   bool collected_load_metric_;
 
-  // The time at which the process was created.
-  base::Time process_creation_time_;
+  // Whether an attempt was made to collect the "MainNavigationStart" metric.
+  bool collected_main_navigation_start_metric_;
+
+  // Whether an attempt was made to collect the "MainNavigationFinished" metric.
+  bool collected_main_navigation_finished_metric_;
+
+  // Whether core metric collection is complete. Used to keep reporting old
+  // stats post abandon to give us an intra-milestone comparison basis initially
+  // between the old and new stats. TODO(gab): Remove this in M49.
+  bool finished_;
 
   // |delegate_| owns |this|.
   Delegate* delegate_;
-
-  // Histogram that keeps track of response times for the watched thread.
-  base::HistogramBase* responsiveness_histogram_;
-
-  // Histogram that keeps track of response times for the watched thread.
-  base::HistogramBase* responsiveness_1sec_histogram_;
-
-  // Histogram that keeps track of response times for the watched thread.
-  base::HistogramBase* responsiveness_10sec_histogram_;
-
-  // Histogram that keeps track of response times for the watched thread.
-  base::HistogramBase* unresponsiveness_histogram_;
-
-  // Histogram that keeps track of response times for the watched thread.
-  base::HistogramBase* unresponsiveness_1sec_histogram_;
-
-  // Histogram that keeps track of response times for the watched thread.
-  base::HistogramBase* unresponsiveness_10sec_histogram_;
 
   DISALLOW_COPY_AND_ASSIGN(FirstWebContentsProfiler);
 };

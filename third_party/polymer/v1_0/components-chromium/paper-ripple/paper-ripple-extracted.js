@@ -1,20 +1,5 @@
-
-  (function() {
+(function() {
     var Utility = {
-      cssColorWithAlpha: function(cssColor, alpha) {
-        var parts = cssColor.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
-
-        if (typeof alpha == 'undefined') {
-          alpha = 1;
-        }
-
-        if (!parts) {
-          return 'rgba(255, 255, 255, ' + alpha + ')';
-        }
-
-        return 'rgba(' + parts[1] + ', ' + parts[2] + ', ' + parts[3] + ', ' + alpha + ')';
-      },
-
       distance: function(x1, y1, x2, y2) {
         var xDelta = (x1 - x2);
         var yDelta = (y1 - y2);
@@ -22,13 +7,8 @@
         return Math.sqrt(xDelta * xDelta + yDelta * yDelta);
       },
 
-      now: (function() {
-        if (window.performance && window.performance.now) {
-          return window.performance.now.bind(window.performance);
-        }
-
-        return Date.now;
-      })()
+      now: window.performance && window.performance.now ?
+          window.performance.now.bind(window.performance) : Date.now
     };
 
     /**
@@ -396,6 +376,17 @@
           observer: '_holdDownChanged'
         },
 
+        /**
+         * If true, the ripple will not generate a ripple effect
+         * via pointer interaction.
+         * Calling ripple's imperative api like `simulatedRipple` will
+         * still generate the ripple effect.
+         */
+        noink: {
+          type: Boolean,
+          value: false
+        },
+
         _animating: {
           type: Boolean
         },
@@ -407,6 +398,10 @@
           }
         }
       },
+
+      observers: [
+        '_noinkChanged(noink, isAttached)'
+      ],
 
       get target () {
         var ownerRoot = Polymer.dom(this).getOwnerRoot();
@@ -428,12 +423,13 @@
       },
 
       attached: function() {
-        this.listen(this.target, 'up', 'upAction');
-        this.listen(this.target, 'down', 'downAction');
+        this.listen(this.target, 'up', 'uiUpAction');
+        this.listen(this.target, 'down', 'uiDownAction');
+      },
 
-        if (!this.target.hasAttribute('noink')) {
-          this.keyEventTarget = this.target;
-        }
+      detached: function() {
+        this.unlisten(this.target, 'up', 'uiUpAction');
+        this.unlisten(this.target, 'down', 'uiDownAction');
       },
 
       get shouldKeepAnimating () {
@@ -455,7 +451,22 @@
         }, 1);
       },
 
-      /** @param {Event=} event */
+      /**
+       * Provokes a ripple down effect via a UI event,
+       * respecting the `noink` property.
+       * @param {Event=} event
+       */
+      uiDownAction: function(event) {
+        if (!this.noink) {
+          this.downAction(event);
+        }
+      },
+
+      /**
+       * Provokes a ripple down effect via a UI event,
+       * *not* respecting the `noink` property.
+       * @param {Event=} event
+       */
       downAction: function(event) {
         if (this.holdDown && this.ripples.length > 0) {
           return;
@@ -470,7 +481,22 @@
         }
       },
 
-      /** @param {Event=} event */
+      /**
+       * Provokes a ripple up effect via a UI event,
+       * respecting the `noink` property.
+       * @param {Event=} event
+       */
+      uiUpAction: function(event) {
+        if (!this.noink) {
+          this.upAction(event);
+        }
+      },
+
+      /**
+       * Provokes a ripple up effect via a UI event,
+       * *not* respecting the `noink` property.
+       * @param {Event=} event
+       */
       upAction: function(event) {
         if (this.holdDown) {
           return;
@@ -543,23 +569,34 @@
       },
 
       _onEnterKeydown: function() {
-        this.downAction();
-        this.async(this.upAction, 1);
+        this.uiDownAction();
+        this.async(this.uiUpAction, 1);
       },
 
       _onSpaceKeydown: function() {
-        this.downAction();
+        this.uiDownAction();
       },
 
       _onSpaceKeyup: function() {
-        this.upAction();
+        this.uiUpAction();
       },
 
-      _holdDownChanged: function(holdDown) {
-        if (holdDown) {
+      // note: holdDown does not respect noink since it can be a focus based
+      // effect.
+      _holdDownChanged: function(newVal, oldVal) {
+        if (oldVal === undefined) {
+          return;
+        }
+        if (newVal) {
           this.downAction();
         } else {
           this.upAction();
+        }
+      },
+
+      _noinkChanged: function(noink, attached) {
+        if (attached) {
+          this.keyEventTarget = noink ? this : this.target;
         }
       }
     });

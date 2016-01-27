@@ -9,7 +9,6 @@
 
 #include "base/compiler_specific.h"
 #include "base/containers/scoped_ptr_hash_map.h"
-#include "base/memory/scoped_vector.h"
 #include "base/memory/singleton.h"
 #include "base/observer_list.h"
 #include "content/public/browser/notification_observer.h"
@@ -31,9 +30,8 @@ class ResourceContext;
 class WorkerServiceObserver;
 class WorkerStoragePartitionId;
 
-// If "enable-embedded-shared-worker" is set this class will be used instead of
-// WorkerServiceImpl.
-// TODO(horo): implement this class.
+// The implementation of WorkerService. We try to place workers in an existing
+// renderer process when possible.
 class CONTENT_EXPORT SharedWorkerServiceImpl
     : public NON_EXPORTED_BASE(WorkerService) {
  public:
@@ -101,7 +99,7 @@ class CONTENT_EXPORT SharedWorkerServiceImpl
   class SharedWorkerPendingInstance;
   class SharedWorkerReserver;
 
-  friend struct DefaultSingletonTraits<SharedWorkerServiceImpl>;
+  friend struct base::DefaultSingletonTraits<SharedWorkerServiceImpl>;
   friend class SharedWorkerServiceImplTest;
 
   typedef void (*UpdateWorkerDependencyFunc)(const std::vector<int>&,

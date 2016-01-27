@@ -113,7 +113,16 @@ MidiManagerMac::MidiManagerMac()
       shutdown_(false) {
 }
 
-MidiManagerMac::~MidiManagerMac() {
+MidiManagerMac::~MidiManagerMac() = default;
+
+void MidiManagerMac::StartInitialization() {
+  // MIDIClient should be created on |client_thread_| to receive CoreMIDI event
+  // notifications.
+  RunOnClientThread(
+      base::Bind(&MidiManagerMac::InitializeCoreMIDI, base::Unretained(this)));
+}
+
+void MidiManagerMac::Finalize() {
   // Wait for the termination of |client_thread_| before disposing MIDI ports.
   shutdown_ = true;
   client_thread_.Stop();
@@ -126,12 +135,6 @@ MidiManagerMac::~MidiManagerMac() {
     MIDIClientDispose(midi_client_);
 }
 
-void MidiManagerMac::StartInitialization() {
-  // MIDIClient should be created on |client_thread_| to receive CoreMIDI event
-  // notifications.
-  RunOnClientThread(
-      base::Bind(&MidiManagerMac::InitializeCoreMIDI, base::Unretained(this)));
-}
 
 void MidiManagerMac::DispatchSendMidiData(MidiManagerClient* client,
                                           uint32 port_index,
@@ -379,7 +382,7 @@ void MidiManagerMac::SendMidiData(MidiManagerClient* client,
     MIDISend(coremidi_output_, destination, packet_list);
   }
 
-  client->AccumulateMidiBytesSent(data.size());
+  AccumulateMidiBytesSent(client, data.size());
 }
 
 }  // namespace midi

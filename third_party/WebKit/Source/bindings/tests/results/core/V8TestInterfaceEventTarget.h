@@ -20,12 +20,14 @@
 namespace blink {
 
 class V8TestInterfaceEventTargetConstructor {
+    STATIC_ONLY(V8TestInterfaceEventTargetConstructor);
 public:
     static v8::Local<v8::FunctionTemplate> domTemplate(v8::Isolate*);
     static const WrapperTypeInfo wrapperTypeInfo;
 };
 
 class V8TestInterfaceEventTarget {
+    STATIC_ONLY(V8TestInterfaceEventTarget);
 public:
     CORE_EXPORT static bool hasInstance(v8::Local<v8::Value>, v8::Isolate*);
     static v8::Local<v8::Object> findInstanceInPrototypeChain(v8::Local<v8::Value>, v8::Isolate*);
@@ -48,7 +50,7 @@ public:
     static const int eventListenerCacheIndex = v8DefaultWrapperInternalFieldCount + 0;
     static const int internalFieldCount = v8DefaultWrapperInternalFieldCount + 1;
     static void installConditionallyEnabledProperties(v8::Local<v8::Object>, v8::Isolate*) { }
-    static void preparePrototypeObject(v8::Isolate*, v8::Local<v8::Object> prototypeObject, v8::Local<v8::FunctionTemplate> interfaceTemplate) { }
+    static void preparePrototypeAndInterfaceObject(v8::Isolate*, v8::Local<v8::Object> prototypeObject, v8::Local<v8::Function> interfaceObject, v8::Local<v8::FunctionTemplate> interfaceTemplate) { }
 };
 
 template <>

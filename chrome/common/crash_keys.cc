@@ -4,6 +4,7 @@
 
 #include "chrome/common/crash_keys.h"
 
+#include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/format_macros.h"
 #include "base/logging.h"
@@ -15,11 +16,7 @@
 #include "content/public/common/content_switches.h"
 #include "ipc/ipc_switches.h"
 
-#if defined(OS_MACOSX)
-#include "breakpad/src/common/simple_string_dictionary.h"
-#elif defined(OS_WIN)
-#include "breakpad/src/client/windows/common/ipc_protocol.h"
-#elif defined(OS_CHROMEOS)
+#if defined(OS_CHROMEOS)
 #include "chrome/common/chrome_switches.h"
 #include "gpu/command_buffer/service/gpu_switches.h"
 #include "ui/gl/gl_switches.h"
@@ -27,56 +24,12 @@
 
 namespace crash_keys {
 
-// A small crash key, guaranteed to never be split into multiple pieces.
-const size_t kSmallSize = 63;
-
-// A medium crash key, which will be chunked on certain platforms but not
-// others. Guaranteed to never be more than four chunks.
-const size_t kMediumSize = kSmallSize * 4;
-
-// A large crash key, which will be chunked on all platforms. This should be
-// used sparingly.
-const size_t kLargeSize = kSmallSize * 16;
-
-// The maximum lengths specified by breakpad include the trailing NULL, so
-// the actual length of the string is one less.
-#if defined(OS_MACOSX)
-static const size_t kSingleChunkLength =
-    google_breakpad::SimpleStringDictionary::value_size - 1;
-#elif defined(OS_WIN)
-static const size_t kSingleChunkLength =
-    google_breakpad::CustomInfoEntry::kValueMaxLength - 1;
-#else
-static const size_t kSingleChunkLength = 63;
-#endif
-
-// Guarantees for crash key sizes.
-static_assert(kSmallSize <= kSingleChunkLength,
-              "crash key chunk size too small");
-#if defined(OS_MACOSX)
-static_assert(kMediumSize <= kSingleChunkLength,
-              "mac has medium size crash key chunks");
-#endif
-
-#if defined(OS_MACOSX)
-// Crashpad owns the "guid" key. Chrome's metrics client ID is a separate ID
-// carried in a distinct "metrics_client_id" field.
-const char kMetricsClientId[] = "metrics_client_id";
-#else
-const char kClientId[] = "guid";
-#endif
-
-const char kChannel[] = "channel";
-
 const char kActiveURL[] = "url-chunk";
 
 const char kFontKeyName[] = "font_key_name";
 
 const char kSwitch[] = "switch-%" PRIuS;
 const char kNumSwitches[] = "num-switches";
-
-const char kNumVariations[] = "num-experiments";
-const char kVariations[] = "variations";
 
 const char kExtensionID[] = "extension-%" PRIuS;
 const char kNumExtensionsCount[] = "num-extensions";
@@ -117,9 +70,6 @@ const char kNSExceptionTrace[] = "nsexception_bt";
 
 const char kSendAction[] = "sendaction";
 
-const char kZombie[] = "zombie";
-const char kZombieTrace[] = "zombie_dealloc_bt";
-
 }  // namespace mac
 #endif
 
@@ -128,13 +78,9 @@ const char kKaskoGuid[] = "kasko-guid";
 const char kKaskoEquivalentGuid[] = "kasko-equivalent-guid";
 #endif
 
-// Used to help investigate bug 464926.  NOTE: This value is defined multiple
-// places in the codebase due to layering issues. DO NOT change the value here
-// without changing it in all other places that it is defined in the codebase
-// (search for |kBug464926CrashKey|).
-const char kBug464926CrashKey[] = "bug-464926-info";
-
 const char kViewCount[] = "view-count";
+
+const char kZeroEncodeDetails[] = "zero-encode-details";
 
 size_t RegisterChromeCrashKeys() {
   // The following keys may be chunked by the underlying crash logging system,
@@ -199,6 +145,7 @@ size_t RegisterChromeCrashKeys() {
 #endif
     { kBug464926CrashKey, kSmallSize },
     { kViewCount, kSmallSize },
+    { kZeroEncodeDetails, kSmallSize },
   };
 
   // This dynamic set of keys is used for sets of key value pairs when gathering
@@ -253,45 +200,7 @@ size_t RegisterChromeCrashKeys() {
     }
   }
 
-  return base::debug::InitCrashKeys(&keys.at(0), keys.size(),
-                                    kSingleChunkLength);
-}
-
-void SetMetricsClientIdFromGUID(const std::string& metrics_client_guid) {
-  std::string stripped_guid(metrics_client_guid);
-  // Remove all instance of '-' char from the GUID. So BCD-WXY becomes BCDWXY.
-  base::ReplaceSubstringsAfterOffset(
-      &stripped_guid, 0, "-", base::StringPiece());
-  if (stripped_guid.empty())
-    return;
-
-#if defined(OS_MACOSX)
-  // The crash client ID is maintained by Crashpad and is distinct from the
-  // metrics client ID, which is carried in its own key.
-  base::debug::SetCrashKeyValue(kMetricsClientId, stripped_guid);
-#else
-  // The crash client ID is set by the application when Breakpad is in use.
-  // The same ID as the metrics client ID is used.
-  base::debug::SetCrashKeyValue(kClientId, stripped_guid);
-#endif
-}
-
-void ClearMetricsClientId() {
-#if defined(OS_MACOSX)
-  // Crashpad always monitors for crashes, but doesn't upload them when
-  // crash reporting is disabled. The preference to upload crash reports is
-  // linked to the preference for metrics reporting. When metrics reporting is
-  // disabled, don't put the metrics client ID into crash dumps. This way, crash
-  // reports that are saved but not uploaded will not have a metrics client ID
-  // from the time that metrics reporting was disabled even if they are uploaded
-  // by user action at a later date.
-  //
-  // Breakpad cannot be enabled or disabled without an application restart, and
-  // it needs to use the metrics client ID as its stable crash client ID, so
-  // leave its client ID intact even when metrics reporting is disabled while
-  // the application is running.
-  base::debug::ClearCrashKey(kMetricsClientId);
-#endif
+  return base::debug::InitCrashKeys(&keys.at(0), keys.size(), kChunkMaxLength);
 }
 
 static bool IsBoringSwitch(const std::string& flag) {
@@ -335,7 +244,6 @@ static bool IsBoringSwitch(const std::string& flag) {
     "enterprise-enrollment-modulus-limit",
     "login-profile",
     "login-user",
-    "max-tiles-for-interest-area",
     "max-unused-resource-memory-usage-percentage",
     "termination-message-file",
     "use-cras",
@@ -398,25 +306,6 @@ void SetSwitchesFromCommandLine(const base::CommandLine* command_line) {
   }
 }
 
-void SetVariationsList(const std::vector<std::string>& variations) {
-  base::debug::SetCrashKeyValue(kNumVariations,
-      base::StringPrintf("%" PRIuS, variations.size()));
-
-  std::string variations_string;
-  variations_string.reserve(kLargeSize);
-
-  for (size_t i = 0; i < variations.size(); ++i) {
-    const std::string& variation = variations[i];
-    // Do not truncate an individual experiment.
-    if (variations_string.size() + variation.size() >= kLargeSize)
-      break;
-    variations_string += variation;
-    variations_string += ",";
-  }
-
-  base::debug::SetCrashKeyValue(kVariations, variations_string);
-}
-
 void SetActiveExtensions(const std::set<std::string>& extensions) {
   base::debug::SetCrashKeyValue(kNumExtensionsCount,
       base::StringPrintf("%" PRIuS, extensions.size()));
@@ -434,8 +323,8 @@ void SetActiveExtensions(const std::set<std::string>& extensions) {
 }
 
 ScopedPrinterInfo::ScopedPrinterInfo(const base::StringPiece& data) {
-  std::vector<std::string> info;
-  base::SplitString(data.as_string(), ';', &info);
+  std::vector<std::string> info = base::SplitString(
+      data.as_string(), ";", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
   for (size_t i = 0; i < kPrinterInfoCount; ++i) {
     std::string key = base::StringPrintf(kPrinterInfo, i + 1);
     std::string value;

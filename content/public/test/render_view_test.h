@@ -18,6 +18,7 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/WebKit/public/platform/Platform.h"
 #include "third_party/WebKit/public/web/WebFrame.h"
+#include "third_party/WebKit/public/web/WebLeakDetector.h"
 
 struct ViewMsg_Resize_Params;
 
@@ -45,7 +46,7 @@ class RendererMainPlatformDelegate;
 class RendererBlinkPlatformImplNoSandboxImpl;
 class RenderView;
 
-class RenderViewTest : public testing::Test {
+class RenderViewTest : public testing::Test, blink::WebLeakDetectorClient {
  public:
   // A special BlinkPlatformImpl class for getting rid off the dependency to the
   // sandbox, which is not available in RenderViewTest.
@@ -54,7 +55,7 @@ class RenderViewTest : public testing::Test {
     RendererBlinkPlatformImplNoSandbox();
     ~RendererBlinkPlatformImplNoSandbox();
     blink::Platform* Get() const;
-    scheduler::RendererScheduler* Scheduler() const;
+    void Shutdown();
 
    private:
     scoped_ptr<scheduler::RendererScheduler> renderer_scheduler_;
@@ -73,7 +74,7 @@ class RenderViewTest : public testing::Test {
 
   // Executes the given JavaScript in the context of the main frame. The input
   // is a NULL-terminated UTF-8 string.
-  void ExecuteJavaScript(const char* js);
+  void ExecuteJavaScriptForTests(const char* js);
 
   // Executes the given JavaScript and sets the int value it evaluates to in
   // |result|.
@@ -87,6 +88,7 @@ class RenderViewTest : public testing::Test {
   void LoadHTML(const char* html);
 
   // Returns the current PageState.
+  // In OOPIF enabled modes, this returns a PageState object for the main frame.
   PageState GetCurrentPageState();
 
   // Navigates the main frame back or forward in session history and commits.
@@ -171,6 +173,9 @@ class RenderViewTest : public testing::Test {
   void SetUp() override;
 
   void TearDown() override;
+
+  // blink::WebLeakDetectorClient implementation.
+  void onLeakDetectionComplete(const Result& result) override;
 
   base::MessageLoop msg_loop_;
   scoped_ptr<FakeCompositorDependencies> compositor_deps_;

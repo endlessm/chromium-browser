@@ -14,11 +14,11 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common_types.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module.h"
 #include "webrtc/modules/audio_coding/main/test/Channel.h"
 #include "webrtc/modules/audio_coding/main/test/PCMFile.h"
-#include "webrtc/modules/interface/module_common_types.h"
-#include "webrtc/system_wrappers/interface/clock.h"
+#include "webrtc/modules/include/module_common_types.h"
+#include "webrtc/system_wrappers/include/clock.h"
 #include "webrtc/test/testsupport/fileutils.h"
 
 // Codec.
@@ -42,7 +42,6 @@ DEFINE_string(receive_ts, "last_rec_timestamp", "Receive timestamp file");
 DEFINE_string(delay, "", "Log for delay.");
 
 // Other setups
-DEFINE_int32(init_delay, 0, "Initial delay.");
 DEFINE_bool(verbose, false, "Verbosity.");
 DEFINE_double(loss_rate, 0, "Rate of packet loss < 1");
 
@@ -122,9 +121,6 @@ class InsertPacketWithTiming {
         << " Hz." << std::endl;
 
     // Other setups
-    if (FLAGS_init_delay > 0)
-      EXPECT_EQ(0, receive_acm_->SetInitialPlayoutDelay(FLAGS_init_delay));
-
     if (FLAGS_loss_rate > 0)
       loss_threshold_ = RAND_MAX * FLAGS_loss_rate;
     else

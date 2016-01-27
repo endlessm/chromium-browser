@@ -92,7 +92,7 @@ public:
     float valueInSpecifiedUnits() const { return m_valueInSpecifiedUnits; }
 
     void newValueSpecifiedUnits(SVGAngleType unitType, float valueInSpecifiedUnits);
-    void convertToSpecifiedUnits(SVGAngleType unitType, ExceptionState&);
+    void convertToSpecifiedUnits(SVGAngleType unitType);
 
     SVGEnumeration<SVGMarkerOrientType>* orientType() { return m_orientType.get(); }
     const SVGEnumeration<SVGMarkerOrientType>* orientType() const { return m_orientType.get(); }
@@ -124,12 +124,7 @@ private:
     RefPtrWillBeMember<SVGMarkerOrientEnumeration> m_orientType;
 };
 
-inline PassRefPtrWillBeRawPtr<SVGAngle> toSVGAngle(PassRefPtrWillBeRawPtr<SVGPropertyBase> passBase)
-{
-    RefPtrWillBeRawPtr<SVGPropertyBase> base = passBase;
-    ASSERT(base->type() == SVGAngle::classType());
-    return static_pointer_cast<SVGAngle>(base.release());
-}
+DEFINE_SVG_PROPERTY_TYPE_CASTS(SVGAngle);
 
 } // namespace blink
 

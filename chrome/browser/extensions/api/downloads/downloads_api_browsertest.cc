@@ -103,7 +103,7 @@ class DownloadsEventsListener : public content::NotificationObserver {
         : profile_(profile),
           event_name_(event_name),
           json_args_(json_args),
-          args_(base::JSONReader::DeprecatedRead(json_args)),
+          args_(base::JSONReader::Read(json_args).release()),
           caught_(caught) {}
 
     const base::Time& caught() { return caught_; }
@@ -185,7 +185,7 @@ class DownloadsEventsListener : public content::NotificationObserver {
               waiting_for_.get() &&
               new_event->Satisfies(*waiting_for_)) {
             waiting_ = false;
-            base::MessageLoopForUI::current()->Quit();
+            base::MessageLoopForUI::current()->QuitWhenIdle();
           }
           break;
         }
@@ -424,7 +424,9 @@ class DownloadExtensionTest : public ExtensionApiTest {
           1, 1,              // received_bytes, total_bytes
           history_info[i].state,  // state
           content::DOWNLOAD_DANGER_TYPE_NOT_DANGEROUS,
-          content::DOWNLOAD_INTERRUPT_REASON_NONE,
+          (history_info[i].state != content::DownloadItem::CANCELLED ?
+              content::DOWNLOAD_INTERRUPT_REASON_NONE :
+              content::DOWNLOAD_INTERRUPT_REASON_USER_CANCELED),
           false);                 // opened
       items->push_back(item);
     }
@@ -1109,7 +1111,15 @@ IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
 }
 
 // Test the |id| parameter for search().
-IN_PROC_BROWSER_TEST_F(DownloadExtensionTest, DownloadExtensionTest_SearchId) {
+//
+// http://crbug.com/508949
+#if defined(MEMORY_SANITIZER)
+#define MAYBE_DownloadExtensionTest_SearchId DISABLED_DownloadExtensionTest_SearchId
+#else
+#define MAYBE_DownloadExtensionTest_SearchId DownloadExtensionTest_SearchId
+#endif
+IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
+                       MAYBE_DownloadExtensionTest_SearchId) {
   DownloadManager::DownloadVector items;
   CreateSlowTestDownloads(2, &items);
   ScopedItemVectorCanceller delete_items(&items);
@@ -1129,8 +1139,15 @@ IN_PROC_BROWSER_TEST_F(DownloadExtensionTest, DownloadExtensionTest_SearchId) {
 }
 
 // Test specifying both the |id| and |filename| parameters for search().
+//
+// http://crbug.com/508949
+#if defined(MEMORY_SANITIZER)
+#define MAYBE_DownloadExtensionTest_SearchIdAndFilename DISABLED_DownloadExtensionTest_SearchIdAndFilename
+#else
+#define MAYBE_DownloadExtensionTest_SearchIdAndFilename DownloadExtensionTest_SearchIdAndFilename
+#endif
 IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
-    DownloadExtensionTest_SearchIdAndFilename) {
+                       MAYBE_DownloadExtensionTest_SearchIdAndFilename) {
   DownloadManager::DownloadVector items;
   CreateSlowTestDownloads(2, &items);
   ScopedItemVectorCanceller delete_items(&items);
@@ -1238,8 +1255,15 @@ IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
 }
 
 // Test the |state| option for search().
+//
+// http://crbug.com/508949
+#if defined(MEMORY_SANITIZER)
+#define MAYBE_DownloadExtensionTest_SearchState DISABLED_DownloadExtensionTest_SearchState
+#else
+#define MAYBE_DownloadExtensionTest_SearchState DownloadExtensionTest_SearchState
+#endif
 IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
-    DownloadExtensionTest_SearchState) {
+                       MAYBE_DownloadExtensionTest_SearchState) {
   DownloadManager::DownloadVector items;
   CreateSlowTestDownloads(2, &items);
   ScopedItemVectorCanceller delete_items(&items);
@@ -1255,8 +1279,15 @@ IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
 }
 
 // Test the |limit| option for search().
+//
+// http://crbug.com/508949
+#if defined(MEMORY_SANITIZER)
+#define MAYBE_DownloadExtensionTest_SearchLimit DISABLED_DownloadExtensionTest_SearchLimit
+#else
+#define MAYBE_DownloadExtensionTest_SearchLimit DownloadExtensionTest_SearchLimit
+#endif
 IN_PROC_BROWSER_TEST_F(DownloadExtensionTest,
-                       DownloadExtensionTest_SearchLimit) {
+                       MAYBE_DownloadExtensionTest_SearchLimit) {
   DownloadManager::DownloadVector items;
   CreateSlowTestDownloads(2, &items);
   ScopedItemVectorCanceller delete_items(&items);
@@ -4153,4 +4184,4 @@ TEST(ExtensionDetermineDownloadFilenameInternal,
 
 }  // namespace extensions
 
-#endif  // http://crbug.com/3061144
+#endif  // http://crbug.com/306144

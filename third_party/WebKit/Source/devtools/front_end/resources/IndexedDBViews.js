@@ -110,7 +110,7 @@ WebInspector.IDBDatabaseView.prototype = {
 
 /**
  * @constructor
- * @extends {WebInspector.VBox}
+ * @extends {WebInspector.DataGridContainerWidget}
  * @param {!WebInspector.IndexedDBModel} model
  * @param {!WebInspector.IndexedDBModel.DatabaseId} databaseId
  * @param {!WebInspector.IndexedDBModel.ObjectStore} objectStore
@@ -118,7 +118,7 @@ WebInspector.IDBDatabaseView.prototype = {
  */
 WebInspector.IDBDataView = function(model, databaseId, objectStore, index)
 {
-    WebInspector.VBox.call(this);
+    WebInspector.DataGridContainerWidget.call(this);
     this.registerRequiredCSS("resources/indexedDBViews.css");
 
     this._model = model;
@@ -209,11 +209,11 @@ WebInspector.IDBDataView.prototype = {
         var editorToolbar = new WebInspector.Toolbar(this.element);
         editorToolbar.element.classList.add("data-view-toolbar");
 
-        this._pageBackButton = new WebInspector.ToolbarButton(WebInspector.UIString("Show previous page."), "play-backwards-toolbar-item");
+        this._pageBackButton = new WebInspector.ToolbarButton(WebInspector.UIString("Show previous page"), "play-backwards-toolbar-item");
         this._pageBackButton.addEventListener("click", this._pageBackButtonClicked, this);
         editorToolbar.appendToolbarItem(this._pageBackButton);
 
-        this._pageForwardButton = new WebInspector.ToolbarButton(WebInspector.UIString("Show next page."), "play-toolbar-item");
+        this._pageForwardButton = new WebInspector.ToolbarButton(WebInspector.UIString("Show next page"), "play-toolbar-item");
         this._pageForwardButton.setEnabled(false);
         this._pageForwardButton.addEventListener("click", this._pageForwardButtonClicked, this);
         editorToolbar.appendToolbarItem(this._pageForwardButton);
@@ -253,9 +253,9 @@ WebInspector.IDBDataView.prototype = {
         this._index = index;
 
         if (this._dataGrid)
-            this._dataGrid.detach();
+            this.removeDataGrid(this._dataGrid);
         this._dataGrid = this._createDataGrid();
-        this._dataGrid.show(this.element);
+        this.appendDataGrid(this._dataGrid);
 
         this._skipCount = 0;
         this._updateData(true);
@@ -361,7 +361,7 @@ WebInspector.IDBDataView.prototype = {
         this._entries = [];
     },
 
-    __proto__: WebInspector.VBox.prototype
+    __proto__: WebInspector.DataGridContainerWidget.prototype
 }
 
 /**

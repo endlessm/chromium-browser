@@ -7,7 +7,7 @@
 
 #include <ostream>
 
-#include "../core/include/fxcrt/fx_string.h"
+#include "core/include/fxcrt/fx_string.h"
 
 // Output stream operator so GTEST macros work with FX strings.
 std::ostream& operator<<(std::ostream& out, const CFX_ByteStringC& str);
@@ -16,4 +16,3 @@ std::ostream& operator<<(std::ostream& out, const CFX_WideStringC& str);
 std::ostream& operator<<(std::ostream& out, const CFX_WideString& str);
 
 #endif  // TESTING_FX_STR_TESTHELPERS_H_
-

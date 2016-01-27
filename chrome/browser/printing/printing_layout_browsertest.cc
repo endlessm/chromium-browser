@@ -80,7 +80,7 @@ class PrintingLayoutTest : public PrintingTest<InProcessBrowserTest>,
       case printing::JobEventDetails::JOB_DONE: {
         // Succeeded.
         base::MessageLoop::current()->PostTask(
-            FROM_HERE, base::MessageLoop::QuitClosure());
+            FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
         break;
       }
       case printing::JobEventDetails::USER_INIT_CANCELED:
@@ -88,7 +88,7 @@ class PrintingLayoutTest : public PrintingTest<InProcessBrowserTest>,
         // Failed.
         ASSERT_TRUE(false);
         base::MessageLoop::current()->PostTask(
-            FROM_HERE, base::MessageLoop::QuitClosure());
+            FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
         break;
       }
       case printing::JobEventDetails::NEW_DOC:
@@ -207,7 +207,7 @@ class PrintingLayoutTest : public PrintingTest<InProcessBrowserTest>,
       base::FilePath file;
       while (!(file = enumerator.Next()).empty()) {
         std::wstring ext = file.Extension();
-        if (base::strcasecmp(base::WideToUTF8(ext).c_str(), ".emf") == 0) {
+        if (base::EqualsCaseInsensitiveASCII(base::WideToUTF8(ext), ".emf")) {
           EXPECT_FALSE(found_emf) << "Found a leftover .EMF file: \"" <<
               emf_file << "\" and \"" << file.value() <<
               "\" when looking for \"" << verification_name << "\"";
@@ -215,7 +215,7 @@ class PrintingLayoutTest : public PrintingTest<InProcessBrowserTest>,
           emf_file = file.value();
           continue;
         }
-        if (base::strcasecmp(base::WideToUTF8(ext).c_str(), ".prn") == 0) {
+        if (base::EqualsCaseInsensitiveASCII(base::WideToUTF8(ext), ".prn")) {
           EXPECT_FALSE(found_prn) << "Found a leftover .PRN file: \"" <<
               prn_file << "\" and \"" << file.value() <<
               "\" when looking for \"" << verification_name << "\"";

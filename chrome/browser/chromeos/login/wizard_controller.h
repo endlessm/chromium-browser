@@ -246,6 +246,7 @@ class WizardController : public BaseScreenDelegate,
   bool GetUsageStatisticsReporting() const override;
 
   // Override from ControllerPairingScreen::Delegate:
+  void SetHostNetwork() override;
   void SetHostConfiguration() override;
 
   // Override from HostPairingScreen::Delegate:
@@ -353,7 +354,7 @@ class WizardController : public BaseScreenDelegate,
   // Default WizardController.
   static WizardController* default_controller_;
 
-  base::OneShotTimer<WizardController> smooth_show_timer_;
+  base::OneShotTimer smooth_show_timer_;
 
   OobeDisplay* oobe_display_;
 

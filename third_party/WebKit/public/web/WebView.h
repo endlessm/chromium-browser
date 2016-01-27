@@ -45,10 +45,12 @@ namespace blink {
 
 class WebAXObject;
 class WebAutofillClient;
+class WebCompositedDisplayList;
 class WebCredentialManagerClient;
 class WebDragData;
 class WebFrame;
 class WebHitTestResult;
+class WebPageImportanceSignals;
 class WebPageOverlay;
 class WebPrerendererClient;
 class WebSettings;
@@ -57,10 +59,10 @@ class WebString;
 class WebViewClient;
 struct WebActiveWheelFlingParameters;
 struct WebDeviceEmulationParams;
+struct WebFloatPoint;
 struct WebMediaPlayerAction;
 struct WebPluginAction;
 struct WebPoint;
-struct WebFloatPoint;
 struct WebWindowFeatures;
 
 class WebView : public WebWidget {
@@ -164,6 +166,12 @@ public:
     virtual WebFrame* focusedFrame() = 0;
     virtual void setFocusedFrame(WebFrame*) = 0;
 
+    // Sets the provided frame as focused and fires blur/focus events on any
+    // currently focused elements in old/new focused documents.  Note that this
+    // is different from setFocusedFrame, which does not fire events on focused
+    // elements.
+    virtual void focusDocumentView(WebFrame*) = 0;
+
     // Focus the first (last if reverse is true) focusable node.
     virtual void setInitialFocus(bool reverse) = 0;
 
@@ -175,6 +183,9 @@ public:
     // Scrolls the node currently in focus into |rect|, where |rect| is in
     // viewport space. Returns true if an animation was started.
     virtual bool scrollFocusedNodeIntoRect(const WebRect&) { return false; }
+
+    // Smooth scroll the root layer to |targetX|, |targetY| in |durationMs|.
+    virtual void smoothScroll(int targetX, int targetY, long durationMs) { }
 
     // Advance the focus of the WebView forward to the next element or to the
     // previous element in the tab sequence (if reverse is true).
@@ -221,24 +232,20 @@ public:
     // is scaled up, < 1.0 is scaled down.
     virtual float pageScaleFactor() const = 0;
 
-    // TODO: Obsolete, the origin parameter is ambiguous with two viewports. Remove
-    // once Chromium side users are removed.
-    // Scales a page by a factor of scaleFactor and then sets a scroll position to (x, y).
-    // setPageScaleFactor() magnifies and shrinks a page without affecting layout.
-    // On the other hand, zooming affects layout of the page.
-    virtual void setPageScaleFactor(float scaleFactor, const WebPoint& origin) { setPageScaleFactor(scaleFactor); }
-
-    // Scales the page without affecting layout by using the pinch-to-zoom viewport.
+    // Scales the page without affecting layout by using the visual viewport.
     virtual void setPageScaleFactor(float) = 0;
 
-    // Sets the offset of the pinch-to-zoom viewport within the main frame, in
-    // partial CSS pixels. The offset will be clamped so the pinch viewport
+    // Sets the offset of the visual viewport within the main frame, in
+    // partial CSS pixels. The offset will be clamped so the visual viewport
     // stays within the frame's bounds.
-    virtual void setPinchViewportOffset(const WebFloatPoint&) = 0;
+    virtual void setVisualViewportOffset(const WebFloatPoint&) = 0;
 
-    // Gets the pinch viewport's current offset within the page's main frame,
+    // Gets the visual viewport's current offset within the page's main frame,
     // in partial CSS pixels.
-    virtual WebFloatPoint pinchViewportOffset() const = 0;
+    virtual WebFloatPoint visualViewportOffset() const = 0;
+
+    // Get the visual viewport's size in CSS pixels.
+    virtual WebFloatSize visualViewportSize() const = 0;
 
     // Sets the default minimum, and maximum page scale. These will be overridden
     // by the page or by the overrides below if they are set.
@@ -275,7 +282,13 @@ public:
     virtual float deviceScaleFactor() const = 0;
 
     // Sets the ratio as computed by computePageScaleConstraints.
+    // TODO(oshima): Remove this once the device scale factor implementation is fully
+    // migrated to use zooming mechanism.
     virtual void setDeviceScaleFactor(float) = 0;
+
+    // Sets the additional zoom factor used for device scale factor. This is used
+    // to scale the content by the device scale factor, without affecting zoom level.
+    virtual void setZoomFactorForDeviceScaleFactor(float) = 0;
 
     // Set and reset the device color profile.
     virtual void setDeviceColorProfile(const WebVector<char>&) = 0;
@@ -426,7 +439,6 @@ public:
 
     virtual void setShowPaintRects(bool) = 0;
     virtual void setShowFPSCounter(bool) = 0;
-    virtual void setContinuousPaintingEnabled(bool) = 0;
     virtual void setShowScrollBottleneckRects(bool) = 0;
 
     // Visibility -----------------------------------------------------------
@@ -435,19 +447,18 @@ public:
     virtual void setVisibilityState(WebPageVisibilityState visibilityState,
                                     bool isInitialState) { }
 
+    // Graphics -------------------------------------------------------------
+
+    virtual WebCompositedDisplayList* compositedDisplayList() { return nullptr; }
+
     // PageOverlay ----------------------------------------------------------
 
-    // Adds/removes page overlay to this WebView. These functions change the
-    // graphical appearance of the WebView. WebPageOverlay paints the
-    // contents of the page overlay. It also provides an z-order number for
-    // the page overlay. The z-order number defines the paint order the page
-    // overlays. Page overlays with larger z-order number will be painted after
-    // page overlays with smaller z-order number. That is, they appear above
-    // the page overlays with smaller z-order number. If two page overlays have
-    // the same z-order number, the later added one will be on top.
-    virtual void addPageOverlay(WebPageOverlay*, int /*z-order*/) = 0;
-    virtual void removePageOverlay(WebPageOverlay*) = 0;
+    // Overlay this WebView with a solid color.
+    virtual void setPageOverlayColor(WebColor) = 0;
 
+    // Page Importance Signals ----------------------------------------------
+
+    virtual WebPageImportanceSignals* pageImportanceSignals() { return nullptr; }
 
     // i18n -----------------------------------------------------------------
 

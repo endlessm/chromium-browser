@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2015 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/base/iteration_helpers.html">
+<link rel="import" href="/tracing/model/memory_allocator_dump.html">
+<link rel="import"
+    href="/tracing/ui/analysis/memory_dump_heap_details_pane.html">
+<link rel="import" href="/tracing/ui/analysis/memory_dump_sub_view_util.html">
+<link rel="import" href="/tracing/ui/analysis/stacked_pane.html">
+<link rel="import" href="/tracing/ui/base/dom_helpers.html">
+<link rel="import" href="/tracing/ui/base/table.html">
+
+<polymer-element name="tr-ui-a-memory-dump-allocator-details-pane"
+    extends="tr-ui-a-stacked-pane">
+  <template>
+    <style>
+      :host {
+        display: flex;
+        flex-direction: column;
+      }
+
+      #label {
+        flex: 0 0 auto;
+        padding: 8px;
+
+        background-color: #eee;
+        border-bottom: 1px solid #8e8e8e;
+        border-top: 1px solid white;
+
+        font-size:  15px;
+        font-weight: bold;
+      }
+
+      #contents {
+        flex: 1 0 auto;
+        align-self: stretch;
+        font-size: 12px;
+      }
+
+      #info_text {
+        padding: 8px;
+        color: #666;
+        font-style: italic;
+        text-align: center;
+      }
+
+      #table {
+        display: none;  /* Hide until memory allocator dumps are set. */
+        flex: 1 0 auto;
+        align-self: stretch;
+      }
+    </style>
+    <div id="label">Component details</div>
+    <div id="contents">
+      <div id="info_text">No memory allocator dump selected</div>
+      <tr-ui-b-table id="table"></tr-ui-b-table>
+    </div>
+  </template>
+</polymer-element>
+<script>
+'use strict';
+
+tr.exportTo('tr.ui.analysis', function() {
+
+  var IMPORTANCE_RULES = [
+    {
+      condition: tr.model.MemoryAllocatorDump.EFFECTIVE_SIZE_ATTRIBUTE_NAME,
+      importance: 10
+    },
+    {
+      condition: tr.model.MemoryAllocatorDump.SIZE_ATTRIBUTE_NAME,
+      importance: 9
+    },
+    {
+      condition: 'page_size',
+      importance: 0
+    },
+    {
+      condition: /size/,
+      importance: 5
+    },
+    {
+      importance: 0
+    }
+  ];
+
+  /** @{constructor} */
+  function AllocatorDumpNameColumn(title) {
+    tr.ui.analysis.TitleColumn.call(this, title);
+  }
+
+  AllocatorDumpNameColumn.prototype = {
+    __proto__: tr.ui.analysis.TitleColumn.prototype,
+
+    formatTitle: function(row) {
+      if (!row.suballocation)
+        return row.title;
+      return tr.ui.b.createSpan({
+        textContent: row.title,
+        italic: true,
+        tooltip: row.fullName
+      });
+    }
+  };
+
+  Polymer('tr-ui-a-memory-dump-allocator-details-pane', {
+    created: function() {
+      this.memoryAllocatorDumps_ = undefined;
+      this.heapDumps_ = undefined;
+      this.aggregationMode_ = undefined;
+    },
+
+    ready: function() {
+      this.$.table.selectionMode = tr.ui.b.TableFormat.SelectionMode.ROW;
+    },
+
+    /**
+     * Sets the memory allocator dumps and schedules rebuilding the pane.
+     *
+     * The provided value should be a chronological list of memory allocator
+     * dumps. All dumps are assumed to belong to the same process and have
+     * the same full name. Example:
+     *
+     *   [
+     *     tr.model.MemoryAllocatorDump {},  // MAD at timestamp 1.
+     *     undefined,  // MAD not provided at timestamp 2.
+     *     tr.model.MemoryAllocatorDump {},  // MAD at timestamp 3.
+     *   ]
+     */
+    set memoryAllocatorDumps(memoryAllocatorDumps) {
+      this.memoryAllocatorDumps_ = memoryAllocatorDumps;
+      this.scheduleRebuildPane_();
+    },
+
+    get memoryAllocatorDumps() {
+      return this.memoryAllocatorDumps_;
+    },
+
+    // TODO(petrcermak): Don't plumb the heap dumps through the allocator
+    // details pane. Maybe add support for multiple child panes to stacked pane
+    // (view) instead.
+    set heapDumps(heapDumps) {
+      this.heapDumps_ = heapDumps;
+      this.scheduleRebuildPane_();
+    },
+
+    set aggregationMode(aggregationMode) {
+      this.aggregationMode_ = aggregationMode;
+      this.scheduleRebuildPane_();
+    },
+
+    get aggregationMode() {
+      return this.aggregationMode_;
+    },
+
+    rebuildPane_: function() {
+      if (this.memoryAllocatorDumps_ === undefined ||
+          this.memoryAllocatorDumps_.length === 0) {
+        // Show the info text (hide the table).
+        this.$.info_text.style.display = 'block';
+        this.$.table.style.display = 'none';
+
+        this.$.table.clear();
+        this.$.table.rebuild();
+
+        // Hide the heap details pane (if applicable).
+        this.childPaneBuilder = undefined;
+        return;
+      }
+
+      // Show the table (hide the info text).
+      this.$.info_text.style.display = 'none';
+      this.$.table.style.display = 'block';
+
+      var rows = this.createRows_();
+      var columns = this.createColumns_(rows);
+
+      this.$.table.tableRows = rows;
+      this.$.table.tableColumns = columns;
+      this.$.table.rebuild();
+      tr.ui.analysis.expandTableRowsRecursively(this.$.table);
+
+      // Show/hide the heap details pane.
+      if (this.heapDumps_ === undefined) {
+        this.childPaneBuilder = undefined;
+      } else {
+        this.childPaneBuilder = function() {
+          var pane =
+              document.createElement('tr-ui-a-memory-dump-heap-details-pane');
+          pane.heapDumps = this.heapDumps_;
+          pane.aggregationMode = this.aggregationMode_;
+          return pane;
+        }.bind(this);
+      }
+    },
+
+    createRows_: function() {
+      return [
+        this.createAllocatorRowRecursively_(this.memoryAllocatorDumps_)
+      ];
+    },
+
+    createAllocatorRowRecursively_: function(dumps) {
+      // Get the name of the memory allocator dumps. We can use any defined
+      // dump in dumps since they all have the same name.
+      var definedDump = tr.b.findFirstInArray(dumps);
+      var title = definedDump.name;
+      var fullName = definedDump.fullName;
+
+      // Determine at which timestamps (indices of the current selection)
+      // the dump was provided.
+      var defined = dumps.map(function(dump) {
+        return dump !== undefined;
+      });
+
+      // Transform a chronological list of memory allocator dumps into a
+      // dictionary of cells (where each cell contains a chronological list
+      // of the values of its attribute).
+      var cells = tr.ui.analysis.createCells(dumps, function(dump) {
+        return dump.attributes;
+      });
+
+      // Determine whether the memory allocator dump is a suballocation. A
+      // dump is assumed to be a suballocation if (1) its name starts with
+      // two underscores, (2) it has an owner from within the same process at
+      // some timestamp, and (3) it is undefined, has no owners, or has the
+      // same owner (and no other owners) at all other timestamps.
+      var suballocatedBy = undefined;
+      if (title.startsWith('__')) {
+        for (var i = 0; i < dumps.length; i++) {
+          var dump = dumps[i];
+          if (dump === undefined || dump.ownedBy.length === 0) {
+            // Ignore timestamps where the dump is undefined or doesn't
+            // have any owner.
+            continue;
+          }
+          var ownerDump = dump.ownedBy[0].source;
+          if (dump.ownedBy.length > 1 ||
+              dump.children.length > 0 ||
+              ownerDump.containerMemoryDump !== dump.containerMemoryDump) {
+            // If the dump has (1) any children, (2) multiple owners, or
+            // (3) its owner is in a different process (otherwise, the
+            // modified title would be ambiguous), then it's not considered
+            // to be a suballocation.
+            suballocatedBy = undefined;
+            break;
+          }
+          if (suballocatedBy === undefined) {
+            suballocatedBy = ownerDump.fullName;
+          } else if (suballocatedBy !== ownerDump.fullName) {
+            // The full name of the owner dump changed over time, so this
+            // dump is not a suballocation.
+            suballocatedBy = undefined;
+            break;
+          }
+        }
+      }
+
+      var row = {
+        title: title,
+        fullName: fullName,
+        defined: defined,
+        cells: cells,
+        suballocatedBy: suballocatedBy
+      };
+
+      // Child memory dump name (dict key) -> Timestamp (list index) ->
+      // Child dump.
+      var childDumpNameToDumps = tr.b.invertArrayOfDicts(dumps,
+          function(dump) {
+            return tr.b.arrayToDict(dump.children, function(child) {
+              return child.name;
+            });
+          });
+
+      // Recursively create sub-rows for children (if applicable).
+      var subRows = [];
+      var suballocationClassificationRootNode = undefined;
+      tr.b.iterItems(childDumpNameToDumps, function(childName, childDumps) {
+        var childRow = this.createAllocatorRowRecursively_(childDumps);
+        if (childRow.suballocatedBy === undefined) {
+          // Not a suballocation row: just append it.
+          subRows.push(childRow);
+        } else {
+          // Suballocation row: classify it in a tree of suballocations.
+          suballocationClassificationRootNode =
+              this.classifySuballocationRow_(
+                  childRow, suballocationClassificationRootNode);
+        }
+      }, this);
+
+      // Build the tree of suballocations (if applicable).
+      if (suballocationClassificationRootNode !== undefined) {
+        var suballocationRow = this.createSuballocationRowRecursively_(
+            'suballocations', suballocationClassificationRootNode);
+        tr.ui.analysis.aggregateTableRowCellsRecursively(
+            suballocationRow, 'cells');
+        subRows.push(suballocationRow);
+      }
+
+      if (subRows.length > 0)
+        row.subRows = subRows;
+
+      return row;
+    },
+
+    classifySuballocationRow_: function(suballocationRow, rootNode) {
+      if (rootNode === undefined) {
+        rootNode = {
+          children: {},
+          row: undefined
+        };
+      }
+
+      var suballocationLevels = suballocationRow.suballocatedBy.split('/');
+      var currentNode = rootNode;
+      for (var i = 0; i < suballocationLevels.length; i++) {
+        var suballocationLevel = suballocationLevels[i];
+        var nextNode = currentNode.children[suballocationLevel];
+        if (nextNode === undefined) {
+          currentNode.children[suballocationLevel] = nextNode = {
+            children: {},
+            row: undefined
+          };
+        }
+        var currentNode = nextNode;
+      }
+
+      if (currentNode.row !== undefined)
+        throw new Error('Multiple suballocations with the same owner name');
+      currentNode.row = suballocationRow;
+
+      return rootNode;
+    },
+
+    createSuballocationRowRecursively_: function(name, node) {
+      var childCount = Object.keys(node.children).length;
+      if (childCount === 0) {
+        if (node.row === undefined)
+          throw new Error('Suballocation node must have a row or children');
+        // Leaf row of the suballocation tree: Change the row's title from
+        // '__MEANINGLESSHASH' to the name of the suballocation owner.
+        var row = node.row;
+        row.title = name;
+        row.suballocation = true;
+        return row;
+      }
+
+      // Internal row of the suballocation tree: Recursively create its
+      // sub-rows.
+      var subRows = tr.b.dictionaryValues(tr.b.mapItems(
+          node.children, this.createSuballocationRowRecursively_, this));
+
+      if (node.row !== undefined) {
+        // Very unlikely case: Both an ancestor (e.g. 'skia') and one of its
+        // descendants (e.g. 'skia/sk_glyph_cache') both suballocate from the
+        // same MemoryAllocatorDump (e.g. 'malloc/allocated_objects'). In
+        // this case, the suballocation from the ancestor must be mapped to
+        // 'malloc/allocated_objects/suballocations/skia/<unspecified>' so
+        // that 'malloc/allocated_objects/suballocations/skia' could
+        // aggregate the attributes of the two suballocations properly.
+        var row = node.row;
+        row.title = '<unspecified>';
+        row.suballocation = true;
+        subRows.unshift(row);
+      }
+
+      // An internal row of the suballocation tree is assumed to be defined
+      // at a given timestamp if at least one of its sub-rows is defined at
+      // the timestamp.
+      var defined = new Array(subRows[0].defined.length);
+      for (var i = 0; i < subRows.length; i++) {
+        subRows[i].defined.forEach(function(definedValue, index) {
+          defined[index] = defined[index] || definedValue;
+        });
+      }
+
+      return {
+        title: name,
+        suballocation: true,
+        defined: defined,
+        cells: {},
+        subRows: subRows
+      };
+    },
+
+    createColumns_: function(rows) {
+      var titleColumn = new AllocatorDumpNameColumn('Component');
+      titleColumn.width = '200px';
+
+      var attributeColumns = tr.ui.analysis.MemoryColumn.fromRows(
+          rows, 'cells', this.aggregationMode_);
+      tr.ui.analysis.MemoryColumn.spaceEqually(attributeColumns);
+      tr.ui.analysis.MemoryColumn.sortByImportance(
+          attributeColumns, IMPORTANCE_RULES);
+
+      var columns = [titleColumn].concat(attributeColumns);
+      return columns;
+    }
+  });
+
+  return {};
+});
+</script>

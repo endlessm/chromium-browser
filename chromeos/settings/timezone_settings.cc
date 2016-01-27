@@ -22,6 +22,12 @@
 #include "base/threading/worker_pool.h"
 #include "chromeos/settings/timezone_settings_helper.h"
 
+namespace chromeos {
+namespace system {
+const char kUTCTimezoneName[] = "Etc/GMT";
+}
+}
+
 namespace {
 
 // The filepath to the timezone file that symlinks to the actual timezone file.
@@ -77,6 +83,7 @@ static const char* kTimeZones[] = {
     "America/Godthab",
     "Atlantic/South_Georgia",
     "Atlantic/Cape_Verde",
+    chromeos::system::kUTCTimezoneName,
     "Atlantic/Azores",
     "Atlantic/Reykjavik",
     "Atlantic/St_Helena",
@@ -300,7 +307,7 @@ class TimezoneSettingsImpl : public TimezoneSettingsBaseImpl {
   static TimezoneSettingsImpl* GetInstance();
 
  private:
-  friend struct DefaultSingletonTraits<TimezoneSettingsImpl>;
+  friend struct base::DefaultSingletonTraits<TimezoneSettingsImpl>;
 
   TimezoneSettingsImpl();
 
@@ -316,7 +323,7 @@ class TimezoneSettingsStubImpl : public TimezoneSettingsBaseImpl {
   static TimezoneSettingsStubImpl* GetInstance();
 
  private:
-  friend struct DefaultSingletonTraits<TimezoneSettingsStubImpl>;
+  friend struct base::DefaultSingletonTraits<TimezoneSettingsStubImpl>;
 
   TimezoneSettingsStubImpl();
 
@@ -387,8 +394,9 @@ void TimezoneSettingsImpl::SetTimezone(const icu::TimeZone& timezone) {
 
 // static
 TimezoneSettingsImpl* TimezoneSettingsImpl::GetInstance() {
-  return Singleton<TimezoneSettingsImpl,
-                   DefaultSingletonTraits<TimezoneSettingsImpl> >::get();
+  return base::Singleton<
+      TimezoneSettingsImpl,
+      base::DefaultSingletonTraits<TimezoneSettingsImpl>>::get();
 }
 
 TimezoneSettingsImpl::TimezoneSettingsImpl() {
@@ -433,8 +441,9 @@ void TimezoneSettingsStubImpl::SetTimezone(const icu::TimeZone& timezone) {
 
 // static
 TimezoneSettingsStubImpl* TimezoneSettingsStubImpl::GetInstance() {
-  return Singleton<TimezoneSettingsStubImpl,
-      DefaultSingletonTraits<TimezoneSettingsStubImpl> >::get();
+  return base::Singleton<
+      TimezoneSettingsStubImpl,
+      base::DefaultSingletonTraits<TimezoneSettingsStubImpl>>::get();
 }
 
 TimezoneSettingsStubImpl::TimezoneSettingsStubImpl() {

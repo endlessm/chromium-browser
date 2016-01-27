@@ -10,8 +10,8 @@
 #include "chrome/browser/ui/global_error/global_error_service.h"
 #include "chrome/browser/ui/global_error/global_error_service_factory.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/toolbar/app_menu_button.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_view.h"
-#include "chrome/browser/ui/views/toolbar/wrench_toolbar_button.h"
 #include "chrome/common/url_constants.h"
 #include "components/google/core/browser/google_util.h"
 #include "content/public/browser/page_navigator.h"
@@ -151,8 +151,9 @@ class FeedbackView : public views::View {
 ProfileResetBubbleView* ProfileResetBubbleView::ShowBubble(
     const base::WeakPtr<ProfileResetGlobalError>& global_error,
     Browser* browser) {
-  views::View* anchor_view =
-      BrowserView::GetBrowserViewForBrowser(browser)->toolbar()->app_menu();
+  views::View* anchor_view = BrowserView::GetBrowserViewForBrowser(browser)
+                                 ->toolbar()
+                                 ->app_menu_button();
   ProfileResetBubbleView* reset_bubble = new ProfileResetBubbleView(
       global_error, anchor_view, browser, browser->profile());
   views::BubbleDelegateView::CreateBubble(reset_bubble)->Show();

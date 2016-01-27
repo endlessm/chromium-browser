@@ -9,6 +9,7 @@
 #include "bindings/core/v8/ScriptSourceCode.h"
 #include "bindings/core/v8/V8Binding.h"
 #include "bindings/core/v8/V8DOMActivityLogger.h"
+#include "public/web/WebCache.h"
 #include "web/WebLocalFrameImpl.h"
 #include "wtf/Forward.h"
 #include "wtf/text/Base64.h"
@@ -69,6 +70,11 @@ protected:
         FrameTestHelpers::loadFrame(m_webViewHelper.webViewImpl()->mainFrame(), "about:blank");
     }
 
+    ~ActivityLoggerTest()
+    {
+        WebCache::clear();
+    }
+
     void executeScriptInMainWorld(const String& script) const
     {
         v8::HandleScope scope(v8::Isolate::GetCurrent());
@@ -98,7 +104,7 @@ private:
     static const int extensionGroup = 0;
 
     WebViewHelper m_webViewHelper;
-    ScriptController* m_scriptController;
+    RawPtrWillBePersistent<ScriptController> m_scriptController;
     // TestActivityLogger is owned by a static table within V8DOMActivityLogger
     // and should be alive as long as not overwritten.
     TestActivityLogger* m_activityLogger;

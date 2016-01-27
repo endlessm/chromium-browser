@@ -292,7 +292,7 @@ MetricsService::MetricsService(MetricsStateManager* state_manager,
       client_(client),
       local_state_(local_state),
       clean_exit_beacon_(client->GetRegistryBackupKey(), local_state),
-      recording_active_(false),
+      recording_state_(UNSET),
       reporting_active_(false),
       test_mode_active_(false),
       state_(INITIALIZED),
@@ -335,13 +335,6 @@ void MetricsService::Start() {
   HandleIdleSinceLastTransmission(false);
   EnableRecording();
   EnableReporting();
-}
-
-bool MetricsService::StartIfMetricsReportingEnabled() {
-  const bool enabled = state_manager_->IsMetricsReportingEnabled();
-  if (enabled)
-    Start();
-  return enabled;
 }
 
 void MetricsService::StartRecordingForTests() {
@@ -393,9 +386,9 @@ MetricsService::CreateEntropyProvider() {
 void MetricsService::EnableRecording() {
   DCHECK(IsSingleThreaded());
 
-  if (recording_active_)
+  if (recording_state_ == ACTIVE)
     return;
-  recording_active_ = true;
+  recording_state_ = ACTIVE;
 
   state_manager_->ForceClientIdCreation();
   client_->SetMetricsClientId(state_manager_->client_id());
@@ -414,9 +407,9 @@ void MetricsService::EnableRecording() {
 void MetricsService::DisableRecording() {
   DCHECK(IsSingleThreaded());
 
-  if (!recording_active_)
+  if (recording_state_ == INACTIVE)
     return;
-  recording_active_ = false;
+  recording_state_ = INACTIVE;
 
   client_->OnRecordingDisabled();
 
@@ -430,7 +423,7 @@ void MetricsService::DisableRecording() {
 
 bool MetricsService::recording_active() const {
   DCHECK(IsSingleThreaded());
-  return recording_active_;
+  return recording_state_ == ACTIVE;
 }
 
 bool MetricsService::reporting_active() const {
@@ -471,7 +464,7 @@ void MetricsService::HandleIdleSinceLastTransmission(bool in_idle) {
 }
 
 void MetricsService::OnApplicationNotIdle() {
-  if (recording_active_)
+  if (recording_state_ == ACTIVE)
     HandleIdleSinceLastTransmission(false);
 }
 
@@ -654,7 +647,7 @@ void MetricsService::OnUserAction(const std::string& action) {
   HandleIdleSinceLastTransmission(false);
 }
 
-void MetricsService::FinishedGatheringInitialMetrics() {
+void MetricsService::FinishedInitTask() {
   DCHECK_EQ(INIT_TASK_SCHEDULED, state_);
   state_ = INIT_TASK_DONE;
 
@@ -728,15 +721,15 @@ void MetricsService::OpenNewLog() {
     state_ = INIT_TASK_SCHEDULED;
 
     base::ThreadTaskRunnerHandle::Get()->PostDelayedTask(
-        FROM_HERE, base::Bind(&MetricsService::StartGatheringMetrics,
+        FROM_HERE, base::Bind(&MetricsService::StartInitTask,
                               self_ptr_factory_.GetWeakPtr()),
         base::TimeDelta::FromSeconds(kInitializationDelaySeconds));
   }
 }
 
-void MetricsService::StartGatheringMetrics() {
-  client_->StartGatheringMetrics(
-      base::Bind(&MetricsService::FinishedGatheringInitialMetrics,
+void MetricsService::StartInitTask() {
+  client_->InitializeSystemProfileMetrics(
+      base::Bind(&MetricsService::FinishedInitTask,
                  self_ptr_factory_.GetWeakPtr()));
 }
 
@@ -821,7 +814,7 @@ void MetricsService::StartScheduledUpload() {
     SendNextLog();
   } else {
     // There are no logs left to send, so start creating a new one.
-    client_->CollectFinalMetrics(
+    client_->CollectFinalMetricsForLog(
         base::Bind(&MetricsService::OnFinalLogInfoCollectionDone,
                    self_ptr_factory_.GetWeakPtr()));
   }
@@ -968,13 +961,7 @@ void MetricsService::SendStagedLog() {
   const std::string hash =
       base::HexEncode(log_manager_.staged_log_hash().data(),
                       log_manager_.staged_log_hash().size());
-  bool success = log_uploader_->UploadLog(log_manager_.staged_log(), hash);
-  UMA_HISTOGRAM_BOOLEAN("UMA.UploadCreation", success);
-  if (!success) {
-    // Skip this upload and hope things work out next time.
-    SkipAndDiscardUpload();
-    return;
-  }
+  log_uploader_->UploadLog(log_manager_.staged_log(), hash);
 
   HandleIdleSinceLastTransmission(true);
 }
@@ -1108,8 +1095,6 @@ void MetricsService::RecordCurrentEnvironment(MetricsLog* log) {
   GetCurrentSyntheticFieldTrials(&synthetic_trials);
   log->RecordEnvironment(metrics_providers_.get(), synthetic_trials,
                          GetInstallDate(), GetMetricsReportingEnabledDate());
-  UMA_HISTOGRAM_COUNTS_100("UMA.SyntheticTrials.Count",
-                           synthetic_trials.size());
 }
 
 void MetricsService::RecordCurrentHistograms() {

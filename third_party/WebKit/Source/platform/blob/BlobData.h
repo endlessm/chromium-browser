@@ -159,7 +159,7 @@ private:
 typedef Vector<BlobDataItem> BlobDataItemList;
 
 class PLATFORM_EXPORT BlobData {
-    WTF_MAKE_FAST_ALLOCATED(BlobData);
+    USING_FAST_MALLOC(BlobData);
 public:
     static PassOwnPtr<BlobData> create();
 
@@ -173,6 +173,7 @@ public:
 
     void appendBytes(const void*, size_t length);
     void appendData(PassRefPtr<RawData>, long long offset, long long length);
+    // Do not use this version, please provide an offset and length (crbug.com/548512).
     void appendFile(const String& path);
     void appendFile(const String& path, long long offset, long long length, double expectedModificationTime);
     void appendBlob(PassRefPtr<BlobDataHandle>, long long offset, long long length);

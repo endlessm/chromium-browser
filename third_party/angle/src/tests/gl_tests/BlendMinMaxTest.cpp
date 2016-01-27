@@ -44,6 +44,13 @@ class BlendMinMaxTest : public ANGLETest
             return;
         }
 
+        // TODO(geofflang): figure out why this fails
+        if (isIntel() && GetParam() == ES2_OPENGL())
+        {
+            std::cout << "Test skipped on OpenGL Intel due to flakyness." << std::endl;
+            return;
+        }
+
         SetUpFramebuffer(colorFormat);
 
         const size_t colorCount = 1024;
@@ -165,6 +172,13 @@ TEST_P(BlendMinMaxTest, RGBA32f)
         return;
     }
 
+    // TODO(jmadill): Figure out why this is broken on Intel
+    if (isIntel() && (GetParam() == ES2_D3D11() || GetParam() == ES2_D3D9()))
+    {
+        std::cout << "Test skipped on Intel OpenGL." << std::endl;
+        return;
+    }
+
     runTest(GL_RGBA32F);
 }
 
@@ -173,6 +187,13 @@ TEST_P(BlendMinMaxTest, RGBA16F)
     if (getClientVersion() < 3 && !extensionEnabled("GL_OES_texture_half_float"))
     {
         std::cout << "Test skipped because ES3 or GL_OES_texture_half_float is not available." << std::endl;
+        return;
+    }
+
+    // TODO(jmadill): figure out why this fails
+    if (isIntel() && (GetParam() == ES2_D3D11() || GetParam() == ES2_D3D9()))
+    {
+        std::cout << "Test skipped on Intel due to failures." << std::endl;
         return;
     }
 

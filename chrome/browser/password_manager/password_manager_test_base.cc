@@ -4,13 +4,14 @@
 
 #include "chrome/browser/password_manager/password_manager_test_base.h"
 
+#include <string>
+
 #include "base/command_line.h"
 #include "base/run_loop.h"
 #include "base/strings/stringprintf.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/password_manager/chrome_password_manager_client.h"
 #include "chrome/browser/password_manager/password_store_factory.h"
-#include "chrome/browser/password_manager/test_password_store_service.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/passwords/manage_passwords_ui_controller.h"
@@ -20,9 +21,10 @@
 #include "components/infobars/core/confirm_infobar_delegate.h"
 #include "components/infobars/core/infobar.h"
 #include "components/infobars/core/infobar_manager.h"
+#include "components/password_manager/core/browser/password_manager_test_utils.h"
+#include "components/password_manager/core/browser/test_password_store.h"
 #include "components/password_manager/core/common/password_manager_switches.h"
 #include "content/public/browser/render_frame_host.h"
-#include "content/public/browser/render_view_host.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_utils.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -38,6 +40,7 @@ NavigationObserver::~NavigationObserver() {
 void NavigationObserver::DidFinishLoad(
     content::RenderFrameHost* render_frame_host,
     const GURL& validated_url) {
+  render_frame_host_ = render_frame_host;
   if (!wait_for_path_.empty()) {
     if (validated_url.path() == wait_for_path_)
       message_loop_runner_->Quit();
@@ -61,9 +64,21 @@ PromptObserver::PromptObserver() {
 PromptObserver::~PromptObserver() {
 }
 
+bool PromptObserver::IsShowingUpdatePrompt() const {
+  // TODO(dvadym): Make this method pure virtual as soon as update UI is
+  // implemented for infobar. http://crbug.com/359315
+  return false;
+}
+
 void PromptObserver::Accept() const {
-  EXPECT_TRUE(IsShowingPrompt());
+  ASSERT_TRUE(IsShowingPrompt());
   AcceptImpl();
+}
+
+void PromptObserver::AcceptUpdatePrompt(
+    const autofill::PasswordForm& form) const {
+  EXPECT_TRUE(IsShowingUpdatePrompt());
+  AcceptUpdatePromptImpl(form);
 }
 
 class InfoBarObserver : public PromptObserver,
@@ -134,11 +149,21 @@ class BubbleObserver : public PromptObserver {
     return ui_controller_->PasswordPendingUserDecision();
   }
 
+  bool IsShowingUpdatePrompt() const override {
+    return ui_controller_->state() ==
+           password_manager::ui::PENDING_PASSWORD_UPDATE_STATE;
+  }
+
   void AcceptImpl() const override {
     ui_controller_->SavePassword();
     EXPECT_FALSE(IsShowingPrompt());
   }
 
+  void AcceptUpdatePromptImpl(
+      const autofill::PasswordForm& form) const override {
+    ui_controller_->UpdatePassword(form);
+    EXPECT_FALSE(IsShowingUpdatePrompt());
+  }
   ManagePasswordsUIController* const ui_controller_;
 
   DISALLOW_COPY_AND_ASSIGN(BubbleObserver);
@@ -165,7 +190,9 @@ void PasswordManagerBrowserTestBase::SetUpOnMainThread() {
   // PasswordManager will ignore any forms in a page if the load from the
   // PasswordStore has not completed.
   PasswordStoreFactory::GetInstance()->SetTestingFactory(
-      browser()->profile(), TestPasswordStoreService::Build);
+      browser()->profile(),
+      password_manager::BuildPasswordStoreService<
+          content::BrowserContext, password_manager::TestPasswordStore>);
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
   ASSERT_FALSE(base::CommandLine::ForCurrentProcess()->HasSwitch(
       password_manager::switches::kEnableAutomaticPasswordSaving));
@@ -188,6 +215,44 @@ void PasswordManagerBrowserTestBase::NavigateToFile(const std::string& path) {
   GURL url = embedded_test_server()->GetURL(path);
   ui_test_utils::NavigateToURL(browser(), url);
   observer.Wait();
+}
+
+void PasswordManagerBrowserTestBase::VerifyPasswordIsSavedAndFilled(
+    const std::string& filename,
+    const std::string& submission_script,
+    const std::string& expected_element,
+    const std::string& expected_value) {
+  password_manager::TestPasswordStore* password_store =
+      static_cast<password_manager::TestPasswordStore*>(
+          PasswordStoreFactory::GetForProfile(
+              browser()->profile(), ServiceAccessType::IMPLICIT_ACCESS).get());
+  EXPECT_TRUE(password_store->IsEmpty());
+
+  NavigateToFile(filename);
+
+  NavigationObserver observer(WebContents());
+  scoped_ptr<PromptObserver> prompt_observer(
+      PromptObserver::Create(WebContents()));
+  ASSERT_TRUE(content::ExecuteScript(RenderViewHost(), submission_script));
+  observer.Wait();
+
+  prompt_observer->Accept();
+
+  // Spin the message loop to make sure the password store had a chance to save
+  // the password.
+  base::RunLoop run_loop;
+  run_loop.RunUntilIdle();
+  ASSERT_FALSE(password_store->IsEmpty());
+
+  NavigateToFile(filename);
+
+  // Let the user interact with the page, so that DOM gets modification events,
+  // needed for autofilling fields.
+  content::SimulateMouseClickAt(
+      WebContents(), 0, blink::WebMouseEvent::ButtonLeft, gfx::Point(1, 1));
+
+  // Wait until that interaction causes the password value to be revealed.
+  WaitForElementValue(expected_element, expected_value);
 }
 
 void PasswordManagerBrowserTestBase::WaitForElementValue(

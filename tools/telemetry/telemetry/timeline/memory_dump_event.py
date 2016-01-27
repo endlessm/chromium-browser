@@ -63,7 +63,7 @@ ROOT_CATEGORY = MmapCategory('/', None, [
       ]),
       MmapCategory('Linear Alloc', r'\/dalvik-LinearAlloc'),
       MmapCategory('Indirect Reference Table', r'\/dalvik-indirect.ref'),
-      MmapCategory('Cache', '\/dalvik-jit-code-cache'),
+      MmapCategory('Cache', r'\/dalvik-jit-code-cache'),
       MmapCategory('Accounting', None)
     ]),
     MmapCategory('Cursor', r'\/CursorWindow'),
@@ -105,12 +105,13 @@ BUCKET_ATTRS = {
 # Map of {memory_key: (category_path, discount_tracing), ...}.
 # When discount_tracing is True, we have to discount the resident_size of the
 # tracing allocator to get the correct value for that key.
-STATS_SUMMARY = {
-  'overall_pss': ('/.proportional_resident', True),
-  'private_dirty' : ('/.private_dirty_resident', True),
-  'java_heap': ('/Android/Java runtime/Spaces.proportional_resident', False),
-  'ashmem': ('/Android/Ashmem.proportional_resident', False),
-  'native_heap': ('/Native heap.proportional_resident', True)}
+MMAPS_METRICS = {
+  'mmaps_overall_pss': ('/.proportional_resident', True),
+  'mmaps_private_dirty' : ('/.private_dirty_resident', True),
+  'mmaps_java_heap': ('/Android/Java runtime/Spaces.proportional_resident',
+                      False),
+  'mmaps_ashmem': ('/Android/Ashmem.proportional_resident', False),
+  'mmaps_native_heap': ('/Native heap.proportional_resident', True)}
 
 
 class MemoryBucket(object):
@@ -132,45 +133,56 @@ class MemoryBucket(object):
     return self._bucket[name]
 
 
-class ProcessMemoryDump(object):
-  """Object to classify and hold memory used by a single process.
+class ProcessMemoryDumpEvent(timeline_event.TimelineEvent):
+  """A memory dump event belonging to a single timeline.Process object.
+
+  It's a subclass of telemetry's TimelineEvent so it can be included in
+  the stream of events contained in timeline.model objects, and have its
+  timing correlated with that of other events in the model.
 
   Properties:
-    dump_id: A string to identifiy processes from the same global dump.
-    pid: An integer with the process id.
-    start_offset_ms: Time in ms when this dump was taken, typically represented
-        as an offset since the start of the global dump.
+    dump_id: A string to identify events belonging to the same global dump.
+    process: The timeline.Process object that owns this memory dump event.
     has_mmaps: True if the memory dump has mmaps information. If False then
-        GetStatsSummary will report all zeros.
+        GetMemoryUsage will report all zeros.
   """
-  def __init__(self, event):
-    assert event['ph'] == 'v'
+  def __init__(self, process, event):
+    assert event['ph'] == 'v' and process.pid == event['pid']
 
+    super(ProcessMemoryDumpEvent, self).__init__(
+        'memory', 'memory_dump', event['ts'] / 1000.0, 0.0)
+
+    self.process = process
     self.dump_id = event['id']
-    self.pid = event['pid']
-    self.start_offset_ms = event['ts'] / 1000.0
 
     try:
       allocators_dict = event['args']['dumps']['allocators']
     except KeyError:
       allocators_dict = {}
-    # populate keys that should always be present
-    self._allocators = {'malloc': {'size': 0},
-                        'tracing': {'size': 0, 'resident_size': 0}}
+    self._allocators = {}
     for allocator_name, size_values in allocators_dict.iteritems():
       name_parts = allocator_name.split('/')
       # we want to skip allocated_objects, since they are already counted by
-      # outer allocator names; but malloc is special, because the size of outer
-      # allocators is only inherited from its allocated_objects.
-      if name_parts[-1] == 'allocated_objects' and name_parts[0] != 'malloc':
+      # outer allocator names.
+      if name_parts[-1] == 'allocated_objects':
         continue
       allocator_name = name_parts[0]
+      # For 'gpu/android_memtrack/*' we want to keep track of individual
+      # components. E.g. 'gpu/android_memtrack/gl' will be stored as
+      # 'android_memtrack_gl' in the allocators dict.
+      if (len(name_parts) == 3 and allocator_name == 'gpu'
+          and name_parts[1] == 'android_memtrack'):
+        allocator_name = '_'.join(name_parts[1:3])
       allocator = self._allocators.setdefault(allocator_name, {})
       for size_key, size_value in size_values['attrs'].iteritems():
-        allocator[size_key] = (allocator.get(size_key, 0)
-                               + int(size_value['value'], 16))
+        if size_value['units'] == 'bytes':
+          allocator[size_key] = (allocator.get(size_key, 0)
+                                 + int(size_value['value'], 16))
     # we need to discount tracing from malloc size.
-    self._allocators['malloc']['size'] -= self._allocators['tracing']['size']
+    try:
+      self._allocators['malloc']['size'] -= self._allocators['tracing']['size']
+    except KeyError:
+      pass # it's ok if any of those keys are not present
 
     self._buckets = {}
     try:
@@ -180,6 +192,10 @@ class ProcessMemoryDump(object):
     self.has_mmaps = bool(vm_regions)
     for vm_region in vm_regions:
       self._AddRegion(vm_region)
+
+  @property
+  def process_name(self):
+    return self.process.name
 
   def _AddRegion(self, vm_region):
     path = ''
@@ -191,8 +207,8 @@ class ProcessMemoryDump(object):
       category = category.GetMatchingChild(mapped_file)
 
   def __repr__(self):
-    values = ['pid=%d' % self.pid]
-    for key, value in sorted(self.GetStatsSummary().iteritems()):
+    values = ['pid=%d' % self.process.pid]
+    for key, value in sorted(self.GetMemoryUsage().iteritems()):
       values.append('%s=%d' % (key, value))
     values = ', '.join(values)
     return '%s[%s]' % (type(self).__name__, values)
@@ -221,85 +237,79 @@ class ProcessMemoryDump(object):
     """
     path, name = category_path.rsplit('.', 1)
     value = self.GetMemoryBucket(path).GetValue(name)
-    if discount_tracing:
-      value -= self._allocators['tracing']['resident_size']
+    if discount_tracing and 'tracing' in self._allocators:
+      value -= self._allocators['tracing'].get('resident_size', 0)
     return value
 
-  def GetStatsSummary(self):
-    """Get a summary of the memory usage for this process."""
-    return {key: self.GetMemoryValue(*value)
-            for key, value in STATS_SUMMARY.iteritems()}
+  def GetMemoryUsage(self):
+    """Get a dictionary with the memory usage of this process."""
+    usage = {}
+    for name, values in self._allocators.iteritems():
+      if 'size' in values:
+        usage['allocator_%s' % name] = values['size']
+      if 'allocated_objects_size' in values:
+        usage['allocated_objects_%s' % name] = values['allocated_objects_size']
+      if 'memtrack_pss' in values:
+        usage[name] = values['memtrack_pss']
+    if self.has_mmaps:
+      usage.update((key, self.GetMemoryValue(*value))
+                   for key, value in MMAPS_METRICS.iteritems())
+    return usage
 
-  def GetAllocatorStats(self):
-    return {name: allocator.get('size', 0)
-            for name, allocator in self._allocators.iteritems()}
 
-
-class MemoryDumpEvent(timeline_event.TimelineEvent):
-  """Object to hold a global dump, a collection of individual process dumps.
-
-  It's a subclass of telemetry's TimelineEvent, so it can be included in
-  the stream of events yielded by timeline.model objects. A MemoryDumpEvent
-  aggregates dumps for all processes carrying the same dump id.
+class GlobalMemoryDump(object):
+  """Object to aggregate individual process dumps with the same dump id.
 
   Args:
-    events: A sequence of individual memory dump events for each process.
-        All must share the same global dump id.
+    process_dumps: A sequence of ProcessMemoryDumpEvent objects, all sharing
+        the same global dump id.
 
   Attributes:
     dump_id: A string identifying this dump.
-    process_dumps: A list of ProcessMemoryDump objects with the same dump_id.
     has_mmaps: True if the memory dump has mmaps information. If False then
-        GetStatsSummary will report all zeros.
+        GetMemoryUsage will report all zeros.
   """
-  def __init__(self, events):
-    assert events
-    self.process_dumps = [ProcessMemoryDump(event) for event in events]
+  def __init__(self, process_dumps):
+    assert process_dumps
+    # Keep dumps sorted in chronological order.
+    self._process_dumps = sorted(process_dumps, key=lambda dump: dump.start)
 
     # All process dump events should have the same dump id.
-    dump_ids = set(dump.dump_id for dump in self.process_dumps)
+    dump_ids = set(dump.dump_id for dump in self._process_dumps)
     assert len(dump_ids) == 1
     self.dump_id = dump_ids.pop()
 
-    # We should have exactly one process dump for each pid.
-    self.pids = set(dump.pid for dump in self.process_dumps)
-    assert len(self.process_dumps) == len(self.pids)
-
     # Either all processes have mmaps or none of them do.
-    has_mmaps = set(dump.has_mmaps for dump in self.process_dumps)
-    assert len(has_mmaps) == 1
-    self.has_mmaps = has_mmaps.pop()
+    have_mmaps = set(dump.has_mmaps for dump in self._process_dumps)
+    assert len(have_mmaps) == 1
+    self.has_mmaps = have_mmaps.pop()
 
-    # Sort individual dumps and offset them w.r.t. the start of the global dump.
-    self.process_dumps.sort(key=lambda dump: dump.start_offset_ms)
-    start = self.process_dumps[0].start_offset_ms
-    for dump in self.process_dumps:
-      dump.start_offset_ms -= start
+  @property
+  def start(self):
+    return self._process_dumps[0].start
 
-    # The duration of the event is the time difference between first and the
-    # last process dumps contained.
-    duration = self.process_dumps[-1].start_offset_ms
+  @property
+  def end(self):
+    return self._process_dumps[-1].start
 
-    super(MemoryDumpEvent, self).__init__(
-        'memory-infra', 'memory_dump', start, duration)
+  @property
+  def duration(self):
+    return self.end - self.start
+
+  def IterProcessMemoryDumps(self):
+    return iter(self._process_dumps)
 
   def __repr__(self):
     values = ['id=%s' % self.dump_id]
-    for key, value in sorted(self.GetStatsSummary().iteritems()):
+    for key, value in sorted(self.GetMemoryUsage().iteritems()):
       values.append('%s=%d' % (key, value))
     values = ', '.join(values)
     return '%s[%s]' % (type(self).__name__, values)
 
-  def _AggregateProcessStats(self, get_stats):
+  def GetMemoryUsage(self):
+    """Get the aggregated memory usage over all processes in this dump."""
     result = {}
-    for dump in self.process_dumps:
-      for key, value in get_stats(dump).iteritems():
+    for dump in self._process_dumps:
+      for key, value in dump.GetMemoryUsage().iteritems():
         result[key] = result.get(key, 0) + value
     return result
-
-  def GetStatsSummary(self):
-    """Get a summary of the memory usage for this dump."""
-    return self._AggregateProcessStats(lambda dump: dump.GetStatsSummary())
-
-  def GetAllocatorStats(self):
-    return self._AggregateProcessStats(lambda dump: dump.GetAllocatorStats())

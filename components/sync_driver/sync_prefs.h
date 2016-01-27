@@ -5,6 +5,9 @@
 #ifndef COMPONENTS_SYNC_DRIVER_SYNC_PREFS_H_
 #define COMPONENTS_SYNC_DRIVER_SYNC_PREFS_H_
 
+#include <map>
+#include <string>
+
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "base/memory/weak_ptr.h"
@@ -13,6 +16,7 @@
 #include "base/threading/non_thread_safe.h"
 #include "base/time/time.h"
 #include "sync/internal_api/public/base/model_type.h"
+#include "sync/internal_api/public/sync_encryption_handler.h"
 
 class PrefService;
 class ProfileIOData;
@@ -150,8 +154,33 @@ class SyncPrefs : NON_EXPORTED_BASE(public base::NonThreadSafe),
   // Check if the previous shutdown was clean.
   bool DidSyncShutdownCleanly() const;
 
-  // Set whetherthe last shutdown was clean.
+  // Set whether the last shutdown was clean.
   void SetCleanShutdown(bool value);
+
+  // Get/set for the last known sync invalidation versions.
+  void GetInvalidationVersions(
+      std::map<syncer::ModelType, int64>* invalidation_versions) const;
+  void UpdateInvalidationVersions(
+      const std::map<syncer::ModelType, int64>& invalidation_versions);
+
+  // Will return the contents of the LastRunVersion preference. This may be an
+  // empty string if no version info was present, and is only valid at
+  // Sync startup time (after which the LastRunVersion preference will have been
+  // updated to the current version).
+  std::string GetLastRunVersion() const;
+  void SetLastRunVersion(const std::string& current_version);
+
+  // Get/set for flag indicating that passphrase encryption transition is in
+  // progress.
+  void SetPassphraseEncryptionTransitionInProgress(bool value);
+  bool GetPassphraseEncryptionTransitionInProgress() const;
+
+  // Get/set for saved Nigori state that needs to be passed to backend
+  // initialization after transition.
+  void SetSavedNigoriStateForPassphraseEncryptionTransition(
+      const syncer::SyncEncryptionHandler::NigoriState& nigori_state);
+  scoped_ptr<syncer::SyncEncryptionHandler::NigoriState>
+  GetSavedNigoriStateForPassphraseEncryptionTransition() const;
 
  private:
   void RegisterPrefGroups();

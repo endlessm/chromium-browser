@@ -73,7 +73,7 @@ const int kInitialPolicyFetchTimeoutSeconds = 10;
 // static
 UserCloudPolicyManagerFactoryChromeOS*
     UserCloudPolicyManagerFactoryChromeOS::GetInstance() {
-  return Singleton<UserCloudPolicyManagerFactoryChromeOS>::get();
+  return base::Singleton<UserCloudPolicyManagerFactoryChromeOS>::get();
 }
 
 // static
@@ -145,14 +145,9 @@ scoped_ptr<UserCloudPolicyManagerChromeOS>
 
   policy::BrowserPolicyConnectorChromeOS* connector =
       g_browser_process->platform_part()->browser_policy_connector_chromeos();
-  UserAffiliation affiliation = connector->GetUserAffiliation(username);
-  const bool is_affiliated_user = affiliation == USER_AFFILIATION_MANAGED;
   const bool is_browser_restart =
       command_line->HasSwitch(chromeos::switches::kLoginUser);
-  const bool wait_for_initial_policy =
-      !is_browser_restart &&
-      (user_manager::UserManager::Get()->IsCurrentUserNew() ||
-       is_affiliated_user);
+  const bool wait_for_initial_policy = !is_browser_restart;
 
   const base::TimeDelta initial_policy_fetch_timeout =
       user_manager::UserManager::Get()->IsCurrentUserNew()
@@ -217,10 +212,8 @@ scoped_ptr<UserCloudPolicyManagerChromeOS>
 
   manager->Init(
       SchemaRegistryServiceFactory::GetForContext(profile)->registry());
-  manager->Connect(g_browser_process->local_state(),
-                   device_management_service,
-                   g_browser_process->system_request_context(),
-                   affiliation);
+  manager->Connect(g_browser_process->local_state(), device_management_service,
+                   g_browser_process->system_request_context());
 
   DCHECK(managers_.find(profile) == managers_.end());
   managers_[profile] = manager.get();

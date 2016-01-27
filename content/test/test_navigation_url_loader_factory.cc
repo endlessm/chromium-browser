@@ -19,8 +19,8 @@ TestNavigationURLLoaderFactory::~TestNavigationURLLoaderFactory() {
 
 scoped_ptr<NavigationURLLoader> TestNavigationURLLoaderFactory::CreateLoader(
     BrowserContext* browser_context,
-    int frame_tree_node_id,
     scoped_ptr<NavigationRequestInfo> request_info,
+    ServiceWorkerNavigationHandle* service_worker_handle,
     NavigationURLLoaderDelegate* delegate) {
   return scoped_ptr<NavigationURLLoader>(new TestNavigationURLLoader(
       request_info.Pass(), delegate));

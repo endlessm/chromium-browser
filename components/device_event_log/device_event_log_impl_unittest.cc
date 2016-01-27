@@ -8,6 +8,7 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/bind.h"
 #include "base/compiler_specific.h"
 #include "base/format_macros.h"
 #include "base/memory/scoped_ptr.h"
@@ -53,14 +54,13 @@ class DeviceEventLogTest : public testing::Test {
  protected:
   std::string SkipTime(const std::string& input) {
     std::string output;
-    std::vector<std::string> lines;
-    base::SplitString(input, '\n', &lines);
-    for (size_t i = 0; i < lines.size(); ++i) {
-      size_t n = lines[i].find(']');
+    for (const std::string& line : base::SplitString(
+             input, "\n", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL)) {
+      size_t n = line.find(']');
       if (n != std::string::npos)
-        output += "[time] " + lines[i].substr(n + 2) + '\n';
+        output += "[time] " + line.substr(n + 2) + '\n';
       else
-        output += lines[i];
+        output += line;
     }
     return output;
   }

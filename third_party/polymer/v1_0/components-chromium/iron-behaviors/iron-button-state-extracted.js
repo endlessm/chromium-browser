@@ -1,8 +1,6 @@
-
-
-  /**
+/**
    * @demo demo/index.html
-   * @polymerBehavior
+   * @polymerBehavior Polymer.IronButtonState
    */
   Polymer.IronButtonStateImpl = {
 
@@ -36,8 +34,7 @@
         type: Boolean,
         value: false,
         notify: true,
-        reflectToAttribute: true,
-        observer: '_activeChanged'
+        reflectToAttribute: true
       },
 
       /**
@@ -58,6 +55,16 @@
       receivedFocusFromKeyboard: {
         type: Boolean,
         readOnly: true
+      },
+
+      /**
+       * The aria attribute to be set if the button is a toggle and in the
+       * active state.
+       */
+      ariaActiveAttribute: {
+        type: String,
+        value: 'aria-pressed',
+        observer: '_ariaActiveAttributeChanged'
       }
     },
 
@@ -68,7 +75,8 @@
     },
 
     observers: [
-      '_detectKeyboardFocus(focused)'
+      '_detectKeyboardFocus(focused)',
+      '_activeChanged(active, ariaActiveAttribute)'
     ],
 
     keyBindings: {
@@ -76,6 +84,8 @@
       'space:keydown': '_spaceKeyDownHandler',
       'space:keyup': '_spaceKeyUpHandler',
     },
+
+    _mouseEventRe: /^mouse/,
 
     _tapHandler: function() {
       if (this.toggles) {
@@ -93,11 +103,13 @@
     // to emulate native checkbox, (de-)activations from a user interaction fire
     // 'change' events
     _userActivate: function(active) {
-      this.active = active;
-      this.fire('change');
+      if (this.active !== active) {
+        this.active = active;
+        this.fire('change');
+      }
     },
 
-    _downHandler: function() {
+    _downHandler: function(event) {
       this._setPointerDown(true);
       this._setPressed(true);
       this._setReceivedFocusFromKeyboard(false);
@@ -108,14 +120,43 @@
       this._setPressed(false);
     },
 
+    __isFocusedLightDescendant: function(target) {
+      var root = Polymer.dom(this).getOwnerRoot() || document;
+      var focusedElement = root.activeElement;
+
+      // TODO(noms): remove the `this !== target` check once polymer#2610 is fixed.
+      return this !== target && this.isLightDescendant(target) && target == focusedElement;
+    },
+
+    /**
+     * @param {!KeyboardEvent} event .
+     */
     _spaceKeyDownHandler: function(event) {
       var keyboardEvent = event.detail.keyboardEvent;
+      var target = Polymer.dom(keyboardEvent).localTarget;
+
+      // Ignore the event if this is coming from a focused light child, since that
+      // element will deal with it.
+      if (this.__isFocusedLightDescendant(target))
+        return;
+
       keyboardEvent.preventDefault();
       keyboardEvent.stopImmediatePropagation();
       this._setPressed(true);
     },
 
-    _spaceKeyUpHandler: function() {
+    /**
+     * @param {!KeyboardEvent} event .
+     */
+    _spaceKeyUpHandler: function(event) {
+      var keyboardEvent = event.detail.keyboardEvent;
+      var target = Polymer.dom(keyboardEvent).localTarget;
+
+      // Ignore the event if this is coming from a focused light child, since that
+      // element will deal with it.
+      if (this.__isFocusedLightDescendant(target))
+        return;
+
       if (this.pressed) {
         this._asyncClick();
       }
@@ -136,11 +177,18 @@
       this._changedButtonState();
     },
 
-    _activeChanged: function(active) {
+    _ariaActiveAttributeChanged: function(value, oldValue) {
+      if (oldValue && oldValue != value && this.hasAttribute(oldValue)) {
+        this.removeAttribute(oldValue);
+      }
+    },
+
+    _activeChanged: function(active, ariaActiveAttribute) {
       if (this.toggles) {
-        this.setAttribute('aria-pressed', active ? 'true' : 'false');
+        this.setAttribute(this.ariaActiveAttribute,
+                          active ? 'true' : 'false');
       } else {
-        this.removeAttribute('aria-pressed');
+        this.removeAttribute(this.ariaActiveAttribute);
       }
       this._changedButtonState();
     },
@@ -163,9 +211,8 @@
 
   };
 
-  /** @polymerBehavior Polymer.IronButtonState */
+  /** @polymerBehavior */
   Polymer.IronButtonState = [
     Polymer.IronA11yKeysBehavior,
     Polymer.IronButtonStateImpl
   ];
-

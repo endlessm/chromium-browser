@@ -172,6 +172,10 @@ class CreditCard : public AutofillDataModel {
   // Sets |number_| to |number| and computes the appropriate card |type_|.
   void SetNumber(const base::string16& number);
 
+  // Logs the number of days since the credit card was last used and records its
+  // use.
+  void RecordAndLogUse();
+
   // Converts a string representation of a month (such as "February" or "feb."
   // or "2") into a numeric value in [1, 12]. Returns true on successful
   // conversion or false if a month was not recognized.
@@ -230,14 +234,14 @@ class CreditCard : public AutofillDataModel {
 std::ostream& operator<<(std::ostream& os, const CreditCard& credit_card);
 
 // The string identifiers for credit card icon resources.
-extern const char* const kAmericanExpressCard;
-extern const char* const kDinersCard;
-extern const char* const kDiscoverCard;
-extern const char* const kGenericCard;
-extern const char* const kJCBCard;
-extern const char* const kMasterCard;
-extern const char* const kUnionPay;
-extern const char* const kVisaCard;
+extern const char kAmericanExpressCard[];
+extern const char kDinersCard[];
+extern const char kDiscoverCard[];
+extern const char kGenericCard[];
+extern const char kJCBCard[];
+extern const char kMasterCard[];
+extern const char kUnionPay[];
+extern const char kVisaCard[];
 
 }  // namespace autofill
 

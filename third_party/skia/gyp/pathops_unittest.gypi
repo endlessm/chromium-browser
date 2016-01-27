@@ -5,6 +5,7 @@
 # Common gypi for pathops unit tests.
 {
   'include_dirs': [
+    '../include/private',
     '../src/core',
     '../src/effects',
     '../src/lazy',
@@ -23,10 +24,12 @@
 
     '../tests/PathOpsAngleTest.cpp',
     '../tests/PathOpsBoundsTest.cpp',
+    '../tests/PathOpsBuilderConicTest.cpp',
     '../tests/PathOpsBuilderTest.cpp',
     '../tests/PathOpsBuildUseTest.cpp',
     '../tests/PathOpsConicIntersectionTest.cpp',
     '../tests/PathOpsConicLineIntersectionTest.cpp',
+    '../tests/PathOpsCubicConicIntersectionTest.cpp',
     '../tests/PathOpsCubicIntersectionTest.cpp',
     '../tests/PathOpsCubicIntersectionTestData.cpp',
     '../tests/PathOpsCubicLineIntersectionTest.cpp',
@@ -63,8 +66,9 @@
     '../tests/PathOpsTestCommon.cpp',
     '../tests/PathOpsThreadedCommon.cpp',
     '../tests/PathOpsThreeWayTest.cpp',
-    '../tests/PathOpsTightBoundsTest.cpp', 
-    '../tests/PathOpsTypesTest.cpp', 
+    '../tests/PathOpsTightBoundsTest.cpp',
+    '../tests/PathOpsTypesTest.cpp',
+    '../tests/SubsetPath.cpp',
 
     '../tests/PathOpsCubicIntersectionTestData.h',
     '../tests/PathOpsExtendedTest.h',
@@ -72,5 +76,6 @@
     '../tests/PathOpsTestCommon.h',
     '../tests/PathOpsThreadedCommon.h',
     '../tests/PathOpsTSectDebug.h',
+    '../tests/SubsetPath.h',
   ],
 }

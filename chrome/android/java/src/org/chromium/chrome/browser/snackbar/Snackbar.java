@@ -23,6 +23,7 @@ public class Snackbar {
     private String mTemplateText;
     private String mActionText;
     private Object mActionData;
+    private int mBackgroundColor;
     private boolean mSingleLine = true;
     private int mDurationMs;
 
@@ -52,9 +53,10 @@ public class Snackbar {
 
     /**
      * Sets the action button to show on the snackbar.
-     * @param actionText The text to show on the button.
-     * @param actionData The data to be passed to {@link SnackbarController#onAction} when the
-     *                   button is pressed.
+     * @param actionText The text to show on the button. If null, the button will not be shown.
+     * @param actionData An object to be passed to {@linkSnackbarController#onAction} or
+     *        {@link SnackbarController#onDismissNoAction} when the button is pressed or the
+     *        snackbar is dismissed.
      */
     public Snackbar setAction(String actionText, Object actionData) {
         mActionText = actionText;
@@ -76,6 +78,14 @@ public class Snackbar {
      */
     public Snackbar setDuration(int durationMs) {
         mDurationMs = durationMs;
+        return this;
+    }
+
+    /**
+     * Sets the background color for the snackbar. If 0, the snackbar will use default color.
+     */
+    public Snackbar setBackgroundColor(int color) {
+        mBackgroundColor = color;
         return this;
     }
 
@@ -105,5 +115,12 @@ public class Snackbar {
 
     int getDuration() {
         return mDurationMs;
+    }
+
+    /**
+     * If method returns zero, then default color for snackbar will be used.
+     */
+    int getBackgroundColor() {
+        return mBackgroundColor;
     }
 }

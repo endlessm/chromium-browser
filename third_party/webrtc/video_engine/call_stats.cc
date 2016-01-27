@@ -12,9 +12,9 @@
 
 #include <assert.h>
 
-#include "webrtc/modules/rtp_rtcp/interface/rtp_rtcp_defines.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
-#include "webrtc/system_wrappers/interface/tick_util.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp_defines.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/tick_util.h"
 
 namespace webrtc {
 namespace {
@@ -86,7 +86,7 @@ class RtcpObserver : public RtcpRttStats {
  private:
   CallStats* owner_;
 
-  DISALLOW_COPY_AND_ASSIGN(RtcpObserver);
+  RTC_DISALLOW_COPY_AND_ASSIGN(RtcpObserver);
 };
 
 CallStats::CallStats()
@@ -123,7 +123,7 @@ int32_t CallStats::Process() {
   if (max_rtt_ms_ > 0) {
     for (std::list<CallStatsObserver*>::iterator it = observers_.begin();
          it != observers_.end(); ++it) {
-      (*it)->OnRttUpdate(max_rtt_ms_);
+      (*it)->OnRttUpdate(avg_rtt_ms_, max_rtt_ms_);
     }
   }
   return 0;

@@ -9,18 +9,19 @@
 #include "ui/gfx/geometry/rect.h"
 
 namespace cc {
-class RasterSource;
+class DisplayListRasterSource;
 
 class CC_EXPORT RasterBuffer {
  public:
   RasterBuffer();
   virtual ~RasterBuffer();
 
-  virtual void Playback(const RasterSource* raster_source,
+  virtual void Playback(const DisplayListRasterSource* raster_source,
                         const gfx::Rect& raster_full_rect,
                         const gfx::Rect& raster_dirty_rect,
                         uint64_t new_content_id,
-                        float scale) = 0;
+                        float scale,
+                        bool include_images) = 0;
 };
 
 }  // namespace cc

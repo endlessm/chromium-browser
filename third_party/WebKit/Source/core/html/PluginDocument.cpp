@@ -103,6 +103,7 @@ void PluginDocumentParser::createDocumentStructure()
     m_embedElement->setAttribute(widthAttr, "100%");
     m_embedElement->setAttribute(heightAttr, "100%");
     m_embedElement->setAttribute(nameAttr, "plugin");
+    m_embedElement->setAttribute(idAttr, "plugin");
     m_embedElement->setAttribute(srcAttr, AtomicString(document()->url().string()));
     m_embedElement->setAttribute(typeAttr, document()->loader()->mimeType());
     body->appendChild(m_embedElement);
@@ -114,6 +115,8 @@ void PluginDocumentParser::createDocumentStructure()
     // We need the plugin to load synchronously so we can get the PluginView
     // below so flush the layout tasks now instead of waiting on the timer.
     frame->view()->flushAnyPendingPostLayoutTasks();
+    // Focus the plugin here, as the line above is where the plugin is created.
+    m_embedElement->focus();
 
     if (PluginView* view = pluginView())
         view->didReceiveResponse(document()->loader()->response());

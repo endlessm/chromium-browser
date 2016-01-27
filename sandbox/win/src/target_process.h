@@ -32,10 +32,13 @@ class ThreadProvider;
 // class are owned by the Policy used to create them.
 class TargetProcess {
  public:
-  // The constructor takes ownership of |initial_token| and |lockdown_token|.
+  // The constructor takes ownership of |initial_token|, |lockdown_token|
+  // and |lowbox_token|.
   TargetProcess(base::win::ScopedHandle initial_token,
                 base::win::ScopedHandle lockdown_token,
-                HANDLE job, ThreadProvider* thread_pool);
+                base::win::ScopedHandle lowbox_token,
+                HANDLE job,
+                ThreadProvider* thread_pool);
   ~TargetProcess();
 
   // TODO(cpu): Currently there does not seem to be a reason to implement
@@ -46,12 +49,9 @@ class TargetProcess {
   void Release() {}
 
   // Creates the new target process. The process is created suspended.
-  // When |set_lockdown_token_after_create| is set, the lockdown token
-  // is replaced after the process is created
   DWORD Create(const wchar_t* exe_path,
                const wchar_t* command_line,
                bool inherit_handles,
-               bool set_lockdown_token_after_create,
                const base::win::StartupInformation& startup_info,
                base::win::ScopedProcessInformation* target_info);
 
@@ -106,6 +106,9 @@ class TargetProcess {
   // The token given to the initial thread so that the target process can
   // start. It has more powers than the lockdown_token.
   base::win::ScopedHandle initial_token_;
+  // The lowbox token associated with the process. This token is set after the
+  // process creation.
+  base::win::ScopedHandle lowbox_token_;
   // Kernel handle to the shared memory used by the IPC server.
   base::win::ScopedHandle shared_section_;
   // Job object containing the target process.

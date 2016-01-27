@@ -84,6 +84,7 @@ ProgramInfoManager::Program::Program()
       active_uniform_block_max_name_length_(0),
       cached_es3_transform_feedback_varyings_(false),
       transform_feedback_varying_max_length_(0),
+      transform_feedback_buffer_mode_(0),
       cached_es3_uniformsiv_(false) {
 }
 
@@ -121,25 +122,20 @@ ProgramInfoManager::Program::GetUniformBlock(GLuint index) const {
 
 GLint ProgramInfoManager::Program::GetUniformLocation(
     const std::string& name) const {
-  bool getting_array_location = false;
-  size_t open_pos = std::string::npos;
-  int index = 0;
-  if (!GLES2Util::ParseUniformName(
-      name, &open_pos, &index, &getting_array_location)) {
-    return -1;
-  }
+  GLSLArrayName parsed_name(name);
+
   for (GLuint ii = 0; ii < uniform_infos_.size(); ++ii) {
     const UniformInfo& info = uniform_infos_[ii];
     if (info.name == name ||
         (info.is_array &&
          info.name.compare(0, info.name.size() - 3, name) == 0)) {
       return info.element_locations[0];
-    } else if (getting_array_location && info.is_array) {
+    } else if (parsed_name.IsArrayName() && info.is_array) {
       // Look for an array specification.
-      size_t open_pos_2 = info.name.find_last_of('[');
-      if (open_pos_2 == open_pos &&
-          name.compare(0, open_pos, info.name, 0, open_pos) == 0) {
-        if (index >= 0 && index < info.size) {
+      size_t open_pos = info.name.find_last_of('[');
+      if (info.name.compare(0, open_pos, parsed_name.base_name()) == 0) {
+        int index = parsed_name.element_index();
+        if (index < info.size) {
           return info.element_locations[index];
         }
       }
@@ -207,6 +203,9 @@ bool ProgramInfoManager::Program::GetProgramiv(
       return true;
     case GL_TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH:
       *params = static_cast<GLint>(transform_feedback_varying_max_length_);
+      return true;
+    case GL_TRANSFORM_FEEDBACK_BUFFER_MODE:
+      *params = static_cast<GLint>(transform_feedback_buffer_mode_);
       return true;
     default:
       NOTREACHED();
@@ -494,6 +493,7 @@ void ProgramInfoManager::Program::UpdateES3TransformFeedbackVaryings(
     // This should only happen on a lost context.
     return;
   }
+  DCHECK_EQ(0u, transform_feedback_buffer_mode_);
   DCHECK_EQ(0u, transform_feedback_varyings_.size());
   DCHECK_EQ(0u, transform_feedback_varying_max_length_);
 
@@ -512,6 +512,7 @@ void ProgramInfoManager::Program::UpdateES3TransformFeedbackVaryings(
     return;
   }
   transform_feedback_varyings_.resize(header->num_transform_feedback_varyings);
+  transform_feedback_buffer_mode_ = header->transform_feedback_buffer_mode;
 
   uint32_t entry_size = sizeof(TransformFeedbackVaryingInfo) *
       header->num_transform_feedback_varyings;
@@ -610,6 +611,7 @@ ProgramInfoManager::Program* ProgramInfoManager::GetProgramInfo(
         gl->GetTransformFeedbackVaryingsCHROMIUMHelper(program, &result);
       }
       info->UpdateES3TransformFeedbackVaryings(result);
+      break;
     case kES3Uniformsiv:
       {
         base::AutoUnlock unlock(lock_);
@@ -618,6 +620,7 @@ ProgramInfoManager::Program* ProgramInfoManager::GetProgramInfo(
         gl->GetUniformsES3CHROMIUMHelper(program, &result);
       }
       info->UpdateES3Uniformsiv(result);
+      break;
     default:
       NOTREACHED();
       return NULL;
@@ -655,6 +658,7 @@ bool ProgramInfoManager::GetProgramiv(
     case GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH:
       type = kES3UniformBlocks;
       break;
+    case GL_TRANSFORM_FEEDBACK_BUFFER_MODE:
     case GL_TRANSFORM_FEEDBACK_VARYINGS:
     case GL_TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH:
       type = kES3TransformFeedbackVaryings;

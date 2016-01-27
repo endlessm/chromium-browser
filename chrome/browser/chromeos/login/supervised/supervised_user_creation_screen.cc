@@ -120,7 +120,7 @@ SupervisedUserCreationScreen::~SupervisedUserCreationScreen() {
     sync_service_->RemoveObserver(this);
   if (actor_)
     actor_->SetDelegate(NULL);
-  NetworkPortalDetector::Get()->RemoveObserver(this);
+  network_portal_detector::GetInstance()->RemoveObserver(this);
 }
 
 void SupervisedUserCreationScreen::PrepareToShow() {
@@ -141,7 +141,7 @@ void SupervisedUserCreationScreen::Show() {
   }
 
   if (!on_error_screen_)
-    NetworkPortalDetector::Get()->AddAndFireObserver(this);
+    network_portal_detector::GetInstance()->AddAndFireObserver(this);
   on_error_screen_ = false;
   histogram_helper_->OnScreenShow();
 }
@@ -190,7 +190,7 @@ void SupervisedUserCreationScreen::Hide() {
   if (actor_)
     actor_->Hide();
   if (!on_error_screen_)
-    NetworkPortalDetector::Get()->RemoveObserver(this);
+    network_portal_detector::GetInstance()->RemoveObserver(this);
 }
 
 std::string SupervisedUserCreationScreen::GetName() const {
@@ -223,14 +223,15 @@ void SupervisedUserCreationScreen::AuthenticateManager(
   manager_signin_in_progress_ = true;
 
   UserFlow* flow = new SupervisedUserCreationFlow(manager_id);
-  ChromeUserManager::Get()->SetUserFlow(manager_id, flow);
+  ChromeUserManager::Get()->SetUserFlow(AccountId::FromUserEmail(manager_id),
+                                        flow);
 
   // Make sure no two controllers exist at the same time.
   controller_.reset();
 
   controller_.reset(new SupervisedUserCreationControllerNew(this, manager_id));
 
-  UserContext user_context(manager_id);
+  UserContext user_context(AccountId::FromUserEmail(manager_id));
   user_context.SetKey(Key(manager_password));
   ExistingUserController::current_controller()->Login(user_context,
                                                       SigninSpecifics());
@@ -484,7 +485,8 @@ bool SupervisedUserCreationScreen::FindUserByDisplayName(
 void SupervisedUserCreationScreen::ApplyPicture() {
   std::string user_id = controller_->GetSupervisedUserId();
   UserImageManager* image_manager =
-      ChromeUserManager::Get()->GetUserImageManager(user_id);
+      ChromeUserManager::Get()->GetUserImageManager(
+          AccountId::FromUserEmail(user_id));
   switch (selected_image_) {
     case user_manager::User::USER_IMAGE_EXTERNAL:
       // Photo decoding may not have been finished yet.

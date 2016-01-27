@@ -78,7 +78,7 @@ void HistoryBackendDBBaseTest::TearDown() {
   // Make sure we don't have any event pending that could disrupt the next
   // test.
   base::ThreadTaskRunnerHandle::Get()->PostTask(
-      FROM_HERE, base::MessageLoop::QuitClosure());
+      FROM_HERE, base::MessageLoop::QuitWhenIdleClosure());
   base::MessageLoop::current()->Run();
 }
 
@@ -107,14 +107,6 @@ void HistoryBackendDBBaseTest::CreateDBVersion(int version) {
       data_path.AppendASCII(base::StringPrintf("history.%d.sql", version));
   ASSERT_NO_FATAL_FAILURE(
       ExecuteSQLScript(data_path, history_dir_.Append(kHistoryFilename)));
-}
-
-void HistoryBackendDBBaseTest::CreateArchivedDB() {
-  base::FilePath data_path;
-  ASSERT_TRUE(GetTestDataHistoryDir(&data_path));
-  data_path = data_path.AppendASCII("archived_history.4.sql");
-  ASSERT_NO_FATAL_FAILURE(ExecuteSQLScript(
-      data_path, history_dir_.Append(kArchivedHistoryFilename)));
 }
 
 void HistoryBackendDBBaseTest::DeleteBackend() {

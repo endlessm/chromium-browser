@@ -48,7 +48,7 @@ class HTMLDocument;
 class HTMLDocumentParser;
 
 class HTMLTreeBuilder final : public NoBaseWillBeGarbageCollectedFinalized<HTMLTreeBuilder> {
-    WTF_MAKE_NONCOPYABLE(HTMLTreeBuilder); WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(HTMLTreeBuilder);
+    WTF_MAKE_NONCOPYABLE(HTMLTreeBuilder); USING_FAST_MALLOC_WILL_BE_REMOVED(HTMLTreeBuilder);
 public:
     static PassOwnPtrWillBeRawPtr<HTMLTreeBuilder> create(HTMLDocumentParser* parser, HTMLDocument* document, ParserContentPolicy parserContentPolicy, bool reportErrors, const HTMLParserOptions& options)
     {
@@ -135,7 +135,6 @@ private:
     void processEndTagForInRow(AtomicHTMLToken*);
     void processEndTagForInCell(AtomicHTMLToken*);
 
-    void processIsindexStartTagForInBody(AtomicHTMLToken*);
     void processHtmlStartTagForInBody(AtomicHTMLToken*);
     bool processBodyEndTagForInBody(AtomicHTMLToken*);
     bool processTableEndTagForInTable();
@@ -171,8 +170,6 @@ private:
     inline bool shouldProcessTokenInForeignContent(AtomicHTMLToken*);
     void processTokenInForeignContent(AtomicHTMLToken*);
 
-    Vector<Attribute> attributesForIsindexInput(AtomicHTMLToken*);
-
     void callTheAdoptionAgency(AtomicHTMLToken*);
 
     void closeTheCell();
@@ -193,7 +190,7 @@ private:
 
     class FragmentParsingContext {
         WTF_MAKE_NONCOPYABLE(FragmentParsingContext);
-        DISALLOW_ALLOCATION();
+        DISALLOW_NEW();
     public:
         FragmentParsingContext();
         FragmentParsingContext(DocumentFragment*, Element* contextElement);
@@ -210,6 +207,7 @@ private:
         RefPtrWillBeMember<HTMLStackItem> m_contextElementStackItem;
     };
 
+    // https://html.spec.whatwg.org/#frameset-ok-flag
     bool m_framesetOk;
 #if ENABLE(ASSERT)
     bool m_isAttached;

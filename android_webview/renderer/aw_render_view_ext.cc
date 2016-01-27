@@ -80,9 +80,8 @@ bool RemovePrefixAndAssignIfMatches(const base::StringPiece& prefix,
     url::DecodeURLEscapeSequences(spec.data() + prefix.length(),
                                   spec.length() - prefix.length(),
                                   &output);
-    std::string decoded_url = base::UTF16ToUTF8(
-        base::string16(output.data(), output.length()));
-    dest->assign(decoded_url.begin(), decoded_url.end());
+    *dest = base::UTF16ToUTF8(
+        base::StringPiece16(output.data(), output.length()));
     return true;
   }
   return false;
@@ -147,7 +146,7 @@ void PopulateHitTestData(const GURL& absolute_link_url,
 }  // namespace
 
 AwRenderViewExt::AwRenderViewExt(content::RenderView* render_view)
-    : content::RenderViewObserver(render_view), page_scale_factor_(0.0f) {
+    : content::RenderViewObserver(render_view) {
 }
 
 AwRenderViewExt::~AwRenderViewExt() {
@@ -168,6 +167,7 @@ bool AwRenderViewExt::OnMessageReceived(const IPC::Message& message) {
                         OnResetScrollAndScaleState)
     IPC_MESSAGE_HANDLER(AwViewMsg_SetInitialPageScale, OnSetInitialPageScale)
     IPC_MESSAGE_HANDLER(AwViewMsg_SetBackgroundColor, OnSetBackgroundColor)
+    IPC_MESSAGE_HANDLER(AwViewMsg_SmoothScroll, OnSmoothScroll)
     IPC_MESSAGE_UNHANDLED(handled = false)
   IPC_END_MESSAGE_MAP()
   return handled;
@@ -188,10 +188,14 @@ void AwRenderViewExt::OnDocumentHasImagesRequest(int id) {
 }
 
 void AwRenderViewExt::DidCommitCompositorFrame() {
-  UpdatePageScaleFactor();
+  PostCheckContentsSize();
 }
 
 void AwRenderViewExt::DidUpdateLayout() {
+  PostCheckContentsSize();
+}
+
+void AwRenderViewExt::PostCheckContentsSize() {
   if (check_contents_size_timer_.IsRunning())
     return;
 
@@ -200,28 +204,21 @@ void AwRenderViewExt::DidUpdateLayout() {
                                    &AwRenderViewExt::CheckContentsSize);
 }
 
-void AwRenderViewExt::UpdatePageScaleFactor() {
-  if (page_scale_factor_ != render_view()->GetWebView()->pageScaleFactor()) {
-    page_scale_factor_ = render_view()->GetWebView()->pageScaleFactor();
-    Send(new AwViewHostMsg_PageScaleFactorChanged(routing_id(),
-                                                  page_scale_factor_));
-  }
-}
-
 void AwRenderViewExt::CheckContentsSize() {
-  if (!render_view()->GetWebView())
+  blink::WebView* webview = render_view()->GetWebView();
+  if (!webview)
     return;
 
   gfx::Size contents_size;
 
-  blink::WebFrame* main_frame = render_view()->GetWebView()->mainFrame();
+  blink::WebFrame* main_frame = webview->mainFrame();
   if (main_frame)
     contents_size = main_frame->contentsSize();
 
   // Fall back to contentsPreferredMinimumSize if the mainFrame is reporting a
   // 0x0 size (this happens during initial load).
   if (contents_size.IsEmpty()) {
-    contents_size = render_view()->GetWebView()->contentsPreferredMinimumSize();
+    contents_size = webview->contentsPreferredMinimumSize();
   }
 
   if (contents_size == last_sent_contents_size_)
@@ -246,8 +243,7 @@ void AwRenderViewExt::FocusedNodeChanged(const blink::WebNode& node) {
   if (node.isNull() || !node.isElementNode() || !render_view())
     return;
 
-  // Note: element is not const due to textContent() is not const.
-  blink::WebElement element = node.toConst<blink::WebElement>();
+  const blink::WebElement element = node.toConst<blink::WebElement>();
   AwHitTestData data;
 
   data.href = GetHref(element);
@@ -261,7 +257,7 @@ void AwRenderViewExt::FocusedNodeChanged(const blink::WebNode& node) {
 
   PopulateHitTestData(absolute_link_url,
                       absolute_image_url,
-                      render_view()->IsEditableNode(node),
+                      element.isEditable(),
                       &data);
   Send(new AwViewHostMsg_UpdateHitTestData(routing_id(), data));
 }
@@ -319,6 +315,15 @@ void AwRenderViewExt::OnSetBackgroundColor(SkColor c) {
   if (!render_view() || !render_view()->GetWebView())
     return;
   render_view()->GetWebView()->setBaseBackgroundColor(c);
+}
+
+void AwRenderViewExt::OnSmoothScroll(int target_x,
+                                     int target_y,
+                                     long duration_ms) {
+  if (!render_view() || !render_view()->GetWebView())
+    return;
+
+  render_view()->GetWebView()->smoothScroll(target_x, target_y, duration_ms);
 }
 
 }  // namespace android_webview

@@ -63,6 +63,12 @@ void TestingDiscardableMemory::unlock()
     memset(m_data.data(), 0, m_data.size());
 }
 
+WebMemoryAllocatorDump* TestingDiscardableMemory::createMemoryAllocatorDump(const WebString& name, WebProcessMemoryDump* dump) const
+{
+    ASSERT_NOT_REACHED();
+    return nullptr;
+}
+
 TestingPlatformSupport::TestingPlatformSupport(const Config& config)
     : m_config(config)
     , m_oldPlatform(Platform::current())
@@ -82,6 +88,7 @@ WebDiscardableMemory* TestingPlatformSupport::allocateAndLockDiscardableMemory(s
 
 void TestingPlatformSupport::cryptographicallyRandomValues(unsigned char* buffer, size_t length)
 {
+    RELEASE_ASSERT_NOT_REACHED();
 }
 
 const unsigned char* TestingPlatformSupport::getTraceCategoryEnabledFlag(const char* categoryName)

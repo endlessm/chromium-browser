@@ -51,8 +51,6 @@
 
 namespace cricket {
 
-class VideoProcessor;
-
 // Current state of the capturer.
 // TODO(hellner): CS_NO_DEVICE is an error code not a capture state. Separate
 //                error codes and states.
@@ -70,15 +68,15 @@ enum CaptureState {
 class VideoFrame;
 
 struct CapturedFrame {
-  static const uint32 kFrameHeaderSize = 40;  // Size from width to data_size.
-  static const uint32 kUnknownDataSize = 0xFFFFFFFF;
+  static const uint32_t kFrameHeaderSize = 40;  // Size from width to data_size.
+  static const uint32_t kUnknownDataSize = 0xFFFFFFFF;
 
   CapturedFrame();
 
   // Get the number of bytes of the frame data. If data_size is known, return
   // it directly. Otherwise, calculate the size based on width, height, and
   // fourcc. Return true if succeeded.
-  bool GetDataSize(uint32* size) const;
+  bool GetDataSize(uint32_t* size) const;
 
   // TODO(guoweis): Change the type of |rotation| from int to
   // webrtc::VideoRotation once chromium gets the code.
@@ -87,16 +85,16 @@ struct CapturedFrame {
   // The width and height of the captured frame could be different from those
   // of VideoFormat. Once the first frame is captured, the width, height,
   // fourcc, pixel_width, and pixel_height should keep the same over frames.
-  int    width;         // in number of pixels
-  int    height;        // in number of pixels
-  uint32 fourcc;        // compression
-  uint32 pixel_width;   // width of a pixel, default is 1
-  uint32 pixel_height;  // height of a pixel, default is 1
-  int64  elapsed_time;  // elapsed time since the creation of the frame
-                        // source (that is, the camera), in nanoseconds.
-  int64  time_stamp;    // timestamp of when the frame was captured, in unix
-                        // time with nanosecond units.
-  uint32 data_size;     // number of bytes of the frame data
+  int width;              // in number of pixels
+  int height;             // in number of pixels
+  uint32_t fourcc;        // compression
+  uint32_t pixel_width;   // width of a pixel, default is 1
+  uint32_t pixel_height;  // height of a pixel, default is 1
+  // TODO(magjed): |elapsed_time| is deprecated - remove once not used anymore.
+  int64_t elapsed_time;
+  int64_t time_stamp;  // timestamp of when the frame was captured, in unix
+                       // time with nanosecond units.
+  uint32_t data_size;  // number of bytes of the frame data
 
   // TODO(guoweis): This can't be converted to VideoRotation yet as it's
   // used by chrome now.
@@ -106,7 +104,7 @@ struct CapturedFrame {
                         // memory or points to an existing memory.
 
  private:
-  DISALLOW_COPY_AND_ASSIGN(CapturedFrame);
+  RTC_DISALLOW_COPY_AND_ASSIGN(CapturedFrame);
 };
 
 // VideoCapturer is an abstract class that defines the interfaces for video
@@ -115,8 +113,8 @@ struct CapturedFrame {
 //
 // The captured frames may need to be adapted (for example, cropping).
 // Video adaptation is built into and enabled by default. After a frame has
-// been captured from the device, it is sent to the video adapter, then video
-// processors, then out to the encoder.
+// been captured from the device, it is sent to the video adapter, then out to
+// the encoder.
 //
 // Programming model:
 //   Create an object of a subclass of VideoCapturer
@@ -139,8 +137,6 @@ class VideoCapturer
     : public sigslot::has_slots<>,
       public rtc::MessageHandler {
  public:
-  typedef std::vector<VideoProcessor*> VideoProcessors;
-
   // All signals are marshalled to |thread| or the creating thread if
   // none is provided.
   VideoCapturer();
@@ -233,14 +229,6 @@ class VideoCapturer
   virtual bool SetApplyRotation(bool enable);
   virtual bool GetApplyRotation() { return apply_rotation_; }
 
-  // Adds a video processor that will be applied on VideoFrames returned by
-  // |SignalVideoFrame|. Multiple video processors can be added. The video
-  // processors will be applied in the order they were added.
-  void AddVideoProcessor(VideoProcessor* video_processor);
-  // Removes the |video_processor| from the list of video processors or
-  // returns false.
-  bool RemoveVideoProcessor(VideoProcessor* video_processor);
-
   // Returns true if the capturer is screencasting. This can be used to
   // implement screencast specific behavior.
   virtual bool IsScreencast() const = 0;
@@ -281,8 +269,6 @@ class VideoCapturer
   // such as the encoder.
   sigslot::signal2<VideoCapturer*, const VideoFrame*,
                    sigslot::multi_threaded_local> SignalVideoFrame;
-
-  const VideoProcessors& video_processors() const { return video_processors_; }
 
   // If 'screencast_max_pixels' is set greater than zero, screencasts will be
   // scaled to be no larger than this value.
@@ -330,7 +316,7 @@ class VideoCapturer
 
   // subclasses override this virtual method to provide a vector of fourccs, in
   // order of preference, that are expected by the media engine.
-  virtual bool GetPreferredFourccs(std::vector<uint32>* fourccs) = 0;
+  virtual bool GetPreferredFourccs(std::vector<uint32_t>* fourccs) = 0;
 
   // mutators to set private attributes
   void SetId(const std::string& id) {
@@ -355,16 +341,11 @@ class VideoCapturer
   // Get the distance between the desired format and the supported format.
   // Return the max distance if they mismatch. See the implementation for
   // details.
-  int64 GetFormatDistance(const VideoFormat& desired,
-                          const VideoFormat& supported);
+  int64_t GetFormatDistance(const VideoFormat& desired,
+                            const VideoFormat& supported);
 
   // Convert captured frame to readable string for LOG messages.
   std::string ToString(const CapturedFrame* frame) const;
-
-  // Applies all registered processors. If any of the processors signal that
-  // the frame should be dropped the return value will be false. Note that
-  // this frame should be dropped as it has not applied all processors.
-  bool ApplyProcessors(VideoFrame* video_frame);
 
   // Updates filtered_supported_formats_ so that it contains the formats in
   // supported_formats_ that fulfill all applied restrictions.
@@ -408,20 +389,15 @@ class VideoCapturer
 
   int adapt_frame_drops_;
   rtc::RollingAccumulator<int> adapt_frame_drops_data_;
-  int effect_frame_drops_;
-  rtc::RollingAccumulator<int> effect_frame_drops_data_;
   double previous_frame_time_;
   rtc::RollingAccumulator<double> frame_time_data_;
   // The captured frame format before potential adapation.
   VideoFormat last_captured_frame_format_;
 
-  rtc::CriticalSection crit_;
-  VideoProcessors video_processors_;
-
   // Whether capturer should apply rotation to the frame before signaling it.
   bool apply_rotation_;
 
-  DISALLOW_COPY_AND_ASSIGN(VideoCapturer);
+  RTC_DISALLOW_COPY_AND_ASSIGN(VideoCapturer);
 };
 
 }  // namespace cricket

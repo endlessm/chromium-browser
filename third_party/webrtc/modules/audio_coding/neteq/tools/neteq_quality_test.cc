@@ -208,7 +208,7 @@ static double ProbTrans00Solver(int units, double loss_rate,
 NetEqQualityTest::NetEqQualityTest(int block_duration_ms,
                                    int in_sampling_khz,
                                    int out_sampling_khz,
-                                   enum NetEqDecoder decoder_type)
+                                   NetEqDecoder decoder_type)
     : decoder_type_(decoder_type),
       channels_(FLAGS_channels),
       decoded_time_ms_(0),
@@ -218,8 +218,9 @@ NetEqQualityTest::NetEqQualityTest(int block_duration_ms,
       block_duration_ms_(block_duration_ms),
       in_sampling_khz_(in_sampling_khz),
       out_sampling_khz_(out_sampling_khz),
-      in_size_samples_(in_sampling_khz_ * block_duration_ms_),
-      out_size_samples_(out_sampling_khz_ * kOutputSizeMs),
+      in_size_samples_(
+          static_cast<size_t>(in_sampling_khz_ * block_duration_ms_)),
+      out_size_samples_(static_cast<size_t>(out_sampling_khz_ * kOutputSizeMs)),
       payload_size_bytes_(0),
       max_payload_bytes_(0),
       in_file_(new ResampleInputAudioFile(FLAGS_in_filename,
@@ -231,7 +232,7 @@ NetEqQualityTest::NetEqQualityTest(int block_duration_ms,
   const std::string out_filename = FLAGS_out_filename;
   const std::string log_filename = out_filename + ".log";
   log_file_.open(log_filename.c_str(), std::ofstream::out);
-  CHECK(log_file_.is_open());
+  RTC_CHECK(log_file_.is_open());
 
   if (out_filename.size() >= 4 &&
       out_filename.substr(out_filename.size() - 4) == ".wav") {
@@ -376,9 +377,10 @@ int NetEqQualityTest::Transmit() {
         << " ms ";
   if (payload_size_bytes_ > 0) {
     if (!PacketLost()) {
-      int ret = neteq_->InsertPacket(rtp_header_, &payload_[0],
-                                     payload_size_bytes_,
-                                     packet_input_time_ms * in_sampling_khz_);
+      int ret = neteq_->InsertPacket(
+          rtp_header_,
+          rtc::ArrayView<const uint8_t>(payload_.get(), payload_size_bytes_),
+          packet_input_time_ms * in_sampling_khz_);
       if (ret != NetEq::kOK)
         return -1;
       Log() << "was sent.";
@@ -392,7 +394,7 @@ int NetEqQualityTest::Transmit() {
 
 int NetEqQualityTest::DecodeBlock() {
   int channels;
-  int samples;
+  size_t samples;
   int ret = neteq_->GetAudio(out_size_samples_ * channels_, &out_data_[0],
                              &samples, &channels, NULL);
 
@@ -400,9 +402,9 @@ int NetEqQualityTest::DecodeBlock() {
     return -1;
   } else {
     assert(channels == channels_);
-    assert(samples == kOutputSizeMs * out_sampling_khz_);
-    CHECK(output_->WriteArray(out_data_.get(), samples * channels));
-    return samples;
+    assert(samples == static_cast<size_t>(kOutputSizeMs * out_sampling_khz_));
+    RTC_CHECK(output_->WriteArray(out_data_.get(), samples * channels));
+    return static_cast<int>(samples);
   }
 }
 

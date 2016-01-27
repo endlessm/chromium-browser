@@ -51,7 +51,6 @@
 #endif
 
 #if defined(USE_ASH)
-#include "ash/display/display_controller.h"
 #include "ash/display/display_manager.h"
 #include "ash/shell.h"
 #include "ash/test/cursor_manager_test_api.h"
@@ -97,7 +96,7 @@ class QuitDraggingObserver : public content::NotificationObserver {
                const content::NotificationSource& source,
                const content::NotificationDetails& details) override {
     DCHECK_EQ(chrome::NOTIFICATION_TAB_DRAG_LOOP_DONE, type);
-    base::MessageLoopForUI::current()->Quit();
+    base::MessageLoopForUI::current()->QuitWhenIdle();
     delete this;
   }
 

@@ -9,6 +9,7 @@
 #include "chrome/browser/ui/tabs/tab_utils.h"
 #include "chrome/browser/ui/views/tabs/media_indicator_button.h"
 #include "chrome/browser/ui/views/tabs/tab_controller.h"
+#include "grit/theme_resources.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "ui/base/models/list_selection_model.h"
 #include "ui/views/controls/button/image_button.h"
@@ -27,7 +28,7 @@ class FakeTabController : public TabController {
   void set_immersive_style(bool value) { immersive_style_ = value; }
   void set_active_tab(bool value) { active_tab_ = value; }
 
-  const ui::ListSelectionModel& GetSelectionModel() override {
+  const ui::ListSelectionModel& GetSelectionModel() const override {
     return selection_model_;
   }
   bool SupportsMultipleSelection() override { return false; }
@@ -60,6 +61,10 @@ class FakeTabController : public TabController {
                          const ui::MouseEvent& event) override {}
   bool ShouldPaintTab(const Tab* tab, gfx::Rect* clip) override { return true; }
   bool IsImmersiveStyle() const override { return immersive_style_; }
+  int GetBackgroundResourceId(bool* custom_image) const override {
+    *custom_image = false;
+    return IDR_THEME_TAB_BACKGROUND;
+  }
   void UpdateTabAccessibilityState(const Tab* tab,
                                    ui::AXViewState* state) override{};
 
@@ -197,10 +202,24 @@ class TabTest : public views::ViewsTestBase,
                   tab.close_button_->bounds().x() +
                       tab.close_button_->GetInsets().left());
       }
-      EXPECT_LE(tab.close_button_->bounds().right(), contents_bounds.right());
-      EXPECT_LE(contents_bounds.y(), tab.close_button_->bounds().y());
-      EXPECT_LE(tab.close_button_->bounds().bottom(), contents_bounds.bottom());
+      // We need to use the close button contents bounds instead of its bounds,
+      // since it has an empty border around it to extend its clickable area for
+      // touch.
+      // Note: The close button right edge can be outside the nominal contents
+      // bounds, but shouldn't leave the local bounds.
+      const gfx::Rect close_bounds = tab.close_button_->GetContentsBounds();
+      EXPECT_LE(close_bounds.right(), tab.GetLocalBounds().right());
+      EXPECT_LE(contents_bounds.y(), close_bounds.y());
+      EXPECT_LE(close_bounds.bottom(), contents_bounds.bottom());
     }
+  }
+
+ protected:
+  void InitWidget(Widget* widget) {
+    Widget::InitParams params(CreateParams(Widget::InitParams::TYPE_WINDOW));
+    params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
+    params.bounds.SetRect(10, 20, 300, 400);
+    widget->Init(params);
   }
 
  private:
@@ -222,10 +241,7 @@ TEST_P(TabTest, HitTestTopPixel) {
   }
 
   Widget widget;
-  Widget::InitParams params(CreateParams(Widget::InitParams::TYPE_WINDOW));
-  params.ownership = Widget::InitParams::WIDGET_OWNS_NATIVE_WIDGET;
-  params.bounds.SetRect(10, 20, 300, 400);
-  widget.Init(params);
+  InitWidget(&widget);
 
   FakeTabController tab_controller;
   Tab tab(&tab_controller);
@@ -261,8 +277,12 @@ TEST_P(TabTest, LayoutAndVisibilityOfElements) {
     TAB_MEDIA_STATE_AUDIO_PLAYING, TAB_MEDIA_STATE_AUDIO_MUTING
   };
 
+  Widget widget;
+  InitWidget(&widget);
+
   FakeTabController controller;
   Tab tab(&controller);
+  widget.GetContentsView()->AddChildView(&tab);
 
   SkBitmap bitmap;
   bitmap.allocN32Pixels(16, 16);
@@ -294,8 +314,8 @@ TEST_P(TabTest, LayoutAndVisibilityOfElements) {
           bounds.set_width(Tab::GetPinnedWidth());
           min_width = Tab::GetPinnedWidth();
         } else {
-          min_width = is_active_tab ? Tab::GetMinimumSelectedSize().width() :
-              Tab::GetMinimumUnselectedSize().width();
+          min_width = is_active_tab ? Tab::GetMinimumActiveSize().width()
+                                    : Tab::GetMinimumInactiveSize().width();
         }
         while (bounds.width() >= min_width) {
           SCOPED_TRACE(::testing::Message() << "bounds=" << bounds.ToString());
@@ -317,8 +337,12 @@ TEST_P(TabTest, TooltipProvidedByTab) {
     return;
   }
 
+  Widget widget;
+  InitWidget(&widget);
+
   FakeTabController controller;
   Tab tab(&controller);
+  widget.GetContentsView()->AddChildView(&tab);
   tab.SetBoundsRect(gfx::Rect(Tab::GetStandardSize()));
 
   SkBitmap bitmap;

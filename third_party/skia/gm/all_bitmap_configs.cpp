@@ -75,7 +75,7 @@ static void color_wheel_native(SkCanvas* canvas) {
     const SkScalar D = 0.3f * SkIntToScalar(SCALE);
     const SkScalar X = SkDoubleToScalar(D * sqrt_3_over_2);
     const SkScalar Y = D * SK_ScalarHalf;
-    sk_tool_utils::set_portable_typeface_always(&p, NULL, SkTypeface::kBold);
+    sk_tool_utils::set_portable_typeface(&p, nullptr, SkTypeface::kBold);
     p.setTextSize(0.28125f * SCALE);
     draw_center_letter('K', &p, SK_ColorBLACK, Z, Z, canvas);
     draw_center_letter('R', &p, SK_ColorRED, Z, D, canvas);
@@ -124,11 +124,10 @@ static SkBitmap indexed_bitmap() {
         pmColors[i] = premultiply_color(colors[i]);
     }
     SkBitmap bm;
-    SkAutoTUnref<SkColorTable> ctable(
-            SkNEW_ARGS(SkColorTable, (pmColors, SK_ARRAY_COUNT(pmColors))));
+    SkAutoTUnref<SkColorTable> ctable(new SkColorTable(pmColors, SK_ARRAY_COUNT(pmColors)));
     SkImageInfo info = SkImageInfo::Make(SCALE, SCALE, kIndex_8_SkColorType,
                                          kPremul_SkAlphaType);
-    bm.allocPixels(info, NULL, ctable);
+    bm.allocPixels(info, nullptr, ctable);
     SkAutoLockPixels autoLockPixels1(n32bitmap);
     SkAutoLockPixels autoLockPixels2(bm);
     for (int y = 0; y < SCALE; ++y) {
@@ -156,7 +155,7 @@ DEF_SIMPLE_GM(all_bitmap_configs, canvas, SCALE, 6 * SCALE) {
     SkPaint p;
     p.setColor(SK_ColorBLACK);
     p.setAntiAlias(true);
-    sk_tool_utils::set_portable_typeface_always(&p, NULL);
+    sk_tool_utils::set_portable_typeface(&p, nullptr);
 
     sk_tool_utils::draw_checkerboard(canvas, SK_ColorLTGRAY, SK_ColorWHITE, 8);
 
@@ -190,4 +189,30 @@ DEF_SIMPLE_GM(all_bitmap_configs, canvas, SCALE, 6 * SCALE) {
     canvas->translate(0.0f, SkIntToScalar(SCALE));
     SkBitmap bitmapG8 = make_bitmap(kGray_8_SkColorType);
     draw(canvas, p, bitmapG8, kGray_8_SkColorType, "Gray 8");
+}
+
+// Works on Ganesh, fails on Raster.
+SkImage* make_not_native32_color_wheel() {
+    SkBitmap n32bitmap, notN32bitmap;
+    n32bitmap.allocN32Pixels(SCALE, SCALE);
+    n32bitmap.eraseColor(SK_ColorTRANSPARENT);
+    SkCanvas n32canvas(n32bitmap);
+    color_wheel_native(&n32canvas);
+    n32canvas.flush();
+    #if SK_PMCOLOR_BYTE_ORDER(B,G,R,A)
+        const SkColorType ct = kRGBA_8888_SkColorType;
+    #elif SK_PMCOLOR_BYTE_ORDER(R,G,B,A)
+        const SkColorType ct = kBGRA_8888_SkColorType;
+    #endif
+    static_assert(ct != kN32_SkColorType, "BRGA!=RGBA");
+    SkAssertResult(n32bitmap.copyTo(&notN32bitmap, ct));
+    SkASSERT(notN32bitmap.colorType() == ct);
+    return SkImage::NewFromBitmap(notN32bitmap);
+}
+
+DEF_SIMPLE_GM(not_native32_bitmap_config, canvas, SCALE, SCALE) {
+    SkAutoTUnref<SkImage> notN32image(make_not_native32_color_wheel());
+    SkASSERT(notN32image);
+    sk_tool_utils::draw_checkerboard(canvas, SK_ColorLTGRAY, SK_ColorWHITE, 8);
+    canvas->drawImage(notN32image, 0.0f, 0.0f);
 }

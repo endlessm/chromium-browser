@@ -39,11 +39,8 @@ void TestAutofillDriver::SendFormDataToRenderer(int query_id,
                                                 const FormData& form_data) {
 }
 
-void TestAutofillDriver::PingRenderer() {
-}
-
 void TestAutofillDriver::PropagateAutofillPredictions(
-    const std::vector<autofill::FormStructure*>& forms) {
+    const std::vector<FormStructure*>& forms) {
 }
 
 void TestAutofillDriver::SendAutofillTypePredictionsToRenderer(

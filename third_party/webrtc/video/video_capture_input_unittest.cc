@@ -15,12 +15,11 @@
 #include "testing/gtest/include/gtest/gtest.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/common.h"
-#include "webrtc/modules/utility/interface/mock/mock_process_thread.h"
-#include "webrtc/modules/video_capture/include/mock/mock_video_capture.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
-#include "webrtc/system_wrappers/interface/event_wrapper.h"
-#include "webrtc/system_wrappers/interface/ref_count.h"
-#include "webrtc/system_wrappers/interface/scoped_vector.h"
+#include "webrtc/modules/utility/include/mock/mock_process_thread.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/event_wrapper.h"
+#include "webrtc/system_wrappers/include/ref_count.h"
+#include "webrtc/system_wrappers/include/scoped_vector.h"
 #include "webrtc/test/fake_texture_frame.h"
 #include "webrtc/video/send_statistics_proxy.h"
 
@@ -54,7 +53,7 @@ class VideoCaptureInputTest : public ::testing::Test {
         mock_frame_callback_(new NiceMock<MockVideoCaptureCallback>),
         output_frame_event_(EventWrapper::Create()),
         stats_proxy_(Clock::GetRealTimeClock(),
-                     webrtc::VideoSendStream::Config()) {}
+                     webrtc::VideoSendStream::Config(nullptr)) {}
 
   virtual void SetUp() {
     EXPECT_CALL(*mock_frame_callback_, DeliverFrame(_))
@@ -64,7 +63,7 @@ class VideoCaptureInputTest : public ::testing::Test {
     Config config;
     input_.reset(new internal::VideoCaptureInput(
         mock_process_thread_.get(), mock_frame_callback_.get(), nullptr,
-        &stats_proxy_, nullptr));
+        &stats_proxy_, nullptr, nullptr));
   }
 
   virtual void TearDown() {

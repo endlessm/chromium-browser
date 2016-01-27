@@ -25,9 +25,9 @@
 
 #include "webrtc/modules/audio_coding/main/acm2/acm_common_defs.h"
 #include "webrtc/modules/audio_coding/main/test/utility.h"
-#include "webrtc/system_wrappers/interface/event_wrapper.h"
-#include "webrtc/system_wrappers/interface/tick_util.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/event_wrapper.h"
+#include "webrtc/system_wrappers/include/tick_util.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/test/testsupport/fileutils.h"
 
 namespace webrtc {
@@ -35,8 +35,6 @@ namespace webrtc {
 void SetISACConfigDefault(ACMTestISACConfig& isacConfig) {
   isacConfig.currentRateBitPerSec = 0;
   isacConfig.currentFrameSizeMsec = 0;
-  isacConfig.maxRateBitPerSec = 0;
-  isacConfig.maxPayloadSizeByte = 0;
   isacConfig.encodingMode = -1;
   isacConfig.initRateBitPerSec = 0;
   isacConfig.initFrameSizeInMsec = 0;
@@ -49,38 +47,22 @@ int16_t SetISAConfig(ACMTestISACConfig& isacConfig, AudioCodingModule* acm,
 
   if ((isacConfig.currentRateBitPerSec != 0)
       || (isacConfig.currentFrameSizeMsec != 0)) {
-    CodecInst sendCodec;
-    EXPECT_EQ(0, acm->SendCodec(&sendCodec));
+    auto sendCodec = acm->SendCodec();
+    EXPECT_TRUE(sendCodec);
     if (isacConfig.currentRateBitPerSec < 0) {
       // Register iSAC in adaptive (channel-dependent) mode.
-      sendCodec.rate = -1;
-      EXPECT_EQ(0, acm->RegisterSendCodec(sendCodec));
+      sendCodec->rate = -1;
+      EXPECT_EQ(0, acm->RegisterSendCodec(*sendCodec));
     } else {
       if (isacConfig.currentRateBitPerSec != 0) {
-        sendCodec.rate = isacConfig.currentRateBitPerSec;
+        sendCodec->rate = isacConfig.currentRateBitPerSec;
       }
       if (isacConfig.currentFrameSizeMsec != 0) {
-        sendCodec.pacsize = isacConfig.currentFrameSizeMsec
-            * (sendCodec.plfreq / 1000);
+        sendCodec->pacsize = isacConfig.currentFrameSizeMsec
+            * (sendCodec->plfreq / 1000);
       }
-      EXPECT_EQ(0, acm->RegisterSendCodec(sendCodec));
+      EXPECT_EQ(0, acm->RegisterSendCodec(*sendCodec));
     }
-  }
-
-  if (isacConfig.maxRateBitPerSec > 0) {
-    // Set max rate.
-    EXPECT_EQ(0, acm->SetISACMaxRate(isacConfig.maxRateBitPerSec));
-  }
-  if (isacConfig.maxPayloadSizeByte > 0) {
-    // Set max payload size.
-    EXPECT_EQ(0, acm->SetISACMaxPayloadSize(isacConfig.maxPayloadSizeByte));
-  }
-  if ((isacConfig.initFrameSizeInMsec != 0)
-      || (isacConfig.initRateBitPerSec != 0)) {
-    EXPECT_EQ(0, acm->ConfigISACBandwidthEstimator(
-        static_cast<uint8_t>(isacConfig.initFrameSizeInMsec),
-        static_cast<uint16_t>(isacConfig.initRateBitPerSec),
-        isacConfig.enforceFrameSize));
   }
 
   return 0;
@@ -200,41 +182,6 @@ void ISACTest::Perform() {
   testNr++;
   EncodeDecode(testNr, wbISACConfig, swbISACConfig);
 
-  int user_input;
-  if ((_testMode == 0) || (_testMode == 1)) {
-    swbISACConfig.maxPayloadSizeByte = static_cast<uint16_t>(200);
-    wbISACConfig.maxPayloadSizeByte = static_cast<uint16_t>(200);
-  } else {
-    printf("Enter the max payload-size for side A: ");
-    CHECK_ERROR(scanf("%d", &user_input));
-    swbISACConfig.maxPayloadSizeByte = (uint16_t) user_input;
-    printf("Enter the max payload-size for side B: ");
-    CHECK_ERROR(scanf("%d", &user_input));
-    wbISACConfig.maxPayloadSizeByte = (uint16_t) user_input;
-  }
-  testNr++;
-  EncodeDecode(testNr, wbISACConfig, swbISACConfig);
-
-  _acmA->ResetEncoder();
-  _acmB->ResetEncoder();
-  SetISACConfigDefault(wbISACConfig);
-  SetISACConfigDefault(swbISACConfig);
-
-  if ((_testMode == 0) || (_testMode == 1)) {
-    swbISACConfig.maxRateBitPerSec = static_cast<uint32_t>(48000);
-    wbISACConfig.maxRateBitPerSec = static_cast<uint32_t>(48000);
-  } else {
-    printf("Enter the max rate for side A: ");
-    CHECK_ERROR(scanf("%d", &user_input));
-    swbISACConfig.maxRateBitPerSec = (uint32_t) user_input;
-    printf("Enter the max rate for side B: ");
-    CHECK_ERROR(scanf("%d", &user_input));
-    wbISACConfig.maxRateBitPerSec = (uint32_t) user_input;
-  }
-
-  testNr++;
-  EncodeDecode(testNr, wbISACConfig, swbISACConfig);
-
   testNr++;
   if (_testMode == 0) {
     SwitchingSamplingRate(testNr, 4);
@@ -291,7 +238,6 @@ void ISACTest::EncodeDecode(int testNr, ACMTestISACConfig& wbISACConfig,
   _channel_B2A->ResetStats();
 
   char currentTime[500];
-  CodecInst sendCodec;
   EventTimerWrapper* myEvent = EventTimerWrapper::Create();
   EXPECT_TRUE(myEvent->StartTimer(true, 10));
   while (!(_inFileA.EndOfFile() || _inFileA.Rewinded())) {
@@ -301,8 +247,8 @@ void ISACTest::EncodeDecode(int testNr, ACMTestISACConfig& wbISACConfig,
 
     if ((adaptiveMode) && (_testMode != 0)) {
       myEvent->Wait(5000);
-      EXPECT_EQ(0, _acmA->SendCodec(&sendCodec));
-      EXPECT_EQ(0, _acmB->SendCodec(&sendCodec));
+      EXPECT_TRUE(_acmA->SendCodec());
+      EXPECT_TRUE(_acmB->SendCodec());
     }
   }
 

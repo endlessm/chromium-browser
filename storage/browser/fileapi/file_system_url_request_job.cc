@@ -62,8 +62,7 @@ FileSystemURLRequestJob::FileSystemURLRequestJob(
       file_system_context_(file_system_context),
       is_directory_(false),
       remaining_bytes_(0),
-      weak_factory_(this) {
-}
+      weak_factory_(this) {}
 
 FileSystemURLRequestJob::~FileSystemURLRequestJob() {}
 
@@ -190,8 +189,9 @@ void FileSystemURLRequestJob::DidGetMetadata(
     base::File::Error error_code,
     const base::File::Info& file_info) {
   if (error_code != base::File::FILE_OK) {
-    NotifyFailed(error_code == base::File::FILE_ERROR_INVALID_URL ?
-                 net::ERR_INVALID_URL : net::ERR_FILE_NOT_FOUND);
+    NotifyFailed(error_code == base::File::FILE_ERROR_INVALID_URL
+                     ? net::ERR_INVALID_URL
+                     : net::ERR_FILE_NOT_FOUND);
     return;
   }
 

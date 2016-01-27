@@ -34,7 +34,6 @@
 #include "core/InspectorFrontend.h"
 #include "core/inspector/InspectorBaseAgent.h"
 #include "wtf/Forward.h"
-#include "wtf/HashMap.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/PassOwnPtr.h"
 #include "wtf/text/WTFString.h"
@@ -42,31 +41,40 @@
 namespace blink {
 
 class ExecutionContext;
-class InjectedScriptManager;
 class InspectorFrontend;
-class InspectorOverlay;
-
+class V8ProfilerAgent;
 
 typedef String ErrorString;
 
 class CORE_EXPORT InspectorProfilerAgent final : public InspectorBaseAgent<InspectorProfilerAgent, InspectorFrontend::Profiler>, public InspectorBackendDispatcher::ProfilerCommandHandler {
     WTF_MAKE_NONCOPYABLE(InspectorProfilerAgent);
-    WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(InspectorProfilerAgent);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(InspectorProfilerAgent);
 public:
-    static PassOwnPtrWillBeRawPtr<InspectorProfilerAgent> create(InjectedScriptManager*, InspectorOverlay*);
-    virtual ~InspectorProfilerAgent();
+    class Client {
+    public:
+        virtual ~Client() { }
+        virtual void profilingStarted() { }
+        virtual void profilingStopped() { }
+    };
+
+    static PassOwnPtrWillBeRawPtr<InspectorProfilerAgent> create(v8::Isolate*, Client*);
+    ~InspectorProfilerAgent() override;
     DECLARE_VIRTUAL_TRACE();
+
+    // InspectorBaseAgent overrides.
+    void init() override;
+    void setFrontend(InspectorFrontend*) override;
+    void clearFrontend() override;
+    void restore() override;
 
     void consoleProfile(ExecutionContext*, const String& title);
     void consoleProfileEnd(const String& title);
 
     void enable(ErrorString*) override;
+    void disable(ErrorString*) override;
     void setSamplingInterval(ErrorString*, int) override;
     void start(ErrorString*) override;
     void stop(ErrorString*, RefPtr<TypeBuilder::Profiler::CPUProfile>&) override;
-
-    void disable(ErrorString*) override;
-    void restore() override;
 
     void willProcessTask();
     void didProcessTask();
@@ -74,25 +82,10 @@ public:
     void didLeaveNestedRunLoop();
 
 private:
-    InspectorProfilerAgent(InjectedScriptManager*, InspectorOverlay*);
-    bool enabled();
-    void doEnable();
-    void stop(ErrorString*, RefPtr<TypeBuilder::Profiler::CPUProfile>*);
-    String nextProfileId();
+    InspectorProfilerAgent(v8::Isolate*, Client*);
 
-    RawPtrWillBeMember<InjectedScriptManager> m_injectedScriptManager;
-    bool m_recordingCPUProfile;
-    class ProfileDescriptor;
-    Vector<ProfileDescriptor> m_startedProfiles;
-    String m_frontendInitiatedProfileId;
-
-    typedef HashMap<String, double> ProfileNameIdleTimeMap;
-    ProfileNameIdleTimeMap* m_profileNameIdleTimeMap;
-    double m_idleStartTime;
-    RawPtrWillBeMember<InspectorOverlay> m_overlay;
-
-    void idleStarted();
-    void idleFinished();
+    Client* m_client;
+    OwnPtr<V8ProfilerAgent> m_v8ProfilerAgent;
 };
 
 } // namespace blink

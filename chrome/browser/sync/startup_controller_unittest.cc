@@ -2,19 +2,19 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "chrome/browser/sync/startup_controller.h"
+#include "components/sync_driver/startup_controller.h"
 
 #include "base/command_line.h"
 #include "base/message_loop/message_loop.h"
 #include "base/run_loop.h"
 #include "base/time/time.h"
 #include "chrome/browser/defaults.h"
-#include "chrome/browser/signin/fake_profile_oauth2_token_service.h"
 #include "chrome/browser/signin/fake_profile_oauth2_token_service_builder.h"
 #include "chrome/browser/signin/profile_oauth2_token_service_factory.h"
 #include "chrome/browser/sync/supervised_user_signin_manager_wrapper.h"
-#include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/signin/core/browser/fake_profile_oauth2_token_service.h"
+#include "components/sync_driver/sync_driver_switches.h"
 #include "components/sync_driver/sync_prefs.h"
 #include "content/public/test/test_browser_thread_bundle.h"
 #include "testing/gtest/include/gtest/gtest.h"
@@ -32,11 +32,9 @@ static const char kStateStringStarted[] = "Started";
 static const char kStateStringDeferred[] = "Deferred";
 static const char kStateStringNotStarted[] = "Not started";
 
-class FakeSupervisedUserSigninManagerWrapper
-    : public SupervisedUserSigninManagerWrapper {
+class FakeSigninManagerWrapper : public SigninManagerWrapper {
  public:
-  FakeSupervisedUserSigninManagerWrapper()
-      : SupervisedUserSigninManagerWrapper(NULL, NULL) {}
+  FakeSigninManagerWrapper() : SigninManagerWrapper(NULL) {}
   std::string GetEffectiveUsername() const override { return account_; }
 
   std::string GetAccountIdToUse() const override { return account_; }
@@ -56,7 +54,7 @@ class StartupControllerTest : public testing::Test {
     sync_prefs_.reset(new sync_driver::SyncPrefs(profile_->GetPrefs()));
     token_service_.reset(static_cast<FakeProfileOAuth2TokenService*>(
         BuildFakeProfileOAuth2TokenService(profile_.get()).release()));
-    signin_.reset(new FakeSupervisedUserSigninManagerWrapper());
+    signin_.reset(new FakeSigninManagerWrapper());
 
     ProfileSyncServiceStartBehavior behavior =
         browser_defaults::kSyncAutoStarts ? AUTO_START : MANUAL_START;
@@ -86,7 +84,7 @@ class StartupControllerTest : public testing::Test {
   bool started() const { return started_; }
   void clear_started() { started_ = false; }
   StartupController* controller() { return controller_.get(); }
-  FakeSupervisedUserSigninManagerWrapper* signin() { return signin_.get(); }
+  FakeSigninManagerWrapper* signin() { return signin_.get(); }
   FakeProfileOAuth2TokenService* token_service() {
     return token_service_.get();
   }
@@ -97,7 +95,7 @@ class StartupControllerTest : public testing::Test {
   bool started_;
   content::TestBrowserThreadBundle thread_bundle_;
   scoped_ptr<StartupController> controller_;
-  scoped_ptr<FakeSupervisedUserSigninManagerWrapper> signin_;
+  scoped_ptr<FakeSigninManagerWrapper> signin_;
   scoped_ptr<FakeProfileOAuth2TokenService> token_service_;
   scoped_ptr<sync_driver::SyncPrefs> sync_prefs_;
   scoped_ptr<TestingProfile> profile_;
@@ -257,7 +255,7 @@ TEST_F(StartupControllerTest, ResetDuringSetup) {
   controller()->Reset(syncer::UserTypes());
 
   // From the UI's point of view, setup is still in progress.
-  EXPECT_TRUE(controller()->setup_in_progress());
+  EXPECT_TRUE(controller()->IsSetupInProgress());
 }
 
 }  // namespace browser_sync

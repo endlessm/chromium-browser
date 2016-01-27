@@ -31,6 +31,7 @@ const char kEventExit[] = "webViewInternal.onExit";
 const char kEventExitFullscreen[] = "webViewInternal.onExitFullscreen";
 const char kEventFindReply[] = "webViewInternal.onFindReply";
 const char kEventFrameNameChanged[] = "webViewInternal.onFrameNameChanged";
+const char kEventHeadersReceived[] = "webViewInternal.onHeadersReceived";
 const char kEventLoadAbort[] = "webViewInternal.onLoadAbort";
 const char kEventLoadCommit[] = "webViewInternal.onLoadCommit";
 const char kEventLoadProgress[] = "webViewInternal.onLoadProgress";
@@ -40,10 +41,20 @@ const char kEventLoadStop[] = "webViewInternal.onLoadStop";
 const char kEventMessage[] = "webViewInternal.onMessage";
 const char kEventNewWindow[] = "webViewInternal.onNewWindow";
 const char kEventPermissionRequest[] = "webViewInternal.onPermissionRequest";
+const char kEventResponseStarted[] = "webViewInternal.onResponseStarted";
 const char kEventResponsive[] = "webViewInternal.onResponsive";
 const char kEventSizeChanged[] = "webViewInternal.onSizeChanged";
 const char kEventUnresponsive[] = "webViewInternal.onUnresponsive";
 const char kEventZoomChange[] = "webViewInternal.onZoomChange";
+
+// WebRequest API events.
+const char kEventAuthRequired[] = "webViewInternal.onAuthRequired";
+const char kEventBeforeRedirect[] = "webViewInternal.onBeforeRedirect";
+const char kEventBeforeRequest[] = "webViewInternal.onBeforeRequest";
+const char kEventBeforeSendHeaders[] = "webViewInternal.onBeforeSendHeaders";
+const char kEventCompleted[] = "webViewInternal.onCompleted";
+const char kEventErrorOccurred[] = "webViewInternal.onErrorOccurred";
+const char kEventSendHeaders[] = "webViewInternal.onSendHeaders";
 
 // Event related constants.
 const char kWebViewEventPrefix[] = "webViewInternal.";

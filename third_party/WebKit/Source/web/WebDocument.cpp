@@ -38,6 +38,7 @@
 #include "core/css/StyleSheetContents.h"
 #include "core/dom/CSSSelectorWatch.h"
 #include "core/dom/Document.h"
+#include "core/dom/DocumentStatisticsCollector.h"
 #include "core/dom/DocumentType.h"
 #include "core/dom/Element.h"
 #include "core/dom/Fullscreen.h"
@@ -56,6 +57,7 @@
 #include "modules/accessibility/AXObject.h"
 #include "modules/accessibility/AXObjectCacheImpl.h"
 #include "platform/weborigin/SecurityOrigin.h"
+#include "public/platform/WebDistillability.h"
 #include "public/platform/WebURL.h"
 #include "public/web/WebAXObject.h"
 #include "public/web/WebDOMEvent.h"
@@ -63,7 +65,6 @@
 #include "public/web/WebElement.h"
 #include "public/web/WebElementCollection.h"
 #include "public/web/WebFormElement.h"
-#include "public/web/WebNodeList.h"
 #include "web/WebLocalFrameImpl.h"
 #include "wtf/PassRefPtr.h"
 #include <v8.h>
@@ -82,13 +83,13 @@ WebSecurityOrigin WebDocument::securityOrigin() const
     return WebSecurityOrigin(constUnwrap<Document>()->securityOrigin());
 }
 
-bool WebDocument::isPrivilegedContext(WebString& errorMessage) const
+bool WebDocument::isSecureContext(WebString& errorMessage) const
 {
     const Document* document = constUnwrap<Document>();
     if (!document)
         return false;
     String message;
-    bool result = document->isPrivilegedContext(message);
+    bool result = document->isSecureContext(message);
     errorMessage = message;
     return result;
 }
@@ -248,27 +249,14 @@ WebElement WebDocument::fullScreenElement() const
     return WebElement(fullScreenElement);
 }
 
-WebDOMEvent WebDocument::createEvent(const WebString& eventType)
-{
-    TrackExceptionState exceptionState;
-    WebDOMEvent event(unwrap<Document>()->createEvent(eventType, exceptionState));
-    if (exceptionState.hadException())
-        return WebDOMEvent();
-    return event;
-}
-
 WebReferrerPolicy WebDocument::referrerPolicy() const
 {
     return static_cast<WebReferrerPolicy>(constUnwrap<Document>()->referrerPolicy());
 }
 
-WebElement WebDocument::createElement(const WebString& tagName)
+WebString WebDocument::outgoingReferrer()
 {
-    TrackExceptionState exceptionState;
-    WebElement element(unwrap<Document>()->createElement(tagName, exceptionState));
-    if (exceptionState.hadException())
-        return WebElement();
-    return element;
+    return WebString(unwrap<Document>()->outgoingReferrer());
 }
 
 WebAXObject WebDocument::accessibilityObject() const
@@ -335,19 +323,17 @@ bool WebDocument::manifestUseCredentials() const
     return equalIgnoringCase(linkElement->fastGetAttribute(HTMLNames::crossoriginAttr), "use-credentials");
 }
 
-WebURL WebDocument::defaultPresentationURL() const
+WebDistillabilityFeatures WebDocument::distillabilityFeatures()
 {
-    const Document* document = constUnwrap<Document>();
-    HTMLLinkElement* linkElement = document->linkDefaultPresentation();
-    if (!linkElement)
-        return WebURL();
-    return linkElement->href();
+    return DocumentStatisticsCollector::collectStatistics(*unwrap<Document>());
 }
 
 WebDocument::WebDocument(const PassRefPtrWillBeRawPtr<Document>& elem)
     : WebNode(elem)
 {
 }
+
+DEFINE_WEB_NODE_TYPE_CASTS(WebDocument, constUnwrap<Node>()->isDocumentNode());
 
 WebDocument& WebDocument::operator=(const PassRefPtrWillBeRawPtr<Document>& elem)
 {

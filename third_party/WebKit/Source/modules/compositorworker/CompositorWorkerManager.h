@@ -14,9 +14,11 @@
 namespace blink {
 
 class V8IsolateInterruptor;
+class WebThread;
 class WebThreadSupportingGC;
 
 class MODULES_EXPORT CompositorWorkerManager final {
+    USING_FAST_MALLOC(CompositorWorkerManager);
 public:
     static void initialize();
     static void shutdown();
@@ -46,9 +48,9 @@ private:
 
     Mutex m_mutex;
     OwnPtr<WebThreadSupportingGC> m_thread;
+    OwnPtr<WebThread> m_platformThread;
     int m_workerCount = 0;
     v8::Isolate* m_isolate = nullptr;
-    OwnPtr<V8IsolateInterruptor> m_interruptor;
 };
 
 } // namespace blink

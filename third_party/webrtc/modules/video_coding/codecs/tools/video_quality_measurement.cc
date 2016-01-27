@@ -27,7 +27,7 @@
 #include "webrtc/modules/video_coding/codecs/test/videoprocessor.h"
 #include "webrtc/modules/video_coding/codecs/vp8/include/vp8.h"
 #include "webrtc/modules/video_coding/main/interface/video_coding.h"
-#include "webrtc/system_wrappers/interface/trace.h"
+#include "webrtc/system_wrappers/include/trace.h"
 #include "webrtc/test/testsupport/frame_reader.h"
 #include "webrtc/test/testsupport/frame_writer.h"
 #include "webrtc/test/testsupport/metrics/video_metrics.h"
@@ -425,7 +425,7 @@ void PrintPythonOutput(const webrtc::test::TestConfig& config,
            f.decode_return_code,
            f.bit_rate_in_kbps,
            f.encoded_frame_length_in_bytes,
-           f.frame_type == webrtc::kDeltaFrame ? "'Delta'" : "'Other'",
+           f.frame_type == webrtc::kVideoFrameDelta ? "'Delta'" : "'Other'",
            f.packets_dropped,
            f.total_packets,
            ssim.value,

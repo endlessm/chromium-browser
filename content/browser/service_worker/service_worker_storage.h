@@ -14,7 +14,6 @@
 #include "base/bind.h"
 #include "base/files/file_path.h"
 #include "base/gtest_prod_util.h"
-#include "base/memory/scoped_vector.h"
 #include "base/memory/weak_ptr.h"
 #include "content/browser/service_worker/service_worker_database.h"
 #include "content/browser/service_worker/service_worker_database_task_manager.h"
@@ -46,7 +45,8 @@ class ServiceWorkerResponseWriter;
 struct ServiceWorkerRegistrationInfo;
 
 // This class provides an interface to store and retrieve ServiceWorker
-// registration data.
+// registration data. The lifetime is equal to ServiceWorkerContextCore that is
+// an owner of this class.
 class CONTENT_EXPORT ServiceWorkerStorage
     : NON_EXPORTED_BASE(public ServiceWorkerVersion::Listener) {
  public:
@@ -72,7 +72,7 @@ class CONTENT_EXPORT ServiceWorkerStorage
 
   static scoped_ptr<ServiceWorkerStorage> Create(
       const base::FilePath& path,
-      base::WeakPtr<ServiceWorkerContextCore> context,
+      const base::WeakPtr<ServiceWorkerContextCore>& context,
       scoped_ptr<ServiceWorkerDatabaseTaskManager> database_task_manager,
       const scoped_refptr<base::SingleThreadTaskRunner>& disk_cache_thread,
       storage::QuotaManagerProxy* quota_manager_proxy,
@@ -80,7 +80,7 @@ class CONTENT_EXPORT ServiceWorkerStorage
 
   // Used for DeleteAndStartOver. Creates new storage based on |old_storage|.
   static scoped_ptr<ServiceWorkerStorage> Create(
-      base::WeakPtr<ServiceWorkerContextCore> context,
+      const base::WeakPtr<ServiceWorkerContextCore>& context,
       ServiceWorkerStorage* old_storage);
 
   // Finds registration for |document_url| or |pattern| or |registration_id|.
@@ -142,19 +142,20 @@ class CONTENT_EXPORT ServiceWorkerStorage
                           const StatusCallback& callback);
 
   scoped_ptr<ServiceWorkerResponseReader> CreateResponseReader(
-      int64 response_id);
+      int64 resource_id);
   scoped_ptr<ServiceWorkerResponseWriter> CreateResponseWriter(
-      int64 response_id);
+      int64 resource_id);
   scoped_ptr<ServiceWorkerResponseMetadataWriter> CreateResponseMetadataWriter(
-      int64 response_id);
+      int64 resource_id);
 
-  // Adds |id| to the set of resources ids that are in the disk
-  // cache but not yet stored with a registration.
-  void StoreUncommittedResponseId(int64 id);
+  // Adds |resource_id| to the set of resources that are in the disk cache
+  // but not yet stored with a registration.
+  void StoreUncommittedResourceId(int64 resource_id);
 
-  // Removes |id| from uncommitted list, adds it to the
-  // purgeable list and purges it.
-  void DoomUncommittedResponse(int64 id);
+  // Removes resource ids from uncommitted list, adds them to the purgeable list
+  // and purges them.
+  void DoomUncommittedResource(int64 resource_id);
+  void DoomUncommittedResources(const std::set<int64>& resource_ids);
 
   // Provide a storage mechanism to read/write arbitrary data associated with
   // a registration. Each registration has its own key namespace. Stored data
@@ -176,12 +177,24 @@ class CONTENT_EXPORT ServiceWorkerStorage
       const std::string& key,
       const GetUserDataForAllRegistrationsCallback& callback);
 
+  // Returns true if any service workers at |origin| have registered for foreign
+  // fetch.
+  bool OriginHasForeignFetchRegistrations(const GURL& origin);
+
   // Deletes the storage and starts over.
   void DeleteAndStartOver(const StatusCallback& callback);
 
-  // Returns new IDs which are guaranteed to be unique in the storage.
+  // Returns a new registration id which is guaranteed to be unique in the
+  // storage. Returns kInvalidServiceWorkerRegistrationId if the storage is
+  // disabled.
   int64 NewRegistrationId();
+
+  // Returns a new version id which is guaranteed to be unique in the storage.
+  // Returns kInvalidServiceWorkerVersionId if the storage is disabled.
   int64 NewVersionId();
+
+  // Returns a new resource id which is guaranteed to be unique in the storage.
+  // Returns kInvalidServiceWorkerResourceId if the storage is disabled.
   int64 NewResourceId();
 
   // Intended for use only by ServiceWorkerRegisterJob and
@@ -248,6 +261,7 @@ class CONTENT_EXPORT ServiceWorkerStorage
     std::set<GURL> origins;
     bool disk_cache_migration_needed;
     bool old_disk_cache_deletion_needed;
+    std::set<GURL> foreign_fetch_origins;
 
     InitialData();
     ~InitialData();
@@ -263,10 +277,20 @@ class CONTENT_EXPORT ServiceWorkerStorage
     ~DidDeleteRegistrationParams();
   };
 
+  enum class OriginState {
+    // Other registrations with foreign fetch scopes exist for the origin.
+    KEEP_ALL,
+    // Other registrations exist at this origin, but none of them have foreign
+    // fetch scopes.
+    DELETE_FROM_FOREIGN_FETCH,
+    // No other registrations exist at this origin.
+    DELETE_FROM_ALL
+  };
+
   typedef std::vector<ServiceWorkerDatabase::RegistrationData> RegistrationList;
   typedef std::map<int64, scoped_refptr<ServiceWorkerRegistration> >
       RegistrationRefsById;
-  typedef base::Callback<void(InitialData* data,
+  typedef base::Callback<void(scoped_ptr<InitialData> data,
                               ServiceWorkerDatabase::Status status)>
       InitializeCallback;
   typedef base::Callback<void(ServiceWorkerDatabase::Status status)>
@@ -277,7 +301,7 @@ class CONTENT_EXPORT ServiceWorkerStorage
       const std::vector<int64>& newly_purgeable_resources,
       ServiceWorkerDatabase::Status status)> WriteRegistrationCallback;
   typedef base::Callback<void(
-      bool origin_is_deletable,
+      OriginState origin_state,
       const ServiceWorkerDatabase::RegistrationData& deleted_version_data,
       const std::vector<int64>& newly_purgeable_resources,
       ServiceWorkerDatabase::Status status)> DeleteRegistrationCallback;
@@ -315,7 +339,7 @@ class CONTENT_EXPORT ServiceWorkerStorage
 
   bool LazyInitialize(
       const base::Closure& callback);
-  void DidReadInitialData(InitialData* data,
+  void DidReadInitialData(scoped_ptr<InitialData> data,
                           ServiceWorkerDatabase::Status status);
   void DidFindRegistrationForDocument(
       const GURL& document_url,
@@ -356,10 +380,13 @@ class CONTENT_EXPORT ServiceWorkerStorage
       ServiceWorkerDatabase::Status status);
   void DidDeleteRegistration(
       const DidDeleteRegistrationParams& params,
-      bool origin_is_deletable,
+      OriginState origin_state,
       const ServiceWorkerDatabase::RegistrationData& deleted_version,
       const std::vector<int64>& newly_purgeable_resources,
       ServiceWorkerDatabase::Status status);
+  void DidWriteUncommittedResourceIds(ServiceWorkerDatabase::Status status);
+  void DidPurgeUncommittedResourceIds(const std::set<int64>& resource_ids,
+                                      ServiceWorkerDatabase::Status status);
   void DidStoreUserData(
       const StatusCallback& callback,
       ServiceWorkerDatabase::Status status);
@@ -401,7 +428,8 @@ class CONTENT_EXPORT ServiceWorkerStorage
 
   void DeleteOldDiskCache();
 
-  void StartPurgingResources(const std::vector<int64>& ids);
+  void StartPurgingResources(const std::set<int64>& resource_ids);
+  void StartPurgingResources(const std::vector<int64>& resource_ids);
   void StartPurgingResources(const ResourceList& resources);
   void ContinuePurgingResources();
   void PurgeResource(int64 id);
@@ -489,6 +517,7 @@ class CONTENT_EXPORT ServiceWorkerStorage
 
   // Origins having registations.
   std::set<GURL> registered_origins_;
+  std::set<GURL> foreign_fetch_origins_;
 
   // Pending database tasks waiting for initialization.
   std::vector<base::Closure> pending_tasks_;
@@ -506,6 +535,8 @@ class CONTENT_EXPORT ServiceWorkerStorage
   State state_;
 
   base::FilePath path_;
+
+  // The context should be valid while the storage is alive.
   base::WeakPtr<ServiceWorkerContextCore> context_;
 
   // Only accessed using |database_task_manager_|.

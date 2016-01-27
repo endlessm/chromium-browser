@@ -28,12 +28,12 @@
 #include "chrome/browser/chromeos/login/users/wallpaper/wallpaper_manager.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/common/chrome_paths.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/grit/generated_resources.h"
 #include "chromeos/chromeos_switches.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/user_manager/user.h"
 #include "components/user_manager/user_manager.h"
 #include "components/wallpaper/wallpaper_layout.h"
@@ -622,6 +622,7 @@ void WallpaperPrivateSetCustomWallpaperFunction::OnWallpaperDecoded(
 
   wallpaper::WallpaperLayout layout = wallpaper_api_util::GetLayoutEnum(
       wallpaper_base::ToString(params->layout));
+  wallpaper_api_util::RecordCustomWallpaperLayout(layout);
 
   bool update_wallpaper =
       user_id_ == user_manager::UserManager::Get()->GetActiveUser()->email();
@@ -704,6 +705,7 @@ bool WallpaperPrivateSetCustomWallpaperLayoutFunction::RunAsync() {
   }
   info.layout = wallpaper_api_util::GetLayoutEnum(
       wallpaper_base::ToString(params->layout));
+  wallpaper_api_util::RecordCustomWallpaperLayout(info.layout);
 
   std::string email =
       user_manager::UserManager::Get()->GetActiveUser()->email();
@@ -919,7 +921,8 @@ void WallpaperPrivateGetOfflineWallpaperListFunction::GetList() {
          current = files.Next()) {
       std::string file_name = current.BaseName().RemoveExtension().value();
       // Do not add file name of small resolution wallpaper to the list.
-      if (!base::EndsWith(file_name, wallpaper::kSmallWallpaperSuffix, true))
+      if (!base::EndsWith(file_name, wallpaper::kSmallWallpaperSuffix,
+                          base::CompareCase::SENSITIVE))
         file_list.push_back(current.BaseName().value());
     }
   }

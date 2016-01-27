@@ -28,12 +28,12 @@
 
 #include "core/dom/Node.h"
 #include "core/dom/NodeTraversal.h"
-#include "core/dom/Position.h"
+#include "core/editing/Position.h"
 
 namespace blink {
 
 class RangeBoundaryPoint {
-    DISALLOW_ALLOCATION();
+    DISALLOW_NEW();
 public:
     explicit RangeBoundaryPoint(PassRefPtrWillBeRawPtr<Node> container);
 
@@ -109,7 +109,7 @@ inline void RangeBoundaryPoint::ensureOffsetIsValid() const
 inline const Position RangeBoundaryPoint::toPosition() const
 {
     ensureOffsetIsValid();
-    return createLegacyEditingPosition(m_containerNode.get(), m_offsetInContainer);
+    return Position::editingPositionOf(m_containerNode.get(), m_offsetInContainer);
 }
 
 inline int RangeBoundaryPoint::offset() const

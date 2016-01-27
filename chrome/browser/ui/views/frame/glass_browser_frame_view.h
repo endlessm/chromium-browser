@@ -21,7 +21,7 @@ class GlassBrowserFrameView : public BrowserNonClientFrameView,
 
   // BrowserNonClientFrameView:
   gfx::Rect GetBoundsForTabStrip(views::View* tabstrip) const override;
-  int GetTopInset() const override;
+  int GetTopInset(bool restored) const override;
   int GetThemeBackgroundXInset() const override;
   void UpdateThrobber(bool running) override;
   gfx::Size GetMinimumSize() const override;
@@ -53,29 +53,39 @@ class GlassBrowserFrameView : public BrowserNonClientFrameView,
   bool DoesIntersectRect(const views::View* target,
                          const gfx::Rect& rect) const override;
 
-  // Returns the thickness of the border that makes up the window frame edges.
-  // This does not include any client edge.
+  // Returns the thickness of the border that makes up the window left, right,
+  // and bottom frame edges.  This does not include any client edge.
   int FrameBorderThickness() const;
 
+  // Returns the height of the window top frame edge.  If |restored| is true,
+  // this is calculated as if the window was restored, regardless of its current
+  // state.
+  int FrameTopBorderHeight(bool restored) const;
+
   // Returns the thickness of the entire nonclient left, right, and bottom
-  // borders, including both the window frame and any client edge.
-  int NonClientBorderThickness() const;
+  // borders, including both the window frame and any client edge. If |restored|
+  // is true, this is calculated as if the window was restored, regardless of
+  // its current state.
+  int NonClientBorderThickness(bool restored) const;
 
   // Returns the height of the entire nonclient top border, including the window
-  // frame, any title area, and any connected client edge.
-  int NonClientTopBorderHeight() const;
+  // frame, any title area, and any connected client edge.  If |restored| is
+  // true, this is calculated as if the window was restored, regardless of its
+  // current state.
+  int NonClientTopBorderHeight(bool restored) const;
 
   // Paint various sub-components of this view.
   void PaintToolbarBackground(gfx::Canvas* canvas);
   void PaintRestoredClientEdge(gfx::Canvas* canvas);
 
   // Layout various sub-components of this view.
-  void LayoutAvatar();
+  void LayoutIncognitoIcon();
   void LayoutNewStyleAvatar();
   void LayoutClientView();
 
-  // Returns the insets of the client area.
-  gfx::Insets GetClientAreaInsets() const;
+  // Returns the insets of the client area. If |restored| is true, this is
+  // calculated as if the window was restored, regardless of its current state.
+  gfx::Insets GetClientAreaInsets(bool restored) const;
 
   // Returns the bounds of the client area for the specified view size.
   gfx::Rect CalculateClientAreaBounds(int width, int height) const;
@@ -87,8 +97,8 @@ class GlassBrowserFrameView : public BrowserNonClientFrameView,
   // Displays the next throbber frame.
   void DisplayNextThrobberFrame();
 
-  // The layout rect of the avatar icon, if visible.
-  gfx::Rect avatar_bounds_;
+  // The layout rect of the incognito icon, if visible.
+  gfx::Rect incognito_bounds_;
 
   // The bounds of the ClientView.
   gfx::Rect client_view_bounds_;

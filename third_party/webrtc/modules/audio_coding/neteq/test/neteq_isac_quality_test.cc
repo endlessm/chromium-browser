@@ -8,7 +8,7 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
-#include "webrtc/modules/audio_coding/codecs/isac/fix/interface/isacfix.h"
+#include "webrtc/modules/audio_coding/codecs/isac/fix/include/isacfix.h"
 #include "webrtc/modules/audio_coding/neteq/tools/neteq_quality_test.h"
 
 using google::RegisterFlagValidator;
@@ -43,8 +43,8 @@ class NetEqIsacQualityTest : public NetEqQualityTest {
   NetEqIsacQualityTest();
   void SetUp() override;
   void TearDown() override;
-  virtual int EncodeBlock(int16_t* in_data, int block_size_samples,
-                          uint8_t* payload, int max_bytes);
+  virtual int EncodeBlock(int16_t* in_data, size_t block_size_samples,
+                          uint8_t* payload, size_t max_bytes);
  private:
   ISACFIX_MainStruct* isac_encoder_;
   int bit_rate_kbps_;
@@ -54,10 +54,9 @@ NetEqIsacQualityTest::NetEqIsacQualityTest()
     : NetEqQualityTest(kIsacBlockDurationMs,
                        kIsacInputSamplingKhz,
                        kIsacOutputSamplingKhz,
-                       kDecoderISAC),
+                       NetEqDecoder::kDecoderISAC),
       isac_encoder_(NULL),
-      bit_rate_kbps_(FLAGS_bit_rate_kbps) {
-}
+      bit_rate_kbps_(FLAGS_bit_rate_kbps) {}
 
 void NetEqIsacQualityTest::SetUp() {
   ASSERT_EQ(1, channels_) << "iSAC supports only mono audio.";
@@ -78,8 +77,8 @@ void NetEqIsacQualityTest::TearDown() {
 }
 
 int NetEqIsacQualityTest::EncodeBlock(int16_t* in_data,
-                                      int block_size_samples,
-                                      uint8_t* payload, int max_bytes) {
+                                      size_t block_size_samples,
+                                      uint8_t* payload, size_t max_bytes) {
   // ISAC takes 10 ms for every call.
   const int subblocks = kIsacBlockDurationMs / 10;
   const int subblock_length = 10 * kIsacInputSamplingKhz;

@@ -30,6 +30,7 @@
 #include "core/dom/Document.h"
 #include "core/html/HTMLVideoElement.h"
 #include "core/layout/LayoutFullScreen.h"
+#include "core/layout/LayoutView.h"
 #include "core/paint/VideoPainter.h"
 #include "public/platform/WebLayer.h"
 
@@ -138,12 +139,12 @@ bool LayoutVideo::shouldDisplayVideo() const
     return !videoElement()->shouldDisplayPosterImage();
 }
 
-void LayoutVideo::paintReplaced(const PaintInfo& paintInfo, const LayoutPoint& paintOffset)
+void LayoutVideo::paintReplaced(const PaintInfo& paintInfo, const LayoutPoint& paintOffset) const
 {
     VideoPainter(*this).paintReplaced(paintInfo, paintOffset);
 }
 
-bool LayoutVideo::acceleratedRenderingInUse()
+bool LayoutVideo::acceleratedRenderingInUse() const
 {
     WebLayer* webLayer = mediaElement()->platformLayer();
     return webLayer && !webLayer->isOrphan();
@@ -246,11 +247,9 @@ LayoutUnit LayoutVideo::offsetHeight() const
 
 CompositingReasons LayoutVideo::additionalCompositingReasons() const
 {
-    if (RuntimeEnabledFeatures::overlayFullscreenVideoEnabled()) {
-        HTMLMediaElement* media = toHTMLMediaElement(node());
-        if (media->isFullscreen())
-            return CompositingReasonVideo;
-    }
+    HTMLMediaElement* element = toHTMLMediaElement(node());
+    if (element->isFullscreen() && element->usesOverlayFullscreenVideo())
+        return CompositingReasonVideo;
 
     if (shouldDisplayVideo() && supportsAcceleratedRendering())
         return CompositingReasonVideo;

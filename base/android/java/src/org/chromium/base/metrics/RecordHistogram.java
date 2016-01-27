@@ -4,8 +4,8 @@
 
 package org.chromium.base.metrics;
 
-import org.chromium.base.JNINamespace;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.base.annotations.JNINamespace;
 
 import java.util.concurrent.TimeUnit;
 
@@ -64,6 +64,16 @@ public class RecordHistogram {
 
     /**
      * Records a sample in a count histogram. This is the Java equivalent of the
+     * UMA_HISTOGRAM_COUNTS_1000 C++ macro.
+     * @param name name of the histogram
+     * @param sample sample to be recorded, at least 1 and at most 999
+     */
+    public static void recordCount1000Histogram(String name, int sample) {
+        recordCustomCountHistogram(name, sample, 1, 1000, 50);
+    }
+
+    /**
+     * Records a sample in a count histogram. This is the Java equivalent of the
      * UMA_HISTOGRAM_CUSTOM_COUNTS C++ macro.
      * @param name name of the histogram
      * @param sample sample to be recorded, at least |min| and at most |max| - 1
@@ -74,6 +84,21 @@ public class RecordHistogram {
     public static void recordCustomCountHistogram(
             String name, int sample, int min, int max, int numBuckets) {
         nativeRecordCustomCountHistogram(
+                name, System.identityHashCode(name), sample, min, max, numBuckets);
+    }
+
+    /**
+     * Records a sample in a linear histogram. This is the Java equivalent for using
+     * base::LinearHistogram.
+     * @param name name of the histogram
+     * @param sample sample to be recorded, at least |min| and at most |max| - 1.
+     * @param min lower bound for expected sample values, should be at least 1.
+     * @param max upper bounds for expected sample values
+     * @param numBuckets the number of buckets
+     */
+    public static void recordLinearCountHistogram(
+            String name, int sample, int min, int max, int numBuckets) {
+        nativeRecordLinearCountHistogram(
                 name, System.identityHashCode(name), sample, min, max, numBuckets);
     }
 
@@ -169,6 +194,8 @@ public class RecordHistogram {
     private static native void nativeRecordEnumeratedHistogram(
             String name, int key, int sample, int boundary);
     private static native void nativeRecordCustomCountHistogram(
+            String name, int key, int sample, int min, int max, int numBuckets);
+    private static native void nativeRecordLinearCountHistogram(
             String name, int key, int sample, int min, int max, int numBuckets);
     private static native void nativeRecordSparseHistogram(String name, int key, int sample);
 

@@ -27,6 +27,7 @@
 #define CompactHTMLToken_h
 
 #include "core/html/parser/HTMLToken.h"
+#include "wtf/Allocator.h"
 #include "wtf/Vector.h"
 #include "wtf/text/TextPosition.h"
 #include "wtf/text/WTFString.h"
@@ -35,9 +36,11 @@ namespace blink {
 
 class QualifiedName;
 
-class CompactHTMLToken {
+class CORE_EXPORT CompactHTMLToken {
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 public:
     struct Attribute {
+        DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
         Attribute(const String& name, const String& value)
             : name(name)
             , value(value)

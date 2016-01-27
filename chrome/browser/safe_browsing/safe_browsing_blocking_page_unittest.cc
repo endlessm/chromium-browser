@@ -7,9 +7,9 @@
 #include "base/prefs/pref_service.h"
 #include "base/run_loop.h"
 #include "chrome/browser/profiles/profile.h"
-#include "chrome/browser/safe_browsing/malware_details.h"
 #include "chrome/browser/safe_browsing/safe_browsing_blocking_page.h"
 #include "chrome/browser/safe_browsing/safe_browsing_service.h"
+#include "chrome/browser/safe_browsing/threat_details.h"
 #include "chrome/browser/safe_browsing/ui_manager.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/test/base/chrome_render_view_host_test_harness.h"
@@ -29,6 +29,8 @@ static const char* kGoodURL = "http://www.goodguys.com/";
 static const char* kBadURL = "http://www.badguys.com/";
 static const char* kBadURL2 = "http://www.badguys2.com/";
 static const char* kBadURL3 = "http://www.badguys3.com/";
+
+namespace safe_browsing {
 
 namespace {
 
@@ -51,7 +53,7 @@ class TestSafeBrowsingUIManager: public SafeBrowsingUIManager {
       : SafeBrowsingUIManager(service) {
   }
 
-  void SendSerializedMalwareDetails(const std::string& serialized) override {
+  void SendSerializedThreatDetails(const std::string& serialized) override {
     details_.push_back(serialized);
   }
 
@@ -109,7 +111,7 @@ class SafeBrowsingBlockingPageTest : public ChromeRenderViewHostTestHarness {
     ui_manager_ = NULL;
     SafeBrowsingBlockingPage::RegisterFactory(NULL);
     // Clean up singleton reference (crbug.com/110594).
-    MalwareDetails::RegisterFactory(NULL);
+    ThreatDetails::RegisterFactory(NULL);
     ChromeRenderViewHostTestHarness::TearDown();
   }
 
@@ -230,6 +232,7 @@ class SafeBrowsingBlockingPageTest : public ChromeRenderViewHostTestHarness {
         web_contents()->GetRenderProcessHost()->GetID();
     resource->render_view_id =
         web_contents()->GetRenderViewHost()->GetRoutingID();
+    resource->threat_source = safe_browsing::ThreatSource::LOCAL_PVER3;
   }
 
   UserResponse user_response_;
@@ -683,3 +686,5 @@ TEST_F(SafeBrowsingBlockingPageTest, MalwareReportsToggling) {
   EXPECT_FALSE(profile->GetPrefs()->GetBoolean(
       prefs::kSafeBrowsingExtendedReportingEnabled));
 }
+
+}  // namespace safe_browsing

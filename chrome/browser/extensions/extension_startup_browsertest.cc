@@ -4,6 +4,7 @@
 
 #include <vector>
 
+#include "base/base_switches.h"
 #include "base/command_line.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -67,7 +68,9 @@ class ExtensionStartupTestBase : public InProcessBrowserTest {
       unauthenticated_load_allowed_ = false;
 #endif
     } else {
-      base::FilePath::StringType paths = JoinString(load_extensions_, ',');
+      base::FilePath::StringType paths =
+          base::JoinString(load_extensions_,
+                           base::FilePath::StringType(1, ','));
       command_line->AppendSwitchNative(switches::kLoadExtension,
                                        paths);
       command_line->AppendSwitch(switches::kDisableExtensionsFileAccessCheck);

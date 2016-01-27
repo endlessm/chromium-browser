@@ -31,8 +31,8 @@
 <meta charset="utf-8">
 <title>WebGL Draw Buffers Conformance Tests</title>
 <link rel="stylesheet" href="../../resources/js-test-style.css"/>
-<script src="../../resources/js-test-pre.js"></script>
-<script src="../../resources/webgl-test-utils.js"></script>
+<script src="../../js/js-test-pre.js"></script>
+<script src="../../js/webgl-test-utils.js"></script>
 </head>
 <body>
 <div id="description"></div>
@@ -99,10 +99,11 @@ if (!gl) {
 } else {
   testPassed("WebGL context exists");
 
-  runShadersTest();
-  runAttachmentTest();
-  runDrawTests();
-  testParameters();
+  if (testParameters()) {
+    runShadersTest();
+    runAttachmentTest();
+    runDrawTests();
+  }
 
   wtu.glErrorShouldBe(gl, gl.NO_ERROR, "there should be no errors");
 }
@@ -396,6 +397,13 @@ function runDrawTests() {
   });
 
   if (maxUsable > 1) {
+    // Prepare for following tests by clearing all attachments to red.
+    debug("prepare by clearing all attachments to red");
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+    gl.clearColor(1, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    checkAttachmentsForColor(attachments, [255, 0, 0, 255]);
+
     var bufs1 = makeColorAttachmentArray(maxUsable);
     var bufs2 = makeColorAttachmentArray(maxUsable);
     for (var ii = 0; ii < maxUsable; ++ii) {
@@ -544,16 +552,26 @@ function runDrawTests() {
 
 function testParameters() {
   debug("");
-  debug("check that MAX_DRAW_BUFFERS and MAX_COLOR_ATTACHMENTS are the same");
-  var maxDrawingBuffers = gl.getParameter(gl.MAX_DRAW_BUFFERS);
+  debug("check that MAX_DRAW_BUFFERS and MAX_COLOR_ATTACHMENTS are valid");
+  var maxDrawBuffers = gl.getParameter(gl.MAX_DRAW_BUFFERS);
   var maxColorAttachments = gl.getParameter(gl.MAX_COLOR_ATTACHMENTS);
-  shouldBeTrue("gl.getParameter(gl.MAX_DRAW_BUFFERS) == gl.getParameter(gl.MAX_COLOR_ATTACHMENTS)");
+  debug("MAX_DRAW_BUFFERS = " + maxDrawBuffers);
+  debug("MAX_COLOR_ATTACHMENTS = " + maxColorAttachments);
+  if (maxDrawBuffers != maxColorAttachments) {
+    testFailed("MAX_DRAW_BUFFERS and MAX_COLOR_ATTACHMENTS should be the same");
+    return false;
+  }
+  if (maxDrawBuffers < 4) {
+    testFailed("MAX_DRAW_BUFFERS should be at least 4");
+    return false;
+  }
+  return true;
 }
 
 debug("");
 var successfullyParsed = true;
 </script>
-<script src="../../resources/js-test-post.js"></script>
+<script src="../../js/js-test-post.js"></script>
 
 </body>
 </html>

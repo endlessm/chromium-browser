@@ -14,7 +14,7 @@ config("wallet_service") {
 }
 
 # GYP version: components/autofill.gyp:autofill_core_browser
-static_library("browser") {
+source_set("browser") {
   sources = [
     "address.cc",
     "address.h",
@@ -60,6 +60,8 @@ static_library("browser") {
     "autofill_sync_constants.h",
     "autofill_type.cc",
     "autofill_type.h",
+    "autofill_wallet_data_type_controller.cc",
+    "autofill_wallet_data_type_controller.h",
     "autofill_xml_parser.cc",
     "autofill_xml_parser.h",
     "card_unmask_delegate.cc",
@@ -88,9 +90,11 @@ static_library("browser") {
     "options_util.h",
     "password_generator.cc",
     "password_generator.h",
+    "payments/payments_client.cc",
+    "payments/payments_client.h",
+    "payments/payments_request.h",
     "personal_data_manager.cc",
     "personal_data_manager.h",
-    "personal_data_manager_mac.mm",
     "personal_data_manager_observer.h",
     "phone_field.cc",
     "phone_field.h",
@@ -111,14 +115,16 @@ static_library("browser") {
     "ui/card_unmask_prompt_view.h",
     "validation.cc",
     "validation.h",
-    "wallet/real_pan_wallet_client.cc",
-    "wallet/real_pan_wallet_client.h",
     "webdata/autocomplete_syncable_service.cc",
     "webdata/autocomplete_syncable_service.h",
     "webdata/autofill_change.cc",
     "webdata/autofill_change.h",
+    "webdata/autofill_data_type_controller.cc",
+    "webdata/autofill_data_type_controller.h",
     "webdata/autofill_entry.cc",
     "webdata/autofill_entry.h",
+    "webdata/autofill_profile_data_type_controller.cc",
+    "webdata/autofill_profile_data_type_controller.h",
     "webdata/autofill_profile_syncable_service.cc",
     "webdata/autofill_profile_syncable_service.h",
     "webdata/autofill_table.cc",
@@ -136,11 +142,15 @@ static_library("browser") {
     "webdata/autofill_webdata_service_observer.h",
   ]
 
+  configs += [ "//build/config:precompiled_headers" ]
+
   deps = [
     "//base",
     "//base:i18n",
     "//base:prefs",
     "//components/autofill/core/common",
+    "//components/compression",
+    "//components/data_use_measurement/core",
     "//components/infobars/core",
     "//components/keyed_service/core",
     "//components/os_crypt",
@@ -179,7 +189,7 @@ static_library("browser") {
   }
 }
 
-static_library("test_support") {
+source_set("test_support") {
   testonly = true
   sources = [
     "autofill_test_utils.cc",
@@ -222,6 +232,7 @@ source_set("unit_tests") {
   testonly = true
   sources = [
     "address_field_unittest.cc",
+    "address_i18n_unittest.cc",
     "address_unittest.cc",
     "autocomplete_history_manager_unittest.cc",
     "autofill_country_unittest.cc",
@@ -248,7 +259,9 @@ source_set("unit_tests") {
     "phone_field_unittest.cc",
     "phone_number_i18n_unittest.cc",
     "phone_number_unittest.cc",
+    "ui/card_unmask_prompt_controller_impl_unittest.cc",
     "validation_unittest.cc",
+    "webdata/autofill_data_type_controller_unittest.cc",
     "webdata/autofill_profile_syncable_service_unittest.cc",
     "webdata/autofill_table_unittest.cc",
     "webdata/autofill_wallet_metadata_syncable_service_unittest.cc",
@@ -263,6 +276,7 @@ source_set("unit_tests") {
     "//base:prefs_test_support",
     "//base/test:test_support",
     "//components/autofill/core/common",
+    "//components/compression",
     "//components/os_crypt",
     "//components/rappor:test_support",
     "//components/resources",
@@ -271,6 +285,7 @@ source_set("unit_tests") {
     "//components/signin/core/common",
     "//components/strings",
     "//components/sync_driver",
+    "//components/sync_driver:test_support",
     "//components/variations",
     "//components/webdata/common",
     "//components/webdata_services:test_support",
@@ -282,6 +297,7 @@ source_set("unit_tests") {
     "//sync:test_support_sync_api",
     "//testing/gmock",
     "//testing/gtest",
+    "//third_party/libaddressinput:util",
     "//third_party/libphonenumber",
     "//third_party/libjingle",
     "//ui/base",

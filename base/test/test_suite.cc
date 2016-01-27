@@ -11,12 +11,14 @@
 #include "base/command_line.h"
 #include "base/debug/debugger.h"
 #include "base/debug/stack_trace.h"
+#include "base/feature_list.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
 #include "base/i18n/icu_util.h"
 #include "base/logging.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/path_service.h"
+#include "base/process/launch.h"
 #include "base/process/memory.h"
 #include "base/test/gtest_xml_unittest_result_printer.h"
 #include "base/test/gtest_xml_util.h"
@@ -226,7 +228,15 @@ int TestSuite::Run() {
 #if defined(OS_IOS)
   test_listener_ios::RegisterTestEndListener();
 #endif
+
+  // Set up a FeatureList instance, so that code using that API will not hit a
+  // an error that it's not set. Cleared by ClearInstanceForTesting() below.
+  base::FeatureList::SetInstance(make_scoped_ptr(new base::FeatureList));
+
   int result = RUN_ALL_TESTS();
+
+  // Clear the FeatureList that was registered above.
+  FeatureList::ClearInstanceForTesting();
 
 #if defined(OS_MACOSX)
   // This MUST happen before Shutdown() since Shutdown() tears down
@@ -312,6 +322,7 @@ void TestSuite::Initialize() {
 
   CHECK(debug::EnableInProcessStackDumping());
 #if defined(OS_WIN)
+  RouteStdioToConsole(true);
   // Make sure we run with high resolution timer to minimize differences
   // between production code and test code.
   Time::EnableHighResolutionTimer(true);
@@ -338,7 +349,7 @@ void TestSuite::Initialize() {
   i18n::SetICUDefaultLocale("en_US");
 #else
   std::string default_locale(uloc_getDefault());
-  if (EndsWith(default_locale, "POSIX", false))
+  if (EndsWith(default_locale, "POSIX", CompareCase::INSENSITIVE_ASCII))
     i18n::SetICUDefaultLocale("en_US");
 #endif
 #endif

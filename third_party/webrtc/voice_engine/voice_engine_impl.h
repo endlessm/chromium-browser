@@ -12,7 +12,7 @@
 #define WEBRTC_VOICE_ENGINE_VOICE_ENGINE_IMPL_H
 
 #include "webrtc/engine_configurations.h"
-#include "webrtc/system_wrappers/interface/atomic32.h"
+#include "webrtc/system_wrappers/include/atomic32.h"
 #include "webrtc/voice_engine/voe_base_impl.h"
 
 #ifdef WEBRTC_VOICE_ENGINE_AUDIO_PROCESSING_API
@@ -128,8 +128,11 @@ class VoiceEngineImpl : public voe::SharedData,  // Must be the first base class
   // This implements the Release() method for all the inherited interfaces.
   int Release() override;
 
- private:
+ // This is *protected* so that FakeVoiceEngine can inherit from the class and
+ // manipulate the reference count. See: fake_voice_engine.h.
+ protected:
   Atomic32 _ref_count;
+ private:
   rtc::scoped_ptr<const Config> own_config_;
 };
 

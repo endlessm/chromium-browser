@@ -90,7 +90,7 @@ MATCHER(CallbackIsNull, "") {
 
 ACTION(QuitUIMessageLoop) {
   EXPECT_TRUE(BrowserThread::CurrentlyOn(BrowserThread::UI));
-  base::MessageLoopForUI::current()->Quit();
+  base::MessageLoopForUI::current()->QuitWhenIdle();
 }
 
 ACTION_P(InvokeDoneCallback, verdict) {
@@ -210,8 +210,7 @@ class ClientSideDetectionHostTest : public ChromeRenderViewHostTestHarness {
     database_manager_ = new StrictMock<MockSafeBrowsingDatabaseManager>();
     ui_manager_ = new StrictMock<MockSafeBrowsingUIManager>(
         SafeBrowsingService::CreateSafeBrowsingService());
-    csd_host_.reset(safe_browsing::ClientSideDetectionHost::Create(
-        web_contents()));
+    csd_host_.reset(ClientSideDetectionHost::Create(web_contents()));
     csd_host_->set_client_side_detection_service(csd_service_.get());
     csd_host_->set_safe_browsing_managers(ui_manager_.get(),
                                           database_manager_.get());

@@ -39,6 +39,8 @@ class Node;
 class NodeEventContext;
 
 class WindowEventContext : public NoBaseWillBeGarbageCollected<WindowEventContext> {
+    USING_FAST_MALLOC_WILL_BE_REMOVED(WindowEventContext);
+    WTF_MAKE_NONCOPYABLE(WindowEventContext);
 public:
     WindowEventContext(Event&, const NodeEventContext& topNodeEventContext);
 

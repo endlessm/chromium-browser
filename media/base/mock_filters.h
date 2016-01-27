@@ -8,9 +8,11 @@
 #include <string>
 
 #include "base/callback.h"
+#include "base/macros.h"
 #include "media/base/audio_decoder.h"
 #include "media/base/audio_decoder_config.h"
 #include "media/base/audio_renderer.h"
+#include "media/base/cdm_context.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/decryptor.h"
 #include "media/base/demuxer.h"
@@ -42,6 +44,7 @@ class MockDemuxer : public Demuxer {
   MOCK_METHOD1(GetStream, DemuxerStream*(DemuxerStream::Type));
   MOCK_CONST_METHOD0(GetStartTime, base::TimeDelta());
   MOCK_CONST_METHOD0(GetTimelineOffset, base::Time());
+  MOCK_CONST_METHOD0(GetMemoryUsage, int64_t());
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockDemuxer);
@@ -126,7 +129,7 @@ class MockVideoRenderer : public VideoRenderer {
   MOCK_METHOD9(Initialize,
                void(DemuxerStream* stream,
                     const PipelineStatusCB& init_cb,
-                    const SetDecryptorReadyCB& set_decryptor_ready_cb,
+                    const SetCdmReadyCB& set_cdm_ready_cb,
                     const StatisticsCB& statistics_cb,
                     const BufferingStateCB& buffering_state_cb,
                     const base::Closure& ended_cb,
@@ -150,7 +153,7 @@ class MockAudioRenderer : public AudioRenderer {
   MOCK_METHOD8(Initialize,
                void(DemuxerStream* stream,
                     const PipelineStatusCB& init_cb,
-                    const SetDecryptorReadyCB& set_decryptor_ready_cb,
+                    const SetCdmReadyCB& set_cdm_ready_cb,
                     const StatisticsCB& statistics_cb,
                     const BufferingStateCB& buffering_state_cb,
                     const base::Closure& ended_cb,
@@ -256,6 +259,18 @@ class MockDecryptor : public Decryptor {
 
  private:
   DISALLOW_COPY_AND_ASSIGN(MockDecryptor);
+};
+
+class MockCdmContext : public CdmContext {
+ public:
+  MockCdmContext();
+  ~MockCdmContext() override;
+
+  MOCK_METHOD0(GetDecryptor, Decryptor*());
+  int GetCdmId() const override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(MockCdmContext);
 };
 
 }  // namespace media

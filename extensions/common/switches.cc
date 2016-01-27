@@ -20,9 +20,6 @@ const char kAllowLegacyExtensionManifests[] =
 // a new tab.
 const char kEmbeddedExtensionOptions[] = "embedded-extension-options";
 
-// Enables the SurfaceWorker experiment.
-const char kSurfaceWorker[] = "surface-worker";
-
 // Show apps windows after the first paint. Windows will be shown significantly
 // later for heavy apps loading resources synchronously but it will be
 // insignificant for apps that load most of their resources asynchronously.
@@ -31,13 +28,13 @@ const char kEnableAppsShowOnFirstPaint[] = "enable-apps-show-on-first-paint";
 // Enables the <window-controls> tag in platform apps.
 const char kEnableAppWindowControls[] = "enable-app-window-controls";
 
+// Enable BLE Advertisiing in apps.
+const char kEnableBLEAdvertising[] = "enable-ble-advertising-in-apps";
+
 // Hack so that feature switch can work with about_flags. See
 // kEnableScriptsRequireAction.
 const char kEnableEmbeddedExtensionOptions[] =
     "enable-embedded-extension-options";
-
-// Enables the experimental feature SurfaceWorker.
-const char kEnableSurfaceWorker[] = "enable-surface-worker";
 
 // Enables extension APIs that are in development.
 const char kEnableExperimentalExtensionApis[] =
@@ -86,6 +83,12 @@ const char kScriptsRequireAction[] = "scripts-require-action";
 // in about_flags enables the feature. Appending this flag has the same effect
 // as --scripts-require-action=1.
 const char kEnableScriptsRequireAction[] = "enable-scripts-require-action";
+
+#if defined(CHROMIUM_BUILD)
+// Should we prompt the user before allowing external extensions to install?
+// This flag is available on Chromium for testing purposes.
+const char kPromptForExternalExtensions[] = "prompt-for-external-extensions";
+#endif
 
 // Makes component extensions appear in chrome://settings/extensions.
 const char kShowComponentExtensionOptions[] =

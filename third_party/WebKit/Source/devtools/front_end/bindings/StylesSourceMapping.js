@@ -344,6 +344,7 @@ WebInspector.StyleFile = function(uiSourceCode, mapping)
     this._mapping = mapping;
     this._uiSourceCode.addEventListener(WebInspector.UISourceCode.Events.WorkingCopyChanged, this._workingCopyChanged, this);
     this._uiSourceCode.addEventListener(WebInspector.UISourceCode.Events.WorkingCopyCommitted, this._workingCopyCommitted, this);
+    this._uiSourceCode.forceLoadOnCheckContent();
     this._commitThrottler = new WebInspector.Throttler(WebInspector.StyleFile.updateTimeout);
 }
 
@@ -373,16 +374,12 @@ WebInspector.StyleFile.prototype = {
         this._commitThrottler.schedule(this._commitIncrementalEdit.bind(this), false);
     },
 
-    /**
-     * @param {!WebInspector.Throttler.FinishCallback} finishCallback
-     */
-    _commitIncrementalEdit: function(finishCallback)
+    _commitIncrementalEdit: function()
     {
-        this._mapping._setStyleContent(this._uiSourceCode, this._uiSourceCode.workingCopy(), this._isMajorChangePending)
+        var promise = this._mapping._setStyleContent(this._uiSourceCode, this._uiSourceCode.workingCopy(), this._isMajorChangePending)
             .then(this._styleContentSet.bind(this))
-            .then(finishCallback)
-            .catch(/** @type {function()} */(finishCallback));
         this._isMajorChangePending = false;
+        return promise;
     },
 
     /**

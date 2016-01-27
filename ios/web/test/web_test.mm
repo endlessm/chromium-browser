@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "ios/web/test/web_test.h"
+#import "ios/web/test/web_test.h"
 
 #include "base/base64.h"
 #include "base/strings/stringprintf.h"
@@ -10,9 +10,9 @@
 #import "ios/testing/ocmock_complex_type_helper.h"
 #import "ios/web/navigation/crw_session_controller.h"
 #import "ios/web/net/crw_url_verifying_protocol_handler.h"
+#include "ios/web/public/active_state_manager.h"
 #include "ios/web/public/referrer.h"
-#import "ios/web/public/test/test_web_client.h"
-#import "ios/web/public/web_state/crw_web_delegate.h"
+#import "ios/web/public/web_state/ui/crw_web_delegate.h"
 #import "ios/web/web_state/js/crw_js_invoke_parameter_queue.h"
 #import "ios/web/web_state/ui/crw_wk_web_view_web_controller.h"
 #import "ios/web/web_state/web_state_impl.h"
@@ -36,15 +36,31 @@ namespace web {
 
 #pragma mark -
 
-WebTestBase::WebTestBase() {}
+WebTest::WebTest() {}
+WebTest::~WebTest() {}
 
-WebTestBase::~WebTestBase() {}
+void WebTest::SetUp() {
+  PlatformTest::SetUp();
+  web::SetWebClient(&client_);
+  BrowserState::GetActiveStateManager(&browser_state_)->SetActive(true);
+}
+
+void WebTest::TearDown() {
+  BrowserState::GetActiveStateManager(&browser_state_)->SetActive(false);
+  web::SetWebClient(nullptr);
+  PlatformTest::TearDown();
+}
+
+#pragma mark -
+
+WebTestWithWebController::WebTestWithWebController() {}
+
+WebTestWithWebController::~WebTestWithWebController() {}
 
 static int s_html_load_count;
 
-void WebTestBase::SetUp() {
-  client_.reset(new web::TestWebClient());
-  web::SetWebClient(client_.get());
+void WebTestWithWebController::SetUp() {
+  WebTest::SetUp();
   BOOL success =
       [NSURLProtocol registerClass:[CRWURLVerifyingProtocolHandler class]];
   DCHECK(success);
@@ -56,17 +72,17 @@ void WebTestBase::SetUp() {
   s_html_load_count = 0;
 }
 
-void WebTestBase::TearDown() {
+void WebTestWithWebController::TearDown() {
   [webController_ close];
   [NSURLProtocol unregisterClass:[CRWURLVerifyingProtocolHandler class]];
-  web::SetWebClient(nullptr);
+  WebTest::TearDown();
 }
 
-void WebTestBase::LoadHtml(NSString* html) {
+void WebTestWithWebController::LoadHtml(NSString* html) {
   LoadHtml([html UTF8String]);
 }
 
-void WebTestBase::LoadHtml(const std::string& html) {
+void WebTestWithWebController::LoadHtml(const std::string& html) {
   NSString* load_check = [NSString stringWithFormat:
       @"<p style=\"display: none;\">%d</p>", s_html_load_count++];
 
@@ -89,7 +105,7 @@ void WebTestBase::LoadHtml(const std::string& html) {
   }
 }
 
-void WebTestBase::LoadURL(const GURL& url) {
+void WebTestWithWebController::LoadURL(const GURL& url) {
   // First step is to ensure that the web controller has finished any previous
   // page loads so the new load is not confused.
   while ([webController_ loadPhase] != PAGE_LOADED)
@@ -117,7 +133,7 @@ void WebTestBase::LoadURL(const GURL& url) {
   [[webController_ view] layoutIfNeeded];
 }
 
-void WebTestBase::WaitForBackgroundTasks() {
+void WebTestWithWebController::WaitForBackgroundTasks() {
   // Because tasks can add new tasks to either queue, the loop continues until
   // the first pass where no activity is seen from either queue.
   bool activitySeen = false;
@@ -142,23 +158,24 @@ void WebTestBase::WaitForBackgroundTasks() {
   messageLoop->RemoveTaskObserver(this);
 }
 
-void WebTestBase::WaitForCondition(ConditionBlock condition) {
+void WebTestWithWebController::WaitForCondition(ConditionBlock condition) {
   base::MessageLoop* messageLoop = base::MessageLoop::current();
   DCHECK(messageLoop);
   base::test::ios::WaitUntilCondition(condition, messageLoop,
                                       base::TimeDelta::FromSeconds(10));
 }
 
-bool WebTestBase::MessageQueueIsEmpty() const {
+bool WebTestWithWebController::MessageQueueIsEmpty() const {
   // Using this check rather than polymorphism because polymorphising
   // Chrome*WebViewWebTest would be overengineering. Chrome*WebViewWebTest
-  // inherits from WebTestBase.
+  // inherits from WebTestWithWebController.
   return [webController_ webViewType] == web::WK_WEB_VIEW_TYPE ||
       [static_cast<CRWUIWebViewWebController*>(webController_)
           jsInvokeParameterQueue].isEmpty;
 }
 
-NSString* WebTestBase::EvaluateJavaScriptAsString(NSString* script) const {
+NSString* WebTestWithWebController::EvaluateJavaScriptAsString(
+    NSString* script) const {
   __block base::scoped_nsobject<NSString> evaluationResult;
   [webController_ evaluateJavaScript:script
                  stringResultHandler:^(NSString* result, NSError* error) {
@@ -171,7 +188,7 @@ NSString* WebTestBase::EvaluateJavaScriptAsString(NSString* script) const {
   return [[evaluationResult retain] autorelease];
 }
 
-NSString* WebTestBase::RunJavaScript(NSString* script) {
+NSString* WebTestWithWebController::RunJavaScript(NSString* script) {
   // The platform JSON serializer is used to safely escape the |script| and
   // decode the result while preserving unicode encoding that can be lost when
   // converting to Chromium string types.
@@ -222,24 +239,26 @@ NSString* WebTestBase::RunJavaScript(NSString* script) {
   return [dictionary objectForKey:@"result"];
 }
 
-void WebTestBase::WillProcessTask(const base::PendingTask& pending_task) {
+void WebTestWithWebController::WillProcessTask(
+    const base::PendingTask& pending_task) {
   // Nothing to do.
 }
 
-void WebTestBase::DidProcessTask(const base::PendingTask& pending_task) {
+void WebTestWithWebController::DidProcessTask(
+    const base::PendingTask& pending_task) {
   processed_a_task_ = true;
 }
 
 #pragma mark -
 
-CRWWebController* UIWebViewWebTest::CreateWebController() {
-  scoped_ptr<WebStateImpl> web_state_impl(new WebStateImpl(&browser_state_));
+CRWWebController* WebTestWithUIWebViewWebController::CreateWebController() {
+  scoped_ptr<WebStateImpl> web_state_impl(new WebStateImpl(GetBrowserState()));
   return [[TestWebController alloc] initWithWebState:web_state_impl.Pass()];
 }
 
-void UIWebViewWebTest::LoadCommands(NSString* commands,
-                                    const GURL& origin_url,
-                                    BOOL user_is_interacting) {
+void WebTestWithUIWebViewWebController::LoadCommands(NSString* commands,
+                                                     const GURL& origin_url,
+                                                     BOOL user_is_interacting) {
   [static_cast<CRWUIWebViewWebController*>(webController_)
       respondToMessageQueue:commands
           userIsInteracting:user_is_interacting
@@ -248,8 +267,8 @@ void UIWebViewWebTest::LoadCommands(NSString* commands,
 
 #pragma mark -
 
-CRWWebController* WKWebViewWebTest::CreateWebController() {
-  scoped_ptr<WebStateImpl> web_state_impl(new WebStateImpl(&browser_state_));
+CRWWebController* WebTestWithWKWebViewWebController::CreateWebController() {
+  scoped_ptr<WebStateImpl> web_state_impl(new WebStateImpl(GetBrowserState()));
   return [[CRWWKWebViewWebController alloc] initWithWebState:
       web_state_impl.Pass()];
 }

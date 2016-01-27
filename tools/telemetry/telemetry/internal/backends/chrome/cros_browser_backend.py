@@ -55,6 +55,10 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
       self._cri.RunCmdOnDevice(['cryptohome', '--action=remove', '--force',
                                 '--user=%s' % self._username])
 
+  @property
+  def log_file_path(self):
+    return None
+
   def GetBrowserStartupArgs(self):
     args = super(CrOSBrowserBackend, self).GetBrowserStartupArgs()
     args.extend([
@@ -135,10 +139,11 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
         elif self.browser_options.gaia_login:
           self.oobe.NavigateGaiaLogin(self._username, self._password)
         else:
-          self.oobe.NavigateFakeLogin(self._username, self._password)
+          self.oobe.NavigateFakeLogin(self._username, self._password,
+              self._gaia_id)
+
         self._WaitForLogin()
       except exceptions.TimeoutException:
-        self._cri.TakeScreenShot('login-screen')
         raise exceptions.LoginException('Timed out going through login screen')
 
     logging.info('Browser is up!')
@@ -192,6 +197,10 @@ class CrOSBrowserBackend(chrome_browser_backend.ChromeBrowserBackend):
   @property
   def _password(self):
     return self.browser_options.password
+
+  @property
+  def _gaia_id(self):
+    return self.browser_options.gaia_id
 
   def _IsCryptohomeMounted(self):
     username = '$guest' if self._is_guest else self._username

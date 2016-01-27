@@ -15,6 +15,7 @@
 #include "third_party/WebKit/public/web/WebPopupType.h"
 
 struct ViewHostMsg_CreateWindow_Params;
+struct ViewHostMsg_CreateWindow_Reply;
 
 namespace IPC {
 class MessageFilter;
@@ -24,6 +25,7 @@ class MessageReplyDeserializer;
 namespace blink {
 enum class WebSandboxFlags;
 enum class WebTreeScopeType;
+struct WebFrameOwnerProperties;
 }
 
 namespace content {
@@ -43,7 +45,6 @@ class MockRenderThread : public RenderThread {
 
   // RenderThread implementation:
   bool Send(IPC::Message* msg) override;
-  scoped_refptr<base::SingleThreadTaskRunner> GetTaskRunner() override;
   IPC::SyncChannel* GetChannel() override;
   std::string GetLocale() override;
   IPC::SyncMessageFilter* GetSyncMessageFilter() override;
@@ -77,7 +78,6 @@ class MockRenderThread : public RenderThread {
   void PreCacheFont(const LOGFONT& log_font) override;
   void ReleaseCachedFonts() override;
 #endif
-  IPC::AttachmentBroker* GetAttachmentBroker() override;
   ServiceRegistry* GetServiceRegistry() override;
 
   //////////////////////////////////////////////////////////////////////////
@@ -87,16 +87,16 @@ class MockRenderThread : public RenderThread {
     routing_id_ = id;
   }
 
-  void set_surface_id(int32 id) {
-    surface_id_ = id;
-  }
-
   int32 opener_id() const {
     return opener_id_;
   }
 
   void set_new_window_routing_id(int32 id) {
     new_window_routing_id_ = id;
+  }
+
+  void set_new_window_main_frame_widget_routing_id(int32_t id) {
+    new_window_main_frame_widget_routing_id_ = id;
   }
 
   void set_new_frame_routing_id(int32 id) {
@@ -121,25 +121,22 @@ class MockRenderThread : public RenderThread {
   // The Widget expects to be returned valid route_id.
   void OnCreateWidget(int opener_id,
                       blink::WebPopupType popup_type,
-                      int* route_id,
-                      int* surface_id);
+                      int* route_id);
 
-  // The View expects to be returned a valid route_id different from its own.
-  // We do not keep track of the newly created widget in MockRenderThread,
+  // The View expects to be returned a valid |reply.route_id| different from its
+  // own. We do not keep track of the newly created widget in MockRenderThread,
   // so it must be cleaned up on its own.
-  void OnCreateWindow(
-    const ViewHostMsg_CreateWindow_Params& params,
-    int* route_id,
-    int* main_frame_route_id,
-    int* surface_id,
-    int64* cloned_session_storage_namespace_id);
+  void OnCreateWindow(const ViewHostMsg_CreateWindow_Params& params,
+                      ViewHostMsg_CreateWindow_Reply* reply);
 
   // The Frame expects to be returned a valid route_id different from its own.
-  void OnCreateChildFrame(int new_frame_routing_id,
-                          blink::WebTreeScopeType scope,
-                          const std::string& frame_name,
-                          blink::WebSandboxFlags sandbox_flags,
-                          int* new_render_frame_id);
+  void OnCreateChildFrame(
+      int new_frame_routing_id,
+      blink::WebTreeScopeType scope,
+      const std::string& frame_name,
+      blink::WebSandboxFlags sandbox_flags,
+      const blink::WebFrameOwnerProperties& frame_owner_properties,
+      int* new_render_frame_id);
 
 #if defined(OS_WIN)
   void OnDuplicateSection(base::SharedMemoryHandle renderer_handle,
@@ -151,15 +148,13 @@ class MockRenderThread : public RenderThread {
   // Routing id what will be assigned to the Widget.
   int32 routing_id_;
 
-  // Surface id what will be assigned to the Widget.
-  int32 surface_id_;
-
   // Opener id reported by the Widget.
   int32 opener_id_;
 
   // Routing id that will be assigned to a CreateWindow Widget.
   int32 new_window_routing_id_;
   int32 new_window_main_frame_routing_id_;
+  int32_t new_window_main_frame_widget_routing_id_;
   int32 new_frame_routing_id_;
 
   // The last known good deserializer for sync messages.

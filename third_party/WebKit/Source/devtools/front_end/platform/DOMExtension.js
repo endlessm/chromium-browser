@@ -488,15 +488,6 @@ Element.prototype.createTextChildren = function(var_args)
 DocumentFragment.prototype.createTextChildren = Element.prototype.createTextChildren;
 
 /**
- * @param {...!Element} var_args
- */
-Element.prototype.appendChildren = function(var_args)
-{
-    for (var i = 0, n = arguments.length; i < n; ++i)
-        this.appendChild(arguments[i]);
-}
-
-/**
  * @return {number}
  */
 Element.prototype.totalOffsetLeft = function()
@@ -711,6 +702,41 @@ Element.prototype.selectionLeftOffset = function()
     }
 
     return leftOffset;
+}
+
+/**
+ * @this {!HTMLImageElement} element
+ * @return {!Promise<!HTMLImageElement>}
+ */
+HTMLImageElement.prototype.completePromise = function()
+{
+    var element = this;
+    if (element.complete)
+        return Promise.resolve(element);
+    return new Promise(promiseBody);
+
+    /**
+     * @param {function(!HTMLImageElement)} resolve
+     */
+    function promiseBody(resolve)
+    {
+        element.addEventListener("load", oncomplete);
+        element.addEventListener("error", oncomplete);
+
+        function oncomplete()
+        {
+            resolve(element);
+        }
+    }
+}
+
+/**
+ * @param {...!Node} var_args
+ */
+Node.prototype.appendChildren = function(var_args)
+{
+    for (var i = 0, n = arguments.length; i < n; ++i)
+        this.appendChild(arguments[i]);
 }
 
 /**

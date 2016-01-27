@@ -17,6 +17,7 @@
 #include "base/time/clock.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_notification_types.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
 #include "chrome/browser/notifications/desktop_notification_profile_util.h"
 #include "chrome/browser/notifications/notification.h"
@@ -44,7 +45,40 @@
 #include "ui/base/window_open_disposition.h"
 #include "ui/message_center/message_center.h"
 #include "ui/message_center/message_center_observer.h"
+#include "ui/message_center/message_center_style.h"
+#include "ui/message_center/notification_blocker.h"
 #include "url/gurl.h"
+
+namespace {
+
+class ToggledNotificationBlocker : public message_center::NotificationBlocker {
+ public:
+  ToggledNotificationBlocker()
+      : message_center::NotificationBlocker(
+            message_center::MessageCenter::Get()),
+        notifications_enabled_(true) {}
+  ~ToggledNotificationBlocker() override {}
+
+  void SetNotificationsEnabled(bool enabled) {
+    if (notifications_enabled_ != enabled) {
+      notifications_enabled_ = enabled;
+      NotifyBlockingStateChanged();
+    }
+  }
+
+  // NotificationBlocker overrides:
+  bool ShouldShowNotificationAsPopup(
+      const message_center::NotifierId& notifier_id) const override {
+    return notifications_enabled_;
+  }
+
+ private:
+  bool notifications_enabled_;
+
+  DISALLOW_COPY_AND_ASSIGN(ToggledNotificationBlocker);
+};
+
+}  // namespace
 
 namespace {
 
@@ -226,14 +260,14 @@ void NotificationsTest::AllowOrigin(const GURL& origin) {
 
 void NotificationsTest::AllowAllOrigins() {
   // Reset all origins
-  browser()->profile()->GetHostContentSettingsMap()->ClearSettingsForOneType(
-       CONTENT_SETTINGS_TYPE_NOTIFICATIONS);
+  HostContentSettingsMapFactory::GetForProfile(browser()->profile())
+      ->ClearSettingsForOneType(CONTENT_SETTINGS_TYPE_NOTIFICATIONS);
   SetDefaultContentSetting(CONTENT_SETTING_ALLOW);
  }
 
 void NotificationsTest::SetDefaultContentSetting(ContentSetting setting) {
-  browser()->profile()->GetHostContentSettingsMap()->SetDefaultContentSetting(
-      CONTENT_SETTINGS_TYPE_NOTIFICATIONS, setting);
+  HostContentSettingsMapFactory::GetForProfile(browser()->profile())
+      ->SetDefaultContentSetting(CONTENT_SETTINGS_TYPE_NOTIFICATIONS, setting);
 }
 
 std::string NotificationsTest::CreateNotification(
@@ -396,6 +430,24 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestCreateSimpleNotification) {
             (*notifications.rbegin())->title());
   EXPECT_EQ(base::ASCIIToUTF16("My Body"),
             (*notifications.rbegin())->message());
+}
+
+IN_PROC_BROWSER_TEST_F(NotificationsTest, NotificationBlockerTest) {
+  ToggledNotificationBlocker blocker;
+
+  ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
+
+  // Creates a simple notification.
+  AllowAllOrigins();
+  ui_test_utils::NavigateToURL(browser(), GetTestPageURL());
+
+  std::string result = CreateSimpleNotification(browser(), true);
+  EXPECT_NE("-1", result);
+  result = CreateSimpleNotification(browser(), true);
+  EXPECT_NE("-1", result);
+
+  blocker.SetNotificationsEnabled(false);
+  EXPECT_EQ(0, GetNotificationPopupCount());
 }
 
 IN_PROC_BROWSER_TEST_F(NotificationsTest, TestCloseNotification) {
@@ -697,7 +749,7 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest, TestLastUsage) {
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
 
   HostContentSettingsMap* settings_map =
-      browser()->profile()->GetHostContentSettingsMap();
+      HostContentSettingsMapFactory::GetForProfile(browser()->profile());
   base::SimpleTestClock* clock = new base::SimpleTestClock();
   settings_map->SetPrefClockForTesting(scoped_ptr<base::Clock>(clock));
   clock->SetNow(base::Time::UnixEpoch() + base::TimeDelta::FromSeconds(10));
@@ -750,7 +802,11 @@ IN_PROC_BROWSER_TEST_F(NotificationsTest,
   message_center::MessageCenter::Get()->ClickOnNotification(
       (*notifications.rbegin())->id());
 
+#if defined(OS_CHROMEOS)
   ASSERT_EQ(0, GetNotificationPopupCount());
+#else
+  ASSERT_EQ(1, GetNotificationPopupCount());
+#endif
 
   result = CreateNotification(
       browser(), true, "abc.png", "Title2", "Body2", "chat");

@@ -14,6 +14,7 @@
 #include "extensions/browser/extension_function.h"
 #include "extensions/common/api/socket.h"
 #include "net/base/address_list.h"
+#include "net/base/network_change_notifier.h"
 #include "net/dns/host_resolver.h"
 #include "net/socket/tcp_client_socket.h"
 
@@ -176,7 +177,7 @@ class SocketCreateFunction : public SocketAsyncApiFunction {
   FRIEND_TEST_ALL_PREFIXES(SocketUnitTest, Create);
   enum SocketType { kSocketTypeInvalid = -1, kSocketTypeTCP, kSocketTypeUDP };
 
-  scoped_ptr<core_api::socket::Create::Params> params_;
+  scoped_ptr<api::socket::Create::Params> params_;
   SocketType socket_type_;
 };
 
@@ -266,7 +267,7 @@ class SocketListenFunction : public SocketAsyncApiFunction {
   void AsyncWorkStart() override;
 
  private:
-  scoped_ptr<core_api::socket::Listen::Params> params_;
+  scoped_ptr<api::socket::Listen::Params> params_;
 };
 
 class SocketAcceptFunction : public SocketAsyncApiFunction {
@@ -285,7 +286,7 @@ class SocketAcceptFunction : public SocketAsyncApiFunction {
  private:
   void OnAccept(int result_code, net::TCPClientSocket* socket);
 
-  scoped_ptr<core_api::socket::Accept::Params> params_;
+  scoped_ptr<api::socket::Accept::Params> params_;
 };
 
 class SocketReadFunction : public SocketAsyncApiFunction {
@@ -303,7 +304,7 @@ class SocketReadFunction : public SocketAsyncApiFunction {
   void OnCompleted(int result, scoped_refptr<net::IOBuffer> io_buffer);
 
  private:
-  scoped_ptr<core_api::socket::Read::Params> params_;
+  scoped_ptr<api::socket::Read::Params> params_;
 };
 
 class SocketWriteFunction : public SocketAsyncApiFunction {
@@ -344,7 +345,7 @@ class SocketRecvFromFunction : public SocketAsyncApiFunction {
                    uint16 port);
 
  private:
-  scoped_ptr<core_api::socket::RecvFrom::Params> params_;
+  scoped_ptr<api::socket::RecvFrom::Params> params_;
 };
 
 class SocketSendToFunction : public SocketExtensionWithDnsLookupFunction {
@@ -388,7 +389,7 @@ class SocketSetKeepAliveFunction : public SocketAsyncApiFunction {
   void Work() override;
 
  private:
-  scoped_ptr<core_api::socket::SetKeepAlive::Params> params_;
+  scoped_ptr<api::socket::SetKeepAlive::Params> params_;
 };
 
 class SocketSetNoDelayFunction : public SocketAsyncApiFunction {
@@ -405,7 +406,7 @@ class SocketSetNoDelayFunction : public SocketAsyncApiFunction {
   void Work() override;
 
  private:
-  scoped_ptr<core_api::socket::SetNoDelay::Params> params_;
+  scoped_ptr<api::socket::SetNoDelay::Params> params_;
 };
 
 class SocketGetInfoFunction : public SocketAsyncApiFunction {
@@ -422,7 +423,7 @@ class SocketGetInfoFunction : public SocketAsyncApiFunction {
   void Work() override;
 
  private:
-  scoped_ptr<core_api::socket::GetInfo::Params> params_;
+  scoped_ptr<api::socket::GetInfo::Params> params_;
 };
 
 class SocketGetNetworkListFunction : public AsyncExtensionFunction {
@@ -453,7 +454,7 @@ class SocketJoinGroupFunction : public SocketAsyncApiFunction {
   void Work() override;
 
  private:
-  scoped_ptr<core_api::socket::JoinGroup::Params> params_;
+  scoped_ptr<api::socket::JoinGroup::Params> params_;
 };
 
 class SocketLeaveGroupFunction : public SocketAsyncApiFunction {
@@ -470,7 +471,7 @@ class SocketLeaveGroupFunction : public SocketAsyncApiFunction {
   void Work() override;
 
  private:
-  scoped_ptr<core_api::socket::LeaveGroup::Params> params_;
+  scoped_ptr<api::socket::LeaveGroup::Params> params_;
 };
 
 class SocketSetMulticastTimeToLiveFunction : public SocketAsyncApiFunction {
@@ -488,7 +489,7 @@ class SocketSetMulticastTimeToLiveFunction : public SocketAsyncApiFunction {
   void Work() override;
 
  private:
-  scoped_ptr<core_api::socket::SetMulticastTimeToLive::Params> params_;
+  scoped_ptr<api::socket::SetMulticastTimeToLive::Params> params_;
 };
 
 class SocketSetMulticastLoopbackModeFunction : public SocketAsyncApiFunction {
@@ -506,7 +507,7 @@ class SocketSetMulticastLoopbackModeFunction : public SocketAsyncApiFunction {
   void Work() override;
 
  private:
-  scoped_ptr<core_api::socket::SetMulticastLoopbackMode::Params> params_;
+  scoped_ptr<api::socket::SetMulticastLoopbackMode::Params> params_;
 };
 
 class SocketGetJoinedGroupsFunction : public SocketAsyncApiFunction {
@@ -524,7 +525,7 @@ class SocketGetJoinedGroupsFunction : public SocketAsyncApiFunction {
   void Work() override;
 
  private:
-  scoped_ptr<core_api::socket::GetJoinedGroups::Params> params_;
+  scoped_ptr<api::socket::GetJoinedGroups::Params> params_;
 };
 
 class SocketSecureFunction : public SocketAsyncApiFunction {
@@ -543,7 +544,7 @@ class SocketSecureFunction : public SocketAsyncApiFunction {
   // Callback from TLSSocket::UpgradeSocketToTLS().
   void TlsConnectDone(scoped_ptr<TLSSocket> socket, int result);
 
-  scoped_ptr<core_api::socket::Secure::Params> params_;
+  scoped_ptr<api::socket::Secure::Params> params_;
   scoped_refptr<net::URLRequestContextGetter> url_request_getter_;
 
   DISALLOW_COPY_AND_ASSIGN(SocketSecureFunction);

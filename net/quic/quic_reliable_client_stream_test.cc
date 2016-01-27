@@ -6,13 +6,17 @@
 
 #include "net/base/net_errors.h"
 #include "net/base/test_completion_callback.h"
-#include "net/quic/quic_client_session.h"
+#include "net/quic/quic_chromium_client_session.h"
 #include "net/quic/quic_utils.h"
 #include "net/quic/spdy_utils.h"
+#include "net/quic/test_tools/crypto_test_utils.h"
 #include "net/quic/test_tools/quic_test_utils.h"
 #include "testing/gmock/include/gmock/gmock.h"
+#include "testing/gmock_mutant.h"
 
 using testing::AnyNumber;
+using testing::CreateFunctor;
+using testing::Invoke;
 using testing::Return;
 using testing::StrEq;
 using testing::_;
@@ -29,8 +33,9 @@ class MockDelegate : public QuicReliableClientStream::Delegate {
 
   MOCK_METHOD0(OnSendData, int());
   MOCK_METHOD2(OnSendDataComplete, int(int, bool*));
-  MOCK_METHOD1(OnHeadersAvailable, void(StringPiece));
+  MOCK_METHOD2(OnHeadersAvailable, void(const SpdyHeaderBlock&, size_t));
   MOCK_METHOD2(OnDataReceived, int(const char*, int));
+  MOCK_METHOD0(OnDataAvailable, void());
   MOCK_METHOD1(OnClose, void(QuicErrorCode));
   MOCK_METHOD1(OnError, void(int));
   MOCK_METHOD0(HasSendHeadersComplete, bool());
@@ -43,7 +48,9 @@ class QuicReliableClientStreamTest
     : public ::testing::TestWithParam<QuicVersion> {
  public:
   QuicReliableClientStreamTest()
-      : session_(new MockConnection(Perspective::IS_CLIENT,
+      : crypto_config_(CryptoTestUtils::ProofVerifierForTesting()),
+        session_(new MockConnection(&helper_,
+                                    Perspective::IS_CLIENT,
                                     SupportedVersions(GetParam()))) {
     stream_ =
         new QuicReliableClientStream(kTestStreamId, &session_, BoundNetLog());
@@ -81,10 +88,19 @@ class QuicReliableClientStreamTest
         "JBCScs_ejbKaqBDoB7ZGxTvqlrB__2ZmnHHjCr8RgMRtKNtIeuZAo ";
   }
 
+  void ReadData(StringPiece expected_data) {
+    scoped_refptr<IOBuffer> buffer(new IOBuffer(expected_data.length() + 1));
+    EXPECT_EQ(static_cast<int>(expected_data.length()),
+              stream_->Read(buffer.get(), expected_data.length() + 1));
+    EXPECT_EQ(expected_data,
+              StringPiece(buffer->data(), expected_data.length()));
+  }
+
+  QuicCryptoClientConfig crypto_config_;
   testing::StrictMock<MockDelegate> delegate_;
+  MockConnectionHelper helper_;
   MockQuicSpdySession session_;
   QuicReliableClientStream* stream_;
-  QuicCryptoClientConfig crypto_config_;
   SpdyHeaderBlock headers_;
 };
 
@@ -94,11 +110,14 @@ INSTANTIATE_TEST_CASE_P(Version, QuicReliableClientStreamTest,
 TEST_P(QuicReliableClientStreamTest, OnFinRead) {
   InitializeHeaders();
   std::string uncompressed_headers =
-      SpdyUtils::SerializeUncompressedHeaders(headers_, GetParam());
-  EXPECT_CALL(delegate_, OnHeadersAvailable(StringPiece(uncompressed_headers)));
+      SpdyUtils::SerializeUncompressedHeaders(headers_);
   QuicStreamOffset offset = 0;
   stream_->OnStreamHeaders(uncompressed_headers);
   stream_->OnStreamHeadersComplete(false, uncompressed_headers.length());
+
+  EXPECT_CALL(delegate_,
+              OnHeadersAvailable(headers_, uncompressed_headers.length()));
+  base::MessageLoop::current()->RunUntilIdle();
   EXPECT_TRUE(stream_->decompressed_headers().empty());
 
   QuicStreamFrame frame2(kTestStreamId, true, offset, StringPiece());
@@ -106,40 +125,71 @@ TEST_P(QuicReliableClientStreamTest, OnFinRead) {
   stream_->OnStreamFrame(frame2);
 }
 
-TEST_P(QuicReliableClientStreamTest, ProcessDataBeforeHeaders) {
-  const char data[] = "hello world!";
+TEST_P(QuicReliableClientStreamTest, OnDataAvailableBeforeHeaders) {
   EXPECT_CALL(delegate_, OnClose(QUIC_NO_ERROR));
 
-  EXPECT_EQ(0u, stream_->ProcessData(data, arraysize(data)));
+  EXPECT_CALL(delegate_, OnDataAvailable()).Times(0);
+  stream_->OnDataAvailable();
 }
 
-TEST_P(QuicReliableClientStreamTest, ProcessData) {
+TEST_P(QuicReliableClientStreamTest, OnDataAvailable) {
   InitializeHeaders();
   std::string uncompressed_headers =
-      SpdyUtils::SerializeUncompressedHeaders(headers_, GetParam());
-  EXPECT_CALL(delegate_, OnHeadersAvailable(StringPiece(uncompressed_headers)));
+      SpdyUtils::SerializeUncompressedHeaders(headers_);
   stream_->OnStreamHeaders(uncompressed_headers);
   stream_->OnStreamHeadersComplete(false, uncompressed_headers.length());
 
-  const char data[] = "hello world!";
-  EXPECT_CALL(delegate_, OnDataReceived(StrEq(data), arraysize(data)));
-  EXPECT_CALL(delegate_, OnClose(QUIC_NO_ERROR));
+  EXPECT_CALL(delegate_,
+              OnHeadersAvailable(headers_, uncompressed_headers.length()));
+  base::MessageLoop::current()->RunUntilIdle();
+  EXPECT_TRUE(stream_->decompressed_headers().empty());
 
-  EXPECT_EQ(arraysize(data), stream_->ProcessData(data, arraysize(data)));
+  const char data[] = "hello world!";
+  stream_->OnStreamFrame(QuicStreamFrame(kTestStreamId, /*fin=*/false,
+                                         /*offset=*/0, data));
+
+  EXPECT_CALL(delegate_, OnDataAvailable())
+      .WillOnce(testing::Invoke(
+          CreateFunctor(this, &QuicReliableClientStreamTest::ReadData,
+                        StringPiece(data, arraysize(data) - 1))));
+  base::MessageLoop::current()->RunUntilIdle();
+
+  EXPECT_CALL(delegate_, OnClose(QUIC_NO_ERROR));
 }
 
-TEST_P(QuicReliableClientStreamTest, ProcessDataWithError) {
-  EXPECT_CALL(delegate_, OnHeadersAvailable(StringPiece("")));
-  stream_->OnStreamHeadersComplete(false, 0);  // Send empty headers.
+TEST_P(QuicReliableClientStreamTest, ProcessHeadersWithError) {
+  std::string bad_headers = "...";
+  stream_->OnStreamHeaders(StringPiece(bad_headers));
+  stream_->OnStreamHeadersComplete(false, bad_headers.length());
+
+  EXPECT_CALL(session_,
+              SendRstStream(kTestStreamId, QUIC_BAD_APPLICATION_PAYLOAD, 0));
+  base::MessageLoop::current()->RunUntilIdle();
+
+  EXPECT_CALL(delegate_, OnClose(QUIC_NO_ERROR));
+}
+
+TEST_P(QuicReliableClientStreamTest, OnDataAvailableWithError) {
+  InitializeHeaders();
+  std::string uncompressed_headers =
+      SpdyUtils::SerializeUncompressedHeaders(headers_);
+  stream_->OnStreamHeaders(uncompressed_headers);
+  stream_->OnStreamHeadersComplete(false, uncompressed_headers.length());
+
+  EXPECT_CALL(delegate_,
+              OnHeadersAvailable(headers_, uncompressed_headers.length()));
+  base::MessageLoop::current()->RunUntilIdle();
+  EXPECT_TRUE(stream_->decompressed_headers().empty());
 
   const char data[] = "hello world!";
-  EXPECT_CALL(delegate_,
-              OnDataReceived(StrEq(data),
-                             arraysize(data))).WillOnce(Return(ERR_UNEXPECTED));
+  stream_->OnStreamFrame(QuicStreamFrame(kTestStreamId, /*fin=*/false,
+                                         /*offset=*/0, data));
+  EXPECT_CALL(delegate_, OnDataAvailable())
+      .WillOnce(testing::Invoke(CreateFunctor(
+          stream_, &QuicReliableClientStream::Reset, QUIC_STREAM_CANCELLED)));
+  base::MessageLoop::current()->RunUntilIdle();
+
   EXPECT_CALL(delegate_, OnClose(QUIC_NO_ERROR));
-
-
-  EXPECT_EQ(0u, stream_->ProcessData(data, arraysize(data)));
 }
 
 TEST_P(QuicReliableClientStreamTest, OnError) {

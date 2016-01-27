@@ -48,6 +48,7 @@
 #include <algorithm>
 
 #include "webrtc/base/logging.h"
+#include "webrtc/base/networkmonitor.h"
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/base/socket.h"  // includes something that makes windows happy
 #include "webrtc/base/stream.h"
@@ -62,8 +63,8 @@ namespace {
 // limit of IPv6 networks but could be changed by set_max_ipv6_networks().
 const int kMaxIPv6Networks = 5;
 
-const uint32 kUpdateNetworksMessage = 1;
-const uint32 kSignalNetworksMessage = 2;
+const uint32_t kUpdateNetworksMessage = 1;
+const uint32_t kSignalNetworksMessage = 2;
 
 // Fetch list of networks every two seconds.
 const int kNetworksUpdateIntervalMs = 2000;
@@ -123,7 +124,7 @@ std::string AdapterTypeToString(AdapterType type) {
     case ADAPTER_TYPE_LOOPBACK:
       return "Loopback";
     default:
-      DCHECK(false) << "Invalid type " << type;
+      RTC_DCHECK(false) << "Invalid type " << type;
       return std::string();
   }
 }
@@ -150,6 +151,12 @@ bool IsIgnoredIPv6(const IPAddress& ip) {
 
 }  // namespace
 
+// These addresses are used as the targets to find out the default local address
+// on a multi-homed endpoint. They are actually DNS servers.
+const char kPublicIPv4Host[] = "8.8.8.8";
+const char kPublicIPv6Host[] = "2001:4860:4860::8888";
+const int kPublicPort = 53;  // DNS port.
+
 std::string MakeNetworkKey(const std::string& name, const IPAddress& prefix,
                            int prefix_length) {
   std::ostringstream ost;
@@ -163,8 +170,19 @@ NetworkManager::NetworkManager() {
 NetworkManager::~NetworkManager() {
 }
 
+NetworkManager::EnumerationPermission NetworkManager::enumeration_permission()
+    const {
+  return ENUMERATION_ALLOWED;
+}
+
+bool NetworkManager::GetDefaultLocalAddress(int family, IPAddress* addr) const {
+  return false;
+}
+
 NetworkManagerBase::NetworkManagerBase()
-    : max_ipv6_networks_(kMaxIPv6Networks), ipv6_enabled_(true) {
+    : enumeration_permission_(NetworkManager::ENUMERATION_ALLOWED),
+      max_ipv6_networks_(kMaxIPv6Networks),
+      ipv6_enabled_(true) {
 }
 
 NetworkManagerBase::~NetworkManagerBase() {
@@ -173,11 +191,17 @@ NetworkManagerBase::~NetworkManagerBase() {
   }
 }
 
+NetworkManager::EnumerationPermission
+NetworkManagerBase::enumeration_permission() const {
+  return enumeration_permission_;
+}
+
 void NetworkManagerBase::GetAnyAddressNetworks(NetworkList* networks) {
   if (!ipv4_any_address_network_) {
     const rtc::IPAddress ipv4_any_address(INADDR_ANY);
     ipv4_any_address_network_.reset(
         new rtc::Network("any", "any", ipv4_any_address, 0));
+    ipv4_any_address_network_->set_default_local_address_provider(this);
     ipv4_any_address_network_->AddIP(ipv4_any_address);
   }
   networks->push_back(ipv4_any_address_network_.get());
@@ -187,6 +211,7 @@ void NetworkManagerBase::GetAnyAddressNetworks(NetworkList* networks) {
       const rtc::IPAddress ipv6_any_address(in6addr_any);
       ipv6_any_address_network_.reset(
           new rtc::Network("any", "any", ipv6_any_address, 0));
+      ipv6_any_address_network_->set_default_local_address_provider(this);
       ipv6_any_address_network_->AddIP(ipv6_any_address);
     }
     networks->push_back(ipv6_any_address_network_.get());
@@ -308,6 +333,28 @@ void NetworkManagerBase::MergeNetworkList(const NetworkList& new_networks,
   }
 }
 
+void NetworkManagerBase::set_default_local_addresses(const IPAddress& ipv4,
+                                                     const IPAddress& ipv6) {
+  if (ipv4.family() == AF_INET) {
+    default_local_ipv4_address_ = ipv4;
+  }
+  if (ipv6.family() == AF_INET6) {
+    default_local_ipv6_address_ = ipv6;
+  }
+}
+
+bool NetworkManagerBase::GetDefaultLocalAddress(int family,
+                                                IPAddress* ipaddr) const {
+  if (family == AF_INET) {
+    *ipaddr = default_local_ipv4_address_;
+    return true;
+  } else if (family == AF_INET6) {
+    *ipaddr = default_local_ipv6_address_;
+    return true;
+  }
+  return false;
+}
+
 BasicNetworkManager::BasicNetworkManager()
     : thread_(NULL), sent_first_update_(false), start_count_(0),
       network_ignore_mask_(kDefaultNetworkIgnoreMask),
@@ -315,6 +362,11 @@ BasicNetworkManager::BasicNetworkManager()
 }
 
 BasicNetworkManager::~BasicNetworkManager() {
+}
+
+void BasicNetworkManager::OnNetworksChanged() {
+  LOG(LS_VERBOSE) << "Network change was observed at the network manager";
+  UpdateNetworksOnce();
 }
 
 #if defined(__native_client__)
@@ -391,10 +443,9 @@ void BasicNetworkManager::ConvertIfAddrs(struct ifaddrs* interfaces,
 #endif
       // TODO(phoglund): Need to recognize other types as well.
       scoped_ptr<Network> network(new Network(cursor->ifa_name,
-                                              cursor->ifa_name,
-                                              prefix,
-                                              prefix_length,
-                                              adapter_type));
+                                              cursor->ifa_name, prefix,
+                                              prefix_length, adapter_type));
+      network->set_default_local_address_provider(this);
       network->set_scope_id(scope_id);
       network->AddIP(ip);
       network->set_ignored(IsIgnoredNetwork(*network));
@@ -493,14 +544,14 @@ bool BasicNetworkManager::CreateNetworks(bool include_ignored,
       PIP_ADAPTER_PREFIX prefixlist = adapter_addrs->FirstPrefix;
       std::string name;
       std::string description;
-#ifdef _DEBUG
+#if !defined(NDEBUG)
       name = ToUtf8(adapter_addrs->FriendlyName,
                     wcslen(adapter_addrs->FriendlyName));
 #endif
       description = ToUtf8(adapter_addrs->Description,
                            wcslen(adapter_addrs->Description));
       for (; address; address = address->Next) {
-#ifndef _DEBUG
+#if defined(NDEBUG)
         name = rtc::ToString(count);
 #endif
 
@@ -545,11 +596,9 @@ bool BasicNetworkManager::CreateNetworks(bool include_ignored,
             // TODO(phoglund): Need to recognize other types as well.
             adapter_type = ADAPTER_TYPE_LOOPBACK;
           }
-          scoped_ptr<Network> network(new Network(name,
-                                                  description,
-                                                  prefix,
-                                                  prefix_length,
-                                                  adapter_type));
+          scoped_ptr<Network> network(new Network(name, description, prefix,
+                                                  prefix_length, adapter_type));
+          network->set_default_local_address_provider(this);
           network->set_scope_id(scope_id);
           network->AddIP(ip);
           bool ignored = IsIgnoredNetwork(*network);
@@ -651,6 +700,7 @@ void BasicNetworkManager::StartUpdating() {
       thread_->Post(this, kSignalNetworksMessage);
   } else {
     thread_->Post(this, kUpdateNetworksMessage);
+    StartNetworkMonitor();
   }
   ++start_count_;
 }
@@ -664,13 +714,36 @@ void BasicNetworkManager::StopUpdating() {
   if (!start_count_) {
     thread_->Clear(this);
     sent_first_update_ = false;
+    StopNetworkMonitor();
   }
+}
+
+void BasicNetworkManager::StartNetworkMonitor() {
+  NetworkMonitorFactory* factory = NetworkMonitorFactory::GetFactory();
+  if (factory == nullptr) {
+    return;
+  }
+  network_monitor_.reset(factory->CreateNetworkMonitor());
+  if (!network_monitor_) {
+    return;
+  }
+  network_monitor_->SignalNetworksChanged.connect(
+      this, &BasicNetworkManager::OnNetworksChanged);
+  network_monitor_->Start();
+}
+
+void BasicNetworkManager::StopNetworkMonitor() {
+  if (!network_monitor_) {
+    return;
+  }
+  network_monitor_->Stop();
+  network_monitor_.reset();
 }
 
 void BasicNetworkManager::OnMessage(Message* msg) {
   switch (msg->message_id) {
-    case kUpdateNetworksMessage:  {
-      DoUpdateNetworks();
+    case kUpdateNetworksMessage: {
+      UpdateNetworksContinually();
       break;
     }
     case kSignalNetworksMessage:  {
@@ -682,7 +755,26 @@ void BasicNetworkManager::OnMessage(Message* msg) {
   }
 }
 
-void BasicNetworkManager::DoUpdateNetworks() {
+IPAddress BasicNetworkManager::QueryDefaultLocalAddress(int family) const {
+  ASSERT(thread_ == Thread::Current());
+  ASSERT(thread_->socketserver() != nullptr);
+  ASSERT(family == AF_INET || family == AF_INET6);
+
+  scoped_ptr<AsyncSocket> socket(
+      thread_->socketserver()->CreateAsyncSocket(family, SOCK_DGRAM));
+  if (!socket) {
+    return IPAddress();
+  }
+
+  if (!socket->Connect(
+          SocketAddress(family == AF_INET ? kPublicIPv4Host : kPublicIPv6Host,
+                        kPublicPort))) {
+    return IPAddress();
+  }
+  return socket->GetLocalAddress().ipaddr();
+}
+
+void BasicNetworkManager::UpdateNetworksOnce() {
   if (!start_count_)
     return;
 
@@ -693,13 +785,19 @@ void BasicNetworkManager::DoUpdateNetworks() {
     SignalError();
   } else {
     bool changed;
-    MergeNetworkList(list, &changed);
+    NetworkManager::Stats stats;
+    MergeNetworkList(list, &changed, &stats);
+    set_default_local_addresses(QueryDefaultLocalAddress(AF_INET),
+                                QueryDefaultLocalAddress(AF_INET6));
     if (changed || !sent_first_update_) {
       SignalNetworksChanged();
       sent_first_update_ = true;
     }
   }
+}
 
+void BasicNetworkManager::UpdateNetworksContinually() {
+  UpdateNetworksOnce();
   thread_->PostDelayed(kNetworksUpdateIntervalMs, this, kUpdateNetworksMessage);
 }
 
@@ -721,21 +819,34 @@ void BasicNetworkManager::DumpNetworks(bool include_ignored) {
   }
 }
 
-Network::Network(const std::string& name, const std::string& desc,
-                 const IPAddress& prefix, int prefix_length)
-    : name_(name), description_(desc), prefix_(prefix),
+Network::Network(const std::string& name,
+                 const std::string& desc,
+                 const IPAddress& prefix,
+                 int prefix_length)
+    : name_(name),
+      description_(desc),
+      prefix_(prefix),
       prefix_length_(prefix_length),
-      key_(MakeNetworkKey(name, prefix, prefix_length)), scope_id_(0),
-      ignored_(false), type_(ADAPTER_TYPE_UNKNOWN), preference_(0) {
-}
+      key_(MakeNetworkKey(name, prefix, prefix_length)),
+      scope_id_(0),
+      ignored_(false),
+      type_(ADAPTER_TYPE_UNKNOWN),
+      preference_(0) {}
 
-Network::Network(const std::string& name, const std::string& desc,
-                 const IPAddress& prefix, int prefix_length, AdapterType type)
-    : name_(name), description_(desc), prefix_(prefix),
+Network::Network(const std::string& name,
+                 const std::string& desc,
+                 const IPAddress& prefix,
+                 int prefix_length,
+                 AdapterType type)
+    : name_(name),
+      description_(desc),
+      prefix_(prefix),
       prefix_length_(prefix_length),
-      key_(MakeNetworkKey(name, prefix, prefix_length)), scope_id_(0),
-      ignored_(false), type_(type), preference_(0) {
-}
+      key_(MakeNetworkKey(name, prefix, prefix_length)),
+      scope_id_(0),
+      ignored_(false),
+      type_(type),
+      preference_(0) {}
 
 Network::~Network() = default;
 

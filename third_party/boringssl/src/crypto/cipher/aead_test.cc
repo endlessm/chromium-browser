@@ -22,7 +22,7 @@
 #include <openssl/err.h>
 
 #include "../test/file_test.h"
-#include "../test/stl_compat.h"
+#include "../test/scoped_types.h"
 
 
 // This program tests an AEAD against a series of test vectors from a file,
@@ -34,18 +34,6 @@
 //   AD: b654574932
 //   CT: 5294265a60
 //   TAG: 1d45758621762e061368e68868e2f929
-
-// EVP_AEAD_CTX lacks a zero state, so it doesn't fit easily into
-// ScopedOpenSSLContext.
-class EVP_AEAD_CTXScoper {
- public:
-  EVP_AEAD_CTXScoper(EVP_AEAD_CTX *ctx) : ctx_(ctx) {}
-  ~EVP_AEAD_CTXScoper() {
-    EVP_AEAD_CTX_cleanup(ctx_);
-  }
- private:
-  EVP_AEAD_CTX *ctx_;
-};
 
 static bool TestAEAD(FileTest *t, void *arg) {
   const EVP_AEAD *aead = reinterpret_cast<const EVP_AEAD*>(arg);
@@ -60,22 +48,19 @@ static bool TestAEAD(FileTest *t, void *arg) {
     return false;
   }
 
-  EVP_AEAD_CTX ctx;
-  if (!EVP_AEAD_CTX_init_with_direction(&ctx, aead, bssl::vector_data(&key),
-                                        key.size(), tag.size(),
-                                        evp_aead_seal)) {
+  ScopedEVP_AEAD_CTX ctx;
+  if (!EVP_AEAD_CTX_init_with_direction(ctx.get(), aead, key.data(), key.size(),
+                                        tag.size(), evp_aead_seal)) {
     t->PrintLine("Failed to init AEAD.");
     return false;
   }
-  EVP_AEAD_CTXScoper cleanup(&ctx);
 
   std::vector<uint8_t> out(in.size() + EVP_AEAD_max_overhead(aead));
   if (!t->HasAttribute("NO_SEAL")) {
     size_t out_len;
-    if (!EVP_AEAD_CTX_seal(&ctx, bssl::vector_data(&out), &out_len, out.size(),
-                           bssl::vector_data(&nonce), nonce.size(),
-                           bssl::vector_data(&in), in.size(),
-                           bssl::vector_data(&ad), ad.size())) {
+    if (!EVP_AEAD_CTX_seal(ctx.get(), out.data(), &out_len, out.size(),
+                           nonce.data(), nonce.size(), in.data(), in.size(),
+                           ad.data(), ad.size())) {
       t->PrintLine("Failed to run AEAD.");
       return false;
     }
@@ -86,36 +71,31 @@ static bool TestAEAD(FileTest *t, void *arg) {
                    (unsigned)(ct.size() + tag.size()));
       return false;
     }
-    if (!t->ExpectBytesEqual(bssl::vector_data(&ct), ct.size(),
-                             bssl::vector_data(&out), ct.size()) ||
-        !t->ExpectBytesEqual(bssl::vector_data(&tag), tag.size(),
-                             bssl::vector_data(&out) + ct.size(), tag.size())) {
+    if (!t->ExpectBytesEqual(ct.data(), ct.size(), out.data(), ct.size()) ||
+        !t->ExpectBytesEqual(tag.data(), tag.size(), out.data() + ct.size(),
+                             tag.size())) {
       return false;
     }
   } else {
     out.resize(ct.size() + tag.size());
-    memcpy(bssl::vector_data(&out), bssl::vector_data(&ct), ct.size());
-    memcpy(bssl::vector_data(&out) + ct.size(), bssl::vector_data(&tag),
-           tag.size());
+    memcpy(out.data(), ct.data(), ct.size());
+    memcpy(out.data() + ct.size(), tag.data(), tag.size());
   }
 
   // The "stateful" AEADs for implementing pre-AEAD cipher suites need to be
   // reset after each operation.
-  EVP_AEAD_CTX_cleanup(&ctx);
-  if (!EVP_AEAD_CTX_init_with_direction(&ctx, aead, bssl::vector_data(&key),
-                                        key.size(), tag.size(),
-                                        evp_aead_open)) {
+  ctx.Reset();
+  if (!EVP_AEAD_CTX_init_with_direction(ctx.get(), aead, key.data(), key.size(),
+                                        tag.size(), evp_aead_open)) {
     t->PrintLine("Failed to init AEAD.");
     return false;
   }
 
   std::vector<uint8_t> out2(out.size());
   size_t out2_len;
-  int ret = EVP_AEAD_CTX_open(&ctx,
-                              bssl::vector_data(&out2), &out2_len, out2.size(),
-                              bssl::vector_data(&nonce), nonce.size(),
-                              bssl::vector_data(&out), out.size(),
-                              bssl::vector_data(&ad), ad.size());
+  int ret = EVP_AEAD_CTX_open(ctx.get(), out2.data(), &out2_len, out2.size(),
+                              nonce.data(), nonce.size(), out.data(),
+                              out.size(), ad.data(), ad.size());
   if (t->HasAttribute("FAILS")) {
     if (ret) {
       t->PrintLine("Decrypted bad data.");
@@ -130,17 +110,15 @@ static bool TestAEAD(FileTest *t, void *arg) {
     return false;
   }
   out2.resize(out2_len);
-  if (!t->ExpectBytesEqual(bssl::vector_data(&in), in.size(),
-                           bssl::vector_data(&out2), out2.size())) {
+  if (!t->ExpectBytesEqual(in.data(), in.size(), out2.data(), out2.size())) {
     return false;
   }
 
   // The "stateful" AEADs for implementing pre-AEAD cipher suites need to be
   // reset after each operation.
-  EVP_AEAD_CTX_cleanup(&ctx);
-  if (!EVP_AEAD_CTX_init_with_direction(&ctx, aead, bssl::vector_data(&key),
-                                        key.size(), tag.size(),
-                                        evp_aead_open)) {
+  ctx.Reset();
+  if (!EVP_AEAD_CTX_init_with_direction(ctx.get(), aead, key.data(), key.size(),
+                                        tag.size(), evp_aead_open)) {
     t->PrintLine("Failed to init AEAD.");
     return false;
   }
@@ -148,10 +126,9 @@ static bool TestAEAD(FileTest *t, void *arg) {
   // Garbage at the end isn't ignored.
   out.push_back(0);
   out2.resize(out.size());
-  if (EVP_AEAD_CTX_open(&ctx, bssl::vector_data(&out2), &out2_len, out2.size(),
-                        bssl::vector_data(&nonce), nonce.size(),
-                        bssl::vector_data(&out), out.size(),
-                        bssl::vector_data(&ad), ad.size())) {
+  if (EVP_AEAD_CTX_open(ctx.get(), out2.data(), &out2_len, out2.size(),
+                        nonce.data(), nonce.size(), out.data(), out.size(),
+                        ad.data(), ad.size())) {
     t->PrintLine("Decrypted bad data with trailing garbage.");
     return false;
   }
@@ -159,10 +136,9 @@ static bool TestAEAD(FileTest *t, void *arg) {
 
   // The "stateful" AEADs for implementing pre-AEAD cipher suites need to be
   // reset after each operation.
-  EVP_AEAD_CTX_cleanup(&ctx);
-  if (!EVP_AEAD_CTX_init_with_direction(&ctx, aead, bssl::vector_data(&key),
-                                        key.size(), tag.size(),
-                                        evp_aead_open)) {
+  ctx.Reset();
+  if (!EVP_AEAD_CTX_init_with_direction(ctx.get(), aead, key.data(), key.size(),
+                                        tag.size(), evp_aead_open)) {
     t->PrintLine("Failed to init AEAD.");
     return false;
   }
@@ -171,10 +147,9 @@ static bool TestAEAD(FileTest *t, void *arg) {
   out[0] ^= 0x80;
   out.resize(out.size() - 1);
   out2.resize(out.size());
-  if (EVP_AEAD_CTX_open(&ctx, bssl::vector_data(&out2), &out2_len, out2.size(),
-                        bssl::vector_data(&nonce), nonce.size(),
-                        bssl::vector_data(&out), out.size(),
-                        bssl::vector_data(&ad), ad.size())) {
+  if (EVP_AEAD_CTX_open(ctx.get(), out2.data(), &out2_len, out2.size(),
+                        nonce.data(), nonce.size(), out.data(), out.size(),
+                        ad.data(), ad.size())) {
     t->PrintLine("Decrypted bad data with corrupted byte.");
     return false;
   }
@@ -200,6 +175,7 @@ static int TestCleanupAfterInitFailure(const EVP_AEAD *aead) {
     fprintf(stderr, "A silly tag length didn't trigger an error!\n");
     return 0;
   }
+  ERR_clear_error();
 
   /* Running a second, failed _init should not cause a memory leak. */
   if (EVP_AEAD_CTX_init(&ctx, aead, key, key_len,
@@ -208,6 +184,7 @@ static int TestCleanupAfterInitFailure(const EVP_AEAD *aead) {
     fprintf(stderr, "A silly tag length didn't trigger an error!\n");
     return 0;
   }
+  ERR_clear_error();
 
   /* Calling _cleanup on an |EVP_AEAD_CTX| after a failed _init should be a
    * no-op. */
@@ -223,7 +200,8 @@ struct AEADName {
 static const struct AEADName kAEADs[] = {
   { "aes-128-gcm", EVP_aead_aes_128_gcm },
   { "aes-256-gcm", EVP_aead_aes_256_gcm },
-  { "chacha20-poly1305", EVP_aead_chacha20_poly1305 },
+  { "chacha20-poly1305", EVP_aead_chacha20_poly1305_rfc7539 },
+  { "chacha20-poly1305-old", EVP_aead_chacha20_poly1305_old },
   { "rc4-md5-tls", EVP_aead_rc4_md5_tls },
   { "rc4-sha1-tls", EVP_aead_rc4_sha1_tls },
   { "aes-128-cbc-sha1-tls", EVP_aead_aes_128_cbc_sha1_tls },

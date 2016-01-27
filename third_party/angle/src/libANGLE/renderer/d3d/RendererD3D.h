@@ -12,10 +12,11 @@
 #include "common/debug.h"
 #include "common/MemoryBuffer.h"
 #include "libANGLE/Data.h"
-#include "libANGLe/formatutils.h"
+#include "libANGLE/formatutils.h"
 #include "libANGLE/renderer/Renderer.h"
 #include "libANGLE/renderer/d3d/VertexDataManager.h"
 #include "libANGLE/renderer/d3d/formatutilsD3D.h"
+#include "libANGLE/renderer/d3d/WorkaroundsD3D.h"
 #include "libANGLE/renderer/d3d/d3d11/NativeWindow.h"
 
 //FIXME(jmadill): std::array is currently prohibited by Chromium style guide
@@ -36,8 +37,11 @@ class DebugAnnotator;
 
 namespace rx
 {
+struct D3DUniform;
+class EGLImageD3D;
 class ImageD3D;
 class IndexBuffer;
+class ProgramD3D;
 class RenderTargetD3D;
 class ShaderExecutableD3D;
 class SwapChainD3D;
@@ -91,18 +95,43 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
     virtual egl::Error initialize() = 0;
 
     virtual egl::ConfigSet generateConfigs() const = 0;
+    virtual void generateDisplayExtensions(egl::DisplayExtensions *outExtensions) const = 0;
 
-    gl::Error drawArrays(const gl::Data &data,
-                         GLenum mode, GLint first,
-                         GLsizei count, GLsizei instances) override;
+    gl::Error drawArrays(const gl::Data &data, GLenum mode, GLint first, GLsizei count) override;
+    gl::Error drawArraysInstanced(const gl::Data &data,
+                                  GLenum mode,
+                                  GLint first,
+                                  GLsizei count,
+                                  GLsizei instanceCount) override;
 
     gl::Error drawElements(const gl::Data &data,
-                           GLenum mode, GLsizei count, GLenum type,
-                           const GLvoid *indices, GLsizei instances,
-                           const gl::RangeUI &indexRange) override;
+                           GLenum mode,
+                           GLsizei count,
+                           GLenum type,
+                           const GLvoid *indices,
+                           const gl::IndexRange &indexRange) override;
+    gl::Error drawElementsInstanced(const gl::Data &data,
+                                    GLenum mode,
+                                    GLsizei count,
+                                    GLenum type,
+                                    const GLvoid *indices,
+                                    GLsizei instances,
+                                    const gl::IndexRange &indexRange) override;
+    gl::Error drawRangeElements(const gl::Data &data,
+                                GLenum mode,
+                                GLuint start,
+                                GLuint end,
+                                GLsizei count,
+                                GLenum type,
+                                const GLvoid *indices,
+                                const gl::IndexRange &indexRange) override;
 
     bool isDeviceLost() const override;
     std::string getVendorString() const override;
+
+    CompilerImpl *createCompiler() override;
+
+    SamplerImpl *createSampler() override;
 
     virtual int getMinorShaderModel() const = 0;
     virtual std::string getShaderModelSuffix() const = 0;
@@ -131,14 +160,18 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
                              bool ignoreViewport) = 0;
 
     virtual gl::Error applyRenderTarget(const gl::Framebuffer *frameBuffer) = 0;
-    virtual gl::Error applyShaders(gl::Program *program,
-                                   const gl::Framebuffer *framebuffer,
-                                   bool rasterizerDiscard,
-                                   bool transformFeedbackActive) = 0;
-    virtual gl::Error applyUniforms(const ProgramImpl &program, const std::vector<gl::LinkedUniform*> &uniformArray) = 0;
+    virtual gl::Error applyUniforms(const ProgramD3D &programD3D,
+                                    GLenum drawMode,
+                                    const std::vector<D3DUniform *> &uniformArray) = 0;
     virtual bool applyPrimitiveType(GLenum primitiveType, GLsizei elementCount, bool usesPointSize) = 0;
     virtual gl::Error applyVertexBuffer(const gl::State &state, GLenum mode, GLint first, GLsizei count, GLsizei instances, SourceIndexData *sourceIndexInfo) = 0;
-    virtual gl::Error applyIndexBuffer(const GLvoid *indices, gl::Buffer *elementArrayBuffer, GLsizei count, GLenum mode, GLenum type, TranslatedIndexData *indexInfo, SourceIndexData *sourceIndexInfo) = 0;
+    virtual gl::Error applyIndexBuffer(const gl::Data &data,
+                                       const GLvoid *indices,
+                                       GLsizei count,
+                                       GLenum mode,
+                                       GLenum type,
+                                       TranslatedIndexData *indexInfo,
+                                       SourceIndexData *sourceIndexInfo) = 0;
     virtual void applyTransformFeedbackBuffers(const gl::State& state) = 0;
 
     virtual void markAllStateDirty() = 0;
@@ -147,10 +180,10 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
     virtual unsigned int getReservedFragmentUniformVectors() const = 0;
     virtual unsigned int getReservedVertexUniformBuffers() const = 0;
     virtual unsigned int getReservedFragmentUniformBuffers() const = 0;
-    virtual bool getShareHandleSupport() const = 0;
-    virtual bool getPostSubBufferSupport() const = 0;
 
     virtual int getMajorShaderModel() const = 0;
+
+    const WorkaroundsD3D &getWorkarounds() const;
 
     // Pixel operations
     virtual gl::Error copyImage2D(const gl::Framebuffer *framebuffer, const gl::Rectangle &sourceRect, GLenum destFormat,
@@ -164,6 +197,7 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
 
     // RenderTarget creation
     virtual gl::Error createRenderTarget(int width, int height, GLenum format, GLsizei samples, RenderTargetD3D **outRT) = 0;
+    virtual gl::Error createRenderTargetCopy(RenderTargetD3D *source, RenderTargetD3D **outRT) = 0;
 
     // Shader operations
     virtual gl::Error loadExecutable(const void *function, size_t length, ShaderType type,
@@ -178,8 +212,10 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
     // Image operations
     virtual ImageD3D *createImage() = 0;
     virtual gl::Error generateMipmap(ImageD3D *dest, ImageD3D *source) = 0;
-    virtual gl::Error generateMipmapsUsingD3D(TextureStorage *storage, const gl::SamplerState &samplerState) = 0;
+    virtual gl::Error generateMipmapsUsingD3D(TextureStorage *storage,
+                                              const gl::TextureState &textureState) = 0;
     virtual TextureStorage *createTextureStorage2D(SwapChainD3D *swapChain) = 0;
+    virtual TextureStorage *createTextureStorageEGLImage(EGLImageD3D *eglImage) = 0;
     virtual TextureStorage *createTextureStorage2D(GLenum internalformat, bool renderTarget, GLsizei width, GLsizei height, int levels, bool hintLevelZeroOnly) = 0;
     virtual TextureStorage *createTextureStorageCube(GLenum internalformat, bool renderTarget, int size, int levels, bool hintLevelZeroOnly) = 0;
     virtual TextureStorage *createTextureStorage3D(GLenum internalformat, bool renderTarget, GLsizei width, GLsizei height, GLsizei depth, int levels) = 0;
@@ -189,6 +225,11 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
     virtual bool supportsFastCopyBufferToTexture(GLenum internalFormat) const = 0;
     virtual gl::Error fastCopyBufferToTexture(const gl::PixelUnpackState &unpack, unsigned int offset, RenderTargetD3D *destRenderTarget,
                                               GLenum destinationFormat, GLenum sourcePixelsType, const gl::Box &destArea) = 0;
+
+    void syncState(const gl::State & /*state*/, const gl::State::DirtyBits &bitmask) override
+    {
+        // TODO(jmadill): implement state sync for D3D renderers;
+    }
 
     // Device lost
     void notifyDeviceLost() override;
@@ -207,12 +248,8 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
     virtual gl::Error clearTextures(gl::SamplerType samplerType, size_t rangeStart, size_t rangeEnd) = 0;
 
   protected:
-    virtual gl::Error drawArrays(const gl::Data &data, GLenum mode, GLsizei count, GLsizei instances, bool usesPointSize) = 0;
-    virtual gl::Error drawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices,
-                                   gl::Buffer *elementArrayBuffer, const TranslatedIndexData &indexInfo, GLsizei instances,
-                                   bool usesPointSize) = 0;
-
     virtual bool getLUID(LUID *adapterLuid) const = 0;
+    virtual gl::Error applyShadersImpl(const gl::Data &data, GLenum drawMode) = 0;
 
     void cleanup();
 
@@ -224,11 +261,38 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
     egl::Display *mDisplay;
     bool mDeviceLost;
 
+    void initializeDebugAnnotator();
     gl::DebugAnnotator *mAnnotator;
 
     std::vector<TranslatedAttribute> mTranslatedAttribCache;
 
   private:
+    gl::Error genericDrawArrays(const gl::Data &data,
+                                GLenum mode,
+                                GLint first,
+                                GLsizei count,
+                                GLsizei instances);
+
+    gl::Error genericDrawElements(const gl::Data &data,
+                                  GLenum mode,
+                                  GLsizei count,
+                                  GLenum type,
+                                  const GLvoid *indices,
+                                  GLsizei instances,
+                                  const gl::IndexRange &indexRange);
+
+    virtual gl::Error drawArraysImpl(const gl::Data &data,
+                                     GLenum mode,
+                                     GLsizei count,
+                                     GLsizei instances) = 0;
+    virtual gl::Error drawElementsImpl(const gl::Data &data,
+                                       const TranslatedIndexData &indexInfo,
+                                       GLenum mode,
+                                       GLsizei count,
+                                       GLenum type,
+                                       const GLvoid *indices,
+                                       GLsizei instances) = 0;
+
     //FIXME(jmadill): std::array is currently prohibited by Chromium style guide
     typedef std::array<gl::Texture*, gl::IMPLEMENTATION_MAX_FRAMEBUFFER_ATTACHMENTS> FramebufferTextureArray;
 
@@ -237,7 +301,7 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
 
     gl::Error applyRenderTarget(const gl::Data &data, GLenum drawMode, bool ignoreViewport);
     gl::Error applyState(const gl::Data &data, GLenum drawMode);
-    gl::Error applyShaders(const gl::Data &data);
+    gl::Error applyShaders(const gl::Data &data, GLenum drawMode);
     gl::Error applyTextures(const gl::Data &data, gl::SamplerType shaderType,
                             const FramebufferTextureArray &framebufferTextures, size_t framebufferTextureCount);
     gl::Error applyTextures(const gl::Data &data);
@@ -250,9 +314,14 @@ class RendererD3D : public Renderer, public BufferFactoryD3D
 
     gl::DebugAnnotator *getAnnotator();
 
+    virtual WorkaroundsD3D generateWorkarounds() const = 0;
+
     gl::TextureMap mIncompleteTextures;
     MemoryBuffer mScratchMemoryBuffer;
     unsigned int mScratchMemoryBufferResetCounter;
+
+    mutable bool mWorkaroundsInitialized;
+    mutable WorkaroundsD3D mWorkarounds;
 };
 
 struct dx_VertexConstants

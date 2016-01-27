@@ -9,6 +9,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/extensions/features/feature_channel.h"
 #include "chrome/test/base/testing_profile.h"
+#include "components/version_info/version_info.h"
 #include "extensions/browser/app_window/app_window.h"
 #include "extensions/browser/app_window/app_window_registry.h"
 #include "extensions/browser/app_window/native_app_window.h"
@@ -152,7 +153,7 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
 }
 
 IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest, WindowsApiAlphaEnabledInStable) {
-  extensions::ScopedCurrentChannel channel(chrome::VersionInfo::CHANNEL_STABLE);
+  extensions::ScopedCurrentChannel channel(version_info::Channel::STABLE);
   EXPECT_TRUE(RunPlatformAppTestWithFlags(
       "platform_apps/windows_api_alpha_enabled/in_stable",
       // Ignore manifest warnings because the extension will not load at all
@@ -170,7 +171,7 @@ IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
 
 IN_PROC_BROWSER_TEST_F(PlatformAppBrowserTest,
                        WindowsApiVisibleOnAllWorkspacesInStable) {
-  extensions::ScopedCurrentChannel channel(chrome::VersionInfo::CHANNEL_STABLE);
+  extensions::ScopedCurrentChannel channel(version_info::Channel::STABLE);
   EXPECT_TRUE(RunPlatformAppTest(
       "platform_apps/windows_api_visible_on_all_workspaces/in_stable"))
       << message_;

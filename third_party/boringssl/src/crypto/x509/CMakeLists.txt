@@ -1,4 +1,4 @@
-include_directories(. .. ../../include)
+include_directories(../../include)
 
 add_library(
   x509
@@ -65,3 +65,4 @@ add_executable(
 )
 
 target_link_libraries(pkcs7_test crypto)
+add_dependencies(all_tests pkcs7_test)

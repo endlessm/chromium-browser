@@ -30,7 +30,6 @@
 #include "config.h"
 #include "core/frame/Frame.h"
 
-#include "bindings/core/v8/WindowProxyManager.h"
 #include "core/dom/DocumentType.h"
 #include "core/events/Event.h"
 #include "core/frame/LocalDOMWindow.h"
@@ -62,16 +61,22 @@ int64_t generateFrameID()
     return ++next;
 }
 
-} // namespace
+#ifndef NDEBUG
+WTF::RefCountedLeakCounter& frameCounter()
+{
+    DEFINE_STATIC_LOCAL(WTF::RefCountedLeakCounter, staticFrameCounter, ("Frame"));
+    return staticFrameCounter;
+}
+#endif
 
-DEFINE_DEBUG_ONLY_GLOBAL(WTF::RefCountedLeakCounter, frameCounter, ("Frame"));
+} // namespace
 
 Frame::~Frame()
 {
     InstanceCounters::decrementCounter(InstanceCounters::FrameCounter);
     ASSERT(!m_owner);
 #ifndef NDEBUG
-    frameCounter.decrement();
+    frameCounter().decrement();
 #endif
 }
 
@@ -80,6 +85,7 @@ DEFINE_TRACE(Frame)
     visitor->trace(m_treeNode);
     visitor->trace(m_host);
     visitor->trace(m_owner);
+    visitor->trace(m_client);
 }
 
 void Frame::detach(FrameDetachType type)
@@ -150,8 +156,8 @@ HTMLFrameOwnerElement* Frame::deprecatedLocalOwner() const
 
 static ChromeClient& emptyChromeClient()
 {
-    DEFINE_STATIC_LOCAL(EmptyChromeClient, client, ());
-    return client;
+    DEFINE_STATIC_LOCAL(OwnPtrWillBePersistent<EmptyChromeClient>, client, (EmptyChromeClient::create()));
+    return *client;
 }
 
 ChromeClient& Frame::chromeClient() const
@@ -159,13 +165,6 @@ ChromeClient& Frame::chromeClient() const
     if (Page* page = this->page())
         return page->chromeClient();
     return emptyChromeClient();
-}
-
-void Frame::finishSwapFrom(Frame* old)
-{
-    WindowProxyManager* oldManager = old->windowProxyManager();
-    oldManager->clearForNavigation();
-    windowProxyManager()->takeGlobalFrom(oldManager);
 }
 
 Frame* Frame::findFrameForNavigation(const AtomicString& name, Frame& activeFrame)
@@ -289,6 +288,13 @@ Settings* Frame::settings() const
     return nullptr;
 }
 
+void Frame::scheduleVisualUpdateUnlessThrottled()
+{
+    if (isLocalFrame() && toLocalFrame(this)->shouldThrottleRendering())
+        return;
+    page()->animator().scheduleVisualUpdate();
+}
+
 Frame::Frame(FrameClient* client, FrameHost* host, FrameOwner* owner)
     : m_treeNode(this)
     , m_host(host)
@@ -302,7 +308,7 @@ Frame::Frame(FrameClient* client, FrameHost* host, FrameOwner* owner)
     ASSERT(page());
 
 #ifndef NDEBUG
-    frameCounter.increment();
+    frameCounter().increment();
 #endif
 
     if (m_owner) {

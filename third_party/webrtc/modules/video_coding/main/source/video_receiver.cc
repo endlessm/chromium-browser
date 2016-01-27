@@ -8,6 +8,8 @@
  *  be found in the AUTHORS file in the root of the source tree.
  */
 
+#include "webrtc/base/checks.h"
+#include "webrtc/base/trace_event.h"
 #include "webrtc/common_types.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
 #include "webrtc/modules/video_coding/codecs/interface/video_codec_interface.h"
@@ -15,9 +17,8 @@
 #include "webrtc/modules/video_coding/main/source/jitter_buffer.h"
 #include "webrtc/modules/video_coding/main/source/packet.h"
 #include "webrtc/modules/video_coding/main/source/video_coding_impl.h"
-#include "webrtc/system_wrappers/interface/clock.h"
-#include "webrtc/system_wrappers/interface/logging.h"
-#include "webrtc/system_wrappers/interface/trace_event.h"
+#include "webrtc/system_wrappers/include/clock.h"
+#include "webrtc/system_wrappers/include/logging.h"
 
 // #define DEBUG_DECODER_BIT_STREAM
 
@@ -41,11 +42,10 @@ VideoReceiver::VideoReceiver(Clock* clock, EventFactory* event_factory)
       _bitStreamBeforeDecoder(NULL),
 #endif
       _frameFromFile(),
-      _keyRequestMode(kKeyOnError),
       _scheduleKeyRequest(false),
       max_nack_list_size_(0),
       pre_decode_image_callback_(NULL),
-      _codecDataBase(NULL),
+      _codecDataBase(nullptr, nullptr),
       _receiveStatsTimer(1000, clock_),
       _retransmissionTimer(10, clock_),
       _keyRequestTimer(500, clock_) {
@@ -187,64 +187,25 @@ int32_t VideoReceiver::SetVideoProtection(VCMVideoProtection videoProtection,
   // By default, do not decode with errors.
   _receiver.SetDecodeErrorMode(kNoErrors);
   switch (videoProtection) {
-    case kProtectionNack:
-    case kProtectionNackReceiver: {
-      CriticalSectionScoped cs(_receiveCritSect);
-      if (enable) {
-        // Enable NACK and always wait for retransmits.
-        _receiver.SetNackMode(kNack, -1, -1);
-      } else {
-        _receiver.SetNackMode(kNoNack, -1, -1);
-      }
-      break;
-    }
-
-    case kProtectionKeyOnLoss: {
-      CriticalSectionScoped cs(_receiveCritSect);
-      if (enable) {
-        _keyRequestMode = kKeyOnLoss;
-        _receiver.SetDecodeErrorMode(kWithErrors);
-      } else if (_keyRequestMode == kKeyOnLoss) {
-        _keyRequestMode = kKeyOnError;  // default mode
-      } else {
-        return VCM_PARAMETER_ERROR;
-      }
-      break;
-    }
-
-    case kProtectionKeyOnKeyLoss: {
-      CriticalSectionScoped cs(_receiveCritSect);
-      if (enable) {
-        _keyRequestMode = kKeyOnKeyLoss;
-      } else if (_keyRequestMode == kKeyOnKeyLoss) {
-        _keyRequestMode = kKeyOnError;  // default mode
-      } else {
-        return VCM_PARAMETER_ERROR;
-      }
+    case kProtectionNack: {
+      RTC_DCHECK(enable);
+      _receiver.SetNackMode(kNack, -1, -1);
       break;
     }
 
     case kProtectionNackFEC: {
       CriticalSectionScoped cs(_receiveCritSect);
-      if (enable) {
-        // Enable hybrid NACK/FEC. Always wait for retransmissions
-        // and don't add extra delay when RTT is above
-        // kLowRttNackMs.
-        _receiver.SetNackMode(kNack, media_optimization::kLowRttNackMs, -1);
-        _receiver.SetDecodeErrorMode(kNoErrors);
-        _receiver.SetDecodeErrorMode(kNoErrors);
-      } else {
-        _receiver.SetNackMode(kNoNack, -1, -1);
-      }
+      RTC_DCHECK(enable);
+      _receiver.SetNackMode(kNack, media_optimization::kLowRttNackMs, -1);
+      _receiver.SetDecodeErrorMode(kNoErrors);
       break;
     }
-    case kProtectionNackSender:
     case kProtectionFEC:
-      // Ignore encoder modes.
-      return VCM_OK;
     case kProtectionNone:
-      // TODO(pbos): Implement like sender and remove enable parameter. Ignored
-      // for now.
+      // No receiver-side protection.
+      RTC_DCHECK(enable);
+      _receiver.SetNackMode(kNoNack, -1, -1);
+      _receiver.SetDecodeErrorMode(kWithErrors);
       break;
   }
   return VCM_OK;
@@ -341,7 +302,12 @@ int32_t VideoReceiver::Decode(uint16_t maxWaitTimeMs) {
 
     if (pre_decode_image_callback_) {
       EncodedImage encoded_image(frame->EncodedImage());
-      pre_decode_image_callback_->Encoded(encoded_image, NULL, NULL);
+      int qp = -1;
+      if (qp_parser_.GetQp(*frame, &qp)) {
+        encoded_image.qp_ = qp;
+      }
+      pre_decode_image_callback_->Encoded(
+          encoded_image, frame->CodecSpecific(), NULL);
     }
 
 #ifdef DEBUG_DECODER_BIT_STREAM
@@ -432,22 +398,8 @@ int32_t VideoReceiver::Decode(const VCMEncodedFrame& frame) {
         _decodedFrameCallback.LastReceivedPictureID() + 1);
   }
   if (!frame.Complete() || frame.MissingFrame()) {
-    switch (_keyRequestMode) {
-      case kKeyOnKeyLoss: {
-        if (frame.FrameType() == kVideoFrameKey) {
-          request_key_frame = true;
-          ret = VCM_OK;
-        }
-        break;
-      }
-      case kKeyOnLoss: {
-        request_key_frame = true;
-        ret = VCM_OK;
-        break;
-      }
-      default:
-        break;
-    }
+    request_key_frame = true;
+    ret = VCM_OK;
   }
   if (request_key_frame) {
     CriticalSectionScoped cs(process_crit_sect_.get());
@@ -565,16 +517,10 @@ int VideoReceiver::SetReceiverRobustnessMode(
   switch (robustnessMode) {
     case VideoCodingModule::kNone:
       _receiver.SetNackMode(kNoNack, -1, -1);
-      if (decode_error_mode == kNoErrors) {
-        _keyRequestMode = kKeyOnLoss;
-      } else {
-        _keyRequestMode = kKeyOnError;
-      }
       break;
     case VideoCodingModule::kHardNack:
       // Always wait for retransmissions (except when decoding with errors).
       _receiver.SetNackMode(kNack, -1, -1);
-      _keyRequestMode = kKeyOnError;  // TODO(hlundin): On long NACK list?
       break;
     case VideoCodingModule::kSoftNack:
 #if 1
@@ -584,7 +530,6 @@ int VideoReceiver::SetReceiverRobustnessMode(
       // Enable hybrid NACK/FEC. Always wait for retransmissions and don't add
       // extra delay when RTT is above kLowRttNackMs.
       _receiver.SetNackMode(kNack, media_optimization::kLowRttNackMs, -1);
-      _keyRequestMode = kKeyOnError;
       break;
 #endif
     case VideoCodingModule::kReferenceSelection:

@@ -37,7 +37,21 @@ MultilanguageOptionsWebUIBrowserTest.prototype = {
     assertTrue(loadTimeData.getBoolean('enableMultilingualSpellChecker'));
     assertFalse(cr.isMac);
     expectTrue($('spellcheck-language-button').hidden);
+    expectFalse($('edit-custom-dictionary-button').hidden);
+    this.expectEnableSpellcheckCheckboxHidden();
     this.expectCurrentlySelected('fr');
+  },
+
+  /** @override */
+  tearDown: function() {
+    testing.Test.prototype.tearDown.call(this);
+    this.expectEnableSpellcheckCheckboxHidden();
+  },
+
+  /** Make sure the 'Enable spell checking' checkbox is not visible. */
+  expectEnableSpellcheckCheckboxHidden: function() {
+    if ($('enable-spellcheck-container'))
+      expectTrue($('enable-spellcheck-container').hidden);
   },
 };
 
@@ -45,14 +59,6 @@ MultilanguageOptionsWebUIBrowserTest.prototype = {
 TEST_F('MultilanguageOptionsWebUIBrowserTest', 'TestOpenLanguageOptions',
        function() {
   expectEquals('chrome://settings-frame/languages', document.location.href);
-});
-
-// Verify that the option to enable the spelling service is hidden when
-// multilingual spellchecking is enabled.
-TEST_F('MultilanguageOptionsWebUIBrowserTest', 'HideSpellingServiceCheckbox',
-       function() {
-  assertTrue(loadTimeData.getBoolean('enableMultilingualSpellChecker'));
-  expectTrue($('spelling-enabled-container').hidden);
 });
 
 // Test that only certain languages can be selected and used for spellchecking.
@@ -123,6 +129,15 @@ MultilanguagePreferenceWebUIBrowserTest.prototype = {
         registeredPrefs['spellcheck.dictionaries'].orig.value.sort().join());
   },
 
+  /**
+   * Watch for a change to the preference |pref| and then call |callback|.
+   * @param {string} pref The preference to listen for a change on.
+   * @param {function} callback The function to run after a listener event.
+   */
+  addPreferenceListener: function(pref, callback) {
+    options.Preferences.getInstance().addEventListener(pref, callback);
+  },
+
   /** @override */
   setUp: function() {
     testing.Test.prototype.setUp.call(this);
@@ -130,27 +145,30 @@ MultilanguagePreferenceWebUIBrowserTest.prototype = {
     assertTrue(loadTimeData.getBoolean('enableMultilingualSpellChecker'));
     assertFalse(cr.isMac);
     expectTrue($('spellcheck-language-button').hidden);
+    expectTrue($('edit-custom-dictionary-button').hidden);
+    this.expectEnableSpellcheckCheckboxHidden();
     this.expectCurrentlySelected('');
     this.expectRegisteredDictionariesPref('');
   },
 };
 
 // Make sure the case where no languages are selected is handled properly.
-TEST_F('MultilanguagePreferenceWebUIBrowserTest', 'BlankSpellcheckLanguges',
+TEST_F('MultilanguagePreferenceWebUIBrowserTest', 'SelectFromBlank',
        function() {
   expectTrue($('language-options-list').selectLanguageByCode('fr'));
   expectFalse($('spellcheck-language-checkbox').checked, 'fr');
+  expectTrue($('edit-custom-dictionary-button').hidden);
 
   // Add a preference change event listener which ensures that the preference is
   // updated correctly and that 'fr' is the only thing in the dictionary object.
-  var prefs = options.Preferences.getInstance();
-  prefs.addEventListener('spellcheck.dictionaries', function() {
+  this.addPreferenceListener('spellcheck.dictionaries', function() {
     expectTrue($('spellcheck-language-checkbox').checked, 'fr');
     this.expectRegisteredDictionariesPref('fr');
     this.expectCurrentlySelected('fr');
+    expectFalse($('edit-custom-dictionary-button').hidden);
     testDone();
   }.bind(this));
 
-  // Click 'fr' and trigger the previously registered event listener.
+  // Click 'fr' and trigger the preference listener.
   $('spellcheck-language-checkbox').click();
 });

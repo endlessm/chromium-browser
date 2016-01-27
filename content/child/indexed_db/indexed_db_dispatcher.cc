@@ -14,7 +14,6 @@
 #include "content/child/indexed_db/webidbcursor_impl.h"
 #include "content/child/indexed_db/webidbdatabase_impl.h"
 #include "content/child/thread_safe_sender.h"
-#include "content/common/indexed_db/indexed_db_constants.h"
 #include "content/common/indexed_db/indexed_db_messages.h"
 #include "ipc/ipc_channel.h"
 #include "third_party/WebKit/public/platform/modules/indexeddb/WebIDBDatabaseCallbacks.h"
@@ -47,9 +46,6 @@ IndexedDBDispatcher* const kHasBeenDeleted =
 
 }  // unnamed namespace
 
-const size_t kMaxIDBValueSizeInBytes =
-    IPC::Channel::kMaximumMessageSize - kMaxIDBMessageOverhead;
-
 IndexedDBDispatcher::IndexedDBDispatcher(ThreadSafeSender* thread_safe_sender)
     : thread_safe_sender_(thread_safe_sender) {
   g_idb_dispatcher_tls.Pointer()->Set(this);
@@ -77,12 +73,14 @@ IndexedDBDispatcher* IndexedDBDispatcher::ThreadSpecificInstance(
     return g_idb_dispatcher_tls.Pointer()->Get();
 
   IndexedDBDispatcher* dispatcher = new IndexedDBDispatcher(thread_safe_sender);
-  if (WorkerTaskRunner::Instance()->CurrentWorkerId())
-    WorkerTaskRunner::Instance()->AddStopObserver(dispatcher);
+  if (WorkerThread::GetCurrentId())
+    WorkerThread::AddObserver(dispatcher);
   return dispatcher;
 }
 
-void IndexedDBDispatcher::OnWorkerRunLoopStopped() { delete this; }
+void IndexedDBDispatcher::WillStopCurrentWorkerThread() {
+  delete this;
+}
 
 WebIDBMetadata IndexedDBDispatcher::ConvertMetadata(
     const IndexedDBDatabaseMetadata& idb_metadata) {
@@ -358,14 +356,14 @@ void IndexedDBDispatcher::RequestIDBDatabasePut(
     WebIDBCallbacks* callbacks,
     const WebVector<long long>& index_ids,
     const WebVector<WebVector<WebIDBKey> >& index_keys) {
-  if (value.size() + key.size_estimate() > kMaxIDBValueSizeInBytes) {
+  if (value.size() + key.size_estimate() > max_put_value_size_) {
     callbacks->onError(WebIDBDatabaseError(
         blink::WebIDBDatabaseExceptionUnknownError,
         WebString::fromUTF8(base::StringPrintf(
             "The serialized value is too large"
             " (size=%" PRIuS " bytes, max=%" PRIuS " bytes).",
             value.size(),
-            kMaxIDBValueSizeInBytes).c_str())));
+            max_put_value_size_).c_str())));
     return;
   }
 
@@ -546,7 +544,10 @@ void IndexedDBDispatcher::OnSuccessStringList(
   pending_callbacks_.Remove(ipc_callbacks_id);
 }
 
-static void PrepareWebValue(const IndexedDBMsg_ReturnValue& value,
+// Populate some WebIDBValue members (data & blob info) from the supplied
+// value message (IndexedDBMsg_Value or one that includes it).
+template <class IndexedDBMsgValueType>
+static void PrepareWebValue(const IndexedDBMsgValueType& value,
                             WebIDBValue* web_value) {
   if (value.bits.empty())
     return;
@@ -566,34 +567,13 @@ static void PrepareWebValue(const IndexedDBMsg_ReturnValue& value,
   }
 
   web_value->webBlobInfo.swap(local_blob_info);
-  web_value->primaryKey = WebIDBKeyBuilder::Build(value.primary_key);
-  web_value->keyPath = WebIDBKeyPathBuilder::Build(value.key_path);
 }
 
-static void PrepareWebValueAndBlobInfo(
-    const IndexedDBMsg_Value& value,
-    WebData* web_value,
-    blink::WebVector<WebBlobInfo>* web_blob_info) {
-  if (value.bits.empty())
-    return;
-
-  web_value->assign(&*value.bits.begin(), value.bits.size());
-  blink::WebVector<WebBlobInfo> local_blob_info(value.blob_or_file_info.size());
-  for (size_t i = 0; i < value.blob_or_file_info.size(); ++i) {
-    const IndexedDBMsg_BlobOrFileInfo& info = value.blob_or_file_info[i];
-    if (info.is_file) {
-      local_blob_info[i] = WebBlobInfo(WebString::fromUTF8(info.uuid.c_str()),
-                                       info.file_path,
-                                       info.file_name,
-                                       info.mime_type,
-                                       info.last_modified,
-                                       info.size);
-    } else {
-      local_blob_info[i] = WebBlobInfo(
-          WebString::fromUTF8(info.uuid.c_str()), info.mime_type, info.size);
-    }
-  }
-  web_blob_info->swap(local_blob_info);
+static void PrepareReturnWebValue(const IndexedDBMsg_ReturnValue& value,
+                                  WebIDBValue* web_value) {
+  PrepareWebValue(value, web_value);
+  web_value->primaryKey = WebIDBKeyBuilder::Build(value.primary_key);
+  web_value->keyPath = WebIDBKeyPathBuilder::Build(value.key_path);
 }
 
 void IndexedDBDispatcher::OnSuccessArray(
@@ -602,7 +582,7 @@ void IndexedDBDispatcher::OnSuccessArray(
   int32 ipc_callbacks_id = p.ipc_callbacks_id;
   blink::WebVector<WebIDBValue> web_values(p.values.size());
   for (size_t i = 0; i < p.values.size(); ++i)
-    PrepareWebValue(p.values[i], &web_values[i]);
+    PrepareReturnWebValue(p.values[i], &web_values[i]);
   WebIDBCallbacks* callbacks = pending_callbacks_.Lookup(ipc_callbacks_id);
   DCHECK(callbacks);
   callbacks->onSuccess(web_values);
@@ -617,7 +597,7 @@ void IndexedDBDispatcher::OnSuccessValue(
   if (!callbacks)
     return;
   WebIDBValue web_value;
-  PrepareWebValue(params.value, &web_value);
+  PrepareReturnWebValue(params.value, &web_value);
   if (params.value.primary_key.IsValid()) {
     web_value.primaryKey = WebIDBKeyBuilder::Build(params.value.primary_key);
     web_value.keyPath = WebIDBKeyPathBuilder::Build(params.value.key_path);
@@ -655,9 +635,8 @@ void IndexedDBDispatcher::OnSuccessOpenCursor(
   int32 ipc_object_id = p.ipc_cursor_id;
   const IndexedDBKey& key = p.key;
   const IndexedDBKey& primary_key = p.primary_key;
-  WebData web_value;
-  WebVector<WebBlobInfo> web_blob_info;
-  PrepareWebValueAndBlobInfo(p.value, &web_value, &web_blob_info);
+  WebIDBValue web_value;
+  PrepareWebValue(p.value, &web_value);
 
   DCHECK(cursor_transaction_ids_.find(ipc_callbacks_id) !=
          cursor_transaction_ids_.end());
@@ -671,11 +650,8 @@ void IndexedDBDispatcher::OnSuccessOpenCursor(
   WebIDBCursorImpl* cursor = new WebIDBCursorImpl(
       ipc_object_id, transaction_id, thread_safe_sender_.get());
   cursors_[ipc_object_id] = cursor;
-  callbacks->onSuccess(cursor,
-                       WebIDBKeyBuilder::Build(key),
-                       WebIDBKeyBuilder::Build(primary_key),
-                       web_value,
-                       web_blob_info);
+  callbacks->onSuccess(cursor, WebIDBKeyBuilder::Build(key),
+                       WebIDBKeyBuilder::Build(primary_key), web_value);
 
   pending_callbacks_.Remove(ipc_callbacks_id);
 }
@@ -695,13 +671,10 @@ void IndexedDBDispatcher::OnSuccessCursorContinue(
   if (!callbacks)
     return;
 
-  WebData web_value;
-  WebVector<WebBlobInfo> web_blob_info;
-  PrepareWebValueAndBlobInfo(p.value, &web_value, &web_blob_info);
+  WebIDBValue web_value;
+  PrepareWebValue(p.value, &web_value);
   callbacks->onSuccess(WebIDBKeyBuilder::Build(key),
-                       WebIDBKeyBuilder::Build(primary_key),
-                       web_value,
-                       web_blob_info);
+                       WebIDBKeyBuilder::Build(primary_key), web_value);
 
   pending_callbacks_.Remove(ipc_callbacks_id);
 }
@@ -711,18 +684,15 @@ void IndexedDBDispatcher::OnSuccessCursorPrefetch(
   DCHECK_EQ(p.ipc_thread_id, CurrentWorkerId());
   int32 ipc_callbacks_id = p.ipc_callbacks_id;
   int32 ipc_cursor_id = p.ipc_cursor_id;
-  const std::vector<IndexedDBKey>& keys = p.keys;
-  const std::vector<IndexedDBKey>& primary_keys = p.primary_keys;
-  std::vector<WebData> values(p.values.size());
-  std::vector<WebVector<WebBlobInfo>> blob_infos(p.values.size());
+  std::vector<WebIDBValue> values(p.values.size());
   for (size_t i = 0; i < p.values.size(); ++i)
-    PrepareWebValueAndBlobInfo(p.values[i], &values[i], &blob_infos[i]);
+    PrepareWebValue(p.values[i], &values[i]);
   std::map<int32, WebIDBCursorImpl*>::const_iterator cur_iter =
       cursors_.find(ipc_cursor_id);
   if (cur_iter == cursors_.end())
     return;
 
-  cur_iter->second->SetPrefetchData(keys, primary_keys, values, blob_infos);
+  cur_iter->second->SetPrefetchData(p.keys, p.primary_keys, values);
 
   WebIDBCallbacks* callbacks = pending_callbacks_.Lookup(ipc_callbacks_id);
   DCHECK(callbacks);

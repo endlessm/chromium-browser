@@ -157,8 +157,10 @@ void IndexDataManagerPerfTest::step(float dt, double totalTime)
     rx::SourceIndexData sourceIndexData;
     for (unsigned int iteration = 0; iteration < 100; ++iteration)
     {
-        mIndexBuffer.getIndexRange(GL_UNSIGNED_SHORT, 0, mIndexCount, &translatedIndexData.indexRange);
-        mIndexDataManager.prepareIndexData(GL_UNSIGNED_SHORT, mIndexCount, &mIndexBuffer, nullptr, &translatedIndexData, &sourceIndexData);
+        mIndexBuffer.getIndexRange(GL_UNSIGNED_SHORT, 0, mIndexCount, false,
+                                   &translatedIndexData.indexRange);
+        mIndexDataManager.prepareIndexData(GL_UNSIGNED_SHORT, mIndexCount, &mIndexBuffer, nullptr,
+                                           &translatedIndexData, &sourceIndexData, false);
     }
 
     if (mTimer->getElapsedTime() >= 5.0)

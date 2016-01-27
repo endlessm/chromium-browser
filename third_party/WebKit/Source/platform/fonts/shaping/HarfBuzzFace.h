@@ -35,6 +35,7 @@
 #include "wtf/PassRefPtr.h"
 #include "wtf/RefCounted.h"
 #include "wtf/RefPtr.h"
+#include "wtf/text/CharacterNames.h"
 
 #include <hb.h>
 
@@ -53,10 +54,11 @@ public:
     }
     ~HarfBuzzFace();
 
-    hb_font_t* createFont() const;
+    // In order to support the restricting effect of unicode-range optionally a
+    // range restriction can be passed in, which will restrict which glyphs we
+    // return in the harfBuzzGetGlyph function.
+    hb_font_t* createFont(unsigned rangeFrom = 0, unsigned rangeTo = kMaxCodepoint) const;
     hb_face_t* face() const { return m_face; }
-
-    void setScriptForVerticalGlyphSubstitution(hb_buffer_t*);
 
 private:
     HarfBuzzFace(FontPlatformData*, uint64_t);
@@ -67,10 +69,21 @@ private:
     uint64_t m_uniqueID;
     hb_face_t* m_face;
     WTF::HashMap<uint32_t, uint16_t>* m_glyphCacheForFaceCacheEntry;
-
-    hb_script_t m_scriptForVerticalText;
 };
 
 } // namespace blink
+
+namespace WTF {
+
+template<typename T> struct OwnedPtrDeleter;
+template<> struct OwnedPtrDeleter<hb_font_t> {
+    static void deletePtr(hb_font_t* font)
+    {
+        if (font)
+            hb_font_destroy(font);
+    }
+};
+
+} // namespace WTF
 
 #endif // HarfBuzzFace_h

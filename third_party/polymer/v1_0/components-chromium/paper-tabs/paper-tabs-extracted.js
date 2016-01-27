@@ -1,6 +1,4 @@
-
-
-  Polymer({
+Polymer({
 
     is: 'paper-tabs',
 
@@ -12,11 +10,14 @@
     properties: {
 
       /**
-       * If true, ink ripple effect is disabled.
+       * If true, ink ripple effect is disabled. When this property is changed,
+       * all descendant `<paper-tab>` elements have their `noink` property
+       * changed to the new value as well.
        */
       noink: {
         type: Boolean,
-        value: false
+        value: false,
+        observer: '_noinkChanged'
       },
 
       /**
@@ -115,6 +116,27 @@
       'iron-deselect': '_onIronDeselect'
     },
 
+    created: function() {
+      this._holdJob = null;
+    },
+
+    ready: function() {
+      this.setScrollDirection('y', this.$.tabsContainer);
+    },
+
+    _noinkChanged: function(noink) {
+      var childTabs = Polymer.dom(this).querySelectorAll('paper-tab');
+      childTabs.forEach(noink ? this._setNoinkAttribute : this._removeNoinkAttribute);
+    },
+
+    _setNoinkAttribute: function(element) {
+      element.setAttribute('noink', '');
+    },
+
+    _removeNoinkAttribute: function(element) {
+      element.removeAttribute('noink');
+    },
+
     _computeScrollButtonClass: function(hideThisButton, scrollable, hideScrollButtons) {
       if (!scrollable || hideScrollButtons) {
         return 'hidden';
@@ -169,24 +191,43 @@
       );
     },
 
-    _scroll: function() {
-      var scrollLeft;
 
+    _scroll: function(e, detail) {
       if (!this.scrollable) {
         return;
       }
 
-      scrollLeft = this.$.tabsContainer.scrollLeft;
+      var ddx = (detail && -detail.ddx) || 0;
+      this._affectScroll(ddx);
+    },
+
+    _down: function(e) {
+      // go one beat async to defeat IronMenuBehavior
+      // autorefocus-on-no-selection timeout
+      this.async(function() {
+        if (this._defaultFocusAsync) {
+          this.cancelAsync(this._defaultFocusAsync);
+          this._defaultFocusAsync = null;
+        }
+      }, 1);
+    },
+
+    _affectScroll: function(dx) {
+      this.$.tabsContainer.scrollLeft += dx;
+
+      var scrollLeft = this.$.tabsContainer.scrollLeft;
 
       this._leftHidden = scrollLeft === 0;
       this._rightHidden = scrollLeft === this._tabContainerScrollSize;
     },
 
     _onLeftScrollButtonDown: function() {
+      this._scrollToLeft();
       this._holdJob = setInterval(this._scrollToLeft.bind(this), this._holdDelay);
     },
 
     _onRightScrollButtonDown: function() {
+      this._scrollToRight();
       this._holdJob = setInterval(this._scrollToRight.bind(this), this._holdDelay);
     },
 
@@ -196,11 +237,11 @@
     },
 
     _scrollToLeft: function() {
-      this.$.tabsContainer.scrollLeft -= this._step;
+      this._affectScroll(-this._step);
     },
 
     _scrollToRight: function() {
-      this.$.tabsContainer.scrollLeft += this._step;
+      this._affectScroll(this._step);
     },
 
     _tabChanged: function(tab, old) {
@@ -263,6 +304,9 @@
     },
 
     _positionBar: function(width, left) {
+      width = width || 0;
+      left = left || 0;
+
       this._width = width;
       this._left = left;
       this.transform(
@@ -284,4 +328,3 @@
     }
 
   });
-

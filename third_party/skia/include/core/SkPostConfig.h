@@ -5,10 +5,12 @@
  * found in the LICENSE file.
  */
 
+// IWYU pragma: private, include "SkTypes.h"
+
 #ifndef SkPostConfig_DEFINED
 #define SkPostConfig_DEFINED
 
-#if defined(SK_BUILD_FOR_WIN32) || defined(SK_BUILD_FOR_WINCE)
+#if defined(SK_BUILD_FOR_WIN32)
 #  define SK_BUILD_FOR_WIN
 #endif
 
@@ -98,15 +100,8 @@
 
 ///////////////////////////////////////////////////////////////////////////////
 
-#ifndef SkNEW
-#  define SkNEW(type_name)                           (new type_name)
-#  define SkNEW_ARGS(type_name, args)                (new type_name args)
-#  define SkNEW_ARRAY(type_name, count)              (new type_name[(count)])
-#  define SkNEW_PLACEMENT(buf, type_name)            (new (buf) type_name)
-#  define SkNEW_PLACEMENT_ARGS(buf, type_name, args) (new (buf) type_name args)
-#  define SkDELETE(obj)                              (delete (obj))
-#  define SkDELETE_ARRAY(array)                      (delete[] (array))
-#endif
+// TODO(mdempsky): Move elsewhere as appropriate.
+#include <new>
 
 #ifndef SK_CRASH
 #  ifdef SK_BUILD_FOR_WIN
@@ -153,7 +148,18 @@
 #endif
 
 #ifndef SK_ALWAYSBREAK
-#  ifdef SK_DEBUG
+#  if defined(GOOGLE3)
+     void DebugWriteToStderr(const char*, void*);
+     void DumpStackTrace(int skip_count, void w(const char*, void*),
+                         void* arg);
+#    define SK_ALWAYSBREAK(cond) do { \
+              if (cond) break; \
+              SkNO_RETURN_HINT(); \
+              SkDebugf("%s:%d: failed assertion \"%s\"\n", __FILE__, __LINE__, #cond); \
+              DumpStackTrace(0, DebugWriteToStderr, nullptr); \
+              SK_CRASH(); \
+        } while (false)
+#  elif defined(SK_DEBUG)
 #    define SK_ALWAYSBREAK(cond) do { \
               if (cond) break; \
               SkNO_RETURN_HINT(); \
@@ -215,13 +221,6 @@
 #endif
 
 //////////////////////////////////////////////////////////////////////////////////////////////
-#ifndef SK_BUILD_FOR_WINCE
-#  include <string.h>
-#  include <stdlib.h>
-#else
-#  define _CMNINTRIN_DECLARE_ONLY
-#  include "cmnintrin.h"
-#endif
 
 #if defined SK_DEBUG && defined SK_BUILD_FOR_WIN32
 #  ifdef free
@@ -297,14 +296,25 @@
 #  endif
 #endif
 
+#if defined(SK_BUILD_FOR_WIN)
+    #define SK_VECTORCALL __vectorcall
+#elif defined(SK_CPU_ARM32)
+    #define SK_VECTORCALL __attribute__((pcs("aapcs-vfp")))
+#else
+    #define SK_VECTORCALL
+#endif
+
 //////////////////////////////////////////////////////////////////////
 
-#if defined(__clang__) || defined(__GNUC__)
-#  define SK_PREFETCH(ptr) __builtin_prefetch(ptr)
-#  define SK_WRITE_PREFETCH(ptr) __builtin_prefetch(ptr, 1)
+#if SK_CPU_SSE_LEVEL >= SK_CPU_SSE_LEVEL_SSE1
+    #define SK_PREFETCH(ptr)       _mm_prefetch(reinterpret_cast<const char*>(ptr), _MM_HINT_T0)
+    #define SK_WRITE_PREFETCH(ptr) _mm_prefetch(reinterpret_cast<const char*>(ptr), _MM_HINT_T0)
+#elif defined(__GNUC__)
+    #define SK_PREFETCH(ptr)       __builtin_prefetch(ptr)
+    #define SK_WRITE_PREFETCH(ptr) __builtin_prefetch(ptr, 1)
 #else
-#  define SK_PREFETCH(ptr)
-#  define SK_WRITE_PREFETCH(ptr)
+    #define SK_PREFETCH(ptr)
+    #define SK_WRITE_PREFETCH(ptr)
 #endif
 
 //////////////////////////////////////////////////////////////////////

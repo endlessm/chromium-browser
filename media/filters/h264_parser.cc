@@ -159,12 +159,24 @@ void H264Parser::SetEncryptedStream(
   }
 }
 
-const H264PPS* H264Parser::GetPPS(int pps_id) {
-  return active_PPSes_[pps_id];
+const H264PPS* H264Parser::GetPPS(int pps_id) const {
+  auto it = active_PPSes_.find(pps_id);
+  if (it == active_PPSes_.end()) {
+    DVLOG(1) << "Requested a nonexistent PPS id " << pps_id;
+    return nullptr;
+  }
+
+  return it->second;
 }
 
-const H264SPS* H264Parser::GetSPS(int sps_id) {
-  return active_SPSes_[sps_id];
+const H264SPS* H264Parser::GetSPS(int sps_id) const {
+  auto it = active_SPSes_.find(sps_id);
+  if (it == active_SPSes_.end()) {
+    DVLOG(1) << "Requested a nonexistent SPS id " << sps_id;
+    return nullptr;
+  }
+
+  return it->second;
 }
 
 static inline bool IsStartCode(const uint8* data) {
@@ -213,6 +225,7 @@ bool H264Parser::LocateNALU(off_t* nalu_size, off_t* start_code_size) {
   off_t annexb_start_code_size = 0;
 
   if (!FindStartCodeInClearRanges(stream_, bytes_left_,
+                                  encrypted_ranges_,
                                   &nalu_start_off, &annexb_start_code_size)) {
     DVLOG(4) << "Could not find start code, end of stream?";
     return false;
@@ -238,6 +251,7 @@ bool H264Parser::LocateNALU(off_t* nalu_size, off_t* start_code_size) {
   off_t next_start_code_size = 0;
   off_t nalu_size_without_start_code = 0;
   if (!FindStartCodeInClearRanges(nalu_data, max_nalu_data_size,
+                                  encrypted_ranges_,
                                   &nalu_size_without_start_code,
                                   &next_start_code_size)) {
     nalu_size_without_start_code = max_nalu_data_size;
@@ -250,9 +264,10 @@ bool H264Parser::LocateNALU(off_t* nalu_size, off_t* start_code_size) {
 bool H264Parser::FindStartCodeInClearRanges(
     const uint8* data,
     off_t data_size,
+    const Ranges<const uint8*>& encrypted_ranges,
     off_t* offset,
     off_t* start_code_size) {
-  if (encrypted_ranges_.size() == 0)
+  if (encrypted_ranges.size() == 0)
     return FindStartCode(data, data_size, offset, start_code_size);
 
   DCHECK_GE(data_size, 0);
@@ -270,7 +285,7 @@ bool H264Parser::FindStartCodeInClearRanges(
     Ranges<const uint8*> start_code_range;
     start_code_range.Add(start_code, start_code_end + 1);
 
-    if (encrypted_ranges_.IntersectionWith(start_code_range).size() > 0) {
+    if (encrypted_ranges.IntersectionWith(start_code_range).size() > 0) {
       // The start code is inside an encrypted section so we need to scan
       // for another start code.
       *start_code_size = 0;
@@ -832,9 +847,6 @@ H264Parser::Result H264Parser::ParseSPS(int* sps_id) {
   READ_UE_OR_RETURN(&sps->max_num_ref_frames);
   READ_BOOL_OR_RETURN(&sps->gaps_in_frame_num_value_allowed_flag);
 
-  if (sps->gaps_in_frame_num_value_allowed_flag)
-    return kUnsupportedStream;
-
   READ_UE_OR_RETURN(&sps->pic_width_in_mbs_minus1);
   READ_UE_OR_RETURN(&sps->pic_height_in_map_units_minus1);
 
@@ -880,6 +892,11 @@ H264Parser::Result H264Parser::ParsePPS(int* pps_id) {
   READ_UE_OR_RETURN(&pps->pic_parameter_set_id);
   READ_UE_OR_RETURN(&pps->seq_parameter_set_id);
   TRUE_OR_RETURN(pps->seq_parameter_set_id < 32);
+
+  if (active_SPSes_.find(pps->seq_parameter_set_id) == active_SPSes_.end()) {
+    DVLOG(1) << "Invalid stream, no SPS id: " << pps->seq_parameter_set_id;
+    return kInvalidStream;
+  }
 
   sps = GetSPS(pps->seq_parameter_set_id);
   TRUE_OR_RETURN(sps);

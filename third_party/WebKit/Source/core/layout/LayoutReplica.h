@@ -33,25 +33,46 @@
 
 namespace blink {
 
+// LayoutReplica is a synthetic object used to represent reflections.
+// https://www.webkit.org/blog/182/css-reflections/
+//
+// The object is part of the layout tree, however it is not fully inserted into
+// it: LayoutReplica::parent() will return the right information but the
+// parent's children() don't know about the LayoutReplica.
+// Note that its PaintLayer is fully inserted into the PaintLayer tree, which
+// requires some special casing in the painting code (e.g. in
+// PaintLayerStackingNode).
+//
+// LayoutReplica's parent() is the object with the -webkit-box-reflect.
+// LayoutReplica inherits its style from its parent() but also have an extra
+// 'transform' to paint the reflection correctly. This is done by
+// PaintLayerReflectionInfo.
+//
+// The object is created and managed by PaintLayerReflectionInfo. Also all of
+// its operations happen through PaintLayerReflectionInfo (e.g. layout, style
+// updates, ...).
+//
+// This class is a big hack. The original intent for it is unclear but has to do
+// with implementing the correct painting of reflection. It may be to apply a
+// 'transform' and offset during painting.
 class LayoutReplica final : public LayoutBox {
 public:
     static LayoutReplica* createAnonymous(Document*);
+    ~LayoutReplica() override;
 
-    virtual ~LayoutReplica();
+    const char* name() const override { return "LayoutReplica"; }
 
-    virtual const char* name() const override { return "LayoutReplica"; }
+    PaintLayerType layerTypeRequired() const override { return NormalPaintLayer; }
 
-    virtual DeprecatedPaintLayerType layerTypeRequired() const override { return NormalDeprecatedPaintLayer; }
+    void layout() override;
 
-    virtual void layout() override;
-
-    virtual void paint(const PaintInfo&, const LayoutPoint&) override;
+    void paint(const PaintInfo&, const LayoutPoint&) const override;
 
 private:
     LayoutReplica();
 
-    virtual bool isOfType(LayoutObjectType type) const override { return type == LayoutObjectReplica || LayoutBox::isOfType(type); }
-    virtual void computePreferredLogicalWidths() override;
+    bool isOfType(LayoutObjectType type) const override { return type == LayoutObjectReplica || LayoutBox::isOfType(type); }
+    void computePreferredLogicalWidths() override;
 
 };
 

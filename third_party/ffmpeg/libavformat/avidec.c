@@ -817,13 +817,15 @@ static int avi_read_header(AVFormatContext *s)
 
                     if (st->codec->codec_tag == MKTAG('V', 'S', 'S', 'H'))
                         st->need_parsing = AVSTREAM_PARSE_FULL;
+                    if (st->codec->codec_id == AV_CODEC_ID_RV40)
+                        st->need_parsing = AVSTREAM_PARSE_NONE;
 
                     if (st->codec->codec_tag == 0 && st->codec->height > 0 &&
                         st->codec->extradata_size < 1U << 30) {
                         st->codec->extradata_size += 9;
                         if ((ret = av_reallocp(&st->codec->extradata,
                                                st->codec->extradata_size +
-                                               FF_INPUT_BUFFER_PADDING_SIZE)) < 0) {
+                                               AV_INPUT_BUFFER_PADDING_SIZE)) < 0) {
                             st->codec->extradata_size = 0;
                             return ret;
                         } else
@@ -835,7 +837,7 @@ static int avi_read_header(AVFormatContext *s)
 //                    avio_skip(pb, size - 5 * 4);
                     break;
                 case AVMEDIA_TYPE_AUDIO:
-                    ret = ff_get_wav_header(pb, st->codec, size, 0);
+                    ret = ff_get_wav_header(s, pb, st->codec, size, 0);
                     if (ret < 0)
                         return ret;
                     ast->dshow_block_align = st->codec->block_align;
@@ -861,6 +863,9 @@ static int avi_read_header(AVFormatContext *s)
                     if (st->codec->codec_id == AV_CODEC_ID_AAC &&
                         st->codec->extradata_size)
                         st->need_parsing = AVSTREAM_PARSE_NONE;
+                    // The flac parser does not work with AVSTREAM_PARSE_TIMESTAMPS
+                    if (st->codec->codec_id == AV_CODEC_ID_FLAC)
+                        st->need_parsing = AVSTREAM_PARSE_NONE;
                     /* AVI files with Xan DPCM audio (wrongly) declare PCM
                      * audio in the header but have Axan as stream_code_tag. */
                     if (ast->handler == AV_RL32("Axan")) {
@@ -872,8 +877,9 @@ static int avi_read_header(AVFormatContext *s)
                         st->codec->codec_id    = AV_CODEC_ID_ADPCM_IMA_AMV;
                         ast->dshow_block_align = 0;
                     }
-                    if (st->codec->codec_id == AV_CODEC_ID_AAC && ast->dshow_block_align <= 4 && ast->dshow_block_align ||
-                        st->codec->codec_id == AV_CODEC_ID_MP2 && ast->dshow_block_align <= 4 && ast->dshow_block_align) {
+                    if ((st->codec->codec_id == AV_CODEC_ID_AAC  ||
+                         st->codec->codec_id == AV_CODEC_ID_FLAC ||
+                         st->codec->codec_id == AV_CODEC_ID_MP2 ) && ast->dshow_block_align <= 4 && ast->dshow_block_align) {
                         av_log(s, AV_LOG_DEBUG, "overriding invalid dshow_block_align of %d\n", ast->dshow_block_align);
                         ast->dshow_block_align = 0;
                     }
@@ -1304,9 +1310,6 @@ static int avi_read_packet(AVFormatContext *s, AVPacket *pkt)
     AVIContext *avi = s->priv_data;
     AVIOContext *pb = s->pb;
     int err;
-#if FF_API_DESTRUCT_PACKET
-    void *dstr;
-#endif
 
     if (CONFIG_DV_DEMUXER && avi->dv_demux) {
         int size = avpriv_dv_get_packet(avi->dv_demux, pkt);
@@ -1423,22 +1426,12 @@ resync:
 
         if (CONFIG_DV_DEMUXER && avi->dv_demux) {
             AVBufferRef *avbuf = pkt->buf;
-#if FF_API_DESTRUCT_PACKET
-FF_DISABLE_DEPRECATION_WARNINGS
-            dstr = pkt->destruct;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
             size = avpriv_dv_produce_packet(avi->dv_demux, pkt,
                                             pkt->data, pkt->size, pkt->pos);
-#if FF_API_DESTRUCT_PACKET
-FF_DISABLE_DEPRECATION_WARNINGS
-            pkt->destruct = dstr;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
             pkt->buf    = avbuf;
             pkt->flags |= AV_PKT_FLAG_KEY;
             if (size < 0)
-                av_free_packet(pkt);
+                av_packet_unref(pkt);
         } else if (st->codec->codec_type == AVMEDIA_TYPE_SUBTITLE &&
                    !st->codec->codec_tag && read_gab2_sub(s, st, pkt)) {
             ast->frame_offset++;
@@ -1503,7 +1496,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
         }
 
         if (!avi->non_interleaved && pkt->pos >= 0 && ast->seek_pos > pkt->pos) {
-            av_free_packet(pkt);
+            av_packet_unref(pkt);
             goto resync;
         }
         ast->seek_pos= 0;
@@ -1535,8 +1528,9 @@ static int avi_read_idx1(AVFormatContext *s, int size)
     int nb_index_entries, i;
     AVStream *st;
     AVIStream *ast;
-    unsigned int index, tag, flags, pos, len, first_packet = 1;
-    unsigned last_pos = -1;
+    int64_t pos;
+    unsigned int index, tag, flags, len, first_packet = 1;
+    int64_t last_pos = -1;
     unsigned last_idx = -1;
     int64_t idx1_pos, first_packet_pos = 0, data_offset = 0;
     int anykey = 0;
@@ -1566,7 +1560,7 @@ static int avi_read_idx1(AVFormatContext *s, int size)
         flags = avio_rl32(pb);
         pos   = avio_rl32(pb);
         len   = avio_rl32(pb);
-        av_log(s, AV_LOG_TRACE, "%d: tag=0x%x flags=0x%x pos=0x%x len=%d/",
+        av_log(s, AV_LOG_TRACE, "%d: tag=0x%x flags=0x%x pos=0x%"PRIx64" len=%d/",
                 i, tag, flags, pos, len);
 
         index  = ((tag      & 0xff) - '0') * 10;
@@ -1577,7 +1571,8 @@ static int avi_read_idx1(AVFormatContext *s, int size)
         ast = st->priv_data;
 
         if (first_packet && first_packet_pos) {
-            data_offset  = first_packet_pos - pos;
+            if (avi->movi_list + 4 != pos || pos + 500 > first_packet_pos)
+                data_offset  = first_packet_pos - pos;
             first_packet = 0;
         }
         pos += data_offset;
@@ -1681,9 +1676,13 @@ static int guess_ni_flag(AVFormatContext *s)
 
         if (n >= 2) {
             int64_t pos = st->index_entries[0].pos;
-            avio_seek(s->pb, pos + 4, SEEK_SET);
+            unsigned tag[2];
+            avio_seek(s->pb, pos, SEEK_SET);
+            tag[0] = avio_r8(s->pb);
+            tag[1] = avio_r8(s->pb);
+            avio_rl16(s->pb);
             size = avio_rl32(s->pb);
-            if (pos + size > st->index_entries[1].pos)
+            if (get_stream_idx(tag) == i && pos + size > st->index_entries[1].pos)
                 last_start = INT64_MAX;
         }
 
@@ -1751,7 +1750,7 @@ static void seek_subtitle(AVStream *st, AVStream *st2, int64_t timestamp)
 {
     AVIStream *ast2 = st2->priv_data;
     int64_t ts2     = av_rescale_q(timestamp, st->time_base, st2->time_base);
-    av_free_packet(&ast2->sub_pkt);
+    av_packet_unref(&ast2->sub_pkt);
     if (avformat_seek_file(ast2->sub_ctx, 0, INT64_MIN, ts2, ts2, 0) >= 0 ||
         avformat_seek_file(ast2->sub_ctx, 0, ts2, ts2, INT64_MAX, 0) >= 0)
         ff_read_packet(ast2->sub_ctx, &ast2->sub_pkt);
@@ -1889,7 +1888,7 @@ static int avi_read_close(AVFormatContext *s)
                 avformat_close_input(&ast->sub_ctx);
             }
             av_freep(&ast->sub_buffer);
-            av_free_packet(&ast->sub_pkt);
+            av_packet_unref(&ast->sub_pkt);
         }
     }
 

@@ -15,10 +15,12 @@ struct GrContextOptions {
         : fDrawPathToCompressedTexture(false)
         , fSuppressPrints(false)
         , fMaxTextureSizeOverride(SK_MaxS32)
-        , fMinTextureSizeOverride(0)
+        , fMaxTileSizeOverride(0)
         , fSuppressDualSourceBlending(false)
         , fGeometryBufferMapThreshold(-1)
-        , fUseDrawInsteadOfPartialRenderTargetWrite(false) {}
+        , fUseDrawInsteadOfPartialRenderTargetWrite(false)
+        , fImmediateMode(false)
+        , fUseShaderSwizzling(false) {}
 
     // EXPERIMENTAL
     // May be removed in the future, or may become standard depending
@@ -33,7 +35,9 @@ struct GrContextOptions {
         detected values. */
 
     int  fMaxTextureSizeOverride;
-    int  fMinTextureSizeOverride;
+    /** If non-zero, overrides the maximum size of a tile for sw-backed images and bitmaps rendered
+        by SkGpuDevice. */
+    int  fMaxTileSizeOverride;
     bool fSuppressDualSourceBlending;
 
     /** the threshold in bytes above which we will use a buffer mapping API to map vertex and index
@@ -43,6 +47,14 @@ struct GrContextOptions {
 
     /** some gpus have problems with partial writes of the rendertarget */
     bool fUseDrawInsteadOfPartialRenderTargetWrite;
+
+    /** The GrContext operates in immedidate mode. It will issue all draws to the backend API
+        immediately. Intended to ease debugging. */
+    bool fImmediateMode;
+
+    /** Force us to do all swizzling manually in the shader and don't rely on extensions to do
+        swizzling. */
+    bool fUseShaderSwizzling;
 };
 
 #endif

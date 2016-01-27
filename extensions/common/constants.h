@@ -126,7 +126,7 @@ enum AppLaunchSource {
   SOURCE_KEYBOARD,
   SOURCE_EXTENSIONS_PAGE,
   SOURCE_MANAGEMENT_API,
-  SOURCE_EPHEMERAL_APP,
+  SOURCE_EPHEMERAL_APP_UNUSED,
   SOURCE_BACKGROUND,
   SOURCE_KIOSK,
   SOURCE_CHROME_INTERNAL,
@@ -222,6 +222,12 @@ extern const char kQuickOfficeExtensionId[];
 
 // The extension id used for testing mimeHandlerPrivate.
 extern const char kMimeHandlerPrivateTestExtensionId[];
+
+// The extension id for the production version of Hangouts.
+extern const char kProdHangoutsExtensionId[];
+
+// Extension ids used by Hangouts.
+extern const char* const kHangoutsExtensionIds[6];
 
 }  // namespace extension_misc
 

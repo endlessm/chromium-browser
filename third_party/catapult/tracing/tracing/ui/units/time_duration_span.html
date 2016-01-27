@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2015 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/base/units/time_display_mode.html">
+<link rel="import" href="/tracing/base/units/time_duration.html">
+<link rel="import" href="/tracing/ui/base/deep_utils.html">
+<link rel="import" href="/tracing/ui/units/scalar_span.html">
+
+<script>
+'use strict';
+
+// TODO(petrcermak): Similarly to base/units/time_duration.html and
+// base/units/time_stamp.html, the classes defined in this file are almost
+// identical to the ones defined in time_stamp_span. Consider sharing more
+// code between the two files.
+tr.exportTo('tr.ui.units', function() {
+  function createTimeDurationSpan(duration, opt_config) {
+    if (duration === undefined)
+      return '';
+    var config = opt_config || {};
+    var ownerDocument = config.ownerDocument || document;
+    var span = ownerDocument.createElement('tr-ui-u-time-duration-span');
+    span.setValueAndUnit(duration, tr.b.u.Units.timeDurationInMs);
+    if (config.total)
+      span.percentage = duration / config.total;
+    span.duration = duration;
+    // TODO(petrcermak): Get rid of this boolean once we've cleaned up units.
+    if (config.rightAlign)
+      span.rightAlign = true;
+    return span;
+  }
+
+  return {
+    createTimeDurationSpan: createTimeDurationSpan
+  };
+});
+</script>
+
+<polymer-element name="tr-ui-u-time-duration-span"
+                 extends="tr-ui-u-scalar-span">
+  <script>
+  'use strict';
+
+  Polymer({
+    get duration() {
+      return this.value;
+    },
+
+    set duration(duration) {
+      if (duration instanceof tr.b.u.TimeDuration) {
+        this.value = duration;
+        return;
+      }
+      this.setValueAndUnit(duration, tr.b.u.Units.timeDurationInMs);
+    }
+  });
+  </script>
+</polymer-element>

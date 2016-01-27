@@ -152,7 +152,7 @@ static void GetAudioDeviceInfo(bool is_input,
     // on the top of the list for all platforms. There is no duplicate
     // counting here since the default device has been abstracted out before.
     media::AudioDeviceName name;
-    name.device_name = AudioManagerBase::kDefaultDeviceName;
+    name.device_name = AudioManager::GetDefaultDeviceName();
     name.unique_id = AudioManagerBase::kDefaultDeviceId;
     device_names->push_front(name);
   }
@@ -672,9 +672,10 @@ AudioParameters AudioManagerMac::GetPreferredOutputStreamParameters(
       channel_layout = CHANNEL_LAYOUT_DISCRETE;
   }
 
-  return AudioParameters(
-      AudioParameters::AUDIO_PCM_LOW_LATENCY, channel_layout, output_channels,
-      hardware_sample_rate, 16, buffer_size, AudioParameters::NO_EFFECTS);
+  AudioParameters params(AudioParameters::AUDIO_PCM_LOW_LATENCY, channel_layout,
+                         hardware_sample_rate, 16, buffer_size);
+  params.set_channels_for_discrete(output_channels);
+  return params;
 }
 
 void AudioManagerMac::InitializeOnAudioThread() {
@@ -750,7 +751,9 @@ bool AudioManagerMac::ShouldDeferStreamStart() {
 bool AudioManagerMac::MaybeChangeBufferSize(AudioDeviceID device_id,
                                             AudioUnit audio_unit,
                                             AudioUnitElement element,
-                                            size_t desired_buffer_size) {
+                                            size_t desired_buffer_size,
+                                            bool* size_was_changed) {
+  *size_was_changed = false;
   UInt32 buffer_size = 0;
   UInt32 property_size = sizeof(buffer_size);
   OSStatus result = AudioUnitGetProperty(audio_unit,
@@ -796,6 +799,9 @@ bool AudioManagerMac::MaybeChangeBufferSize(AudioDeviceID device_id,
     }
   }
 
+  if (buffer_size == desired_buffer_size)
+    return true;
+
   buffer_size = desired_buffer_size;
   result = AudioUnitSetProperty(audio_unit,
                                 kAudioDevicePropertyBufferFrameSize,
@@ -806,7 +812,7 @@ bool AudioManagerMac::MaybeChangeBufferSize(AudioDeviceID device_id,
   OSSTATUS_DLOG_IF(ERROR, result != noErr, result)
       << "AudioUnitSetProperty(kAudioDevicePropertyBufferFrameSize) failed.  "
       << "Size:: " << buffer_size;
-
+  *size_was_changed = (result == noErr);
   return (result == noErr);
 }
 

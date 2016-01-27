@@ -33,10 +33,6 @@ source_set("metrics") {
     "user_metrics_action.h",
   ]
 
-  if (is_nacl) {
-    sources -= [ "field_trial.cc" ]
-  }
-
   configs += [ "//base:base_implementation" ]
 
   deps = [
@@ -44,6 +40,8 @@ source_set("metrics") {
     "//base/json",
     "//base/memory",
   ]
+
+  allow_circular_includes_from = [ "//base/memory" ]
 
   visibility = [ "//base/*" ]
 }

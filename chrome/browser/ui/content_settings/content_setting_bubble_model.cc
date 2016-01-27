@@ -5,12 +5,14 @@
 #include "chrome/browser/ui/content_settings/content_setting_bubble_model.h"
 
 #include "base/command_line.h"
+#include "base/macros.h"
 #include "base/prefs/pref_service.h"
+#include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
 #include "chrome/browser/chrome_notification_types.h"
 #include "chrome/browser/content_settings/chrome_content_settings_utils.h"
 #include "chrome/browser/content_settings/cookie_settings_factory.h"
-#include "chrome/browser/content_settings/tab_specific_content_settings.h"
+#include "chrome/browser/content_settings/host_content_settings_map_factory.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry.h"
 #include "chrome/browser/custom_handlers/protocol_handler_registry_factory.h"
 #include "chrome/browser/infobars/infobar_service.h"
@@ -18,10 +20,8 @@
 #include "chrome/browser/plugins/chrome_plugin_service_filter.h"
 #include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/blocked_content/popup_blocker_tab_helper.h"
-#include "chrome/browser/ui/browser_navigator.h"
 #include "chrome/browser/ui/collected_cookies_infobar_delegate.h"
 #include "chrome/browser/ui/content_settings/content_setting_bubble_model_delegate.h"
-#include "chrome/browser/ui/elide_url.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/render_messages.h"
@@ -30,6 +30,7 @@
 #include "components/content_settings/core/browser/content_settings_utils.h"
 #include "components/content_settings/core/browser/cookie_settings.h"
 #include "components/content_settings/core/common/content_settings.h"
+#include "components/url_formatter/elide_url.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
@@ -238,7 +239,7 @@ class ContentSettingSingleRadioGroup
 
  private:
   void SetRadioGroup();
-  void AddException(ContentSetting setting);
+  void SetNarrowestContentSetting(ContentSetting setting);
   void OnRadioClicked(int radio_index) override;
 
   ContentSetting block_setting_;
@@ -263,7 +264,7 @@ ContentSettingSingleRadioGroup::~ContentSettingSingleRadioGroup() {
         selected_item_ == kAllowButtonIndex ?
                           CONTENT_SETTING_ALLOW :
                           block_setting_;
-    AddException(setting);
+    SetNarrowestContentSetting(setting);
   }
 }
 
@@ -275,7 +276,7 @@ bool ContentSettingSingleRadioGroup::settings_changed() const {
 // content type and setting the default value based on the content setting.
 void ContentSettingSingleRadioGroup::SetRadioGroup() {
   GURL url = web_contents()->GetURL();
-  base::string16 display_host = FormatUrlForSecurityDisplay(
+  base::string16 display_host = url_formatter::FormatUrlForSecurityDisplay(
       url, profile()->GetPrefs()->GetString(prefs::kAcceptLanguages));
   if (display_host.empty())
     display_host = base::ASCIIToUTF16(url.spec());
@@ -359,7 +360,8 @@ void ContentSettingSingleRadioGroup::SetRadioGroup() {
         url, url, true, &setting_source);
   } else {
     SettingInfo info;
-    HostContentSettingsMap* map = profile()->GetHostContentSettingsMap();
+    HostContentSettingsMap* map =
+        HostContentSettingsMapFactory::GetForProfile(profile());
     scoped_ptr<base::Value> value =
         map->GetWebsiteSetting(url, url, content_type(), std::string(), &info);
     setting = content_settings::ValueToContentSetting(value.get());
@@ -384,7 +386,8 @@ void ContentSettingSingleRadioGroup::SetRadioGroup() {
     block_setting_ = setting;
   }
 
-  set_setting_is_managed(setting_source != SETTING_SOURCE_USER);
+  set_setting_is_managed(setting_source != SETTING_SOURCE_USER &&
+                         setting != CONTENT_SETTING_ASK);
   if (setting_source != SETTING_SOURCE_USER) {
     set_radio_group_enabled(false);
   } else {
@@ -394,13 +397,13 @@ void ContentSettingSingleRadioGroup::SetRadioGroup() {
   set_radio_group(radio_group);
 }
 
-void ContentSettingSingleRadioGroup::AddException(ContentSetting setting) {
+void ContentSettingSingleRadioGroup::SetNarrowestContentSetting(
+    ContentSetting setting) {
   if (profile()) {
-    profile()->GetHostContentSettingsMap()->AddExceptionForURL(
-        bubble_content().radio_group.url,
-        bubble_content().radio_group.url,
-        content_type(),
-        setting);
+    HostContentSettingsMapFactory::GetForProfile(profile())
+        ->SetNarrowestContentSetting(bubble_content().radio_group.url,
+                                     bubble_content().radio_group.url,
+                                     content_type(), setting);
   }
 }
 
@@ -567,44 +570,6 @@ void ContentSettingPopupBubbleModel::OnListItemClicked(int index) {
   }
 }
 
-// The model of the content settings bubble for media settings.
-class ContentSettingMediaStreamBubbleModel
-    : public ContentSettingTitleAndLinkModel {
- public:
-  ContentSettingMediaStreamBubbleModel(Delegate* delegate,
-                                       WebContents* web_contents,
-                                       Profile* profile);
-
-  ~ContentSettingMediaStreamBubbleModel() override;
-
- private:
-  void SetTitle();
-  // Sets the data for the radio buttons of the bubble.
-  void SetRadioGroup();
-  // Sets the data for the media menus of the bubble.
-  void SetMediaMenus();
-  void SetCustomLink();
-  // Updates the camera and microphone setting with the passed |setting|.
-  void UpdateSettings(ContentSetting setting);
-  // Updates the camera and microphone default device with the passed |type|
-  // and device.
-  void UpdateDefaultDeviceForType(content::MediaStreamType type,
-                                  const std::string& device);
-
-  // ContentSettingBubbleModel implementation.
-  void OnRadioClicked(int radio_index) override;
-  void OnMediaMenuClicked(content::MediaStreamType type,
-                          const std::string& selected_device) override;
-
-  // The index of the selected radio item.
-  int selected_item_;
-  // The content settings that are associated with the individual radio
-  // buttons.
-  ContentSetting radio_item_setting_[2];
-  // The state of the microphone and camera access.
-  TabSpecificContentSettings::MicrophoneCameraState state_;
-};
-
 ContentSettingMediaStreamBubbleModel::ContentSettingMediaStreamBubbleModel(
     Delegate* delegate,
     WebContents* web_contents,
@@ -613,6 +578,16 @@ ContentSettingMediaStreamBubbleModel::ContentSettingMediaStreamBubbleModel(
           delegate, web_contents, profile, CONTENT_SETTINGS_TYPE_MEDIASTREAM),
       selected_item_(0),
       state_(TabSpecificContentSettings::MICROPHONE_CAMERA_NOT_ACCESSED) {
+  // TODO(msramek): Every bubble is tied to a particular content setting.
+  // The media bubble has three states - mic only, camera only, and both.
+  // However, it is always tied to the deprecated MEDIASTREAM setting. Refactor
+  // this so that it refers to the MIC setting for microphone and CAMERA
+  // setting for camera to reduce the duplication of code in practically every
+  // method. Furthermore, it should be possible not to tie the bubble to any
+  // particular content setting type, as we still need the bubble for both
+  // camera and microphone, but should not use the deprecated MEDIASTREAM
+  // setting.
+
   DCHECK(profile);
   // Initialize the content settings associated with the individual radio
   // buttons.
@@ -622,12 +597,12 @@ ContentSettingMediaStreamBubbleModel::ContentSettingMediaStreamBubbleModel(
   TabSpecificContentSettings* content_settings =
       TabSpecificContentSettings::FromWebContents(web_contents);
   state_ = content_settings->GetMicrophoneCameraState();
-  DCHECK(state_ & (TabSpecificContentSettings::MICROPHONE_ACCESSED |
-                   TabSpecificContentSettings::CAMERA_ACCESSED));
+  DCHECK(CameraAccessed() || MicrophoneAccessed());
 
   SetTitle();
   SetRadioGroup();
   SetMediaMenus();
+  SetManageLink();
   SetCustomLink();
 }
 
@@ -652,18 +627,40 @@ ContentSettingMediaStreamBubbleModel::~ContentSettingMediaStreamBubbleModel() {
   }
 }
 
+bool ContentSettingMediaStreamBubbleModel::MicrophoneAccessed() const {
+  return (state_ & TabSpecificContentSettings::MICROPHONE_ACCESSED) != 0;
+}
+
+bool ContentSettingMediaStreamBubbleModel::CameraAccessed() const {
+  return (state_ & TabSpecificContentSettings::CAMERA_ACCESSED) != 0;
+}
+
+void ContentSettingMediaStreamBubbleModel::OnManageLinkClicked() {
+  if (!delegate())
+    return;
+
+  if (MicrophoneAccessed()) {
+    delegate()->ShowContentSettingsPage(CameraAccessed()
+        ? CONTENT_SETTINGS_TYPE_MEDIASTREAM
+        : CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC);
+  } else {
+    delegate()->ShowContentSettingsPage(
+        CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA);
+  }
+}
+
 void ContentSettingMediaStreamBubbleModel::SetTitle() {
-  DCHECK_NE(TabSpecificContentSettings::MICROPHONE_CAMERA_NOT_ACCESSED, state_);
+  DCHECK(CameraAccessed() || MicrophoneAccessed());
   int title_id = 0;
   if (state_ & TabSpecificContentSettings::MICROPHONE_BLOCKED) {
     title_id = (state_ & TabSpecificContentSettings::CAMERA_BLOCKED) ?
         IDS_MICROPHONE_CAMERA_BLOCKED : IDS_MICROPHONE_BLOCKED;
   } else if (state_ & TabSpecificContentSettings::CAMERA_BLOCKED) {
     title_id = IDS_CAMERA_BLOCKED;
-  } else if (state_ & TabSpecificContentSettings::MICROPHONE_ACCESSED) {
-    title_id = (state_ & TabSpecificContentSettings::CAMERA_ACCESSED) ?
-        IDS_MICROPHONE_CAMERA_ALLOWED : IDS_MICROPHONE_ACCESSED;
-  } else if (state_ & TabSpecificContentSettings::CAMERA_ACCESSED) {
+  } else if (MicrophoneAccessed()) {
+    title_id = CameraAccessed() ? IDS_MICROPHONE_CAMERA_ALLOWED
+                                : IDS_MICROPHONE_ACCESSED;
+  } else if (CameraAccessed()) {
     title_id = IDS_CAMERA_ACCESSED;
   }
   set_title(l10n_util::GetStringUTF8(title_id));
@@ -676,15 +673,14 @@ void ContentSettingMediaStreamBubbleModel::SetRadioGroup() {
   RadioGroup radio_group;
   radio_group.url = url;
 
-  base::string16 display_host_utf16 = FormatUrlForSecurityDisplay(
-      url, profile()->GetPrefs()->GetString(prefs::kAcceptLanguages));
+  base::string16 display_host_utf16 =
+      url_formatter::FormatUrlForSecurityDisplay(
+          url, profile()->GetPrefs()->GetString(prefs::kAcceptLanguages));
   std::string display_host(base::UTF16ToUTF8(display_host_utf16));
   if (display_host.empty())
     display_host = url.spec();
 
-  bool is_mic = (state_ & TabSpecificContentSettings::MICROPHONE_ACCESSED) != 0;
-  bool is_cam = (state_ & TabSpecificContentSettings::CAMERA_ACCESSED) != 0;
-  DCHECK(is_mic || is_cam);
+  DCHECK(CameraAccessed() || MicrophoneAccessed());
   int radio_allow_label_id = 0;
   int radio_block_label_id = 0;
   if (state_ & (TabSpecificContentSettings::MICROPHONE_BLOCKED |
@@ -692,27 +688,27 @@ void ContentSettingMediaStreamBubbleModel::SetRadioGroup() {
     if (content::IsOriginSecure(url)) {
       radio_item_setting_[0] = CONTENT_SETTING_ALLOW;
       radio_allow_label_id = IDS_BLOCKED_MEDIASTREAM_CAMERA_ALLOW;
-      if (is_mic)
-        radio_allow_label_id = is_cam ?
+      if (MicrophoneAccessed())
+        radio_allow_label_id = CameraAccessed() ?
             IDS_BLOCKED_MEDIASTREAM_MIC_AND_CAMERA_ALLOW :
             IDS_BLOCKED_MEDIASTREAM_MIC_ALLOW;
     } else {
       radio_allow_label_id = IDS_BLOCKED_MEDIASTREAM_CAMERA_ASK;
-      if (is_mic)
-        radio_allow_label_id = is_cam ?
+      if (MicrophoneAccessed())
+        radio_allow_label_id = CameraAccessed() ?
             IDS_BLOCKED_MEDIASTREAM_MIC_AND_CAMERA_ASK :
             IDS_BLOCKED_MEDIASTREAM_MIC_ASK;
     }
     radio_block_label_id = IDS_BLOCKED_MEDIASTREAM_CAMERA_NO_ACTION;
-    if (is_mic)
-      radio_block_label_id = is_cam ?
+    if (MicrophoneAccessed())
+      radio_block_label_id = CameraAccessed() ?
           IDS_BLOCKED_MEDIASTREAM_MIC_AND_CAMERA_NO_ACTION :
           IDS_BLOCKED_MEDIASTREAM_MIC_NO_ACTION;
   } else {
-    if (is_mic && is_cam) {
+    if (MicrophoneAccessed() && CameraAccessed()) {
       radio_allow_label_id = IDS_ALLOWED_MEDIASTREAM_MIC_AND_CAMERA_NO_ACTION;
       radio_block_label_id = IDS_ALLOWED_MEDIASTREAM_MIC_AND_CAMERA_BLOCK;
-    } else if (is_mic) {
+    } else if (MicrophoneAccessed()) {
       radio_allow_label_id = IDS_ALLOWED_MEDIASTREAM_MIC_NO_ACTION;
       radio_block_label_id = IDS_ALLOWED_MEDIASTREAM_MIC_BLOCK;
     } else {
@@ -721,9 +717,9 @@ void ContentSettingMediaStreamBubbleModel::SetRadioGroup() {
     }
   }
   selected_item_ =
-      (is_mic && content_settings->IsContentBlocked(
+      (MicrophoneAccessed() && content_settings->IsContentBlocked(
           CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC)) ||
-      (is_cam && content_settings->IsContentBlocked(
+      (CameraAccessed() && content_settings->IsContentBlocked(
           CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA)) ? 1 : 0;
 
   std::string radio_allow_label = l10n_util::GetStringFUTF8(
@@ -743,7 +739,7 @@ void ContentSettingMediaStreamBubbleModel::UpdateSettings(
     ContentSetting setting) {
   if (profile()) {
     HostContentSettingsMap* content_settings =
-        profile()->GetHostContentSettingsMap();
+        HostContentSettingsMapFactory::GetForProfile(profile());
     TabSpecificContentSettings* tab_content_settings =
         TabSpecificContentSettings::FromWebContents(web_contents());
     // The same patterns must be used as in other places (e.g. the infobar) in
@@ -755,12 +751,12 @@ void ContentSettingMediaStreamBubbleModel::UpdateSettings(
             tab_content_settings->media_stream_access_origin());
     ContentSettingsPattern secondary_pattern =
         ContentSettingsPattern::Wildcard();
-    if (state_ & TabSpecificContentSettings::MICROPHONE_ACCESSED) {
+    if (MicrophoneAccessed()) {
       content_settings->SetContentSetting(
           primary_pattern, secondary_pattern,
           CONTENT_SETTINGS_TYPE_MEDIASTREAM_MIC, std::string(), setting);
     }
-    if (state_ & TabSpecificContentSettings::CAMERA_ACCESSED) {
+    if (CameraAccessed()) {
       content_settings->SetContentSetting(
           primary_pattern, secondary_pattern,
           CONTENT_SETTINGS_TYPE_MEDIASTREAM_CAMERA, std::string(), setting);
@@ -795,7 +791,7 @@ void ContentSettingMediaStreamBubbleModel::SetMediaMenus() {
   const content::MediaStreamDevices& microphones =
       dispatcher->GetAudioCaptureDevices();
 
-  if (state_ & TabSpecificContentSettings::MICROPHONE_ACCESSED) {
+  if (MicrophoneAccessed()) {
     MediaMenu mic_menu;
     mic_menu.label = l10n_util::GetStringUTF8(IDS_MEDIA_SELECTED_MIC_LABEL);
     if (!microphones.empty()) {
@@ -817,7 +813,7 @@ void ContentSettingMediaStreamBubbleModel::SetMediaMenus() {
     add_media_menu(content::MEDIA_DEVICE_AUDIO_CAPTURE, mic_menu);
   }
 
-  if (state_ & TabSpecificContentSettings::CAMERA_ACCESSED) {
+  if (CameraAccessed()) {
     const content::MediaStreamDevices& cameras =
         dispatcher->GetVideoCaptureDevices();
     MediaMenu camera_menu;
@@ -841,6 +837,17 @@ void ContentSettingMediaStreamBubbleModel::SetMediaMenus() {
     }
     add_media_menu(content::MEDIA_DEVICE_VIDEO_CAPTURE, camera_menu);
   }
+}
+
+void ContentSettingMediaStreamBubbleModel::SetManageLink() {
+  // By default, the manage link refers to both media types. We only need
+  // to change the link text if only one media type was accessed.
+  if (CameraAccessed() && MicrophoneAccessed())
+    return;
+
+  set_manage_link(l10n_util::GetStringUTF8(MicrophoneAccessed()
+      ? IDS_MEDIASTREAM_MICROPHONE_BUBBLE_MANAGE_LINK
+      : IDS_MEDIASTREAM_CAMERA_BUBBLE_MANAGE_LINK));
 }
 
 void ContentSettingMediaStreamBubbleModel::SetCustomLink() {
@@ -946,7 +953,7 @@ void ContentSettingDomainListBubbleModel::OnCustomLinkClicked() {
   const ContentSettingsUsagesState::StateMap& state_map =
       content_settings->geolocation_usages_state().state_map();
   HostContentSettingsMap* settings_map =
-      profile()->GetHostContentSettingsMap();
+      HostContentSettingsMapFactory::GetForProfile(profile());
 
   for (const std::pair<GURL, ContentSetting>& map_entry : state_map) {
     settings_map->SetContentSetting(
@@ -1200,7 +1207,7 @@ void ContentSettingMidiSysExBubbleModel::OnCustomLinkClicked() {
   const ContentSettingsUsagesState::StateMap& state_map =
       content_settings->midi_usages_state().state_map();
   HostContentSettingsMap* settings_map =
-      profile()->GetHostContentSettingsMap();
+      HostContentSettingsMapFactory::GetForProfile(profile());
 
   for (const std::pair<GURL, ContentSetting>& map_entry : state_map) {
     settings_map->SetContentSetting(
@@ -1250,8 +1257,15 @@ ContentSettingBubbleModel*
     return new ContentSettingMidiSysExBubbleModel(delegate, web_contents,
                                                   profile);
   }
-  return new ContentSettingSingleRadioGroup(delegate, web_contents, profile,
-                                            content_type);
+  if (content_type == CONTENT_SETTINGS_TYPE_IMAGES ||
+      content_type == CONTENT_SETTINGS_TYPE_JAVASCRIPT ||
+      content_type == CONTENT_SETTINGS_TYPE_PPAPI_BROKER ||
+      content_type == CONTENT_SETTINGS_TYPE_AUTOMATIC_DOWNLOADS) {
+    return new ContentSettingSingleRadioGroup(delegate, web_contents, profile,
+                                              content_type);
+  }
+  NOTREACHED() << "No bubble for the content type " << content_type << ".";
+  return nullptr;
 }
 
 ContentSettingBubbleModel::ContentSettingBubbleModel(

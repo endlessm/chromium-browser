@@ -33,7 +33,7 @@
 namespace blink {
 class FloatBox;
 class PLATFORM_EXPORT TransformOperations {
-    WTF_MAKE_FAST_ALLOCATED(TransformOperations);
+    USING_FAST_MALLOC(TransformOperations);
 public:
     explicit TransformOperations(bool makeIdentity = false);
 
@@ -86,6 +86,7 @@ public:
     TransformOperations blendByUsingMatrixInterpolation(const TransformOperations& from, double progress) const;
     TransformOperations blend(const TransformOperations& from, double progress) const;
     TransformOperations add(const TransformOperations& addend) const;
+    TransformOperations zoom(double factor) const;
 
 private:
     Vector<RefPtr<TransformOperation>> m_operations;

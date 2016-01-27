@@ -4,6 +4,7 @@
 
 #include "content/browser/zygote_host/zygote_host_impl_linux.h"
 
+#include <errno.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -99,7 +100,7 @@ ZygoteHostImpl::~ZygoteHostImpl() { TearDown(); }
 
 // static
 ZygoteHostImpl* ZygoteHostImpl::GetInstance() {
-  return Singleton<ZygoteHostImpl>::get();
+  return base::Singleton<ZygoteHostImpl>::get();
 }
 
 void ZygoteHostImpl::Init(const std::string& sandbox_cmd) {
@@ -131,6 +132,7 @@ void ZygoteHostImpl::Init(const std::string& sandbox_cmd) {
   static const char* kForwardSwitches[] = {
     switches::kAllowSandboxDebugging,
     switches::kDisableSeccompFilterSandbox,
+    switches::kEnableHeapProfiling,
     switches::kEnableLogging,  // Support, e.g., --enable-logging=stderr.
     // Zygote process needs to know what resources to have loaded when it
     // becomes a renderer process.

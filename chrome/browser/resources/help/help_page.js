@@ -325,7 +325,7 @@ cr.define('help', function() {
         }
       } else if (status == 'updated') {
         this.setUpdateImage_('up-to-date');
-        $('update-status-message').innerHTML =
+        $('update-status-message').innerHTML = message ? message :
             loadTimeData.getString('upToDate');
       } else if (status == 'failed') {
         this.setUpdateImage_('failed');
@@ -427,7 +427,7 @@ cr.define('help', function() {
      * @private
      */
     setObsoleteSystem_: function(obsolete) {
-      if (cr.isMac && $('update-obsolete-system-container')) {
+      if ($('update-obsolete-system-container')) {
         $('update-obsolete-system-container').hidden = !obsolete;
       }
     },
@@ -438,8 +438,7 @@ cr.define('help', function() {
      * @private
      */
     setObsoleteSystemEndOfTheLine_: function(endOfTheLine) {
-      if (cr.isMac &&
-          $('update-obsolete-system-container') &&
+      if ($('update-obsolete-system-container') &&
           !$('update-obsolete-system-container').hidden &&
           $('update-status-message')) {
         $('update-status-message').hidden = endOfTheLine;

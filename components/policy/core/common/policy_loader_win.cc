@@ -44,6 +44,7 @@
 #include "components/policy/core/common/policy_load_status.h"
 #include "components/policy/core/common/policy_map.h"
 #include "components/policy/core/common/policy_namespace.h"
+#include "components/policy/core/common/policy_types.h"
 #include "components/policy/core/common/preg_parser_win.h"
 #include "components/policy/core/common/registry_dict_win.h"
 #include "components/policy/core/common/schema.h"
@@ -171,7 +172,7 @@ void FilterUntrustedPolicy(PolicyMap* policy) {
     }
     if (invalid_policies) {
       policy->Set(key::kExtensionInstallForcelist,
-                  map_entry->level, map_entry->scope,
+                  map_entry->level, map_entry->scope, map_entry->source,
                   filtered_values.release(),
                   map_entry->external_data_fetcher);
 
@@ -329,7 +330,7 @@ void ParsePolicy(const RegistryDict* gpo_dict,
     return;
   }
 
-  policy->LoadFrom(policy_dict, level, scope);
+  policy->LoadFrom(policy_dict, level, scope, POLICY_SOURCE_PLATFORM);
 }
 
 // Collects stats about the enterprise environment that can be used to decide
@@ -673,14 +674,14 @@ void PolicyLoaderWin::SetupWatches() {
   DCHECK(is_initialized_);
   if (!user_policy_watcher_failed_ &&
       !user_policy_watcher_.GetWatchedObject() &&
-      !user_policy_watcher_.StartWatching(
+      !user_policy_watcher_.StartWatchingOnce(
           user_policy_changed_event_.handle(), this)) {
     DLOG(WARNING) << "Failed to start watch for user policy change event";
     user_policy_watcher_failed_ = true;
   }
   if (!machine_policy_watcher_failed_ &&
       !machine_policy_watcher_.GetWatchedObject() &&
-      !machine_policy_watcher_.StartWatching(
+      !machine_policy_watcher_.StartWatchingOnce(
           machine_policy_changed_event_.handle(), this)) {
     DLOG(WARNING) << "Failed to start watch for machine policy change event";
     machine_policy_watcher_failed_ = true;

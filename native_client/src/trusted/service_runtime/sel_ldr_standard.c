@@ -45,10 +45,6 @@
 #include "native_client/src/trusted/service_runtime/sel_util.h"
 #include "native_client/src/trusted/service_runtime/sel_addrspace.h"
 
-#if !defined(SIZE_T_MAX)
-# define SIZE_T_MAX     (~(size_t) 0)
-#endif
-
 
 /*
  * Fill from static_text_end to end of that page with halt
@@ -199,7 +195,9 @@ void NaClLogAddressSpaceLayout(struct NaClApp *nap) {
   NaClLog(2, "nap->bundle_size        = 0x%x\n", nap->bundle_size);
 }
 
-
+/*
+ * Expects that "nap->mu" lock is already held.
+ */
 NaClErrorCode NaClAppLoadFileAslr(struct NaClDesc *ndp,
                                   struct NaClApp *nap,
                                   enum NaClAslrMode aslr_mode) {
@@ -670,7 +668,7 @@ int NaClCreateMainThread(struct NaClApp     *nap,
   for (i = 0; i < argc; ++i) {
     *p++ = (uint32_t) NaClSysToUser(nap, (uintptr_t) strp);
     NaClLog(2, "copying arg %d  %p -> %p\n",
-            i, argv[i], strp);
+            i, (void *) argv[i], (void *) strp);
     strcpy(strp, argv[i]);
     strp += argv_len[i];
   }
@@ -679,7 +677,7 @@ int NaClCreateMainThread(struct NaClApp     *nap,
   for (i = 0; i < envc; ++i) {
     *p++ = (uint32_t) NaClSysToUser(nap, (uintptr_t) strp);
     NaClLog(2, "copying env %d  %p -> %p\n",
-            i, envv[i], strp);
+            i, (void *) envv[i], (void *) strp);
     strcpy(strp, envv[i]);
     strp += envv_len[i];
   }

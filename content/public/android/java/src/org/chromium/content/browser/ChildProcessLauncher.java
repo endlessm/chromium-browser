@@ -14,13 +14,13 @@ import android.text.TextUtils;
 import android.util.Pair;
 import android.view.Surface;
 
-import org.chromium.base.CalledByNative;
 import org.chromium.base.CommandLine;
-import org.chromium.base.JNINamespace;
 import org.chromium.base.Log;
 import org.chromium.base.ThreadUtils;
 import org.chromium.base.TraceEvent;
 import org.chromium.base.VisibleForTesting;
+import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.JNINamespace;
 import org.chromium.base.library_loader.Linker;
 import org.chromium.content.app.ChildProcessService;
 import org.chromium.content.app.ChromiumLinkerParams;
@@ -41,7 +41,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @JNINamespace("content")
 public class ChildProcessLauncher {
-    private static final String TAG = "cr.ChildProcessLaunch";
+    private static final String TAG = "cr.ChildProcLauncher";
 
     static final int CALLBACK_FOR_UNKNOWN_PROCESS = 0;
     static final int CALLBACK_FOR_GPU_PROCESS = 1;
@@ -232,7 +232,7 @@ public class ChildProcessLauncher {
             ApplicationInfo appInfo = packageManager.getApplicationInfo(context.getPackageName(),
                     PackageManager.GET_META_DATA);
             int numServices = appInfo.metaData.getInt(inSandbox ? NUM_SANDBOXED_SERVICES_KEY
-                    : NUM_PRIVILEGED_SERVICES_KEY);
+                    : NUM_PRIVILEGED_SERVICES_KEY, -1);
             if (inSandbox
                     && CommandLine.getInstance().hasSwitch(
                                SWITCH_NUM_SANDBOXED_SERVICES_FOR_TESTING)) {
@@ -247,7 +247,7 @@ public class ChildProcessLauncher {
                     }
                 }
             }
-            if (numServices <= 0) {
+            if (numServices < 0) {
                 throw new RuntimeException("Illegal meta data value for number of child services");
             }
             return numServices;
@@ -296,10 +296,9 @@ public class ChildProcessLauncher {
     private static long sLinkerLoadAddress = 0;
 
     private static ChromiumLinkerParams getLinkerParamsForNewConnection() {
-        Linker linker = Linker.getInstance();
         if (!sLinkerInitialized) {
-            if (linker.isUsed()) {
-                sLinkerLoadAddress = linker.getBaseLoadAddress();
+            if (Linker.isUsed()) {
+                sLinkerLoadAddress = Linker.getInstance().getBaseLoadAddress();
                 if (sLinkerLoadAddress == 0) {
                     Log.i(TAG, "Shared RELRO support disabled!");
                 }
@@ -311,9 +310,16 @@ public class ChildProcessLauncher {
 
         // Always wait for the shared RELROs in service processes.
         final boolean waitForSharedRelros = true;
-        return new ChromiumLinkerParams(sLinkerLoadAddress,
-                                waitForSharedRelros,
-                                linker.getTestRunnerClassName());
+        if (Linker.areTestsEnabled()) {
+            Linker linker = Linker.getInstance();
+            return new ChromiumLinkerParams(sLinkerLoadAddress,
+                                            waitForSharedRelros,
+                                            linker.getTestRunnerClassNameForTesting(),
+                                            linker.getImplementationForTesting());
+        } else {
+            return new ChromiumLinkerParams(sLinkerLoadAddress,
+                                            waitForSharedRelros);
+        }
     }
 
     private static ChildProcessConnection allocateBoundConnection(Context context,
@@ -337,7 +343,9 @@ public class ChildProcessLauncher {
     private static final long FREE_CONNECTION_DELAY_MILLIS = 1;
 
     private static void freeConnection(ChildProcessConnection connection) {
-        if (connection.equals(sSpareSandboxedConnection)) sSpareSandboxedConnection = null;
+        synchronized (ChildProcessLauncher.class) {
+            if (connection.equals(sSpareSandboxedConnection)) sSpareSandboxedConnection = null;
+        }
 
         // Freeing a service should be delayed. This is so that we avoid immediately reusing the
         // freed service (see http://crbug.com/164069): the framework might keep a service process
@@ -403,6 +411,8 @@ public class ChildProcessLauncher {
 
     @CalledByNative
     private static void registerViewSurface(int surfaceId, Surface surface) {
+        if (!surface.isValid())
+            throw new RuntimeException("Attempting to register invalid Surface.");
         sViewSurfaceMap.put(surfaceId, surface);
     }
 
@@ -714,7 +724,10 @@ public class ChildProcessLauncher {
                     Log.e(TAG, "Invalid surfaceId.");
                     return null;
                 }
-                assert surface.isValid();
+                if (!surface.isValid()) {
+                    Log.e(TAG, "Requested surface is not valid.");
+                    return null;
+                }
                 return new SurfaceWrapper(surface);
             }
 

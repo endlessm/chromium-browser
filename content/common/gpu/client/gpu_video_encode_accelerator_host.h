@@ -17,19 +17,18 @@
 #include "media/video/video_encode_accelerator.h"
 
 namespace gfx {
-
 class Size;
-
 }  // namespace gfx
 
 namespace media {
-
 class VideoFrame;
-
 }  // namespace media
 
-namespace content {
+namespace tracked_objects {
+class Location;
+}  // namespace tracked_objects
 
+namespace content {
 class GpuChannelHost;
 
 // This class is the renderer-side host for the VideoEncodeAccelerator in the
@@ -51,7 +50,7 @@ class GpuVideoEncodeAcceleratorHost
 
   // media::VideoEncodeAccelerator implementation.
   SupportedProfiles GetSupportedProfiles() override;
-  bool Initialize(media::VideoFrame::Format input_format,
+  bool Initialize(media::VideoPixelFormat input_format,
                   const gfx::Size& input_visible_size,
                   media::VideoCodecProfile output_profile,
                   uint32 initial_bitrate,
@@ -63,7 +62,7 @@ class GpuVideoEncodeAcceleratorHost
                                        uint32 framerate_num) override;
   void Destroy() override;
 
-  // CommandBufferProxyImpl::DeletionObserver implemetnation.
+  // CommandBufferProxyImpl::DeletionObserver implementation.
   void OnWillDeleteImpl() override;
 
  private:
@@ -71,7 +70,8 @@ class GpuVideoEncodeAcceleratorHost
   ~GpuVideoEncodeAcceleratorHost() override;
 
   // Notify |client_| of an error.  Posts a task to avoid re-entrancy.
-  void PostNotifyError(Error);
+  void PostNotifyError(const tracked_objects::Location& location,
+                       Error error, const std::string& message);
 
   void Send(IPC::Message* message);
 

@@ -10,6 +10,7 @@
 #include "content/browser/frame_host/navigation_request_info.h"
 #include "content/browser/loader/navigation_resource_handler.h"
 #include "content/browser/loader/resource_dispatcher_host_impl.h"
+#include "content/browser/service_worker/service_worker_navigation_handle_core.h"
 #include "content/common/navigation_params.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/stream_handle.h"
@@ -37,7 +38,7 @@ NavigationURLLoaderImplCore::~NavigationURLLoaderImplCore() {
 
 void NavigationURLLoaderImplCore::Start(
     ResourceContext* resource_context,
-    int frame_tree_node_id,
+    ServiceWorkerNavigationHandleCore* service_worker_handle_core,
     scoped_ptr<NavigationRequestInfo> request_info) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
 
@@ -47,8 +48,7 @@ void NavigationURLLoaderImplCore::Start(
                  base::TimeTicks::Now()));
 
   ResourceDispatcherHostImpl::Get()->BeginNavigationRequest(
-      resource_context, frame_tree_node_id,
-      *request_info, this);
+      resource_context, *request_info, this, service_worker_handle_core);
 }
 
 void NavigationURLLoaderImplCore::FollowRedirect() {
@@ -57,7 +57,6 @@ void NavigationURLLoaderImplCore::FollowRedirect() {
   if (resource_handler_)
     resource_handler_->FollowRedirect();
 }
-
 
 void NavigationURLLoaderImplCore::NotifyRequestRedirected(
     const net::RedirectInfo& redirect_info,

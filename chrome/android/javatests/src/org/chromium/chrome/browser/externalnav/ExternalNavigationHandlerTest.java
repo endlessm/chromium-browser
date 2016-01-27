@@ -21,8 +21,8 @@ import android.test.suitebuilder.annotation.SmallTest;
 
 import org.chromium.base.CommandLine;
 import org.chromium.chrome.browser.IntentHandler;
-import org.chromium.chrome.browser.Tab;
 import org.chromium.chrome.browser.externalnav.ExternalNavigationHandler.OverrideUrlLoadingResult;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tab.TabRedirectHandler;
 import org.chromium.chrome.browser.util.FeatureUtilities;
 import org.chromium.ui.base.PageTransition;
@@ -85,6 +85,7 @@ public class ExternalNavigationHandlerTest extends InstrumentationTestCase {
         super.setUp();
         mDelegate.setContext(getInstrumentation().getContext());
         CommandLine.init(new String[0]);
+        ExternalNavigationHandler.sReportingDisabledForTests = true;
     }
 
     @SmallTest
@@ -537,6 +538,46 @@ public class ExternalNavigationHandlerTest extends InstrumentationTestCase {
     }
 
     @SmallTest
+    public void testInitialIntentHeadingToChrome() throws URISyntaxException {
+        TestContext context = new TestContext();
+        TabRedirectHandler redirectHandler = new TabRedirectHandler(context);
+        Intent fooIntent = Intent.parseUri("http://foo.com/", Intent.URI_INTENT_SCHEME);
+        fooIntent.setPackage(context.getPackageName());
+        int transTypeLinkFromIntent = PageTransition.LINK
+                | PageTransition.FROM_API;
+
+        // Ignore if an initial Intent was heading to Chrome.
+        redirectHandler.updateIntent(fooIntent);
+        redirectHandler.updateNewUrlLoading(transTypeLinkFromIntent, false, false, 0, 0);
+        redirectHandler.updateNewUrlLoading(transTypeLinkFromIntent, true, false, 0, 0);
+        check("http://m.youtube.com/",
+                null, /* referrer */
+                false, /* incognito */
+                transTypeLinkFromIntent,
+                REDIRECT,
+                true,
+                false,
+                redirectHandler,
+                OverrideUrlLoadingResult.NO_OVERRIDE,
+                IGNORE);
+
+        // Do not ignore if the URI has an external protocol.
+        redirectHandler.updateIntent(fooIntent);
+        redirectHandler.updateNewUrlLoading(transTypeLinkFromIntent, false, false, 0, 0);
+        redirectHandler.updateNewUrlLoading(transTypeLinkFromIntent, true, false, 0, 0);
+        check("market://1234",
+                null, /* referrer */
+                false, /* incognito */
+                transTypeLinkFromIntent,
+                REDIRECT,
+                true,
+                false,
+                redirectHandler,
+                OverrideUrlLoadingResult.OVERRIDE_WITH_EXTERNAL_INTENT,
+                START_ACTIVITY);
+    }
+
+    @SmallTest
     public void testFallbackUrl_IntentResolutionSucceeds() {
         // IMDB app is installed.
         mDelegate.setCanResolveActivity(true);
@@ -895,6 +936,20 @@ public class ExternalNavigationHandlerTest extends InstrumentationTestCase {
     }
 
     @SmallTest
+    public void testFormSubmitSameDomain() {
+        check(CALENDAR_URL,
+                KEEP_URL,
+                false, /* incognito */
+                PageTransition.FORM_SUBMIT,
+                NO_REDIRECT,
+                true,
+                false,
+                null,
+                OverrideUrlLoadingResult.NO_OVERRIDE,
+                IGNORE);
+    }
+
+    @SmallTest
     public void testBackgroundTabNavigation() {
         check("http://youtube.com/",
                 null, /* referrer */
@@ -1245,7 +1300,13 @@ public class ExternalNavigationHandlerTest extends InstrumentationTestCase {
         @Override
         public List<ResolveInfo> queryIntentActivities(Intent intent, int flags) {
             List<ResolveInfo> resolves = new ArrayList<ResolveInfo>();
-            if (intent.getDataString().startsWith("http://m.youtube.com")
+            if (intent.getDataString().startsWith("market:")) {
+                ResolveInfo info = new ResolveInfo();
+                info.activityInfo = new ActivityInfo();
+                info.activityInfo.packageName = "market";
+                info.activityInfo.name = "market";
+                resolves.add(info);
+            } else if (intent.getDataString().startsWith("http://m.youtube.com")
                     ||  intent.getDataString().startsWith("http://youtube.com")) {
                 ResolveInfo youTubeApp = new ResolveInfo();
                 youTubeApp.activityInfo = new ActivityInfo();

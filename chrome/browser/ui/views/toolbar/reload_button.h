@@ -6,7 +6,6 @@
 #define CHROME_BROWSER_UI_VIEWS_TOOLBAR_RELOAD_BUTTON_H__
 
 #include "base/basictypes.h"
-#include "base/gtest_prod_util.h"
 #include "base/timer/timer.h"
 #include "chrome/browser/ui/views/toolbar/toolbar_button.h"
 #include "ui/base/models/simple_menu_model.h"
@@ -78,8 +77,8 @@ class ReloadButton : public ToolbarButton,
   void OnDoubleClickTimer();
   void OnStopToReloadTimer();
 
-  base::OneShotTimer<ReloadButton> double_click_timer_;
-  base::OneShotTimer<ReloadButton> stop_to_reload_timer_;
+  base::OneShotTimer double_click_timer_;
+  base::OneShotTimer stop_to_reload_timer_;
 
   // This may be NULL when testing.
   CommandUpdater* command_updater_;

@@ -10,10 +10,10 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/time/time.h"
 #include "sync/base/sync_export.h"
-#include "sync/internal_api/public/non_blocking_sync_common.h"
 #include "sync/protocol/sync.pb.h"
 
-namespace syncer {
+namespace syncer_v2 {
+struct CommitRequestData;
 
 // This is the model thread's representation of a SyncEntity.
 //

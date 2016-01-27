@@ -13,6 +13,7 @@
 #include <assert.h>
 #include <utility>  // pair
 
+#include "webrtc/base/logging.h"
 #include "webrtc/modules/audio_coding/codecs/audio_decoder.h"
 
 namespace webrtc {
@@ -71,7 +72,6 @@ int DecoderDatabase::InsertExternal(uint8_t rtp_payload_type,
   if (!decoder) {
     return kInvalidPointer;
   }
-  decoder->Init();
   std::pair<DecoderMap::iterator, bool> ret;
   DecoderInfo info(codec_type, fs_hz, decoder, true);
   ret = decoders_.insert(std::make_pair(rtp_payload_type, info));
@@ -135,7 +135,6 @@ AudioDecoder* DecoderDatabase::GetDecoder(uint8_t rtp_payload_type) {
     AudioDecoder* decoder = CreateAudioDecoder(info->codec_type);
     assert(decoder);  // Should not be able to have an unsupported codec here.
     info->decoder = decoder;
-    info->decoder->Init();
   }
   return info->decoder;
 }
@@ -151,10 +150,10 @@ bool DecoderDatabase::IsType(uint8_t rtp_payload_type,
 }
 
 bool DecoderDatabase::IsComfortNoise(uint8_t rtp_payload_type) const {
-  if (IsType(rtp_payload_type, kDecoderCNGnb) ||
-      IsType(rtp_payload_type, kDecoderCNGwb) ||
-      IsType(rtp_payload_type, kDecoderCNGswb32kHz) ||
-      IsType(rtp_payload_type, kDecoderCNGswb48kHz)) {
+  if (IsType(rtp_payload_type, NetEqDecoder::kDecoderCNGnb) ||
+      IsType(rtp_payload_type, NetEqDecoder::kDecoderCNGwb) ||
+      IsType(rtp_payload_type, NetEqDecoder::kDecoderCNGswb32kHz) ||
+      IsType(rtp_payload_type, NetEqDecoder::kDecoderCNGswb48kHz)) {
     return true;
   } else {
     return false;
@@ -162,11 +161,11 @@ bool DecoderDatabase::IsComfortNoise(uint8_t rtp_payload_type) const {
 }
 
 bool DecoderDatabase::IsDtmf(uint8_t rtp_payload_type) const {
-  return IsType(rtp_payload_type, kDecoderAVT);
+  return IsType(rtp_payload_type, NetEqDecoder::kDecoderAVT);
 }
 
 bool DecoderDatabase::IsRed(uint8_t rtp_payload_type) const {
-  return IsType(rtp_payload_type, kDecoderRED);
+  return IsType(rtp_payload_type, NetEqDecoder::kDecoderRED);
 }
 
 int DecoderDatabase::SetActiveDecoder(uint8_t rtp_payload_type,
@@ -249,6 +248,8 @@ int DecoderDatabase::CheckPayloadTypes(const PacketList& packet_list) const {
   for (it = packet_list.begin(); it != packet_list.end(); ++it) {
     if (decoders_.find((*it)->header.payloadType) == decoders_.end()) {
       // Payload type is not found.
+      LOG(LS_WARNING) << "CheckPayloadTypes: unknown RTP payload type "
+                      << static_cast<int>((*it)->header.payloadType);
       return kDecoderNotFound;
     }
   }

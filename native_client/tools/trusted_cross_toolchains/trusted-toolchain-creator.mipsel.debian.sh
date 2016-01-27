@@ -54,8 +54,7 @@ readonly INSTALL_ROOT=${NACL_ROOT}/toolchain/linux_x86/mips_trusted
 readonly JAIL_MIPS32=${INSTALL_ROOT}/sysroot
 readonly TMP=${OUT_DIR}/sysroot_mips_trusted
 readonly BUILD_DIR=${TMP}/build
-readonly CROSS_TARBALL="chromesdk_linux_mipsel"
-readonly TAR_ARCHIVE=${OUT_DIR}/sysroot_mipsel_trusted_jessie.tar.gz
+readonly TAR_ARCHIVE=${OUT_DIR}/sysroot_mips_trusted_jessie.tar.gz
 readonly PACKAGES="
 libgcc1
 libc6
@@ -463,6 +462,19 @@ BuildAndInstallQemu() {
   local tmpdir="${TMP}/qemu-mips.nacl"
   local tarball="qemu-2.0.0.tar.bz2"
 
+  if [ -z "${DEBIAN_SYSROOT:-}" ]; then
+    echo "Please set \$DEBIAN_SYSROOT to the location of a debian/stable"
+    echo "sysroot."
+    echo "e.g. <chrome>/build/linux/debian_wheezy_amd64-sysroot"
+    echo "Which itself is setup by chrome's install-debian.wheezy.sysroot.py"
+    exit 1
+  fi
+
+  if [ ! -d "${DEBIAN_SYSROOT:-}" ]; then
+    echo "\$DEBIAN_SYSROOT does not exist: $DEBIAN_SYSROOT"
+    exit 1
+  fi
+
   Banner "Building qemu in ${tmpdir}"
 
   rm -rf ${tmpdir}
@@ -477,8 +489,10 @@ BuildAndInstallQemu() {
   cd qemu-2.0.0
 
   SubBanner "Configuring"
-  env -i PATH=/usr/bin/:/bin \
+  env -i CC=gcc-4.6 CXX=g++-4.6  PATH=/usr/bin/:/bin \
     ./configure \
+    --extra-cflags="--sysroot=$DEBIAN_SYSROOT" \
+    --extra-ldflags="-Wl,-rpath-link=$DEBIAN_SYSROOT/lib/amd64-linux-gnu" \
     --disable-system \
     --enable-linux-user \
     --disable-bsd-user \

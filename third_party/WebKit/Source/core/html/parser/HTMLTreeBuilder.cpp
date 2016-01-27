@@ -788,15 +788,21 @@ void HTMLTreeBuilder::processStartTagForInBody(AtomicHTMLToken* token)
         || token->name() == keygenTag
         || token->name() == wbrTag) {
         m_tree.reconstructTheActiveFormattingElements();
-        m_tree.insertSelfClosingHTMLElement(token);
+        m_tree.insertSelfClosingHTMLElementDestroyingToken(token);
         m_framesetOk = false;
         return;
     }
     if (token->name() == inputTag) {
+        // Per spec https://html.spec.whatwg.org/#parsing-main-inbody,
+        // section "A start tag whose tag name is "input""
+
         Attribute* typeAttribute = token->getAttributeItem(typeAttr);
+        bool disableFrameset = !typeAttribute || !equalIgnoringCase(typeAttribute->value(), "hidden");
+
         m_tree.reconstructTheActiveFormattingElements();
-        m_tree.insertSelfClosingHTMLElement(token);
-        if (!typeAttribute || !equalIgnoringCase(typeAttribute->value(), "hidden"))
+        m_tree.insertSelfClosingHTMLElementDestroyingToken(token);
+
+        if (disableFrameset)
             m_framesetOk = false;
         return;
     }
@@ -804,12 +810,12 @@ void HTMLTreeBuilder::processStartTagForInBody(AtomicHTMLToken* token)
         || token->name() == paramTag
         || token->name() == sourceTag
         || token->name() == trackTag) {
-        m_tree.insertSelfClosingHTMLElement(token);
+        m_tree.insertSelfClosingHTMLElementDestroyingToken(token);
         return;
     }
     if (token->name() == hrTag) {
         processFakePEndTagIfPInButtonScope();
-        m_tree.insertSelfClosingHTMLElement(token);
+        m_tree.insertSelfClosingHTMLElementDestroyingToken(token);
         m_framesetOk = false;
         return;
     }
@@ -1040,7 +1046,7 @@ void HTMLTreeBuilder::processStartTagForInTable(AtomicHTMLToken* token)
         Attribute* typeAttribute = token->getAttributeItem(typeAttr);
         if (typeAttribute && equalIgnoringCase(typeAttribute->value(), "hidden")) {
             parseError(token);
-            m_tree.insertSelfClosingHTMLElement(token);
+            m_tree.insertSelfClosingHTMLElementDestroyingToken(token);
             return;
         }
         // Fall through to "anything else" case.
@@ -1169,7 +1175,7 @@ void HTMLTreeBuilder::processStartTag(AtomicHTMLToken* token)
             return;
         }
         if (token->name() == colTag) {
-            m_tree.insertSelfClosingHTMLElement(token);
+            m_tree.insertSelfClosingHTMLElementDestroyingToken(token);
             return;
         }
         if (token->name() == templateTag) {
@@ -1296,7 +1302,7 @@ void HTMLTreeBuilder::processStartTag(AtomicHTMLToken* token)
             return;
         }
         if (token->name() == frameTag) {
-            m_tree.insertSelfClosingHTMLElement(token);
+            m_tree.insertSelfClosingHTMLElementDestroyingToken(token);
             return;
         }
         if (token->name() == noframesTag) {
@@ -2575,7 +2581,7 @@ bool HTMLTreeBuilder::processStartTagForInHead(AtomicHTMLToken* token)
         || token->name() == commandTag
         || token->name() == linkTag
         || token->name() == metaTag) {
-        m_tree.insertSelfClosingHTMLElement(token);
+        m_tree.insertSelfClosingHTMLElementDestroyingToken(token);
         // Note: The custom processing for the <meta> tag is done in HTMLMetaElement::process().
         return true;
     }

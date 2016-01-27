@@ -37,6 +37,7 @@ extern const char kEventExit[];
 extern const char kEventExitFullscreen[];
 extern const char kEventFindReply[];
 extern const char kEventFrameNameChanged[];
+extern const char kEventHeadersReceived[];
 extern const char kEventLoadAbort[];
 extern const char kEventLoadCommit[];
 extern const char kEventLoadProgress[];
@@ -46,10 +47,20 @@ extern const char kEventLoadStop[];
 extern const char kEventMessage[];
 extern const char kEventNewWindow[];
 extern const char kEventPermissionRequest[];
+extern const char kEventResponseStarted[];
 extern const char kEventResponsive[];
 extern const char kEventSizeChanged[];
 extern const char kEventUnresponsive[];
 extern const char kEventZoomChange[];
+
+// WebRequest API events.
+extern const char kEventAuthRequired[];
+extern const char kEventBeforeRedirect[];
+extern const char kEventBeforeRequest[];
+extern const char kEventBeforeSendHeaders[];
+extern const char kEventCompleted[];
+extern const char kEventErrorOccurred[];
+extern const char kEventSendHeaders[];
 
 // Event related constants.
 extern const char kWebViewEventPrefix[];

@@ -15,6 +15,7 @@
 #include "remoting/protocol/authenticator.h"
 #include "remoting/protocol/channel_authenticator.h"
 #include "remoting/protocol/fake_stream_socket.h"
+#include "remoting/protocol/p2p_stream_socket.h"
 #include "testing/gtest/include/gtest/gtest.h"
 #include "third_party/webrtc/libjingle/xmllite/xmlelement.h"
 
@@ -30,7 +31,7 @@ ACTION_P(QuitThreadOnCounter, counter) {
   --(*counter);
   EXPECT_GE(*counter, 0);
   if (*counter == 0)
-    base::MessageLoop::current()->Quit();
+    base::MessageLoop::current()->QuitWhenIdle();
 }
 
 }  // namespace
@@ -141,9 +142,8 @@ void AuthenticatorTestBase::RunChannelAuth(bool expected_fail) {
   // Ensure that .Run() does not run unbounded if the callbacks are never
   // called.
   base::Timer shutdown_timer(false, false);
-  shutdown_timer.Start(FROM_HERE,
-                       TestTimeouts::action_timeout(),
-                       base::MessageLoop::QuitClosure());
+  shutdown_timer.Start(FROM_HERE, TestTimeouts::action_timeout(),
+                       base::MessageLoop::QuitWhenIdleClosure());
   message_loop_.Run();
   shutdown_timer.Stop();
 
@@ -158,14 +158,14 @@ void AuthenticatorTestBase::RunChannelAuth(bool expected_fail) {
 
 void AuthenticatorTestBase::OnHostConnected(
     int error,
-    scoped_ptr<net::StreamSocket> socket) {
+    scoped_ptr<P2PStreamSocket> socket) {
   host_callback_.OnDone(error);
   host_socket_ = socket.Pass();
 }
 
 void AuthenticatorTestBase::OnClientConnected(
     int error,
-    scoped_ptr<net::StreamSocket> socket) {
+    scoped_ptr<P2PStreamSocket> socket) {
   client_callback_.OnDone(error);
   client_socket_ = socket.Pass();
 }

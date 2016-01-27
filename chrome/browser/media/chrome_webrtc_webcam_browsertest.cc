@@ -11,6 +11,7 @@
 #include "chrome/common/chrome_switches.h"
 #include "chrome/test/base/in_process_browser_test.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/test/browser_test_utils.h"
 #include "media/base/media_switches.h"
 #include "net/test/embedded_test_server/embedded_test_server.h"
@@ -36,6 +37,8 @@ static const char* kTestConfigFlags[] = {
 // These tests runs on real webcams and ensure WebRTC can acquire webcams
 // correctly. They will do nothing if there are no webcams on the system.
 // The webcam on the system must support up to 1080p, or the test will fail.
+// This test is excellent for testing the various capture paths of WebRTC
+// on all desktop platforms.
 class WebRtcWebcamBrowserTest : public WebRtcTestBase,
     public testing::WithParamInterface<const char*> {
  public:
@@ -56,7 +59,8 @@ class WebRtcWebcamBrowserTest : public WebRtcTestBase,
   std::string GetUserMediaAndGetStreamSize(content::WebContents* tab,
                                            const std::string& constraints) {
     std::string actual_stream_size;
-    if (GetUserMediaWithSpecificConstraintsAndAccept(tab, constraints)) {
+    if (GetUserMediaWithSpecificConstraintsAndAcceptIfPrompted(tab,
+                                                               constraints)) {
       StartDetectingVideo(tab, "local-view");
       if (WaitForVideoToPlay(tab))
         actual_stream_size = GetStreamSize(tab, "local-view");
@@ -74,8 +78,10 @@ class WebRtcWebcamBrowserTest : public WebRtcTestBase,
   }
 };
 
+// This test is manual because the test results can vary heavily depending on
+// which webcam or drivers you have on the system.
 IN_PROC_BROWSER_TEST_P(WebRtcWebcamBrowserTest,
-                       TestAcquiringAndReacquiringWebcam) {
+                       MANUAL_TestAcquiringAndReacquiringWebcam) {
   ASSERT_TRUE(embedded_test_server()->InitializeAndWaitUntilReady());
   GURL url(embedded_test_server()->GetURL(kMainWebrtcTestHtmlPage));
   ui_test_utils::NavigateToURL(browser(), url);

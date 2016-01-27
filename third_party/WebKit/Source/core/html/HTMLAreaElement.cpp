@@ -92,7 +92,7 @@ bool HTMLAreaElement::pointInArea(LayoutPoint location, const LayoutSize& contai
     return m_region->contains(FloatPoint(location));
 }
 
-Path HTMLAreaElement::computePath(LayoutObject* obj) const
+Path HTMLAreaElement::computePath(const LayoutObject* obj) const
 {
     if (!obj)
         return Path();
@@ -117,7 +117,7 @@ Path HTMLAreaElement::computePath(LayoutObject* obj) const
     return p;
 }
 
-LayoutRect HTMLAreaElement::computeRect(LayoutObject* obj) const
+LayoutRect HTMLAreaElement::computeRect(const LayoutObject* obj) const
 {
     return enclosingLayoutRect(computePath(obj).boundingRect());
 }
@@ -222,16 +222,13 @@ void HTMLAreaElement::setFocus(bool shouldBeFocused)
     toLayoutImage(layoutObject)->areaElementFocusChanged(this);
 }
 
-void HTMLAreaElement::updateFocusAppearance(bool restorePreviousSelection)
+void HTMLAreaElement::updateFocusAppearance(SelectionBehaviorOnFocus selectionBehavior)
 {
     if (!isFocusable())
         return;
 
-    HTMLImageElement* imageElement = this->imageElement();
-    if (!imageElement)
-        return;
-
-    imageElement->updateFocusAppearance(restorePreviousSelection);
+    if (HTMLImageElement* imageElement = this->imageElement())
+        imageElement->updateFocusAppearance(selectionBehavior);
 }
 
 }

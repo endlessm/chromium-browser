@@ -10,6 +10,8 @@
 
 #include "webrtc/base/network.h"
 
+#include "webrtc/base/nethelpers.h"
+#include "webrtc/base/networkmonitor.h"
 #include <vector>
 #if defined(WEBRTC_POSIX)
 #include <sys/types.h>
@@ -25,6 +27,20 @@
 #endif
 
 namespace rtc {
+
+class FakeNetworkMonitor : public NetworkMonitorBase {
+ public:
+  void Start() override {}
+  void Stop() override {}
+};
+
+class FakeNetworkMonitorFactory : public NetworkMonitorFactory {
+ public:
+  FakeNetworkMonitorFactory() {}
+  NetworkMonitorInterface* CreateNetworkMonitor() {
+    return new FakeNetworkMonitor();
+  }
+};
 
 class NetworkTest : public testing::Test, public sigslot::has_slots<>  {
  public:
@@ -55,6 +71,18 @@ class NetworkTest : public testing::Test, public sigslot::has_slots<>  {
     return list;
   }
 
+  NetworkMonitorInterface* GetNetworkMonitor(
+      BasicNetworkManager& network_manager) {
+    return network_manager.network_monitor_.get();
+  }
+  void ClearNetworks(BasicNetworkManager& network_manager) {
+    for (const auto& kv : network_manager.networks_map_) {
+      delete kv.second;
+    }
+    network_manager.networks_.clear();
+    network_manager.networks_map_.clear();
+  }
+
 #if defined(WEBRTC_POSIX)
   // Separated from CreateNetworks for tests.
   static void CallConvertIfAddrs(const BasicNetworkManager& network_manager,
@@ -67,6 +95,11 @@ class NetworkTest : public testing::Test, public sigslot::has_slots<>  {
 
  protected:
   bool callback_called_;
+};
+
+class TestBasicNetworkManager : public BasicNetworkManager {
+ public:
+  using BasicNetworkManager::QueryDefaultLocalAddress;
 };
 
 // Test that the Network ctor works properly.
@@ -177,11 +210,14 @@ TEST_F(NetworkTest, DISABLED_TestCreateNetworks) {
   }
 }
 
-// Test that UpdateNetworks succeeds.
+// Test StartUpdating() and StopUpdating(). network_permission_state starts with
+// ALLOWED.
 TEST_F(NetworkTest, TestUpdateNetworks) {
   BasicNetworkManager manager;
   manager.SignalNetworksChanged.connect(
       static_cast<NetworkTest*>(this), &NetworkTest::OnNetworksChanged);
+  EXPECT_EQ(NetworkManager::ENUMERATION_ALLOWED,
+            manager.enumeration_permission());
   manager.StartUpdating();
   Thread::Current()->ProcessMessages(0);
   EXPECT_TRUE(callback_called_);
@@ -195,6 +231,8 @@ TEST_F(NetworkTest, TestUpdateNetworks) {
   manager.StopUpdating();
   EXPECT_TRUE(manager.started());
   manager.StopUpdating();
+  EXPECT_EQ(NetworkManager::ENUMERATION_ALLOWED,
+            manager.enumeration_permission());
   EXPECT_FALSE(manager.started());
   manager.StopUpdating();
   EXPECT_FALSE(manager.started());
@@ -558,7 +596,13 @@ TEST_F(NetworkTest, TestDumpNetworks) {
 }
 
 // Test that we can toggle IPv6 on and off.
-TEST_F(NetworkTest, TestIPv6Toggle) {
+// Crashes on Linux. See webrtc:4923.
+#if defined(WEBRTC_LINUX)
+#define MAYBE_TestIPv6Toggle DISABLED_TestIPv6Toggle
+#else
+#define MAYBE_TestIPv6Toggle TestIPv6Toggle
+#endif
+TEST_F(NetworkTest, MAYBE_TestIPv6Toggle) {
   BasicNetworkManager manager;
   bool ipv6_found = false;
   NetworkManager::NetworkList list;
@@ -777,6 +821,46 @@ TEST_F(NetworkTest, TestIPv6Selection) {
   ASSERT_TRUE(IPFromString(ipstr, IPV6_ADDRESS_FLAG_TEMPORARY, &ip));
   ipv6_network.AddIP(ip);
   EXPECT_EQ(ipv6_network.GetBestIP(), static_cast<IPAddress>(ip));
+}
+
+TEST_F(NetworkTest, TestNetworkMonitoring) {
+  BasicNetworkManager manager;
+  manager.SignalNetworksChanged.connect(static_cast<NetworkTest*>(this),
+                                        &NetworkTest::OnNetworksChanged);
+  FakeNetworkMonitorFactory* factory = new FakeNetworkMonitorFactory();
+  NetworkMonitorFactory::SetFactory(factory);
+  manager.StartUpdating();
+  NetworkMonitorInterface* network_monitor = GetNetworkMonitor(manager);
+  EXPECT_TRUE_WAIT(callback_called_, 1000);
+  callback_called_ = false;
+
+  // Clear the networks so that there will be network changes below.
+  ClearNetworks(manager);
+  // Network manager is started, so the callback is called when the network
+  // monitor fires the network-change event.
+  network_monitor->OnNetworksChanged();
+  EXPECT_TRUE_WAIT(callback_called_, 1000);
+
+  // Network manager is stopped; the network monitor is removed.
+  manager.StopUpdating();
+  EXPECT_TRUE(GetNetworkMonitor(manager) == nullptr);
+
+  NetworkMonitorFactory::ReleaseFactory(factory);
+}
+
+TEST_F(NetworkTest, DefaultPrivateAddress) {
+  TestBasicNetworkManager manager;
+  manager.StartUpdating();
+  std::vector<Network*> networks;
+  manager.GetNetworks(&networks);
+  for (auto& network : networks) {
+    if (network->GetBestIP().family() == AF_INET) {
+      EXPECT_TRUE(manager.QueryDefaultLocalAddress(AF_INET) != IPAddress());
+    } else if (network->GetBestIP().family() == AF_INET6) {
+      EXPECT_TRUE(manager.QueryDefaultLocalAddress(AF_INET6) != IPAddress());
+    }
+  }
+  manager.StopUpdating();
 }
 
 }  // namespace rtc

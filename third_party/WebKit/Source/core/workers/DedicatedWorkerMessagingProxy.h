@@ -12,10 +12,10 @@ namespace blink {
 
 class CORE_EXPORT DedicatedWorkerMessagingProxy final : public WorkerMessagingProxy {
     WTF_MAKE_NONCOPYABLE(DedicatedWorkerMessagingProxy);
-    WTF_MAKE_FAST_ALLOCATED(WorkerMessagingProxy);
+    USING_FAST_MALLOC(WorkerMessagingProxy);
 public:
     DedicatedWorkerMessagingProxy(InProcessWorkerBase*, PassOwnPtrWillBeRawPtr<WorkerClients>);
-    virtual ~DedicatedWorkerMessagingProxy();
+    ~DedicatedWorkerMessagingProxy() override;
 
     PassRefPtr<WorkerThread> createWorkerThread(double originTime) override;
 };

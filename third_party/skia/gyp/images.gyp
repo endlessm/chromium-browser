@@ -14,7 +14,7 @@
       'dependencies': [
         'core.gyp:*',
         'giflib.gyp:giflib',
-        'libjpeg.gyp:*',
+        'libjpeg-turbo-selector.gyp:libjpeg-turbo-selector',
         'etc1.gyp:libetc1',
         'ktx.gyp:libSkKTX',
         'libwebp.gyp:libwebp',
@@ -22,6 +22,7 @@
       ],
       'include_dirs': [
         '../include/images',
+        '../include/private',
         '../src/lazy',
         # for access to SkErrorInternals.h
         '../src/core/',
@@ -115,9 +116,6 @@
           ],
         }],
         [ 'skia_os in ["linux", "freebsd", "openbsd", "solaris"]', {
-          'export_dependent_settings': [
-            'libpng.gyp:libpng',
-          ],
           'dependencies': [
             'libpng.gyp:libpng',
           ],
@@ -127,16 +125,18 @@
           'include_dirs': [
              '../src/utils',
           ],
+          'cflags' : [
+            # SkImageDecoder_libpng includes png.h.
+            # In the version of libpng that we use on Android (1.2.46),
+            # there is a missing space between a literal and an identifier
+            # in png.h, triggering a warning in C++11.
+            '-Wno-literal-suffix',
+          ],
           'dependencies': [
-             'android_deps.gyp:png',
+            'libpng.gyp:libpng',
           ],
           'conditions': [
-            [ 'skia_android_framework == 0', {
-              'export_dependent_settings': [
-                'android_deps.gyp:png',
-                'libjpeg.gyp:*'
-              ],
-            }, {
+            [ 'skia_android_framework == 1', {
               # The android framework disables these decoders as they are of little use to
               # Java applications that can't take advantage of the compressed formats.
               'sources!': [

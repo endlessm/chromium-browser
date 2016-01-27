@@ -22,10 +22,11 @@
 #include "chrome/browser/media/webrtc_log_uploader.h"
 #include "chrome/browser/media/webrtc_rtp_dump_handler.h"
 #include "chrome/browser/profiles/profile.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/media/webrtc_logging_messages.h"
 #include "chromeos/settings/cros_settings_names.h"
+#include "components/version_info/version_info.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/browser/gpu_data_manager.h"
@@ -33,6 +34,7 @@
 #include "gpu/config/gpu_info.h"
 #include "net/base/address_family.h"
 #include "net/base/ip_address_number.h"
+#include "net/base/net_util.h"
 #include "net/url_request/url_request_context_getter.h"
 
 #if defined(OS_LINUX)
@@ -101,26 +103,6 @@ void FormatMetaDataAsLogMessage(
   }
   // Remove last '\n'.
   message->resize(message->size() - 1);
-}
-
-void FireGenericDoneCallback(
-    const WebRtcLoggingHandlerHost::GenericDoneCallback& callback,
-    bool success,
-    const std::string& error_message) {
-  DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  DCHECK(!callback.is_null());
-  content::BrowserThread::PostTask(
-      content::BrowserThread::UI,
-      FROM_HERE,
-      base::Bind(callback, success, error_message));
-}
-
-void FireAndResetGenericDoneCallback(
-    WebRtcLoggingHandlerHost::GenericDoneCallback* callback,
-    bool success,
-    const std::string& error_message) {
-  FireGenericDoneCallback(*callback, success, error_message);
-  callback->Reset();
 }
 
 }  // namespace
@@ -201,7 +183,7 @@ void WebRtcLoggingHandlerHost::StartLogging(
   DCHECK(!callback.is_null());
 
   if (logging_state_ != CLOSED) {
-    FireGenericDoneCallback(callback, false, "A log is already open");
+    FireGenericDoneCallback(callback, false, "A log is already open.");
     return;
   }
 
@@ -216,7 +198,7 @@ void WebRtcLoggingHandlerHost::StopLogging(
   DCHECK(!callback.is_null());
 
   if (logging_state_ != STARTED) {
-    FireGenericDoneCallback(callback, false, "Logging not started");
+    FireGenericDoneCallback(callback, false, "Logging not started.");
     return;
   }
 
@@ -497,7 +479,8 @@ void WebRtcLoggingHandlerHost::OnLoggingStoppedInRenderer() {
   }
   logging_started_time_ = base::Time();
   logging_state_ = STOPPED;
-  FireAndResetGenericDoneCallback(&stop_callback_, true, "");
+  FireGenericDoneCallback(stop_callback_, true, "");
+  stop_callback_.Reset();
 }
 
 void WebRtcLoggingHandlerHost::StartLoggingIfAllowed(
@@ -573,9 +556,8 @@ void WebRtcLoggingHandlerHost::LogInitialInfoOnIOThread(
   }
 
   // Chrome version
-  chrome::VersionInfo version_info;
-  LogToCircularBuffer("Chrome version: " + version_info.Version() + " " +
-                      chrome::VersionInfo::GetVersionStringModifier());
+  LogToCircularBuffer("Chrome version: " + version_info::GetVersionNumber() +
+                      " " + chrome::GetChannelString());
 
   // OS
   LogToCircularBuffer(base::SysInfo::OperatingSystemName() + " " +
@@ -615,8 +597,8 @@ void WebRtcLoggingHandlerHost::LogInitialInfoOnIOThread(
   LogToCircularBuffer(
       "Gpu: machine-model-name=" + gpu_info.machine_model_name +
       ", machine-model-version=" + gpu_info.machine_model_version +
-      ", vendor-id=" + IntToString(gpu_info.gpu.vendor_id) +
-      ", device-id=" + IntToString(gpu_info.gpu.device_id) +
+      ", vendor-id=" + base::UintToString(gpu_info.gpu.vendor_id) +
+      ", device-id=" + base::UintToString(gpu_info.gpu.device_id) +
       ", driver-vendor=" + gpu_info.driver_vendor +
       ", driver-version=" + gpu_info.driver_version);
   LogToCircularBuffer(
@@ -625,7 +607,7 @@ void WebRtcLoggingHandlerHost::LogInitialInfoOnIOThread(
       ", gl-version=" + gpu_info.gl_version);
 
   // Network interfaces
-  LogToCircularBuffer("Discovered " + IntToString(network_list.size()) +
+  LogToCircularBuffer("Discovered " + base::SizeTToString(network_list.size()) +
                       " network interfaces:");
   for (net::NetworkInterfaceList::const_iterator it = network_list.begin();
        it != network_list.end(); ++it) {
@@ -769,4 +751,48 @@ bool WebRtcLoggingHandlerHost::ReleaseRtpDumps(WebRtcLogPaths* log_paths) {
   stop_rtp_dump_callback_.Reset();
 
   return true;
+}
+
+void WebRtcLoggingHandlerHost::FireGenericDoneCallback(
+    const WebRtcLoggingHandlerHost::GenericDoneCallback& callback,
+    bool success,
+    const std::string& error_message) {
+  DCHECK_CURRENTLY_ON(BrowserThread::IO);
+  DCHECK(!callback.is_null());
+
+  if (error_message.empty()) {
+    DCHECK(success);
+    content::BrowserThread::PostTask(
+        content::BrowserThread::UI,
+        FROM_HERE,
+        base::Bind(callback, success, error_message));
+    return;
+  }
+
+  DCHECK(!success);
+
+  // Add current logging state to error message.
+  std::string error_message_with_state(error_message);
+  switch (logging_state_) {
+  case CLOSED:
+    error_message_with_state += " State=closed.";
+    break;
+  case STARTING:
+    error_message_with_state += " State=starting.";
+    break;
+  case STARTED:
+    error_message_with_state += " State=started.";
+    break;
+  case STOPPING:
+    error_message_with_state += " State=stopping.";
+    break;
+  case STOPPED:
+    error_message_with_state += " State=stopped.";
+    break;
+  }
+
+  content::BrowserThread::PostTask(
+      content::BrowserThread::UI,
+      FROM_HERE,
+      base::Bind(callback, success, error_message_with_state));
 }

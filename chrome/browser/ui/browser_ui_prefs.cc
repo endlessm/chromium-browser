@@ -12,6 +12,11 @@
 #include "chrome/common/pref_names.h"
 #include "components/pref_registry/pref_registry_syncable.h"
 #include "components/translate/core/common/translate_pref_names.h"
+#include "content/public/common/webrtc_ip_handling_policy.h"
+
+#if defined(OS_WIN)
+#include "base/win/windows_version.h"
+#endif
 
 namespace chrome {
 
@@ -77,6 +82,12 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
   registry->RegisterInt64Pref(prefs::kLastClearBrowsingDataTime, 0);
   registry->RegisterIntegerPref(prefs::kModuleConflictBubbleShown, 0);
   registry->RegisterBooleanPref(prefs::kCheckDefaultBrowser, true);
+  bool reset_check_default = false;
+#if defined(OS_WIN)
+  reset_check_default = base::win::GetVersion() >= base::win::VERSION_WIN10;
+#endif
+  registry->RegisterBooleanPref(prefs::kResetCheckDefaultBrowser,
+                                reset_check_default);
   registry->RegisterBooleanPref(prefs::kWebAppCreateOnDesktop, true);
   registry->RegisterBooleanPref(prefs::kWebAppCreateInAppsMenu, true);
   registry->RegisterBooleanPref(prefs::kWebAppCreateInQuickLaunchBar, true);
@@ -102,7 +113,11 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
       false,
       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
 #if defined(ENABLE_WEBRTC)
+  // TODO(guoweis): Remove next 2 options at M50.
   registry->RegisterBooleanPref(prefs::kWebRTCMultipleRoutesEnabled, true);
+  registry->RegisterBooleanPref(prefs::kWebRTCNonProxiedUdpEnabled, true);
+  registry->RegisterStringPref(prefs::kWebRTCIPHandlingPolicy,
+                               content::kWebRTCIPHandlingDefault);
 #endif
 
   // Dictionaries to keep track of default tasks in the file browser.

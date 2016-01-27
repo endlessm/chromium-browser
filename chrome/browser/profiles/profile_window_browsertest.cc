@@ -16,8 +16,9 @@
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_list.h"
-#include "chrome/browser/ui/toolbar/wrench_menu_model.h"
+#include "chrome/browser/ui/toolbar/app_menu_model.h"
 #include "chrome/test/base/in_process_browser_test.h"
+#include "chrome/test/base/search_test_utils.h"
 #include "chrome/test/base/ui_test_utils.h"
 #include "components/history/core/browser/history_db_task.h"
 #include "components/history/core/browser/history_service.h"
@@ -53,7 +54,9 @@ class WaitForHistoryTask : public history::HistoryDBTask {
     return true;
   }
 
-  void DoneRunOnMainThread() override { base::MessageLoop::current()->Quit(); }
+  void DoneRunOnMainThread() override {
+    base::MessageLoop::current()->QuitWhenIdle();
+  }
 
  private:
   ~WaitForHistoryTask() override {}
@@ -85,12 +88,6 @@ class ProfileWindowBrowserTest : public InProcessBrowserTest {
  public:
   ProfileWindowBrowserTest() {}
   ~ProfileWindowBrowserTest() override {}
-
-  void SetUpCommandLine(base::CommandLine* command_line) override {
-    InProcessBrowserTest::SetUpCommandLine(command_line);
-    switches::EnableNewAvatarMenuForTesting(
-        base::CommandLine::ForCurrentProcess());
-  }
 
   Browser* OpenGuestBrowser();
   void CloseBrowser(Browser* browser);
@@ -128,7 +125,7 @@ Browser* ProfileWindowBrowserTest::OpenGuestBrowser() {
   // When |browser| closes a BrowsingDataRemover will be created and executed.
   // It needs a loaded TemplateUrlService or else it hangs on to a
   // CallbackList::Subscription forever.
-  ui_test_utils::WaitForTemplateURLServiceToLoad(
+  search_test_utils::WaitForTemplateURLServiceToLoad(
       TemplateURLServiceFactory::GetForProfile(guest));
 
   return browser;
@@ -202,15 +199,15 @@ IN_PROC_BROWSER_TEST_F(ProfileWindowBrowserTest, GuestCannotSignin) {
   ASSERT_FALSE(signin_manager);
 }
 
-IN_PROC_BROWSER_TEST_F(ProfileWindowBrowserTest, GuestWrenchLacksBookmarks) {
+IN_PROC_BROWSER_TEST_F(ProfileWindowBrowserTest, GuestAppMenuLacksBookmarks) {
   EmptyAcceleratorHandler accelerator_handler;
   // Verify the normal browser has a bookmark menu.
-  WrenchMenuModel model_normal_profile(&accelerator_handler, browser());
+  AppMenuModel model_normal_profile(&accelerator_handler, browser());
   EXPECT_NE(-1, model_normal_profile.GetIndexOfCommandId(IDC_BOOKMARKS_MENU));
 
   // Guest browser has no bookmark menu.
   Browser* guest_browser = OpenGuestBrowser();
-  WrenchMenuModel model_guest_profile(&accelerator_handler, guest_browser);
+  AppMenuModel model_guest_profile(&accelerator_handler, guest_browser);
   EXPECT_EQ(-1, model_guest_profile.GetIndexOfCommandId(IDC_BOOKMARKS_MENU));
 }
 

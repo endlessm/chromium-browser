@@ -43,14 +43,12 @@
         'logging/encoding_event_subscriber.h',
         'logging/log_deserializer.cc',
         'logging/log_deserializer.h',
+        'logging/log_event_dispatcher.cc',
+        'logging/log_event_dispatcher.h',
         'logging/log_serializer.cc',
         'logging/log_serializer.h',
         'logging/logging_defines.cc',
         'logging/logging_defines.h',
-        'logging/logging_impl.cc',
-        'logging/logging_impl.h',
-        'logging/logging_raw.cc',
-        'logging/logging_raw.h',
         'logging/raw_event_subscriber.h',
         'logging/raw_event_subscriber_bundle.cc',
         'logging/raw_event_subscriber_bundle.h',
@@ -94,7 +92,8 @@
         '<(DEPTH)/media/media.gyp:media',
         '<(DEPTH)/media/media.gyp:shared_memory_support',
         '<(DEPTH)/third_party/opus/opus.gyp:opus',
-        '<(DEPTH)/third_party/libvpx/libvpx.gyp:libvpx',
+        '<(DEPTH)/third_party/libvpx_new/libvpx.gyp:libvpx_new',
+        '<(DEPTH)/third_party/libyuv/libyuv.gyp:libyuv',
         '<(DEPTH)/ui/gfx/gfx.gyp:gfx_geometry',
       ],
       'sources': [
@@ -107,8 +106,6 @@
         'net/rtp/framer.h',
         'net/rtp/receiver_stats.cc',
         'net/rtp/receiver_stats.h',
-        'net/rtp/rtp_receiver_defines.cc',
-        'net/rtp/rtp_receiver_defines.h',
         'receiver/audio_decoder.cc',
         'receiver/audio_decoder.h',
         'receiver/cast_receiver_impl.cc',
@@ -125,7 +122,7 @@
           'dependencies!': [
             '<(DEPTH)/media/media.gyp:media',
             '<(DEPTH)/third_party/opus/opus.gyp:opus',
-            '<(DEPTH)/third_party/libvpx/libvpx.gyp:libvpx',
+            '<(DEPTH)/third_party/libvpx_new/libvpx.gyp:libvpx_new',
           ],
         }], # OS=="ios"
       ], # conditions
@@ -143,7 +140,7 @@
         '<(DEPTH)/media/media.gyp:media',
         '<(DEPTH)/media/media.gyp:shared_memory_support',
         '<(DEPTH)/third_party/opus/opus.gyp:opus',
-        '<(DEPTH)/third_party/libvpx/libvpx.gyp:libvpx',
+        '<(DEPTH)/third_party/libvpx_new/libvpx.gyp:libvpx_new',
         '<(DEPTH)/ui/gfx/gfx.gyp:gfx_geometry',
       ], # dependencies
       'sources': [
@@ -178,6 +175,8 @@
         'sender/video_sender.h',
         'sender/vp8_encoder.cc',
         'sender/vp8_encoder.h',
+        'sender/vp8_quantizer_parser.h',
+        'sender/vp8_quantizer_parser.cc',
       ], # source
       'conditions': [
         # use a restricted subset of media and no software codecs on iOS
@@ -186,7 +185,7 @@
           'dependencies!': [
             '<(DEPTH)/media/media.gyp:media',
             '<(DEPTH)/third_party/opus/opus.gyp:opus',
-            '<(DEPTH)/third_party/libvpx/libvpx.gyp:libvpx',
+            '<(DEPTH)/third_party/libvpx_new/libvpx.gyp:libvpx_new',
           ],
           'sources!': [
             'sender/external_video_encoder.cc',
@@ -195,6 +194,8 @@
             'sender/video_encoder_impl.h',
             'sender/vp8_encoder.cc',
             'sender/vp8_encoder.h',
+            'sender/vp8_quantizer_parser.cc',
+	    'sender/vp8_quantizer_parser.h',
           ],
         }], # OS=="ios"
         # iOS and OS X encoders
@@ -244,6 +245,8 @@
         'net/rtcp/rtcp_utility.h',
         'net/rtp/packet_storage.cc',
         'net/rtp/packet_storage.h',
+        'net/rtp/rtp_defines.cc',
+        'net/rtp/rtp_defines.h',
         'net/rtp/rtp_packetizer.cc',
         'net/rtp/rtp_packetizer.h',
         'net/rtp/rtp_parser.cc',

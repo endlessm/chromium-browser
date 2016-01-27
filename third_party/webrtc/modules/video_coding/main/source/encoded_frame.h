@@ -15,7 +15,7 @@
 
 #include "webrtc/common_types.h"
 #include "webrtc/common_video/interface/video_image.h"
-#include "webrtc/modules/interface/module_common_types.h"
+#include "webrtc/modules/include/module_common_types.h"
 #include "webrtc/modules/video_coding/codecs/interface/video_codec_interface.h"
 #include "webrtc/modules/video_coding/main/interface/video_coding_defines.h"
 
@@ -68,7 +68,7 @@ public:
     /**
     *   Get frame type
     */
-    webrtc::FrameType FrameType() const {return ConvertFrameType(_frameType);}
+    webrtc::FrameType FrameType() const { return _frameType; }
     /**
     *   Get frame rotation
     */
@@ -94,12 +94,6 @@ public:
     const CodecSpecificInfo* CodecSpecific() const {return &_codecSpecificInfo;}
 
     const RTPFragmentationHeader* FragmentationHeader() const;
-
-    static webrtc::FrameType ConvertFrameType(VideoFrameType frameType);
-    static VideoFrameType ConvertFrameType(webrtc::FrameType frameType);
-    static void ConvertFrameTypes(
-        const std::vector<webrtc::FrameType>& frame_types,
-        std::vector<VideoFrameType>* video_frame_types);
 
 protected:
     /**

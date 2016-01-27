@@ -114,6 +114,10 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
 
   static const char* NextProtoStatusToString(const NextProtoStatus status);
 
+  // Export SSL key material to be logged to the specified file if platform
+  // uses OpenSSL. Must be called before SSLClientSockets are created.
+  static void SetSSLKeyLogFile(const std::string& ssl_keylog_file);
+
   // Returns true if |error| is OK or |load_flags| ignores certificate errors
   // and |error| is a certificate error.
   static bool IgnoreCertError(int error, int load_flags);
@@ -121,10 +125,6 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
   // ClearSessionCache clears the SSL session cache, used to resume SSL
   // sessions.
   static void ClearSessionCache();
-
-  // Get the maximum SSL version supported by the underlying library and
-  // cryptographic implementation.
-  static uint16 GetMaxSupportedSSLVersion();
 
   // Returns the ChannelIDService used by this socket, or NULL if
   // channel ids are not supported.
@@ -156,11 +156,9 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
 
   // Records histograms for channel id support during full handshakes - resumed
   // handshakes are ignored.
-  static void RecordChannelIDSupport(
-      ChannelIDService* channel_id_service,
-      bool negotiated_channel_id,
-      bool channel_id_enabled,
-      bool supports_ecc);
+  static void RecordChannelIDSupport(ChannelIDService* channel_id_service,
+                                     bool negotiated_channel_id,
+                                     bool channel_id_enabled);
 
   // Returns whether TLS channel ID is enabled.
   static bool IsChannelIDEnabled(
@@ -178,12 +176,10 @@ class NET_EXPORT SSLClientSocket : public SSLSocket {
   // inadequate TLS version.
   static bool IsTLSVersionAdequateForHTTP2(const SSLConfig& ssl_config);
 
-  // Serializes |next_protos| in the wire format for ALPN: protocols are listed
-  // in order, each prefixed by a one-byte length.  Any HTTP/2 protocols in
-  // |next_protos| are ignored if |can_advertise_http2| is false.
+  // Serialize |next_protos| in the wire format for ALPN and NPN: protocols are
+  // listed in order, each prefixed by a one-byte length.
   static std::vector<uint8_t> SerializeNextProtos(
-      const NextProtoVector& next_protos,
-      bool can_advertise_http2);
+      const NextProtoVector& next_protos);
 
  private:
   FRIEND_TEST_ALL_PREFIXES(SSLClientSocket, SerializeNextProtos);

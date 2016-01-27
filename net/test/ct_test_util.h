@@ -6,6 +6,7 @@
 #define NET_CERT_CT_TEST_UTIL_H_
 
 #include <string>
+#include <vector>
 
 #include "base/memory/ref_counted.h"
 
@@ -82,10 +83,14 @@ std::string GetSampleSTHAsJson();
 // Assembles, and returns, a sample STH in JSON format using
 // the provided parameters.
 std::string CreateSignedTreeHeadJsonString(size_t tree_size,
-                                           int64 timestamp,
+                                           int64_t timestamp,
                                            std::string sha256_root_hash,
                                            std::string tree_head_signature);
 
+// Assembles, and returns, a sample consistency proof in JSON format using
+// the provided raw nodes (i.e. the raw nodes will be base64-encoded).
+std::string CreateConsistencyProofJsonString(
+    const std::vector<std::string>& raw_nodes);
 }  // namespace ct
 
 }  // namespace net

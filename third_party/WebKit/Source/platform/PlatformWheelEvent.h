@@ -64,27 +64,7 @@ public:
         , m_granularity(ScrollByPixelWheelEvent)
         , m_hasPreciseScrollingDeltas(false)
         , m_canScroll(true)
-        , m_railsMode(RailsModeFree)
-#if OS(MACOSX)
-        , m_phase(PlatformWheelEventPhaseNone)
-        , m_momentumPhase(PlatformWheelEventPhaseNone)
-        , m_canRubberbandLeft(true)
-        , m_canRubberbandRight(true)
-#endif
-    {
-    }
-
-    PlatformWheelEvent(IntPoint position, IntPoint globalPosition, float deltaX, float deltaY, float wheelTicksX, float wheelTicksY, PlatformWheelEventGranularity granularity, bool shiftKey, bool ctrlKey, bool altKey, bool metaKey)
-        : PlatformEvent(PlatformEvent::Wheel, shiftKey, ctrlKey, altKey, metaKey, 0)
-        , m_position(position)
-        , m_globalPosition(globalPosition)
-        , m_deltaX(deltaX)
-        , m_deltaY(deltaY)
-        , m_wheelTicksX(wheelTicksX)
-        , m_wheelTicksY(wheelTicksY)
-        , m_granularity(granularity)
-        , m_hasPreciseScrollingDeltas(false)
-        , m_canScroll(true)
+        , m_resendingPluginId(-1)
         , m_railsMode(RailsModeFree)
 #if OS(MACOSX)
         , m_phase(PlatformWheelEventPhaseNone)
@@ -110,16 +90,14 @@ public:
     void setHasPreciseScrollingDeltas(bool b) { m_hasPreciseScrollingDeltas = b; }
     bool canScroll() const { return m_canScroll; }
     void setCanScroll(bool b) { m_canScroll = b; }
+    int resendingPluginId() const { return m_resendingPluginId; }
     RailsMode railsMode() const { return m_railsMode; }
 
 #if OS(MACOSX)
     PlatformWheelEventPhase phase() const { return m_phase; }
     PlatformWheelEventPhase momentumPhase() const { return m_momentumPhase; }
-    bool useLatchedEventNode() const { return m_momentumPhase == PlatformWheelEventPhaseBegan || m_momentumPhase == PlatformWheelEventPhaseChanged; }
     bool canRubberbandLeft() const { return m_canRubberbandLeft; }
     bool canRubberbandRight() const { return m_canRubberbandRight; }
-#else
-    bool useLatchedEventNode() const { return false; }
 #endif
 
 protected:
@@ -132,6 +110,7 @@ protected:
     PlatformWheelEventGranularity m_granularity;
     bool m_hasPreciseScrollingDeltas;
     bool m_canScroll;
+    int m_resendingPluginId;
     RailsMode m_railsMode;
 #if OS(MACOSX)
     PlatformWheelEventPhase m_phase;

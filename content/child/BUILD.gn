@@ -2,7 +2,6 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
-import("//build/config/crypto.gni")
 import("//build/config/features.gni")
 import("//build/config/ui.gni")
 import("//content/child/child.gni")
@@ -15,6 +14,8 @@ source_set("child") {
   sources = rebase_path(content_child_gypi_values.private_child_sources,
                         ".",
                         "//content")
+
+  configs += [ "//build/config:precompiled_headers" ]
 
   public_deps = [
     "//third_party/mojo/src/mojo/edk/system",
@@ -30,6 +31,8 @@ source_set("child") {
     "//mojo/application/public/interfaces",
     "//mojo/common",
     "//mojo/environment:chromium",
+    "//mojo/message_pump",
+    "//net",
     "//skia",
     "//third_party/icu",
     "//ui/base",
@@ -53,6 +56,10 @@ source_set("child") {
 
   if (enable_plugins) {
     deps += [ "//ppapi/proxy" ]
+
+    if (is_win || is_android || !use_aura) {
+      sources -= [ "npapi/webplugin_delegate_impl_aura.cc" ]
+    }
   } else {
     sources -= [
       "browser_font_resource_trusted.cc",
@@ -96,9 +103,7 @@ source_set("child") {
     } else if (is_android) {
       sources -= [ "npapi/webplugin_delegate_impl_android.cc" ]
     }
-    if (use_aura) {
-      sources -= [ "npapi/webplugin_delegate_impl_aura.cc" ]
-    }
+    sources -= [ "npapi/webplugin_delegate_impl_aura.cc" ]
   }
 
   configs += [
@@ -127,9 +132,5 @@ source_set("child") {
   if (use_aura && is_mac) {
     # This file is already excluded on non-Mac.
     sources -= [ "npapi/webplugin_delegate_impl_mac.mm" ]
-  }
-
-  if (is_win || !use_aura) {
-    sources -= [ "npapi/webplugin_delegate_impl_aura.cc" ]
   }
 }

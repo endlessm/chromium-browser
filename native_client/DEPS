@@ -8,10 +8,16 @@ vars = {
   # directories contain commits at each revision, you will need to select
   # revisions at latest revision up to a high watermark from each slice.
   # Document the high watermark here:
-  # chrome_rev: 314402
-  "valgrind_rev": "59886873b4b8258a8e0f098c23e1958e0d0c0a26", # from svn revision 231553
-  "tools_valgrind_rev": "b81cde70b77b0461b18ad24616bdadb98a466647", # from svn revision 275834
-  "clang_rev": "0825693c3460f23b1d78ad272999f850447ad333", # from cr commit position 313267
+  # chrome_rev: 358688
+  "build_rev": "e082ba4c3954cb582bc392862e8df9eaad977911", # from cr commit position 358684
+  "build_overrides_rev": "794be476f56f5af4aa08752cc06bfa562dda8a66", # from cr commit position 357577
+  "binutils_rev": "c485984110688e490052a3ef60218a26b71e207a", # from cr commit position 354325
+  "libcxx_static_rev": "17acece915b87b2d53da5e8cbc2028b1300783e2", # from cr commit position 356325
+  "valgrind_rev": "3a97aa8142b6e63f16789b22daafb42d202f91dc",
+  "tools_valgrind_rev": "53d44c2f4eb0405c0531e82ead0b7c3ce7ced664", # from cr commit position 358174
+  # NOTE: be sure to update clang_lib_version in SConstruct whenever
+  # updating this clang_rev (e.g., if LLVM changes from version 3.7 to 3.8).
+  "clang_rev": "66f5328417331216569e8beb244fd887f62e8997", # from cr commit position 355905
 
   # NOTE!  These five should be kept up to date with their counterparts in
   # chromium/src/DEPS.
@@ -19,11 +25,17 @@ vars = {
   # (This is not essential for Breakpad, because we do not use its code
   # in the build that goes into Chromium.  But we might as well update it too.)
   # You should now use the roll-dep script in depot_tools to do this update.
-  "gtest_rev": "be1868139ffe0ccd0e8e3b37292b84c821d9c8ad", # from svn revision 704
-  "gyp_rev": "4d7c139b1820c5fcb993868c61f170a02cda8a40", # from svn revision 2030
-  "lss_rev": "952107fa7cea0daaabead28c0e92d579bee517eb",
+  "gtest_rev": "6f8a66431cb592dad629028a50b3dd418a408c87",
+  "gyp_rev": "2c1e6cced23554ce84806e570acea637f6473afc",
   "breakpad_rev": "a4eb2e302cefff9908ec955e761fef5d813d1b00", # from svn revision 1416
-  "android_tools_rev": "f6e2370dff438125897bb3b3800de1ad7aa62c27",
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling build tools
+  # and whatever else without interference from each other.
+  'buildtools_revision': 'c2f259809d5ede3275df5ea0842f0431990c4f98',
+  # Three lines of non-changing comments so that
+  # the commit queue can handle CLs rolling lss
+  # and whatever else without interference from each other.
+  'lss_revision': '4fc942258fe5509549333b9487ec018e3c8c5b10',
 
   # Separately pinned repositories, update with roll-dep individually.
   "third_party_rev": "d4e38e5faf600b39649025e5605d6e7f94518ea7",
@@ -32,18 +44,9 @@ vars = {
   "mingw_rev": "3cc8b140b883a9fe4986d12cfd46c16a093d3527", # from svn revision 7064
   "nsis_rev": "21b6ad22daa7bfc04b9f1c1805a34622e2607a93", # from svn revision 7071
   "ragel_rev": "da42bb33f1b67c2d70b38ec1d2edf5263271b635", # from svn revision 9010
-  "validator_snapshots_rev": "e74fe4a1a1e5daa97b89b32c1a2a3a3956d9fd7e",
+  "validator_snapshots_rev": "ef053694ef9b0d98d9bed0b9bb649963084bfc81",
 
   "chromium_git": "https://chromium.googlesource.com",
-
-  # Three lines of non-changing comments so that
-  # the commit queue can handle CLs rolling build tools
-  # and whatever else without interference from each other.
-  "buildtools_revision": "93b3d0af1b30db55ee42bd2e983f7753153217db",
-  # Three lines of non-changing comments so that
-  # the commit queue can handle CLs rolling V8
-  # and whatever else without interference from each other.
-  "gn_config_revision": "11eb422004ff8a7a3fa8fdee1d3982aa5931dfe2",
 }
 
 deps = {
@@ -54,22 +57,32 @@ deps = {
     Var("chromium_git") + "/chromium/buildtools.git@" +
      Var("buildtools_revision"),
   "build":
-    Var("chromium_git") + "/native_client/gn_config.git@" +
-    Var("gn_config_revision"),
+    Var("chromium_git") + "/chromium/src/build.git@" +
+    Var("build_rev"),
+  "build_overrides":
+    Var("chromium_git") + "/chromium/src/build_overrides.git@" +
+    Var("build_overrides_rev"),
   "testing/gtest":
-    Var("chromium_git") + "/external/googletest.git@" + Var("gtest_rev"),
+    (Var("chromium_git") + "/external/github.com/google/googletest.git@" +
+     Var("gtest_rev")),
   "third_party":
     Var("chromium_git") + "/native_client/src/third_party.git@" +
     Var("third_party_rev"),
   "validator_snapshots":
     (Var("chromium_git") + "/native_client/src/validator_snapshots.git@" +
      Var("validator_snapshots_rev")),
+  "third_party/binutils":
+    Var("chromium_git") + "/chromium/src/third_party/binutils.git@" +
+    Var("binutils_rev"),
   "third_party/lcov":
     Var("chromium_git") + "/chromium/src/third_party/lcov.git@" +
     Var("lcov_rev"),
+  "third_party/libc++-static":
+    Var("chromium_git") + "/chromium/src/third_party/libc++-static.git@" +
+    Var("libcxx_static_rev"),
   "third_party/lss":
     Var("chromium_git") + "/external/linux-syscall-support/lss.git@" +
-    Var("lss_rev"),
+    Var("lss_revision"),
   "third_party/valgrind":
     Var("chromium_git") + "/chromium/deps/valgrind.git@" + Var("valgrind_rev"),
   "tools/clang":
@@ -103,13 +116,19 @@ deps_os = {
       Var("chromium_git") + "/native_client/deps/third_party/ragel.git@" +
       Var("ragel_rev"),
   },
-  "android": {
-    "third_party/android_tools":
-      Var("chromium_git") + "/android_tools.git@" + Var("android_tools_rev")
-  },
 }
 
 hooks = [
+  {
+    # Downloads the current stable linux sysroot to build/linux/ if needed.
+    # This sysroot updates at about the same rate that the chrome build deps
+    # change. This script is a no-op except for linux users who are doing
+    # official chrome builds or cross compiling.
+    'name': 'sysroot',
+    'pattern': '.',
+    'action': ['python', 'build/linux/sysroot_scripts/install-sysroot.py',
+               '--running-as-hook'],
+  },
   # Pull NaCl Toolchain binaries. This needs to be before running GYP below.
   {
     "pattern": ".",
@@ -128,9 +147,21 @@ hooks = [
   },
   {
     # Update the Windows toolchain if necessary.
-    "name": "win_toolchain",
-    "pattern": ".",
-    "action": ["python", "native_client/build/vs_toolchain.py", "update"],
+    'name': 'win_toolchain',
+    'pattern': '.',
+    'action': ['python', 'build/vs_toolchain.py', 'update'],
+  },
+  # Pull binutils for linux, enabled debug fission for faster linking /
+  # debugging when used with clang on Ubuntu Precise.
+  # https://code.google.com/p/chromium/issues/detail?id=352046
+  {
+    'name': 'binutils',
+    'pattern': 'third_party/binutils',
+    'action': [
+        'python',
+        'third_party/binutils/download.py',
+        '--ignore-if-arch=arm',
+    ],
   },
   # Update clang
   {

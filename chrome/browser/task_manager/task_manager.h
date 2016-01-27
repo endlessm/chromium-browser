@@ -5,6 +5,8 @@
 #ifndef CHROME_BROWSER_TASK_MANAGER_TASK_MANAGER_H_
 #define CHROME_BROWSER_TASK_MANAGER_TASK_MANAGER_H_
 
+#include <stdint.h>
+
 #include <map>
 #include <vector>
 
@@ -90,10 +92,14 @@ class TaskManager {
   FRIEND_TEST_ALL_PREFIXES(TaskManagerWindowControllerTest, Sort);
   FRIEND_TEST_ALL_PREFIXES(TaskManagerWindowControllerTest,
                            SelectionAdaptsToSorting);
+  FRIEND_TEST_ALL_PREFIXES(TaskManagerWindowControllerTest,
+                           EnsureNewPrimarySortColumn);
+  FRIEND_TEST_ALL_PREFIXES(TaskManagerWindowControllerTest,
+                           EnsureOneColumnVisible);
 
   // Obtain an instance via GetInstance().
   TaskManager();
-  friend struct DefaultSingletonTraits<TaskManager>;
+  friend struct base::DefaultSingletonTraits<TaskManager>;
 
   ~TaskManager();
 
@@ -292,7 +298,7 @@ class TaskManagerModel : public base::RefCountedThreadSafe<TaskManagerModel> {
   void NotifyVideoMemoryUsageStats(
       const content::GPUVideoMemoryUsageStats& video_memory_usage_stats);
 
-  void NotifyBytesRead(const net::URLRequest& request, int bytes_read);
+  void NotifyBytesRead(const net::URLRequest& request, int64_t bytes_read);
 
   void RegisterOnDataReadyCallback(const base::Closure& callback);
 
@@ -399,7 +405,7 @@ class TaskManagerModel : public base::RefCountedThreadSafe<TaskManagerModel> {
     BytesReadParam(int origin_pid,
                    int child_id,
                    int route_id,
-                   int byte_count)
+                   int64_t byte_count)
         : origin_pid(origin_pid),
           child_id(child_id),
           route_id(route_id),
@@ -413,7 +419,7 @@ class TaskManagerModel : public base::RefCountedThreadSafe<TaskManagerModel> {
     int child_id;
 
     int route_id;
-    int byte_count;
+    int64_t byte_count;
   };
 
   ~TaskManagerModel();

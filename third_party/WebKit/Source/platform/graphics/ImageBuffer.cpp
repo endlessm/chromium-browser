@@ -36,10 +36,10 @@
 #include "GrContext.h"
 #include "platform/MIMETypeRegistry.h"
 #include "platform/geometry/IntRect.h"
-#include "platform/graphics/BitmapImage.h"
 #include "platform/graphics/GraphicsContext.h"
 #include "platform/graphics/GraphicsTypes3D.h"
 #include "platform/graphics/ImageBufferClient.h"
+#include "platform/graphics/StaticBitmapImage.h"
 #include "platform/graphics/UnacceleratedImageBufferSurface.h"
 #include "platform/graphics/gpu/DrawingBuffer.h"
 #include "platform/graphics/gpu/Extensions3DUtil.h"
@@ -67,16 +67,17 @@ PassOwnPtr<ImageBuffer> ImageBuffer::create(PassOwnPtr<ImageBufferSurface> surfa
     return adoptPtr(new ImageBuffer(surface));
 }
 
-PassOwnPtr<ImageBuffer> ImageBuffer::create(const IntSize& size, OpacityMode opacityMode)
+PassOwnPtr<ImageBuffer> ImageBuffer::create(const IntSize& size, OpacityMode opacityMode, ImageInitializationMode initializationMode)
 {
-    OwnPtr<ImageBufferSurface> surface(adoptPtr(new UnacceleratedImageBufferSurface(size, opacityMode)));
+    OwnPtr<ImageBufferSurface> surface(adoptPtr(new UnacceleratedImageBufferSurface(size, opacityMode, initializationMode)));
     if (!surface->isValid())
         return nullptr;
     return adoptPtr(new ImageBuffer(surface.release()));
 }
 
 ImageBuffer::ImageBuffer(PassOwnPtr<ImageBufferSurface> surface)
-    : m_surface(surface)
+    : m_snapshotState(InitialSnapshotState)
+    , m_surface(surface)
     , m_client(0)
 {
     m_surface->setImageBuffer(this);
@@ -93,9 +94,14 @@ SkCanvas* ImageBuffer::canvas() const
     return m_surface->canvas();
 }
 
-const SkBitmap& ImageBuffer::bitmap() const
+void ImageBuffer::disableDeferral() const
 {
-    return m_surface->bitmap();
+    return m_surface->disableDeferral();
+}
+
+bool ImageBuffer::writePixels(const SkImageInfo& info, const void* pixels, size_t rowBytes, int x, int y)
+{
+    return m_surface->writePixels(info, pixels, rowBytes, x, y);
 }
 
 bool ImageBuffer::isSurfaceValid() const
@@ -131,38 +137,35 @@ void ImageBuffer::notifySurfaceInvalid()
         m_client->notifySurfaceInvalid();
 }
 
-void ImageBuffer::resetCanvas(SkCanvas* canvas)
+void ImageBuffer::resetCanvas(SkCanvas* canvas) const
 {
     if (m_client)
-        m_client->restoreCanvasMatrixClipStack();
+        m_client->restoreCanvasMatrixClipStack(canvas);
 }
 
-PassRefPtr<SkImage> ImageBuffer::newImageSnapshot() const
+PassRefPtr<SkImage> ImageBuffer::newSkImageSnapshot(AccelerationHint hint) const
 {
-    return m_surface->newImageSnapshot();
-}
+    if (m_snapshotState == InitialSnapshotState)
+        m_snapshotState = DidAcquireSnapshot;
 
-static SkBitmap deepSkBitmapCopy(const SkBitmap& bitmap)
-{
-    SkBitmap tmp;
-    if (!bitmap.deepCopyTo(&tmp))
-        bitmap.copyTo(&tmp, bitmap.colorType());
-
-    return tmp;
-}
-
-PassRefPtr<Image> ImageBuffer::copyImage(BackingStoreCopy copyBehavior, ScaleBehavior) const
-{
     if (!isSurfaceValid())
-        return BitmapImage::create(SkBitmap());
-
-    const SkBitmap& bitmap = m_surface->bitmap();
-    return BitmapImage::create(copyBehavior == CopyBackingStore ? deepSkBitmapCopy(bitmap) : bitmap);
+        return nullptr;
+    return m_surface->newImageSnapshot(hint);
 }
 
-BackingStoreCopy ImageBuffer::fastCopyImageMode()
+PassRefPtr<Image> ImageBuffer::newImageSnapshot(AccelerationHint hint) const
 {
-    return DontCopyBackingStore;
+    RefPtr<SkImage> snapshot = newSkImageSnapshot(hint);
+    if (!snapshot)
+        return nullptr;
+    return StaticBitmapImage::create(snapshot);
+}
+
+void ImageBuffer::didDraw(const FloatRect& rect) const
+{
+    if (m_snapshotState == DidAcquireSnapshot)
+        m_snapshotState = DrawnToAfterSnapshot;
+    m_surface->didDraw(rect);
 }
 
 WebLayer* ImageBuffer::platformLayer() const
@@ -172,15 +175,19 @@ WebLayer* ImageBuffer::platformLayer() const
 
 bool ImageBuffer::copyToPlatformTexture(WebGraphicsContext3D* context, Platform3DObject texture, GLenum internalFormat, GLenum destType, GLint level, bool premultiplyAlpha, bool flipY)
 {
-    if (!m_surface->isAccelerated() || !isSurfaceValid())
-        return false;
-
     if (!Extensions3DUtil::canUseCopyTextureCHROMIUM(GL_TEXTURE_2D, internalFormat, destType, level))
         return false;
 
-    RefPtr<const SkImage> textureImage = m_surface->newImageSnapshot();
+    if (!isSurfaceValid())
+        return false;
+
+    RefPtr<const SkImage> textureImage = m_surface->newImageSnapshot(PreferAcceleration);
     if (!textureImage)
         return false;
+
+    if (!m_surface->isAccelerated())
+        return false;
+
 
     ASSERT(textureImage->isTextureBacked()); // isAccelerated() check above should guarantee this
     // Get the texture ID, flushing pending operations if needed.
@@ -202,9 +209,10 @@ bool ImageBuffer::copyToPlatformTexture(WebGraphicsContext3D* context, Platform3
     sharedContext->produceTextureDirectCHROMIUM(textureId, GL_TEXTURE_2D, mailbox->name);
     sharedContext->flush();
 
-    mailbox->syncPoint = sharedContext->insertSyncPoint();
+    mailbox->validSyncToken = sharedContext->insertSyncPoint(mailbox->syncToken);
+    if (mailbox->validSyncToken)
+        context->waitSyncToken(mailbox->syncToken);
 
-    context->waitSyncPoint(mailbox->syncPoint);
     Platform3DObject sourceTexture = context->createAndConsumeTextureCHROMIUM(GL_TEXTURE_2D, mailbox->name);
 
     // The canvas is stored in a premultiplied format, so unpremultiply if necessary.
@@ -214,7 +222,10 @@ bool ImageBuffer::copyToPlatformTexture(WebGraphicsContext3D* context, Platform3
     context->deleteTexture(sourceTexture);
 
     context->flush();
-    sharedContext->waitSyncPoint(context->insertSyncPoint());
+
+    WGC3Dbyte syncToken[24];
+    if (context->insertSyncPoint(syncToken))
+        sharedContext->waitSyncToken(syncToken);
 
     // Undo grContext texture binding changes introduced in this function
     provider->grContext()->resetContext(kTextureBinding_GrGLBackendState);
@@ -254,7 +265,14 @@ void ImageBuffer::draw(GraphicsContext* context, const FloatRect& destRect, cons
 void ImageBuffer::flush()
 {
     if (m_surface->canvas()) {
-        m_surface->canvas()->flush();
+        m_surface->flush();
+    }
+}
+
+void ImageBuffer::flushGpu()
+{
+    if (m_surface->canvas()) {
+        m_surface->flushGpu();
     }
 }
 
@@ -272,24 +290,28 @@ bool ImageBuffer::getImageData(Multiply multiplied, const IntRect& rect, WTF::Ar
         return true;
     }
 
-    const bool hasStrayArea =
-        rect.x() < 0
+    ASSERT(canvas());
+    RefPtr<SkImage> snapshot = m_surface->newImageSnapshot(PreferNoAcceleration);
+    if (!snapshot)
+        return false;
+
+    const bool mayHaveStrayArea =
+        m_surface->isAccelerated() // GPU readback may fail silently
+        || rect.x() < 0
         || rect.y() < 0
         || rect.maxX() > m_surface->size().width()
         || rect.maxY() > m_surface->size().height();
     WTF::ArrayBufferContents result(
         rect.width() * rect.height(), 4,
         WTF::ArrayBufferContents::NotShared,
-        hasStrayArea
+        mayHaveStrayArea
         ? WTF::ArrayBufferContents::ZeroInitialize
         : WTF::ArrayBufferContents::DontInitialize);
 
     SkAlphaType alphaType = (multiplied == Premultiplied) ? kPremul_SkAlphaType : kUnpremul_SkAlphaType;
     SkImageInfo info = SkImageInfo::Make(rect.width(), rect.height(), kRGBA_8888_SkColorType, alphaType);
 
-    m_surface->willAccessPixels();
-    ASSERT(canvas());
-    canvas()->readPixels(info, result.data(), 4 * rect.width(), rect.x(), rect.y());
+    snapshot->readPixels(info, result.data(), 4 * rect.width(), rect.x(), rect.y());
     result.transfer(contents);
     return true;
 }
@@ -320,31 +342,25 @@ void ImageBuffer::putByteArray(Multiply multiplied, const unsigned char* source,
     const void* srcAddr = source + originY * srcBytesPerRow + originX * 4;
     SkAlphaType alphaType = (multiplied == Premultiplied) ? kPremul_SkAlphaType : kUnpremul_SkAlphaType;
     SkImageInfo info = SkImageInfo::Make(sourceRect.width(), sourceRect.height(), kRGBA_8888_SkColorType, alphaType);
-
-    m_surface->willAccessPixels();
-
-    canvas()->writePixels(info, srcAddr, srcBytesPerRow, destX, destY);
+    m_surface->writePixels(info, srcAddr, srcBytesPerRow, destX, destY);
 }
 
-template <typename T>
-static bool encodeImage(T& source, const String& mimeType, const double* quality, Vector<char>* output)
+bool ImageDataBuffer::encodeImage(const String& mimeType, const double& quality, Vector<unsigned char>* encodedImage) const
 {
-    Vector<unsigned char>* encodedImage = reinterpret_cast<Vector<unsigned char>*>(output);
-
     if (mimeType == "image/jpeg") {
         int compressionQuality = JPEGImageEncoder::DefaultCompressionQuality;
-        if (quality && *quality >= 0.0 && *quality <= 1.0)
-            compressionQuality = static_cast<int>(*quality * 100 + 0.5);
-        if (!JPEGImageEncoder::encode(source, compressionQuality, encodedImage))
+        if (quality >= 0.0 && quality <= 1.0)
+            compressionQuality = static_cast<int>(quality * 100 + 0.5);
+        if (!JPEGImageEncoder::encode(*this, compressionQuality, encodedImage))
             return false;
     } else if (mimeType == "image/webp") {
         int compressionQuality = WEBPImageEncoder::DefaultCompressionQuality;
-        if (quality && *quality >= 0.0 && *quality <= 1.0)
-            compressionQuality = static_cast<int>(*quality * 100 + 0.5);
-        if (!WEBPImageEncoder::encode(source, compressionQuality, encodedImage))
+        if (quality >= 0.0 && quality <= 1.0)
+            compressionQuality = static_cast<int>(quality * 100 + 0.5);
+        if (!WEBPImageEncoder::encode(*this, compressionQuality, encodedImage))
             return false;
     } else {
-        if (!PNGImageEncoder::encode(source, encodedImage))
+        if (!PNGImageEncoder::encode(*this, encodedImage))
             return false;
         ASSERT(mimeType == "image/png");
     }
@@ -352,26 +368,15 @@ static bool encodeImage(T& source, const String& mimeType, const double* quality
     return true;
 }
 
-String ImageBuffer::toDataURL(const String& mimeType, const double* quality) const
+String ImageDataBuffer::toDataURL(const String& mimeType, const double& quality) const
 {
     ASSERT(MIMETypeRegistry::isSupportedImageMIMETypeForEncoding(mimeType));
 
-    Vector<char> encodedImage;
-    if (!isSurfaceValid() || !encodeImage(m_surface->bitmap(), mimeType, quality, &encodedImage))
+    Vector<unsigned char> result;
+    if (!encodeImage(mimeType, quality, &result))
         return "data:,";
 
-    return "data:" + mimeType + ";base64," + base64Encode(encodedImage);
-}
-
-String ImageDataBuffer::toDataURL(const String& mimeType, const double* quality) const
-{
-    ASSERT(MIMETypeRegistry::isSupportedImageMIMETypeForEncoding(mimeType));
-
-    Vector<char> encodedImage;
-    if (!encodeImage(*this, mimeType, quality, &encodedImage))
-        return "data:,";
-
-    return "data:" + mimeType + ";base64," + base64Encode(encodedImage);
+    return "data:" + mimeType + ";base64," + base64Encode(result);
 }
 
 } // namespace blink

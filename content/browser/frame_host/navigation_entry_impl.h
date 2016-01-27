@@ -147,11 +147,12 @@ class CONTENT_EXPORT NavigationEntryImpl
       const GURL& dest_url,
       const Referrer& dest_referrer,
       const FrameNavigationEntry& frame_entry,
-      FrameMsg_Navigate_Type::Value navigation_type) const;
+      FrameMsg_Navigate_Type::Value navigation_type,
+      LoFiState lofi_state,
+      const base::TimeTicks& navigation_start) const;
   StartNavigationParams ConstructStartNavigationParams() const;
   RequestNavigationParams ConstructRequestNavigationParams(
       const FrameNavigationEntry& frame_entry,
-      base::TimeTicks navigation_start,
       bool is_same_document_history_load,
       bool has_committed_real_load,
       bool intended_as_new_entry,
@@ -179,6 +180,7 @@ class CONTENT_EXPORT NavigationEntryImpl
   // Does nothing if there is no entry already and |url| is about:blank, since
   // that does not count as a real commit.
   void AddOrUpdateFrameEntry(FrameTreeNode* frame_tree_node,
+                             const std::string& frame_unique_name,
                              int64 item_sequence_number,
                              int64 document_sequence_number,
                              SiteInstanceImpl* site_instance,
@@ -333,6 +335,14 @@ class CONTENT_EXPORT NavigationEntryImpl
       const base::TimeTicks intent_received_timestamp) {
     intent_received_timestamp_ = intent_received_timestamp;
   }
+
+  bool has_user_gesture() const {
+    return has_user_gesture_;
+  }
+
+  void set_has_user_gesture (bool has_user_gesture) {
+    has_user_gesture_ = has_user_gesture;
+  }
 #endif
 
  private:
@@ -460,6 +470,9 @@ class CONTENT_EXPORT NavigationEntryImpl
   // The time at which Chrome received the Android Intent that triggered this
   // URL load operation. Reset at commit and not persisted.
   base::TimeTicks intent_received_timestamp_;
+
+  // Whether the URL load carries a user gesture.
+  bool has_user_gesture_;
 #endif
 
   // Used to store extra data to support browser features. This member is not

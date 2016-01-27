@@ -21,10 +21,12 @@
 #define GradientAttributes_h
 
 #include "core/svg/SVGUnitTypes.h"
+#include "wtf/Allocator.h"
 
 namespace blink {
 
 struct GradientAttributes {
+    DISALLOW_NEW();
     GradientAttributes()
         : m_spreadMethod(SVGSpreadMethodPad)
         , m_gradientUnits(SVGUnitTypes::SVG_UNIT_TYPE_OBJECTBOUNDINGBOX)
@@ -85,6 +87,7 @@ private:
 };
 
 struct SameSizeAsGradientAttributes {
+    DISALLOW_NEW();
     AffineTransform a;
     Vector<Gradient::ColorStop> b;
     unsigned c : 8;

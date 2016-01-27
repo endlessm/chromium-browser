@@ -7,8 +7,8 @@
 #include "base/command_line.h"
 #include "base/sha1.h"
 #include "base/strings/string_number_conversions.h"
+#include "chrome/common/channel_info.h"
 #include "chrome/common/chrome_switches.h"
-#include "chrome/common/chrome_version_info.h"
 #include "chrome/common/crash_keys.h"
 #include "chrome/common/extensions/features/feature_channel.h"
 #include "chrome/common/url_constants.h"
@@ -24,8 +24,11 @@
 #include "chrome/renderer/extensions/sync_file_system_custom_bindings.h"
 #include "chrome/renderer/extensions/tabs_custom_bindings.h"
 #include "chrome/renderer/extensions/webstore_bindings.h"
+#include "components/version_info/version_info.h"
+#include "content/public/common/content_switches.h"
 #include "content/public/renderer/render_thread.h"
 #include "content/public/renderer/render_view.h"
+#include "extensions/common/constants.h"
 #include "extensions/common/extension.h"
 #include "extensions/common/feature_switch.h"
 #include "extensions/common/permissions/manifest_permission_set.h"
@@ -130,6 +133,8 @@ void ChromeExtensionsDispatcherDelegate::PopulateSourceMap(
   source_map->RegisterSource("automationNode", IDR_AUTOMATION_NODE_JS);
   source_map->RegisterSource("browserAction",
                              IDR_BROWSER_ACTION_CUSTOM_BINDINGS_JS);
+  source_map->RegisterSource("certificateProvider",
+                             IDR_CERTIFICATE_PROVIDER_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("declarativeContent",
                              IDR_DECLARATIVE_CONTENT_CUSTOM_BINDINGS_JS);
   source_map->RegisterSource("desktopCapture",
@@ -232,7 +237,7 @@ void ChromeExtensionsDispatcherDelegate::RequireAdditionalModules(
   // a webview or appview is created and only then set up the infrastructure.
   if (context_type == extensions::Feature::BLESSED_EXTENSION_CONTEXT &&
       is_within_platform_app &&
-      extensions::GetCurrentChannel() <= chrome::VersionInfo::CHANNEL_DEV &&
+      extensions::GetCurrentChannel() <= version_info::Channel::DEV &&
       base::CommandLine::ForCurrentProcess()->HasSwitch(
           extensions::switches::kEnableAppWindowControls)) {
     module_system->Require("windowControls");
@@ -255,6 +260,10 @@ void ChromeExtensionsDispatcherDelegate::OnActiveExtensionsUpdated(
 }
 
 void ChromeExtensionsDispatcherDelegate::SetChannel(int channel) {
-  extensions::SetCurrentChannel(
-      static_cast<chrome::VersionInfo::Channel>(channel));
+  extensions::SetCurrentChannel(static_cast<version_info::Channel>(channel));
+  if (extensions::GetCurrentChannel() == version_info::Channel::UNKNOWN) {
+    // chrome-extension: resources should be allowed to register ServiceWorkers.
+    blink::WebSecurityPolicy::registerURLSchemeAsAllowingServiceWorkers(
+        blink::WebString::fromUTF8(extensions::kExtensionScheme));
+  }
 }

@@ -16,7 +16,7 @@ class SkReadBuffer;
 class SkWriteBuffer;
 
 /**
- *  Describes how to interpret the alpha compoent of a pixel.
+ *  Describes how to interpret the alpha component of a pixel.
  */
 enum SkAlphaType {
     kUnknown_SkAlphaType,
@@ -96,8 +96,8 @@ static int SkColorTypeBytesPerPixel(SkColorType ct) {
         1,  // kIndex_8
         1,  // kGray_8
     };
-    SK_COMPILE_ASSERT(SK_ARRAY_COUNT(gSize) == (size_t)(kLastEnum_SkColorType + 1),
-                      size_mismatch_with_SkColorType_enum);
+    static_assert(SK_ARRAY_COUNT(gSize) == (size_t)(kLastEnum_SkColorType + 1),
+                  "size_mismatch_with_SkColorType_enum");
 
     SkASSERT((size_t)ct < SK_ARRAY_COUNT(gSize));
     return gSize[ct];
@@ -142,8 +142,11 @@ enum SkYUVColorSpace {
     /** SDTV standard Rec. 601 color space. Uses "studio swing" [16, 235] color
        range. See http://en.wikipedia.org/wiki/Rec._601 for details. */
     kRec601_SkYUVColorSpace,
+    /** HDTV standard Rec. 709 color space. Uses "studio swing" [16, 235] color
+       range. See http://en.wikipedia.org/wiki/Rec._709 for details. */
+    kRec709_SkYUVColorSpace,
 
-    kLastEnum_SkYUVColorSpace = kRec601_SkYUVColorSpace
+    kLastEnum_SkYUVColorSpace = kRec709_SkYUVColorSpace
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -296,17 +299,13 @@ public:
 
     SkDEBUGCODE(void validate() const;)
 
-#ifdef SK_SUPPORT_LEGACY_PUBLIC_IMAGEINFO_FIELDS
-public:
-#else
 private:
-#endif
     int                 fWidth;
     int                 fHeight;
     SkColorType         fColorType;
     SkAlphaType         fAlphaType;
+    SkColorProfileType  fProfileType;
 
-private:
     SkImageInfo(int width, int height, SkColorType ct, SkAlphaType at, SkColorProfileType pt)
         : fWidth(width)
         , fHeight(height)
@@ -314,8 +313,6 @@ private:
         , fAlphaType(at)
         , fProfileType(pt)
     {}
-
-    SkColorProfileType  fProfileType;
 };
 
 #endif

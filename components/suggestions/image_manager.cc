@@ -14,6 +14,12 @@ using leveldb_proto::ProtoDatabase;
 
 namespace {
 
+// Statistics are logged to UMA with this string as part of histogram name. They
+// can all be found under LevelDB.*.ImageManager. Changing this needs to
+// synchronize with histograms.xml, AND will also become incompatible with older
+// browsers still reporting the previous values.
+const char kDatabaseUMAClientName[] = "ImageManager";
+
 scoped_ptr<SkBitmap> DecodeImage(
     scoped_refptr<base::RefCountedMemory> encoded_data) {
   return scoped_ptr<SkBitmap>(suggestions::DecodeJPEGToSkBitmap(
@@ -37,8 +43,9 @@ ImageManager::ImageManager(
       database_ready_(false),
       weak_ptr_factory_(this) {
   image_fetcher_->SetImageFetcherDelegate(this);
-  database_->Init(database_dir, base::Bind(&ImageManager::OnDatabaseInit,
-                                           weak_ptr_factory_.GetWeakPtr()));
+  database_->Init(kDatabaseUMAClientName, database_dir,
+                  base::Bind(&ImageManager::OnDatabaseInit,
+                             weak_ptr_factory_.GetWeakPtr()));
 }
 
 ImageManager::~ImageManager() {}
@@ -55,6 +62,11 @@ void ImageManager::Initialize(const SuggestionsProfile& suggestions) {
       image_url_map_[GURL(suggestion.url())] = GURL(suggestion.thumbnail());
     }
   }
+}
+
+void ImageManager::AddImageURL(const GURL& url, const GURL& image_url) {
+  DCHECK(thread_checker_.CalledOnValidThread());
+  image_url_map_[url] = image_url;
 }
 
 void ImageManager::GetImageForURL(

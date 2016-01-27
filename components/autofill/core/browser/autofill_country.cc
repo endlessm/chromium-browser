@@ -792,7 +792,7 @@ class CountryDataMap {
 
  private:
   CountryDataMap();
-  friend struct DefaultSingletonTraits<CountryDataMap>;
+  friend struct base::DefaultSingletonTraits<CountryDataMap>;
 
   std::map<std::string, CountryData> country_data_;
 
@@ -801,7 +801,7 @@ class CountryDataMap {
 
 // static
 CountryDataMap* CountryDataMap::GetInstance() {
-  return Singleton<CountryDataMap>::get();
+  return base::Singleton<CountryDataMap>::get();
 }
 
 CountryDataMap::CountryDataMap() {
@@ -855,7 +855,7 @@ class CountryNames {
  private:
   CountryNames();
   ~CountryNames();
-  friend struct DefaultSingletonTraits<CountryNames>;
+  friend struct base::DefaultSingletonTraits<CountryNames>;
 
   // Populates |locales_to_localized_names_| with the mapping of country names
   // localized to |locale| to their corresponding country codes.
@@ -901,7 +901,7 @@ class CountryNames {
 
 // static
 CountryNames* CountryNames::GetInstance() {
-  return Singleton<CountryNames>::get();
+  return base::Singleton<CountryNames>::get();
 }
 
 CountryNames::CountryNames() {
@@ -937,10 +937,8 @@ CountryNames::~CountryNames() {
 const std::string CountryNames::GetCountryCode(const base::string16& country,
                                                const std::string& locale) {
   // First, check common country names, including 2- and 3-letter country codes.
-  std::string country_utf8 = base::UTF16ToUTF8(
-      base::StringToUpperASCII(country));
-  std::map<std::string, std::string>::const_iterator result =
-      common_names_.find(country_utf8);
+  std::string country_utf8 = base::UTF16ToUTF8(base::ToUpperASCII(country));
+  const auto result = common_names_.find(country_utf8);
   if (result != common_names_.end())
     return result->second;
 

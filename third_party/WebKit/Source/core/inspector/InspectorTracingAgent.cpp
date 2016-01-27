@@ -10,7 +10,7 @@
 
 #include "core/frame/LocalFrame.h"
 #include "core/inspector/IdentifiersFactory.h"
-#include "core/inspector/InspectorPageAgent.h"
+#include "core/inspector/InspectedFrames.h"
 #include "core/inspector/InspectorState.h"
 #include "core/inspector/InspectorTraceEvents.h"
 #include "core/inspector/InspectorWorkerAgent.h"
@@ -26,19 +26,18 @@ namespace {
 const char devtoolsMetadataEventCategory[] = TRACE_DISABLED_BY_DEFAULT("devtools.timeline");
 }
 
-InspectorTracingAgent::InspectorTracingAgent(Client* client, InspectorWorkerAgent* workerAgent, InspectorPageAgent* pageAgent)
+InspectorTracingAgent::InspectorTracingAgent(Client* client, InspectorWorkerAgent* workerAgent, InspectedFrames* inspectedFrames)
     : InspectorBaseAgent<InspectorTracingAgent, InspectorFrontend::Tracing>("Tracing")
     , m_layerTreeId(0)
     , m_client(client)
     , m_workerAgent(workerAgent)
-    , m_pageAgent(pageAgent)
+    , m_inspectedFrames(inspectedFrames)
 {
 }
 
 DEFINE_TRACE(InspectorTracingAgent)
 {
     visitor->trace(m_workerAgent);
-    visitor->trace(m_pageAgent);
     InspectorBaseAgent::trace(visitor);
 }
 
@@ -47,7 +46,7 @@ void InspectorTracingAgent::restore()
     emitMetadataEvents();
 }
 
-void InspectorTracingAgent::start(ErrorString*, const String* categoryFilter, const String*, const double*, PassRefPtrWillBeRawPtr<StartCallback> callback)
+void InspectorTracingAgent::start(ErrorString*, const String* categoryFilter, const String*, const double*, const String*, PassRefPtrWillBeRawPtr<StartCallback> callback)
 {
     ASSERT(m_state->getString(TracingAgentState::sessionId).isEmpty());
     m_state->setString(TracingAgentState::sessionId, IdentifiersFactory::createIdentifier());
@@ -70,7 +69,7 @@ String InspectorTracingAgent::sessionId()
 
 void InspectorTracingAgent::emitMetadataEvents()
 {
-    TRACE_EVENT_INSTANT1(devtoolsMetadataEventCategory, "TracingStartedInPage", TRACE_EVENT_SCOPE_THREAD, "data", InspectorTracingStartedInFrame::data(sessionId(), m_pageAgent->inspectedFrame()));
+    TRACE_EVENT_INSTANT1(devtoolsMetadataEventCategory, "TracingStartedInPage", TRACE_EVENT_SCOPE_THREAD, "data", InspectorTracingStartedInFrame::data(sessionId(), m_inspectedFrames->root()));
     if (m_layerTreeId)
         setLayerTreeId(m_layerTreeId);
     m_workerAgent->setTracingSessionId(sessionId());

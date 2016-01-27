@@ -30,15 +30,19 @@
 
 #include <string>
 
+#include "talk/app/webrtc/dtlsidentitystore.h"
+#include "talk/app/webrtc/mediacontroller.h"
 #include "talk/app/webrtc/mediastreaminterface.h"
 #include "talk/app/webrtc/peerconnectioninterface.h"
 #include "talk/session/media/channelmanager.h"
 #include "webrtc/base/scoped_ptr.h"
+#include "webrtc/base/scoped_ref_ptr.h"
 #include "webrtc/base/thread.h"
 
 namespace webrtc {
 
-class DtlsIdentityStore;
+typedef rtc::RefCountedObject<DtlsIdentityStoreImpl>
+    RefCountedDtlsIdentityStore;
 
 class PeerConnectionFactory : public PeerConnectionFactoryInterface {
  public:
@@ -46,13 +50,14 @@ class PeerConnectionFactory : public PeerConnectionFactoryInterface {
     options_ = options;
   }
 
-  virtual rtc::scoped_refptr<PeerConnectionInterface>
+  // webrtc::PeerConnectionFactoryInterface override;
+  rtc::scoped_refptr<PeerConnectionInterface>
       CreatePeerConnection(
           const PeerConnectionInterface::RTCConfiguration& configuration,
           const MediaConstraintsInterface* constraints,
           PortAllocatorFactoryInterface* allocator_factory,
-          DTLSIdentityServiceInterface* dtls_identity_service,
-          PeerConnectionObserver* observer);
+          rtc::scoped_ptr<DtlsIdentityStoreInterface> dtls_identity_store,
+          PeerConnectionObserver* observer) override;
 
   bool Initialize();
 
@@ -75,8 +80,11 @@ class PeerConnectionFactory : public PeerConnectionFactoryInterface {
                        AudioSourceInterface* audio_source) override;
 
   bool StartAecDump(rtc::PlatformFile file) override;
+  void StopAecDump() override;
+  bool StartRtcEventLog(rtc::PlatformFile file) override;
+  void StopRtcEventLog() override;
 
-  virtual cricket::ChannelManager* channel_manager();
+  virtual webrtc::MediaControllerInterface* CreateMediaController() const;
   virtual rtc::Thread* signaling_thread();
   virtual rtc::Thread* worker_thread();
   const Options& options() const { return options_; }
@@ -112,7 +120,7 @@ class PeerConnectionFactory : public PeerConnectionFactoryInterface {
   rtc::scoped_ptr<cricket::WebRtcVideoDecoderFactory>
       video_decoder_factory_;
 
-  rtc::scoped_ptr<webrtc::DtlsIdentityStore> dtls_identity_store_;
+  rtc::scoped_refptr<RefCountedDtlsIdentityStore> dtls_identity_store_;
 };
 
 }  // namespace webrtc

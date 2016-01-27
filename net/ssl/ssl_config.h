@@ -5,7 +5,8 @@
 #ifndef NET_SSL_SSL_CONFIG_H_
 #define NET_SSL_SSL_CONFIG_H_
 
-#include "base/basictypes.h"
+#include <stdint.h>
+
 #include "base/memory/ref_counted.h"
 #include "net/base/net_export.h"
 #include "net/cert/x509_certificate.h"
@@ -26,14 +27,20 @@ enum {
   SSL_PROTOCOL_VERSION_TLS1_2 = 0x0303,
 };
 
-// Default minimum protocol version.
-NET_EXPORT extern const uint16 kDefaultSSLVersionMin;
+enum TokenBindingParam {
+  TB_PARAM_RSA2048_PKCS15 = 0,
+  TB_PARAM_RSA2048_PSS = 1,
+  TB_PARAM_ECDSAP256 = 2,
+};
 
-// For maximum supported protocol version, use
-// SSLClientSocket::GetMaxSupportedSSLVersion().
+// Default minimum protocol version.
+NET_EXPORT extern const uint16_t kDefaultSSLVersionMin;
+
+// Default maximum protocol version.
+NET_EXPORT extern const uint16_t kDefaultSSLVersionMax;
 
 // Default minimum protocol version that it's acceptable to fallback to.
-NET_EXPORT extern const uint16 kDefaultSSLVersionFallbackMin;
+NET_EXPORT extern const uint16_t kDefaultSSLVersionFallbackMin;
 
 // A collection of SSL-related configuration settings.
 struct NET_EXPORT SSLConfig {
@@ -108,10 +115,25 @@ struct NET_EXPORT SSLConfig {
   // disable TLS_ECDH_ECDSA_WITH_RC4_128_SHA, specify 0xC002.
   std::vector<uint16> disabled_cipher_suites;
 
-  // Enables deprecated cipher suites. Currently, RC4 is deprecated.
-  bool enable_deprecated_cipher_suites;
+  // Enables deprecated cipher suites. These cipher suites are selected under a
+  // fallback to distinguish servers which require them from servers which
+  // merely prefer them.
+  //
+  // NOTE: because they are under a fallback, connections are still vulnerable
+  // to them as far as downgrades are concerned, so this should only be used for
+  // measurement of ciphers not to be carried long-term. It is no fix for
+  // servers with bad configurations without full removal.
+  bool deprecated_cipher_suites_enabled;
+
+  // Enables RC4 cipher suites.
+  bool rc4_enabled;
 
   bool channel_id_enabled;   // True if TLS channel ID extension is enabled.
+
+  // List of Token Binding key parameters supported by the client. If empty,
+  // Token Binding will be disabled, even if token_binding_enabled is true.
+  std::vector<TokenBindingParam> token_binding_params;
+
   bool false_start_enabled;  // True if we'll use TLS False Start.
   // True if the Certificate Transparency signed_certificate_timestamp
   // TLS extension is enabled.
@@ -153,13 +175,20 @@ struct NET_EXPORT SSLConfig {
   // NOTE: Only used by NSS.
   bool cert_io_enabled;
 
-  // The list of application level protocols supported. If set, this will
-  // enable Next Protocol Negotiation (if supported). The order of the
-  // protocols doesn't matter expect for one case: if the server supports Next
-  // Protocol Negotiation, but there is no overlap between the server's and
-  // client's protocol sets, then the first protocol in this list will be
-  // requested by the client.
-  NextProtoVector next_protos;
+  // The list of application level protocols supported with ALPN (Application
+  // Layer Protocol Negotation), in decreasing order of preference.  Protocols
+  // will be advertised in this order during TLS handshake.
+  NextProtoVector alpn_protos;
+
+  // The list of application level protocols supported with NPN (Next Protocol
+  // Negotiation).  The last item on the list is selected if there is no overlap
+  // between |npn_protos| and the protocols supported by the server, otherwise
+  // server preference is observed and the order of |npn_protos| is irrelevant.
+  // Note that due to NSS limitations, ports which use NSS will use
+  // |alpn_protos| for both ALPN and NPN. However, if |npn_protos| is empty, NPN
+  // will still be disabled.
+  // TODO(bnc): Deprecate NPN, see https://crbug.com/526713.
+  NextProtoVector npn_protos;
 
   // True if renegotiation should be allowed for the default application-level
   // protocol when the peer negotiates neither ALPN nor NPN.
@@ -169,16 +198,6 @@ struct NET_EXPORT SSLConfig {
   NextProtoVector renego_allowed_for_protos;
 
   scoped_refptr<X509Certificate> client_cert;
-
-  // Information about how to proceed with fastradio padding.
-  // |fastradio_padding_enabled| determines if the feature is enabled globally.
-  // |fastradio_padding_eligible| determines if the endpoint associated with
-  // this config should use it.
-  // |fastradio_padding_eligible| can be true when |fastradio_padding_enabled|
-  // is false: in this case, fastradio padding would not be enabled, but
-  // metrics can be collected for experiments.
-  bool fastradio_padding_enabled;
-  bool fastradio_padding_eligible;
 };
 
 }  // namespace net

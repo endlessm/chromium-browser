@@ -31,8 +31,8 @@
 #include "talk/app/webrtc/jsep.h"
 #include "talk/app/webrtc/jsepsessiondescription.h"
 #include "talk/app/webrtc/mediaconstraintsinterface.h"
-#include "talk/app/webrtc/mediastreamsignaling.h"
 #include "talk/app/webrtc/webrtcsession.h"
+#include "webrtc/base/sslidentity.h"
 
 using cricket::MediaSessionOptions;
 
@@ -43,7 +43,7 @@ static const char kFailedDueToIdentityFailed[] =
 static const char kFailedDueToSessionShutdown[] =
     " failed because the session was shut down";
 
-static const uint64 kInitSessionVersion = 2;
+static const uint64_t kInitSessionVersion = 2;
 
 static bool CompareStream(const MediaSessionOptions::Stream& stream1,
                           const MediaSessionOptions::Stream& stream2) {
@@ -68,7 +68,7 @@ static bool ValidStreams(const MediaSessionOptions::Streams& streams) {
 enum {
   MSG_CREATE_SESSIONDESCRIPTION_SUCCESS,
   MSG_CREATE_SESSIONDESCRIPTION_FAILED,
-  MSG_GENERATE_IDENTITY,
+  MSG_USE_CONSTRUCTOR_CERTIFICATE
 };
 
 struct CreateSessionDescriptionMsg : public rtc::MessageData {
@@ -97,14 +97,14 @@ void WebRtcIdentityRequestObserver::OnSuccess(
       rtc::kPemTypeRsaPrivateKey,
       reinterpret_cast<const unsigned char*>(der_private_key.data()),
       der_private_key.length());
-  rtc::SSLIdentity* identity =
-      rtc::SSLIdentity::FromPEMStrings(pem_key, pem_cert);
-  SignalIdentityReady(identity);
+  rtc::scoped_ptr<rtc::SSLIdentity> identity(
+      rtc::SSLIdentity::FromPEMStrings(pem_key, pem_cert));
+  SignalCertificateReady(rtc::RTCCertificate::Create(identity.Pass()));
 }
 
-void WebRtcIdentityRequestObserver::OnSuccessWithIdentityObj(
+void WebRtcIdentityRequestObserver::OnSuccess(
     rtc::scoped_ptr<rtc::SSLIdentity> identity) {
-  SignalIdentityReady(identity.release());
+  SignalCertificateReady(rtc::RTCCertificate::Create(identity.Pass()));
 }
 
 // static
@@ -126,62 +126,104 @@ void WebRtcSessionDescriptionFactory::CopyCandidatesFromSessionDescription(
   }
 }
 
+// Private constructor called by other constructors.
 WebRtcSessionDescriptionFactory::WebRtcSessionDescriptionFactory(
     rtc::Thread* signaling_thread,
     cricket::ChannelManager* channel_manager,
-    MediaStreamSignaling* mediastream_signaling,
-    DTLSIdentityServiceInterface* dtls_identity_service,
+    rtc::scoped_ptr<DtlsIdentityStoreInterface> dtls_identity_store,
+    const rtc::scoped_refptr<WebRtcIdentityRequestObserver>&
+        identity_request_observer,
     WebRtcSession* session,
     const std::string& session_id,
-    cricket::DataChannelType dct,
     bool dtls_enabled)
     : signaling_thread_(signaling_thread),
-      mediastream_signaling_(mediastream_signaling),
       session_desc_factory_(channel_manager, &transport_desc_factory_),
       // RFC 4566 suggested a Network Time Protocol (NTP) format timestamp
       // as the session id and session version. To simplify, it should be fine
       // to just use a random number as session id and start version from
       // |kInitSessionVersion|.
       session_version_(kInitSessionVersion),
-      identity_service_(dtls_identity_service),
+      dtls_identity_store_(dtls_identity_store.Pass()),
+      identity_request_observer_(identity_request_observer),
       session_(session),
       session_id_(session_id),
-      data_channel_type_(dct),
-      identity_request_state_(IDENTITY_NOT_NEEDED) {
-  transport_desc_factory_.set_protocol(cricket::ICEPROTO_RFC5245);
+      certificate_request_state_(CERTIFICATE_NOT_NEEDED) {
   session_desc_factory_.set_add_legacy_streams(false);
   // SRTP-SDES is disabled if DTLS is on.
   SetSdesPolicy(dtls_enabled ? cricket::SEC_DISABLED : cricket::SEC_REQUIRED);
+}
 
-  if (!dtls_enabled) {
-    return;
-  }
+WebRtcSessionDescriptionFactory::WebRtcSessionDescriptionFactory(
+    rtc::Thread* signaling_thread,
+    cricket::ChannelManager* channel_manager,
+    WebRtcSession* session,
+    const std::string& session_id)
+    : WebRtcSessionDescriptionFactory(signaling_thread,
+                                      channel_manager,
+                                      nullptr,
+                                      nullptr,
+                                      session,
+                                      session_id,
+                                      false) {
+  LOG(LS_VERBOSE) << "DTLS-SRTP disabled.";
+}
 
-  if (identity_service_.get()) {
-    identity_request_observer_ =
-      new rtc::RefCountedObject<WebRtcIdentityRequestObserver>();
+WebRtcSessionDescriptionFactory::WebRtcSessionDescriptionFactory(
+    rtc::Thread* signaling_thread,
+    cricket::ChannelManager* channel_manager,
+    rtc::scoped_ptr<DtlsIdentityStoreInterface> dtls_identity_store,
+    WebRtcSession* session,
+    const std::string& session_id)
+    : WebRtcSessionDescriptionFactory(
+          signaling_thread,
+          channel_manager,
+          dtls_identity_store.Pass(),
+          new rtc::RefCountedObject<WebRtcIdentityRequestObserver>(),
+          session,
+          session_id,
+          true) {
+  RTC_DCHECK(dtls_identity_store_);
 
-    identity_request_observer_->SignalRequestFailed.connect(
-        this, &WebRtcSessionDescriptionFactory::OnIdentityRequestFailed);
-    identity_request_observer_->SignalIdentityReady.connect(
-        this, &WebRtcSessionDescriptionFactory::SetIdentity);
+  certificate_request_state_ = CERTIFICATE_WAITING;
 
-    if (identity_service_->RequestIdentity(
-            DtlsIdentityStore::kIdentityName,
-            DtlsIdentityStore::kIdentityName,
-            identity_request_observer_)) {
-      LOG(LS_VERBOSE) << "DTLS-SRTP enabled; sent DTLS identity request.";
-      identity_request_state_ = IDENTITY_WAITING;
-    } else {
-      LOG(LS_ERROR) << "Failed to send DTLS identity request.";
-      identity_request_state_ = IDENTITY_FAILED;
-    }
-  } else {
-    identity_request_state_ = IDENTITY_WAITING;
-    // Do not generate the identity in the constructor since the caller has
-    // not got a chance to connect to SignalIdentityReady.
-    signaling_thread_->Post(this, MSG_GENERATE_IDENTITY, NULL);
-  }
+  identity_request_observer_->SignalRequestFailed.connect(
+      this, &WebRtcSessionDescriptionFactory::OnIdentityRequestFailed);
+  identity_request_observer_->SignalCertificateReady.connect(
+      this, &WebRtcSessionDescriptionFactory::SetCertificate);
+
+  rtc::KeyType key_type = rtc::KT_DEFAULT;
+  LOG(LS_VERBOSE) << "DTLS-SRTP enabled; sending DTLS identity request (key "
+                  << "type: " << key_type << ").";
+
+  // Request identity. This happens asynchronously, so the caller will have a
+  // chance to connect to SignalIdentityReady.
+  dtls_identity_store_->RequestIdentity(key_type, identity_request_observer_);
+}
+
+WebRtcSessionDescriptionFactory::WebRtcSessionDescriptionFactory(
+    rtc::Thread* signaling_thread,
+    cricket::ChannelManager* channel_manager,
+    const rtc::scoped_refptr<rtc::RTCCertificate>& certificate,
+    WebRtcSession* session,
+    const std::string& session_id)
+    : WebRtcSessionDescriptionFactory(signaling_thread,
+                                      channel_manager,
+                                      nullptr,
+                                      nullptr,
+                                      session,
+                                      session_id,
+                                      true) {
+  RTC_DCHECK(certificate);
+
+  certificate_request_state_ = CERTIFICATE_WAITING;
+
+  LOG(LS_VERBOSE) << "DTLS-SRTP enabled; has certificate parameter.";
+  // We already have a certificate but we wait to do SetIdentity; if we do
+  // it in the constructor then the caller has not had a chance to connect to
+  // SignalIdentityReady.
+  signaling_thread_->Post(
+      this, MSG_USE_CONSTRUCTOR_CERTIFICATE,
+      new rtc::ScopedRefMessageData<rtc::RTCCertificate>(certificate));
 }
 
 WebRtcSessionDescriptionFactory::~WebRtcSessionDescriptionFactory() {
@@ -194,28 +236,28 @@ WebRtcSessionDescriptionFactory::~WebRtcSessionDescriptionFactory() {
   // this, requests will linger and not know they succeeded or failed.
   rtc::MessageList list;
   signaling_thread_->Clear(this, rtc::MQID_ANY, &list);
-  for (auto& msg : list)
-    OnMessage(&msg);
-
-  transport_desc_factory_.set_identity(NULL);
+  for (auto& msg : list) {
+    if (msg.message_id != MSG_USE_CONSTRUCTOR_CERTIFICATE) {
+      OnMessage(&msg);
+    } else {
+      // Skip MSG_USE_CONSTRUCTOR_CERTIFICATE because we don't want to trigger
+      // SetIdentity-related callbacks in the destructor. This can be a problem
+      // when WebRtcSession listens to the callback but it was the WebRtcSession
+      // destructor that caused WebRtcSessionDescriptionFactory's destruction.
+      // The callback is then ignored, leaking memory allocated by OnMessage for
+      // MSG_USE_CONSTRUCTOR_CERTIFICATE.
+      delete msg.pdata;
+    }
+  }
 }
 
 void WebRtcSessionDescriptionFactory::CreateOffer(
     CreateSessionDescriptionObserver* observer,
-    const PeerConnectionInterface::RTCOfferAnswerOptions& options) {
-  cricket::MediaSessionOptions session_options;
-
+    const PeerConnectionInterface::RTCOfferAnswerOptions& options,
+    const cricket::MediaSessionOptions& session_options) {
   std::string error = "CreateOffer";
-  if (identity_request_state_ == IDENTITY_FAILED) {
+  if (certificate_request_state_ == CERTIFICATE_FAILED) {
     error += kFailedDueToIdentityFailed;
-    LOG(LS_ERROR) << error;
-    PostCreateSessionDescriptionFailed(observer, error);
-    return;
-  }
-
-  if (!mediastream_signaling_->GetOptionsForOffer(options,
-                                                  &session_options)) {
-    error += " called with invalid options.";
     LOG(LS_ERROR) << error;
     PostCreateSessionDescriptionFailed(observer, error);
     return;
@@ -228,27 +270,23 @@ void WebRtcSessionDescriptionFactory::CreateOffer(
     return;
   }
 
-  if (data_channel_type_ == cricket::DCT_SCTP &&
-      mediastream_signaling_->HasDataChannels()) {
-    session_options.data_channel_type = cricket::DCT_SCTP;
-  }
-
   CreateSessionDescriptionRequest request(
       CreateSessionDescriptionRequest::kOffer, observer, session_options);
-  if (identity_request_state_ == IDENTITY_WAITING) {
+  if (certificate_request_state_ == CERTIFICATE_WAITING) {
     create_session_description_requests_.push(request);
   } else {
-    ASSERT(identity_request_state_ == IDENTITY_SUCCEEDED ||
-           identity_request_state_ == IDENTITY_NOT_NEEDED);
+    ASSERT(certificate_request_state_ == CERTIFICATE_SUCCEEDED ||
+           certificate_request_state_ == CERTIFICATE_NOT_NEEDED);
     InternalCreateOffer(request);
   }
 }
 
 void WebRtcSessionDescriptionFactory::CreateAnswer(
     CreateSessionDescriptionObserver* observer,
-    const MediaConstraintsInterface* constraints) {
+    const MediaConstraintsInterface* constraints,
+    const cricket::MediaSessionOptions& session_options) {
   std::string error = "CreateAnswer";
-  if (identity_request_state_ == IDENTITY_FAILED) {
+  if (certificate_request_state_ == CERTIFICATE_FAILED) {
     error += kFailedDueToIdentityFailed;
     LOG(LS_ERROR) << error;
     PostCreateSessionDescriptionFailed(observer, error);
@@ -268,33 +306,20 @@ void WebRtcSessionDescriptionFactory::CreateAnswer(
     return;
   }
 
-  cricket::MediaSessionOptions options;
-  if (!mediastream_signaling_->GetOptionsForAnswer(constraints, &options)) {
-    error += " called with invalid constraints.";
-    LOG(LS_ERROR) << error;
-    PostCreateSessionDescriptionFailed(observer, error);
-    return;
-  }
-  if (!ValidStreams(options.streams)) {
+  if (!ValidStreams(session_options.streams)) {
     error += " called with invalid media streams.";
     LOG(LS_ERROR) << error;
     PostCreateSessionDescriptionFailed(observer, error);
     return;
   }
-  // RTP data channel is handled in MediaSessionOptions::AddStream. SCTP streams
-  // are not signaled in the SDP so does not go through that path and must be
-  // handled here.
-  if (data_channel_type_ == cricket::DCT_SCTP) {
-    options.data_channel_type = cricket::DCT_SCTP;
-  }
 
   CreateSessionDescriptionRequest request(
-      CreateSessionDescriptionRequest::kAnswer, observer, options);
-  if (identity_request_state_ == IDENTITY_WAITING) {
+      CreateSessionDescriptionRequest::kAnswer, observer, session_options);
+  if (certificate_request_state_ == CERTIFICATE_WAITING) {
     create_session_description_requests_.push(request);
   } else {
-    ASSERT(identity_request_state_ == IDENTITY_SUCCEEDED ||
-           identity_request_state_ == IDENTITY_NOT_NEEDED);
+    ASSERT(certificate_request_state_ == CERTIFICATE_SUCCEEDED ||
+           certificate_request_state_ == CERTIFICATE_NOT_NEEDED);
     InternalCreateAnswer(request);
   }
 }
@@ -324,9 +349,13 @@ void WebRtcSessionDescriptionFactory::OnMessage(rtc::Message* msg) {
       delete param;
       break;
     }
-    case MSG_GENERATE_IDENTITY: {
-      LOG(LS_INFO) << "Generating identity.";
-      SetIdentity(rtc::SSLIdentity::Generate(DtlsIdentityStore::kIdentityName));
+    case MSG_USE_CONSTRUCTOR_CERTIFICATE: {
+      rtc::ScopedRefMessageData<rtc::RTCCertificate>* param =
+          static_cast<rtc::ScopedRefMessageData<rtc::RTCCertificate>*>(
+              msg->pdata);
+      LOG(LS_INFO) << "Using certificate supplied to the constructor.";
+      SetCertificate(param->data());
+      delete param;
       break;
     }
     default:
@@ -337,10 +366,10 @@ void WebRtcSessionDescriptionFactory::OnMessage(rtc::Message* msg) {
 
 void WebRtcSessionDescriptionFactory::InternalCreateOffer(
     CreateSessionDescriptionRequest request) {
-  cricket::SessionDescription* desc(
-      session_desc_factory_.CreateOffer(
-          request.options,
-          static_cast<cricket::BaseSession*>(session_)->local_description()));
+  cricket::SessionDescription* desc(session_desc_factory_.CreateOffer(
+      request.options, session_->local_description()
+                           ? session_->local_description()->description()
+                           : nullptr));
   // RFC 3264
   // When issuing an offer that modifies the session,
   // the "o=" line of the new SDP MUST be identical to that in the
@@ -349,7 +378,7 @@ void WebRtcSessionDescriptionFactory::InternalCreateOffer(
 
   // Just increase the version number by one each time when a new offer
   // is created regardless if it's identical to the previous one or not.
-  // The |session_version_| is a uint64, the wrap around should not happen.
+  // The |session_version_| is a uint64_t, the wrap around should not happen.
   ASSERT(session_version_ + 1 > session_version_);
   JsepSessionDescription* offer(new JsepSessionDescription(
       JsepSessionDescription::kOffer));
@@ -384,16 +413,19 @@ void WebRtcSessionDescriptionFactory::InternalCreateAnswer(
   }
 
   cricket::SessionDescription* desc(session_desc_factory_.CreateAnswer(
-      static_cast<cricket::BaseSession*>(session_)->remote_description(),
-      request.options,
-      static_cast<cricket::BaseSession*>(session_)->local_description()));
+      session_->remote_description()
+          ? session_->remote_description()->description()
+          : nullptr,
+      request.options, session_->local_description()
+                           ? session_->local_description()->description()
+                           : nullptr));
   // RFC 3264
   // If the answer is different from the offer in any way (different IP
   // addresses, ports, etc.), the origin line MUST be different in the answer.
   // In that case, the version number in the "o=" line of the answer is
   // unrelated to the version number in the o line of the offer.
   // Get a new version number by increasing the |session_version_answer_|.
-  // The |session_version_| is a uint64, the wrap around should not happen.
+  // The |session_version_| is a uint64_t, the wrap around should not happen.
   ASSERT(session_version_ + 1 > session_version_);
   JsepSessionDescription* answer(new JsepSessionDescription(
       JsepSessionDescription::kAnswer));
@@ -447,19 +479,20 @@ void WebRtcSessionDescriptionFactory::OnIdentityRequestFailed(int error) {
   ASSERT(signaling_thread_->IsCurrent());
 
   LOG(LS_ERROR) << "Async identity request failed: error = " << error;
-  identity_request_state_ = IDENTITY_FAILED;
+  certificate_request_state_ = CERTIFICATE_FAILED;
 
   FailPendingRequests(kFailedDueToIdentityFailed);
 }
 
-void WebRtcSessionDescriptionFactory::SetIdentity(
-    rtc::SSLIdentity* identity) {
-  LOG(LS_VERBOSE) << "Setting new identity";
+void WebRtcSessionDescriptionFactory::SetCertificate(
+    const rtc::scoped_refptr<rtc::RTCCertificate>& certificate) {
+  RTC_DCHECK(certificate);
+  LOG(LS_VERBOSE) << "Setting new certificate";
 
-  identity_request_state_ = IDENTITY_SUCCEEDED;
-  SignalIdentityReady(identity);
+  certificate_request_state_ = CERTIFICATE_SUCCEEDED;
+  SignalCertificateReady(certificate);
 
-  transport_desc_factory_.set_identity(identity);
+  transport_desc_factory_.set_certificate(certificate);
   transport_desc_factory_.set_secure(cricket::SEC_ENABLED);
 
   while (!create_session_description_requests_.empty()) {

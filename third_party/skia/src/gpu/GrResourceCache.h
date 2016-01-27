@@ -20,7 +20,9 @@
 #include "SkTInternalLList.h"
 #include "SkTMultiMap.h"
 
+class GrCaps;
 class SkString;
+class SkTraceMemoryDump;
 
 /**
  * Manages the lifetime of all GrGpuResource instances.
@@ -47,7 +49,7 @@ class SkString;
  */
 class GrResourceCache {
 public:
-    GrResourceCache();
+    GrResourceCache(const GrCaps* caps);
     ~GrResourceCache();
 
     // Default maximum number of budgeted resources in the cache.
@@ -126,7 +128,9 @@ public:
     /**
      * Find a resource that matches a scratch key.
      */
-    GrGpuResource* findAndRefScratchResource(const GrScratchKey& scratchKey, uint32_t flags = 0);
+    GrGpuResource* findAndRefScratchResource(const GrScratchKey& scratchKey,
+                                             size_t resourceSize,
+                                             uint32_t flags);
     
 #ifdef SK_DEBUG
     // This is not particularly fast and only used for validation, so debug only.
@@ -175,15 +179,63 @@ public:
         fOverBudgetCB = overBudgetCB;
         fOverBudgetData = data;
     }
-    
+
     void notifyFlushOccurred();
 
-#if GR_GPU_STATS
+#if GR_CACHE_STATS
+    struct Stats {
+        int fTotal;
+        int fNumPurgeable;
+        int fNumNonPurgeable;
+
+        int fScratch;
+        int fExternal;
+        int fBorrowed;
+        int fAdopted;
+        size_t fUnbudgetedSize;
+
+        Stats() { this->reset(); }
+
+        void reset() {
+            fTotal = 0;
+            fNumPurgeable = 0;
+            fNumNonPurgeable = 0;
+            fScratch = 0;
+            fExternal = 0;
+            fBorrowed = 0;
+            fAdopted = 0;
+            fUnbudgetedSize = 0;
+        }
+
+        void update(GrGpuResource* resource) {
+            if (resource->cacheAccess().isScratch()) {
+                ++fScratch;
+            }
+            if (resource->cacheAccess().isExternal()) {
+                ++fExternal;
+            }
+            if (resource->cacheAccess().isBorrowed()) {
+                ++fBorrowed;
+            }
+            if (resource->cacheAccess().isAdopted()) {
+                ++fAdopted;
+            }
+            if (!resource->resourcePriv().isBudgeted()) {
+                fUnbudgetedSize += resource->gpuMemorySize();
+            }
+        }
+    };
+
+    void getStats(Stats*) const;
+
     void dumpStats(SkString*) const;
 #endif
 
     // This function is for unit testing and is only defined in test tools.
     void changeTimestamp(uint32_t newTimestamp);
+
+    // Enumerates all cached resources and dumps their details to traceMemoryDump.
+    void dumpMemoryStatistics(SkTraceMemoryDump* traceMemoryDump) const;
 
 private:
     ///////////////////////////////////////////////////////////////////////////
@@ -205,6 +257,10 @@ private:
     void addToNonpurgeableArray(GrGpuResource*);
     void removeFromNonpurgeableArray(GrGpuResource*);
     bool overBudget() const { return fBudgetedBytes > fMaxBytes || fBudgetedCount > fMaxCount; }
+
+    bool wouldFit(size_t bytes) {
+        return fBudgetedBytes+bytes <= fMaxBytes && fBudgetedCount+1 <= fMaxCount;    
+    }
 
     uint32_t getNextTimestamp();
 
@@ -292,6 +348,8 @@ private:
     // This resource is allowed to be in the nonpurgeable array for the sake of validate() because
     // we're in the midst of converting it to purgeable status.
     SkDEBUGCODE(GrGpuResource*          fNewlyPurgeableResourceForValidation;)
+
+    bool                                fPreferVRAMUseOverFlushes;
 };
 
 class GrResourceCache::ResourceAccess {

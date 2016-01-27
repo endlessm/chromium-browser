@@ -30,7 +30,7 @@ bool IsIconNTPEnabled() {
   if (CommandLine::ForCurrentProcess()->HasSwitch(switches::kEnableIconNtp))
     return true;
 
-  return base::StartsWithASCII(group_name, "Enabled", true);
+  return base::StartsWith(group_name, "Enabled", base::CompareCase::SENSITIVE);
 }
 
 #if defined(OS_ANDROID) || defined(OS_IOS)
@@ -48,14 +48,11 @@ FaviconDriverImpl::FaviconDriverImpl(FaviconService* favicon_service,
       history_service_(history_service),
       bookmark_model_(bookmark_model) {
   favicon_handler_.reset(new FaviconHandler(
-      favicon_service_, this, FaviconHandler::FAVICON, kEnableTouchIcon));
-  if (kEnableTouchIcon) {
-    touch_icon_handler_.reset(new FaviconHandler(favicon_service_, this,
-                                                 FaviconHandler::TOUCH, true));
-  }
-  if (IsIconNTPEnabled()) {
-    large_icon_handler_.reset(new FaviconHandler(favicon_service_, this,
-                                                 FaviconHandler::LARGE, true));
+      favicon_service_, this, kEnableTouchIcon ? FaviconHandler::LARGEST_FAVICON
+                                               : FaviconHandler::FAVICON));
+  if (kEnableTouchIcon || IsIconNTPEnabled()) {
+    touch_icon_handler_.reset(new FaviconHandler(
+        favicon_service_, this, FaviconHandler::LARGEST_TOUCH));
   }
 }
 
@@ -66,33 +63,6 @@ void FaviconDriverImpl::FetchFavicon(const GURL& url) {
   favicon_handler_->FetchFavicon(url);
   if (touch_icon_handler_.get())
     touch_icon_handler_->FetchFavicon(url);
-  if (large_icon_handler_.get())
-    large_icon_handler_->FetchFavicon(url);
-}
-
-void FaviconDriverImpl::SaveFavicon() {
-  GURL active_url = GetActiveURL();
-  if (active_url.is_empty())
-    return;
-
-  // Make sure the page is in history, otherwise adding the favicon does
-  // nothing.
-  if (!history_service_)
-    return;
-  history_service_->AddPageNoVisitForBookmark(active_url, GetActiveTitle());
-
-  if (!favicon_service_)
-    return;
-  if (!GetActiveFaviconValidity())
-    return;
-  GURL favicon_url = GetActiveFaviconURL();
-  if (favicon_url.is_empty())
-    return;
-  gfx::Image image = GetActiveFaviconImage();
-  if (image.IsEmpty())
-    return;
-  favicon_service_->SetFavicons(active_url, favicon_url, favicon_base::FAVICON,
-                                image);
 }
 
 void FaviconDriverImpl::DidDownloadFavicon(
@@ -113,19 +83,23 @@ void FaviconDriverImpl::DidDownloadFavicon(
     touch_icon_handler_->OnDidDownloadFavicon(id, image_url, bitmaps,
                                               original_bitmap_sizes);
   }
-  if (large_icon_handler_.get()) {
-    large_icon_handler_->OnDidDownloadFavicon(id, image_url, bitmaps,
-                                              original_bitmap_sizes);
-  }
 }
 
 bool FaviconDriverImpl::IsBookmarked(const GURL& url) {
   return bookmark_model_ && bookmark_model_->IsBookmarked(url);
 }
 
-void FaviconDriverImpl::OnFaviconAvailable(const gfx::Image& image,
+void FaviconDriverImpl::OnFaviconAvailable(const GURL& page_url,
                                            const GURL& icon_url,
+                                           const gfx::Image& image,
                                            bool is_active_favicon) {
+  // Check whether the active URL has changed since FetchFavicon() was called.
+  // On iOS only, the active URL can change between calls to FetchFavicon().
+  // For instance, FetchFavicon() is not synchronously called when the active
+  // URL changes as a result of CRWSessionController::goToEntry().
+  if (page_url != GetActiveURL())
+    return;
+
   if (is_active_favicon) {
     bool icon_url_changed = GetActiveFaviconURL() != icon_url;
     // No matter what happens, we need to mark the favicon as being set.
@@ -147,8 +121,6 @@ bool FaviconDriverImpl::HasPendingTasksForTest() {
     return true;
   if (touch_icon_handler_ && touch_icon_handler_->HasPendingTasksForTest())
     return true;
-  if (large_icon_handler_ && large_icon_handler_->HasPendingTasksForTest())
-    return true;
   return false;
 }
 
@@ -166,13 +138,12 @@ void FaviconDriverImpl::SetFaviconOutOfDateForPage(const GURL& url,
 }
 
 void FaviconDriverImpl::OnUpdateFaviconURL(
+    const GURL& page_url,
     const std::vector<FaviconURL>& candidates) {
   DCHECK(!candidates.empty());
-  favicon_handler_->OnUpdateFaviconURL(candidates);
+  favicon_handler_->OnUpdateFaviconURL(page_url, candidates);
   if (touch_icon_handler_.get())
-    touch_icon_handler_->OnUpdateFaviconURL(candidates);
-  if (large_icon_handler_.get())
-    large_icon_handler_->OnUpdateFaviconURL(candidates);
+    touch_icon_handler_->OnUpdateFaviconURL(page_url, candidates);
 }
 
 }  // namespace favicon

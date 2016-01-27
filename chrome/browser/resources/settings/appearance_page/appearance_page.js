@@ -2,25 +2,70 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-
-
 /**
- * 'cr-settings-appearance-page' is the settings page containing appearance
+ * 'settings-appearance-page' is the settings page containing appearance
  * settings.
  *
  * Example:
  *
  *    <iron-animated-pages>
- *      <cr-settings-appearance-page prefs="{{prefs}}">
- *      </cr-settings-appearance-page>
+ *      <settings-appearance-page prefs="{{prefs}}">
+ *      </settings-appearance-page>
  *      ... other pages ...
  *    </iron-animated-pages>
  *
  * @group Chrome Settings Elements
- * @element cr-settings-appearance-page
+ * @element settings-appearance-page
  */
 Polymer({
-  is: 'cr-settings-appearance-page',
+  is: 'settings-appearance-page',
+
+  properties: {
+    /**
+     * The current active route.
+     */
+    currentRoute: {
+      notify: true,
+      type: Object,
+    },
+
+    /**
+     * @private
+     */
+    allowResetTheme_: {
+      notify: true,
+      type: Boolean,
+      value: false,
+    },
+
+    /**
+     * List of options for the font size drop-down menu.
+     * The order of entries in this array matches the
+     * prefs.browser.clear_data.time_period.value enum.
+     * @private {!Array<!Array<{0: number, 1: string}>>}
+     */
+    fontSizeOptions_: {
+      readOnly: true,
+      type: Array,
+      value: function() {
+        return [
+          [9, loadTimeData.getString('verySmall')],
+          [12, loadTimeData.getString('small')],
+          [16, loadTimeData.getString('medium')],
+          [20, loadTimeData.getString('large')],
+          [24, loadTimeData.getString('veryLarge')],
+        ];
+      },
+    },
+  },
+
+  behaviors: [
+    I18nBehavior,
+  ],
+
+  ready: function() {
+    this.$.defaultFontSize.menuOptions = this.fontSizeOptions_;
+  },
 
   /** @override */
   attached: function() {
@@ -33,60 +78,16 @@ Polymer({
                         this.setResetThemeEnabled.bind(this));
   },
 
-  properties: {
-    /**
-     * Preferences state.
-     */
-    prefs: {
-      type: Object,
-      notify: true,
-    },
-
-    /**
-     * Route for the page.
-     */
-    route: String,
-
-    /**
-     * Whether the page is a subpage.
-     */
-    subpage: {
-      type: Boolean,
-      value: false,
-      readOnly: true,
-    },
-
-    /**
-     * ID of the page.
-     */
-    PAGE_ID: {
-      type: String,
-      value: 'appearance',
-      readOnly: true,
-    },
-
-    /**
-     * Title for the page header and navigation menu.
-     */
-    pageTitle: {
-      type: String,
-      value: function() {
-        return loadTimeData.getString('appearancePageTitle');
-      },
-    },
-
-    /**
-     * Name of the 'iron-icon' to show.
-     */
-    icon: {
-      type: String,
-      value: 'home',
-      readOnly: true,
-    },
+  /**
+   * @param {boolean} enabled Whether the theme reset is available.
+   */
+  setResetThemeEnabled: function(enabled) {
+    this.allowResetTheme_ = enabled;
   },
 
-  setResetThemeEnabled: function(enabled) {
-    this.$.resetTheme.disabled = !enabled;
+  /** @private */
+  onCustomizeFontsTap_: function() {
+    this.$.pages.setSubpageChain(['appearance-fonts']);
   },
 
   /** @private */

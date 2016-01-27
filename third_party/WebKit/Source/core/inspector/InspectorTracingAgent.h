@@ -15,7 +15,7 @@
 
 namespace blink {
 
-class InspectorPageAgent;
+class InspectedFrames;
 class InspectorWorkerAgent;
 
 class CORE_EXPORT InspectorTracingAgent final
@@ -31,9 +31,9 @@ public:
         virtual void disableTracing() { }
     };
 
-    static PassOwnPtrWillBeRawPtr<InspectorTracingAgent> create(Client* client, InspectorWorkerAgent* workerAgent, InspectorPageAgent* pageAgent)
+    static PassOwnPtrWillBeRawPtr<InspectorTracingAgent> create(Client* client, InspectorWorkerAgent* workerAgent, InspectedFrames* inspectedFrames)
     {
-        return adoptPtrWillBeNoop(new InspectorTracingAgent(client, workerAgent, pageAgent));
+        return adoptPtrWillBeNoop(new InspectorTracingAgent(client, workerAgent, inspectedFrames));
     }
 
     DECLARE_VIRTUAL_TRACE();
@@ -43,14 +43,14 @@ public:
     void disable(ErrorString*) override;
 
     // Protocol method implementations.
-    virtual void start(ErrorString*, const String* categoryFilter, const String*, const double*, PassRefPtrWillBeRawPtr<StartCallback>) override;
-    virtual void end(ErrorString*, PassRefPtrWillBeRawPtr<EndCallback>);
+    void start(ErrorString*, const String* categoryFilter, const String*, const double*, const String*, PassRefPtrWillBeRawPtr<StartCallback>) override;
+    void end(ErrorString*, PassRefPtrWillBeRawPtr<EndCallback>) override;
 
     // Methods for other agents to use.
     void setLayerTreeId(int);
 
 private:
-    InspectorTracingAgent(Client*, InspectorWorkerAgent*, InspectorPageAgent*);
+    InspectorTracingAgent(Client*, InspectorWorkerAgent*, InspectedFrames*);
 
     void emitMetadataEvents();
     void resetSessionId();
@@ -59,7 +59,7 @@ private:
     int m_layerTreeId;
     Client* m_client;
     RawPtrWillBeMember<InspectorWorkerAgent> m_workerAgent;
-    RawPtrWillBeMember<InspectorPageAgent> m_pageAgent;
+    InspectedFrames* m_inspectedFrames;
 };
 
 } // namespace blink

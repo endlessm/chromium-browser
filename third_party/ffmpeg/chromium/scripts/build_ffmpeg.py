@@ -34,7 +34,7 @@ BRANDINGS = [
 
 USAGE = """Usage: %prog TARGET_OS TARGET_ARCH [options] -- [configure_args]
 
-Valid combinations are android     [ia32|x64|arm|arm64]
+Valid combinations are android     [ia32|x64|mipsel|mips64el|arm|arm64]
                        linux       [ia32|x64|mipsel|arm|arm-neon|arm64]
                        linux-noasm [x64]
                        mac         [x64]
@@ -44,7 +44,6 @@ Platform specific build notes:
   android:
     Script can be run on a normal x64 Ubuntu box with an Android-ready Chromium
     checkout: https://code.google.com/p/chromium/wiki/AndroidBuildInstructions
-    TODO(dalecurtis, watk): Figure out if anyone is using MIPS.
 
   linux ia32/x64:
     Script can run on a normal Ubuntu box.
@@ -176,6 +175,13 @@ def SetupAndroidToolchain(target_arch):
     toolchain_level = api64_level
     toolchain_dir_prefix = sysroot_arch = 'x86_64'
     toolchain_bin_prefix = 'x86_64-linux-android'
+  elif target_arch == 'mipsel':
+    sysroot_arch = 'mips'
+    toolchain_bin_prefix = toolchain_dir_prefix = 'mipsel-linux-android'
+  elif target_arch == 'mips64el':
+    toolchain_level = api64_level
+    sysroot_arch = 'mips64'
+    toolchain_bin_prefix = toolchain_dir_prefix = 'mips64el-linux-android'
 
   sysroot = (NDK_ROOT_DIR + '/platforms/android-' + toolchain_level +
              '/arch-' + sysroot_arch)
@@ -202,9 +208,9 @@ def BuildFFmpeg(target_os, target_arch, host_os, host_arch, parallel_jobs,
 
   if target_os in (host_os, host_os + '-noasm', 'android') and not config_only:
     libraries = [
-        os.path.join('libavcodec', GetDsoName(target_os, 'avcodec', 56)),
-        os.path.join('libavformat', GetDsoName(target_os, 'avformat', 56)),
-        os.path.join('libavutil', GetDsoName(target_os, 'avutil', 54)),
+        os.path.join('libavcodec', GetDsoName(target_os, 'avcodec', 57)),
+        os.path.join('libavformat', GetDsoName(target_os, 'avformat', 57)),
+        os.path.join('libavutil', GetDsoName(target_os, 'avutil', 55)),
     ]
     PrintAndCheckCall(
         ['make', '-j%d' % parallel_jobs] + libraries, cwd=config_dir)
@@ -310,6 +316,7 @@ def main(argv):
       '--disable-vaapi',
       '--disable-vda',
       '--disable-vdpau',
+      '--disable-videotoolbox',
 
       # Common codecs.
       '--enable-decoder=vorbis',
@@ -415,23 +422,33 @@ def main(argv):
           '--extra-cflags=-march=armv8-a',
       ])
     elif target_arch == 'mipsel':
-      if target_os == 'android':
-        print('Error: MIPS support is not implemented for Android yet.',
-              file=sys.stderr)
-        return 1
-
+      if target_os != 'android':
+        configure_flags['Common'].extend([
+            '--enable-cross-compile',
+            '--cross-prefix=mipsel-cros-linux-gnu-',
+            '--target-os=linux',
+            '--extra-cflags=-EL',
+            '--extra-ldflags=-EL',
+            '--extra-ldflags=-mips32',
+        ])
+      else:
+        configure_flags['Common'].extend([
+            '--extra-cflags=-mhard-float',
+        ])
       configure_flags['Common'].extend([
-          '--enable-cross-compile',
-          '--cross-prefix=/usr/bin/mipsel-cros-linux-gnu-',
-          '--target-os=linux',
           '--arch=mips',
           '--extra-cflags=-mips32',
-          '--extra-cflags=-EL',
-          '--extra-ldflags=-mips32',
-          '--extra-ldflags=-EL',
           '--disable-mipsfpu',
           '--disable-mipsdspr1',
           '--disable-mipsdspr2',
+      ])
+    elif target_arch == 'mips64el' and target_os == "android":
+      configure_flags['Common'].extend([
+          '--arch=mips',
+          '--cpu=i6400',
+          '--extra-cflags=-mhard-float',
+          '--extra-cflags=-mips64r6',
+          '--disable-msa',
       ])
     else:
       print('Error: Unknown target arch %r for target OS %r!' % (

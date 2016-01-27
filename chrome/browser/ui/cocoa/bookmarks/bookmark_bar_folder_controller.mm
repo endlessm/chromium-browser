@@ -7,8 +7,7 @@
 #include "base/mac/bundle_locations.h"
 #include "base/strings/sys_string_conversions.h"
 #import "chrome/browser/bookmarks/bookmark_model_factory.h"
-#import "chrome/browser/bookmarks/chrome_bookmark_client.h"
-#import "chrome/browser/bookmarks/chrome_bookmark_client_factory.h"
+#import "chrome/browser/bookmarks/managed_bookmark_service_factory.h"
 #import "chrome/browser/profiles/profile.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_constants.h"
 #import "chrome/browser/ui/cocoa/bookmarks/bookmark_bar_controller.h"
@@ -21,6 +20,7 @@
 #import "chrome/browser/ui/cocoa/browser_window_controller.h"
 #include "components/bookmarks/browser/bookmark_model.h"
 #include "components/bookmarks/browser/bookmark_node_data.h"
+#import "components/bookmarks/managed/managed_bookmark_service.h"
 #include "ui/base/theme_provider.h"
 
 using bookmarks::BookmarkModel;
@@ -934,6 +934,7 @@ NSRect GetFirstButtonFrameForHeight(CGFloat height) {
       index == selectedIndex_);
   NSRect windowFrame = [[self window] frame];
   NSSize newSize = NSMakeSize(NSWidth(windowFrame), 0.0);
+  isScrolling_ = YES;
   [self adjustWindowLeft:windowFrame.origin.x
                     size:newSize
              scrollingBy:finalDelta];
@@ -1280,11 +1281,11 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
     destIndex += [[parentButton_ cell] startingChildIndex];
   }
 
-  ChromeBookmarkClient* client =
-      ChromeBookmarkClientFactory::GetForProfile(profile_);
-  if (!client->CanBeEditedByUser(destParent))
+  bookmarks::ManagedBookmarkService* managed =
+      ManagedBookmarkServiceFactory::GetForProfile(profile_);
+  if (!managed->CanBeEditedByUser(destParent))
     return NO;
-  if (!client->CanBeEditedByUser(sourceNode))
+  if (!managed->CanBeEditedByUser(sourceNode))
     copy = YES;
 
   // Prevent cycles.
@@ -1340,6 +1341,11 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 // Called from BookmarkButton.
 // Unlike bookmark_bar_controller's version, we DO default to being enabled.
 - (void)mouseEnteredButton:(id)sender event:(NSEvent*)event {
+  // Prevent unnecessary button selection change while scrolling due to the
+  // size changing that happens in -performOneScroll:.
+  if (isScrolling_)
+    return;
+
   [[NSCursor arrowCursor] set];
 
   buttonThatMouseIsIn_ = sender;
@@ -1369,6 +1375,10 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
   if (buttonThatMouseIsIn_ == sender)
     buttonThatMouseIsIn_ = nil;
     [self setSelectedButtonByIndex:-1];
+
+  // During scrolling -mouseExitedButton: stops scrolling, so update the
+  // corresponding status field to reflect is has stopped.
+  isScrolling_ = NO;
 
   // Stop any timer about opening a new hover-open folder.
 
@@ -1852,9 +1862,9 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
     destIndex += [[parentButton_ cell] startingChildIndex];
   }
 
-  ChromeBookmarkClient* client =
-      ChromeBookmarkClientFactory::GetForProfile(profile_);
-  if (!client->CanBeEditedByUser(destParent))
+  bookmarks::ManagedBookmarkService* managed =
+      ManagedBookmarkServiceFactory::GetForProfile(profile_);
+  if (!managed->CanBeEditedByUser(destParent))
     return NO;
 
   // Create and add the new bookmark nodes.
@@ -2009,6 +2019,10 @@ static BOOL ValueInRangeInclusive(CGFloat low, CGFloat value, CGFloat high) {
 
 - (BOOL)canScrollDown {
   return ![scrollDownArrowView_ isHidden];
+}
+
+- (BOOL)isScrolling {
+  return isScrolling_;
 }
 
 - (CGFloat)verticalScrollArrowHeight {

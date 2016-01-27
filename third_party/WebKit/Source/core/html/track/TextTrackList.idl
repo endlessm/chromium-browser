@@ -26,11 +26,11 @@
 // https://html.spec.whatwg.org/#texttracklist
 
 [
+    GarbageCollected,
     SetWrapperReferenceFrom=owner,
 ] interface TextTrackList : EventTarget {
     readonly attribute unsigned long length;
-    // TODO(philipj): This getter should be anonymous.
-    [Measure] getter TextTrack item(unsigned long index);
+    getter TextTrack (unsigned long index);
     TextTrack? getTrackById(DOMString id);
 
     attribute EventHandler onchange;

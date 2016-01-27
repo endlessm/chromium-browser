@@ -34,6 +34,7 @@ class SpecialStoragePolicy;
 
 namespace content {
 
+class BackgroundSyncController;
 class BlobHandle;
 class BrowserPluginGuestManager;
 class DownloadManager;
@@ -120,6 +121,9 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
   // across the next restart.
   static void SaveSessionState(BrowserContext* browser_context);
 
+  static void SetDownloadManagerForTesting(BrowserContext* browser_context,
+                                           DownloadManager* download_manager);
+
   ~BrowserContext() override;
 
   // Creates a delegate to initialize a HostZoomMap and persist its information.
@@ -186,6 +190,10 @@ class CONTENT_EXPORT BrowserContext : public base::SupportsUserData {
   // Returns the PermissionManager associated with that context if any, nullptr
   // otherwise.
   virtual PermissionManager* GetPermissionManager() = 0;
+
+  // Returns the BackgroundSyncController associated with that context if any,
+  // nullptr otherwise.
+  virtual BackgroundSyncController* GetBackgroundSyncController() = 0;
 };
 
 }  // namespace content

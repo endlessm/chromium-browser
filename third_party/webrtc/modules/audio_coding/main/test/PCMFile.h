@@ -16,7 +16,7 @@
 
 #include <string>
 
-#include "webrtc/modules/interface/module_common_types.h"
+#include "webrtc/modules/include/module_common_types.h"
 #include "webrtc/typedefs.h"
 
 namespace webrtc {
@@ -36,7 +36,7 @@ class PCMFile {
 
   int32_t Read10MsData(AudioFrame& audio_frame);
 
-  void Write10MsData(int16_t *playout_buffer, uint16_t length_smpls);
+  void Write10MsData(int16_t *playout_buffer, size_t length_smpls);
   void Write10MsData(AudioFrame& audio_frame);
 
   uint16_t PayloadLength10Ms() const;

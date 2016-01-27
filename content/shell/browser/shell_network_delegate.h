@@ -37,7 +37,6 @@ class ShellNetworkDelegate : public net::NetworkDelegateImpl {
   void OnBeforeRedirect(net::URLRequest* request,
                         const GURL& new_location) override;
   void OnResponseStarted(net::URLRequest* request) override;
-  void OnRawBytesRead(const net::URLRequest& request, int bytes_read) override;
   void OnCompleted(net::URLRequest* request, bool started) override;
   void OnURLRequestDestroyed(net::URLRequest* request) override;
   void OnPACScriptError(int line_number, const base::string16& error) override;
@@ -53,7 +52,7 @@ class ShellNetworkDelegate : public net::NetworkDelegateImpl {
                       net::CookieOptions* options) override;
   bool OnCanAccessFile(const net::URLRequest& request,
                        const base::FilePath& path) const override;
-  bool OnFirstPartyOnlyCookieExperimentEnabled() const override;
+  bool OnAreExperimentalCookieFeaturesEnabled() const override;
 
   DISALLOW_COPY_AND_ASSIGN(ShellNetworkDelegate);
 };

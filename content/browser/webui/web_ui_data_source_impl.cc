@@ -12,7 +12,7 @@
 #include "content/grit/content_resources.h"
 #include "content/public/browser/content_browser_client.h"
 #include "content/public/common/content_client.h"
-#include "third_party/mojo/src/mojo/public/js/constants.h"
+#include "mojo/public/js/constants.h"
 #include "ui/base/webui/jstemplate_builder.h"
 #include "ui/base/webui/web_ui_util.h"
 
@@ -190,16 +190,19 @@ std::string WebUIDataSourceImpl::GetSource() const {
 }
 
 std::string WebUIDataSourceImpl::GetMimeType(const std::string& path) const {
-  if (base::EndsWith(path, ".js", false))
+  if (base::EndsWith(path, ".css", base::CompareCase::INSENSITIVE_ASCII))
+    return "text/css";
+
+  if (base::EndsWith(path, ".js", base::CompareCase::INSENSITIVE_ASCII))
     return "application/javascript";
 
-  if (base::EndsWith(path, ".json", false))
+  if (base::EndsWith(path, ".json", base::CompareCase::INSENSITIVE_ASCII))
     return "application/json";
 
-  if (base::EndsWith(path, ".pdf", false))
+  if (base::EndsWith(path, ".pdf", base::CompareCase::INSENSITIVE_ASCII))
     return "application/pdf";
 
-  if (base::EndsWith(path, ".svg", false))
+  if (base::EndsWith(path, ".svg", base::CompareCase::INSENSITIVE_ASCII))
     return "image/svg+xml";
 
   return "text/html";

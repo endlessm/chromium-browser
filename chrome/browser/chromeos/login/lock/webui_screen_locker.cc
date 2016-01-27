@@ -90,6 +90,7 @@ void WebUIScreenLocker::LockScreen() {
   lock_window_ = lock_window->GetWidget();
   lock_window_->AddObserver(this);
   WebUILoginView::Init();
+  content::WebContentsObserver::Observe(webui_login_->GetWebContents());
   lock_window_->SetContentsView(this);
   lock_window_->SetBounds(bounds);
   lock_window_->Show();
@@ -217,10 +218,6 @@ OobeUI* WebUIScreenLocker::GetOobeUI() {
 // WebUIScreenLocker, LoginDisplay::Delegate:
 
 void WebUIScreenLocker::CancelPasswordChangedFlow()  {
-  NOTREACHED();
-}
-
-void WebUIScreenLocker::CreateAccount() {
   NOTREACHED();
 }
 

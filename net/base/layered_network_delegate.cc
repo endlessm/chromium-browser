@@ -138,15 +138,24 @@ void LayeredNetworkDelegate::OnResponseStarted(URLRequest* request) {
 void LayeredNetworkDelegate::OnResponseStartedInternal(URLRequest* request) {
 }
 
-void LayeredNetworkDelegate::OnRawBytesRead(const URLRequest& request,
-                                            int bytes_read) {
-  OnRawBytesReadInternal(request, bytes_read);
-  nested_network_delegate_->NotifyRawBytesRead(request, bytes_read);
+void LayeredNetworkDelegate::OnNetworkBytesReceived(URLRequest* request,
+                                                    int64_t bytes_received) {
+  OnNetworkBytesReceivedInternal(request, bytes_received);
+  nested_network_delegate_->NotifyNetworkBytesReceived(request, bytes_received);
 }
 
-void LayeredNetworkDelegate::OnRawBytesReadInternal(const URLRequest& request,
-                                                    int bytes_read) {
+void LayeredNetworkDelegate::OnNetworkBytesReceivedInternal(
+    URLRequest* request,
+    int64_t bytes_received) {}
+
+void LayeredNetworkDelegate::OnNetworkBytesSent(URLRequest* request,
+                                                int64_t bytes_sent) {
+  OnNetworkBytesSentInternal(request, bytes_sent);
+  nested_network_delegate_->NotifyNetworkBytesSent(request, bytes_sent);
 }
+
+void LayeredNetworkDelegate::OnNetworkBytesSentInternal(URLRequest* request,
+                                                        int64_t bytes_sent) {}
 
 void LayeredNetworkDelegate::OnCompleted(URLRequest* request, bool started) {
   OnCompletedInternal(request, started);
@@ -164,6 +173,12 @@ void LayeredNetworkDelegate::OnURLRequestDestroyed(URLRequest* request) {
 
 void LayeredNetworkDelegate::OnURLRequestDestroyedInternal(
     URLRequest* request) {
+}
+
+void LayeredNetworkDelegate::OnURLRequestJobOrphaned(URLRequest* request) {
+  // This hook is only added to debug https://crbug.com/289715, so there is no
+  // need for a OnURLRequestJobOrphanedInternal hook.
+  nested_network_delegate_->NotifyURLRequestJobOrphaned(request);
 }
 
 void LayeredNetworkDelegate::OnPACScriptError(int line_number,
@@ -242,14 +257,13 @@ void LayeredNetworkDelegate::OnCanEnablePrivacyModeInternal(
     const GURL& first_party_for_cookies) const {
 }
 
-bool LayeredNetworkDelegate::OnFirstPartyOnlyCookieExperimentEnabled() const {
-  OnFirstPartyOnlyCookieExperimentEnabledInternal();
-  return nested_network_delegate_->FirstPartyOnlyCookieExperimentEnabled();
+bool LayeredNetworkDelegate::OnAreExperimentalCookieFeaturesEnabled() const {
+  OnAreExperimentalCookieFeaturesEnabledInternal();
+  return nested_network_delegate_->AreExperimentalCookieFeaturesEnabled();
 }
 
-void LayeredNetworkDelegate::OnFirstPartyOnlyCookieExperimentEnabledInternal()
-    const {
-}
+void LayeredNetworkDelegate::OnAreExperimentalCookieFeaturesEnabledInternal()
+    const {}
 
 bool LayeredNetworkDelegate::
     OnCancelURLRequestWithPolicyViolatingReferrerHeader(

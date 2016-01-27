@@ -44,8 +44,9 @@ void DocumentWebContentsDelegate::CloseContents(content::WebContents* source) {
 
 bool DocumentWebContentsDelegate::ShouldCreateWebContents(
     content::WebContents* web_contents,
-    int route_id,
-    int main_frame_route_id,
+    int32_t route_id,
+    int32_t main_frame_route_id,
+    int32_t main_frame_widget_route_id,
     WindowContainerType window_container_type,
     const std::string& frame_name,
     const GURL& target_url,
@@ -55,7 +56,6 @@ bool DocumentWebContentsDelegate::ShouldCreateWebContents(
   return false;
 }
 
-
-static jlong Initialize(JNIEnv* env, jobject obj) {
+static jlong Initialize(JNIEnv* env, const JavaParamRef<jobject>& obj) {
   return reinterpret_cast<intptr_t>(new DocumentWebContentsDelegate(env, obj));
 }

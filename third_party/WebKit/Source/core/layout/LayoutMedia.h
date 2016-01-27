@@ -35,7 +35,7 @@ class HTMLMediaElement;
 class LayoutMedia : public LayoutImage {
 public:
     explicit LayoutMedia(HTMLMediaElement*);
-    virtual ~LayoutMedia();
+    ~LayoutMedia() override;
 
     LayoutObject* firstChild() const { ASSERT(children() == virtualChildren()); return children()->firstChild(); }
     LayoutObject* lastChild() const { ASSERT(children() == virtualChildren()); return children()->lastChild(); }
@@ -49,26 +49,39 @@ public:
 
     HTMLMediaElement* mediaElement() const;
 
-    virtual const char* name() const override { return "LayoutMedia"; }
+    const char* name() const override { return "LayoutMedia"; }
+
+    // Temporary callback for crbug.com/587345,402044
+    void notifyPositionMayHaveChanged(const IntRect&);
+
+    // Change whether we want or don't want to receive position change
+    // notifications.  This will cause us to start / stop receiving change
+    // notifications if possible.
+    // Temporary method for crbug.com/587345,402044
+    void setRequestPositionUpdates(bool);
 
 protected:
-    virtual void layout() override;
+    // Temporary overrides for crbug.com/587345,402044
+    void willBeDestroyed() override;
+    void insertedIntoTree() override;
 
-    virtual bool isOfType(LayoutObjectType type) const override { return type == LayoutObjectMedia || LayoutImage::isOfType(type); }
+    void layout() override;
+
+    bool isOfType(LayoutObjectType type) const override { return type == LayoutObjectMedia || LayoutImage::isOfType(type); }
 
 private:
-    virtual LayoutObjectChildList* virtualChildren() override final { return children(); }
-    virtual const LayoutObjectChildList* virtualChildren() const override final { return children(); }
+    LayoutObjectChildList* virtualChildren() final { return children(); }
+    const LayoutObjectChildList* virtualChildren() const final { return children(); }
 
-    virtual DeprecatedPaintLayerType layerTypeRequired() const override { return NormalDeprecatedPaintLayer; }
+    PaintLayerType layerTypeRequired() const override { return NormalPaintLayer; }
 
-    virtual bool canHaveChildren() const override final { return true; }
-    virtual bool isChildAllowed(LayoutObject*, const ComputedStyle&) const override final;
+    bool canHaveChildren() const final { return true; }
+    bool isChildAllowed(LayoutObject*, const ComputedStyle&) const final;
 
-    virtual bool isImage() const override final { return false; }
-    virtual void paintReplaced(const PaintInfo&, const LayoutPoint&) override;
+    bool isImage() const final { return false; }
+    void paintReplaced(const PaintInfo&, const LayoutPoint&) const override;
 
-    virtual bool backgroundShouldAlwaysBeClipped() const override final { return false; }
+    bool backgroundShouldAlwaysBeClipped() const final { return false; }
 
     LayoutObjectChildList m_children;
 };

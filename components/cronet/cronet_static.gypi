@@ -4,12 +4,11 @@
 
 {
   # This target is included into both 'cronet_static' and 'cronet_static_small'.
-  'type': 'static_library',
   'dependencies': [
     '../base/base.gyp:base',
     '../base/third_party/dynamic_annotations/dynamic_annotations.gyp:dynamic_annotations',
     'cronet_jni_headers',
-    'cronet_url_request_context_config_list',
+    'cronet_engine_builder_list',
     'cronet_url_request_java',
     'cronet_version',
     'cronet_version_header',
@@ -22,8 +21,6 @@
     'android/chromium_url_request_context.h',
     'android/chromium_url_request_error_list.h',
     'android/chromium_url_request_priority_list.h',
-    'android/cronet_histogram_manager.cc',
-    'android/cronet_histogram_manager.h',
     'android/cronet_in_memory_pref_store.cc',
     'android/cronet_in_memory_pref_store.h',
     'android/cronet_library_loader.cc',
@@ -77,7 +74,7 @@
           'android/cronet_data_reduction_proxy.cc',
           'android/cronet_data_reduction_proxy.h',
         ],
-       }
-     ],
+      }
+    ],
   ],
 }

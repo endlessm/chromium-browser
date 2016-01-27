@@ -35,13 +35,13 @@
 #include "core/dom/Text.h"
 #include "core/dom/shadow/ShadowRoot.h"
 #include "core/editing/FrameSelection.h"
-#include "core/editing/SpellChecker.h"
 #include "core/editing/iterators/TextIterator.h"
+#include "core/editing/spellcheck/SpellChecker.h"
 #include "core/events/BeforeTextInsertedEvent.h"
 #include "core/events/Event.h"
 #include "core/frame/FrameHost.h"
 #include "core/frame/LocalFrame.h"
-#include "core/html/FormDataList.h"
+#include "core/html/FormData.h"
 #include "core/html/forms/FormController.h"
 #include "core/html/parser/HTMLParserIdioms.h"
 #include "core/html/shadow/ShadowElementNames.h"
@@ -84,6 +84,7 @@ HTMLTextAreaElement::HTMLTextAreaElement(Document& document, HTMLFormElement* fo
     , m_wrap(SoftWrap)
     , m_isDirty(false)
     , m_valueIsUpToDate(true)
+    , m_isPlaceholderVisible(false)
 {
 }
 
@@ -204,20 +205,19 @@ LayoutObject* HTMLTextAreaElement::createLayoutObject(const ComputedStyle&)
     return new LayoutTextControlMultiLine(this);
 }
 
-bool HTMLTextAreaElement::appendFormData(FormDataList& encoding, bool)
+void HTMLTextAreaElement::appendToFormData(FormData& formData)
 {
     if (name().isEmpty())
-        return false;
+        return;
 
     document().updateLayout();
 
     const String& text = (m_wrap == HardWrap) ? valueWithHardLineBreaks() : value();
-    encoding.appendData(name(), text);
+    formData.append(name(), text);
 
     const AtomicString& dirnameAttrValue = fastGetAttribute(dirnameAttr);
     if (!dirnameAttrValue.isNull())
-        encoding.appendData(dirnameAttrValue, directionForFormData());
-    return true;
+        formData.append(dirnameAttrValue, directionForFormData());
 }
 
 void HTMLTextAreaElement::resetImpl()
@@ -241,13 +241,21 @@ bool HTMLTextAreaElement::shouldShowFocusRingOnMouseFocus() const
     return true;
 }
 
-void HTMLTextAreaElement::updateFocusAppearance(bool restorePreviousSelection)
+void HTMLTextAreaElement::updateFocusAppearance(SelectionBehaviorOnFocus selectionBehavior)
 {
-    if (!restorePreviousSelection)
+    switch (selectionBehavior) {
+    case SelectionBehaviorOnFocus::Reset:
         setSelectionRange(0, 0, SelectionHasNoDirection, NotDispatchSelectEvent);
-    else
+        break;
+    case SelectionBehaviorOnFocus::Restore:
         restoreCachedSelection();
-
+        break;
+    case SelectionBehaviorOnFocus::None:
+        // |None| is used only for FocusController::setFocusedElement and
+        // Document::setFocusedElement, and they don't call
+        // updateFocusAppearance().
+        ASSERT_NOT_REACHED();
+    }
     if (document().frame())
         document().frame()->selection().revealSelection();
 }
@@ -274,7 +282,7 @@ void HTMLTextAreaElement::subtreeHasChanged()
     m_valueIsUpToDate = false;
     setNeedsValidityCheck();
     setAutofilled(false);
-    updatePlaceholderVisibility(false);
+    updatePlaceholderVisibility();
 
     if (!focused())
         return;
@@ -307,9 +315,7 @@ void HTMLTextAreaElement::handleBeforeTextInsertedEvent(BeforeTextInsertedEvent*
     // that case, and nothing in the text field will be removed.
     unsigned selectionLength = 0;
     if (focused()) {
-        Position start, end;
-        document().frame()->selection().selection().toNormalizedPositions(start, end);
-        selectionLength = computeLengthForSubmission(plainText(start, end));
+        selectionLength = computeLengthForSubmission(document().frame()->selection().selectedText());
     }
     ASSERT(currentLength >= selectionLength);
     unsigned baseLength = currentLength - selectionLength;
@@ -333,7 +339,7 @@ void HTMLTextAreaElement::updateValue() const
     const_cast<HTMLTextAreaElement*>(this)->m_valueIsUpToDate = true;
     const_cast<HTMLTextAreaElement*>(this)->notifyFormStateChanged();
     m_isDirty = true;
-    const_cast<HTMLTextAreaElement*>(this)->updatePlaceholderVisibility(false);
+    const_cast<HTMLTextAreaElement*>(this)->updatePlaceholderVisibility();
 }
 
 String HTMLTextAreaElement::value() const
@@ -385,7 +391,7 @@ void HTMLTextAreaElement::setValueCommon(const String& newValue, TextFieldEventB
     setInnerEditorValue(m_value);
     if (eventBehavior == DispatchNoEvent)
         setLastChangeWasNotUserEdit();
-    updatePlaceholderVisibility(false);
+    updatePlaceholderVisibility();
     setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::create(StyleChangeReason::ControlValue));
     m_suggestedValue = String();
     setNeedsValidityCheck();
@@ -500,7 +506,7 @@ void HTMLTextAreaElement::setSuggestedValue(const String& value)
         setInnerEditorValue(m_suggestedValue);
     else
         setInnerEditorValue(m_value);
-    updatePlaceholderVisibility(false);
+    updatePlaceholderVisibility();
     setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::create(StyleChangeReason::ControlValue));
 }
 
@@ -605,6 +611,11 @@ bool HTMLTextAreaElement::matchesReadWritePseudoClass() const
     return !isReadOnly();
 }
 
+void HTMLTextAreaElement::setPlaceholderVisibility(bool visible)
+{
+    m_isPlaceholderVisible = visible;
+}
+
 void HTMLTextAreaElement::updatePlaceholderText()
 {
     HTMLElement* placeholder = placeholderElement();
@@ -619,7 +630,8 @@ void HTMLTextAreaElement::updatePlaceholderText()
         placeholder = newElement.get();
         placeholder->setShadowPseudoId(AtomicString("-webkit-input-placeholder", AtomicString::ConstructFromLiteral));
         placeholder->setAttribute(idAttr, ShadowElementNames::placeholder());
-        userAgentShadowRoot()->insertBefore(placeholder, innerEditorElement()->nextSibling());
+        placeholder->setInlineStyleProperty(CSSPropertyDisplay, isPlaceholderVisible() ? CSSValueBlock : CSSValueNone, true);
+        userAgentShadowRoot()->insertBefore(placeholder, innerEditorElement());
     }
     placeholder->setTextContent(placeholderText);
 }

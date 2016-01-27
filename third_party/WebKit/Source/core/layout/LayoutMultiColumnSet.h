@@ -64,28 +64,34 @@ public:
 
     const MultiColumnFragmentainerGroup& firstFragmentainerGroup() const { return m_fragmentainerGroups.first(); }
     const MultiColumnFragmentainerGroup& lastFragmentainerGroup() const { return m_fragmentainerGroups.last(); }
-    MultiColumnFragmentainerGroup& fragmentainerGroupAtFlowThreadOffset(LayoutUnit);
-    const MultiColumnFragmentainerGroup& fragmentainerGroupAtFlowThreadOffset(LayoutUnit) const;
+    MultiColumnFragmentainerGroup& fragmentainerGroupAtFlowThreadOffset(LayoutUnit flowThreadOffset)
+    {
+        return m_fragmentainerGroups[fragmentainerGroupIndexAtFlowThreadOffset(flowThreadOffset)];
+    }
+    const MultiColumnFragmentainerGroup& fragmentainerGroupAtFlowThreadOffset(LayoutUnit flowThreadOffset) const
+    {
+        return m_fragmentainerGroups[fragmentainerGroupIndexAtFlowThreadOffset(flowThreadOffset)];
+    }
     const MultiColumnFragmentainerGroup& fragmentainerGroupAtVisualPoint(const LayoutPoint&) const;
 
-    virtual bool isOfType(LayoutObjectType type) const override { return type == LayoutObjectLayoutMultiColumnSet || LayoutBlockFlow::isOfType(type); }
-    virtual bool canHaveChildren() const override final { return false; }
+    bool isOfType(LayoutObjectType type) const override { return type == LayoutObjectLayoutMultiColumnSet || LayoutBlockFlow::isOfType(type); }
+    bool canHaveChildren() const final { return false; }
 
     // Return the width and height of a single column or page in the set.
     LayoutUnit pageLogicalWidth() const { return flowThread()->logicalWidth(); }
-    LayoutUnit pageLogicalHeight() const;
+    LayoutUnit pageLogicalHeightForOffset(LayoutUnit) const;
+    LayoutUnit pageRemainingLogicalHeightForOffset(LayoutUnit, PageBoundaryRule) const;
+    bool isPageLogicalHeightKnown() const;
 
     LayoutFlowThread* flowThread() const { return m_flowThread; }
 
     LayoutBlockFlow* multiColumnBlockFlow() const { return toLayoutBlockFlow(parent()); }
-    LayoutMultiColumnFlowThread* multiColumnFlowThread() const
-    {
-        ASSERT_WITH_SECURITY_IMPLICATION(!flowThread() || flowThread()->isLayoutMultiColumnFlowThread());
-        return static_cast<LayoutMultiColumnFlowThread*>(flowThread());
-    }
+    LayoutMultiColumnFlowThread* multiColumnFlowThread() const { return toLayoutMultiColumnFlowThread(flowThread()); }
 
     LayoutMultiColumnSet* nextSiblingMultiColumnSet() const;
     LayoutMultiColumnSet* previousSiblingMultiColumnSet() const;
+
+    MultiColumnFragmentainerGroup& appendNewFragmentainerGroup();
 
     LayoutUnit logicalTopInFlowThread() const;
     LayoutUnit logicalBottomInFlowThread() const;
@@ -105,24 +111,10 @@ public:
 
     LayoutPoint visualPointToFlowThreadPoint(const LayoutPoint& visualPoint) const;
 
-    void updateMinimumColumnHeight(LayoutUnit offsetInFlowThread, LayoutUnit height);
-
-    // Add a content run, specified by its end position. A content run is appended at every
-    // forced/explicit break and at the end of the column set. The content runs are used to
-    // determine where implicit/soft breaks will occur, in order to calculate an initial column
-    // height.
-    void addContentRun(LayoutUnit endOffsetFromFirstPage);
-
     // (Re-)calculate the column height if it's auto. This is first and foremost needed by sets that
     // are to balance the column height, but even when it isn't to be balanced, this is necessary if
     // the multicol container's height is constrained.
     bool recalculateColumnHeight(BalancedColumnHeightCalculation);
-
-    // Record space shortage (the amount of space that would have been enough to prevent some
-    // element from being moved to the next column) at a column break. The smallest amount of space
-    // shortage we find is the amount with which we will stretch the column height, if it turns out
-    // after layout that the columns weren't tall enough.
-    void recordSpaceShortage(LayoutUnit offsetInFlowThread, LayoutUnit);
 
     // Reset previously calculated column height. Will mark for layout if needed.
     void resetColumnHeight();
@@ -137,11 +129,7 @@ public:
     // set or spanner.
     void endFlow(LayoutUnit offsetInFlowThread);
 
-    // Expand this set's flow thread portion rectangle to contain all trailing flow thread
-    // overflow. Only to be called on the last set.
-    void expandToEncompassFlowThreadContentsIfNeeded();
-
-    virtual void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const override final;
+    void computeIntrinsicLogicalWidths(LayoutUnit& minLogicalWidth, LayoutUnit& maxLogicalWidth) const final;
 
     void attachToFlowThread();
     void detachFromFlowThread();
@@ -149,30 +137,34 @@ public:
     // The top of the page nearest to the specified block offset. All in flowthread coordinates.
     LayoutUnit pageLogicalTopForOffset(LayoutUnit offset) const;
 
-    void collectLayerFragments(DeprecatedPaintLayerFragments&, const LayoutRect& layerBoundingBox, const LayoutRect& dirtyRect);
+    LayoutRect fragmentsBoundingBox(const LayoutRect& boundingBoxInFlowThread) const;
+
+    void collectLayerFragments(PaintLayerFragments&, const LayoutRect& layerBoundingBox, const LayoutRect& dirtyRect);
 
     LayoutUnit columnGap() const;
 
     // The "CSS actual" value of column-count. This includes overflowing columns, if any.
     unsigned actualColumnCount() const;
 
-    virtual const char* name() const override { return "LayoutMultiColumnSet"; }
+    const char* name() const override { return "LayoutMultiColumnSet"; }
 
 protected:
     LayoutMultiColumnSet(LayoutFlowThread*);
 
 private:
-    virtual void insertedIntoTree() override final;
-    virtual void willBeRemovedFromTree() override final;
+    unsigned fragmentainerGroupIndexAtFlowThreadOffset(LayoutUnit) const;
 
-    virtual bool isSelfCollapsingBlock() const override { return false; }
+    void insertedIntoTree() final;
+    void willBeRemovedFromTree() final;
 
-    virtual void computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop, LogicalExtentComputedValues&) const override;
-    virtual PositionWithAffinity positionForPoint(const LayoutPoint&) override;
+    bool isSelfCollapsingBlock() const override { return false; }
 
-    virtual void paintObject(const PaintInfo&, const LayoutPoint& paintOffset) override;
+    void computeLogicalHeight(LayoutUnit logicalHeight, LayoutUnit logicalTop, LogicalExtentComputedValues&) const override;
+    PositionWithAffinity positionForPoint(const LayoutPoint&) override;
 
-    virtual void addOverflowFromChildren() override;
+    void paintObject(const PaintInfo&, const LayoutPoint& paintOffset) const override;
+
+    void addOverflowFromChildren() override;
 
     MultiColumnFragmentainerGroupList m_fragmentainerGroups;
     LayoutFlowThread* m_flowThread;

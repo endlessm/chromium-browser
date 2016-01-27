@@ -40,16 +40,17 @@
 #include "core/html/ImageData.h"
 #include "core/workers/WorkerGlobalScope.h"
 #include "platform/SharedBuffer.h"
-#include "platform/graphics/BitmapImage.h"
 #include "platform/graphics/ImageSource.h"
+#include "platform/graphics/StaticBitmapImage.h"
 #include "public/platform/WebSize.h"
+#include "third_party/skia/include/core/SkImage.h"
 #include <v8.h>
 
 namespace blink {
 
 static ScriptPromise fulfillImageBitmap(ScriptState* scriptState, PassRefPtrWillBeRawPtr<ImageBitmap> imageBitmap)
 {
-    RefPtrWillBeRawPtr<ScriptPromiseResolver> resolver = ScriptPromiseResolver::create(scriptState);
+    ScriptPromiseResolver* resolver = ScriptPromiseResolver::create(scriptState);
     ScriptPromise promise = resolver->promise();
     if (imageBitmap) {
         resolver->resolve(imageBitmap);
@@ -90,6 +91,10 @@ ScriptPromise ImageBitmapFactories::createImageBitmap(ScriptState* scriptState, 
 {
     if (!sw || !sh) {
         exceptionState.throwDOMException(IndexSizeError, String::format("The source %s provided is 0.", sw ? "height" : "width"));
+        return ScriptPromise();
+    }
+    if (data->data()->bufferBase()->isNeutered()) {
+        exceptionState.throwDOMException(InvalidStateError, "The source data has been neutered.");
         return ScriptPromise();
     }
     // FIXME: make ImageBitmap creation asynchronous crbug.com/258082
@@ -183,17 +188,15 @@ void ImageBitmapFactories::ImageBitmapLoader::didFinishLoading()
 
     OwnPtr<ImageSource> source = adoptPtr(new ImageSource());
     source->setData(*sharedBuffer, true);
-    SkBitmap bitmap;
-    if (!source->createFrameAtIndex(0, &bitmap)) {
+
+    RefPtr<SkImage> frame = source->createFrameAtIndex(0);
+    ASSERT(!frame || (frame->width() && frame->height()));
+    if (!frame) {
         rejectPromise();
         return;
     }
 
-    RefPtr<Image> image = BitmapImage::create(bitmap);
-    if (!image->width() || !image->height()) {
-        rejectPromise();
-        return;
-    }
+    RefPtr<Image> image = StaticBitmapImage::create(frame);
     if (!m_cropRect.width() && !m_cropRect.height()) {
         // No cropping variant was called.
         m_cropRect = IntRect(IntPoint(), image->size());

@@ -9,35 +9,36 @@
 #include "base/threading/thread_local_storage.h"
 #include "base/timer/timer.h"
 #include "cc/blink/web_compositor_support_impl.h"
-#include "components/html_viewer/blink_resource_map.h"
 #include "components/html_viewer/mock_web_blob_registry_impl.h"
 #include "components/html_viewer/web_mime_registry_impl.h"
 #include "components/html_viewer/web_notification_manager_impl.h"
 #include "components/html_viewer/web_theme_engine_impl.h"
 #include "components/webcrypto/webcrypto_impl.h"
-#include "mojo/services/network/public/interfaces/network_service.mojom.h"
 #include "mojo/services/network/public/interfaces/url_loader_factory.mojom.h"
+#include "mojo/services/network/public/interfaces/web_socket_factory.mojom.h"
 #include "third_party/WebKit/public/platform/Platform.h"
 #include "third_party/WebKit/public/platform/WebScrollbarBehavior.h"
+
+namespace mojo {
+class ApplicationImpl;
+}
 
 namespace scheduler {
 class RendererScheduler;
 class WebThreadImplForRendererScheduler;
 }
 
-namespace mojo {
-class ApplicationImpl;
-}
-
 namespace html_viewer {
 
+class GlobalState;
 class WebClipboardImpl;
 class WebCookieJarImpl;
 
 class BlinkPlatformImpl : public blink::Platform {
  public:
   // |app| may be null in tests.
-  BlinkPlatformImpl(mojo::ApplicationImpl* app,
+  BlinkPlatformImpl(GlobalState* global_state,
+                    mojo::ApplicationImpl* app,
                     scheduler::RendererScheduler* renderer_scheduler);
   virtual ~BlinkPlatformImpl();
 
@@ -48,8 +49,8 @@ class BlinkPlatformImpl : public blink::Platform {
   virtual blink::WebThemeEngine* themeEngine();
   virtual blink::WebString defaultLocale();
   virtual blink::WebBlobRegistry* blobRegistry();
-  virtual double currentTime();
-  virtual double monotonicallyIncreasingTime();
+  virtual double currentTimeSeconds();
+  virtual double monotonicallyIncreasingTimeSeconds();
   virtual void cryptographicallyRandomValues(unsigned char* buffer,
                                              size_t length);
   virtual bool isThreadedCompositingEnabled();
@@ -68,12 +69,25 @@ class BlinkPlatformImpl : public blink::Platform {
   virtual blink::WebThread* createThread(const char* name);
   virtual blink::WebThread* currentThread();
   virtual void yieldCurrentThread();
-  virtual blink::WebWaitableEvent* createWaitableEvent();
+  virtual blink::WebWaitableEvent* createWaitableEvent(
+      blink::WebWaitableEvent::ResetPolicy policy,
+      blink::WebWaitableEvent::InitialState state);
   virtual blink::WebWaitableEvent* waitMultipleEvents(
       const blink::WebVector<blink::WebWaitableEvent*>& events);
   virtual blink::WebScrollbarBehavior* scrollbarBehavior();
   virtual const unsigned char* getTraceCategoryEnabledFlag(
       const char* category_name);
+  virtual blink::WebGraphicsContext3D* createOffscreenGraphicsContext3D(
+      const blink::WebGraphicsContext3D::Attributes& attributes,
+      blink::WebGraphicsContext3D* share_context);
+  virtual blink::WebGraphicsContext3D* createOffscreenGraphicsContext3D(
+      const blink::WebGraphicsContext3D::Attributes& attributes,
+      blink::WebGraphicsContext3D* share_context,
+      blink::WebGraphicsContext3D::WebGraphicsInfo* gl_info);
+  virtual blink::WebGraphicsContext3D* createOffscreenGraphicsContext3D(
+      const blink::WebGraphicsContext3D::Attributes& attributes);
+  virtual blink::WebGraphicsContext3DProvider*
+      createSharedOffscreenGraphicsContext3DProvider();
   virtual blink::WebData loadResource(const char* name);
   virtual blink::WebGestureCurve* createFlingAnimationCurve(
       blink::WebGestureDevice device_source,
@@ -87,8 +101,10 @@ class BlinkPlatformImpl : public blink::Platform {
 
   static void DestroyCurrentThread(void*);
 
+  GlobalState* global_state_;
+  mojo::ApplicationImpl* app_;
   scoped_refptr<base::SingleThreadTaskRunner> main_thread_task_runner_;
-  scoped_ptr<scheduler::WebThreadImplForRendererScheduler> main_thread_;
+  scoped_ptr<blink::WebThread> main_thread_;
   base::ThreadLocalStorage::Slot current_thread_slot_;
   cc_blink::WebCompositorSupportImpl compositor_support_;
   WebThemeEngineImpl theme_engine_;
@@ -96,8 +112,7 @@ class BlinkPlatformImpl : public blink::Platform {
   webcrypto::WebCryptoImpl web_crypto_;
   WebNotificationManagerImpl web_notification_manager_;
   blink::WebScrollbarBehavior scrollbar_behavior_;
-  BlinkResourceMap blink_resource_map_;
-  mojo::NetworkServicePtr network_service_;
+  mojo::WebSocketFactoryPtr web_socket_factory_;
   mojo::URLLoaderFactoryPtr url_loader_factory_;
   MockWebBlobRegistryImpl blob_registry_;
   scoped_ptr<WebCookieJarImpl> cookie_jar_;

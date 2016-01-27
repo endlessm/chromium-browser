@@ -19,7 +19,6 @@
 #include "chrome/browser/profiles/profile_metrics.h"
 #include "chrome/browser/signin/signin_manager_factory.h"
 #include "chrome/browser/signin/signin_promo.h"
-#include "chrome/browser/sync/profile_sync_service.h"
 #include "chrome/browser/sync/profile_sync_service_factory.h"
 #include "chrome/browser/ui/browser.h"
 #include "chrome/browser/ui/browser_finder.h"
@@ -27,12 +26,13 @@
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/webui/ntp/new_tab_ui.h"
 #include "chrome/browser/ui/webui/profile_info_watcher.h"
-#include "chrome/browser/web_resource/promo_resource_service.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/grit/chromium_strings.h"
 #include "chrome/grit/generated_resources.h"
+#include "components/browser_sync/browser/profile_sync_service.h"
 #include "components/signin/core/browser/signin_manager.h"
+#include "components/web_resource/promo_resource_service.h"
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_ui.h"
@@ -114,8 +114,9 @@ void AppLauncherLoginHandler::HandleShowSyncLoginUI(
   if (!signin::ShouldShowPromo(profile))
     return;
 
-  std::string username =
-      SigninManagerFactory::GetForProfile(profile)->GetAuthenticatedUsername();
+  std::string username = SigninManagerFactory::GetForProfile(profile)
+                             ->GetAuthenticatedAccountInfo()
+                             .email;
   if (!username.empty())
     return;
 

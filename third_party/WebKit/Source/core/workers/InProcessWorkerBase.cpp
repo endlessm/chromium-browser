@@ -51,7 +51,7 @@ bool InProcessWorkerBase::initialize(ExecutionContext* context, const String& ur
     if (scriptURL.isEmpty())
         return false;
 
-    m_scriptLoader = adoptPtr(new WorkerScriptLoader());
+    m_scriptLoader = WorkerScriptLoader::create();
     m_scriptLoader->loadAsynchronously(
         *context,
         scriptURL,
@@ -81,11 +81,11 @@ bool InProcessWorkerBase::hasPendingActivity() const
     return (m_contextProxy && m_contextProxy->hasPendingActivity()) || m_scriptLoader;
 }
 
-PassRefPtr<ContentSecurityPolicy> InProcessWorkerBase::contentSecurityPolicy()
+ContentSecurityPolicy* InProcessWorkerBase::contentSecurityPolicy()
 {
     if (m_scriptLoader)
         return m_scriptLoader->contentSecurityPolicy();
-    return m_contentSecurityPolicy;
+    return m_contentSecurityPolicy.get();
 }
 
 void InProcessWorkerBase::onResponse()
@@ -102,7 +102,7 @@ void InProcessWorkerBase::onFinished()
         WorkerThreadStartMode startMode = DontPauseWorkerGlobalScopeOnStart;
         if (InspectorInstrumentation::shouldPauseDedicatedWorkerOnStart(executionContext()))
             startMode = PauseWorkerGlobalScopeOnStart;
-        m_contextProxy->startWorkerGlobalScope(m_scriptLoader->url(), executionContext()->userAgent(m_scriptLoader->url()), m_scriptLoader->script(), startMode);
+        m_contextProxy->startWorkerGlobalScope(m_scriptLoader->url(), executionContext()->userAgent(), m_scriptLoader->script(), startMode);
         InspectorInstrumentation::scriptImported(executionContext(), m_scriptLoader->identifier(), m_scriptLoader->script());
     }
     m_contentSecurityPolicy = m_scriptLoader->releaseContentSecurityPolicy();
@@ -111,6 +111,7 @@ void InProcessWorkerBase::onFinished()
 
 DEFINE_TRACE(InProcessWorkerBase)
 {
+    visitor->trace(m_contentSecurityPolicy);
     AbstractWorker::trace(visitor);
 }
 

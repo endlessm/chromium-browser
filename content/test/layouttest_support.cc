@@ -6,7 +6,6 @@
 
 #include "base/callback.h"
 #include "base/lazy_instance.h"
-#include "cc/blink/web_layer_impl.h"
 #include "components/test_runner/test_common.h"
 #include "components/test_runner/web_frame_test_proxy.h"
 #include "components/test_runner/web_test_proxy.h"
@@ -15,6 +14,7 @@
 #include "content/browser/renderer_host/render_widget_host_impl.h"
 #include "content/child/geofencing/web_geofencing_provider_impl.h"
 #include "content/common/gpu/image_transport_surface.h"
+#include "content/common/site_isolation_policy.h"
 #include "content/public/common/page_state.h"
 #include "content/public/renderer/renderer_gamepad_provider.h"
 #include "content/renderer/fetchers/manifest_fetcher.h"
@@ -24,6 +24,7 @@
 #include "content/renderer/render_thread_impl.h"
 #include "content/renderer/render_view_impl.h"
 #include "content/renderer/renderer_blink_platform_impl.h"
+#include "content/shell/common/shell_switches.h"
 #include "device/bluetooth/bluetooth_adapter.h"
 #include "third_party/WebKit/public/platform/WebBatteryStatus.h"
 #include "third_party/WebKit/public/platform/WebGamepads.h"
@@ -34,6 +35,11 @@
 
 #if defined(OS_MACOSX)
 #include "content/browser/frame_host/popup_menu_helper_mac.h"
+#elif defined(OS_WIN)
+#include "content/common/font_warmup_win.h"
+#include "third_party/WebKit/public/web/win/WebFontRendering.h"
+#include "third_party/skia/include/ports/SkFontMgr.h"
+#include "ui/gfx/win/direct_write.h"
 #endif
 
 using blink::WebBatteryStatus;
@@ -52,10 +58,11 @@ base::LazyInstance<
     base::Callback<void(RenderView*, test_runner::WebTestProxyBase*)>>::Leaky
     g_callback = LAZY_INSTANCE_INITIALIZER;
 
-RenderViewImpl* CreateWebTestProxy(const ViewMsg_New_Params& params) {
-  typedef test_runner::WebTestProxy<RenderViewImpl, const ViewMsg_New_Params&>
-      ProxyType;
-  ProxyType* render_view_proxy = new ProxyType(params);
+RenderViewImpl* CreateWebTestProxy(CompositorDependencies* compositor_deps,
+                                   const ViewMsg_New_Params& params) {
+  typedef test_runner::WebTestProxy<RenderViewImpl, CompositorDependencies*,
+                                    const ViewMsg_New_Params&> ProxyType;
+  ProxyType* render_view_proxy = new ProxyType(compositor_deps, params);
   if (g_callback == 0)
     return render_view_proxy;
   g_callback.Get().Run(render_view_proxy, render_view_proxy);
@@ -81,6 +88,22 @@ RenderFrameImpl* CreateWebFrameTestProxy(
 
   return render_frame_proxy;
 }
+
+#if defined(OS_WIN)
+// DirectWrite only has access to %WINDIR%\Fonts by default. For developer
+// side-loading, support kRegisterFontFiles to allow access to additional fonts.
+void RegisterSideloadedTypefaces(SkFontMgr* fontmgr) {
+  RenderThreadImpl::current()->EnsureWebKitInitialized();
+  std::vector<std::string> files = switches::GetSideloadFontFiles();
+  for (std::vector<std::string>::const_iterator i(files.begin());
+       i != files.end();
+       ++i) {
+    SkTypeface* typeface = fontmgr->createFromFile(i->c_str());
+    DoPreSandboxWarmupForTypeface(typeface);
+    blink::WebFontRendering::addSideloadedFontForTesting(typeface);
+  }
+}
+#endif  // OS_WIN
 
 }  // namespace
 
@@ -121,7 +144,7 @@ void SetMockGamepadProvider(scoped_ptr<RendererGamepadProvider> provider) {
   RenderThreadImpl::current()
       ->blink_platform_impl()
       ->SetPlatformEventObserverForTesting(
-          blink::WebPlatformEventGamepad,
+          blink::WebPlatformEventTypeGamepad,
           provider.Pass());
 }
 
@@ -145,6 +168,11 @@ void MockBatteryStatusChanged(const WebBatteryStatus& status) {
 
 void EnableRendererLayoutTestMode() {
   RenderThreadImpl::current()->set_layout_test_mode(true);
+
+#if defined(OS_WIN)
+  if (gfx::win::ShouldUseDirectWrite())
+    RegisterSideloadedTypefaces(GetPreSandboxWarmupFontMgr());
+#endif
 }
 
 void EnableBrowserLayoutTestMode() {
@@ -161,7 +189,11 @@ int GetLocalSessionHistoryLength(RenderView* render_view) {
 }
 
 void SyncNavigationState(RenderView* render_view) {
-  static_cast<RenderViewImpl*>(render_view)->SyncNavigationState();
+  // TODO(creis): Add support for testing in OOPIF-enabled modes.
+  // See https://crbug.com/477150.
+  if (SiteIsolationPolicy::UseSubframeNavigationEntries())
+    return;
+  static_cast<RenderViewImpl*>(render_view)->SendUpdateState();
 }
 
 void SetFocusAndActivate(RenderView* render_view, bool enable) {
@@ -428,16 +460,6 @@ std::string DumpBackForwardList(std::vector<PageState>& page_state,
   }
   result.append("===============================================\n");
   return result;
-}
-
-scoped_refptr<cc::TextureLayer> CreateTextureLayerForMailbox(
-    cc::TextureLayerClient* client) {
-  return cc::TextureLayer::CreateForMailbox(
-      cc_blink::WebLayerImpl::LayerSettings(), client);
-}
-
-blink::WebLayer* InstantiateWebLayer(scoped_refptr<cc::TextureLayer> layer) {
-  return new cc_blink::WebLayerImpl(layer);
 }
 
 }  // namespace content

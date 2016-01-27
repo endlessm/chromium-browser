@@ -31,7 +31,7 @@ class ScopedModuleModifier {
   explicit ScopedModuleModifier(uint8_t* address) : address_(address) {
     uint8_t modification[ModificationLength];
     std::transform(address, address + ModificationLength, &modification[0],
-                   std::bind2nd(std::plus<uint8_t>(), 1U));
+                   [](uint8_t byte) { return byte + 1U; });
     SIZE_T bytes_written = 0;
     EXPECT_NE(0, WriteProcessMemory(GetCurrentProcess(),
                                     address,
@@ -44,7 +44,7 @@ class ScopedModuleModifier {
   ~ScopedModuleModifier() {
     uint8_t modification[ModificationLength];
     std::transform(address_, address_ + ModificationLength, &modification[0],
-                   std::bind2nd(std::minus<uint8_t>(), 1U));
+                   [](uint8_t byte) { return byte - 1U; });
     SIZE_T bytes_written = 0;
     EXPECT_NE(0, WriteProcessMemory(GetCurrentProcess(),
                                     address_,
@@ -229,7 +229,10 @@ TEST_F(SafeBrowsingModuleVerifierWinTest, VerifyModuleModified) {
             (uint8_t)state.modification(1).modified_bytes()[0]);
 }
 
-TEST_F(SafeBrowsingModuleVerifierWinTest, VerifyModuleLongModification) {
+// Disabled because it fails about 80% of the time on XP.
+// http://crbug.com/549564
+TEST_F(SafeBrowsingModuleVerifierWinTest,
+       DISABLED_VerifyModuleLongModification) {
   ModuleState state;
   int num_bytes_different = 0;
 
@@ -275,7 +278,9 @@ TEST_F(SafeBrowsingModuleVerifierWinTest, VerifyModuleLongModification) {
       state.modification(0).modified_bytes());
 }
 
-TEST_F(SafeBrowsingModuleVerifierWinTest, VerifyModuleRelocOverlap) {
+// Disabled because it fails about 80% of the time on XP.
+// http://crbug.com/549564
+TEST_F(SafeBrowsingModuleVerifierWinTest, DISABLED_VerifyModuleRelocOverlap) {
   int num_bytes_different = 0;
   ModuleState state;
 

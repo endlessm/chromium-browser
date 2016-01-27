@@ -51,17 +51,6 @@ HTMLElement* LayoutTextControl::innerEditorElement() const
     return textFormControlElement()->innerEditorElement();
 }
 
-void LayoutTextControl::addChild(LayoutObject* newChild, LayoutObject* beforeChild)
-{
-    // FIXME: This is a terrible hack to get the caret over the placeholder text since it'll
-    // make us paint the placeholder first. (See https://trac.webkit.org/changeset/118733)
-    Node* node = newChild->node();
-    if (node && node->isElementNode() && toElement(node)->shadowPseudoId() == "-webkit-input-placeholder")
-        LayoutBlockFlow::addChild(newChild, firstChild());
-    else
-        LayoutBlockFlow::addChild(newChild, beforeChild);
-}
-
 void LayoutTextControl::styleDidChange(StyleDifference diff, const ComputedStyle* oldStyle)
 {
     LayoutBlockFlow::styleDidChange(diff, oldStyle);
@@ -77,7 +66,7 @@ void LayoutTextControl::styleDidChange(StyleDifference diff, const ComputedStyle
         innerEditorLayoutObject->setStyle(createInnerEditorStyle(styleRef()));
         innerEditor->setNeedsStyleRecalc(SubtreeStyleChange, StyleChangeReasonForTracing::create(StyleChangeReason::Control));
     }
-    textFormControlElement()->updatePlaceholderVisibility(false);
+    textFormControlElement()->updatePlaceholderVisibility();
 }
 
 static inline void updateUserModifyProperty(HTMLTextFormControlElement& node, ComputedStyle& style)
@@ -203,7 +192,7 @@ static const char* const fontFamiliesWithInvalidCharWidth[] = {
 // from the width of a '0'. This only seems to apply to a fixed number of Mac fonts,
 // but, in order to get similar rendering across platforms, we do this check for
 // all platforms.
-bool LayoutTextControl::hasValidAvgCharWidth(AtomicString family)
+bool LayoutTextControl::hasValidAvgCharWidth(const AtomicString& family)
 {
     static HashSet<AtomicString>* fontFamiliesWithInvalidCharWidthMap = nullptr;
 
@@ -220,7 +209,7 @@ bool LayoutTextControl::hasValidAvgCharWidth(AtomicString family)
     return !fontFamiliesWithInvalidCharWidthMap->contains(family);
 }
 
-float LayoutTextControl::getAvgCharWidth(AtomicString family)
+float LayoutTextControl::getAvgCharWidth(const AtomicString& family) const
 {
     if (hasValidAvgCharWidth(family))
         return roundf(style()->font().primaryFont()->avgCharWidth());
@@ -228,7 +217,7 @@ float LayoutTextControl::getAvgCharWidth(AtomicString family)
     const UChar ch = '0';
     const String str = String(&ch, 1);
     const Font& font = style()->font();
-    TextRun textRun = constructTextRun(this, font, str, styleRef(), TextRun::AllowTrailingExpansion);
+    TextRun textRun = constructTextRun(font, str, styleRef(), TextRun::AllowTrailingExpansion);
     return font.width(textRun);
 }
 
@@ -281,10 +270,9 @@ void LayoutTextControl::computePreferredLogicalWidths()
     clearPreferredLogicalWidthsDirty();
 }
 
-void LayoutTextControl::addFocusRingRects(Vector<LayoutRect>& rects, const LayoutPoint& additionalOffset) const
+void LayoutTextControl::addOutlineRects(Vector<LayoutRect>& rects, const LayoutPoint& additionalOffset, IncludeBlockVisualOverflowOrNot) const
 {
-    if (!size().isEmpty())
-        rects.append(LayoutRect(additionalOffset, size()));
+    rects.append(LayoutRect(additionalOffset, size()));
 }
 
 LayoutObject* LayoutTextControl::layoutSpecialExcludedChild(bool relayoutChildren, SubtreeLayoutScope& layoutScope)

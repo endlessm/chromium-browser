@@ -22,6 +22,9 @@ namespace base {
 //
 // |ScopedPtr| must be a type scoped_ptr<T>. This is for compatibility with
 // std::map in C++11.
+//
+// TODO(http://crbug.com/554291): DEPRECATED: Use std::map instead (now that we
+// have support for moveable types inside containers).
 template <class Key, class ScopedPtr, class Compare = std::less<Key>>
 class ScopedPtrMap {
   MOVE_ONLY_TYPE_WITH_MOVE_CONSTRUCTOR_FOR_CPP_03(ScopedPtrMap)
@@ -42,9 +45,9 @@ class ScopedPtrMap {
 
   ScopedPtrMap() {}
   ~ScopedPtrMap() { clear(); }
-  ScopedPtrMap(ScopedPtrMap<Key, ScopedPtr>&& other) { swap(other); }
+  ScopedPtrMap(ScopedPtrMap&& other) { swap(other); }
 
-  ScopedPtrMap& operator=(ScopedPtrMap<Key, ScopedPtr>&& rhs) {
+  ScopedPtrMap& operator=(ScopedPtrMap&& rhs) {
     swap(rhs);
     return *this;
   }
@@ -61,7 +64,7 @@ class ScopedPtrMap {
   const_iterator begin() const { return data_.begin(); }
   const_iterator end() const { return data_.end(); }
 
-  void swap(ScopedPtrMap<Key, ScopedPtr>& other) { data_.swap(other.data_); }
+  void swap(ScopedPtrMap& other) { data_.swap(other.data_); }
 
   void clear() { STLDeleteValues(&data_); }
 
@@ -69,7 +72,7 @@ class ScopedPtrMap {
   std::pair<const_iterator, bool> insert(const Key& key, ScopedPtr val) {
     auto result = data_.insert(std::make_pair(key, val.get()));
     if (result.second)
-      ignore_result(val.release());
+      ::ignore_result(val.release());
     return result;
   }
 

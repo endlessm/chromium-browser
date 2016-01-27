@@ -175,15 +175,6 @@ class EGLContextCompatibilityTest : public ANGLETest
         eglMakeCurrent(mDisplay, surface, surface, context);
         ASSERT_EGL_SUCCESS();
 
-#ifdef ANGLE_PLATFORM_LINUX
-        // TODO(cwallez): figure out why this is broken on Linux/AMD.
-        if (isAMD() && getPlatformRenderer() == EGL_PLATFORM_ANGLE_TYPE_OPENGL_ANGLE)
-        {
-            eglMakeCurrent(mDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-            return;
-        }
-#endif
-
         glViewport(0, 0, 500, 500);
         glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -262,7 +253,8 @@ TEST_P(EGLContextCompatibilityTest, WindowDifferentConfig)
         for (size_t j = 0; j < mConfigs.size(); j++)
         {
             EGLConfig config2 = mConfigs[j];
-            testPbufferCompatibility(config1, config2, areConfigsCompatible(config1, config2, EGL_WINDOW_BIT));
+            testWindowCompatibility(config1, config2,
+                                    areConfigsCompatible(config1, config2, EGL_WINDOW_BIT));
         }
     }
 }

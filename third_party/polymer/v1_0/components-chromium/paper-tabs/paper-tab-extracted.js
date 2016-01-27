@@ -1,33 +1,29 @@
-
-
-  Polymer({
+Polymer({
 
     is: 'paper-tab',
 
     behaviors: [
-      Polymer.IronControlState
+      Polymer.IronControlState,
+      Polymer.IronButtonState,
+      Polymer.PaperRippleBehavior
     ],
-
-    properties: {
-
-      /**
-       * If true, ink ripple effect is disabled.
-       *
-       * @attribute noink
-       */
-      noink: {
-        type: Boolean,
-        value: false
-      }
-
-    },
 
     hostAttributes: {
       role: 'tab'
     },
 
     listeners: {
-      down: '_onDown'
+      down: '_updateNoink'
+    },
+
+    ready: function() {
+      var ripple = this.getRipple();
+      ripple.initialOpacity = 0.95;
+      ripple.opacityDecayVelocity = 0.98;
+    },
+
+    attached: function() {
+      this._updateNoink();
     },
 
     get _parentNoink () {
@@ -35,8 +31,7 @@
       return !!parent && !!parent.noink;
     },
 
-    _onDown: function(e) {
+    _updateNoink: function() {
       this.noink = !!this.noink || !!this._parentNoink;
     }
   });
-

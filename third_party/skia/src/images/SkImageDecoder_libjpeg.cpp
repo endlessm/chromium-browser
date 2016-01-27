@@ -65,8 +65,8 @@ static void do_nothing_output_message(j_common_ptr) {
 }
 
 static void initialize_info(jpeg_decompress_struct* cinfo, skjpeg_source_mgr* src_mgr) {
-    SkASSERT(cinfo != NULL);
-    SkASSERT(src_mgr != NULL);
+    SkASSERT(cinfo != nullptr);
+    SkASSERT(src_mgr != nullptr);
     jpeg_create_decompress(cinfo);
     cinfo->src = src_mgr;
     /* To suppress warnings with a SK_DEBUG binary, set the
@@ -85,156 +85,20 @@ static void initialize_info(jpeg_decompress_struct* cinfo, skjpeg_source_mgr* sr
     }
 }
 
-#ifdef SK_BUILD_FOR_ANDROID
-class SkJPEGImageIndex {
-public:
-    // Takes ownership of stream.
-    SkJPEGImageIndex(SkStreamRewindable* stream, SkImageDecoder* decoder)
-        : fSrcMgr(stream, decoder)
-        , fStream(stream)
-        , fInfoInitialized(false)
-        , fHuffmanCreated(false)
-        , fDecompressStarted(false)
-        {
-            SkDEBUGCODE(fReadHeaderSucceeded = false;)
-        }
-
-    ~SkJPEGImageIndex() {
-        if (fHuffmanCreated) {
-            // Set to false before calling the libjpeg function, in case
-            // the libjpeg function calls longjmp. Our setjmp handler may
-            // attempt to delete this SkJPEGImageIndex, thus entering this
-            // destructor again. Setting fHuffmanCreated to false first
-            // prevents an infinite loop.
-            fHuffmanCreated = false;
-            jpeg_destroy_huffman_index(&fHuffmanIndex);
-        }
-        if (fDecompressStarted) {
-            // Like fHuffmanCreated, set to false before calling libjpeg
-            // function to prevent potential infinite loop.
-            fDecompressStarted = false;
-            jpeg_finish_decompress(&fCInfo);
-        }
-        if (fInfoInitialized) {
-            this->destroyInfo();
-        }
-    }
-
-    /**
-     *  Destroy the cinfo struct.
-     *  After this call, if a huffman index was already built, it
-     *  can be used after calling initializeInfoAndReadHeader
-     *  again. Must not be called after startTileDecompress except
-     *  in the destructor.
-     */
-    void destroyInfo() {
-        SkASSERT(fInfoInitialized);
-        SkASSERT(!fDecompressStarted);
-        // Like fHuffmanCreated, set to false before calling libjpeg
-        // function to prevent potential infinite loop.
-        fInfoInitialized = false;
-        jpeg_destroy_decompress(&fCInfo);
-        SkDEBUGCODE(fReadHeaderSucceeded = false;)
-    }
-
-    /**
-     *  Initialize the cinfo struct.
-     *  Calls jpeg_create_decompress, makes customizations, and
-     *  finally calls jpeg_read_header. Returns true if jpeg_read_header
-     *  returns JPEG_HEADER_OK.
-     *  If cinfo was already initialized, destroyInfo must be called to
-     *  destroy the old one. Must not be called after startTileDecompress.
-     */
-    bool initializeInfoAndReadHeader() {
-        SkASSERT(!fInfoInitialized && !fDecompressStarted);
-        initialize_info(&fCInfo, &fSrcMgr);
-        fInfoInitialized = true;
-        const bool success = (JPEG_HEADER_OK == jpeg_read_header(&fCInfo, true));
-        SkDEBUGCODE(fReadHeaderSucceeded = success;)
-        return success;
-    }
-
-    jpeg_decompress_struct* cinfo() { return &fCInfo; }
-
-    huffman_index* huffmanIndex() { return &fHuffmanIndex; }
-
-    /**
-     *  Build the index to be used for tile based decoding.
-     *  Must only be called after a successful call to
-     *  initializeInfoAndReadHeader and must not be called more
-     *  than once.
-     */
-    bool buildHuffmanIndex() {
-        SkASSERT(fReadHeaderSucceeded);
-        SkASSERT(!fHuffmanCreated);
-        jpeg_create_huffman_index(&fCInfo, &fHuffmanIndex);
-        SkASSERT(1 == fCInfo.scale_num && 1 == fCInfo.scale_denom);
-        fHuffmanCreated = jpeg_build_huffman_index(&fCInfo, &fHuffmanIndex);
-        return fHuffmanCreated;
-    }
-
-    /**
-     *  Start tile based decoding. Must only be called after a
-     *  successful call to buildHuffmanIndex, and must only be
-     *  called once.
-     */
-    bool startTileDecompress() {
-        SkASSERT(fHuffmanCreated);
-        SkASSERT(fReadHeaderSucceeded);
-        SkASSERT(!fDecompressStarted);
-        if (jpeg_start_tile_decompress(&fCInfo)) {
-            fDecompressStarted = true;
-            return true;
-        }
-        return false;
-    }
-
-private:
-    skjpeg_source_mgr  fSrcMgr;
-    SkAutoTDelete<SkStream> fStream;
-    jpeg_decompress_struct fCInfo;
-    huffman_index fHuffmanIndex;
-    bool fInfoInitialized;
-    bool fHuffmanCreated;
-    bool fDecompressStarted;
-    SkDEBUGCODE(bool fReadHeaderSucceeded;)
-};
-#endif
-
 class SkJPEGImageDecoder : public SkImageDecoder {
 public:
-#ifdef SK_BUILD_FOR_ANDROID
-    SkJPEGImageDecoder() {
-        fImageIndex = NULL;
-        fImageWidth = 0;
-        fImageHeight = 0;
-    }
-
-    virtual ~SkJPEGImageDecoder() {
-        SkDELETE(fImageIndex);
-    }
-#endif
 
     Format getFormat() const override {
         return kJPEG_Format;
     }
 
 protected:
-#ifdef SK_BUILD_FOR_ANDROID
-    bool onBuildTileIndex(SkStreamRewindable *stream, int *width, int *height) override;
-    bool onDecodeSubset(SkBitmap* bitmap, const SkIRect& rect) override;
-#endif
     Result onDecode(SkStream* stream, SkBitmap* bm, Mode) override;
     bool onDecodeYUV8Planes(SkStream* stream, SkISize componentSizes[3],
                             void* planes[3], size_t rowBytes[3],
                             SkYUVColorSpace* colorSpace) override;
 
 private:
-#ifdef SK_BUILD_FOR_ANDROID
-    SkJPEGImageIndex* fImageIndex;
-    int fImageWidth;
-    int fImageHeight;
-#endif
 
     /**
      *  Determine the appropriate bitmap colortype and out_color_space based on
@@ -252,7 +116,7 @@ private:
 /* Automatically clean up after throwing an exception */
 class JPEGAutoClean {
 public:
-    JPEGAutoClean(): cinfo_ptr(NULL) {}
+    JPEGAutoClean(): cinfo_ptr(nullptr) {}
     ~JPEGAutoClean() {
         if (cinfo_ptr) {
             jpeg_destroy_decompress(cinfo_ptr);
@@ -297,20 +161,6 @@ static bool skip_src_rows(jpeg_decompress_struct* cinfo, void* buffer, int count
     return true;
 }
 
-#ifdef SK_BUILD_FOR_ANDROID
-static bool skip_src_rows_tile(jpeg_decompress_struct* cinfo,
-                               huffman_index *index, void* buffer, int count) {
-    for (int i = 0; i < count; i++) {
-        JSAMPLE* rowptr = (JSAMPLE*)buffer;
-        int row_count = jpeg_read_tile_scanline(cinfo, index, &rowptr);
-        if (1 != row_count) {
-            return false;
-        }
-    }
-    return true;
-}
-#endif
-
 ///////////////////////////////////////////////////////////////////////////////
 
 // This guy exists just to aid in debugging, as it allows debuggers to just
@@ -330,14 +180,6 @@ static bool return_false(const jpeg_decompress_struct& cinfo,
     print_jpeg_decoder_errors(cinfo, 0, 0, caller);
     return false;
 }
-
-#ifdef SK_BUILD_FOR_ANDROID
-static bool return_false(const jpeg_decompress_struct& cinfo,
-                         const SkBitmap& bm, const char caller[]) {
-    print_jpeg_decoder_errors(cinfo, bm.width(), bm.height(), caller);
-    return false;
-}
-#endif
 
 static SkImageDecoder::Result return_failure(const jpeg_decompress_struct& cinfo,
                                              const SkBitmap& bm, const char caller[]) {
@@ -374,46 +216,22 @@ static void convert_CMYK_to_RGB(uint8_t* scanline, unsigned int width) {
  *  Common code for setting the error manager.
  */
 static void set_error_mgr(jpeg_decompress_struct* cinfo, skjpeg_error_mgr* errorManager) {
-    SkASSERT(cinfo != NULL);
-    SkASSERT(errorManager != NULL);
+    SkASSERT(cinfo != nullptr);
+    SkASSERT(errorManager != nullptr);
     cinfo->err = jpeg_std_error(errorManager);
     errorManager->error_exit = skjpeg_error_exit;
-}
-
-/**
- *  Common code for turning off upsampling and smoothing. Turning these
- *  off helps performance without showing noticable differences in the
- *  resulting bitmap.
- */
-static void turn_off_visual_optimizations(jpeg_decompress_struct* cinfo) {
-    SkASSERT(cinfo != NULL);
-    /* this gives about 30% performance improvement. In theory it may
-       reduce the visual quality, in practice I'm not seeing a difference
-     */
-    cinfo->do_fancy_upsampling = 0;
-
-    /* this gives another few percents */
-    cinfo->do_block_smoothing = 0;
 }
 
 /**
  * Common code for setting the dct method.
  */
 static void set_dct_method(const SkImageDecoder& decoder, jpeg_decompress_struct* cinfo) {
-    SkASSERT(cinfo != NULL);
-#ifdef DCT_IFAST_SUPPORTED
-    if (decoder.getPreferQualityOverSpeed()) {
-        cinfo->dct_method = JDCT_ISLOW;
-    } else {
-        cinfo->dct_method = JDCT_IFAST;
-    }
-#else
+    SkASSERT(cinfo != nullptr);
     cinfo->dct_method = JDCT_ISLOW;
-#endif
 }
 
 SkColorType SkJPEGImageDecoder::getBitmapColorType(jpeg_decompress_struct* cinfo) {
-    SkASSERT(cinfo != NULL);
+    SkASSERT(cinfo != nullptr);
 
     SrcDepth srcDepth = k32Bit_SrcDepth;
     if (JCS_GRAYSCALE == cinfo->jpeg_color_space) {
@@ -473,7 +291,7 @@ SkColorType SkJPEGImageDecoder::getBitmapColorType(jpeg_decompress_struct* cinfo
 static void adjust_out_color_space_and_dither(jpeg_decompress_struct* cinfo,
                                               SkColorType colorType,
                                               const SkImageDecoder& decoder) {
-    SkASSERT(cinfo != NULL);
+    SkASSERT(cinfo != nullptr);
 #ifdef ANDROID_RGB
     cinfo->dither_mode = JDITHER_NONE;
     if (JCS_CMYK == cinfo->out_color_space) {
@@ -513,7 +331,7 @@ static void fill_below_level(int y, SkBitmap* bitmap) {
 static bool get_src_config(const jpeg_decompress_struct& cinfo,
                            SkScaledBitmapSampler::SrcConfig* sc,
                            int* srcBytesPerPixel) {
-    SkASSERT(sc != NULL && srcBytesPerPixel != NULL);
+    SkASSERT(sc != nullptr && srcBytesPerPixel != nullptr);
     if (JCS_CMYK == cinfo.out_color_space) {
         // In this case we will manually convert the CMYK values to RGB
         *sc = SkScaledBitmapSampler::kRGBX;
@@ -578,8 +396,6 @@ SkImageDecoder::Result SkJPEGImageDecoder::onDecode(SkStream* stream, SkBitmap* 
     SkASSERT(1 == cinfo.scale_num);
     cinfo.scale_denom = sampleSize;
 
-    turn_off_visual_optimizations(&cinfo);
-
     const SkColorType colorType = this->getBitmapColorType(&cinfo);
     const SkAlphaType alphaType = kAlpha_8_SkColorType == colorType ?
                                       kPremul_SkAlphaType : kOpaque_SkAlphaType;
@@ -636,7 +452,7 @@ SkImageDecoder::Result SkJPEGImageDecoder::onDecode(SkStream* stream, SkBitmap* 
     if (SkImageDecoder::kDecodeBounds_Mode == mode) {
         return kSuccess;
     }
-    if (!this->allocPixelRef(bm, NULL)) {
+    if (!this->allocPixelRef(bm, nullptr)) {
         return return_failure(cinfo, *bm, "allocPixelRef");
     }
 
@@ -905,8 +721,6 @@ bool SkJPEGImageDecoder::onDecodeYUV8Planes(SkStream* stream, SkISize componentS
     SkASSERT(1 == cinfo.scale_num);
     cinfo.scale_denom = 1;
 
-    turn_off_visual_optimizations(&cinfo);
-
 #ifdef ANDROID_RGB
     cinfo.dither_mode = JDITHER_NONE;
 #endif
@@ -932,247 +746,12 @@ bool SkJPEGImageDecoder::onDecodeYUV8Planes(SkStream* stream, SkISize componentS
     update_components_sizes(cinfo, componentSizes, kActualSize_SizeType);
     jpeg_finish_decompress(&cinfo);
 
-    if (NULL != colorSpace) {
+    if (nullptr != colorSpace) {
         *colorSpace = kJPEG_SkYUVColorSpace;
     }
 
     return true;
 }
-
-///////////////////////////////////////////////////////////////////////////////
-
-#ifdef SK_BUILD_FOR_ANDROID
-bool SkJPEGImageDecoder::onBuildTileIndex(SkStreamRewindable* stream, int *width, int *height) {
-
-    SkAutoTDelete<SkJPEGImageIndex> imageIndex(SkNEW_ARGS(SkJPEGImageIndex, (stream, this)));
-
-    skjpeg_error_mgr sk_err;
-    set_error_mgr(imageIndex->cinfo(), &sk_err);
-
-    // All objects need to be instantiated before this setjmp call so that
-    // they will be cleaned up properly if an error occurs.
-    if (setjmp(sk_err.fJmpBuf)) {
-        return false;
-    }
-
-    // create the cinfo used to create/build the huffmanIndex
-    if (!imageIndex->initializeInfoAndReadHeader()) {
-        return false;
-    }
-
-    if (!imageIndex->buildHuffmanIndex()) {
-        return false;
-    }
-
-    // destroy the cinfo used to create/build the huffman index
-    imageIndex->destroyInfo();
-
-    // Init decoder to image decode mode
-    if (!imageIndex->initializeInfoAndReadHeader()) {
-        return false;
-    }
-
-    jpeg_decompress_struct* cinfo = imageIndex->cinfo();
-    // We have a new cinfo, so set the error mgr again.
-    set_error_mgr(cinfo, &sk_err);
-
-    // FIXME: This sets cinfo->out_color_space, which we may change later
-    // based on the config in onDecodeSubset. This should be fine, since
-    // jpeg_init_read_tile_scanline will check out_color_space again after
-    // that change (when it calls jinit_color_deconverter).
-    (void) this->getBitmapColorType(cinfo);
-
-    turn_off_visual_optimizations(cinfo);
-
-    // instead of jpeg_start_decompress() we start a tiled decompress
-    if (!imageIndex->startTileDecompress()) {
-        return false;
-    }
-
-    SkASSERT(1 == cinfo->scale_num);
-    fImageWidth = cinfo->output_width;
-    fImageHeight = cinfo->output_height;
-
-    if (width) {
-        *width = fImageWidth;
-    }
-    if (height) {
-        *height = fImageHeight;
-    }
-
-    SkDELETE(fImageIndex);
-    fImageIndex = imageIndex.detach();
-
-    return true;
-}
-
-bool SkJPEGImageDecoder::onDecodeSubset(SkBitmap* bm, const SkIRect& region) {
-    if (NULL == fImageIndex) {
-        return false;
-    }
-    jpeg_decompress_struct* cinfo = fImageIndex->cinfo();
-
-    SkIRect rect = SkIRect::MakeWH(fImageWidth, fImageHeight);
-    if (!rect.intersect(region)) {
-        // If the requested region is entirely outside the image return false
-        return false;
-    }
-
-
-    skjpeg_error_mgr errorManager;
-    set_error_mgr(cinfo, &errorManager);
-
-    if (setjmp(errorManager.fJmpBuf)) {
-        return false;
-    }
-
-    int requestedSampleSize = this->getSampleSize();
-    cinfo->scale_denom = requestedSampleSize;
-
-    set_dct_method(*this, cinfo);
-
-    const SkColorType colorType = this->getBitmapColorType(cinfo);
-    adjust_out_color_space_and_dither(cinfo, colorType, *this);
-
-    int startX = rect.fLeft;
-    int startY = rect.fTop;
-    int width = rect.width();
-    int height = rect.height();
-
-    jpeg_init_read_tile_scanline(cinfo, fImageIndex->huffmanIndex(),
-                                 &startX, &startY, &width, &height);
-    int skiaSampleSize = recompute_sampleSize(requestedSampleSize, *cinfo);
-    int actualSampleSize = skiaSampleSize * (DCTSIZE / cinfo->min_DCT_scaled_size);
-
-    SkScaledBitmapSampler sampler(width, height, skiaSampleSize);
-
-    SkBitmap bitmap;
-    // Assume an A8 bitmap is not opaque to avoid the check of each
-    // individual pixel. It is very unlikely to be opaque, since
-    // an opaque A8 bitmap would not be very interesting.
-    // Otherwise, a jpeg image is opaque.
-    bitmap.setInfo(SkImageInfo::Make(sampler.scaledWidth(), sampler.scaledHeight(), colorType,
-                                     kAlpha_8_SkColorType == colorType ?
-                                         kPremul_SkAlphaType : kOpaque_SkAlphaType));
-
-    // Check ahead of time if the swap(dest, src) is possible or not.
-    // If yes, then we will stick to AllocPixelRef since it's cheaper with the
-    // swap happening. If no, then we will use alloc to allocate pixels to
-    // prevent garbage collection.
-    int w = rect.width() / actualSampleSize;
-    int h = rect.height() / actualSampleSize;
-    bool swapOnly = (rect == region) && bm->isNull() &&
-                    (w == bitmap.width()) && (h == bitmap.height()) &&
-                    ((startX - rect.x()) / actualSampleSize == 0) &&
-                    ((startY - rect.y()) / actualSampleSize == 0);
-    if (swapOnly) {
-        if (!this->allocPixelRef(&bitmap, NULL)) {
-            return return_false(*cinfo, bitmap, "allocPixelRef");
-        }
-    } else {
-        if (!bitmap.tryAllocPixels()) {
-            return return_false(*cinfo, bitmap, "allocPixels");
-        }
-    }
-
-    SkAutoLockPixels alp(bitmap);
-
-#ifdef ANDROID_RGB
-    /* short-circuit the SkScaledBitmapSampler when possible, as this gives
-       a significant performance boost.
-    */
-    if (skiaSampleSize == 1 &&
-        ((kN32_SkColorType == colorType && cinfo->out_color_space == JCS_RGBA_8888) ||
-         (kRGB_565_SkColorType == colorType && cinfo->out_color_space == JCS_RGB_565)))
-    {
-        JSAMPLE* rowptr = (JSAMPLE*)bitmap.getPixels();
-        INT32 const bpr = bitmap.rowBytes();
-        int rowTotalCount = 0;
-
-        while (rowTotalCount < height) {
-            int rowCount = jpeg_read_tile_scanline(cinfo,
-                                                   fImageIndex->huffmanIndex(),
-                                                   &rowptr);
-            // if rowCount == 0, then we didn't get a scanline, so abort.
-            // onDecodeSubset() relies on onBuildTileIndex(), which
-            // needs a complete image to succeed.
-            if (0 == rowCount) {
-                return return_false(*cinfo, bitmap, "read_scanlines");
-            }
-            if (this->shouldCancelDecode()) {
-                return return_false(*cinfo, bitmap, "shouldCancelDecode");
-            }
-            rowTotalCount += rowCount;
-            rowptr += bpr;
-        }
-
-        if (swapOnly) {
-            bm->swap(bitmap);
-            return true;
-        }
-
-        return cropBitmap(bm, &bitmap, actualSampleSize, region.x(), region.y(),
-                          region.width(), region.height(), startX, startY);
-    }
-#endif
-
-    // check for supported formats
-    SkScaledBitmapSampler::SrcConfig sc;
-    int srcBytesPerPixel;
-
-    if (!get_src_config(*cinfo, &sc, &srcBytesPerPixel)) {
-        return return_false(*cinfo, *bm, "jpeg colorspace");
-    }
-
-    if (!sampler.begin(&bitmap, sc, *this)) {
-        return return_false(*cinfo, bitmap, "sampler.begin");
-    }
-
-    SkAutoMalloc  srcStorage(width * srcBytesPerPixel);
-    uint8_t* srcRow = (uint8_t*)srcStorage.get();
-
-    //  Possibly skip initial rows [sampler.srcY0]
-    if (!skip_src_rows_tile(cinfo, fImageIndex->huffmanIndex(), srcRow, sampler.srcY0())) {
-        return return_false(*cinfo, bitmap, "skip rows");
-    }
-
-    // now loop through scanlines until y == bitmap->height() - 1
-    for (int y = 0;; y++) {
-        JSAMPLE* rowptr = (JSAMPLE*)srcRow;
-        int row_count = jpeg_read_tile_scanline(cinfo, fImageIndex->huffmanIndex(), &rowptr);
-        // if row_count == 0, then we didn't get a scanline, so abort.
-        // onDecodeSubset() relies on onBuildTileIndex(), which
-        // needs a complete image to succeed.
-        if (0 == row_count) {
-            return return_false(*cinfo, bitmap, "read_scanlines");
-        }
-        if (this->shouldCancelDecode()) {
-            return return_false(*cinfo, bitmap, "shouldCancelDecode");
-        }
-
-        if (JCS_CMYK == cinfo->out_color_space) {
-            convert_CMYK_to_RGB(srcRow, width);
-        }
-
-        sampler.next(srcRow);
-        if (bitmap.height() - 1 == y) {
-            // we're done
-            break;
-        }
-
-        if (!skip_src_rows_tile(cinfo, fImageIndex->huffmanIndex(), srcRow,
-                                sampler.srcDY() - 1)) {
-            return return_false(*cinfo, bitmap, "skip rows");
-        }
-    }
-    if (swapOnly) {
-        bm->swap(bitmap);
-        return true;
-    }
-    return cropBitmap(bm, &bitmap, actualSampleSize, region.x(), region.y(),
-                      region.width(), region.height(), startX, startY);
-}
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -1336,7 +915,7 @@ static WriteScanline ChooseWriter(const SkBitmap& bm) {
         case kIndex_8_SkColorType:
             return Write_Index_YUV;
         default:
-            return NULL;
+            return nullptr;
     }
 }
 
@@ -1348,7 +927,7 @@ protected:
 #endif
 
         SkAutoLockPixels alp(bm);
-        if (NULL == bm.getPixels()) {
+        if (nullptr == bm.getPixels()) {
             return false;
         }
 
@@ -1367,7 +946,7 @@ protected:
 
         // Keep after setjmp or mark volatile.
         const WriteScanline writer = ChooseWriter(bm);
-        if (NULL == writer) {
+        if (nullptr == writer) {
             return false;
         }
 
@@ -1394,7 +973,7 @@ protected:
         const int       width = bm.width();
         uint8_t*        oneRowP = (uint8_t*)oneRow.reset(width * 3);
 
-        const SkPMColor* colors = bm.getColorTable() ? bm.getColorTable()->readColors() : NULL;
+        const SkPMColor* colors = bm.getColorTable() ? bm.getColorTable()->readColors() : nullptr;
         const void*      srcRow = bm.getPixels();
 
         while (cinfo.next_scanline < cinfo.image_height) {
@@ -1437,9 +1016,9 @@ static bool is_jpeg(SkStreamRewindable* stream) {
 
 static SkImageDecoder* sk_libjpeg_dfactory(SkStreamRewindable* stream) {
     if (is_jpeg(stream)) {
-        return SkNEW(SkJPEGImageDecoder);
+        return new SkJPEGImageDecoder;
     }
-    return NULL;
+    return nullptr;
 }
 
 static SkImageDecoder::Format get_format_jpeg(SkStreamRewindable* stream) {
@@ -1450,7 +1029,7 @@ static SkImageDecoder::Format get_format_jpeg(SkStreamRewindable* stream) {
 }
 
 static SkImageEncoder* sk_libjpeg_efactory(SkImageEncoder::Type t) {
-    return (SkImageEncoder::kJPEG_Type == t) ? SkNEW(SkJPEGImageEncoder) : NULL;
+    return (SkImageEncoder::kJPEG_Type == t) ? new SkJPEGImageEncoder : nullptr;
 }
 
 static SkImageDecoder_DecodeReg gDReg(sk_libjpeg_dfactory);

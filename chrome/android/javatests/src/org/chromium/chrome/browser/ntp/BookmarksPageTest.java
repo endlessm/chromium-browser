@@ -14,13 +14,13 @@ import org.chromium.base.ThreadUtils;
 import org.chromium.base.test.util.CommandLineFlags;
 import org.chromium.base.test.util.DisabledTest;
 import org.chromium.chrome.R;
-import org.chromium.chrome.browser.BookmarksBridge.BookmarkItem;
 import org.chromium.chrome.browser.ChromeSwitches;
-import org.chromium.chrome.browser.Tab;
 import org.chromium.chrome.browser.UrlConstants;
 import org.chromium.chrome.browser.bookmark.AddEditBookmarkFragment;
+import org.chromium.chrome.browser.bookmark.BookmarksBridge.BookmarkItem;
 import org.chromium.chrome.browser.bookmark.ManageBookmarkActivity;
 import org.chromium.chrome.browser.bookmark.SelectBookmarkFolderFragment;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.test.ChromeTabbedActivityTestBase;
 import org.chromium.chrome.test.util.ActivityUtils;
 import org.chromium.chrome.test.util.BookmarkTestUtils;
@@ -115,7 +115,7 @@ public class BookmarksPageTest extends ChromeTabbedActivityTestBase {
         addBookmark();
         BookmarkItemView itemView = (BookmarkItemView) BookmarkTestUtils.getViewWithText(
                 mBookmarksList, TEST_PAGE_TITLE);
-        TouchCommon.longPressView(itemView, itemView.getWidth() / 2, itemView.getHeight() / 2);
+        TouchCommon.longPressView(itemView);
     }
 
     private String getCurrentFolderTitle() {
@@ -184,6 +184,7 @@ public class BookmarksPageTest extends ChromeTabbedActivityTestBase {
                 mBookmarksList, TEST_PAGE_TITLE));
     }
 
+    @DisabledTest // Fails on android-one: crbug.com/540728
     @LargeTest
     public void testNavigateFoldersInFolderHierarchy() throws InterruptedException {
         addFolderAndAddBookmark();

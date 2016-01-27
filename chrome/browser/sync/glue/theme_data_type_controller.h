@@ -13,9 +13,9 @@ namespace browser_sync {
 
 class ThemeDataTypeController : public sync_driver::UIDataTypeController {
  public:
-  ThemeDataTypeController(
-      sync_driver::SyncApiComponentFactory* sync_factory,
-      Profile* profile);
+  ThemeDataTypeController(const base::Closure& error_callback,
+                          sync_driver::SyncClient* sync_client,
+                          Profile* profile);
 
  private:
   ~ThemeDataTypeController() override;

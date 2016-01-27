@@ -14,9 +14,6 @@
 #include "base/sequenced_task_runner.h"
 #include "base/strings/stringprintf.h"
 #include "base/task_runner_util.h"
-#include "chrome/browser/drive/drive_api_util.h"
-#include "chrome/browser/drive/drive_service_interface.h"
-#include "chrome/browser/drive/drive_uploader.h"
 #include "chrome/browser/sync_file_system/drive_backend/callback_helper.h"
 #include "chrome/browser/sync_file_system/drive_backend/drive_backend_constants.h"
 #include "chrome/browser/sync_file_system/drive_backend/drive_backend_util.h"
@@ -27,6 +24,9 @@
 #include "chrome/browser/sync_file_system/drive_backend/sync_task_manager.h"
 #include "chrome/browser/sync_file_system/drive_backend/sync_task_token.h"
 #include "chrome/browser/sync_file_system/logger.h"
+#include "components/drive/drive_api_util.h"
+#include "components/drive/drive_uploader.h"
+#include "components/drive/service/drive_service_interface.h"
 #include "google_apis/drive/drive_api_parser.h"
 #include "net/base/mime_util.h"
 #include "storage/common/fileapi/file_system_util.h"
@@ -148,9 +148,9 @@ void LocalToRemoteSyncer::RunPreflight(scoped_ptr<SyncTaskToken> token) {
   } else if (active_ancestor_path != path) {
     if (!active_ancestor_path.AppendRelativePath(path, &missing_entries)) {
       NOTREACHED();
-      token->RecordLog(base::StringPrintf(
-          "Detected invalid ancestor: %s",
-          active_ancestor_path.value().c_str()));
+      token->RecordLog(
+          base::StringPrintf("Detected invalid ancestor: %" PRIsFP,
+                             active_ancestor_path.value().c_str()));
       SyncTaskManager::NotifyTaskDone(token.Pass(), SYNC_STATUS_FAILED);
       return;
     }

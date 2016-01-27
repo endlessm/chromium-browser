@@ -63,8 +63,10 @@ class BrowserFrame
   // Returns the inset of the topmost view in the client view from the top of
   // the non-client view. The topmost view depends on the window type. The
   // topmost view is the tab strip for tabbed browser windows, the toolbar for
-  // popups, the web contents for app windows and varies for fullscreen windows
-  int GetTopInset() const;
+  // popups, the web contents for app windows and varies for fullscreen windows.
+  // If |restored| is true, this is calculated as if the window was restored,
+  // regardless of its current state.
+  int GetTopInset(bool restored) const;
 
   // Returns the amount that the theme background should be inset.
   int GetThemeBackgroundXInset() const;
@@ -108,14 +110,11 @@ class BrowserFrame
                               const gfx::Point& p,
                               ui::MenuSourceType source_type) override;
 
-  // Returns true if we should leave any offset at the frame caption. Typically
-  // when the frame is maximized/full screen we want to leave no offset at the
-  // top.
-  bool ShouldLeaveOffsetNearTopBorder();
-
   AvatarMenuButton* GetAvatarMenuButton();
 
+#if defined(FRAME_AVATAR_BUTTON)
   NewAvatarButton* GetNewAvatarMenuButton();
+#endif
 
   // Returns the menu model. BrowserFrame owns the returned model.
   // Note that in multi user mode this will upon each call create a new model.

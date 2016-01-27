@@ -52,12 +52,21 @@ public:
     // Used when we might swap from a remote frame to a local frame.
     // Creates a provisional, semi-attached frame that will be fully
     // swapped into the frame tree if it commits.
-    virtual void initializeToReplaceRemoteFrame(WebRemoteFrame*, const WebString& name, WebSandboxFlags) = 0;
+    virtual void initializeToReplaceRemoteFrame(WebRemoteFrame*, const WebString& name, WebSandboxFlags, const WebFrameOwnerProperties&) = 0;
 
     virtual void setAutofillClient(WebAutofillClient*) = 0;
     virtual WebAutofillClient* autofillClient() = 0;
     virtual void setDevToolsAgentClient(WebDevToolsAgentClient*) = 0;
     virtual WebDevToolsAgent* devToolsAgent() = 0;
+
+    // Basic properties ---------------------------------------------------
+
+    // Updates the scrolling and margin properties in the frame's FrameOwner.
+    // This is used when this frame's parent is in another process and it
+    // dynamically updates these properties.
+    // TODO(dcheng): Currently, the update only takes effect on next frame
+    // navigation.  This matches the in-process frame behavior.
+    virtual void setFrameOwnerProperties(const WebFrameOwnerProperties&) = 0;
 
     // Navigation Ping --------------------------------------------------------
     virtual void sendPings(const WebNode& contextNode, const WebURL& destinationURL) = 0;
@@ -90,6 +99,17 @@ public:
     // primarily for use in layout tests. You probably want isLoading()
     // instead.
     virtual bool isResourceLoadInProgress() const = 0;
+
+    // Returns true if there is a pending redirect or location change.
+    // This could be caused by:
+    // * an HTTP Refresh header
+    // * an X-Frame-Options header
+    // * the respective http-equiv meta tags
+    // * window.location value being mutated
+    // * CSP policy block
+    // * reload
+    // * form submission
+    virtual bool isNavigationScheduled() const = 0;
 
     // Override the normal rules for whether a load has successfully committed
     // in this frame. Used to propagate state when this frame has navigated
@@ -151,8 +171,13 @@ public:
 
     // Image reload -----------------------------------------------------------
 
-    // If the provided node is an image, reload the image bypassing the cache.
+    // If the provided node is an image, reload the image disabling Lo-Fi.
     virtual void reloadImage(const WebNode&) = 0;
+
+    // Feature usage logging --------------------------------------------------
+
+    virtual void didCallAddSearchProvider() = 0;
+    virtual void didCallIsSearchProviderInstalled() = 0;
 
     // Testing ----------------------------------------------------------------
 

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<!--
+Copyright (c) 2011 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+<head>
+<title>PerfInsights Viewer</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+
+<script src="/components/webcomponentsjs/webcomponents.js"></script>
+
+<style>
+  html,
+  body {
+    box-sizing: border-box;
+    overflow: hidden;
+    margin: 0px;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    font-family: sans-serif;
+  }
+
+  body > pi-ui-pi-app-main {
+    width: 100%;
+    height: 100%;
+  }
+</style>
+
+<link rel="import" href="/components/polymer/polymer.html">
+<link rel="import" href="/perf_insights/ui/perf_insights_full_config.html">
+<link rel="import" href="/perf_insights/ui/pi_app_main.html">
+<link rel="import" href="/tracing/base/xhr.html">
+<link rel="import" href="/perf_insights/function_handle.html">
+
+</head>
+<body>
+  <pi-ui-pi-app-main>
+  </pi-ui-pi-app-main>
+
+  <script>
+  'use strict';
+
+  var g_appMain;
+
+  function domContentLoaded() {
+    function devServerDriver(mapFunctionName, corpusQuery) {
+      return tr.b.getAsync(
+          '/perf_insights_examples/run_map_function/' +
+          mapFunctionName + '?corpus_query=' + encodeURIComponent(corpusQuery));
+    }
+
+    g_appMain = document.body.querySelector('pi-ui-pi-app-main');
+    g_appMain.mapTracesDrivers = [devServerDriver];
+  }
+
+  document.addEventListener('DOMContentLoaded', domContentLoaded);
+  </script>
+</body>
+</html>

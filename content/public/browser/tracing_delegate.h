@@ -9,6 +9,7 @@
 #include "content/common/content_export.h"
 
 namespace base {
+class DictionaryValue;
 class Time;
 }
 
@@ -17,7 +18,7 @@ class URLRequestContextGetter;
 }
 
 namespace content {
-struct BackgroundTracingConfig;
+class BackgroundTracingConfig;
 class TraceUploader;
 
 // This can be implemented by the embedder to provide functionality for the
@@ -38,6 +39,9 @@ class CONTENT_EXPORT TracingDelegate {
   virtual bool IsAllowedToEndBackgroundScenario(
       const content::BackgroundTracingConfig& config,
       bool requires_anonymized_data);
+
+  // Used to add any additional metadata to traces.
+  virtual void GenerateMetadataDict(base::DictionaryValue* metadata_dict) {}
 };
 
 }  // namespace content

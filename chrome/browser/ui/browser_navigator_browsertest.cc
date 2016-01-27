@@ -15,17 +15,18 @@
 #include "chrome/browser/ui/browser_commands.h"
 #include "chrome/browser/ui/browser_finder.h"
 #include "chrome/browser/ui/browser_navigator.h"
+#include "chrome/browser/ui/browser_navigator_params.h"
 #include "chrome/browser/ui/browser_tabstrip.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/chrome_pages.h"
 #include "chrome/browser/ui/location_bar/location_bar.h"
-#include "chrome/browser/ui/omnibox/omnibox_view.h"
 #include "chrome/browser/ui/singleton_tabs.h"
 #include "chrome/browser/ui/tabs/tab_strip_model.h"
 #include "chrome/common/chrome_switches.h"
 #include "chrome/common/pref_names.h"
 #include "chrome/common/url_constants.h"
 #include "chrome/test/base/ui_test_utils.h"
+#include "components/omnibox/browser/omnibox_view.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_types.h"
 #include "content/public/browser/web_contents.h"
@@ -202,6 +203,10 @@ void BrowserNavigatorTest::SetUpCommandLine(base::CommandLine* command_line) {
   // Disable settings-in-a-window so that we can use the settings page and
   // sub-pages to test browser navigation.
   command_line->AppendSwitch(::switches::kDisableSettingsWindow);
+
+  // Disable new downloads UI as it is very very slow. https://crbug.com/526577
+  // TODO(dbeam): remove this once the downloads UI is not slow.
+  command_line->AppendSwitch(switches::kDisableMaterialDesignDownloads);
 }
 
 void BrowserNavigatorTest::Observe(

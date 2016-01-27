@@ -12,11 +12,12 @@
 #include "base/basictypes.h"
 #include "base/compiler_specific.h"
 #include "chrome/browser/android/bookmarks/partner_bookmarks_shim.h"
-#include "chrome/browser/bookmarks/chrome_bookmark_client.h"
 #include "components/bookmarks/browser/base_bookmark_model_observer.h"
 #include "components/bookmarks/common/android/bookmark_id.h"
 
 namespace bookmarks {
+class BookmarkModel;
+class ManagedBookmarkService;
 class ScopedGroupBookmarkActions;
 }
 
@@ -34,6 +35,8 @@ class BookmarksBridge : public bookmarks::BaseBookmarkModelObserver,
   static bool RegisterBookmarksBridge(JNIEnv* env);
 
   bool IsDoingExtensiveChanges(JNIEnv* env, jobject obj);
+
+  jboolean IsEditBookmarksEnabled(JNIEnv* env, jobject obj);
 
   void LoadEmptyPartnerBookmarkShimForTesting(JNIEnv* env, jobject obj);
 
@@ -82,6 +85,8 @@ class BookmarksBridge : public bookmarks::BaseBookmarkModelObserver,
                    jboolean get_bookmarks,
                    jobject j_result_obj);
 
+  jint GetChildCount(JNIEnv* env, jobject obj, jlong id, jint type);
+
   base::android::ScopedJavaLocalRef<jobject> GetChildAt(JNIEnv* env,
                                                         jobject obj,
                                                         jlong id,
@@ -119,6 +124,11 @@ class BookmarksBridge : public bookmarks::BaseBookmarkModelObserver,
                                  jobject j_folder_id_obj,
                                  jobject j_callback_obj,
                                  jobject j_result_obj);
+  void SearchBookmarks(JNIEnv* env,
+                       jobject obj,
+                       jobject j_list,
+                       jstring j_query,
+                       jint max_results);
 
   base::android::ScopedJavaLocalRef<jobject> AddFolder(JNIEnv* env,
                                                        jobject obj,
@@ -160,6 +170,7 @@ class BookmarksBridge : public bookmarks::BaseBookmarkModelObserver,
   const bookmarks::BookmarkNode* GetNodeByID(long node_id, int type);
   const bookmarks::BookmarkNode* GetFolderWithFallback(long folder_id,
                                                        int type);
+  bool IsEditBookmarksEnabled() const;
   // Returns whether |node| can be modified by the user.
   bool IsEditable(const bookmarks::BookmarkNode* node) const;
   // Returns whether |node| is a managed bookmark.
@@ -212,7 +223,7 @@ class BookmarksBridge : public bookmarks::BaseBookmarkModelObserver,
   Profile* profile_;
   JavaObjectWeakGlobalRef weak_java_ref_;
   bookmarks::BookmarkModel* bookmark_model_;  // weak
-  ChromeBookmarkClient* client_;   // weak
+  bookmarks::ManagedBookmarkService* managed_bookmark_service_;  // weak
   scoped_ptr<bookmarks::ScopedGroupBookmarkActions> grouped_bookmark_actions_;
 
   // Information about the Partner bookmarks (must check for IsLoaded()).

@@ -69,8 +69,10 @@ class StartPageService : public KeyedService,
 
   void AppListShown();
   void AppListHidden();
-  void ToggleSpeechRecognition(
+
+  void StartSpeechRecognition(
       const scoped_refptr<content::SpeechRecognitionSessionPreamble>& preamble);
+  void StopSpeechRecognition();
 
   // Called when the WebUI has finished loading.
   void WebUILoaded();
@@ -143,6 +145,11 @@ class StartPageService : public KeyedService,
   void DidNavigateMainFrame(
       const content::LoadCommittedDetails& details,
       const content::FrameNavigateParams& params) override;
+  void DidFailProvisionalLoad(content::RenderFrameHost* render_frame_host,
+                              const GURL& validated_url,
+                              int error_code,
+                              const base::string16& error_description,
+                              bool was_ignored_by_handler) override;
 
   // Change the known microphone availability. |available| should be true if
   // the microphone exists and is available for use.

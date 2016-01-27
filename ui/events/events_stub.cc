@@ -56,6 +56,11 @@ int GetChangedMouseButtonFlagsFromNative(
   return 0;
 }
 
+PointerDetails GetMousePointerDetailsFromNative(
+    const base::NativeEvent& native_event) {
+  return PointerDetails(EventPointerType::POINTER_TYPE_MOUSE);
+}
+
 gfx::Vector2d GetMouseWheelOffset(const base::NativeEvent& native_event) {
   NOTIMPLEMENTED();
   return gfx::Vector2d();
@@ -127,11 +132,6 @@ KeyboardCode KeyboardCodeFromNative(const base::NativeEvent& native_event) {
 DomCode CodeFromNative(const base::NativeEvent& native_event) {
   NOTIMPLEMENTED();
   return DomCode::NONE;
-}
-
-uint32 PlatformKeycodeFromNative(const base::NativeEvent& native_event) {
-  NOTIMPLEMENTED();
-  return 0;
 }
 
 bool IsCharFromNative(const base::NativeEvent& native_event) {

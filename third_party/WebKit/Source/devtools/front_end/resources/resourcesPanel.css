@@ -96,12 +96,6 @@ li.selected .base-storage-tree-element-subtitle {
     line-height: 1em;
 }
 
-.resources.panel li .status .bubble-repeat-count {
-    height: 13px;
-    margin-top: 1px;
-    padding-top: 0;
-}
-
 .storage-view {
     display: flex;
     overflow: hidden;
@@ -154,7 +148,7 @@ li.selected .base-storage-tree-element-subtitle {
     margin-top: -7px;
     -webkit-user-select: none;
     background-image: url(Images/toolbarButtonGlyphs.png);
-    background-size: 352px 144px;
+    background-size: 352px 168px;
 }
 
 @media (-webkit-min-device-pixel-ratio: 1.5) {

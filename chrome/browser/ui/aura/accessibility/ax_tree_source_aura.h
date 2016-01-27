@@ -10,6 +10,7 @@
 #include "base/basictypes.h"
 #include "base/memory/scoped_ptr.h"
 #include "chrome/browser/ui/aura/accessibility/ax_root_obj_wrapper.h"
+#include "ui/accessibility/ax_tree_data.h"
 #include "ui/accessibility/ax_tree_source.h"
 
 namespace views {
@@ -18,7 +19,10 @@ class AXAuraObjWrapper;
 
 // This class exposes the views hierarchy as an accessibility tree permitting
 // use with other accessibility classes.
-class AXTreeSourceAura : public ui::AXTreeSource<views::AXAuraObjWrapper*> {
+class AXTreeSourceAura
+    : public ui::AXTreeSource<views::AXAuraObjWrapper*,
+                              ui::AXNodeData,
+                              ui::AXTreeData> {
  public:
   AXTreeSourceAura();
   ~AXTreeSourceAura() override;
@@ -31,6 +35,7 @@ class AXTreeSourceAura : public ui::AXTreeSource<views::AXAuraObjWrapper*> {
   void ShowContextMenu(int32 id);
 
   // AXTreeSource implementation.
+  ui::AXTreeData GetTreeData() const override;
   views::AXAuraObjWrapper* GetRoot() const override;
   views::AXAuraObjWrapper* GetFromId(int32 id) const override;
   int32 GetId(views::AXAuraObjWrapper* node) const override;

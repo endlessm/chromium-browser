@@ -46,9 +46,6 @@ WebInspector.RuntimeModel = function(target)
      */
     this._executionContextById = {};
 
-    if (!Runtime.experiments.isEnabled("customObjectFormatters"))
-        return;
-
     if (WebInspector.moduleSetting("customFormatters").get())
         this._agent.setCustomObjectFormatterEnabled(true);
 
@@ -200,7 +197,7 @@ WebInspector.RuntimeDispatcher.prototype = {
  * @constructor
  * @extends {WebInspector.SDKObject}
  * @param {!WebInspector.Target} target
- * @param {number|undefined} id
+ * @param {number} id
  * @param {string} name
  * @param {string} origin
  * @param {boolean} isPageContext
@@ -325,11 +322,13 @@ WebInspector.ExecutionContext.prototype = {
 
     /**
      * @param {string} expressionString
+     * @param {string} text
+     * @param {number} cursorOffset
      * @param {string} prefix
      * @param {boolean} force
      * @param {function(!Array.<string>, number=)} completionsReadyCallback
      */
-    completionsForExpression: function(expressionString, prefix, force, completionsReadyCallback)
+    completionsForExpression: function(expressionString, text, cursorOffset, prefix, force, completionsReadyCallback)
     {
         var lastIndex = expressionString.length - 1;
 
@@ -493,20 +492,26 @@ WebInspector.ExecutionContext.prototype = {
 /**
  * @constructor
  * @extends {WebInspector.SDKObject}
- * @param {!WebInspector.DebuggerModel} debuggerModel
- * @param {!DOMDebuggerAgent.EventListener} payload
- * @param {!RuntimeAgent.RemoteObjectId} objectId
+ * @param {!WebInspector.Target} target
+ * @param {string} type
+ * @param {boolean} useCapture
+ * @param {?WebInspector.RemoteObject} handler
+ * @param {?WebInspector.RemoteObject} originalHandler
+ * @param {!WebInspector.DebuggerModel.Location} location
+ * @param {?WebInspector.RemoteObject} removeFunction
+ * @param {string=} listenerType
  */
-WebInspector.EventListener = function(debuggerModel, payload, objectId)
+WebInspector.EventListener = function(target, type, useCapture, handler, originalHandler, location, removeFunction, listenerType)
 {
-    WebInspector.SDKObject.call(this, debuggerModel.target());
-    this._type = payload.type;
-    this._useCapture = payload.useCapture;
-    this._location = WebInspector.DebuggerModel.Location.fromPayload(debuggerModel, payload.location);
-    this._handler = payload.handler ? this.target().runtimeModel.createRemoteObject(payload.handler) : null;
-    var script = debuggerModel.scriptForId(payload.location.scriptId);
-    this._sourceName = script ? script.contentURL() : "";
-    this._objectId = objectId;
+    WebInspector.SDKObject.call(this, target);
+    this._type = type;
+    this._useCapture = useCapture;
+    this._handler = handler;
+    this._originalHandler = originalHandler || handler;
+    this._location = location;
+    this._sourceURL = location.script().contentURL();
+    this._removeFunction = removeFunction;
+    this._listenerType = listenerType || "normal";
 }
 
 WebInspector.EventListener.prototype = {
@@ -527,14 +532,6 @@ WebInspector.EventListener.prototype = {
     },
 
     /**
-     * @return {!WebInspector.DebuggerModel.Location}
-     */
-    location: function()
-    {
-        return this._location;
-    },
-
-    /**
      * @return {?WebInspector.RemoteObject}
      */
     handler: function()
@@ -543,20 +540,87 @@ WebInspector.EventListener.prototype = {
     },
 
     /**
-     * @return {string}
+     * @return {!WebInspector.DebuggerModel.Location}
      */
-    sourceName: function()
+    location: function()
     {
-        return this._sourceName;
+        return this._location;
     },
 
     /**
-     * @return {!RuntimeAgent.RemoteObjectId}
+     * @return {string}
      */
-     objectId: function()
-     {
-        return this._objectId;
-     },
+    sourceURL: function()
+    {
+        return this._sourceURL;
+    },
+
+    /**
+     * @return {?WebInspector.RemoteObject}
+     */
+    originalHandler: function()
+    {
+        return this._originalHandler;
+    },
+
+    /**
+     * @return {?WebInspector.RemoteObject}
+     */
+    removeFunction: function()
+    {
+        return this._removeFunction;
+    },
+
+    /**
+     * @return {!Promise<undefined>}
+     */
+    remove: function()
+    {
+        if (!this._removeFunction)
+            return Promise.resolve();
+        return new Promise(promiseConstructor.bind(this));
+
+        /**
+         * @param {function()} success
+         * @this {WebInspector.EventListener}
+         */
+        function promiseConstructor(success)
+        {
+            this._removeFunction.callFunction(callCustomRemove, [
+                WebInspector.RemoteObject.toCallArgument(this._removeFunction),
+                WebInspector.RemoteObject.toCallArgument(this._type),
+                WebInspector.RemoteObject.toCallArgument(this._originalHandler),
+                WebInspector.RemoteObject.toCallArgument(this._useCapture)
+            ], success);
+
+            /**
+             * @param {function(string, function(), boolean)} func
+             * @param {string} type
+             * @param {function()} listener
+             * @param {boolean} useCapture
+             */
+            function callCustomRemove(func, type, listener, useCapture)
+            {
+                func.call(null, type, listener, useCapture);
+            }
+        }
+    },
+
+    /**
+     * @return {string}
+     */
+    listenerType: function()
+    {
+        return this._listenerType;
+    },
+
+    /**
+     * @param {string} listenerType
+     */
+    setListenerType: function(listenerType)
+    {
+        this._listenerType = listenerType;
+    },
 
     __proto__: WebInspector.SDKObject.prototype
 }

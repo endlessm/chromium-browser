@@ -14,8 +14,10 @@
 
 #include "webrtc/base/arraysize.h"
 #include "webrtc/base/checks.h"
+#include "webrtc/base/format_macros.h"
+#include "webrtc/base/timeutils.h"
 #include "webrtc/modules/audio_device/android/audio_manager.h"
-#include "webrtc/modules/audio_device/android/fine_audio_buffer.h"
+#include "webrtc/modules/audio_device/fine_audio_buffer.h"
 
 #define TAG "OpenSLESPlayer"
 #define ALOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, TAG, __VA_ARGS__)
@@ -45,7 +47,8 @@ OpenSLESPlayer::OpenSLESPlayer(AudioManager* audio_manager)
       engine_(nullptr),
       player_(nullptr),
       simple_buffer_queue_(nullptr),
-      volume_(nullptr) {
+      volume_(nullptr),
+      last_play_time_(0) {
   ALOGD("ctor%s", GetThreadInfo().c_str());
   // Use native audio output parameters provided by the audio manager and
   // define the PCM format structure.
@@ -59,49 +62,50 @@ OpenSLESPlayer::OpenSLESPlayer(AudioManager* audio_manager)
 
 OpenSLESPlayer::~OpenSLESPlayer() {
   ALOGD("dtor%s", GetThreadInfo().c_str());
-  DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
   Terminate();
   DestroyAudioPlayer();
   DestroyMix();
   DestroyEngine();
-  DCHECK(!engine_object_.Get());
-  DCHECK(!engine_);
-  DCHECK(!output_mix_.Get());
-  DCHECK(!player_);
-  DCHECK(!simple_buffer_queue_);
-  DCHECK(!volume_);
+  RTC_DCHECK(!engine_object_.Get());
+  RTC_DCHECK(!engine_);
+  RTC_DCHECK(!output_mix_.Get());
+  RTC_DCHECK(!player_);
+  RTC_DCHECK(!simple_buffer_queue_);
+  RTC_DCHECK(!volume_);
 }
 
 int OpenSLESPlayer::Init() {
   ALOGD("Init%s", GetThreadInfo().c_str());
-  DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
   return 0;
 }
 
 int OpenSLESPlayer::Terminate() {
   ALOGD("Terminate%s", GetThreadInfo().c_str());
-  DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
   StopPlayout();
   return 0;
 }
 
 int OpenSLESPlayer::InitPlayout() {
   ALOGD("InitPlayout%s", GetThreadInfo().c_str());
-  DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK(!initialized_);
-  DCHECK(!playing_);
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(!initialized_);
+  RTC_DCHECK(!playing_);
   CreateEngine();
   CreateMix();
   initialized_ = true;
   buffer_index_ = 0;
+  last_play_time_ = rtc::Time();
   return 0;
 }
 
 int OpenSLESPlayer::StartPlayout() {
   ALOGD("StartPlayout%s", GetThreadInfo().c_str());
-  DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK(initialized_);
-  DCHECK(!playing_);
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(initialized_);
+  RTC_DCHECK(!playing_);
   // The number of lower latency audio players is limited, hence we create the
   // audio player in Start() and destroy it in Stop().
   CreateAudioPlayer();
@@ -117,13 +121,13 @@ int OpenSLESPlayer::StartPlayout() {
   // state, adding buffers will implicitly start playback.
   RETURN_ON_ERROR((*player_)->SetPlayState(player_, SL_PLAYSTATE_PLAYING), -1);
   playing_ = (GetPlayState() == SL_PLAYSTATE_PLAYING);
-  DCHECK(playing_);
+  RTC_DCHECK(playing_);
   return 0;
 }
 
 int OpenSLESPlayer::StopPlayout() {
   ALOGD("StopPlayout%s", GetThreadInfo().c_str());
-  DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
   if (!initialized_ || !playing_) {
     return 0;
   }
@@ -135,8 +139,8 @@ int OpenSLESPlayer::StopPlayout() {
   // Verify that the buffer queue is in fact cleared as it should.
   SLAndroidSimpleBufferQueueState buffer_queue_state;
   (*simple_buffer_queue_)->GetState(simple_buffer_queue_, &buffer_queue_state);
-  DCHECK_EQ(0u, buffer_queue_state.count);
-  DCHECK_EQ(0u, buffer_queue_state.index);
+  RTC_DCHECK_EQ(0u, buffer_queue_state.count);
+  RTC_DCHECK_EQ(0u, buffer_queue_state.index);
 #endif
   // The number of lower latency audio players is limited, hence we create the
   // audio player in Start() and destroy it in Stop().
@@ -170,7 +174,7 @@ int OpenSLESPlayer::SpeakerVolume(uint32_t& volume) const {
 
 void OpenSLESPlayer::AttachAudioBuffer(AudioDeviceBuffer* audioBuffer) {
   ALOGD("AttachAudioBuffer");
-  DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
   audio_device_buffer_ = audioBuffer;
   const int sample_rate_hz = audio_parameters_.sample_rate();
   ALOGD("SetPlayoutSampleRate(%d)", sample_rate_hz);
@@ -178,15 +182,16 @@ void OpenSLESPlayer::AttachAudioBuffer(AudioDeviceBuffer* audioBuffer) {
   const int channels = audio_parameters_.channels();
   ALOGD("SetPlayoutChannels(%d)", channels);
   audio_device_buffer_->SetPlayoutChannels(channels);
-  CHECK(audio_device_buffer_);
+  RTC_CHECK(audio_device_buffer_);
   AllocateDataBuffers();
 }
 
-SLDataFormat_PCM OpenSLESPlayer::CreatePCMConfiguration(int channels,
-                                                        int sample_rate,
-                                                        int bits_per_sample) {
+SLDataFormat_PCM OpenSLESPlayer::CreatePCMConfiguration(
+    int channels,
+    int sample_rate,
+    size_t bits_per_sample) {
   ALOGD("CreatePCMConfiguration");
-  CHECK_EQ(bits_per_sample, SL_PCMSAMPLEFORMAT_FIXED_16);
+  RTC_CHECK_EQ(bits_per_sample, SL_PCMSAMPLEFORMAT_FIXED_16);
   SLDataFormat_PCM format;
   format.formatType = SL_DATAFORMAT_PCM;
   format.numChannels = static_cast<SLuint32>(channels);
@@ -211,7 +216,7 @@ SLDataFormat_PCM OpenSLESPlayer::CreatePCMConfiguration(int channels,
       format.samplesPerSec = SL_SAMPLINGRATE_48;
       break;
     default:
-      CHECK(false) << "Unsupported sample rate: " << sample_rate;
+      RTC_CHECK(false) << "Unsupported sample rate: " << sample_rate;
   }
   format.bitsPerSample = SL_PCMSAMPLEFORMAT_FIXED_16;
   format.containerSize = SL_PCMSAMPLEFORMAT_FIXED_16;
@@ -221,17 +226,27 @@ SLDataFormat_PCM OpenSLESPlayer::CreatePCMConfiguration(int channels,
   else if (format.numChannels == 2)
     format.channelMask = SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT;
   else
-    CHECK(false) << "Unsupported number of channels: " << format.numChannels;
+    RTC_CHECK(false) << "Unsupported number of channels: "
+                     << format.numChannels;
   return format;
 }
 
 void OpenSLESPlayer::AllocateDataBuffers() {
   ALOGD("AllocateDataBuffers");
-  DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK(!simple_buffer_queue_);
-  CHECK(audio_device_buffer_);
-  bytes_per_buffer_ = audio_parameters_.GetBytesPerBuffer();
-  ALOGD("native buffer size: %d", bytes_per_buffer_);
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(!simple_buffer_queue_);
+  RTC_CHECK(audio_device_buffer_);
+  // Don't use the lowest possible size as native buffer size. Instead,
+  // use 10ms to better match the frame size that WebRTC uses. It will result
+  // in a reduced risk for audio glitches and also in a more "clean" sequence
+  // of callbacks from the OpenSL ES thread in to WebRTC when asking for audio
+  // to render.
+  ALOGD("lowest possible buffer size: %" PRIuS,
+      audio_parameters_.GetBytesPerBuffer());
+  bytes_per_buffer_ = audio_parameters_.GetBytesPerFrame() *
+      audio_parameters_.frames_per_10ms_buffer();
+  RTC_DCHECK_GT(bytes_per_buffer_, audio_parameters_.GetBytesPerBuffer());
+  ALOGD("native buffer size: %" PRIuS, bytes_per_buffer_);
   // Create a modified audio buffer class which allows us to ask for any number
   // of samples (and not only multiple of 10ms) to match the native OpenSL ES
   // buffer size.
@@ -240,8 +255,9 @@ void OpenSLESPlayer::AllocateDataBuffers() {
                                          audio_parameters_.sample_rate()));
   // Each buffer must be of this size to avoid unnecessary memcpy while caching
   // data between successive callbacks.
-  const int required_buffer_size = fine_buffer_->RequiredBufferSizeBytes();
-  ALOGD("required buffer size: %d", required_buffer_size);
+  const size_t required_buffer_size =
+      fine_buffer_->RequiredPlayoutBufferSizeBytes();
+  ALOGD("required buffer size: %" PRIuS, required_buffer_size);
   for (int i = 0; i < kNumOfOpenSLESBuffers; ++i) {
     audio_buffers_[i].reset(new SLint8[required_buffer_size]);
   }
@@ -249,10 +265,10 @@ void OpenSLESPlayer::AllocateDataBuffers() {
 
 bool OpenSLESPlayer::CreateEngine() {
   ALOGD("CreateEngine");
-  DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
   if (engine_object_.Get())
     return true;
-  DCHECK(!engine_);
+  RTC_DCHECK(!engine_);
   const SLEngineOption option[] = {
     {SL_ENGINEOPTION_THREADSAFE, static_cast<SLuint32>(SL_BOOLEAN_TRUE)}};
   RETURN_ON_ERROR(
@@ -268,7 +284,7 @@ bool OpenSLESPlayer::CreateEngine() {
 
 void OpenSLESPlayer::DestroyEngine() {
   ALOGD("DestroyEngine");
-  DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
   if (!engine_object_.Get())
     return;
   engine_ = nullptr;
@@ -277,8 +293,8 @@ void OpenSLESPlayer::DestroyEngine() {
 
 bool OpenSLESPlayer::CreateMix() {
   ALOGD("CreateMix");
-  DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK(engine_);
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(engine_);
   if (output_mix_.Get())
     return true;
 
@@ -293,7 +309,7 @@ bool OpenSLESPlayer::CreateMix() {
 
 void OpenSLESPlayer::DestroyMix() {
   ALOGD("DestroyMix");
-  DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
   if (!output_mix_.Get())
     return;
   output_mix_.Reset();
@@ -301,14 +317,14 @@ void OpenSLESPlayer::DestroyMix() {
 
 bool OpenSLESPlayer::CreateAudioPlayer() {
   ALOGD("CreateAudioPlayer");
-  DCHECK(thread_checker_.CalledOnValidThread());
-  DCHECK(engine_object_.Get());
-  DCHECK(output_mix_.Get());
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(engine_object_.Get());
+  RTC_DCHECK(output_mix_.Get());
   if (player_object_.Get())
     return true;
-  DCHECK(!player_);
-  DCHECK(!simple_buffer_queue_);
-  DCHECK(!volume_);
+  RTC_DCHECK(!player_);
+  RTC_DCHECK(!simple_buffer_queue_);
+  RTC_DCHECK(!volume_);
 
   // source: Android Simple Buffer Queue Data Locator is source.
   SLDataLocator_AndroidSimpleBufferQueue simple_buffer_queue = {
@@ -386,7 +402,7 @@ bool OpenSLESPlayer::CreateAudioPlayer() {
 
 void OpenSLESPlayer::DestroyAudioPlayer() {
   ALOGD("DestroyAudioPlayer");
-  DCHECK(thread_checker_.CalledOnValidThread());
+  RTC_DCHECK(thread_checker_.CalledOnValidThread());
   if (!player_object_.Get())
     return;
   player_object_.Reset();
@@ -404,7 +420,7 @@ void OpenSLESPlayer::SimpleBufferQueueCallback(
 }
 
 void OpenSLESPlayer::FillBufferQueue() {
-  DCHECK(thread_checker_opensles_.CalledOnValidThread());
+  RTC_DCHECK(thread_checker_opensles_.CalledOnValidThread());
   SLuint32 state = GetPlayState();
   if (state != SL_PLAYSTATE_PLAYING) {
     ALOGW("Buffer callback in non-playing state!");
@@ -414,11 +430,20 @@ void OpenSLESPlayer::FillBufferQueue() {
 }
 
 void OpenSLESPlayer::EnqueuePlayoutData() {
+  // Check delta time between two successive callbacks and provide a warning
+  // if it becomes very large.
+  // TODO(henrika): using 100ms as upper limit but this value is rather random.
+  const uint32_t current_time = rtc::Time();
+  const uint32_t diff = current_time - last_play_time_;
+  if (diff > 100) {
+    ALOGW("Bad OpenSL ES playout timing, dT=%u [ms]", diff);
+  }
+  last_play_time_ = current_time;
   // Read audio data from the WebRTC source using the FineAudioBuffer object
   // to adjust for differences in buffer size between WebRTC (10ms) and native
   // OpenSL ES.
   SLint8* audio_ptr = audio_buffers_[buffer_index_].get();
-  fine_buffer_->GetBufferData(audio_ptr);
+  fine_buffer_->GetPlayoutData(audio_ptr);
   // Enqueue the decoded audio buffer for playback.
   SLresult err =
       (*simple_buffer_queue_)
@@ -430,7 +455,7 @@ void OpenSLESPlayer::EnqueuePlayoutData() {
 }
 
 SLuint32 OpenSLESPlayer::GetPlayState() const {
-  DCHECK(player_);
+  RTC_DCHECK(player_);
   SLuint32 state;
   SLresult err = (*player_)->GetPlayState(player_, &state);
   if (SL_RESULT_SUCCESS != err) {

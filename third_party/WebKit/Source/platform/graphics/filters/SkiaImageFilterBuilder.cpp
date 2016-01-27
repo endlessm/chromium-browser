@@ -53,7 +53,7 @@ PassRefPtr<SkImageFilter> SkiaImageFilterBuilder::build(FilterEffect* effect, Co
         return filter;
 
     // Note that we may still need the color transform even if the filter is null
-    RefPtr<SkImageFilter> origFilter = requiresPMColorValidation ? effect->createImageFilter(this) : effect->createImageFilterWithoutValidation(this);
+    RefPtr<SkImageFilter> origFilter = requiresPMColorValidation ? effect->createImageFilter(*this) : effect->createImageFilterWithoutValidation(*this);
     RefPtr<SkImageFilter> filter = transformColorSpace(origFilter.get(), effect->operatingColorSpace(), colorSpace);
     effect->setImageFilter(colorSpace, requiresPMColorValidation, filter.get());
     if (filter.get() != origFilter.get())
@@ -81,7 +81,7 @@ void SkiaImageFilterBuilder::buildFilterOperations(const FilterOperations& opera
         switch (op.type()) {
         case FilterOperation::REFERENCE: {
             RefPtr<SkImageFilter> filter;
-            ReferenceFilter* referenceFilter = toReferenceFilterOperation(op).filter();
+            Filter* referenceFilter = toReferenceFilterOperation(op).filter();
             if (referenceFilter && referenceFilter->lastEffect()) {
                 FilterEffect* filterEffect = referenceFilter->lastEffect();
                 // Prepopulate SourceGraphic with two image filters: one with a null image

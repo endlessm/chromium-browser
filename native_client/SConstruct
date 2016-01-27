@@ -124,6 +124,8 @@ ACCEPTABLE_ARGUMENTS = set([
     'force_emulator',
     # force sel_ldr use by tests
     'force_sel_ldr',
+    # force nacl_helper_bootstrap used by tests
+    'force_bootstrap',
     # force irt image used by tests
     'force_irt',
     # generate_ninja=FILE enables a Ninja backend for SCons.  This writes a
@@ -263,7 +265,8 @@ def SetUpArgumentBits(env):
   BitFromArgument(env, 'bitcode', default=False,
     desc='We are building bitcode')
 
-  BitFromArgument(env, 'nacl_clang', default=False,
+  BitFromArgument(env, 'nacl_clang', default=(not env.Bit('bitcode') and
+                                              not env.Bit('nacl_glibc')),
     desc='Use the native nacl-clang newlib compiler instead of nacl-gcc')
 
   BitFromArgument(env, 'translate_fast', default=False,
@@ -688,6 +691,7 @@ nonsfi_test_whitelist = set([
     'run_clone_test',
     'run_directory_test',
     'run_dup_test',
+    'run_example_irt_caller_test',
     'run_exception_test',
     'run_fcntl_test',
     'run_file_descriptor_test',
@@ -714,6 +718,7 @@ nonsfi_test_whitelist = set([
     'run_stack_alignment_test',
     'run_syscall_test',
     'run_thread_test',
+    'run_user_async_signal_test',
     ])
 
 
@@ -1042,10 +1047,6 @@ def MakeArchSpecificEnv(platform=None):
 
   env.Replace(BUILD_ISA_NAME=platform)
 
-  if env.Bit('build_mips32'):
-    # This is a silent default on MIPS.
-    env.SetBits('bitcode')
-
   # Determine where the object files go
   env.Replace(BUILD_TARGET_NAME=platform)
   # This may be changed later; see target_variant_map, below.
@@ -1317,13 +1318,19 @@ def GetBootstrap(env):
     # Bootstrap doens't currently work with MSan. However, MSan is only
     # available on x86_64 where we don't need bootstrap anyway.
     return None, None
-  if 'TRUSTED_ENV' in env:
-    trusted_env = env['TRUSTED_ENV']
-    if trusted_env.Bit('linux'):
-      template_digits = 'X' * 16
-      return (trusted_env.File('${STAGING_DIR}/nacl_helper_bootstrap'),
-              ['--r_debug=0x' + template_digits,
-               '--reserved_at_zero=0x' + template_digits])
+  bootstrap = ARGUMENTS.get('force_bootstrap')
+  if bootstrap:
+    bootstrap = env.File(env.SConstructAbsPath(bootstrap))
+  else:
+    if 'TRUSTED_ENV' in env:
+      trusted_env = env['TRUSTED_ENV']
+      if trusted_env.Bit('linux'):
+        bootstrap = trusted_env.File('${STAGING_DIR}/nacl_helper_bootstrap')
+  if bootstrap:
+    template_digits = 'X' * 16
+    return (bootstrap,
+            ['--r_debug=0x' + template_digits,
+             '--reserved_at_zero=0x' + template_digits])
   return None, None
 
 pre_base_env.AddMethod(GetBootstrap)
@@ -1895,11 +1902,15 @@ def CommandTest(env, name, command, size='small', direct_emulation=True,
     # Ensure that 'osenv' is a list.
     if isinstance(extra['osenv'], str):
       extra['osenv'] = [extra['osenv']]
-    # ASan normally intercepts SIGSEGV and disables our SIGSEGV signal
-    # handler, which interferes with various NaCl tests, including the
-    # platform qualification test built into sel_ldr.  We fix this by
-    # telling ASan not to mess with SIGSEGV.
-    asan_options = ['handle_segv=0']
+    # ASan normally intercepts SIGSEGV and SIGFPE and disables our signal
+    # handlers, which interferes with various NaCl tests, including the
+    # platform qualification test built into sel_ldr.  We fix this by telling
+    # ASan not to mess with SIGSEGV and SIGFPE.
+    asan_options = ['handle_segv=0', 'handle_sigfpe=0']
+    # ASan aborts on errors rather than exits. This changes the expected exit
+    # codes for some tests.
+    asan_options.append('abort_on_error=0')
+
     if env.Bit('host_mac') and int(platform.mac_ver()[0].split('.')[1]) < 7:
       # MacOS 10.6 has a bug in the libsandbox system library where it
       # makes a memcmp call that reads off the end of a malloc'd block.
@@ -2252,7 +2263,6 @@ def MakeBaseTrustedEnv(platform=None):
       'src/trusted/validator_arm/build.scons',
       'src/trusted/validator_ragel/build.scons',
       'src/trusted/validator_x86/build.scons',
-      'src/trusted/weak_ref/build.scons',
       'tests/common/build.scons',
       'tests/lock_manager/build.scons',
       'tests/performance/build.scons',
@@ -2309,7 +2319,6 @@ Common tasks:
 
 * cleaning:           scons -c
 * building:           scons
-* build mandel:       scons --mode=nacl mandel.nexe
 * smoke test:         scons --mode=nacl,opt-linux -k pp=1 smoke_tests
 
 * sel_ldr:            scons --mode=opt-linux sel_ldr
@@ -2366,9 +2375,12 @@ def SetUpClang(env):
       # but other trusted test binaries are run from their respective
       # obj/.../ directories).  So instead just point the dynamic linker
       # at the right directory using an environment variable.
-      clang_lib_dir = '${CLANG_DIR}/../lib/clang/*/lib/darwin'
-      env['ENV']['DYLD_LIBRARY_PATH'] = ':'.join([dir.abspath for dir in
-                                                  env.Glob(clang_lib_dir)])
+      # Be sure to check and update clang_lib_version whenever updating
+      # tools/clang revs in DEPS.
+      clang_lib_version = '3.8.0'
+      clang_lib_dir = str(env.Dir('${CLANG_DIR}/../lib/clang/%s/lib/darwin' %
+                                  clang_lib_version).abspath)
+      env['ENV']['DYLD_LIBRARY_PATH'] = clang_lib_dir
       if 'PROPAGATE_ENV' not in env:
         env['PROPAGATE_ENV'] = []
       env['PROPAGATE_ENV'].append('DYLD_LIBRARY_PATH')
@@ -2556,18 +2568,35 @@ def MakeMacEnv(platform=None):
   # code's assembly syntax, so turn clang on by default.
   mac_env.SetBits('clang')
 
+  # For no good reason, this all gets instantiated on every platform,
+  # and then only actually used on Mac.  But the find_sdk.py script
+  # will barf if run on a non-Mac.
+  if pynacl.platform.IsMac():
+    # Find the Mac SDK to use as sysroot.
+    # This invocation matches the model in //build/config/mac/mac_sdk.gni.
+    mac_sdk_sysroot, mac_sdk_version = subprocess.check_output([
+        sys.executable,
+        os.path.join(os.path.pardir, 'build', 'mac', 'find_sdk.py'),
+        '--print_sdk_path',
+        'list lines'
+        ]).splitlines()
+  else:
+    mac_sdk_sysroot = 'ThisIsNotAMac'
+
   # This should be kept in synch with mac_deployment_target
   # in build/common.gypi, which in turn should be kept in synch
   # with chromium/src/build/common.gypi.
   mac_deployment_target = '10.6'
 
-  mac_env.Append(
-      CCFLAGS=['-mmacosx-version-min=' + mac_deployment_target],
-      LINKFLAGS=['-mmacosx-version-min=' + mac_deployment_target])
+  sdk_flags = ['-isysroot', mac_sdk_sysroot,
+               '-mmacosx-version-min=' + mac_deployment_target]
+  mac_env.Append(CCFLAGS=sdk_flags, ASFLAGS=sdk_flags, LINKFLAGS=sdk_flags)
 
   subarch_flag = '-m%s' % mac_env['BUILD_SUBARCH']
   mac_env.Append(
-      CCFLAGS=[subarch_flag, '-fPIC'],
+      # '-Wno-gnu' is required for the statement expression defining dirfd
+      # for OSX -- otherwise, a warning is generated.
+      CCFLAGS=[subarch_flag, '-fPIC', '-Wno-gnu'],
       ASFLAGS=[subarch_flag],
       LINKFLAGS=[subarch_flag, '-fPIC'],
       CPPDEFINES = [# defining _DARWIN_C_SOURCE breaks 10.4
@@ -2757,7 +2786,7 @@ def SetUpLinuxEnvMips(env):
   else:
     tc_dir = os.path.join(jail, 'bin')
     if not which(os.path.join(tc_dir, 'mipsel-linux-gnu-gcc')):
-      raise UserError("\nERRROR: "
+      print ("WARNING: "
           "MIPS trusted toolchain not found - try running:\n"
           "  build/package_version/package_version.py --packages"
           " linux_x86/mips_trusted sync -x\n"
@@ -2792,9 +2821,7 @@ def MakeGenericLinuxEnv(platform=None):
 
   # Prepend so we can disable warnings via Append
   linux_env.Prepend(
-      CPPDEFINES = [['_DEFAULT_SOURCE', '1'],
-                    ['_BSD_SOURCE', '1'],
-                    ['_POSIX_C_SOURCE', '199506'],
+      CPPDEFINES = [['_POSIX_C_SOURCE', '199506'],
                     ['_XOPEN_SOURCE', '600'],
                     ['_GNU_SOURCE', '1'],
                     ['_LARGEFILE64_SOURCE', '1'],
@@ -3038,6 +3065,8 @@ def AllowInlineAssembly(env):
     elif env.Bit('build_arm'):
       env.AppendUnique(CCFLAGS=['--target=armv7a-unknown-nacl-gnueabihf',
                                 '-mfloat-abi=hard'])
+    # Enable the use of inline assembly.
+    env.Append(CCFLAGS=['-fgnu-inline-asm'])
   return True
 
 nacl_env.AddMethod(AllowInlineAssembly)
@@ -3104,9 +3133,6 @@ nacl_env.Append(
         ['__STDC_FORMAT_MACROS', '1'],
         # _GNU_SOURCE ensures that strtof() gets declared.
         ['_GNU_SOURCE', 1],
-        # strdup, and other common stuff
-        ['_DEFAULT_SOURCE', '1'],
-        ['_BSD_SOURCE', '1'],
         ['_POSIX_C_SOURCE', '199506'],
         ['_XOPEN_SOURCE', '600'],
 
@@ -3120,9 +3146,10 @@ nacl_env.Append(
 
 def FixWindowsAssembler(env):
   if env.Bit('host_windows'):
-    # NOTE: This is needed because Windows builds are case-insensitive.
-    # Without this we use nacl-as, which doesn't handle include directives, etc.
-    env.Replace(ASCOM='${CCCOM}')
+    # ASCOM is the rule used by .s files and ASPPCOM is the rule used by .S
+    # files; the latter uses the C preprocessor.  This is needed because Windows
+    # builds are case-insensitive, so they all appear as .s files.
+    env.Replace(ASCOM='${ASPPCOM}')
 
 FixWindowsAssembler(nacl_env)
 
@@ -3196,7 +3223,6 @@ target_variant_map = [
     ('nacl_glibc', 'glibc'),
     ('pnacl_generate_pexe', 'pexe'),
     ('nonsfi_nacl', 'nonsfi'),
-    ('nacl_clang', 'clang'),
     ]
 for variant_bit, variant_suffix in target_variant_map:
   if nacl_env.Bit(variant_bit):
@@ -3266,8 +3292,6 @@ nacl_env.Append(
     'src/shared/srpc/nacl.scons',
     'src/trusted/service_runtime/nacl.scons',
     'src/trusted/validator/nacl.scons',
-    'src/trusted/weak_ref/nacl.scons',
-    'src/untrusted/crash_dump/nacl.scons',
     'src/untrusted/irt/nacl_headers.scons',
     'src/untrusted/minidump_generator/nacl.scons',
     'src/untrusted/nacl/nacl.scons',
@@ -3285,6 +3309,7 @@ irt_only_tests = [
     'tests/irt_compatibility/nacl.scons',
     'tests/irt_entry_alignment/nacl.scons',
     'tests/irt_ext/nacl.scons',
+    'tests/irt_stack_alignment/nacl.scons',
     'tests/sbrk/nacl.scons',
     'tests/translator_size_limits/nacl.scons',
     ]
@@ -3313,7 +3338,6 @@ irt_variant_tests = [
     'tests/environment_variables/nacl.scons',
     'tests/exception_test/nacl.scons',
     'tests/fdopen_test/nacl.scons',
-    'tests/fib/nacl.scons',
     'tests/file/nacl.scons',
     'tests/fixedfeaturecpu/nacl.scons',
     'tests/futexes/nacl.scons',
@@ -3332,7 +3356,6 @@ irt_variant_tests = [
     'tests/list_mappings/nacl.scons',
     'tests/longjmp/nacl.scons',
     'tests/loop/nacl.scons',
-    'tests/mandel/nacl.scons',
     'tests/math/nacl.scons',
     'tests/memcheck_test/nacl.scons',
     'tests/minsfi/nacl.scons',
@@ -3364,7 +3387,6 @@ irt_variant_tests = [
     'tests/simd/nacl.scons',
     'tests/sleep/nacl.scons',
     'tests/srpc/nacl.scons',
-    'tests/srpc_hw/nacl.scons',
     'tests/srpc_message/nacl.scons',
     'tests/stack_alignment/nacl.scons',
     'tests/stubout_mode/nacl.scons',
@@ -3390,7 +3412,6 @@ irt_variant_tests = [
     # works in nacl_env but not in nacl_irt_test_env) while also
     # adding tests to nacl_irt_test_env.
     'tests/inbrowser_test_runner/nacl.scons',
-    'tests/untrusted_crash_dump/nacl.scons',
     'tests/untrusted_minidump/nacl.scons',
 ]
 
@@ -3495,19 +3516,19 @@ nacl_env.AddMethod(RawSyscallObjects)
 nacl_irt_env.ClearBits('nacl_glibc')
 nacl_irt_env.ClearBits('nacl_pic')
 nacl_irt_env.ClearBits('nacl_clang')
+nacl_irt_env.ClearBits('pnacl_generate_pexe')
+nacl_irt_env.ClearBits('use_sandboxed_translator')
+
 # The choice of toolchain used to build the IRT does not depend on the toolchain
-# used to build user/test code. The PNaCl toolchain is used on x86, except on
-# Windows (because pnacl-clang doesn't run on Windows XP. If we stop supporting
-# building on XP, we can remove this exception).  See
-# https://code.google.com/p/nativeclient/issues/detail?id=3936
-if (nacl_irt_env.Bit('build_mips32') or nacl_irt_env.Bit('build_x86_64') or
-    (nacl_irt_env.Bit('build_x86_32') and
-     not nacl_irt_env.Bit('host_windows'))):
+# used to build user/test code. PNaCl is used on mips because that was until
+# recently the only compiler for mips. nacl-clang is used everywhere else.
+# TODO(dschuff): Use nacl-clang for Mips as well.
+if nacl_irt_env.Bit('build_mips32'):
   nacl_irt_env.SetBits('bitcode')
 else:
   nacl_irt_env.ClearBits('bitcode')
-nacl_irt_env.ClearBits('pnacl_generate_pexe')
-nacl_irt_env.ClearBits('use_sandboxed_translator')
+  nacl_irt_env.SetBits('nacl_clang')
+
 nacl_irt_env.Tool('naclsdk')
 # These are unfortunately clobbered by running Tool, which
 # we needed to do to get the destination directory reset.
@@ -3521,22 +3542,19 @@ FixWindowsAssembler(nacl_irt_env)
 # Make it find the libraries it builds, rather than the SDK ones.
 nacl_irt_env.Replace(LIBPATH='${LIB_DIR}')
 
+# The IRT must be built using LLVM's assembler on x86-64 to preserve sandbox
+# base address hiding. It's also used on x86-32 for consistency.
+if nacl_irt_env.Bit('build_x86_64') or nacl_irt_env.Bit('build_x86_32'):
+  nacl_irt_env.Append(CCFLAGS=['-integrated-as'])
+if nacl_irt_env.Bit('build_x86_32'):
+  # The x86-32 IRT needs to be callable with an under-aligned stack.
+  # See  https://code.google.com/p/nativeclient/issues/detail?id=3935
+  nacl_irt_env.Append(CCFLAGS=['-mstackrealign', '-mno-sse'])
+
+
 if nacl_irt_env.Bit('bitcode'):
-  if nacl_irt_env.Bit('build_x86_64'):
-    nacl_irt_env.Append(CCFLAGS=['--target=x86_64-unknown-nacl'])
-    nacl_irt_env.Append(LINKFLAGS=['--target=x86_64-unknown-nacl',
-                                   '--pnacl-allow-translate',
-                                   '-arch', 'x86-64'])
-  elif nacl_irt_env.Bit('build_x86_32'):
-    nacl_irt_env.Append(CCFLAGS=['--target=i686-unknown-nacl'])
-    # X86-32 IRT needs to be callable with an under-aligned stack, so we disable
-    # SSE instructions, which can fault on misaligned addresses: see
-    # https://code.google.com/p/nativeclient/issues/detail?id=3935
-    nacl_irt_env.Append(LINKFLAGS=['--target=i686-unknown-nacl',
-                                   '--pnacl-allow-translate',
-                                   '-arch', 'x86-32',
-                                   '-Wt,-mattr=-sse'])
-  elif nacl_irt_env.Bit('build_mips32'):
+  nacl_irt_env.Append(LINKFLAGS=['--pnacl-allow-native'])
+  if nacl_irt_env.Bit('build_mips32'):
     # Disable the PNaCl IRT verifier since it will complain about
     # __executable_start symbol not being a valid external symbol.
     nacl_irt_env.Append(LINKFLAGS=['--pnacl-disable-abi-check'])
@@ -3546,9 +3564,9 @@ if nacl_irt_env.Bit('bitcode'):
 # libc++) pthread.
 nacl_irt_env.Replace(LINK=(nacl_irt_env['LINK'].
                            replace('pnacl-clang++', 'pnacl-clang')))
+nacl_irt_env.Replace(LINK=(nacl_irt_env['LINK'].
+                           replace('nacl-clang++', 'nacl-clang')))
 
-if nacl_irt_env.Bit('bitcode'):
-  nacl_irt_env.Append(LINKFLAGS=['--pnacl-allow-native'])
 
 # All IRT code must avoid direct use of the TLS ABI register, which
 # is reserved for user TLS.  Instead, ensure all TLS accesses use a
@@ -3784,7 +3802,7 @@ mac_coverage_env = mac_debug_env.Clone(
     # Strict doesnt't currently work for coverage because the path to gcov is
     # magically baked into the compiler.
     LIBS_STRICT = False,
-)
+    )
 AddDualLibrary(mac_coverage_env)
 environment_list.append(mac_coverage_env)
 

@@ -86,18 +86,34 @@
     "dependencies": ["permission:audio"],
     "contexts": ["blessed_extension"]
   },
-  "bluetooth": {
+  "bluetooth": [{
     "dependencies": ["manifest:bluetooth"],
     "contexts": ["blessed_extension"]
-  },
+  }, {
+    "channel": "stable",
+    "contexts": ["webui"],
+    "matches": [
+      "chrome://md-settings/*",
+      "chrome://settings/*",
+      "chrome://settings-frame/*"
+    ]
+  }],
   "bluetoothLowEnergy": {
     "dependencies": ["manifest:bluetooth"],
     "contexts": ["blessed_extension"]
   },
-  "bluetoothPrivate": {
+  "bluetoothPrivate": [{
     "dependencies": ["permission:bluetoothPrivate"],
     "contexts": ["blessed_extension"]
-  },
+  }, {
+    "channel": "stable",
+    "contexts": ["webui"],
+    "matches": [
+      "chrome://md-settings/*",
+      "chrome://settings/*",
+      "chrome://settings-frame/*"
+    ]
+  }],
   "bluetoothSocket": {
     "dependencies": ["manifest:bluetooth"],
     "contexts": ["blessed_extension"]
@@ -127,11 +143,18 @@
     "extension_types": ["extension", "legacy_packaged_app", "platform_app"],
     "contexts": ["blessed_extension"]
   },
-  "extensionViewInternal": {
-    "internal": true,
-    "contexts": ["blessed_extension"],
-    "dependencies": ["permission:extensionview"]
-  },
+  "extensionViewInternal": [
+    {
+      "internal": true,
+      "contexts": ["blessed_extension"],
+      "dependencies": ["permission:extensionview"]
+    }, {
+      "internal": true,
+      "channel": "stable",
+      "contexts": ["webui"],
+      "matches": ["chrome://media-router/*"]
+    }
+  ],
   "events": {
     "internal": true,
     "channel": "stable",
@@ -188,7 +211,10 @@
     "matches": [
       "chrome://extensions/*",
       "chrome://extensions-frame/*",
-      "chrome://chrome/extensions/*"
+      "chrome://chrome/extensions/*",
+      "chrome://md-settings/*",
+      "chrome://settings/*",
+      "chrome://settings-frame/*"
     ]
   }],
   "management.getPermissionWarningsByManifest": {
@@ -330,12 +356,6 @@
   "storage": {
     "dependencies": ["permission:storage"],
     "contexts": ["blessed_extension", "unblessed_extension", "content_script"]
-  },
-  "surfaceWorkerInternal": {
-    "internal": true,
-    "channel": "trunk",
-    "contexts": "all",
-    "matches": ["<all_urls>"]
   },
   "system.cpu": {
     "dependencies": ["permission:system.cpu"],

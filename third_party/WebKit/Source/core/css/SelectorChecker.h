@@ -42,6 +42,7 @@ class ComputedStyle;
 
 class SelectorChecker {
     WTF_MAKE_NONCOPYABLE(SelectorChecker);
+    STACK_ALLOCATED();
 public:
     enum VisitedMatchType { VisitedMatchDisabled, VisitedMatchEnabled };
     enum Mode { ResolvingStyle = 0, CollectingStyleRules, CollectingCSSRules, QueryingRules, SharingRules };
@@ -53,7 +54,7 @@ public:
     public:
         // Initial selector constructor
         SelectorCheckingContext(Element* element, VisitedMatchType visitedMatchType)
-            : selector(0)
+            : selector(nullptr)
             , element(element)
             , previousElement(nullptr)
             , scope(nullptr)
@@ -67,7 +68,6 @@ public:
             , hasScrollbarPseudo(false)
             , hasSelectionPseudo(false)
             , isUARule(false)
-            , scopeContainsLastMatchedElement(false)
             , treatShadowHostAsNormalScope(false)
         {
         }
@@ -86,11 +86,11 @@ public:
         bool hasScrollbarPseudo;
         bool hasSelectionPseudo;
         bool isUARule;
-        bool scopeContainsLastMatchedElement;
         bool treatShadowHostAsNormalScope;
     };
 
     struct MatchResult {
+        STACK_ALLOCATED();
         MatchResult()
             : dynamicPseudo(NOPSEUDO)
             , specificity(0) { }

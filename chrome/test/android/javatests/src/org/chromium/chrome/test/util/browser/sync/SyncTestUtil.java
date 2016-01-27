@@ -15,17 +15,13 @@ import junit.framework.Assert;
 
 import org.chromium.base.CommandLine;
 import org.chromium.base.ThreadUtils;
-import org.chromium.base.test.util.AdvancedMockContext;
 import org.chromium.chrome.browser.invalidation.InvalidationServiceFactory;
 import org.chromium.chrome.browser.profiles.Profile;
 import org.chromium.chrome.browser.sync.ProfileSyncService;
 import org.chromium.chrome.test.util.TestHttpServerClient;
 import org.chromium.content.browser.test.util.Criteria;
 import org.chromium.content.browser.test.util.CriteriaHelper;
-import org.chromium.sync.signin.AccountManagerHelper;
 import org.chromium.sync.signin.ChromeSigninController;
-import org.chromium.sync.test.util.AccountHolder;
-import org.chromium.sync.test.util.MockAccountManager;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -39,16 +35,12 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Utility class for shared sync test functionality.
  */
 public final class SyncTestUtil {
-
-    public static final String DEFAULT_TEST_ACCOUNT = "test@gmail.com";
-    public static final String DEFAULT_PASSWORD = "myPassword";
     private static final String TAG = "SyncTestUtil";
 
     public static final long UI_TIMEOUT_MS = scaleTimeout(20000);
@@ -230,7 +222,7 @@ public final class SyncTestUtil {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                result.set(ProfileSyncService.get(context).getLastSyncedTimeForTest());
+                result.set(ProfileSyncService.get().getLastSyncedTimeForTest());
                 s.release();
             }
         });
@@ -243,16 +235,10 @@ public final class SyncTestUtil {
      */
     public static void waitForSyncActive(final Context context) throws InterruptedException {
         Assert.assertTrue("Timed out waiting for sync to become active.",
-                CriteriaHelper.pollForCriteria(new Criteria() {
+                CriteriaHelper.pollForUIThreadCriteria(new Criteria() {
                     @Override
                     public boolean isSatisfied() {
-                        return ThreadUtils.runOnUiThreadBlockingNoException(
-                                new Callable<Boolean>() {
-                                    @Override
-                                    public Boolean call() throws Exception {
-                                        return ProfileSyncService.get(context).isSyncActive();
-                                    }
-                                });
+                        return ProfileSyncService.get().isSyncActive();
                     }
                 }, SYNC_WAIT_TIMEOUT_MS, SYNC_CHECK_INTERVAL_MS));
     }
@@ -290,48 +276,15 @@ public final class SyncTestUtil {
     }
 
     /**
-     * Sets up a test Google account on the device with specified auth token types.
-     */
-    public static Account setupTestAccount(MockAccountManager accountManager, String accountName,
-                                           String password, String... allowedAuthTokenTypes) {
-        Account account = AccountManagerHelper.createAccountFromName(accountName);
-        AccountHolder.Builder accountHolder =
-                AccountHolder.create().account(account).password(password);
-        if (allowedAuthTokenTypes != null) {
-            // Auto-allowing provided auth token types
-            for (String authTokenType : allowedAuthTokenTypes) {
-                accountHolder.hasBeenAccepted(authTokenType, true);
-            }
-        }
-        accountManager.addAccountHolderExplicitly(accountHolder.build());
-        return account;
-    }
-
-    /**
-     * Sets up a test Google account on the device, that accepts all auth tokens.
-     */
-    public static Account setupTestAccountThatAcceptsAllAuthTokens(
-            MockAccountManager accountManager,
-            String accountName, String password) {
-        Account account = AccountManagerHelper.createAccountFromName(accountName);
-        AccountHolder.Builder accountHolder =
-                AccountHolder.create().account(account).password(password).alwaysAccept(true);
-        accountManager.addAccountHolderExplicitly(accountHolder.build());
-        return account;
-    }
-
-    /**
      * Returns whether the sync engine has keep everything synced set to true.
      */
     public static boolean isSyncEverythingEnabled(final Context context) {
-        final AtomicBoolean result = new AtomicBoolean();
-        ThreadUtils.runOnUiThreadBlocking(new Runnable() {
+        return ThreadUtils.runOnUiThreadBlockingNoException(new Callable<Boolean>() {
             @Override
-            public void run() {
-                result.set(ProfileSyncService.get(context).hasKeepEverythingSynced());
+            public Boolean call() {
+                return ProfileSyncService.get().hasKeepEverythingSynced();
             }
         });
-        return result.get();
     }
 
     /**
@@ -366,7 +319,7 @@ public final class SyncTestUtil {
         ThreadUtils.runOnUiThreadBlocking(new Runnable() {
             @Override
             public void run() {
-                ProfileSyncService.get(context).getAllNodes(callback);
+                ProfileSyncService.get().getAllNodes(callback);
             }
         });
 
@@ -398,6 +351,12 @@ public final class SyncTestUtil {
 
         if (keysIterator.hasNext()) {
             throw new JSONException("Specifics object has more than 1 key.");
+        }
+
+        if (key.equals("bookmark")) {
+            JSONObject bookmarkSpecifics = specifics.getJSONObject(key);
+            bookmarkSpecifics.put("parent_id", node.getString("PARENT_ID"));
+            return bookmarkSpecifics;
         }
         return specifics.getJSONObject(key);
     }
@@ -485,7 +444,7 @@ public final class SyncTestUtil {
 
         @Override
         public void run() {
-            String info = ProfileSyncService.get(mContext).getSyncInternalsInfoForTest();
+            String info = ProfileSyncService.get().getSyncInternalsInfoForTest();
             try {
                 mAboutInfo = getAboutInfoStats(info);
             } catch (JSONException e) {
@@ -495,25 +454,6 @@ public final class SyncTestUtil {
 
         public Map<Pair<String, String>, String> getAboutInfo() {
             return mAboutInfo;
-        }
-    }
-
-    /**
-     * Helper class used to create a mock account on the device.
-     */
-    public static class SyncTestContext extends AdvancedMockContext {
-
-        public SyncTestContext(Context context) {
-            super(context);
-        }
-
-        @Override
-        public Object getSystemService(String name) {
-            if (Context.ACCOUNT_SERVICE.equals(name)) {
-                throw new UnsupportedOperationException(
-                        "Sync tests should not use system Account Manager.");
-            }
-            return super.getSystemService(name);
         }
     }
 }

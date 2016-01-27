@@ -25,6 +25,7 @@
 #include "chrome/common/pref_names.h"
 #include "components/autofill/core/browser/webdata/autofill_webdata_service.h"
 #include "components/bookmarks/browser/bookmark_model.h"
+#include "components/bookmarks/common/bookmark_pref_names.h"
 #include "components/favicon/core/favicon_service.h"
 #include "components/history/core/browser/history_service.h"
 #include "components/password_manager/core/browser/password_store.h"
@@ -61,7 +62,7 @@ base::string16 GenerateUniqueFolderName(BookmarkModel* model,
   // Otherwise iterate until we find a unique name.
   for (size_t i = 1; i <= existing_folder_names.size(); ++i) {
     base::string16 name = folder_name + base::ASCIIToUTF16(" (") +
-        base::IntToString16(i) + base::ASCIIToUTF16(")");
+        base::SizeTToString16(i) + base::ASCIIToUTF16(")");
     if (existing_folder_names.find(name) == existing_folder_names.end())
       return name;
   }

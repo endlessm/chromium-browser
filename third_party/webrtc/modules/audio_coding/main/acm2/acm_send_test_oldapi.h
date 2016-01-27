@@ -15,12 +15,12 @@
 
 #include "webrtc/base/constructormagic.h"
 #include "webrtc/base/scoped_ptr.h"
-#include "webrtc/modules/audio_coding/main/interface/audio_coding_module.h"
+#include "webrtc/modules/audio_coding/main/include/audio_coding_module.h"
 #include "webrtc/modules/audio_coding/neteq/tools/packet_source.h"
-#include "webrtc/system_wrappers/interface/clock.h"
+#include "webrtc/system_wrappers/include/clock.h"
 
 namespace webrtc {
-class AudioEncoderMutable;
+class AudioEncoder;
 
 namespace test {
 class InputAudioFile;
@@ -42,7 +42,7 @@ class AcmSendTestOldApi : public AudioPacketizationCallback,
                      int frame_size_samples);
 
   // Registers an external send codec. Returns true on success, false otherwise.
-  bool RegisterExternalCodec(AudioEncoderMutable* external_speech_encoder);
+  bool RegisterExternalCodec(AudioEncoder* external_speech_encoder);
 
   // Returns the next encoded packet. Returns NULL if the test duration was
   // exceeded. Ownership of the packet is handed over to the caller.
@@ -71,7 +71,7 @@ class AcmSendTestOldApi : public AudioPacketizationCallback,
   rtc::scoped_ptr<AudioCodingModule> acm_;
   InputAudioFile* audio_source_;
   int source_rate_hz_;
-  const int input_block_size_samples_;
+  const size_t input_block_size_samples_;
   AudioFrame input_frame_;
   bool codec_registered_;
   int test_duration_ms_;
@@ -83,7 +83,7 @@ class AcmSendTestOldApi : public AudioPacketizationCallback,
   std::vector<uint8_t> last_payload_vec_;
   bool data_to_send_;
 
-  DISALLOW_COPY_AND_ASSIGN(AcmSendTestOldApi);
+  RTC_DISALLOW_COPY_AND_ASSIGN(AcmSendTestOldApi);
 };
 
 }  // namespace test

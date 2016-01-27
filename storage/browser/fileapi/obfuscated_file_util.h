@@ -14,7 +14,6 @@
 #include "base/files/file.h"
 #include "base/files/file_path.h"
 #include "base/files/file_util_proxy.h"
-#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "storage/browser/blob/shareable_file_reference.h"
 #include "storage/browser/fileapi/file_system_file_util.h"
@@ -69,8 +68,7 @@ class TimedTaskHelper;
 //
 // This class must be deleted on the FILE thread, because that's where
 // DropDatabases needs to be called.
-class STORAGE_EXPORT_PRIVATE ObfuscatedFileUtil
-    : public FileSystemFileUtil {
+class STORAGE_EXPORT ObfuscatedFileUtil : public FileSystemFileUtil {
  public:
   // Origin enumerator interface.
   // An instance of this interface is assumed to be called on the file thread.

@@ -23,6 +23,7 @@
 #include "third_party/skia/include/core/SkColor.h"
 #include "third_party/skia/include/core/SkColorPriv.h"
 #include "third_party/skia/include/core/SkShader.h"
+#include "ui/base/resource/material_design/material_design_controller.h"
 #include "ui/gfx/color_utils.h"
 #include "ui/gfx/gdi_util.h"
 #include "ui/gfx/geometry/rect.h"
@@ -40,15 +41,16 @@ namespace {
 // Windows system color IDs cached and updated by the native theme.
 const int kSystemColors[] = {
   COLOR_3DFACE,
+  COLOR_BTNFACE,
   COLOR_BTNTEXT,
   COLOR_GRAYTEXT,
   COLOR_HIGHLIGHT,
   COLOR_HIGHLIGHTTEXT,
+  COLOR_HOTLIGHT,
+  COLOR_MENUHIGHLIGHT,
   COLOR_SCROLLBAR,
   COLOR_WINDOW,
   COLOR_WINDOWTEXT,
-  COLOR_BTNFACE,
-  COLOR_MENUHIGHLIGHT,
 };
 
 void SetCheckerboardShader(SkPaint* paint, const RECT& align_rect) {
@@ -449,10 +451,6 @@ void NativeThemeWin::PaintDirect(SkCanvas* canvas,
 }
 
 SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
-  SkColor color;
-  if (CommonThemeGetSystemColor(color_id, &color))
-    return color;
-
   // TODO: Obtain the correct colors using GetSysColor.
   const SkColor kInvalidColorIdColor = SkColorSetRGB(255, 0, 128);
   const SkColor kUrlTextColor = SkColorSetRGB(0x0b, 0x80, 0x43);
@@ -465,12 +463,9 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
   const SkColor kButtonBackgroundColor = SkColorSetRGB(0xde, 0xde, 0xde);
   const SkColor kButtonHighlightColor = SkColorSetARGB(200, 255, 255, 255);
   const SkColor kButtonHoverColor = SkColorSetRGB(6, 45, 117);
-  const SkColor kButtonHoverBackgroundColor = SkColorSetRGB(0xEA, 0xEA, 0xEA);
   // MenuItem:
-  const SkColor kEnabledMenuItemForegroundColor = SkColorSetRGB(6, 45, 117);
-  const SkColor kDisabledMenuItemForegroundColor = SkColorSetRGB(161, 161, 146);
-  const SkColor kFocusedMenuItemBackgroundColor = SkColorSetRGB(246, 249, 253);
-  const SkColor kMenuSeparatorColor = SkColorSetARGB(50, 0, 0, 0);
+  // Link:
+  const SkColor kLinkPressedColor = SkColorSetRGB(200, 0, 0);
   // Table:
   const SkColor kPositiveTextColor = SkColorSetRGB(0x0b, 0x80, 0x43);
   const SkColor kNegativeTextColor = SkColorSetRGB(0xc5, 0x39, 0x29);
@@ -482,6 +477,7 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
 
     // Dialogs
     case kColorId_DialogBackground:
+    case kColorId_BubbleBackground:
       return color_utils::IsInvertedColorScheme() ?
           color_utils::InvertColor(kDialogBackgroundColor) :
           kDialogBackgroundColor;
@@ -497,45 +493,10 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
       return kButtonBackgroundColor;
     case kColorId_ButtonEnabledColor:
       return system_colors_[COLOR_BTNTEXT];
-    case kColorId_ButtonDisabledColor:
-      return system_colors_[COLOR_GRAYTEXT];
     case kColorId_ButtonHighlightColor:
       return kButtonHighlightColor;
     case kColorId_ButtonHoverColor:
       return kButtonHoverColor;
-    case kColorId_ButtonHoverBackgroundColor:
-      return kButtonHoverBackgroundColor;
-    case kColorId_BlueButtonEnabledColor:
-    case kColorId_BlueButtonDisabledColor:
-    case kColorId_BlueButtonPressedColor:
-    case kColorId_BlueButtonHoverColor:
-      NOTREACHED();
-      return kInvalidColorIdColor;
-
-    // MenuItem
-    case kColorId_EnabledMenuItemForegroundColor:
-      return kEnabledMenuItemForegroundColor;
-    case kColorId_DisabledMenuItemForegroundColor:
-      return kDisabledMenuItemForegroundColor;
-    case kColorId_DisabledEmphasizedMenuItemForegroundColor:
-      return SK_ColorBLACK;
-    case kColorId_FocusedMenuItemBackgroundColor:
-      return kFocusedMenuItemBackgroundColor;
-    case kColorId_MenuSeparatorColor:
-      return kMenuSeparatorColor;
-    case kColorId_SelectedMenuItemForegroundColor:
-    case kColorId_HoverMenuItemBackgroundColor:
-    case kColorId_MenuBackgroundColor:
-    case kColorId_MenuBorderColor:
-      NOTREACHED();
-      return kInvalidColorIdColor;
-
-    // MenuButton
-    case kColorId_EnabledMenuButtonBorderColor:
-    case kColorId_FocusedMenuButtonBorderColor:
-    case kColorId_HoverMenuButtonBorderColor:
-      NOTREACHED();
-      return kInvalidColorIdColor;
 
     // Label
     case kColorId_LabelEnabledColor:
@@ -544,6 +505,20 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
       return system_colors_[COLOR_GRAYTEXT];
     case kColorId_LabelBackgroundColor:
       return system_colors_[COLOR_WINDOW];
+
+    // Link
+    case kColorId_LinkDisabled:
+      if (ui::MaterialDesignController::IsModeMaterial())
+        break;
+      return system_colors_[COLOR_WINDOWTEXT];
+    case kColorId_LinkEnabled:
+      if (ui::MaterialDesignController::IsModeMaterial())
+        break;
+      return system_colors_[COLOR_HOTLIGHT];
+    case kColorId_LinkPressed:
+      if (ui::MaterialDesignController::IsModeMaterial())
+        break;
+      return kLinkPressedColor;
 
     // Textfield
     case kColorId_TextfieldDefaultColor:
@@ -666,7 +641,14 @@ SkColor NativeThemeWin::GetSystemColor(ColorId color_id) const {
     case kColorId_ResultsTableNegativeSelectedText:
       return color_utils::GetReadableColor(kNegativeTextColor,
                                            system_colors_[COLOR_HIGHLIGHT]);
+    default:
+      break;
   }
+
+  SkColor color;
+  if (CommonThemeGetSystemColor(color_id, &color))
+    return color;
+
   NOTREACHED();
   return kInvalidColorIdColor;
 }
@@ -1664,7 +1646,7 @@ HRESULT NativeThemeWin::PaintScaledTheme(HANDLE theme,
     float scale = save_transform.eM11;
     if (scale != 1 && save_transform.eM12 == 0) {
       ModifyWorldTransform(hdc, NULL, MWT_IDENTITY);
-      gfx::Rect scaled_rect(gfx::ToEnclosedRect(gfx::ScaleRect(rect, scale)));
+      gfx::Rect scaled_rect = gfx::ScaleToEnclosedRect(rect, scale);
       scaled_rect.Offset(save_transform.eDx, save_transform.eDy);
       RECT bounds = scaled_rect.ToRECT();
       HRESULT result = draw_theme_(theme, hdc, part_id, state_id, &bounds,

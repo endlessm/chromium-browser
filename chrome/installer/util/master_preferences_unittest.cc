@@ -49,33 +49,32 @@ TEST_F(MasterPreferencesTest, NoFileToParse) {
 
 TEST_F(MasterPreferencesTest, ParseDistroParams) {
   const char text[] =
-    "{ \n"
-    "  \"distribution\": { \n"
-    "     \"show_welcome_page\": true,\n"
-    "     \"import_search_engine\": true,\n"
-    "     \"import_history\": true,\n"
-    "     \"import_bookmarks\": true,\n"
-    "     \"import_bookmarks_from_file\": \"c:\\\\foo\",\n"
-    "     \"import_home_page\": true,\n"
-    "     \"welcome_page_on_os_upgrade_enabled\": true,\n"
-    "     \"do_not_create_any_shortcuts\": true,\n"
-    "     \"do_not_create_desktop_shortcut\": true,\n"
-    "     \"do_not_create_quick_launch_shortcut\": true,\n"
-    "     \"do_not_create_taskbar_shortcut\": true,\n"
-    "     \"do_not_launch_chrome\": true,\n"
-    "     \"make_chrome_default\": true,\n"
-    "     \"make_chrome_default_for_user\": true,\n"
-    "     \"system_level\": true,\n"
-    "     \"verbose_logging\": true,\n"
-    "     \"require_eula\": true,\n"
-    "     \"alternate_shortcut_text\": true,\n"
-    "     \"chrome_shortcut_icon_index\": 1,\n"
-    "     \"ping_delay\": 40\n"
-    "  },\n"
-    "  \"blah\": {\n"
-    "     \"import_history\": false\n"
-    "  }\n"
-    "} \n";
+      "{ \n"
+      "  \"distribution\": { \n"
+      "     \"show_welcome_page\": true,\n"
+      "     \"import_search_engine\": true,\n"
+      "     \"import_history\": true,\n"
+      "     \"import_bookmarks\": true,\n"
+      "     \"import_bookmarks_from_file\": \"c:\\\\foo\",\n"
+      "     \"import_home_page\": true,\n"
+      "     \"welcome_page_on_os_upgrade_enabled\": true,\n"
+      "     \"do_not_create_any_shortcuts\": true,\n"
+      "     \"do_not_create_desktop_shortcut\": true,\n"
+      "     \"do_not_create_quick_launch_shortcut\": true,\n"
+      "     \"do_not_create_taskbar_shortcut\": true,\n"
+      "     \"do_not_launch_chrome\": true,\n"
+      "     \"make_chrome_default\": true,\n"
+      "     \"make_chrome_default_for_user\": true,\n"
+      "     \"system_level\": true,\n"
+      "     \"verbose_logging\": true,\n"
+      "     \"require_eula\": true,\n"
+      "     \"alternate_shortcut_text\": true,\n"
+      "     \"ping_delay\": 40\n"
+      "  },\n"
+      "  \"blah\": {\n"
+      "     \"import_history\": false\n"
+      "  }\n"
+      "} \n";
 
   EXPECT_TRUE(base::WriteFile(prefs_file(), text,
                               static_cast<int>(strlen(text))));
@@ -83,22 +82,22 @@ TEST_F(MasterPreferencesTest, ParseDistroParams) {
   EXPECT_TRUE(prefs.read_from_file());
 
   const char* const expected_true[] = {
-    installer::master_preferences::kDistroImportSearchPref,
-    installer::master_preferences::kDistroImportHistoryPref,
-    installer::master_preferences::kDistroImportBookmarksPref,
-    installer::master_preferences::kDistroImportHomePagePref,
-    installer::master_preferences::kDistroWelcomePageOnOSUpgradeEnabled,
-    installer::master_preferences::kDoNotCreateAnyShortcuts,
-    installer::master_preferences::kDoNotCreateDesktopShortcut,
-    installer::master_preferences::kDoNotCreateQuickLaunchShortcut,
-    installer::master_preferences::kDoNotCreateTaskbarShortcut,
-    installer::master_preferences::kDoNotLaunchChrome,
-    installer::master_preferences::kMakeChromeDefault,
-    installer::master_preferences::kMakeChromeDefaultForUser,
-    installer::master_preferences::kSystemLevel,
-    installer::master_preferences::kVerboseLogging,
-    installer::master_preferences::kRequireEula,
-    installer::master_preferences::kAltShortcutText,
+      installer::master_preferences::kDistroImportSearchPref,
+      installer::master_preferences::kDistroImportHistoryPref,
+      installer::master_preferences::kDistroImportBookmarksPref,
+      installer::master_preferences::kDistroImportHomePagePref,
+      installer::master_preferences::kDistroWelcomePageOnOSUpgradeEnabled,
+      installer::master_preferences::kDoNotCreateAnyShortcuts,
+      installer::master_preferences::kDoNotCreateDesktopShortcut,
+      installer::master_preferences::kDoNotCreateQuickLaunchShortcut,
+      installer::master_preferences::kDoNotCreateTaskbarShortcut,
+      installer::master_preferences::kDoNotLaunchChrome,
+      installer::master_preferences::kMakeChromeDefault,
+      installer::master_preferences::kMakeChromeDefaultForUser,
+      installer::master_preferences::kSystemLevel,
+      installer::master_preferences::kVerboseLogging,
+      installer::master_preferences::kRequireEula,
+      installer::master_preferences::kAltShortcutText,
   };
 
   for (int i = 0; i < arraysize(expected_true); ++i) {
@@ -113,11 +112,6 @@ TEST_F(MasterPreferencesTest, ParseDistroParams) {
       &str_value));
   EXPECT_STREQ("c:\\foo", str_value.c_str());
 
-  int icon_index = 0;
-  EXPECT_TRUE(prefs.GetInt(
-      installer::master_preferences::kChromeShortcutIconIndex,
-      &icon_index));
-  EXPECT_EQ(icon_index, 1);
   int ping_delay = 90;
   EXPECT_TRUE(prefs.GetInt(installer::master_preferences::kDistroPingDelay,
                            &ping_delay));
@@ -133,8 +127,7 @@ TEST_F(MasterPreferencesTest, ParseMissingDistroParams) {
     "     \"import_bookmarks_from_file\": \"\",\n"
     "     \"do_not_create_desktop_shortcut\": true,\n"
     "     \"do_not_create_quick_launch_shortcut\": true,\n"
-    "     \"do_not_launch_chrome\": true,\n"
-    "     \"chrome_shortcut_icon_index\": \"bac\"\n"
+    "     \"do_not_launch_chrome\": true\n"
     "  }\n"
     "} \n";
 
@@ -173,12 +166,6 @@ TEST_F(MasterPreferencesTest, ParseMissingDistroParams) {
   EXPECT_FALSE(prefs.GetString(
       installer::master_preferences::kDistroImportBookmarksFromFilePref,
       &str_value));
-
-  int icon_index = 0;
-  EXPECT_FALSE(prefs.GetInt(
-      installer::master_preferences::kChromeShortcutIconIndex,
-      &icon_index));
-  EXPECT_EQ(icon_index, 0);
 
   int ping_delay = 90;
   EXPECT_FALSE(prefs.GetInt(

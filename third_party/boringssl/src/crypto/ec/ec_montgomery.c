@@ -75,41 +75,16 @@
 
 
 const EC_METHOD *EC_GFp_mont_method(void) {
-  static const EC_METHOD ret = {EC_FLAGS_DEFAULT_OCT,
-                                ec_GFp_mont_group_init,
+  static const EC_METHOD ret = {ec_GFp_mont_group_init,
                                 ec_GFp_mont_group_finish,
                                 ec_GFp_mont_group_clear_finish,
                                 ec_GFp_mont_group_copy,
                                 ec_GFp_mont_group_set_curve,
-                                ec_GFp_simple_group_get_curve,
-                                ec_GFp_simple_group_get_degree,
-                                ec_GFp_simple_group_check_discriminant,
-                                ec_GFp_simple_point_init,
-                                ec_GFp_simple_point_finish,
-                                ec_GFp_simple_point_clear_finish,
-                                ec_GFp_simple_point_copy,
-                                ec_GFp_simple_point_set_to_infinity,
-                                ec_GFp_simple_set_Jprojective_coordinates_GFp,
-                                ec_GFp_simple_get_Jprojective_coordinates_GFp,
-                                ec_GFp_simple_point_set_affine_coordinates,
                                 ec_GFp_simple_point_get_affine_coordinates,
-                                0,
-                                0,
-                                0,
-                                ec_GFp_simple_add,
-                                ec_GFp_simple_dbl,
-                                ec_GFp_simple_invert,
-                                ec_GFp_simple_is_at_infinity,
-                                ec_GFp_simple_is_on_curve,
-                                ec_GFp_simple_cmp,
-                                ec_GFp_simple_make_affine,
-                                ec_GFp_simple_points_make_affine,
-                                0 /* mul */,
-                                0 /* precompute_mult */,
-                                0 /* have_precompute_mult */,
+                                ec_wNAF_mul /* XXX: Not constant time. */,
+                                ec_wNAF_precompute_mult,
                                 ec_GFp_mont_field_mul,
                                 ec_GFp_mont_field_sqr,
-                                0 /* field_div */,
                                 ec_GFp_mont_field_encode,
                                 ec_GFp_mont_field_decode,
                                 ec_GFp_mont_field_set_to_one};
@@ -200,7 +175,7 @@ int ec_GFp_mont_group_set_curve(EC_GROUP *group, const BIGNUM *p,
     goto err;
   }
   if (!BN_MONT_CTX_set(mont, p, ctx)) {
-    OPENSSL_PUT_ERROR(EC, ec_GFp_mont_group_set_curve, ERR_R_BN_LIB);
+    OPENSSL_PUT_ERROR(EC, ERR_R_BN_LIB);
     goto err;
   }
   one = BN_new();
@@ -232,7 +207,7 @@ err:
 int ec_GFp_mont_field_mul(const EC_GROUP *group, BIGNUM *r, const BIGNUM *a,
                           const BIGNUM *b, BN_CTX *ctx) {
   if (group->mont == NULL) {
-    OPENSSL_PUT_ERROR(EC, ec_GFp_mont_field_mul, EC_R_NOT_INITIALIZED);
+    OPENSSL_PUT_ERROR(EC, EC_R_NOT_INITIALIZED);
     return 0;
   }
 
@@ -242,7 +217,7 @@ int ec_GFp_mont_field_mul(const EC_GROUP *group, BIGNUM *r, const BIGNUM *a,
 int ec_GFp_mont_field_sqr(const EC_GROUP *group, BIGNUM *r, const BIGNUM *a,
                           BN_CTX *ctx) {
   if (group->mont == NULL) {
-    OPENSSL_PUT_ERROR(EC, ec_GFp_mont_field_sqr, EC_R_NOT_INITIALIZED);
+    OPENSSL_PUT_ERROR(EC, EC_R_NOT_INITIALIZED);
     return 0;
   }
 
@@ -252,7 +227,7 @@ int ec_GFp_mont_field_sqr(const EC_GROUP *group, BIGNUM *r, const BIGNUM *a,
 int ec_GFp_mont_field_encode(const EC_GROUP *group, BIGNUM *r, const BIGNUM *a,
                              BN_CTX *ctx) {
   if (group->mont == NULL) {
-    OPENSSL_PUT_ERROR(EC, ec_GFp_mont_field_encode, EC_R_NOT_INITIALIZED);
+    OPENSSL_PUT_ERROR(EC, EC_R_NOT_INITIALIZED);
     return 0;
   }
 
@@ -262,7 +237,7 @@ int ec_GFp_mont_field_encode(const EC_GROUP *group, BIGNUM *r, const BIGNUM *a,
 int ec_GFp_mont_field_decode(const EC_GROUP *group, BIGNUM *r, const BIGNUM *a,
                              BN_CTX *ctx) {
   if (group->mont == NULL) {
-    OPENSSL_PUT_ERROR(EC, ec_GFp_mont_field_decode, EC_R_NOT_INITIALIZED);
+    OPENSSL_PUT_ERROR(EC, EC_R_NOT_INITIALIZED);
     return 0;
   }
 
@@ -272,7 +247,7 @@ int ec_GFp_mont_field_decode(const EC_GROUP *group, BIGNUM *r, const BIGNUM *a,
 int ec_GFp_mont_field_set_to_one(const EC_GROUP *group, BIGNUM *r,
                                  BN_CTX *ctx) {
   if (group->one == NULL) {
-    OPENSSL_PUT_ERROR(EC, ec_GFp_mont_field_set_to_one, EC_R_NOT_INITIALIZED);
+    OPENSSL_PUT_ERROR(EC, EC_R_NOT_INITIALIZED);
     return 0;
   }
 

@@ -45,6 +45,7 @@
 #include "content/public/browser/notification_details.h"
 #include "content/public/browser/notification_service.h"
 #include "content/public/browser/notification_source.h"
+#include "content/public/browser/render_frame_host.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
@@ -60,7 +61,7 @@
 #include "url/gurl.h"
 
 #if defined(OS_CHROMEOS)
-#include "chrome/browser/chromeos/drive/file_system_core_util.h"
+#include "chrome/browser/chromeos/drive/file_system_util.h"
 #endif
 
 using content::BrowserContext;
@@ -217,7 +218,8 @@ GURL WebstoreInstaller::GetWebstoreInstallURL(
   GURL url(url_string + "?response=redirect&" +
            update_client::UpdateQueryParams::Get(
                update_client::UpdateQueryParams::CRX) +
-           "&x=" + net::EscapeQueryParamValue(JoinString(params, '&'), true));
+           "&x=" + net::EscapeQueryParamValue(base::JoinString(params, "&"),
+                                              true));
   DCHECK(url.is_valid());
 
   return url;
@@ -239,8 +241,7 @@ WebstoreInstaller::Approval::Approval()
       skip_post_install_ui(false),
       skip_install_dialog(false),
       enable_launcher(false),
-      manifest_check_level(MANIFEST_CHECK_LEVEL_STRICT),
-      is_ephemeral(false) {
+      manifest_check_level(MANIFEST_CHECK_LEVEL_STRICT) {
 }
 
 scoped_ptr<WebstoreInstaller::Approval>
@@ -356,7 +357,6 @@ void WebstoreInstaller::Start() {
       approval_->installing_icon,
       approval_->manifest->is_app(),
       approval_->manifest->is_platform_app());
-  params.is_ephemeral = approval_->is_ephemeral;
   tracker->OnBeginExtensionInstall(params);
 
   tracker->OnBeginExtensionDownload(id_);
@@ -661,7 +661,8 @@ void WebstoreInstaller::StartDownload(const std::string& extension_id,
   scoped_ptr<DownloadUrlParameters> params(new DownloadUrlParameters(
       download_url_,
       render_process_host_id,
-      render_view_host_routing_id ,
+      render_view_host_routing_id,
+      contents->GetMainFrame()->GetRoutingID(),
       resource_context));
   params->set_file_path(file);
   if (controller.GetVisibleEntry())

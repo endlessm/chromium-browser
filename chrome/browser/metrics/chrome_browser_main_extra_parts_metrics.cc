@@ -18,8 +18,8 @@
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/chrome_browser_main.h"
 #include "chrome/browser/mac/bluetooth_utility.h"
-#include "chrome/browser/pref_service_flags_storage.h"
 #include "chrome/browser/shell_integration.h"
+#include "components/flags_ui/pref_service_flags_storage.h"
 #include "content/public/browser/browser_thread.h"
 #include "ui/base/touch/touch_device.h"
 #include "ui/base/ui_base_switches.h"
@@ -38,6 +38,11 @@
 #include "ui/base/x/x11_util.h"
 #endif
 #endif  // defined(OS_LINUX) && !defined(OS_CHROMEOS)
+
+#if defined(USE_OZONE) || defined(USE_X11)
+#include "ui/events/devices/device_data_manager.h"
+#include "ui/events/devices/input_device_event_observer.h"
+#endif  // defined(USE_OZONE) || defined(USE_X11)
 
 #if defined(OS_WIN)
 #include "chrome/installer/util/google_update_settings.h"
@@ -131,13 +136,13 @@ void RecordStartupMetricsOnBlockingPool() {
   GoogleUpdateSettings::RecordChromeUpdatePolicyHistograms();
 #endif  // defined(OS_WIN)
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(OS_MACOSX)
   bluetooth_utility::BluetoothAvailability availability =
       bluetooth_utility::GetBluetoothAvailability();
   UMA_HISTOGRAM_ENUMERATION("OSX.BluetoothAvailability",
                             availability,
                             bluetooth_utility::BLUETOOTH_AVAILABILITY_COUNT);
-#endif   // defined(OS_MACOSX) && !defined(OS_IOS)
+#endif   // defined(OS_MACOSX)
 
   // Record whether Chrome is the default browser or not.
   ShellIntegration::DefaultWebClientState default_state =
@@ -234,8 +239,10 @@ void RecordTouchEventState() {
       touch_enabled_switch == switches::kTouchEventsEnabled) {
     state = UMA_TOUCH_EVENTS_ENABLED;
   } else if (touch_enabled_switch == switches::kTouchEventsAuto) {
-    state = ui::IsTouchDevicePresent() ?
-        UMA_TOUCH_EVENTS_AUTO_ENABLED : UMA_TOUCH_EVENTS_AUTO_DISABLED;
+    state = (ui::GetTouchScreensAvailability() ==
+             ui::TouchScreensAvailability::ENABLED)
+                ? UMA_TOUCH_EVENTS_AUTO_ENABLED
+                : UMA_TOUCH_EVENTS_AUTO_DISABLED;
   } else if (touch_enabled_switch == switches::kTouchEventsDisabled) {
     state = UMA_TOUCH_EVENTS_DISABLED;
   } else {
@@ -246,6 +253,38 @@ void RecordTouchEventState() {
   UMA_HISTOGRAM_ENUMERATION("Touchscreen.TouchEventsEnabled", state,
                             UMA_TOUCH_EVENTS_STATE_COUNT);
 }
+
+#if defined(USE_OZONE) || defined(USE_X11)
+
+// Asynchronously records the touch event state when the ui::DeviceDataManager
+// completes a device scan.
+class AsynchronousTouchEventStateRecorder
+    : public ui::InputDeviceEventObserver {
+ public:
+  AsynchronousTouchEventStateRecorder();
+  ~AsynchronousTouchEventStateRecorder() override;
+
+  // ui::InputDeviceEventObserver overrides.
+  void OnDeviceListsComplete() override;
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(AsynchronousTouchEventStateRecorder);
+};
+
+AsynchronousTouchEventStateRecorder::AsynchronousTouchEventStateRecorder() {
+  ui::DeviceDataManager::GetInstance()->AddObserver(this);
+}
+
+AsynchronousTouchEventStateRecorder::~AsynchronousTouchEventStateRecorder() {
+  ui::DeviceDataManager::GetInstance()->RemoveObserver(this);
+}
+
+void AsynchronousTouchEventStateRecorder::OnDeviceListsComplete() {
+  ui::DeviceDataManager::GetInstance()->RemoveObserver(this);
+  RecordTouchEventState();
+}
+
+#endif  // defined(USE_OZONE) || defined(USE_X11)
 
 }  // namespace
 
@@ -263,7 +302,7 @@ void ChromeBrowserMainExtraPartsMetrics::PreProfileInit() {
 }
 
 void ChromeBrowserMainExtraPartsMetrics::PreBrowserStart() {
-  about_flags::PrefServiceFlagsStorage flags_storage_(
+  flags_ui::PrefServiceFlagsStorage flags_storage_(
       g_browser_process->local_state());
   about_flags::RecordUMAStatistics(&flags_storage_);
 }
@@ -275,11 +314,24 @@ void ChromeBrowserMainExtraPartsMetrics::PostBrowserStart() {
                             GetLinuxWindowManager(),
                             UMA_LINUX_WINDOW_MANAGER_COUNT);
 #endif
-  RecordTouchEventState();
 
-#if defined(OS_MACOSX) && !defined(OS_IOS)
+#if defined(USE_OZONE) || defined(USE_X11)
+  // The touch event state for X11 and Ozone based event sub-systems are based
+  // on device scans that happen asynchronously. So we may need to attach an
+  // observer to wait until these scans complete.
+  if (ui::DeviceDataManager::GetInstance()->device_lists_complete()) {
+    RecordTouchEventState();
+  } else {
+    input_device_event_observer_.reset(
+        new AsynchronousTouchEventStateRecorder());
+  }
+#else
+  RecordTouchEventState();
+#endif  // defined(USE_OZONE) || defined(USE_X11)
+
+#if defined(OS_MACOSX)
   RecordMacMetrics();
-#endif  // defined(OS_MACOSX) && !defined(OS_IOS)
+#endif  // defined(OS_MACOSX)
 
   const int kStartupMetricsGatheringDelaySeconds = 45;
   content::BrowserThread::GetBlockingPool()->PostDelayedTask(
@@ -313,9 +365,11 @@ void ChromeBrowserMainExtraPartsMetrics::OnDisplayMetricsChanged(
     uint32_t changed_metrics) {
 }
 
+#if !defined(OS_ANDROID)
 void ChromeBrowserMainExtraPartsMetrics::ProfilerFinishedCollectingMetrics() {
   first_web_contents_profiler_.reset();
 }
+#endif  // !defined(OS_ANDROID)
 
 void ChromeBrowserMainExtraPartsMetrics::EmitDisplaysChangedMetric() {
   int display_count = gfx::Screen::GetNativeScreen()->GetNumDisplays();

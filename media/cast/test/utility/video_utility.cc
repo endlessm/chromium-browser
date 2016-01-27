@@ -16,46 +16,46 @@ namespace cast {
 
 double I420PSNR(const scoped_refptr<media::VideoFrame>& frame1,
                 const scoped_refptr<media::VideoFrame>& frame2) {
-  if (frame1->coded_size().width() != frame2->coded_size().width() ||
-      frame1->coded_size().height() != frame2->coded_size().height())
+  if (frame1->visible_rect().width() != frame2->visible_rect().width() ||
+      frame1->visible_rect().height() != frame2->visible_rect().height())
     return -1;
 
-  return libyuv::I420Psnr(frame1->data(VideoFrame::kYPlane),
+  return libyuv::I420Psnr(frame1->visible_data(VideoFrame::kYPlane),
                           frame1->stride(VideoFrame::kYPlane),
-                          frame1->data(VideoFrame::kUPlane),
+                          frame1->visible_data(VideoFrame::kUPlane),
                           frame1->stride(VideoFrame::kUPlane),
-                          frame1->data(VideoFrame::kVPlane),
+                          frame1->visible_data(VideoFrame::kVPlane),
                           frame1->stride(VideoFrame::kVPlane),
-                          frame2->data(VideoFrame::kYPlane),
+                          frame2->visible_data(VideoFrame::kYPlane),
                           frame2->stride(VideoFrame::kYPlane),
-                          frame2->data(VideoFrame::kUPlane),
+                          frame2->visible_data(VideoFrame::kUPlane),
                           frame2->stride(VideoFrame::kUPlane),
-                          frame2->data(VideoFrame::kVPlane),
+                          frame2->visible_data(VideoFrame::kVPlane),
                           frame2->stride(VideoFrame::kVPlane),
-                          frame1->coded_size().width(),
-                          frame1->coded_size().height());
+                          frame1->visible_rect().width(),
+                          frame1->visible_rect().height());
 }
 
 double I420SSIM(const scoped_refptr<media::VideoFrame>& frame1,
                 const scoped_refptr<media::VideoFrame>& frame2) {
-  if (frame1->coded_size().width() != frame2->coded_size().width() ||
-      frame1->coded_size().height() != frame2->coded_size().height())
+  if (frame1->visible_rect().width() != frame2->visible_rect().width() ||
+      frame1->visible_rect().height() != frame2->visible_rect().height())
     return -1;
 
-  return libyuv::I420Ssim(frame1->data(VideoFrame::kYPlane),
+  return libyuv::I420Ssim(frame1->visible_data(VideoFrame::kYPlane),
                           frame1->stride(VideoFrame::kYPlane),
-                          frame1->data(VideoFrame::kUPlane),
+                          frame1->visible_data(VideoFrame::kUPlane),
                           frame1->stride(VideoFrame::kUPlane),
-                          frame1->data(VideoFrame::kVPlane),
+                          frame1->visible_data(VideoFrame::kVPlane),
                           frame1->stride(VideoFrame::kVPlane),
-                          frame2->data(VideoFrame::kYPlane),
+                          frame2->visible_data(VideoFrame::kYPlane),
                           frame2->stride(VideoFrame::kYPlane),
-                          frame2->data(VideoFrame::kUPlane),
+                          frame2->visible_data(VideoFrame::kUPlane),
                           frame2->stride(VideoFrame::kUPlane),
-                          frame2->data(VideoFrame::kVPlane),
+                          frame2->visible_data(VideoFrame::kVPlane),
                           frame2->stride(VideoFrame::kVPlane),
-                          frame1->coded_size().width(),
-                          frame1->coded_size().height());
+                          frame1->visible_rect().width(),
+                          frame1->visible_rect().height());
 }
 
 void PopulateVideoFrame(VideoFrame* frame, int start_value) {
@@ -77,8 +77,7 @@ void PopulateVideoFrame(VideoFrame* frame, int start_value) {
   }
 
   const int half_height = (height + 1) / 2;
-#if defined(OS_MACOSX)
-  if (frame->format() == VideoFrame::NV12) {
+  if (frame->format() == PIXEL_FORMAT_NV12) {
     const int stride_uv = frame->stride(VideoFrame::kUVPlane);
     uint8* uv_plane = frame->data(VideoFrame::kUVPlane);
 
@@ -92,11 +91,9 @@ void PopulateVideoFrame(VideoFrame* frame, int start_value) {
         uv_plane += 2;
       }
     }
-  } else
-#endif
-  {
-    DCHECK(frame->format() == VideoFrame::I420 ||
-           frame->format() == VideoFrame::YV12);
+  } else {
+    DCHECK(frame->format() == PIXEL_FORMAT_I420 ||
+           frame->format() == PIXEL_FORMAT_YV12);
     const int stride_u = frame->stride(VideoFrame::kUPlane);
     const int stride_v = frame->stride(VideoFrame::kVPlane);
     uint8* u_plane = frame->data(VideoFrame::kUPlane);

@@ -18,7 +18,7 @@ const char kSoftwareRenderingListJson[] = LONG_STRING_CONST(
 {
   "name": "software rendering list",
   // Please update the version number whenever you change this file.
-  "version": "10.9",
+  "version": "10.16",
   "entries": [
     {
       "id": 1,
@@ -733,10 +733,11 @@ const char kSoftwareRenderingListJson[] = LONG_STRING_CONST(
 LONG_STRING_CONST(
     {
       "id": 76,
-      "description": "WebGL is disabled on Android unless GPU reset notification is supported",
+      "description": "WebGL is disabled on Android unless the GPU runs in a separate process or reset notification is supported",
       "os": {
         "type": "android"
       },
+      "in_process_gpu": true,
       "exceptions": [
         {
           "gl_reset_notification_strategy": {
@@ -745,7 +746,7 @@ LONG_STRING_CONST(
           }
         },
         {
-          "gl_renderer": "Mali-400.*",
+          "gl_renderer": "Mali-4.*",
           "gl_extensions": ".*EXT_robustness.*"
         }
       ],
@@ -1011,21 +1012,19 @@ LONG_STRING_CONST(
         },
         {
           "os": {
-            "type": "android"
+            "type": "android",
+            "version": {
+              "op": ">=",
+              "value": "4.4"
+            }
           },
-          "gl_renderer": "Mali-400.*"
+          "gl_renderer": "Mali-4.*"
         },
         {
           "os": {
             "type": "android"
           },
           "gl_renderer": "NVIDIA.*"
-        },
-        {
-          "os": {
-            "type": "android"
-          },
-          "gl_renderer": "VideoCore IV.*"
         },
         {
           "os": {
@@ -1040,6 +1039,12 @@ LONG_STRING_CONST(
             "op": ">=",
             "value": "3.0"
           }
+        },
+        {
+          "os": {
+            "type": "android"
+          },
+          "gl_renderer": ".*Google.*"
         }
       ],
       "features": [
@@ -1147,6 +1152,38 @@ LONG_STRING_CONST(
       "features": [
         "accelerated_2d_canvas",
         "gpu_rasterization"
+      ]
+    },
+    {
+      "id": 107,
+      "description": "Haswell GT1 Intel drivers are buggy on kernels < 3.19.1",
+      "cr_bugs": [463243],
+      "os": {
+        "type": "linux",
+        "version": {
+          "op": "<",
+          "value": "3.19.1"
+        }
+      },
+      "vendor_id": "0x8086",
+      "device_id": ["0x0402", "0x0406", "0x040a", "0x040b", "0x040e",
+                    "0x0a02", "0x0a06", "0x0a0a", "0x0a0b", "0x0a0e",
+                    "0x0d02", "0x0d06", "0x0d0a", "0x0d0b", "0x0d0e"],
+      "features": [
+        "all"
+      ]
+    },
+    {
+      "id": 108,
+      "description": "GPU rasterization image color broken on Vivante",
+      "cr_bugs": [560587],
+      "os": {
+        "type": "android"
+      },
+      "gl_renderer": ".*Vivante.*",
+      "features": [
+        "gpu_rasterization",
+        "accelerated_2d_canvas"
       ]
     }
   ]

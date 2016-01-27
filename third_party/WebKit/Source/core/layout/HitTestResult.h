@@ -50,7 +50,7 @@ class LayoutObject;
 class Scrollbar;
 
 class CORE_EXPORT HitTestResult {
-    ALLOW_ONLY_INLINE_ALLOCATION();
+    DISALLOW_NEW_EXCEPT_PLACEMENT_NEW();
 
 public:
     typedef WillBeHeapListHashSet<RefPtrWillBeMember<Node>> NodeSet;
@@ -66,7 +66,6 @@ public:
     DECLARE_TRACE();
 
     bool equalForCacheability(const HitTestResult&) const;
-    unsigned equalityScore(const HitTestResult&) const;
     void cacheValues(const HitTestResult&);
 
     // Populate this object based on another HitTestResult; similar to assignment operator
@@ -140,7 +139,6 @@ public:
 
     // Return true if the test is a list-based test and we should continue testing.
     bool addNodeToListBasedTestResult(Node*, const HitTestLocation& pointInContainer, const LayoutRect& = LayoutRect());
-    bool addNodeToListBasedTestResult(Node*, const HitTestLocation& pointInContainer, const FloatRect&);
     void append(const HitTestResult&);
 
     // If m_listBasedTestResult is 0 then set it to a new NodeSet. Return *m_listBasedTestResult. Lazy allocation makes

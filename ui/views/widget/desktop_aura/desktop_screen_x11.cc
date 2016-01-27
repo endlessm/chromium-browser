@@ -45,11 +45,11 @@ double GetDeviceScaleFactor() {
 }
 
 gfx::Point PixelToDIPPoint(const gfx::Point& pixel_point) {
-  return ToFlooredPoint(ScalePoint(pixel_point, 1.0f / GetDeviceScaleFactor()));
+  return gfx::ScaleToFlooredPoint(pixel_point, 1.0f / GetDeviceScaleFactor());
 }
 
 gfx::Point DIPToPixelPoint(const gfx::Point& dip_point) {
-  return ToFlooredPoint(gfx::ScalePoint(dip_point, GetDeviceScaleFactor()));
+  return gfx::ScaleToFlooredPoint(dip_point, GetDeviceScaleFactor());
 }
 
 std::vector<gfx::Display> GetFallbackDisplayList() {
@@ -184,11 +184,10 @@ gfx::Display DesktopScreenX11::GetDisplayNearestWindow(
 }
 
 gfx::Display DesktopScreenX11::GetDisplayNearestPoint(
-    const gfx::Point& requested_point) const {
-  const gfx::Point point_in_pixel = DIPToPixelPoint(requested_point);
+    const gfx::Point& point) const {
   for (std::vector<gfx::Display>::const_iterator it = displays_.begin();
        it != displays_.end(); ++it) {
-    if (it->bounds().Contains(point_in_pixel))
+    if (it->bounds().Contains(point))
       return *it;
   }
 
@@ -239,7 +238,7 @@ uint32_t DesktopScreenX11::DispatchEvent(const ui::PlatformEvent& event) {
     if (configure_timer_.get() && configure_timer_->IsRunning()) {
       configure_timer_->Reset();
     } else {
-      configure_timer_.reset(new base::OneShotTimer<DesktopScreenX11>());
+      configure_timer_.reset(new base::OneShotTimer());
       configure_timer_->Start(
           FROM_HERE,
           base::TimeDelta::FromMilliseconds(kConfigureDelayMs),
@@ -323,12 +322,10 @@ std::vector<gfx::Display> DesktopScreenX11::BuildDisplaysFromXRandRInfo() {
         // SetScaleAndBounds() above does the conversion from pixels to DIP for
         // us, but set_work_area does not, so we need to do it here.
         display.set_work_area(gfx::Rect(
-            gfx::ToFlooredPoint(
-                gfx::ScalePoint(intersection_in_pixels.origin(),
-                                1.0f / display.device_scale_factor())),
-            gfx::ToFlooredSize(
-                gfx::ScaleSize(intersection_in_pixels.size(),
-                               1.0f / display.device_scale_factor()))));
+            gfx::ScaleToFlooredPoint(intersection_in_pixels.origin(),
+                                     1.0f / display.device_scale_factor()),
+            gfx::ScaleToFlooredSize(intersection_in_pixels.size(),
+                                    1.0f / display.device_scale_factor())));
       }
 
       switch (crtc->rotation) {

@@ -13,8 +13,8 @@
 #include <ctime>
 #endif
 
-#include "../../core/include/fpdfdoc/fpdf_doc.h"
-#include "../../core/include/fxcrt/fx_basic.h"
+#include "core/include/fpdfdoc/fpdf_doc.h"
+#include "core/include/fxcrt/fx_basic.h"
 #include "fx_systemhandler.h"
 
 class CPDFSDK_PageView;
@@ -25,169 +25,185 @@ class CPDF_Matrix;
 class CPDF_RenderOptions;
 class CFX_RenderDevice;
 
-#define CFX_IntArray				CFX_ArrayTemplate<int>
+#define CFX_IntArray CFX_ArrayTemplate<int>
 
-class  CPDFSDK_DateTime
-{
-public:
-	CPDFSDK_DateTime();
-	CPDFSDK_DateTime(const CFX_ByteString& dtStr);
-	CPDFSDK_DateTime(const CPDFSDK_DateTime& datetime);
-	CPDFSDK_DateTime(const FX_SYSTEMTIME& st);
+class CPDFSDK_DateTime {
+ public:
+  CPDFSDK_DateTime();
+  CPDFSDK_DateTime(const CFX_ByteString& dtStr);
+  CPDFSDK_DateTime(const CPDFSDK_DateTime& datetime);
+  CPDFSDK_DateTime(const FX_SYSTEMTIME& st);
 
+  CPDFSDK_DateTime& operator=(const CPDFSDK_DateTime& datetime);
+  CPDFSDK_DateTime& operator=(const FX_SYSTEMTIME& st);
+  FX_BOOL operator==(CPDFSDK_DateTime& datetime);
+  FX_BOOL operator!=(CPDFSDK_DateTime& datetime);
+  FX_BOOL operator>(CPDFSDK_DateTime& datetime);
+  FX_BOOL operator>=(CPDFSDK_DateTime& datetime);
+  FX_BOOL operator<(CPDFSDK_DateTime& datetime);
+  FX_BOOL operator<=(CPDFSDK_DateTime& datetime);
+  operator time_t();
 
-	CPDFSDK_DateTime&	operator = (const CPDFSDK_DateTime& datetime);
-	CPDFSDK_DateTime&	operator = (const FX_SYSTEMTIME& st);
-	FX_BOOL				operator == (CPDFSDK_DateTime& datetime);
-	FX_BOOL				operator != (CPDFSDK_DateTime& datetime);
-	FX_BOOL				operator > (CPDFSDK_DateTime& datetime);
-	FX_BOOL				operator >= (CPDFSDK_DateTime& datetime);
-	FX_BOOL				operator < (CPDFSDK_DateTime& datetime);
-	FX_BOOL				operator <= (CPDFSDK_DateTime& datetime);
-						operator time_t();
+  CPDFSDK_DateTime& FromPDFDateTimeString(const CFX_ByteString& dtStr);
+  CFX_ByteString ToCommonDateTimeString();
+  CFX_ByteString ToPDFDateTimeString();
+  void ToSystemTime(FX_SYSTEMTIME& st);
+  CPDFSDK_DateTime ToGMT();
+  CPDFSDK_DateTime& AddDays(short days);
+  CPDFSDK_DateTime& AddSeconds(int seconds);
 
-	CPDFSDK_DateTime&	FromPDFDateTimeString(const CFX_ByteString& dtStr);
-	CFX_ByteString		ToCommonDateTimeString();
-	CFX_ByteString		ToPDFDateTimeString();
-	void				ToSystemTime(FX_SYSTEMTIME& st);
-	CPDFSDK_DateTime	ToGMT();
-	CPDFSDK_DateTime&	AddDays(short days);
-	CPDFSDK_DateTime&	AddSeconds(int seconds);
+  void ResetDateTime();
 
-	void				ResetDateTime();
-
-	struct FX_DATETIME
-	{
-		int16_t	year;
-		uint8_t		month;
-		uint8_t		day;
-		uint8_t		hour;
-		uint8_t		minute;
-		uint8_t		second;
-		int8_t 	tzHour;
-		uint8_t		tzMinute;
-	}dt;
+  struct FX_DATETIME {
+    int16_t year;
+    uint8_t month;
+    uint8_t day;
+    uint8_t hour;
+    uint8_t minute;
+    uint8_t second;
+    int8_t tzHour;
+    uint8_t tzMinute;
+  } dt;
 };
 
-class CPDFSDK_Annot
-{
-public:
-	CPDFSDK_Annot(CPDF_Annot* pAnnot, CPDFSDK_PageView* pPageView);
-	virtual ~CPDFSDK_Annot();
-public:
-	virtual FX_FLOAT			GetMinWidth() const;
-	virtual FX_FLOAT			GetMinHeight() const;
-	//define layout order to 5.
-	virtual int					GetLayoutOrder() const { return 5; }
+class CPDFSDK_Annot {
+ public:
+  explicit CPDFSDK_Annot(CPDFSDK_PageView* pPageView);
+  virtual ~CPDFSDK_Annot() {}
 
-public:
-	CPDF_Annot*					GetPDFAnnot();
+  virtual FX_FLOAT GetMinWidth() const;
+  virtual FX_FLOAT GetMinHeight() const;
+  // define layout order to 5.
+  virtual int GetLayoutOrder() const { return 5; }
 
-	void						SetPage(CPDFSDK_PageView* pPageView);
-	CPDFSDK_PageView*			GetPageView();
-	FX_DWORD					GetFlags();
+  virtual CPDF_Annot* GetPDFAnnot() const { return nullptr; }
 
-	// Tab Order
-	int							GetTabOrder();
-	void						SetTabOrder(int iTabOrder);
+  virtual CFX_ByteString GetType() const { return ""; }
+  virtual CFX_ByteString GetSubType() const { return ""; }
 
-	// Selection
-	FX_BOOL						IsSelected();
-	void						SetSelected(FX_BOOL bSelected);
+  virtual void SetRect(const CPDF_Rect& rect) {}
+  virtual CPDF_Rect GetRect() const { return CPDF_Rect(); }
 
-	CFX_ByteString				GetType() const;
-	virtual CFX_ByteString		GetSubType() const;
+  virtual void Annot_OnDraw(CFX_RenderDevice* pDevice,
+                            CPDF_Matrix* pUser2Device,
+                            CPDF_RenderOptions* pOptions) {}
 
-	CPDF_Page*					GetPDFPage();
+  CPDF_Page* GetPDFPage();
 
-public:
-	CPDF_Dictionary*			GetAnnotDict() const;
+  void SetPage(CPDFSDK_PageView* pPageView) { m_pPageView = pPageView; }
+  CPDFSDK_PageView* GetPageView() const { return m_pPageView; }
 
-	void						SetRect(const CPDF_Rect& rect);
-	CPDF_Rect					GetRect() const;
+  // Tab Order
+  int GetTabOrder();
+  void SetTabOrder(int iTabOrder);
 
-	void						SetContents(const CFX_WideString& sContents);
-	CFX_WideString				GetContents() const;
+  // Selection
+  FX_BOOL IsSelected();
+  void SetSelected(FX_BOOL bSelected);
 
-	void						SetAnnotName(const CFX_WideString& sName);
-	CFX_WideString				GetAnnotName() const;
+ protected:
+  CPDFSDK_PageView* m_pPageView;
+  FX_BOOL m_bSelected;
+  int m_nTabOrder;
+};
 
-	void						SetModifiedDate(const FX_SYSTEMTIME& st);
-	FX_SYSTEMTIME				GetModifiedDate() const;
+class CPDFSDK_BAAnnot : public CPDFSDK_Annot {
+ public:
+  CPDFSDK_BAAnnot(CPDF_Annot* pAnnot, CPDFSDK_PageView* pPageView);
+  virtual ~CPDFSDK_BAAnnot() {}
 
-	void						SetFlags(int nFlags);
-	int							GetFlags() const;
+  virtual CFX_ByteString GetType() const;
+  virtual CFX_ByteString GetSubType() const;
 
-	void						SetAppState(const CFX_ByteString& str);
-	CFX_ByteString				GetAppState() const;
+  virtual void SetRect(const CPDF_Rect& rect);
+  virtual CPDF_Rect GetRect() const;
 
-	void						SetStructParent(int key);
-	int							GetStructParent() const;
+  virtual CPDF_Annot* GetPDFAnnot() const;
 
-	//border
-	void						SetBorderWidth(int nWidth);
-	int							GetBorderWidth() const;
+  virtual void Annot_OnDraw(CFX_RenderDevice* pDevice,
+                            CPDF_Matrix* pUser2Device,
+                            CPDF_RenderOptions* pOptions);
 
-	//BBS_SOLID
-	//BBS_DASH
-	//BBS_BEVELED
-	//BBS_INSET
-	//BBS_UNDERLINE
+  CPDF_Dictionary* GetAnnotDict() const;
 
-	void						SetBorderStyle(int nStyle);
-	int							GetBorderStyle() const;
+  void SetContents(const CFX_WideString& sContents);
+  CFX_WideString GetContents() const;
 
-	void						SetBorderDash(const CFX_IntArray& array);
-	void						GetBorderDash(CFX_IntArray& array) const;
+  void SetAnnotName(const CFX_WideString& sName);
+  CFX_WideString GetAnnotName() const;
 
-	//The background of the annotation's icon when closed
-	//The title bar of the annotation's pop-up window
-	//The border of a link annotation
+  void SetModifiedDate(const FX_SYSTEMTIME& st);
+  FX_SYSTEMTIME GetModifiedDate() const;
 
-	void						SetColor(FX_COLORREF color);
-	void						RemoveColor();
-	FX_BOOL						GetColor(FX_COLORREF& color) const;
+  void SetFlags(int nFlags);
+  int GetFlags() const;
 
-	FX_BOOL						IsVisible() const;
-	//action
+  void SetAppState(const CFX_ByteString& str);
+  CFX_ByteString GetAppState() const;
 
-	CPDF_Action					GetAction() const;
-	void						SetAction(const CPDF_Action& a);
-	void						RemoveAction();
+  void SetStructParent(int key);
+  int GetStructParent() const;
 
-	CPDF_AAction				GetAAction() const;
-	void						SetAAction(const CPDF_AAction& aa);
-	void						RemoveAAction();
+  // border
+  void SetBorderWidth(int nWidth);
+  int GetBorderWidth() const;
 
-	virtual CPDF_Action			GetAAction(CPDF_AAction::AActionType eAAT);
+  // BBS_SOLID
+  // BBS_DASH
+  // BBS_BEVELED
+  // BBS_INSET
+  // BBS_UNDERLINE
 
-public:
-	FX_BOOL						IsAppearanceValid();
-	FX_BOOL						IsAppearanceValid(CPDF_Annot::AppearanceMode mode);
-	void						DrawAppearance(CFX_RenderDevice* pDevice, const CPDF_Matrix* pUser2Device,
-		CPDF_Annot::AppearanceMode mode, const CPDF_RenderOptions* pOptions);
-	void						DrawBorder(CFX_RenderDevice* pDevice, const CPDF_Matrix* pUser2Device,
-		const CPDF_RenderOptions* pOptions);
+  void SetBorderStyle(int nStyle);
+  int GetBorderStyle() const;
 
-	void						ClearCachedAP();
+  void SetBorderDash(const CFX_IntArray& array);
+  void GetBorderDash(CFX_IntArray& array) const;
 
-	void						WriteAppearance(const CFX_ByteString& sAPType, const CPDF_Rect& rcBBox,
-		const CPDF_Matrix& matrix, const CFX_ByteString& sContents,
-		const CFX_ByteString& sAPState = "");
+  // The background of the annotation's icon when closed
+  // The title bar of the annotation's pop-up window
+  // The border of a link annotation
 
-public:
-	virtual void			Annot_OnDraw(CFX_RenderDevice* pDevice, CPDF_Matrix* pUser2Device,CPDF_RenderOptions* pOptions);
-public:
+  void SetColor(FX_COLORREF color);
+  void RemoveColor();
+  FX_BOOL GetColor(FX_COLORREF& color) const;
 
+  FX_BOOL IsVisible() const;
+  // action
 
-private:
-	FX_BOOL CreateFormFiller();
-protected:
-	CPDF_Annot*			m_pAnnot;
-	CPDFSDK_PageView*	m_pPageView;
-	FX_BOOL				m_bSelected;
-	int					m_nTabOrder;
+  CPDF_Action GetAction() const;
+  void SetAction(const CPDF_Action& a);
+  void RemoveAction();
 
+  CPDF_AAction GetAAction() const;
+  void SetAAction(const CPDF_AAction& aa);
+  void RemoveAAction();
+
+  virtual CPDF_Action GetAAction(CPDF_AAction::AActionType eAAT);
+
+  virtual FX_BOOL IsAppearanceValid();
+  virtual FX_BOOL IsAppearanceValid(CPDF_Annot::AppearanceMode mode);
+  virtual void DrawAppearance(CFX_RenderDevice* pDevice,
+                              const CPDF_Matrix* pUser2Device,
+                              CPDF_Annot::AppearanceMode mode,
+                              const CPDF_RenderOptions* pOptions);
+  void DrawBorder(CFX_RenderDevice* pDevice,
+                  const CPDF_Matrix* pUser2Device,
+                  const CPDF_RenderOptions* pOptions);
+
+  void ClearCachedAP();
+
+  void WriteAppearance(const CFX_ByteString& sAPType,
+                       const CPDF_Rect& rcBBox,
+                       const CPDF_Matrix& matrix,
+                       const CFX_ByteString& sContents,
+                       const CFX_ByteString& sAPState = "");
+
+ protected:
+  CPDF_Annot* m_pAnnot;
+
+ private:
+  FX_BOOL CreateFormFiller();
 };
 
 #endif  // FPDFSDK_INCLUDE_FSDK_BASEANNOT_H_

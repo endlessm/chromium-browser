@@ -14,7 +14,6 @@ import android.view.ViewGroup.LayoutParams;
 import android.widget.FrameLayout;
 
 import org.chromium.base.VisibleForTesting;
-import org.chromium.chrome.browser.Tab;
 import org.chromium.chrome.browser.compositor.LayerTitleCache;
 import org.chromium.chrome.browser.compositor.layouts.ChromeAnimation.Animatable;
 import org.chromium.chrome.browser.compositor.layouts.Layout;
@@ -30,6 +29,7 @@ import org.chromium.chrome.browser.compositor.scene_layer.SceneLayer;
 import org.chromium.chrome.browser.compositor.scene_layer.TabListSceneLayer;
 import org.chromium.chrome.browser.fullscreen.ChromeFullscreenManager;
 import org.chromium.chrome.browser.partnercustomizations.HomepageManager;
+import org.chromium.chrome.browser.tab.Tab;
 import org.chromium.chrome.browser.tabmodel.TabModel;
 import org.chromium.chrome.browser.tabmodel.TabModelSelector;
 import org.chromium.chrome.browser.tabmodel.TabModelUtils;
@@ -310,6 +310,17 @@ public class StackLayout extends Layout implements Animatable<StackLayout.Proper
      */
     public ViewGroup getViewContainer() {
         return mViewContainer;
+    }
+
+    @Override
+    public boolean onBackPressed() {
+        // Force any in progress animations to end. This was introduced because
+        // we end up with 0 tabs if the animation for all tabs closing is still
+        // running when the back button is pressed. We should finish the animation
+        // and close Chrome instead.
+        // See http://crbug.com/522447
+        onUpdateAnimation(SystemClock.currentThreadTimeMillis(), true);
+        return false;
     }
 
     @Override

@@ -5,12 +5,11 @@
 import os
 import unittest
 
-from catapult_base import cloud_storage
+import mock
 from telemetry.testing import system_stub
 
+from catapult_base import cloud_storage
 
-def _FakeFindGsutil():
-  return 'fake gsutil path'
 
 def _FakeReadHash(_):
   return 'hashthis!'
@@ -32,8 +31,6 @@ class CloudStorageUnitTest(unittest.TestCase):
 
   def _assertRunCommandRaisesError(self, communicate_strs, error):
     stubs = system_stub.Override(cloud_storage, ['open', 'subprocess'])
-    orig_find_gs_util = cloud_storage.FindGsutil
-    cloud_storage.FindGsutil = _FakeFindGsutil
     stubs.open.files = {'fake gsutil path':''}
     stubs.subprocess.Popen.returncode_result = 1
     try:
@@ -42,7 +39,6 @@ class CloudStorageUnitTest(unittest.TestCase):
         self.assertRaises(error, cloud_storage._RunCommand, [])
     finally:
       stubs.Restore()
-      cloud_storage.FindGsutil = orig_find_gs_util
 
   def testRunCommandCredentialsError(self):
     strs = ['You are attempting to access protected data with no configured',
@@ -82,22 +78,52 @@ class CloudStorageUnitTest(unittest.TestCase):
 
   def testExistsReturnsFalse(self):
     stubs = system_stub.Override(cloud_storage, ['subprocess'])
-    orig_find_gs_util = cloud_storage.FindGsutil
     try:
       stubs.subprocess.Popen.communicate_result = (
         '',
         'CommandException: One or more URLs matched no objects.\n')
       stubs.subprocess.Popen.returncode_result = 1
-      cloud_storage.FindGsutil = _FakeFindGsutil
       self.assertFalse(cloud_storage.Exists('fake bucket',
                                             'fake remote path'))
     finally:
       stubs.Restore()
-      cloud_storage.FindGsutil = orig_find_gs_util
+
+  @mock.patch('catapult_base.cloud_storage.CalculateHash')
+  @mock.patch('catapult_base.cloud_storage.Get')
+  @mock.patch('catapult_base.cloud_storage.os.path')
+  def testGetIfHashChanged(self, path_mock, get_mock, calc_hash_mock):
+    path_mock.exists.side_effect = [False, True, True]
+    calc_hash_mock.return_value = 'hash'
+
+    # The file at |local_path| doesn't exist. We should download file from cs.
+    ret = cloud_storage.GetIfHashChanged(
+        'remote_path', 'local_path', 'cs_bucket', 'hash')
+    self.assertTrue(ret)
+    get_mock.assert_called_once_with('cs_bucket', 'remote_path', 'local_path')
+    get_mock.reset_mock()
+    self.assertFalse(calc_hash_mock.call_args)
+    calc_hash_mock.reset_mock()
+
+    # A local file exists at |local_path| but has the wrong hash.
+    # We should download file from cs.
+    ret = cloud_storage.GetIfHashChanged(
+        'remote_path', 'local_path', 'cs_bucket', 'new_hash')
+    self.assertTrue(ret)
+    get_mock.assert_called_once_with('cs_bucket', 'remote_path', 'local_path')
+    get_mock.reset_mock()
+    calc_hash_mock.assert_called_once_with('local_path')
+    calc_hash_mock.reset_mock()
+
+    # Downloaded file exists locally and has the right hash. Don't download.
+    ret = cloud_storage.GetIfHashChanged(
+        'remote_path', 'local_path', 'cs_bucket', 'hash')
+    self.assertFalse(get_mock.call_args)
+    self.assertFalse(ret)
+    calc_hash_mock.reset_mock()
+    get_mock.reset_mock()
 
   def testGetIfChanged(self):
     stubs = system_stub.Override(cloud_storage, ['os', 'open'])
-    stubs.open.files[_FakeFindGsutil()] = ''
     orig_get = cloud_storage.Get
     orig_read_hash = cloud_storage.ReadHash
     orig_calculate_hash = cloud_storage.CalculateHash

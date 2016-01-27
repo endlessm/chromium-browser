@@ -19,7 +19,6 @@
 #include "ui/events/keycodes/dom/keycode_converter.h"
 #include "ui/events/keycodes/keyboard_code_conversion.h"
 #include "ui/events/keycodes/keyboard_code_conversion_xkb.h"
-#include "ui/events/ozone/layout/xkb/xkb_keyboard_code_conversion.h"
 
 namespace ui {
 
@@ -62,6 +61,7 @@ struct PrintableSubEntry {
   KeyboardCode key_code;
 };
 
+// The two designated Unicode "not-a-character" values are used as sentinels.
 const base::char16 kNone = 0xFFFE;
 const base::char16 kAny = 0xFFFF;
 
@@ -628,15 +628,8 @@ void LoadKeymap(const std::string& layout_name,
 }
 #endif
 
-KeyboardCode DomCodeToUsLayoutKeyboardCode(DomCode dom_code) {
-  DomKey dummy_dom_key;
-  base::char16 dummy_character;
-  KeyboardCode key_code;
-  if (DomCodeToUsLayoutMeaning(dom_code, EF_NONE, &dummy_dom_key,
-                               &dummy_character, &key_code)) {
-    return key_code;
-  }
-  return VKEY_UNKNOWN;
+bool IsControlCharacter(uint32_t character) {
+  return (character < 0x20) || (character > 0x7E && character < 0xA0);
 }
 
 }  // anonymous namespace
@@ -687,22 +680,18 @@ bool XkbKeyboardLayoutEngine::SetCurrentLayoutByName(
       base::Bind(&LoadKeymap, layout_name, base::ThreadTaskRunnerHandle::Get(),
                  reply_callback),
       true);
-#else
-  xkb_keymap* keymap = xkb_map_new_from_string(
-      xkb_context_.get(), layout_name.c_str(), XKB_KEYMAP_FORMAT_TEXT_V1,
-      XKB_KEYMAP_COMPILE_NO_FLAGS);
-  if (!keymap)
-    return false;
-  SetKeymap(keymap);
-#endif  // defined(OS_CHROMEOS)
   return true;
+#else
+  // NOTIMPLEMENTED();
+  return false;
+#endif  // defined(OS_CHROMEOS)
 }
 
 void XkbKeyboardLayoutEngine::OnKeymapLoaded(
     const std::string& layout_name,
     scoped_ptr<char, base::FreeDeleter> keymap_str) {
   if (keymap_str) {
-    xkb_keymap* keymap = xkb_map_new_from_string(
+    xkb_keymap* keymap = xkb_keymap_new_from_string(
         xkb_context_.get(), keymap_str.get(), XKB_KEYMAP_FORMAT_TEXT_V1,
         XKB_KEYMAP_COMPILE_NO_FLAGS);
     XkbKeymapEntry entry = {layout_name, keymap};
@@ -727,9 +716,7 @@ bool XkbKeyboardLayoutEngine::UsesAltGr() const {
 bool XkbKeyboardLayoutEngine::Lookup(DomCode dom_code,
                                      int flags,
                                      DomKey* dom_key,
-                                     base::char16* character,
-                                     KeyboardCode* key_code,
-                                     uint32* platform_keycode) const {
+                                     KeyboardCode* key_code) const {
   if (dom_code == DomCode::NONE)
     return false;
   // Convert DOM physical key to XKB representation.
@@ -743,33 +730,65 @@ bool XkbKeyboardLayoutEngine::Lookup(DomCode dom_code,
   xkb_mod_mask_t xkb_flags = EventFlagsToXkbFlags(flags);
   // Obtain keysym and character.
   xkb_keysym_t xkb_keysym;
-  if (!XkbLookup(xkb_keycode, xkb_flags, &xkb_keysym, character))
+  uint32_t character = 0;
+  if (!XkbLookup(xkb_keycode, xkb_flags, &xkb_keysym, &character))
     return false;
-  *platform_keycode = xkb_keysym;
+
   // Classify the keysym and convert to DOM and VKEY representations.
-  *dom_key = NonPrintableXKeySymToDomKey(xkb_keysym);
-  if (*dom_key == DomKey::NONE) {
-    *dom_key = CharacterToDomKey(*character);
-    *key_code = AlphanumericKeyboardCode(*character);
-    if (*key_code == VKEY_UNKNOWN) {
-      *key_code = DifficultKeyboardCode(dom_code, flags, xkb_keycode, xkb_flags,
-                                        xkb_keysym, *dom_key, *character);
-      if (*key_code == VKEY_UNKNOWN)
-        *key_code = DomCodeToUsLayoutKeyboardCode(dom_code);
+  if ((character == 0) &&
+      ((xkb_keysym != XKB_KEY_at) || (flags & EF_CONTROL_DOWN) == 0)) {
+    // Non-character key. (We only support NUL as ^@.)
+    *dom_key = NonPrintableXKeySymToDomKey(xkb_keysym);
+    if (*dom_key == DomKey::NONE) {
+      *dom_key = DomKey::UNIDENTIFIED;
+      *key_code = VKEY_UNKNOWN;
+    } else {
+      *key_code = NonPrintableDomKeyToKeyboardCode(*dom_key);
     }
-    // If the Control key is down, only allow ASCII control characters to be
-    // returned, regardless of the key layout. crbug.com/450849
-    if ((flags & EF_CONTROL_DOWN) && (*character >= 0x20))
-      *character = 0;
-  } else if (*dom_key == DomKey::DEAD) {
-    *character = DeadXkbKeySymToCombiningCharacter(xkb_keysym);
-    *key_code = DomCodeToUsLayoutKeyboardCode(dom_code);
-  } else {
-    *key_code = NonPrintableDomKeyToKeyboardCode(*dom_key);
     if (*key_code == VKEY_UNKNOWN)
-      *key_code = DomCodeToUsLayoutKeyboardCode(dom_code);
+      *key_code = DomCodeToUsLayoutNonLocatedKeyboardCode(dom_code);
+    return true;
+  }
+
+  // Per UI Events rules for determining |key|, if the character is
+  // non-printable and a non-shiftlike modifier is down, we preferentially
+  // return a printable key as if the modifier were not down.
+  // https://w3c.github.io/uievents/#keys-guidelines
+  const int kNonShiftlikeModifiers =
+      EF_CONTROL_DOWN | EF_ALT_DOWN | EF_COMMAND_DOWN;
+  if ((flags & kNonShiftlikeModifiers) && IsControlCharacter(character)) {
+    int normal_ui_flags = flags & ~kNonShiftlikeModifiers;
+    xkb_mod_mask_t normal_xkb_flags = EventFlagsToXkbFlags(normal_ui_flags);
+    xkb_keysym_t normal_keysym;
+    uint32_t normal_character = 0;
+    if (XkbLookup(xkb_keycode, normal_xkb_flags, &normal_keysym,
+                  &normal_character) &&
+        !IsControlCharacter(normal_character)) {
+      flags = normal_ui_flags;
+      xkb_flags = normal_xkb_flags;
+      character = normal_character;
+      xkb_keysym = normal_keysym;
+    }
+  }
+
+  *dom_key = DomKey::FromCharacter(character);
+  *key_code = AlphanumericKeyboardCode(character);
+  if (*key_code == VKEY_UNKNOWN) {
+    *key_code = DifficultKeyboardCode(dom_code, flags, xkb_keycode, xkb_flags,
+                                      xkb_keysym, character);
+    if (*key_code == VKEY_UNKNOWN)
+      *key_code = DomCodeToUsLayoutNonLocatedKeyboardCode(dom_code);
   }
   return true;
+}
+
+void XkbKeyboardLayoutEngine::SetKeymapFromStringForTest(
+    const char* keymap_string) {
+  xkb_keymap* keymap = xkb_keymap_new_from_string(
+      xkb_context_.get(), keymap_string, XKB_KEYMAP_FORMAT_TEXT_V1,
+      XKB_KEYMAP_COMPILE_NO_FLAGS);
+  if (keymap)
+    SetKeymap(keymap);
 }
 
 void XkbKeyboardLayoutEngine::SetKeymap(xkb_keymap* keymap) {
@@ -821,7 +840,7 @@ xkb_mod_mask_t XkbKeyboardLayoutEngine::EventFlagsToXkbFlags(
 bool XkbKeyboardLayoutEngine::XkbLookup(xkb_keycode_t xkb_keycode,
                                         xkb_mod_mask_t xkb_flags,
                                         xkb_keysym_t* xkb_keysym,
-                                        base::char16* character) const {
+                                        uint32_t* character) const {
   if (!xkb_state_) {
     LOG(ERROR) << "No current XKB state";
     return false;
@@ -830,9 +849,7 @@ bool XkbKeyboardLayoutEngine::XkbLookup(xkb_keycode_t xkb_keycode,
   *xkb_keysym = xkb_state_key_get_one_sym(xkb_state_.get(), xkb_keycode);
   if (*xkb_keysym == XKB_KEY_NoSymbol)
     return false;
-  uint32_t c = xkb_state_key_get_utf32(xkb_state_.get(), xkb_keycode);
-  DLOG_IF(ERROR, c != (c & 0xFFFF)) << "Non-BMP character:" << c;
-  *character = static_cast<base::char16>(c);
+  *character = xkb_state_key_get_utf32(xkb_state_.get(), xkb_keycode);
   return true;
 }
 
@@ -842,19 +859,18 @@ KeyboardCode XkbKeyboardLayoutEngine::DifficultKeyboardCode(
     xkb_keycode_t xkb_keycode,
     xkb_mod_mask_t xkb_flags,
     xkb_keysym_t xkb_keysym,
-    DomKey dom_key,
     base::char16 character) const {
   // Get the layout interpretation without modifiers, so that
   // e.g. Ctrl+D correctly generates VKEY_D.
   xkb_keysym_t plain_keysym;
-  base::char16 plain_character;
+  uint32_t plain_character;
   if (!XkbLookup(xkb_keycode, 0, &plain_keysym, &plain_character))
     return VKEY_UNKNOWN;
 
   // If the plain key is non-printable, that determines the VKEY.
   DomKey plain_key = NonPrintableXKeySymToDomKey(plain_keysym);
   if (plain_key != ui::DomKey::NONE)
-    return NonPrintableDomKeyToKeyboardCode(dom_key);
+    return NonPrintableDomKeyToKeyboardCode(plain_key);
 
   // Plain ASCII letters and digits map directly to VKEY values.
   KeyboardCode key_code = AlphanumericKeyboardCode(plain_character);
@@ -917,7 +933,7 @@ base::char16 XkbKeyboardLayoutEngine::XkbSubCharacter(
   if (flags == base_flags)
     return base_character;
   xkb_keysym_t keysym;
-  base::char16 character = 0;
+  uint32_t character = 0;
   if (!XkbLookup(xkb_keycode, flags, &keysym, &character))
     character = kNone;
   return character;

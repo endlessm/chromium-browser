@@ -26,6 +26,23 @@ def _TimeRangesHasOverlap(iterable_time_ranges):
   return False
 
 
+def IsEventInInteractions(event, interaction_records):
+  """ Return True if event is in any of the interaction records' time range.
+
+  Args:
+    event: an instance of telemetry.timeline.event.TimelineEvent.
+    interaction_records: a list of interaction records, whereas each record is
+      an instance of
+      telemetry.web_perf.timeline_interaction_record.TimelineInteractionRecord.
+
+  Returns:
+    True if |event|'s start & end time is in any of the |interaction_records|'s
+    time range.
+  """
+  return any(ir.start <= event.start and ir.end >= event.end for ir
+             in interaction_records)
+
+
 class TimelineBasedMetric(object):
 
   def __init__(self):
@@ -49,6 +66,17 @@ class TimelineBasedMetric(object):
 
     """
     raise NotImplementedError()
+
+  def AddWholeTraceResults(self, model, results):
+    """Computes and adds metrics corresponding to the entire trace.
+
+    Override this method to compute results that correspond to the whole trace.
+
+    Args:
+      model: An instance of telemetry.timeline.model.TimelineModel.
+      results: An instance of page.PageTestResults.
+    """
+    pass
 
   def VerifyNonOverlappedRecords(self, interaction_records):
     """This raises exceptions if interaction_records contain overlapped ranges.

@@ -32,12 +32,14 @@
 #define AudioDSPKernel_h
 
 #include "platform/audio/AudioDSPKernelProcessor.h"
+#include "wtf/Allocator.h"
 
 namespace blink {
 
 // AudioDSPKernel does the processing for one channel of an AudioDSPKernelProcessor.
 
 class PLATFORM_EXPORT AudioDSPKernel {
+    USING_FAST_MALLOC(AudioDSPKernel);
 public:
     AudioDSPKernel(AudioDSPKernelProcessor* kernelProcessor)
         : m_kernelProcessor(kernelProcessor)

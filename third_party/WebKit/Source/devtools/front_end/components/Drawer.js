@@ -41,14 +41,12 @@ WebInspector.Drawer = function(splitWidget)
     splitWidget.hideDefaultResizer();
     splitWidget.setSidebarWidget(this);
 
-    this._toggleDrawerButton = new WebInspector.ToolbarButton(WebInspector.UIString("Show drawer"), "console-toolbar-item");
-    this._toggleDrawerButton.addEventListener("click", this.toggle, this);
-
     this._tabbedPane = new WebInspector.TabbedPane();
     this._tabbedPane.element.id = "drawer-tabbed-pane";
-    this._tabbedPane.setCloseableTabs(false);
     this._tabbedPane.addEventListener(WebInspector.TabbedPane.EventTypes.TabSelected, this._tabSelected, this);
-    new WebInspector.ExtensibleTabbedPaneController(this._tabbedPane, "drawer-view");
+
+    this._extensibleTabbedPaneController = new WebInspector.ExtensibleTabbedPaneController(this._tabbedPane, "drawer-view");
+    this._extensibleTabbedPaneController.enableMoreTabsButton();
 
     splitWidget.installResizer(this._tabbedPane.headerElement());
     this._lastSelectedViewSetting = WebInspector.settings.createSetting("WebInspector.Drawer.lastSelectedView", "console");
@@ -57,71 +55,30 @@ WebInspector.Drawer = function(splitWidget)
 
 WebInspector.Drawer.prototype = {
     /**
-     * @return {!WebInspector.ToolbarButton}
-     */
-    toggleButton: function()
-    {
-        return this._toggleDrawerButton;
-    },
-
-    /**
-     * @param {string} id
-     */
-    closeView: function(id)
-    {
-        this._tabbedPane.closeTab(id);
-    },
-
-    /**
      * @param {string} id
      * @param {boolean=} immediate
+     * @return {!Promise.<?WebInspector.Widget>}
      */
     showView: function(id, immediate)
     {
-        if (!this._tabbedPane.hasTab(id)) {
-            // Hidden tab.
-            this._innerShow(immediate);
-            return;
-        }
         this._innerShow(immediate);
-        this._tabbedPane.selectTab(id, true);
-        // In case this id is already selected, anyways persist it as the last saved value.
-        this._lastSelectedViewSetting.set(id);
-    },
-
-    /**
-     * @param {string} id
-     * @param {string} title
-     * @param {!WebInspector.Widget} view
-     */
-    showCloseableView: function(id, title, view)
-    {
-        if (!this._tabbedPane.hasTab(id)) {
-            this._tabbedPane.appendTab(id, title, view, undefined, false, true);
-        } else {
-            this._tabbedPane.changeTabView(id, view);
-            this._tabbedPane.changeTabTitle(id, title);
-        }
-        this._innerShow();
-        this._tabbedPane.selectTab(id, true);
+        return this._extensibleTabbedPaneController.showTab(id);
     },
 
     showDrawer: function()
     {
-        this.showView(this._lastSelectedViewSetting.get());
+        this._innerShow();
     },
 
     wasShown: function()
     {
-        this.showView(this._lastSelectedViewSetting.get());
-        this._toggleDrawerButton.setToggled(true);
-        this._toggleDrawerButton.setTitle(WebInspector.UIString("Hide drawer"));
+        var id = this._lastSelectedViewSetting.get();
+        if (!this._firstTabSelected && this._tabbedPane.hasTab(id))
+            this.showView(id);
     },
 
     willHide: function()
     {
-        this._toggleDrawerButton.setToggled(false);
-        this._toggleDrawerButton.setTitle(WebInspector.UIString("Show drawer"));
     },
 
     /**
@@ -160,25 +117,10 @@ WebInspector.Drawer.prototype = {
      */
     _tabSelected: function(event)
     {
+        this._firstTabSelected = true;
         var tabId = this._tabbedPane.selectedTabId;
-        if (tabId && event.data["isUserGesture"] && !this._tabbedPane.isTabCloseable(tabId))
+        if (tabId && event.data["isUserGesture"])
             this._lastSelectedViewSetting.set(tabId);
-    },
-
-    toggle: function()
-    {
-        if (this._toggleDrawerButton.toggled())
-            this.closeDrawer();
-        else
-            this.showDrawer();
-    },
-
-    /**
-     * @return {boolean}
-     */
-    visible: function()
-    {
-        return this._toggleDrawerButton.toggled();
     },
 
     /**
@@ -195,42 +137,4 @@ WebInspector.Drawer.prototype = {
     },
 
     __proto__: WebInspector.VBox.prototype
-}
-
-/**
- * @interface
- */
-WebInspector.Drawer.ViewFactory = function()
-{
-}
-
-WebInspector.Drawer.ViewFactory.prototype = {
-    /**
-     * @return {!WebInspector.Widget}
-     */
-    createView: function() {}
-}
-
-/**
- * @constructor
- * @implements {WebInspector.Drawer.ViewFactory}
- * @param {function(new:T)} constructor
- * @template T
- */
-WebInspector.Drawer.SingletonViewFactory = function(constructor)
-{
-    this._constructor = constructor;
-}
-
-WebInspector.Drawer.SingletonViewFactory.prototype = {
-    /**
-     * @override
-     * @return {!WebInspector.Widget}
-     */
-    createView: function()
-    {
-        if (!this._instance)
-            this._instance = /** @type {!WebInspector.Widget} */(new this._constructor());
-        return this._instance;
-    }
 }

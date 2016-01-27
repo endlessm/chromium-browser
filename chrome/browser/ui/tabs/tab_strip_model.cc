@@ -23,7 +23,7 @@
 #include "chrome/browser/ui/tabs/tab_utils.h"
 #include "chrome/browser/ui/web_contents_sizer.h"
 #include "chrome/common/url_constants.h"
-#include "components/web_modal/popup_manager.h"
+#include "components/web_modal/web_contents_modal_dialog_manager.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/user_metrics.h"
 #include "content/public/browser/web_contents.h"
@@ -154,8 +154,6 @@ class TabStripModel::WebContentsData : public content::WebContentsObserver {
   void set_pinned(bool value) { pinned_ = value; }
   bool blocked() const { return blocked_; }
   void set_blocked(bool value) { blocked_ = value; }
-  bool discarded() const { return discarded_; }
-  void set_discarded(bool value) { discarded_ = value; }
 
  private:
   // Make sure that if someone deletes this WebContents out from under us, it
@@ -199,9 +197,6 @@ class TabStripModel::WebContentsData : public content::WebContentsObserver {
   // Is the tab interaction blocked by a modal dialog?
   bool blocked_;
 
-  // Has the tab data been discarded to save memory?
-  bool discarded_;
-
   DISALLOW_COPY_AND_ASSIGN(WebContentsData);
 };
 
@@ -214,9 +209,7 @@ TabStripModel::WebContentsData::WebContentsData(TabStripModel* tab_strip_model,
       opener_(NULL),
       reset_group_on_select_(false),
       pinned_(false),
-      blocked_(false),
-      discarded_(false) {
-}
+      blocked_(false) {}
 
 void TabStripModel::WebContentsData::SetWebContents(WebContents* contents) {
   contents_ = contents;
@@ -247,8 +240,6 @@ TabStripModel::TabStripModel(TabStripModelDelegate* delegate, Profile* profile)
 }
 
 TabStripModel::~TabStripModel() {
-  FOR_EACH_OBSERVER(TabStripModelObserver, observers_,
-                    TabStripModelDeleted());
   STLDeleteElements(&contents_data_);
   order_controller_.reset();
 }
@@ -311,13 +302,13 @@ void TabStripModel::InsertWebContentsAt(int index,
     data->set_opener(active_contents);
   }
 
-  // TODO(gbillock): Ask the bubble manager whether the WebContents should be
-  // blocked, or just let the bubble manager make the blocking call directly
-  // and not use this at all.
-  web_modal::PopupManager* popup_manager =
-      web_modal::PopupManager::FromWebContents(contents);
-  if (popup_manager)
-    data->set_blocked(popup_manager->IsWebModalDialogActive(contents));
+  // TODO(gbillock): Ask the modal dialog manager whether the WebContents should
+  // be blocked, or just let the modal dialog manager make the blocking call
+  // directly and not use this at all.
+  const web_modal::WebContentsModalDialogManager* manager =
+      web_modal::WebContentsModalDialogManager::FromWebContents(contents);
+  if (manager)
+    data->set_blocked(manager->IsDialogActive());
 
   contents_data_.insert(contents_data_.begin() + index, data);
 
@@ -360,30 +351,6 @@ WebContents* TabStripModel::ReplaceWebContentsAt(int index,
                          TabStripModelObserver::CHANGE_REASON_REPLACED));
   }
   return old_contents;
-}
-
-WebContents* TabStripModel::DiscardWebContentsAt(int index) {
-  DCHECK(ContainsIndex(index));
-  // Do not discard active tab.
-  if (active_index() == index)
-    return NULL;
-
-  WebContents* null_contents =
-      WebContents::Create(WebContents::CreateParams(profile()));
-  WebContents* old_contents = GetWebContentsAtImpl(index);
-  // Copy over the state from the navigation controller so we preserve the
-  // back/forward history and continue to display the correct title/favicon.
-  null_contents->GetController().CopyStateFrom(old_contents->GetController());
-  // Replace the tab we're discarding with the null version.
-  ReplaceWebContentsAt(index, null_contents);
-  // Mark the tab so it will reload when we click.
-  contents_data_[index]->set_discarded(true);
-  // Discard the old tab's renderer.
-  // TODO(jamescook): This breaks script connections with other tabs.
-  // We need to find a different approach that doesn't do that, perhaps based
-  // on navigation to swappedout://.
-  delete old_contents;
-  return null_contents;
 }
 
 WebContents* TabStripModel::DetachWebContentsAt(int index) {
@@ -697,10 +664,6 @@ bool TabStripModel::IsTabPinned(int index) const {
 
 bool TabStripModel::IsTabBlocked(int index) const {
   return contents_data_[index]->blocked();
-}
-
-bool TabStripModel::IsTabDiscarded(int index) const {
-  return contents_data_[index]->discarded();
 }
 
 int TabStripModel::IndexOfFirstNonPinnedTab() const {
@@ -1018,7 +981,7 @@ void TabStripModel::ExecuteContextMenuCommand(
       for (std::vector<int>::const_iterator i = indices.begin();
            i != indices.end(); ++i) {
         chrome::SetTabAudioMuted(GetWebContentsAt(*i), mute,
-                                 chrome::kMutedToggleCauseUser);
+                                 TAB_MUTED_REASON_CONTEXT_MENU, std::string());
       }
       break;
     }
@@ -1190,7 +1153,7 @@ bool TabStripModel::InternalCloseTabs(const std::vector<int>& indices,
 
   // We only try the fast shutdown path if the whole browser process is *not*
   // shutting down. Fast shutdown during browser termination is handled in
-  // BrowserShutdown.
+  // browser_shutdown::OnShutdownStarting.
   if (browser_shutdown::GetShutdownType() == browser_shutdown::NOT_VALID) {
     // Construct a map of processes to the number of associated tabs that are
     // closing.
@@ -1294,8 +1257,6 @@ void TabStripModel::NotifyIfActiveTabChanged(WebContents* old_contents,
                          active_index(),
                          reason));
     in_notify_ = false;
-    // Activating a discarded tab reloads it, so it is no longer discarded.
-    contents_data_[active_index()]->set_discarded(false);
   }
 }
 

@@ -48,9 +48,9 @@ AXListBoxOption::~AXListBoxOption()
 {
 }
 
-PassRefPtrWillBeRawPtr<AXListBoxOption> AXListBoxOption::create(LayoutObject* layoutObject, AXObjectCacheImpl& axObjectCache)
+AXListBoxOption* AXListBoxOption::create(LayoutObject* layoutObject, AXObjectCacheImpl& axObjectCache)
 {
-    return adoptRefWillBeNoop(new AXListBoxOption(layoutObject, axObjectCache));
+    return new AXListBoxOption(layoutObject, axObjectCache);
 }
 
 AccessibilityRole AXListBoxOption::determineAccessibilityRole()
@@ -148,7 +148,7 @@ String AXListBoxOption::stringValue() const
         return ariaLabel;
 
     if (isHTMLOptionElement(node()))
-        return toHTMLOptionElement(node())->text();
+        return toHTMLOptionElement(node())->displayLabel();
 
     return String();
 }

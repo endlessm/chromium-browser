@@ -32,7 +32,7 @@ class CSSCursorImageValue;
 class SVGCursorElement;
 
 class SVGElementRareData : public NoBaseWillBeGarbageCollectedFinalized<SVGElementRareData> {
-    WTF_MAKE_NONCOPYABLE(SVGElementRareData); WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(SVGElementRareData);
+    WTF_MAKE_NONCOPYABLE(SVGElementRareData); USING_FAST_MALLOC_WILL_BE_REMOVED(SVGElementRareData);
 public:
     SVGElementRareData(SVGElement* owner)
 #if ENABLE(OILPAN)
@@ -63,7 +63,7 @@ public:
     SVGCursorElement* cursorElement() const { return m_cursorElement; }
     void setCursorElement(SVGCursorElement* cursorElement) { m_cursorElement = cursorElement; }
 
-    SVGElement* correspondingElement() { return m_correspondingElement.get(); }
+    SVGElement* correspondingElement() const { return m_correspondingElement.get(); }
     void setCorrespondingElement(SVGElement* correspondingElement) { m_correspondingElement = correspondingElement; }
 
     CSSCursorImageValue* cursorImageValue() const { return m_cursorImageValue; }

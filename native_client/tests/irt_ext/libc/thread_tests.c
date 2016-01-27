@@ -10,6 +10,7 @@
 #include <semaphore.h>
 #include <string.h>
 
+#include "native_client/src/trusted/service_runtime/include/sys/nacl_nice.h"
 #include "native_client/tests/irt_ext/libc/libc_test.h"
 #include "native_client/tests/irt_ext/threading.h"
 
@@ -22,6 +23,7 @@ static void *nop_thread(void *arg) {
   return NULL;
 }
 
+#ifndef __GLIBC__
 static void *priority_thread(void *arg) {
   const int prio = (int) arg;
   pthread_t this_thread = pthread_self();
@@ -88,6 +90,7 @@ static void *cond_wait_thread(void *arg) {
 
   return (void *) ((uintptr_t) pthread_mutex_unlock(cond_wait_arg->mutex));
 }
+#endif
 
 /* Basic pthread tests. */
 static int do_thread_creation_test(struct threading_environment *env) {
@@ -127,6 +130,10 @@ static int do_thread_creation_test(struct threading_environment *env) {
 }
 
 static int do_thread_priority_test(struct threading_environment *env) {
+  /*
+   * TODO(mcgrathr): Implement pthread_setschedprio in NaCl glibc.
+   */
+#ifndef __GLIBC__
   if (env->last_set_thread_nice != 0) {
     irt_ext_test_print("do_thread_priority_test: Env is not initialized.\n");
     return 1;
@@ -153,12 +160,17 @@ static int do_thread_priority_test(struct threading_environment *env) {
                        " recorded in the environment.\n");
     return 1;
   }
+#endif
 
   return 0;
 }
 
 /* Do futex tests. */
 static int do_mutex_test(struct threading_environment *env) {
+  /*
+   * TODO(mcgrathr): Rewrite these tests not to use implementation internals.
+   */
+#ifndef __GLIBC__
   if (env->num_futex_wait_calls != 0 || env->num_futex_wake_calls != 0) {
     irt_ext_test_print("do_mutex_test: Threading env not initialized.\n");
     return 1;
@@ -269,21 +281,25 @@ static int do_mutex_test(struct threading_environment *env) {
                        strerror(ret));
     return 1;
   }
+#endif
 
   return 0;
 }
 
 static int do_semaphore_test(struct threading_environment *env) {
+  /*
+   * TODO(mcgrathr): Rewrite these tests not to use implementation internals.
+   */
+#ifndef __GLIBC__
   if (env->num_futex_wait_calls != 0 || env->num_futex_wake_calls != 0) {
     irt_ext_test_print("do_semaphore_test: Threading env not initialized.\n");
     return 1;
   }
 
   sem_t semaphore;
-  int ret = sem_init(&semaphore, 0, 0);
-  if (0 != ret) {
+  if (sem_init(&semaphore, 0, 0) != 0) {
     irt_ext_test_print("do_semaphore_test: sem_init failed: %s\n",
-                       strerror(ret));
+                       strerror(errno));
     return 1;
   }
 
@@ -293,7 +309,7 @@ static int do_semaphore_test(struct threading_environment *env) {
   };
 
   pthread_t thread_id;
-  ret = pthread_create(&thread_id, NULL, semaphore_thread, &thread_args);
+  int ret = pthread_create(&thread_id, NULL, semaphore_thread, &thread_args);
   if (0 != ret) {
     irt_ext_test_print("do_semaphore_test: pthread_create failed: %s\n",
                        strerror(ret));
@@ -316,10 +332,9 @@ static int do_semaphore_test(struct threading_environment *env) {
     sched_yield();
   }
 
-  ret = sem_post(&semaphore);
-  if (0 != ret) {
+  if (sem_post(&semaphore) != 0) {
     irt_ext_test_print("do_semaphore_test: sem_post failed: %s\n",
-                       strerror(ret));
+                       strerror(errno));
     return 1;
   }
 
@@ -350,10 +365,9 @@ static int do_semaphore_test(struct threading_environment *env) {
     return 1;
   }
 
-  ret = sem_destroy(&semaphore);
-  if (0 != ret) {
+  if (sem_destroy(&semaphore) != 0) {
     irt_ext_test_print("do_semaphore_test: sem_destroy failed: %s\n",
-                       strerror(ret));
+                       strerror(errno));
     return 1;
   }
 
@@ -363,11 +377,16 @@ static int do_semaphore_test(struct threading_environment *env) {
                        strerror(ret));
     return 1;
   }
+#endif
 
   return 0;
 }
 
 static int do_cond_signal_test(struct threading_environment *env) {
+  /*
+   * TODO(mcgrathr): Rewrite these tests not to use implementation internals.
+   */
+#ifndef __GLIBC__
   if (env->num_futex_wake_calls != 0) {
     irt_ext_test_print("do_cond_signal_test: Threading env not initialized.\n");
     return 1;
@@ -402,11 +421,16 @@ static int do_cond_signal_test(struct threading_environment *env) {
                        env->num_futex_wake_calls);
     return 1;
   }
+#endif
 
   return 0;
 }
 
 static int do_cond_broadcast_test(struct threading_environment *env) {
+  /*
+   * TODO(mcgrathr): Rewrite these tests not to use implementation internals.
+   */
+#ifndef __GLIBC__
   if (env->num_futex_wake_calls != 0) {
     irt_ext_test_print("do_cond_broadcast_test: Env not initialized.\n");
     return 1;
@@ -443,11 +467,16 @@ static int do_cond_broadcast_test(struct threading_environment *env) {
                        env->num_futex_wake_calls);
     return 1;
   }
+#endif
 
   return 0;
 }
 
 static int do_cond_timed_wait_test(struct threading_environment *env) {
+  /*
+   * TODO(mcgrathr): Rewrite these tests not to use implementation internals.
+   */
+#ifndef __GLIBC__
   if (env->num_futex_wait_calls != 0) {
     irt_ext_test_print("do_cond_timed_wait_test: Env not initialized.\n");
     return 1;
@@ -530,11 +559,16 @@ static int do_cond_timed_wait_test(struct threading_environment *env) {
                        env->current_time - TEST_TIME_VALUE);
     return 1;
   }
+#endif
 
   return 0;
 }
 
 static int do_cond_wait_test(struct threading_environment *env) {
+  /*
+   * TODO(mcgrathr): Rewrite these tests not to use implementation internals.
+   */
+#ifndef __GLIBC__
   if (env->num_futex_wait_calls != 0 || env->num_futex_wake_calls != 0) {
     irt_ext_test_print("do_cond_wait_test: Env not initialized.\n");
     return 1;
@@ -635,6 +669,7 @@ static int do_cond_wait_test(struct threading_environment *env) {
                        strerror(ret));
     return 1;
   }
+#endif
 
   return 0;
 }

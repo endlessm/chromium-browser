@@ -9,7 +9,7 @@
 
 #include "base/basictypes.h"
 #include "cc/base/cc_export.h"
-#include "ui/gfx/geometry/rect.h"
+#include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/scroll_offset.h"
 #include "ui/gfx/transform.h"
 
@@ -75,6 +75,8 @@ struct CC_EXPORT TransformNodeData {
 
   bool is_animated : 1;
   bool to_screen_is_animated : 1;
+  bool has_only_translation_animations : 1;
+  bool to_screen_has_scale_animation : 1;
 
   // Flattening, when needed, is only applied to a node's inherited transform,
   // never to its local transform.
@@ -98,12 +100,32 @@ struct CC_EXPORT TransformNodeData {
   bool affected_by_outer_viewport_bounds_delta_x : 1;
   bool affected_by_outer_viewport_bounds_delta_y : 1;
 
-  // This is used as a fallback when we either cannot adjust raster scale or if
-  // the raster scale cannot be extracted from the screen space transform.
-  float layer_scale_factor;
+  // Layer scale factor is used as a fallback when we either cannot adjust
+  // raster scale or if the raster scale cannot be extracted from the screen
+  // space transform. For layers in the subtree of the page scale layer, the
+  // layer scale factor should include the page scale factor.
+  bool in_subtree_of_page_scale_layer : 1;
 
   // TODO(vollick): will be moved when accelerated effects are implemented.
   float post_local_scale_factor;
+
+  // The maximum scale that that node's |local| transform will have during
+  // current animations, considering only scales at keyframes not including the
+  // starting keyframe of each animation.
+  float local_maximum_animation_target_scale;
+
+  // The maximum scale that this node's |local| transform will have during
+  // current animatons, considering only the starting scale of each animation.
+  float local_starting_animation_scale;
+
+  // The maximum scale that this node's |to_target| transform will have during
+  // current animations, considering only scales at keyframes not incuding the
+  // starting keyframe of each animation.
+  float combined_maximum_animation_target_scale;
+
+  // The maximum scale that this node's |to_target| transform will have during
+  // current animations, considering only the starting scale of each animation.
+  float combined_starting_animation_scale;
 
   gfx::Vector2dF sublayer_scale;
 
@@ -135,22 +157,63 @@ typedef TreeNode<TransformNodeData> TransformNode;
 struct CC_EXPORT ClipNodeData {
   ClipNodeData();
 
+  // The clip rect that this node contributes, expressed in the space of its
+  // transform node.
   gfx::RectF clip;
-  gfx::RectF combined_clip;
+
+  // Clip nodes are uses for two reasons. First, they are used for determining
+  // which parts of each layer are visible. Second, they are used for
+  // determining whether a clip needs to be applied when drawing a layer, and if
+  // so, the rect that needs to be used. These can be different since not all
+  // clips need to be applied directly to each layer. For example, a layer is
+  // implicitly clipped by the bounds of its target render surface and by clips
+  // applied to this surface. |combined_clip_in_target_space| is used for
+  // computing visible rects, and |clip_in_target_space| is used for computing
+  // clips applied at draw time. Both rects are expressed in the space of the
+  // target transform node, and may include clips contributed by ancestors.
+  gfx::RectF combined_clip_in_target_space;
+  gfx::RectF clip_in_target_space;
+
+  // The id of the transform node that defines the clip node's local space.
   int transform_id;
+
+  // The id of the transform node that defines the clip node's target space.
   int target_id;
+
+  // Whether this node contributes a new clip (that is, whether |clip| needs to
+  // be applied), rather than only inheriting ancestor clips.
+  bool applies_local_clip : 1;
+
+  // When true, |clip_in_target_space| does not include clips from ancestor
+  // nodes.
+  bool layer_clipping_uses_only_local_clip : 1;
+
+  // True if target surface needs to be drawn with a clip applied.
+  bool target_is_clipped : 1;
+
+  // True if layers with this clip tree node need to be drawn with a clip
+  // applied.
+  bool layers_are_clipped : 1;
+  bool layers_are_clipped_when_surfaces_disabled : 1;
+
+  // Nodes that correspond to unclipped surfaces disregard ancestor clips.
+  bool resets_clip : 1;
 };
 
 typedef TreeNode<ClipNodeData> ClipNode;
 
-struct CC_EXPORT OpacityNodeData {
-  OpacityNodeData();
+struct CC_EXPORT EffectNodeData {
+  EffectNodeData();
 
   float opacity;
   float screen_space_opacity;
+
+  bool has_render_surface;
+  int transform_id;
+  int clip_id;
 };
 
-typedef TreeNode<OpacityNodeData> OpacityNode;
+typedef TreeNode<EffectNodeData> EffectNode;
 
 template <typename T>
 class CC_EXPORT PropertyTree {
@@ -184,6 +247,8 @@ class CC_EXPORT PropertyTree {
 
   void set_needs_update(bool needs_update) { needs_update_ = needs_update; }
   bool needs_update() const { return needs_update_; }
+
+  int next_available_id() const { return static_cast<int>(size()); }
 
  private:
   // Copy and assign are permitted. This is how we do tree sync.
@@ -251,6 +316,22 @@ class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
     return source_to_parent_updates_allowed_;
   }
 
+  // We store the page scale factor on the transform tree so that it can be
+  // easily be retrieved and updated in UpdatePageScaleInPropertyTrees.
+  void set_page_scale_factor(float page_scale_factor) {
+    page_scale_factor_ = page_scale_factor;
+  }
+  float page_scale_factor() const { return page_scale_factor_; }
+
+  void set_device_scale_factor(float device_scale_factor) {
+    device_scale_factor_ = device_scale_factor;
+  }
+  float device_scale_factor() const { return device_scale_factor_; }
+
+  void SetDeviceTransform(const gfx::Transform& transform,
+                          gfx::PointF root_position);
+  void SetDeviceTransformScaleFactor(const gfx::Transform& transform);
+
   void SetInnerViewportBoundsDelta(gfx::Vector2dF bounds_delta);
   gfx::Vector2dF inner_viewport_bounds_delta() const {
     return inner_viewport_bounds_delta_;
@@ -293,7 +374,9 @@ class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
   void UpdateSublayerScale(TransformNode* node);
   void UpdateTargetSpaceTransform(TransformNode* node,
                                   TransformNode* target_node);
-  void UpdateIsAnimated(TransformNode* node, TransformNode* parent_node);
+  void UpdateAnimationProperties(TransformNode* node,
+                                 TransformNode* parent_node);
+  void UndoSnapping(TransformNode* node);
   void UpdateSnapping(TransformNode* node);
   void UpdateNodeAndAncestorsHaveIntegerTranslations(
       TransformNode* node,
@@ -301,15 +384,25 @@ class CC_EXPORT TransformTree final : public PropertyTree<TransformNode> {
   bool NeedsSourceToParentUpdate(TransformNode* node);
 
   bool source_to_parent_updates_allowed_;
+  // When to_screen transform has perspective, the transform node's sublayer
+  // scale is calculated using page scale factor, device scale factor and the
+  // scale factor of device transform. So we need to store them explicitly.
+  float page_scale_factor_;
+  float device_scale_factor_;
+  float device_transform_scale_factor_;
   gfx::Vector2dF inner_viewport_bounds_delta_;
   gfx::Vector2dF outer_viewport_bounds_delta_;
   std::vector<int> nodes_affected_by_inner_viewport_bounds_delta_;
   std::vector<int> nodes_affected_by_outer_viewport_bounds_delta_;
 };
 
-class CC_EXPORT ClipTree final : public PropertyTree<ClipNode> {};
+class CC_EXPORT ClipTree final : public PropertyTree<ClipNode> {
+ public:
+  void SetViewportClip(gfx::RectF viewport_rect);
+  gfx::RectF ViewportClip();
+};
 
-class CC_EXPORT OpacityTree final : public PropertyTree<OpacityNode> {
+class CC_EXPORT EffectTree final : public PropertyTree<EffectNode> {
  public:
   void UpdateOpacities(int id);
 };
@@ -319,9 +412,10 @@ class CC_EXPORT PropertyTrees final {
   PropertyTrees();
 
   TransformTree transform_tree;
-  OpacityTree opacity_tree;
+  EffectTree effect_tree;
   ClipTree clip_tree;
   bool needs_rebuild;
+  bool non_root_surfaces_enabled;
   int sequence_number;
 };
 

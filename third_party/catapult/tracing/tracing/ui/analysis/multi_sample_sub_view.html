@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<!--
+Copyright (c) 2013 The Chromium Authors. All rights reserved.
+Use of this source code is governed by a BSD-style license that can be
+found in the LICENSE file.
+-->
+
+<link rel="import" href="/tracing/base/units/units.html">
+<link rel="import" href="/tracing/ui/analysis/analysis_sub_view.html">
+<link rel="import" href="/tracing/ui/analysis/stack_frame_tree.html">
+<link rel="import" href="/tracing/ui/base/table.html">
+<link rel="import" href="/tracing/ui/units/scalar_span.html">
+
+<polymer-element name="tr-ui-a-multi-sample-sub-view"
+    extends="tr-ui-a-sub-view">
+  <template>
+    <style>
+    :host { display: block; }
+    #control {
+      background-color: #e6e6e6;
+      background-image: -webkit-gradient(linear, 0 0, 0 100%,
+                                         from(#E5E5E5), to(#D1D1D1));
+      flex: 0 0 auto;
+      overflow-x: auto;
+    }
+    #control::-webkit-scrollbar { height: 0px; }
+    #control {
+      font-size: 12px;
+      display: flex;
+      flex-direction: row;
+      align-items: stretch;
+      margin: 1px;
+      margin-right: 2px;
+    }
+    </style>
+    <div id="control">
+      Sample View Option
+    </div>
+    <tr-ui-b-table id="table">
+    </tr-ui-b-table>
+  </template>
+
+  <script>
+  'use strict';
+
+  (function() {
+    Polymer({
+      created: function() {
+        this.viewOption_ = undefined;
+        this.selection_ = undefined;
+      },
+
+      ready: function() {
+        var viewSelector = tr.ui.b.createSelector(
+            this, 'viewOption', 'tracing.ui.analysis.multi_sample_sub_view',
+            'TOPDOWNVIEW',
+            [{label: 'Tree (Top Down)', value: 'TOPDOWNVIEW'},
+             {label: 'Heavy (Bottom Up)', value: 'BOTTOMUPVIEW'}]
+        );
+        this.$.control.appendChild(viewSelector);
+      },
+
+      get selection() {
+        return this.selection_;
+      },
+
+      set selection(selection) {
+        this.selection_ = selection;
+        this.updateContents_();
+      },
+
+      get viewOption() {
+        return this.viewOption_;
+      },
+
+      set viewOption(viewOption) {
+        this.viewOption_ = viewOption;
+        this.updateContents_();
+      },
+
+      createSamplingSummary_: function(selection, viewOption) {
+        var root = new tr.ui.analysis.StackFrameTreeNode(
+            '(root)', undefined /* frame */);
+        var samples = selection.getEventsOrganizedByBaseType().sample;
+
+        samples.forEach(function(sample) {
+          root.addStackTrace(sample.stackTrace, 1);
+        });
+
+        switch (viewOption) {
+          case 'TOPDOWNVIEW':
+            return root;
+          case 'BOTTOMUPVIEW':
+            return root.convertToBottomUpView();
+          default:
+            throw new Error(
+                'Unknown sampling summary view option: \'' + viewOption + '\'');
+        }
+      },
+
+      updateContents_: function() {
+        if (this.selection === undefined) {
+          this.$.table.tableColumns = [];
+          this.$.table.tableRows = [];
+          this.$.table.rebuild();
+          return;
+        }
+
+        var samplingData = this.createSamplingSummary_(
+            this.selection, this.viewOption);
+        var columns = [
+          this.createPercentColumn_('Total', samplingData.total),
+          this.createSamplesColumn_('Total'),
+          this.createPercentColumn_('Self', samplingData.total),
+          this.createSamplesColumn_('Self'),
+          {
+            title: 'Symbol',
+            value: function(row) { return row.title; },
+            width: '250px',
+            cmp: function(a, b) {
+              return a.title.localeCompare(b.title);
+            },
+            showExpandButtons: true
+          }
+        ];
+
+        this.$.table.tableColumns = columns;
+        this.$.table.sortColumnIndex = 1 /* Total samples */;
+        this.$.table.sortDescending = true;
+        this.$.table.tableRows = samplingData.subRows;
+        this.$.table.rebuild();
+      },
+
+      createPercentColumn_: function(title, samplingDataTotal) {
+        var field = title.toLowerCase();
+        return {
+          title: title + ' percent',
+          value: function(row) {
+            var percent = row[field] / samplingDataTotal;
+
+            var span = document.createElement('tr-ui-u-scalar-span');
+            span.value = (percent * 100).toFixed(2);
+            span.percentage = percent;
+            span.unit = tr.b.u.Units.unitlessNumber;
+            return span;
+
+          }.bind(this),
+          width: '60px',
+          cmp: function(a, b) {
+            return a[field] - b[field];
+          }
+        };
+      },
+
+      createSamplesColumn_: function(title) {
+        var field = title.toLowerCase();
+        return {
+          title: title + ' samples',
+          value: function(row) {
+            return row[field];
+          },
+          width: '60px',
+          cmp: function(a, b) {
+            return a[field] - b[field];
+          }
+        };
+      }
+    });
+  })();
+  </script>
+</polymer-element>

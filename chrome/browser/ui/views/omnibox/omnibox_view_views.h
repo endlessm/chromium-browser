@@ -9,10 +9,11 @@
 #include <string>
 
 #include "base/basictypes.h"
+#include "base/gtest_prod_util.h"
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
-#include "chrome/browser/ui/omnibox/omnibox_view.h"
-#include "chrome/browser/ui/toolbar/toolbar_model.h"
+#include "chrome/browser/ui/toolbar/chrome_toolbar_model.h"
+#include "components/omnibox/browser/omnibox_view.h"
 #include "ui/base/window_open_disposition.h"
 #include "ui/gfx/range/range.h"
 #include "ui/views/controls/textfield/textfield.h"
@@ -22,6 +23,7 @@
 #include "ui/base/ime/chromeos/input_method_manager.h"
 #endif
 
+class CommandUpdater;
 class LocationBarView;
 class OmniboxPopupView;
 class Profile;
@@ -65,10 +67,17 @@ class OmniboxViewViews
   }
 #endif
 
+  // For use when switching tabs, this saves the current state onto the tab so
+  // that it can be restored during a later call to Update().
+  void SaveStateToTab(content::WebContents* tab);
+
+  // Called when the window's active tab changes.
+  void OnTabChanged(const content::WebContents* web_contents);
+
+  // Called to clear the saved state for |web_contents|.
+  void ResetTabState(content::WebContents* web_contents);
+
   // OmniboxView:
-  void SaveStateToTab(content::WebContents* tab) override;
-  void OnTabChanged(const content::WebContents* web_contents) override;
-  void ResetTabState(content::WebContents* web_contents) override;
   void Update() override;
   base::string16 GetText() const override;
   void SetUserText(const base::string16& text,
@@ -114,6 +123,9 @@ class OmniboxViewViews
   // don't normally use this). Sets the value and clears the selection.
   void AccessibilitySetValue(const base::string16& new_value);
 
+  // Updates |security_level_| based on the toolbar model's current value.
+  void UpdateSecurityLevel();
+
   // OmniboxView:
   void SetWindowTextAndCaretPos(const base::string16& text,
                                 size_t caret_pos,
@@ -139,8 +151,7 @@ class OmniboxViewViews
   int GetWidth() const override;
   bool IsImeShowingPopup() const override;
   void ShowImeIfNeeded() override;
-  void OnMatchOpened(const AutocompleteMatch& match,
-                     content::WebContents* web_contents) override;
+  void OnMatchOpened(const AutocompleteMatch& match) override;
   int GetOmniboxTextLength() const override;
   void EmphasizeURLComponents() override;
 
@@ -183,9 +194,11 @@ class OmniboxViewViews
   void OnGetDragOperationsForTextfield(int* drag_operations) override;
   void AppendDropFormats(
       int* formats,
-      std::set<ui::OSExchangeData::CustomFormat>* custom_formats) override;
+      std::set<ui::Clipboard::FormatType>* format_types) override;
   int OnDrop(const ui::OSExchangeData& data) override;
   void UpdateContextMenu(ui::SimpleMenuModel* menu_contents) override;
+
+  Profile* profile_;
 
   // When true, the location bar view is read only and also is has a slightly
   // different presentation (smaller font size). This is used for popups.
@@ -193,7 +206,7 @@ class OmniboxViewViews
 
   scoped_ptr<OmniboxPopupView> popup_view_;
 
-  connection_security::SecurityLevel security_level_;
+  SecurityStateModel::SecurityLevel security_level_;
 
   // Selection persisted across temporary text changes, like popup suggestions.
   gfx::Range saved_temporary_selection_;

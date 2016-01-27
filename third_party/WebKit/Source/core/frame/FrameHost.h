@@ -33,10 +33,10 @@
 
 #include "core/CoreExport.h"
 #include "core/frame/PageScaleConstraintsSet.h"
-#include "core/frame/PinchViewport.h"
 #include "core/frame/TopControls.h"
+#include "core/frame/VisualViewport.h"
 #include "platform/heap/Handle.h"
-#include "wtf/FastAllocBase.h"
+#include "wtf/Allocator.h"
 #include "wtf/Noncopyable.h"
 #include "wtf/OwnPtr.h"
 #include "wtf/PassOwnPtr.h"
@@ -48,7 +48,6 @@ class ConsoleMessageStorage;
 class EventHandlerRegistry;
 class Page;
 class PageScaleConstraintsSet;
-class PinchViewport;
 class Settings;
 class UseCounter;
 class Visitor;
@@ -63,7 +62,7 @@ class Visitor;
 // Separating Page from the rest of core/ through this indirection
 // allows us to slowly refactor Page without breaking the rest of core.
 class CORE_EXPORT FrameHost final : public NoBaseWillBeGarbageCollectedFinalized<FrameHost> {
-    WTF_MAKE_NONCOPYABLE(FrameHost); WTF_MAKE_FAST_ALLOCATED_WILL_BE_REMOVED(FrameHost);
+    WTF_MAKE_NONCOPYABLE(FrameHost); USING_FAST_MALLOC_WILL_BE_REMOVED(FrameHost);
 public:
     static PassOwnPtrWillBeRawPtr<FrameHost> create(Page&);
     ~FrameHost();
@@ -80,7 +79,7 @@ public:
     float deviceScaleFactor() const;
 
     TopControls& topControls() const;
-    PinchViewport& pinchViewport() const;
+    VisualViewport& visualViewport() const;
     PageScaleConstraintsSet& pageScaleConstraintsSet() const;
     EventHandlerRegistry& eventHandlerRegistry() const;
 
@@ -109,7 +108,7 @@ private:
     RawPtrWillBeMember<Page> m_page;
     const OwnPtrWillBeMember<TopControls> m_topControls;
     const OwnPtr<PageScaleConstraintsSet> m_pageScaleConstraintsSet;
-    const OwnPtrWillBeMember<PinchViewport> m_pinchViewport;
+    const OwnPtrWillBeMember<VisualViewport> m_visualViewport;
     const OwnPtrWillBeMember<EventHandlerRegistry> m_eventHandlerRegistry;
     const OwnPtrWillBeMember<ConsoleMessageStorage> m_consoleMessageStorage;
 

@@ -17,8 +17,9 @@
 #include "components/omnibox/browser/suggestion_answer.h"
 #include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
+#include "components/url_formatter/url_formatter.h"
 #include "grit/components_scaled_resources.h"
-#include "net/base/net_util.h"
+#include "ui/gfx/vector_icons_public.h"
 
 namespace {
 
@@ -42,9 +43,9 @@ bool WordMatchesURLContent(
   size_t prefix_length =
       url.scheme().length() + strlen(url::kStandardSchemeSeparator);
   DCHECK_GE(url.spec().length(), prefix_length);
-  const base::string16& formatted_url = net::FormatUrl(
-      url, languages, net::kFormatUrlOmitNothing, net::UnescapeRule::NORMAL,
-      NULL, NULL, &prefix_length);
+  const base::string16& formatted_url = url_formatter::FormatUrl(
+      url, languages, url_formatter::kFormatUrlOmitNothing,
+      net::UnescapeRule::NORMAL, nullptr, nullptr, &prefix_length);
   if (prefix_length == base::string16::npos)
     return false;
   const base::string16& formatted_url_without_scheme =
@@ -188,6 +189,8 @@ int AutocompleteMatch::TypeToIcon(Type type) {
       IDR_OMNIBOX_HTTP,           // BOOKMARK_TITLE
       IDR_OMNIBOX_HTTP,           // NAVSUGGEST_PERSONALIZED
       IDR_OMNIBOX_CALCULATOR,     // CALCULATOR
+      IDR_OMNIBOX_HTTP,           // CLIPBOARD
+      IDR_OMNIBOX_SEARCH,         // VOICE_SEARCH
   };
 #else
   static const int kIcons[] = {
@@ -210,11 +213,48 @@ int AutocompleteMatch::TypeToIcon(Type type) {
       IDR_OMNIBOX_HTTP,           // BOOKMARK_TITLE
       IDR_OMNIBOX_HTTP,           // NAVSUGGEST_PERSONALIZED
       IDR_OMNIBOX_CALCULATOR,     // CALCULATOR
+      IDR_OMNIBOX_HTTP,           // CLIPBOARD
+      IDR_OMNIBOX_SEARCH,         // VOICE_SEARCH
   };
 #endif
   static_assert(arraysize(kIcons) == AutocompleteMatchType::NUM_TYPES,
                 "icons array must have NUM_TYPES elements");
   return kIcons[type];
+}
+
+// static
+gfx::VectorIconId AutocompleteMatch::TypeToVectorIcon(Type type) {
+#if !defined(OS_ANDROID) && !defined(OS_MACOSX) && !defined(OS_IOS)
+  static const gfx::VectorIconId kIcons[] = {
+      gfx::VectorIconId::OMNIBOX_HTTP,           // URL_WHAT_YOU_TYPE
+      gfx::VectorIconId::OMNIBOX_HTTP,           // HISTORY_URL
+      gfx::VectorIconId::OMNIBOX_HTTP,           // HISTORY_TITLE
+      gfx::VectorIconId::OMNIBOX_HTTP,           // HISTORY_BODY
+      gfx::VectorIconId::OMNIBOX_HTTP,           // HISTORY_KEYWORD
+      gfx::VectorIconId::OMNIBOX_HTTP,           // NAVSUGGEST
+      gfx::VectorIconId::OMNIBOX_SEARCH,         // SEARCH_WHAT_YOU_TYPED
+      gfx::VectorIconId::OMNIBOX_SEARCH,         // SEARCH_HISTORY
+      gfx::VectorIconId::OMNIBOX_SEARCH,         // SEARCH_SUGGEST
+      gfx::VectorIconId::OMNIBOX_SEARCH,         // SEARCH_SUGGEST_ENTITY
+      gfx::VectorIconId::OMNIBOX_SEARCH,         // SEARCH_SUGGEST_TAIL
+      gfx::VectorIconId::OMNIBOX_SEARCH,         // SEARCH_SUGGEST_PERSONALIZED
+      gfx::VectorIconId::OMNIBOX_SEARCH,         // SEARCH_SUGGEST_PROFILE
+      gfx::VectorIconId::OMNIBOX_SEARCH,         // SEARCH_OTHER_ENGINE
+      gfx::VectorIconId::OMNIBOX_EXTENSION_APP,  // EXTENSION_APP
+      gfx::VectorIconId::OMNIBOX_SEARCH,         // CONTACT_DEPRECATED
+      gfx::VectorIconId::OMNIBOX_HTTP,           // BOOKMARK_TITLE
+      gfx::VectorIconId::OMNIBOX_HTTP,           // NAVSUGGEST_PERSONALIZED
+      gfx::VectorIconId::OMNIBOX_CALCULATOR,     // CALCULATOR
+      gfx::VectorIconId::OMNIBOX_HTTP,           // CLIPBOARD
+      gfx::VectorIconId::OMNIBOX_SEARCH,         // VOICE_SEARCH
+  };
+  static_assert(arraysize(kIcons) == AutocompleteMatchType::NUM_TYPES,
+                "icons array must have NUM_TYPES elements");
+  return kIcons[type];
+#else
+  NOTREACHED();
+  return gfx::VectorIconId::VECTOR_ICON_NONE;
+#endif
 }
 
 // static
@@ -321,8 +361,9 @@ std::string AutocompleteMatch::ClassificationsToString(
   for (size_t i = 0; i < classifications.size(); ++i) {
     if (i)
       serialized_classifications += ',';
-    serialized_classifications += base::IntToString(classifications[i].offset) +
-        ',' + base::IntToString(classifications[i].style);
+    serialized_classifications +=
+        base::SizeTToString(classifications[i].offset) + ',' +
+        base::IntToString(classifications[i].style);
   }
   return serialized_classifications;
 }
@@ -389,6 +430,7 @@ bool AutocompleteMatch::IsSearchType(Type type) {
          type == AutocompleteMatchType::SEARCH_SUGGEST ||
          type == AutocompleteMatchType::SEARCH_OTHER_ENGINE ||
          type == AutocompleteMatchType::CALCULATOR ||
+         type == AutocompleteMatchType::VOICE_SUGGEST ||
          IsSpecializedSearchType(type);
 }
 
@@ -460,21 +502,6 @@ GURL AutocompleteMatch::GURLToStrippedGURL(
   std::string host = stripped_destination_url.host();
   if (host.compare(0, prefix_len, prefix) == 0) {
     replacements.SetHostStr(base::StringPiece(host).substr(prefix_len));
-    needs_replacement = true;
-  }
-
-  // Remove any trailing slash (if it's not a lone slash), or add a slash (to
-  // make a lone slash) if the path is empty.  (We can't unconditionally
-  // remove even lone slashes because for some schemes the path must consist
-  // of at least a slash.)
-  const std::string& path = stripped_destination_url.path();
-  if ((path.length() > 1) && (path[path.length() - 1] == '/')) {
-    replacements.SetPathStr(
-        base::StringPiece(path).substr(0, path.length() - 1));
-    needs_replacement = true;
-  } else if (path.empty()) {
-    static const char slash[] = "/";
-    replacements.SetPathStr(base::StringPiece(slash));
     needs_replacement = true;
   }
 

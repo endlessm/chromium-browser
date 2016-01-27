@@ -36,7 +36,6 @@
 #error "Extensions must be enabled"
 #endif
 
-class ExtensionSyncService;
 class GURL;
 class HostContentSettingsMap;
 class Profile;
@@ -62,8 +61,8 @@ class ExtensionErrorController;
 class ExtensionRegistry;
 class ExtensionSystem;
 class ExtensionUpdater;
-class OneShotEvent;
 class ExternalInstallManager;
+class OneShotEvent;
 class SharedModuleService;
 class UpdateObserver;
 }  // namespace extensions
@@ -405,11 +404,6 @@ class ExtensionService
 
   Profile* profile() { return profile_; }
 
-  void set_extension_sync_service(
-      ExtensionSyncService* extension_sync_service) {
-    extension_sync_service_ = extension_sync_service;
-  }
-
   // Note that this may return NULL if autoupdate is not turned on.
   extensions::ExtensionUpdater* updater() { return updater_.get(); }
 
@@ -545,6 +539,11 @@ class ExtensionService
   // Handles sending notification that |extension| was loaded.
   void NotifyExtensionLoaded(const extensions::Extension* extension);
 
+  // Completes extension loading after URLRequestContexts have been updated
+  // on the IO thread.
+  void OnExtensionRegisteredWithRequestContexts(
+      scoped_refptr<const extensions::Extension> extension);
+
   // Handles sending notification that |extension| was unloaded.
   void NotifyExtensionUnloaded(
       const extensions::Extension* extension,
@@ -618,9 +617,6 @@ class ExtensionService
 
   // Blacklist for the owning profile.
   extensions::Blacklist* blacklist_;
-
-  // The ExtensionSyncService that is used by this ExtensionService.
-  ExtensionSyncService* extension_sync_service_;
 
   // Sets of enabled/disabled/terminated/blacklisted extensions. Not owned.
   extensions::ExtensionRegistry* registry_;

@@ -14,7 +14,8 @@
 // Different settings that can be assigned for a particular content type.  We
 // give the user the ability to set these on a global and per-origin basis.
 // A Java counterpart will be generated for this enum.
-// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser
+// GENERATED_JAVA_ENUM_PACKAGE: org.chromium.chrome.browser.preferences.website
+// GENERATED_JAVA_CLASS_NAME_OVERRIDE: ContentSettingValues
 enum ContentSetting {
   CONTENT_SETTING_DEFAULT = 0,
   CONTENT_SETTING_ALLOW,
@@ -31,14 +32,8 @@ ContentSetting IntToContentSetting(int content_setting);
 
 // Converts a given content setting to its histogram value, for use when saving
 // content settings types to a histogram.
-ContentSettingsTypeHistogram ContentSettingTypeToHistogramValue(
-    ContentSettingsType content_setting);
-
-// Whether this content setting should be synced.
-bool IsContentSettingsTypeSyncable(ContentSettingsType content_setting);
-
-// Whether this content setting can tolerate data being lost.
-bool IsContentSettingsTypeLossy(ContentSettingsType content_setting);
+int ContentSettingTypeToHistogramValue(ContentSettingsType content_setting,
+                                       size_t* num_values);
 
 struct ContentSettingPatternSource {
   ContentSettingPatternSource(const ContentSettingsPattern& primary_pattern,

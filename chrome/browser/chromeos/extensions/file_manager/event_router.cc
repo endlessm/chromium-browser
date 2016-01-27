@@ -15,9 +15,6 @@
 #include "base/values.h"
 #include "chrome/browser/app_mode/app_mode_utils.h"
 #include "chrome/browser/chromeos/drive/drive_integration_service.h"
-#include "chrome/browser/chromeos/drive/drive_pref_names.h"
-#include "chrome/browser/chromeos/drive/file_change.h"
-#include "chrome/browser/chromeos/drive/file_system_interface.h"
 #include "chrome/browser/chromeos/drive/file_system_util.h"
 #include "chrome/browser/chromeos/extensions/file_manager/private_api_util.h"
 #include "chrome/browser/chromeos/file_manager/app_id.h"
@@ -26,7 +23,6 @@
 #include "chrome/browser/chromeos/file_manager/volume_manager.h"
 #include "chrome/browser/chromeos/login/lock/screen_locker.h"
 #include "chrome/browser/chromeos/login/ui/login_display_host_impl.h"
-#include "chrome/browser/drive/drive_service_interface.h"
 #include "chrome/browser/extensions/api/file_system/file_system_api.h"
 #include "chrome/browser/extensions/extension_service.h"
 #include "chrome/browser/extensions/extension_util.h"
@@ -38,6 +34,10 @@
 #include "chromeos/login/login_state.h"
 #include "chromeos/network/network_handler.h"
 #include "chromeos/network/network_state_handler.h"
+#include "components/drive/drive_pref_names.h"
+#include "components/drive/file_change.h"
+#include "components/drive/file_system_interface.h"
+#include "components/drive/service/drive_service_interface.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
 #include "content/public/browser/storage_partition.h"
@@ -325,16 +325,37 @@ class JobEventRouterImpl : public JobEventRouter {
         profile_(profile) {}
 
  protected:
-  GURL ConvertDrivePathToFileSystemUrl(const base::FilePath& path,
-                                       const std::string& id) const override {
-    return file_manager::util::ConvertDrivePathToFileSystemUrl(profile_, path,
-                                                               id);
+  std::set<std::string> GetFileTransfersUpdateEventListenerExtensionIds()
+      override {
+    const extensions::EventListenerMap::ListenerList& listeners =
+        extensions::EventRouter::Get(profile_)
+            ->listeners()
+            .GetEventListenersByName(
+                file_manager_private::OnFileTransfersUpdated::kEventName);
+
+    std::set<std::string> extension_ids;
+
+    for (const auto listener : listeners) {
+      extension_ids.insert(listener->extension_id());
+    }
+
+    return extension_ids;
   }
-  void BroadcastEvent(extensions::events::HistogramValue histogram_value,
-                      const std::string& event_name,
-                      scoped_ptr<base::ListValue> event_args) override {
-    ::file_manager::BroadcastEvent(profile_, histogram_value, event_name,
-                                   event_args.Pass());
+
+  GURL ConvertDrivePathToFileSystemUrl(
+      const base::FilePath& file_path,
+      const std::string& extension_id) override {
+    return file_manager::util::ConvertDrivePathToFileSystemUrl(
+        profile_, file_path, extension_id);
+  }
+
+  void DispatchEventToExtension(
+      const std::string& extension_id,
+      extensions::events::HistogramValue histogram_value,
+      const std::string& event_name,
+      scoped_ptr<base::ListValue> event_args) override {
+    ::file_manager::DispatchEventToExtension(
+        profile_, extension_id, histogram_value, event_name, event_args.Pass());
   }
 
  private:
@@ -363,6 +384,7 @@ EventRouter::~EventRouter() {
 
 void EventRouter::Shutdown() {
   DCHECK_CURRENTLY_ON(BrowserThread::UI);
+  chromeos::system::TimezoneSettings::GetInstance()->RemoveObserver(this);
 
   DLOG_IF(WARNING, !file_watchers_.empty())
       << "Not all file watchers are "
@@ -450,6 +472,8 @@ void EventRouter::ObserveEvents() {
   pref_change_registrar_->Add(drive::prefs::kDisableDrive, callback);
   pref_change_registrar_->Add(prefs::kSearchSuggestEnabled, callback);
   pref_change_registrar_->Add(prefs::kUse24HourClock, callback);
+
+  chromeos::system::TimezoneSettings::GetInstance()->AddObserver(this);
 }
 
 // File watch setup routines.
@@ -602,6 +626,10 @@ void EventRouter::DefaultNetworkChanged(const chromeos::NetworkState* network) {
       file_manager_private::OnDriveConnectionStatusChanged::Create());
 }
 
+void EventRouter::TimezoneChanged(const icu::TimeZone& timezone) {
+  OnFileManagerPrefsChanged();
+}
+
 void EventRouter::OnFileManagerPrefsChanged() {
   if (!profile_ || !extensions::EventRouter::Get(profile_)) {
     NOTREACHED();
@@ -690,6 +718,9 @@ void EventRouter::OnDriveSyncError(drive::file_system::DriveSyncErrorType type,
     case drive::file_system::DRIVE_SYNC_ERROR_SERVICE_UNAVAILABLE:
       event.type =
           file_manager_private::DRIVE_SYNC_ERROR_TYPE_SERVICE_UNAVAILABLE;
+      break;
+    case drive::file_system::DRIVE_SYNC_ERROR_NO_SERVER_SPACE:
+      event.type = file_manager_private::DRIVE_SYNC_ERROR_TYPE_NO_SERVER_SPACE;
       break;
     case drive::file_system::DRIVE_SYNC_ERROR_MISC:
       event.type =

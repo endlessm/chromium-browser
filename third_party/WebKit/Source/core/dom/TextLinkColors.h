@@ -29,14 +29,16 @@
 #define TextLinkColors_h
 
 #include "platform/graphics/Color.h"
+#include "wtf/Allocator.h"
 #include "wtf/Noncopyable.h"
 
 namespace blink {
 
-class CSSPrimitiveValue;
+class CSSValue;
 
 class TextLinkColors {
-WTF_MAKE_NONCOPYABLE(TextLinkColors);
+    DISALLOW_NEW();
+    WTF_MAKE_NONCOPYABLE(TextLinkColors);
 public:
     TextLinkColors();
 
@@ -52,7 +54,7 @@ public:
     void resetLinkColor();
     void resetVisitedLinkColor();
     void resetActiveLinkColor();
-    Color colorFromPrimitiveValue(const CSSPrimitiveValue*, Color currentColor, bool forVisitedLink = false) const;
+    Color colorFromCSSValue(const CSSValue&, Color currentColor, bool forVisitedLink = false) const;
 private:
 
     Color m_textColor;

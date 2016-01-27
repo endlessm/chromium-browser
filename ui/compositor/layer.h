@@ -348,14 +348,11 @@ class COMPOSITOR_EXPORT Layer
   void RequestCopyOfOutput(scoped_ptr<cc::CopyOutputRequest> request);
 
   // ContentLayerClient
-  void PaintContents(
-      SkCanvas* canvas,
-      const gfx::Rect& clip,
-      ContentLayerClient::PaintingControlSetting painting_control) override;
   scoped_refptr<cc::DisplayItemList> PaintContentsToDisplayList(
       const gfx::Rect& clip,
       ContentLayerClient::PaintingControlSetting painting_control) override;
   bool FillsBoundsCompletely() const override;
+  size_t GetApproximateUnsharedMemoryUsage() const override;
 
   cc::Layer* cc_layer_for_testing() { return cc_layer_; }
 

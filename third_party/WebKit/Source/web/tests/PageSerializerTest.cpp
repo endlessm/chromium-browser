@@ -252,6 +252,7 @@ TEST_F(PageSerializerTest, IFrames)
     registerURL("simple_iframe.html", "text/html");
     registerURL("object_iframe.html", "text/html");
     registerURL("embed_iframe.html", "text/html");
+    registerURL("encoded_iframe.html", "text/html");
 
     registerURL("top.png", "image.png", "image/png");
     registerURL("simple.png", "image.png", "image/png");
@@ -260,17 +261,24 @@ TEST_F(PageSerializerTest, IFrames)
 
     serialize("top_frame.html");
 
-    EXPECT_EQ(8U, getResources().size());
+    EXPECT_EQ(9U, getResources().size());
 
     EXPECT_TRUE(isSerialized("top_frame.html", "text/html"));
     EXPECT_TRUE(isSerialized("simple_iframe.html", "text/html"));
     EXPECT_TRUE(isSerialized("object_iframe.html", "text/html"));
     EXPECT_TRUE(isSerialized("embed_iframe.html", "text/html"));
+    EXPECT_TRUE(isSerialized("encoded_iframe.html", "text/html"));
 
     EXPECT_TRUE(isSerialized("top.png", "image/png"));
     EXPECT_TRUE(isSerialized("simple.png", "image/png"));
     EXPECT_TRUE(isSerialized("object.png", "image/png"));
     EXPECT_TRUE(isSerialized("embed.png", "image/png"));
+
+    // Ensure that page contents are not NFC-normalized before encoding.
+    String expectedMetaCharset = "<meta http-equiv=\"Content-Type\" content=\"text/html; charset=EUC-KR\">";
+    EXPECT_TRUE(getSerializedData("encoded_iframe.html", "text/html").contains(expectedMetaCharset));
+    EXPECT_TRUE(getSerializedData("encoded_iframe.html", "text/html").contains("\xE4\xC5\xD1\xE2"));
+    EXPECT_FALSE(getSerializedData("encoded_iframe.html", "text/html").contains("\xE4\xC5\xE4\xC5"));
 }
 
 // Tests that when serializing a page with blank frames these are reported with their resources.
@@ -302,6 +310,7 @@ TEST_F(PageSerializerTest, CSS)
 
     registerURL("css_test_page.html", "text/html");
     registerURL("link_styles.css", "text/css");
+    registerURL("encoding.css", "text/css");
     registerURL("import_style_from_link.css", "text/css");
     registerURL("import_styles.css", "text/css");
     registerURL("do_not_serialize.png", "image.png", "image/png");
@@ -318,12 +327,13 @@ TEST_F(PageSerializerTest, CSS)
 
     serialize("css_test_page.html");
 
-    EXPECT_EQ(14U, getResources().size());
+    EXPECT_EQ(15U, getResources().size());
 
     EXPECT_FALSE(isSerialized("do_not_serialize.png", "image/png"));
 
     EXPECT_TRUE(isSerialized("css_test_page.html", "text/html"));
     EXPECT_TRUE(isSerialized("link_styles.css", "text/css"));
+    EXPECT_TRUE(isSerialized("encoding.css", "text/css"));
     EXPECT_TRUE(isSerialized("import_styles.css", "text/css"));
     EXPECT_TRUE(isSerialized("import_style_from_link.css", "text/css"));
     EXPECT_TRUE(isSerialized("red_background.png", "image/png"));
@@ -336,6 +346,16 @@ TEST_F(PageSerializerTest, CSS)
     EXPECT_TRUE(isSerialized("brown_background.png", "image/png"));
     EXPECT_TRUE(isSerialized("ul-dot.png", "image/png"));
     EXPECT_TRUE(isSerialized("ol-dot.png", "image/png"));
+
+    // Ensure encodings are specified.
+    EXPECT_TRUE(getSerializedData("link_styles.css", "text/css").startsWith("@charset"));
+    EXPECT_TRUE(getSerializedData("import_styles.css", "text/css").startsWith("@charset"));
+    EXPECT_TRUE(getSerializedData("import_style_from_link.css", "text/css").startsWith("@charset"));
+    EXPECT_TRUE(getSerializedData("encoding.css", "text/css").startsWith("@charset \"euc-kr\";"));
+
+    // Ensure that stylesheet contents are not NFC-normalized before encoding.
+    EXPECT_TRUE(getSerializedData("encoding.css", "text/css").contains("\xE4\xC5\xD1\xE2"));
+    EXPECT_FALSE(getSerializedData("encoding.css", "text/css").contains("\xE4\xC5\xE4\xC5"));
 }
 
 TEST_F(PageSerializerTest, CSSImport)
@@ -494,6 +514,17 @@ TEST_F(PageSerializerTest, NamespaceElementsDontCrash)
     EXPECT_EQ(1U, getResources().size());
     EXPECT_TRUE(isSerialized("namespace_element.html", "text/html"));
     EXPECT_GT(getSerializedData("namespace_element.html", "text/html").length(), 0U);
+}
+
+TEST_F(PageSerializerTest, markOfTheWebDeclaration)
+{
+    EXPECT_EQ("saved from url=(0015)http://foo.com/", PageSerializer::markOfTheWebDeclaration(KURL(ParsedURLString, "http://foo.com")));
+    EXPECT_EQ("saved from url=(0015)http://f-o.com/", PageSerializer::markOfTheWebDeclaration(KURL(ParsedURLString, "http://f-o.com")));
+    EXPECT_EQ("saved from url=(0019)http://foo.com-%2D/", PageSerializer::markOfTheWebDeclaration(KURL(ParsedURLString, "http://foo.com--")));
+    EXPECT_EQ("saved from url=(0024)http://f-%2D.com-%2D%3E/", PageSerializer::markOfTheWebDeclaration(KURL(ParsedURLString, "http://f--.com-->")));
+    EXPECT_EQ("saved from url=(0020)http://foo.com/?-%2D", PageSerializer::markOfTheWebDeclaration(KURL(ParsedURLString, "http://foo.com?--")));
+    EXPECT_EQ("saved from url=(0020)http://foo.com/#-%2D", PageSerializer::markOfTheWebDeclaration(KURL(ParsedURLString, "http://foo.com#--")));
+    EXPECT_EQ("saved from url=(0026)http://foo.com/#bar-%2Dbaz", PageSerializer::markOfTheWebDeclaration(KURL(ParsedURLString, "http://foo.com#bar--baz")));
 }
 
 } // namespace blink

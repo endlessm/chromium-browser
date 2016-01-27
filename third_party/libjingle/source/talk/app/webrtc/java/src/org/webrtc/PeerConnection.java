@@ -29,6 +29,7 @@
 package org.webrtc;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -124,10 +125,21 @@ public class PeerConnection {
   public enum RtcpMuxPolicy {
     NEGOTIATE, REQUIRE
   };
+
   /** Java version of PeerConnectionInterface.TcpCandidatePolicy */
   public enum TcpCandidatePolicy {
     ENABLED, DISABLED
   };
+
+  /** Java version of rtc::KeyType */
+  public enum KeyType {
+    RSA, ECDSA
+  }
+
+  /** Java version of PeerConnectionInterface.ContinualGatheringPolicy */
+  public enum ContinualGatheringPolicy {
+    GATHER_ONCE, GATHER_CONTINUALLY
+  }
 
   /** Java version of PeerConnectionInterface.RTCConfiguration */
   public static class RTCConfiguration {
@@ -138,6 +150,9 @@ public class PeerConnection {
     public TcpCandidatePolicy tcpCandidatePolicy;
     public int audioJitterBufferMaxPackets;
     public boolean audioJitterBufferFastAccelerate;
+    public int iceConnectionReceivingTimeout;
+    public KeyType keyType;
+    public ContinualGatheringPolicy continualGatheringPolicy;
 
     public RTCConfiguration(List<IceServer> iceServers) {
       iceTransportsType = IceTransportsType.ALL;
@@ -147,17 +162,24 @@ public class PeerConnection {
       this.iceServers = iceServers;
       audioJitterBufferMaxPackets = 50;
       audioJitterBufferFastAccelerate = false;
+      iceConnectionReceivingTimeout = -1;
+      keyType = KeyType.ECDSA;
+      continualGatheringPolicy = ContinualGatheringPolicy.GATHER_ONCE;
     }
   };
 
   private final List<MediaStream> localStreams;
   private final long nativePeerConnection;
   private final long nativeObserver;
+  private List<RtpSender> senders;
+  private List<RtpReceiver> receivers;
 
   PeerConnection(long nativePeerConnection, long nativeObserver) {
     this.nativePeerConnection = nativePeerConnection;
     this.nativeObserver = nativeObserver;
     localStreams = new LinkedList<MediaStream>();
+    senders = new LinkedList<RtpSender>();
+    receivers = new LinkedList<RtpReceiver>();
   }
 
   // JsepInterface.
@@ -180,8 +202,7 @@ public class PeerConnection {
   public native void setRemoteDescription(
       SdpObserver observer, SessionDescription sdp);
 
-  public native boolean updateIce(
-      List<IceServer> iceServers, MediaConstraints constraints);
+  public native boolean setConfiguration(RTCConfiguration config);
 
   public boolean addIceCandidate(IceCandidate candidate) {
     return nativeAddIceCandidate(
@@ -200,6 +221,24 @@ public class PeerConnection {
   public void removeStream(MediaStream stream) {
     nativeRemoveLocalStream(stream.nativeStream);
     localStreams.remove(stream);
+  }
+
+  // Note that calling getSenders will dispose of the senders previously
+  // returned (and same goes for getReceivers).
+  public List<RtpSender> getSenders() {
+    for (RtpSender sender : senders) {
+      sender.dispose();
+    }
+    senders = nativeGetSenders();
+    return Collections.unmodifiableList(senders);
+  }
+
+  public List<RtpReceiver> getReceivers() {
+    for (RtpReceiver receiver : receivers) {
+      receiver.dispose();
+    }
+    receivers = nativeGetReceivers();
+    return Collections.unmodifiableList(receivers);
   }
 
   public boolean getStats(StatsObserver observer, MediaStreamTrack track) {
@@ -223,6 +262,14 @@ public class PeerConnection {
       stream.dispose();
     }
     localStreams.clear();
+    for (RtpSender sender : senders) {
+      sender.dispose();
+    }
+    senders.clear();
+    for (RtpReceiver receiver : receivers) {
+      receiver.dispose();
+    }
+    receivers.clear();
     freePeerConnection(nativePeerConnection);
     freeObserver(nativeObserver);
   }
@@ -240,4 +287,8 @@ public class PeerConnection {
 
   private native boolean nativeGetStats(
       StatsObserver observer, long nativeTrack);
+
+  private native List<RtpSender> nativeGetSenders();
+
+  private native List<RtpReceiver> nativeGetReceivers();
 }

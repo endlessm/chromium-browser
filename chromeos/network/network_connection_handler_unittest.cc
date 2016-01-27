@@ -145,7 +145,8 @@ class NetworkConnectionHandlerTest : public testing::Test {
     managed_config_handler_.reset(new ManagedNetworkConfigurationHandlerImpl());
     managed_config_handler_->Init(
         network_state_handler_.get(), network_profile_handler_.get(),
-        network_config_handler_.get(), nullptr /* network_device_handler */);
+        network_config_handler_.get(), nullptr /* network_device_handler */,
+        nullptr /* prohibited_tecnologies_handler */);
 
     network_connection_handler_.reset(new NetworkConnectionHandler);
     network_connection_handler_->Init(network_state_handler_.get(),
@@ -274,10 +275,10 @@ class NetworkConnectionHandlerTest : public testing::Test {
                    const base::DictionaryValue& global_config,
                    bool user_policy) {
     std::string error;
-    scoped_ptr<base::Value> network_configs_value(
-        base::JSONReader::DeprecatedReadAndReturnError(
-            network_configs_json, base::JSON_ALLOW_TRAILING_COMMAS, nullptr,
-            &error));
+    scoped_ptr<base::Value> network_configs_value =
+        base::JSONReader::ReadAndReturnError(network_configs_json,
+                                             base::JSON_ALLOW_TRAILING_COMMAS,
+                                             nullptr, &error);
     ASSERT_TRUE(network_configs_value) << error;
 
     base::ListValue* network_configs = nullptr;

@@ -14,10 +14,10 @@
 
 #include <algorithm>
 
-#include "webrtc/modules/rtp_rtcp/interface/rtp_rtcp.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_rtcp.h"
 #include "webrtc/modules/video_coding/main/test/test_util.h"
-#include "webrtc/system_wrappers/interface/clock.h"
-#include "webrtc/system_wrappers/interface/critical_section_wrapper.h"
+#include "webrtc/system_wrappers/include/clock.h"
+#include "webrtc/system_wrappers/include/critical_section_wrapper.h"
 
 namespace webrtc {
 namespace rtpplayer {
@@ -95,7 +95,7 @@ class VcmPayloadSinkFactory::VcmPayloadSink
   rtc::scoped_ptr<VideoCodingModule> vcm_;
   rtc::scoped_ptr<FileOutputFrameReceiver> frame_receiver_;
 
-  DISALLOW_IMPLICIT_CONSTRUCTORS(VcmPayloadSink);
+  RTC_DISALLOW_IMPLICIT_CONSTRUCTORS(VcmPayloadSink);
 };
 
 VcmPayloadSinkFactory::VcmPayloadSinkFactory(

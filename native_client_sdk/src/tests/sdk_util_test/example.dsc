@@ -1,5 +1,5 @@
 {
-  'TOOLS': ['newlib', 'glibc', 'pnacl', 'linux', 'mac', 'clang-newlib'],
+  'TOOLS': ['clang-newlib', 'glibc', 'pnacl', 'linux', 'mac'],
   'SEL_LDR': True,
 
   'TARGETS': [
@@ -10,9 +10,7 @@
         'main.cc',
         'string_util_test.cc',
       ],
-      'DEPS': ['ppapi_simple', 'sdk_util', 'nacl_io'],
-      # Order matters here: gtest has a "main" function that will be used if
-      # referenced before ppapi.
+      'DEPS': ['ppapi_simple_cpp', 'sdk_util', 'nacl_io'],
       'LIBS': ['ppapi_simple_cpp', 'ppapi_cpp', 'gmock', 'nacl_io', 'ppapi', 'gtest', 'pthread'],
       'CXXFLAGS': ['-Wno-sign-compare']
     }

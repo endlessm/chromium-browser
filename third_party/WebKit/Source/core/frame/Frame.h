@@ -72,7 +72,7 @@ public:
     virtual DOMWindow* domWindow() const = 0;
     virtual WindowProxy* windowProxy(DOMWrapperWorld&) = 0;
 
-    virtual void navigate(Document& originDocument, const KURL&, bool lockBackForwardList, UserGestureStatus) = 0;
+    virtual void navigate(Document& originDocument, const KURL&, bool replaceCurrentItem, UserGestureStatus) = 0;
     // This version of Frame::navigate assumes the resulting navigation is not
     // to be started on a timer. Use the method above in such cases.
     virtual void navigate(const FrameLoadRequest&) = 0;
@@ -111,7 +111,6 @@ public:
     // Returns true if the frame is ready to receive the next commit, or false
     // otherwise.
     virtual bool prepareForCommit() = 0;
-    void finishSwapFrom(Frame*);
 
     bool canNavigate(const Frame&);
     virtual void printNavigationErrorMessage(const Frame&, const char* reason) = 0;
@@ -129,10 +128,12 @@ public:
     void setIsLoading(bool isLoading) { m_isLoading = isLoading; }
     bool isLoading() const { return m_isLoading; }
 
+    virtual WindowProxyManager* windowProxyManager() const = 0;
+
+    void scheduleVisualUpdateUnlessThrottled();
+
 protected:
     Frame(FrameClient*, FrameHost*, FrameOwner*);
-
-    virtual WindowProxyManager* windowProxyManager() const = 0;
 
     mutable FrameTree m_treeNode;
 
@@ -140,7 +141,7 @@ protected:
     RawPtrWillBeMember<FrameOwner> m_owner;
 
 private:
-    FrameClient* m_client;
+    RawPtrWillBeMember<FrameClient> m_client;
     // Needed to identify Frame Timing requests.
     int64_t m_frameID;
     bool m_isLoading;

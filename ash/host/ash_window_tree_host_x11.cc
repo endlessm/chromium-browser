@@ -236,17 +236,14 @@ void AshWindowTreeHostX11::TranslateAndDispatchLocatedEvent(
   SendEventToProcessor(event);
 }
 
-bool AshWindowTreeHostX11::DispatchKeyEventPostIME(const ui::KeyEvent& event) {
-  ui::KeyEvent event_copy(event);
+ui::EventDispatchDetails AshWindowTreeHostX11::DispatchKeyEventPostIME(
+    ui::KeyEvent* event) {
   input_method_handler()->SetPostIME(true);
-  ui::EventSource::DeliverEventToProcessor(&event_copy);
-  input_method_handler()->SetPostIME(false);
-  return event_copy.handled();
-}
-
-ui::EventDispatchDetails AshWindowTreeHostX11::DeliverEventToProcessor(
-    ui::Event* event) {
-  return ui::EventSource::DeliverEventToProcessor(event);
+  ui::EventDispatchDetails details =
+      event_processor()->OnEventFromSource(event);
+  if (!details.dispatcher_destroyed)
+    input_method_handler()->SetPostIME(false);
+  return details;
 }
 
 #if defined(OS_CHROMEOS)

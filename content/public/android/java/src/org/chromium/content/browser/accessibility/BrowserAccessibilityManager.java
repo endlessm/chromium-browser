@@ -21,8 +21,8 @@ import android.view.accessibility.AccessibilityManager;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.accessibility.AccessibilityNodeProvider;
 
-import org.chromium.base.CalledByNative;
-import org.chromium.base.JNINamespace;
+import org.chromium.base.annotations.CalledByNative;
+import org.chromium.base.annotations.JNINamespace;
 import org.chromium.content.browser.ContentViewCore;
 import org.chromium.content.browser.RenderCoordinates;
 
@@ -374,6 +374,8 @@ public class BrowserAccessibilityManager {
         if (id == 0) return false;
 
         moveAccessibilityFocusToId(id);
+        nativeScrollToMakeNodeVisible(
+                mNativeObj, mAccessibilityFocusId);
         return true;
     }
 
@@ -829,6 +831,12 @@ public class BrowserAccessibilityManager {
         final int[] viewLocation = new int[2];
         mView.getLocationOnScreen(viewLocation);
         rect.offset(viewLocation[0], viewLocation[1]);
+
+        // Clip the node's bounding rect to the viewport bounds.
+        int viewportRectTop = viewLocation[1] + (int) mRenderCoordinates.getContentOffsetYPix();
+        int viewportRectBottom = viewportRectTop + mContentViewCore.getViewportHeightPix();
+        if (rect.top < viewportRectTop) rect.top = viewportRectTop;
+        if (rect.bottom > viewportRectBottom) rect.bottom = viewportRectBottom;
 
         node.setBoundsInScreen(rect);
 

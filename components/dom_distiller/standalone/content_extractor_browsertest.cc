@@ -14,8 +14,8 @@
 #include "base/strings/string_number_conversions.h"
 #include "base/strings/string_split.h"
 #include "base/thread_task_runner_handle.h"
-#include "components/dom_distiller/content/distiller_javascript_utils.h"
-#include "components/dom_distiller/content/distiller_page_web_contents.h"
+#include "components/dom_distiller/content/browser/distiller_javascript_utils.h"
+#include "components/dom_distiller/content/browser/distiller_page_web_contents.h"
 #include "components/dom_distiller/core/article_entry.h"
 #include "components/dom_distiller/core/distilled_page_prefs.h"
 #include "components/dom_distiller/core/distiller.h"
@@ -248,8 +248,8 @@ class ContentExtractionRequest : public ViewRequestDelegate {
       }
     } else if (command_line.HasSwitch(kUrlsSwitch)) {
       std::string urls_string = command_line.GetSwitchValueASCII(kUrlsSwitch);
-      std::vector<std::string> urls;
-      base::SplitString(urls_string, ' ', &urls);
+      std::vector<std::string> urls = base::SplitString(
+          urls_string, " ", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
       // Check for original-urls switch, which must exactly pair up with
       // |kUrlsSwitch| i.e. number of original urls must be same as that of
       // urls.
@@ -257,8 +257,11 @@ class ContentExtractionRequest : public ViewRequestDelegate {
       if (command_line.HasSwitch(kOriginalUrls)) {
         std::string original_urls_string =
             command_line.GetSwitchValueASCII(kOriginalUrls);
-        base::SplitString(original_urls_string, ' ', &original_urls);
-        if (original_urls.size() != urls.size()) original_urls.clear();
+        original_urls = base::SplitString(
+            original_urls_string, " ",
+            base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
+        if (original_urls.size() != urls.size())
+          original_urls.clear();
       }
       for (size_t i = 0; i < urls.size(); ++i) {
         GURL url(urls[i]);

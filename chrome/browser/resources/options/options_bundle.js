@@ -20,7 +20,6 @@
 <include src="../help/channel_change_page.js">
 <include src="../../../../ui/webui/resources/js/chromeos/ui_account_tweaks.js">
 <include src="chromeos/onc_data.js">
-<include src="chromeos/vpn_providers.js">
 <include src="chromeos/change_picture_options.js">
 <include src="chromeos/internet_detail_ip_address_field.js">
 <include src="chromeos/internet_detail.js">
@@ -118,6 +117,9 @@ var CertificateImportErrorOverlay = options.CertificateImportErrorOverlay;
 <include src="supervised_user_list_data.js">
 <include src="../help/help_page.js">
 <include src="sync_setup_overlay.js">
+<if expr="is_win">
+<include src="triggered_reset_profile_settings_overlay.js">
+</if>
 <include src="../uber/uber_page_manager_observer.js">
 <include src="../uber/uber_utils.js">
 <include src="options.js">

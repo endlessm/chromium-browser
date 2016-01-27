@@ -1,4 +1,4 @@
-include_directories(. .. ../../include)
+include_directories(../../include)
 
 add_library(
   bytestring
@@ -19,3 +19,4 @@ add_executable(
 )
 
 target_link_libraries(bytestring_test crypto)
+add_dependencies(all_tests bytestring_test)

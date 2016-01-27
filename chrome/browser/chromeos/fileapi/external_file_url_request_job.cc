@@ -11,11 +11,11 @@
 #include "base/logging.h"
 #include "base/memory/ref_counted.h"
 #include "chrome/browser/browser_process.h"
-#include "chrome/browser/chromeos/drive/file_system_core_util.h"
 #include "chrome/browser/chromeos/file_manager/fileapi_util.h"
 #include "chrome/browser/chromeos/fileapi/external_file_url_util.h"
 #include "chrome/browser/extensions/api/file_handlers/mime_util.h"
 #include "chrome/browser/profiles/profile_manager.h"
+#include "components/drive/file_system_core_util.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/storage_partition.h"
 #include "content/public/common/url_constants.h"
@@ -65,11 +65,11 @@ class URLHelper {
  private:
   void RunOnUIThread(Lifetime lifetime) {
     DCHECK_CURRENTLY_ON(BrowserThread::UI);
-    Profile* const profile = reinterpret_cast<Profile*>(profile_id_);
-    if (!g_browser_process->profile_manager()->IsValidProfile(profile)) {
+    if (!g_browser_process->profile_manager()->IsValidProfile(profile_id_)) {
       ReplyResult(net::ERR_FAILED);
       return;
     }
+    Profile* const profile = reinterpret_cast<Profile*>(profile_id_);
     content::StoragePartition* const storage =
         content::BrowserContext::GetStoragePartitionForSite(profile, url_);
     DCHECK(storage);
@@ -164,8 +164,7 @@ ExternalFileURLRequestJob::ExternalFileURLRequestJob(
     : net::URLRequestJob(request, network_delegate),
       profile_id_(profile_id),
       remaining_bytes_(0),
-      weak_ptr_factory_(this) {
-}
+      weak_ptr_factory_(this) {}
 
 void ExternalFileURLRequestJob::SetExtraRequestHeaders(
     const net::HttpRequestHeaders& headers) {
@@ -338,8 +337,7 @@ bool ExternalFileURLRequestJob::ReadRawData(net::IOBuffer* buf,
   }
 
   const int result = stream_reader_->Read(
-      buf,
-      std::min<int64>(buf_size, remaining_bytes_),
+      buf, std::min<int64>(buf_size, remaining_bytes_),
       base::Bind(&ExternalFileURLRequestJob::OnReadCompleted,
                  weak_ptr_factory_.GetWeakPtr()));
 

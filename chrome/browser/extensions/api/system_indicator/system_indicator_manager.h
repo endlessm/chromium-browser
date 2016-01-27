@@ -8,6 +8,7 @@
 #include <map>
 #include <string>
 
+#include "base/gtest_prod_util.h"
 #include "base/memory/linked_ptr.h"
 #include "base/scoped_observer.h"
 #include "base/threading/thread_checker.h"
@@ -55,7 +56,7 @@ class SystemIndicatorManager : public ExtensionRegistryObserver,
 
   // Causes a call to OnStatusIconClicked for the specified extension_id.
   // Returns false if no ExtensionIndicatorIcon is found for the extension.
-  bool SendClickEventToExtensionForTest(const std::string extension_id);
+  bool SendClickEventToExtensionForTest(const std::string& extension_id);
 
   // Causes an indicator to be shown for the given extension_action.  Creates
   // the indicator if necessary.
@@ -64,7 +65,7 @@ class SystemIndicatorManager : public ExtensionRegistryObserver,
       ExtensionAction* extension_action);
 
   // Causes the indicator for the given extension to be hidden.
-  void RemoveIndicator(const std::string &extension_id);
+  void RemoveIndicator(const std::string& extension_id);
 
   typedef std::map<const std::string, linked_ptr<ExtensionIndicatorIcon> >
       SystemIndicatorMap;

@@ -218,11 +218,14 @@
             }],
           ],
         }],
+        ['OS=="ios"', {
+          'sources!': [
+            'sync_socket.h',
+            'sync_socket_posix.cc',
+          ]
+        }],
       ],
       'sources': [
-        'async_socket_io_handler.h',
-        'async_socket_io_handler_posix.cc',
-        'async_socket_io_handler_win.cc',
         'auto_reset.h',
         'linux_util.cc',
         'linux_util.h',
@@ -288,6 +291,8 @@
       ],
       'export_dependent_settings': [
         'base',
+        '../third_party/icu/icu.gyp:icuuc',
+        '../third_party/icu/icu.gyp:icui18n',
       ],
       'includes': [
         '../build/android/increase_size_for_speed.gypi',
@@ -430,11 +435,11 @@
         'android/path_utils_unittest.cc',
         'android/scoped_java_ref_unittest.cc',
         'android/sys_utils_unittest.cc',
-        'async_socket_io_handler_unittest.cc',
         'at_exit_unittest.cc',
         'atomicops_unittest.cc',
         'barrier_closure_unittest.cc',
         'base64_unittest.cc',
+        'base64url_unittest.cc',
         'big_endian_unittest.cc',
         'bind_unittest.cc',
         'bind_unittest.nc',
@@ -464,6 +469,7 @@
         'debug/task_annotator_unittest.cc',
         'deferred_sequenced_task_runner_unittest.cc',
         'environment_unittest.cc',
+        'feature_list_unittest.cc',
         'file_version_info_unittest.cc',
         'files/dir_reader_posix_unittest.cc',
         'files/file_path_unittest.cc',
@@ -483,6 +489,7 @@
         'i18n/char_iterator_unittest.cc',
         'i18n/file_util_icu_unittest.cc',
         'i18n/icu_string_conversions_unittest.cc',
+        'i18n/message_formatter_unittest.cc',
         'i18n/number_formatting_unittest.cc',
         'i18n/rtl_unittest.cc',
         'i18n/streaming_utf8_validator_unittest.cc',
@@ -515,6 +522,7 @@
         'memory/aligned_memory_unittest.cc',
         'memory/discardable_shared_memory_unittest.cc',
         'memory/linked_ptr_unittest.cc',
+        'memory/memory_pressure_listener_unittest.cc',
         'memory/memory_pressure_monitor_chromeos_unittest.cc',
         'memory/memory_pressure_monitor_mac_unittest.cc',
         'memory/memory_pressure_monitor_win_unittest.cc',
@@ -524,6 +532,7 @@
         'memory/scoped_ptr_unittest.nc',
         'memory/scoped_vector_unittest.cc',
         'memory/shared_memory_unittest.cc',
+        'memory/shared_memory_mac_unittest.cc',
         'memory/singleton_unittest.cc',
         'memory/weak_ptr_unittest.cc',
         'memory/weak_ptr_unittest.nc',
@@ -544,6 +553,7 @@
         'metrics/sparse_histogram_unittest.cc',
         'metrics/statistics_recorder_unittest.cc',
         'move_unittest.cc',
+        'native_library_unittest.cc',
         'numerics/safe_numerics_unittest.cc',
         'observer_list_unittest.cc',
         'os_compat_android_unittest.cc',
@@ -607,8 +617,6 @@
         'task/cancelable_task_tracker_unittest.cc',
         'task_runner_util_unittest.cc',
         'template_util_unittest.cc',
-        'test/expectations/expectation_unittest.cc',
-        'test/expectations/parser_unittest.cc',
         'test/histogram_tester_unittest.cc',
         'test/test_pending_task_unittest.cc',
         'test/test_reg_util_win_unittest.cc',
@@ -617,6 +625,7 @@
         'threading/non_thread_safe_unittest.cc',
         'threading/platform_thread_unittest.cc',
         'threading/sequenced_worker_pool_unittest.cc',
+        'threading/sequenced_task_runner_handle_unittest.cc',
         'threading/simple_thread_unittest.cc',
         'threading/thread_checker_unittest.cc',
         'threading/thread_collision_warner_unittest.cc',
@@ -652,6 +661,7 @@
         'win/registry_unittest.cc',
         'win/scoped_bstr_unittest.cc',
         'win/scoped_comptr_unittest.cc',
+        'win/scoped_handle_unittest.cc',
         'win/scoped_process_information_unittest.cc',
         'win/scoped_variant_unittest.cc',
         'win/shortcut_unittest.cc',
@@ -689,6 +699,8 @@
         }],
         ['OS == "ios" and _toolset != "host"', {
           'sources/': [
+            # iOS does not support FilePathWatcher.
+            ['exclude', '^files/file_path_watcher_unittest\\.cc$'],
             # Only test the iOS-meaningful portion of memory and process_utils.
             ['exclude', '^memory/discardable_shared_memory_unittest\\.cc$'],
             ['exclude', '^memory/shared_memory_unittest\\.cc$'],
@@ -753,6 +765,14 @@
             }],
           ]},
         ],
+        [ 'OS == "win" and target_arch == "x64"', {
+          'sources': [
+            'profiler/win32_stack_frame_unwinder_unittest.cc',
+          ],
+          'dependencies': [
+            'base_profiler_test_support_library',
+          ],
+        }],
         ['OS == "win"', {
           'sources!': [
             'file_descriptor_shuffle_unittest.cc',
@@ -810,6 +830,12 @@
         # strings
         ['OS=="mac" or OS=="ios" or <(chromeos)==1 or <(chromecast)==1', {
           'defines': ['SYSTEM_NATIVE_UTF8'],
+        }],
+        # SyncSocket isn't used on iOS
+        ['OS=="ios"', {
+          'sources!': [
+            'sync_socket_unittest.cc',
+          ],
         }],
       ],  # target_conditions
     },
@@ -891,10 +917,6 @@
         }],
       ],
       'sources': [
-        'test/expectations/expectation.cc',
-        'test/expectations/expectation.h',
-        'test/expectations/parser.cc',
-        'test/expectations/parser.h',
         'test/gtest_util.cc',
         'test/gtest_util.h',
         'test/gtest_xml_unittest_result_printer.cc',
@@ -903,6 +925,8 @@
         'test/gtest_xml_util.h',
         'test/histogram_tester.cc',
         'test/histogram_tester.h',
+        'test/icu_test_util.cc',
+        'test/icu_test_util.h',
         'test/ios/wait_util.h',
         'test/ios/wait_util.mm',
         'test/launcher/test_launcher.cc',
@@ -1176,9 +1200,6 @@
             4267,
           ],
           'sources': [
-            'async_socket_io_handler.h',
-            'async_socket_io_handler_posix.cc',
-            'async_socket_io_handler_win.cc',
             'auto_reset.h',
             'linux_util.cc',
             'linux_util.h',
@@ -1255,6 +1276,21 @@
           ],
         },
       ],
+    }],
+    ['OS == "win" and target_arch=="x64"', {
+      'targets': [
+        {
+          'target_name': 'base_profiler_test_support_library',
+          # Must be a shared library so that it can be unloaded during testing.
+          'type': 'shared_library',
+          'include_dirs': [
+            '..',
+          ],
+          'sources': [
+            'profiler/test_support_library.cc',
+          ],
+        },
+      ]
     }],
     ['os_posix==1 and OS!="mac" and OS!="ios"', {
       'targets': [
@@ -1398,7 +1434,7 @@
           'includes': [ '../build/jar_file_jni_generator.gypi' ],
         },
         {
-          # TODO(GN)
+          # GN: //base:base_unittests_jni_headers
           'target_name': 'base_unittests_jni_headers',
           'type': 'none',
           'sources': [
@@ -1424,6 +1460,22 @@
           'includes': [ '../build/android/java_cpp_template.gypi' ],
         },
         {
+          # GN: //base:base_multidex_gen
+          'target_name': 'base_multidex_gen',
+          'type': 'none',
+          'sources': [
+            'android/java/templates/ChromiumMultiDex.template',
+          ],
+          'variables': {
+            'package_name': 'org/chromium/base/multidex',
+            'template_deps': [],
+            'additional_gcc_preprocess_options': [
+              '--defines', 'CONFIGURATION_NAME_<(CONFIGURATION_NAME)',
+            ],
+          },
+          'includes': ['../build/android/java_cpp_template.gypi'],
+        },
+        {
           # GN: //base:base_android_java_enums_srcjar
           'target_name': 'base_java_library_process_type',
           'type': 'none',
@@ -1437,7 +1489,7 @@
           'target_name': 'base_java',
           'type': 'none',
           'variables': {
-            'java_in_dir': '../base/android/java',
+            'java_in_dir': 'android/java',
             'jar_excluded_classes': [ '*/NativeLibraries.class' ],
           },
           'dependencies': [
@@ -1445,7 +1497,9 @@
             'base_java_library_load_from_apk_status_codes',
             'base_java_library_process_type',
             'base_java_memory_pressure_level',
+            'base_multidex_gen',
             'base_native_libraries_gen',
+            '../third_party/android_tools/android_tools.gyp:android_support_multidex_javalib',
             '../third_party/jsr-305/jsr-305.gyp:jsr_305_javalib',
           ],
           'includes': [ '../build/java.gypi' ],
@@ -1503,12 +1557,30 @@
           'includes': [ '../build/java.gypi' ],
         },
         {
+          # TODO(jbudorick): Remove this once we roll to robolectric 3.0 and pull
+          # in the multidex shadow library. crbug.com/522043
+          # GN: //base:base_junit_test_support
+          'target_name': 'base_junit_test_support',
+          'type': 'none',
+          'dependencies': [
+            '../testing/android/junit/junit_test.gyp:junit_test_support',
+            '../third_party/android_tools/android_tools.gyp:android_support_multidex_javalib',
+          ],
+          'variables': {
+            'src_paths': [
+              '../base/test/android/junit/',
+            ],
+          },
+          'includes': [ '../build/host_jar.gypi' ]
+        },
+        {
           # GN: //base:base_junit_tests
           'target_name': 'base_junit_tests',
           'type': 'none',
           'dependencies': [
             'base_java',
             'base_java_test_support',
+            'base_junit_test_support',
             '../testing/android/junit/junit_test.gyp:junit_test_support',
           ],
           'variables': {
@@ -1537,7 +1609,13 @@
           'target_name': 'chromium_android_linker',
           'type': 'shared_library',
           'sources': [
+            'android/linker/android_dlext.h',
             'android/linker/legacy_linker_jni.cc',
+            'android/linker/legacy_linker_jni.h',
+            'android/linker/linker_jni.cc',
+            'android/linker/linker_jni.h',
+            'android/linker/modern_linker_jni.cc',
+            'android/linker/modern_linker_jni.h',
           ],
           # The crazy linker is never instrumented.
           'cflags!': [
@@ -1551,7 +1629,7 @@
           ],
         },
         {
-          # TODO(GN)
+          # GN: //base:base_perftests_apk
           'target_name': 'base_perftests_apk',
           'type': 'none',
           'dependencies': [
@@ -1577,21 +1655,30 @@
           'includes': [ '../build/apk_test.gypi' ],
         },
       ],
+      'conditions': [
+        ['test_isolation_mode != "noop"',
+          {
+            'targets': [
+              {
+                'target_name': 'base_unittests_apk_run',
+                'type': 'none',
+                'dependencies': [
+                  'base_unittests_apk',
+                ],
+                'includes': [
+                  '../build/isolate.gypi',
+                ],
+                'sources': [
+                  'base_unittests_apk.isolate',
+                ],
+              },
+            ]
+          }
+        ],
+      ],
     }],
     ['OS == "win"', {
       'targets': [
-        {
-          'target_name': 'debug_message',
-          'type': 'executable',
-          'sources': [
-            'debug_message.cc',
-          ],
-          'msvs_settings': {
-            'VCLinkerTool': {
-              'SubSystem': '2',         # Set /SUBSYSTEM:WINDOWS
-            },
-          },
-        },
         {
           # Target to manually rebuild pe_image_test.dll which is checked into
           # base/test/data/pe_image.

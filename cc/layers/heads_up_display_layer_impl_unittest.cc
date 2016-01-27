@@ -4,7 +4,7 @@
 
 #include "cc/layers/append_quads_data.h"
 #include "cc/layers/heads_up_display_layer_impl.h"
-#include "cc/test/fake_impl_proxy.h"
+#include "cc/test/fake_impl_task_runner_provider.h"
 #include "cc/test/fake_layer_tree_host_impl.h"
 #include "cc/test/fake_output_surface.h"
 #include "cc/test/test_shared_bitmap_manager.h"
@@ -31,13 +31,15 @@ void CheckDrawLayer(HeadsUpDisplayLayerImpl* layer,
 }
 
 TEST(HeadsUpDisplayLayerImplTest, ResourcelessSoftwareDrawAfterResourceLoss) {
-  FakeImplProxy proxy;
+  FakeImplTaskRunnerProvider task_runner_provider;
   TestSharedBitmapManager shared_bitmap_manager;
   TestTaskGraphRunner task_graph_runner;
-  FakeLayerTreeHostImpl host_impl(&proxy, &shared_bitmap_manager,
+  scoped_ptr<OutputSurface> output_surface = FakeOutputSurface::Create3d();
+  FakeLayerTreeHostImpl host_impl(&task_runner_provider, &shared_bitmap_manager,
                                   &task_graph_runner);
   host_impl.CreatePendingTree();
-  host_impl.InitializeRenderer(FakeOutputSurface::Create3d());
+  host_impl.SetVisible(true);
+  host_impl.InitializeRenderer(output_surface.get());
   scoped_ptr<HeadsUpDisplayLayerImpl> layer =
     HeadsUpDisplayLayerImpl::Create(host_impl.pending_tree(), 1);
   layer->SetBounds(gfx::Size(100, 100));

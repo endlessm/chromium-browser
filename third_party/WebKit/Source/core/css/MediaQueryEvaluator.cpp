@@ -62,8 +62,8 @@ using namespace MediaFeatureNames;
 
 enum MediaFeaturePrefix { MinPrefix, MaxPrefix, NoPrefix };
 
-typedef bool (*EvalFunc)(const MediaQueryExpValue&, MediaFeaturePrefix, const MediaValues&);
-typedef HashMap<StringImpl*, EvalFunc> FunctionMap;
+using EvalFunc = bool (*)(const MediaQueryExpValue&, MediaFeaturePrefix, const MediaValues&);
+using FunctionMap = HashMap<StringImpl*, EvalFunc>;
 static FunctionMap* gFunctionMap;
 
 MediaQueryEvaluator::MediaQueryEvaluator(bool mediaFeatureResult)
@@ -177,7 +177,7 @@ static bool compareAspectRatioValue(const MediaQueryExpValue& value, int width, 
 
 static bool numberValue(const MediaQueryExpValue& value, float& result)
 {
-    if (value.isValue && value.unit == CSSPrimitiveValue::CSS_NUMBER) {
+    if (value.isValue && value.unit == CSSPrimitiveValue::UnitType::Number) {
         result = value.value;
         return true;
     }
@@ -221,6 +221,11 @@ static bool monochromeMediaFeatureEval(const MediaQueryExpValue& value, MediaFea
 
 static bool displayModeMediaFeatureEval(const MediaQueryExpValue& value, MediaFeaturePrefix, const MediaValues& mediaValues)
 {
+    // isValid() is false if there is no parameter. Without parameter we should return true to indicate that
+    // displayModeMediaFeature is enabled in the browser.
+    if (!value.isValid())
+        return true;
+
     if (!value.isID)
         return false;
 
@@ -300,14 +305,14 @@ static bool evalResolution(const MediaQueryExpValue& value, MediaFeaturePrefix o
     if (!value.isValue)
         return false;
 
-    if (value.unit == CSSPrimitiveValue::CSS_NUMBER)
+    if (value.unit == CSSPrimitiveValue::UnitType::Number)
         return compareValue(actualResolution, clampTo<float>(value.value), op);
 
     if (!CSSPrimitiveValue::isResolution(value.unit))
         return false;
 
     double canonicalFactor = CSSPrimitiveValue::conversionToCanonicalUnitsScaleFactor(value.unit);
-    double dppxFactor = CSSPrimitiveValue::conversionToCanonicalUnitsScaleFactor(CSSPrimitiveValue::CSS_DPPX);
+    double dppxFactor = CSSPrimitiveValue::conversionToCanonicalUnitsScaleFactor(CSSPrimitiveValue::UnitType::DotsPerPixel);
     float valueInDppx = clampTo<float>(value.value * (canonicalFactor / dppxFactor));
     if (CSSPrimitiveValue::isDotsPerCentimeter(value.unit)) {
         // To match DPCM to DPPX values, we limit to 2 decimal points.
@@ -327,7 +332,7 @@ static bool devicePixelRatioMediaFeatureEval(const MediaQueryExpValue& value, Me
 {
     UseCounter::count(mediaValues.document(), UseCounter::PrefixedDevicePixelRatioMediaFeature);
 
-    return (!value.isValid() || value.unit == CSSPrimitiveValue::CSS_NUMBER) && evalResolution(value, op, mediaValues);
+    return (!value.isValid() || value.unit == CSSPrimitiveValue::UnitType::Number) && evalResolution(value, op, mediaValues);
 }
 
 static bool resolutionMediaFeatureEval(const MediaQueryExpValue& value, MediaFeaturePrefix op, const MediaValues& MediaValues)
@@ -350,7 +355,7 @@ static bool computeLength(const MediaQueryExpValue& value, const MediaValues& me
     if (!value.isValue)
         return false;
 
-    if (value.unit == CSSPrimitiveValue::CSS_NUMBER) {
+    if (value.unit == CSSPrimitiveValue::UnitType::Number) {
         result = clampTo<int>(value.value);
         return !mediaValues.strictMode() || !result;
     }

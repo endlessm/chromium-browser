@@ -21,7 +21,6 @@
 #include "jni/MediaResourceGetter_jni.h"
 #include "media/base/android/media_url_interceptor.h"
 #include "net/base/auth.h"
-#include "net/cookies/cookie_monster.h"
 #include "net/cookies/cookie_store.h"
 #include "net/http/http_auth.h"
 #include "net/http/http_transaction_factory.h"
@@ -227,7 +226,7 @@ void MediaResourceGetterTask::RequestCookies(
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
   ChildProcessSecurityPolicyImpl* policy =
       ChildProcessSecurityPolicyImpl::GetInstance();
-  if (!policy->CanAccessCookiesForOrigin(render_process_id_, url)) {
+  if (!policy->CanAccessDataForOrigin(render_process_id_, url)) {
     callback.Run(std::string());
     return;
   }
@@ -239,14 +238,9 @@ void MediaResourceGetterTask::RequestCookies(
     return;
   }
 
-  net::CookieMonster* cookie_monster = cookie_store->GetCookieMonster();
-  if (cookie_monster) {
-    cookie_monster->GetAllCookiesForURLAsync(url, base::Bind(
-        &MediaResourceGetterTask::CheckPolicyForCookies, this,
-        url, first_party_for_cookies, callback));
-  } else {
-    callback.Run(std::string());
-  }
+  cookie_store->GetAllCookiesForURLAsync(
+      url, base::Bind(&MediaResourceGetterTask::CheckPolicyForCookies, this,
+                      url, first_party_for_cookies, callback));
 }
 
 void MediaResourceGetterTask::CheckPolicyForCookies(

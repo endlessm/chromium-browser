@@ -18,10 +18,11 @@
 namespace blink {
 
 class V8TestInterfacePartial {
+    STATIC_ONLY(V8TestInterfacePartial);
 public:
     static void initialize();
     static void implementsCustomVoidMethodMethodCustom(const v8::FunctionCallbackInfo<v8::Value>&);
-    static void preparePrototypeObject(v8::Isolate*, v8::Local<v8::Object>, v8::Local<v8::FunctionTemplate>);
+    static void preparePrototypeAndInterfaceObject(v8::Isolate*, v8::Local<v8::Object>, v8::Local<v8::Function>, v8::Local<v8::FunctionTemplate>);
 private:
     static void installV8TestInterfaceTemplate(v8::Local<v8::FunctionTemplate>, v8::Isolate*);
 };

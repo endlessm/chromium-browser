@@ -97,9 +97,7 @@ ui::ThreePartImage& GetStrokeImage(bool active) {
         [[GTMFadeTruncatingTextFieldCell alloc] initTextCell:@"Label"]);
     [labelCell setControlSize:NSSmallControlSize];
     CGFloat fontSize = [NSFont systemFontSizeForControlSize:NSSmallControlSize];
-    NSFont* font = [NSFont fontWithName:[[labelCell font] fontName]
-                                   size:fontSize];
-    [labelCell setFont:font];
+    [labelCell setFont:[NSFont systemFontOfSize:fontSize]];
     [titleView_ setCell:labelCell];
     titleViewCell_ = labelCell;
 
@@ -182,11 +180,6 @@ ui::ThreePartImage& GetStrokeImage(bool active) {
   NSRect maskRect = [self bounds];
   maskRect.size.height = kFillHeight;
   return GetMaskImage().HitTest(viewPoint, maskRect) ? self : nil;
-}
-
-// Returns |YES| if this tab can be torn away into a new window.
-- (BOOL)canBeDragged {
-  return [controller_ tabCanBeDragged:controller_];
 }
 
 // Handle clicks and drags in this button. We get here because we have
@@ -452,6 +445,7 @@ ui::ThreePartImage& GetStrokeImage(bool active) {
     return;
 
   [titleView_ setStringValue:title];
+  [closeButton_ setAccessibilityTitle:title];
 
   base::string16 title16 = base::SysNSStringToUTF16(title);
   bool isRTL = base::i18n::GetFirstStrongCharacterDirection(title16) ==

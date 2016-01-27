@@ -38,6 +38,7 @@ class MODULES_EXPORT NavigatorVibration final
     , public WillBeHeapSupplement<Page>
     , public PageLifecycleObserver {
     WILL_BE_USING_GARBAGE_COLLECTED_MIXIN(NavigatorVibration);
+    USING_FAST_MALLOC_WILL_BE_REMOVED(NavigatorVibration);
 public:
     typedef Vector<unsigned> VibrationPattern;
 

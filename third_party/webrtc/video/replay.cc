@@ -20,9 +20,9 @@
 #include "webrtc/base/scoped_ptr.h"
 #include "webrtc/call.h"
 #include "webrtc/common_video/libyuv/include/webrtc_libyuv.h"
-#include "webrtc/modules/rtp_rtcp/interface/rtp_header_parser.h"
-#include "webrtc/system_wrappers/interface/clock.h"
-#include "webrtc/system_wrappers/interface/sleep.h"
+#include "webrtc/modules/rtp_rtcp/include/rtp_header_parser.h"
+#include "webrtc/system_wrappers/include/clock.h"
+#include "webrtc/system_wrappers/include/sleep.h"
 #include "webrtc/test/encoder_settings.h"
 #include "webrtc/test/null_transport.h"
 #include "webrtc/test/fake_decoder.h"
@@ -196,7 +196,7 @@ class DecoderBitstreamFileWriter : public EncodedFrameObserver {
  public:
   explicit DecoderBitstreamFileWriter(const char* filename)
       : file_(fopen(filename, "wb")) {
-    DCHECK(file_ != nullptr);
+    RTC_DCHECK(file_ != nullptr);
   }
   ~DecoderBitstreamFileWriter() { fclose(file_); }
 
@@ -214,13 +214,10 @@ void RtpReplay() {
   FileRenderPassthrough file_passthrough(flags::OutBase(),
                                          playback_video.get());
 
-  // TODO(pbos): Might be good to have a transport that prints keyframe requests
-  //             etc.
-  test::NullTransport transport;
-  Call::Config call_config(&transport);
-  rtc::scoped_ptr<Call> call(Call::Create(call_config));
+  rtc::scoped_ptr<Call> call(Call::Create(Call::Config()));
 
-  VideoReceiveStream::Config receive_config;
+  test::NullTransport transport;
+  VideoReceiveStream::Config receive_config(&transport);
   receive_config.rtp.remote_ssrc = flags::Ssrc();
   receive_config.rtp.local_ssrc = kReceiverLocalSsrc;
   receive_config.rtp.fec.ulpfec_payload_type = flags::FecPayloadType();
@@ -288,7 +285,7 @@ void RtpReplay() {
       break;
     ++num_packets;
     switch (call->Receiver()->DeliverPacket(webrtc::MediaType::ANY, packet.data,
-                                            packet.length)) {
+                                            packet.length, PacketTime())) {
       case PacketReceiver::DELIVERY_OK:
         break;
       case PacketReceiver::DELIVERY_UNKNOWN_SSRC: {

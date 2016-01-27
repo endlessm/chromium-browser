@@ -16,10 +16,10 @@
 #include "base/time/default_clock.h"
 #include "base/time/time.h"
 #include "base/timer/timer.h"
-#include "net/base/dns_util.h"
 #include "net/base/net_errors.h"
 #include "net/base/rand_callback.h"
 #include "net/dns/dns_protocol.h"
+#include "net/dns/dns_util.h"
 #include "net/dns/record_rdata.h"
 #include "net/log/net_log.h"
 #include "net/udp/datagram_socket.h"
@@ -212,7 +212,7 @@ bool MDnsClientImpl::Core::Init(MDnsSocketFactory* socket_factory) {
   return connection_->Init(socket_factory);
 }
 
-bool MDnsClientImpl::Core::SendQuery(uint16 rrtype, std::string name) {
+bool MDnsClientImpl::Core::SendQuery(uint16 rrtype, const std::string& name) {
   std::string name_dns;
   if (!DNSDomainFromDot(name, &name_dns))
     return false;
@@ -326,6 +326,7 @@ void MDnsClientImpl::Core::NotifyNsecRecord(const RecordParsed* record) {
 
 void MDnsClientImpl::Core::OnConnectionError(int error) {
   // TODO(noamsml): On connection error, recreate connection and flush cache.
+  VLOG(1) << "MDNS OnConnectionError (code: " << error << ")";
 }
 
 void MDnsClientImpl::Core::AlertListeners(

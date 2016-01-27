@@ -4,6 +4,7 @@
 
 #include "chrome/renderer/safe_browsing/phishing_classifier_delegate.h"
 
+#include <stdint.h>
 #include "base/command_line.h"
 #include "base/location.h"
 #include "base/memory/scoped_ptr.h"
@@ -25,7 +26,10 @@
 #include "content/public/browser/browser_message_filter.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_process_host.h"
+#include "content/public/browser/render_view_host.h"
 #include "content/public/browser/web_contents.h"
+#include "content/public/common/content_switches.h"
+#include "content/public/renderer/render_frame.h"
 #include "content/public/renderer/render_view.h"
 #include "content/public/test/browser_test_utils.h"
 #include "content/public/test/test_navigation_observer.h"
@@ -52,13 +56,10 @@ namespace safe_browsing {
 
 namespace {
 
-// The RenderFrame is routing ID 1, and the RenderView is 2.
-const int kRenderViewRoutingId = 2;
-
 class MockPhishingClassifier : public PhishingClassifier {
  public:
-  explicit MockPhishingClassifier(content::RenderView* render_view)
-      : PhishingClassifier(render_view, NULL /* clock */) {}
+  explicit MockPhishingClassifier(content::RenderFrame* render_frame)
+      : PhishingClassifier(render_frame, NULL /* clock */) {}
 
   virtual ~MockPhishingClassifier() {}
 
@@ -143,6 +144,9 @@ class PhishingClassifierDelegateTest : public InProcessBrowserTest {
   }
 
  protected:
+  PhishingClassifierDelegateTest()
+      : render_view_routing_id_(MSG_ROUTING_NONE) {}
+
   void SetUpCommandLine(base::CommandLine* command_line) override {
     command_line->AppendSwitch(switches::kSingleProcess);
 #if defined(OS_WIN)
@@ -153,13 +157,14 @@ class PhishingClassifierDelegateTest : public InProcessBrowserTest {
 
   void SetUpOnMainThread() override {
     intercepting_filter_ = new InterceptingMessageFilter();
-    content::RenderView* render_view =
-        content::RenderView::FromRoutingID(kRenderViewRoutingId);
+    render_view_routing_id_ =
+        GetWebContents()->GetRenderViewHost()->GetRoutingID();
 
     GetWebContents()->GetRenderProcessHost()->AddFilter(
         intercepting_filter_.get());
-    classifier_ = new StrictMock<MockPhishingClassifier>(render_view);
-    delegate_ = PhishingClassifierDelegate::Create(render_view, classifier_);
+    content::RenderFrame* render_frame = GetRenderView()->GetMainRenderFrame();
+    classifier_ = new StrictMock<MockPhishingClassifier>(render_frame);
+    delegate_ = PhishingClassifierDelegate::Create(render_frame, classifier_);
 
     ASSERT_TRUE(StartTestServer());
     host_resolver()->AddRule("*", "127.0.0.1");
@@ -223,6 +228,10 @@ class PhishingClassifierDelegateTest : public InProcessBrowserTest {
     return browser()->tab_strip_model()->GetActiveWebContents();
   }
 
+  content::RenderView* GetRenderView() {
+    return content::RenderView::FromRoutingID(render_view_routing_id_);
+  }
+
   // Returns the URL that was loaded.
   GURL LoadHtml(const std::string& host, const std::string& content) {
     GURL::Replacements replace_host;
@@ -232,19 +241,6 @@ class PhishingClassifierDelegateTest : public InProcessBrowserTest {
         embedded_test_server_->base_url().ReplaceComponents(replace_host);
     ui_test_utils::NavigateToURL(browser(), response_url_);
     return response_url_;
-  }
-
-  void NavigateMainFrame(const GURL& url) {
-    PostTaskToInProcessRendererAndWait(
-        base::Bind(&PhishingClassifierDelegateTest::NavigateMainFrameInternal,
-                   base::Unretained(this), url));
-  }
-
-  void NavigateMainFrameInternal(const GURL& url) {
-    content::RenderView* render_view =
-        content::RenderView::FromRoutingID(kRenderViewRoutingId);
-    render_view->GetWebView()->mainFrame()->firstChild()->loadRequest(
-        blink::WebURLRequest(url));
   }
 
   void GoBack() {
@@ -263,6 +259,7 @@ class PhishingClassifierDelegateTest : public InProcessBrowserTest {
   scoped_ptr<net::test_server::EmbeddedTestServer> embedded_test_server_;
   scoped_ptr<ClientPhishingRequest> verdict_;
   StrictMock<MockPhishingClassifier>* classifier_;  // Owned by |delegate_|.
+  int32_t render_view_routing_id_;
   PhishingClassifierDelegate* delegate_;  // Owned by the RenderView.
   scoped_refptr<content::MessageLoopRunner> runner_;
 };
@@ -273,8 +270,8 @@ IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest, Navigation) {
   ASSERT_TRUE(classifier_->is_ready());
 
   // Test an initial load.  We expect classification to happen normally.
-  EXPECT_CALL(*classifier_, CancelPendingClassification()).Times(2);
-  std::string port = base::IntToString(embedded_test_server_->port());
+  EXPECT_CALL(*classifier_, CancelPendingClassification());
+  std::string port = base::UintToString(embedded_test_server_->port());
   std::string html = "<html><body><iframe src=\"http://sub1.com:";
   html += port;
   html += "/\"></iframe></body></html>";
@@ -293,7 +290,7 @@ IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest, Navigation) {
   // Reloading the same page should not trigger a reclassification.
   // However, it will cancel any pending classification since the
   // content is being replaced.
-  EXPECT_CALL(*classifier_, CancelPendingClassification()).Times(2);
+  EXPECT_CALL(*classifier_, CancelPendingClassification());
 
   content::TestNavigationObserver observer(GetWebContents());
   chrome::Reload(browser(), CURRENT_TAB);
@@ -304,20 +301,6 @@ IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest, Navigation) {
   page_text = ASCIIToUTF16("dummy");
   EXPECT_CALL(*classifier_, CancelPendingClassification());
   PageCaptured(&page_text, false);
-  Mock::VerifyAndClearExpectations(classifier_);
-
-  // Navigating in a subframe will not change the toplevel URL.  However, this
-  // should cancel pending classification since the page content is changing.
-  // Currently, we do not start a new classification after subframe loads.
-  EXPECT_CALL(*classifier_, CancelPendingClassification())
-      .WillOnce(Invoke(this, &PhishingClassifierDelegateTest::CancelCalled));
-
-  runner_ = new content::MessageLoopRunner;
-  NavigateMainFrame(GURL(std::string("http://sub2.com:") + port + "/"));
-
-  runner_->Run();
-  runner_ = NULL;
-
   Mock::VerifyAndClearExpectations(classifier_);
 
   OnStartPhishingDetection(url);
@@ -362,7 +345,7 @@ IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest, Navigation) {
   // Note: in practice, the browser will not send a StartPhishingDetection IPC
   // in this case.  However, we want to make sure that the delegate behaves
   // correctly regardless.
-  EXPECT_CALL(*classifier_, CancelPendingClassification()).Times(2);
+  EXPECT_CALL(*classifier_, CancelPendingClassification()).Times(1);
   GoBack();
   Mock::VerifyAndClearExpectations(classifier_);
 
@@ -384,7 +367,7 @@ IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest, Navigation) {
 
   // Now go back again and scroll to a different anchor.
   // No classification should happen.
-  EXPECT_CALL(*classifier_, CancelPendingClassification()).Times(2);
+  EXPECT_CALL(*classifier_, CancelPendingClassification());
   GoBack();
   Mock::VerifyAndClearExpectations(classifier_);
   page_text = ASCIIToUTF16("dummy");
@@ -539,7 +522,7 @@ IN_PROC_BROWSER_TEST_F(PhishingClassifierDelegateTest,
   Mock::VerifyAndClearExpectations(classifier_);
 
   std::string url_str = "http://host4.com:";
-  url_str += base::IntToString(embedded_test_server_->port());
+  url_str += base::UintToString(embedded_test_server_->port());
   url_str += "/redir";
   OnStartPhishingDetection(GURL(url_str));
   page_text = ASCIIToUTF16("123");

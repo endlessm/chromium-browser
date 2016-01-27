@@ -58,9 +58,6 @@ class LoginDisplay {
     // Used when the lock screen is being displayed.
     virtual void Signout() = 0;
 
-    // Create new Google account.
-    virtual void CreateAccount() = 0;
-
     // Complete sign process with specified |user_context|.
     // Used for new users authenticated through an extension.
     virtual void CompleteLogin(const UserContext& user_context) = 0;
@@ -130,9 +127,6 @@ class LoginDisplay {
 
   // Displays detailed error screen for error with ID |error_id|.
   virtual void ShowErrorScreen(LoginDisplay::SigninError error_id) = 0;
-
-  // Proceed with Gaia flow because password has changed.
-  virtual void ShowGaiaPasswordChanged(const std::string& username) = 0;
 
   // Show password changed dialog. If |show_password_error| is not null
   // user already tried to enter old password but it turned out to be incorrect.

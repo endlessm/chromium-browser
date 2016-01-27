@@ -11,12 +11,14 @@ import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.Surface;
 import android.view.View;
+import android.view.View.MeasureSpec;
 import android.view.View.OnKeyListener;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
@@ -55,7 +57,7 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
     private AppMenuAdapter mAdapter;
     private AppMenuHandler mHandler;
     private int mCurrentScreenRotation = -1;
-    private boolean mIsByHardwareButton;
+    private boolean mIsByPermanentButton;
     private AnimatorSet mMenuItemEnterAnimator;
     private AnimatorListener mAnimationHistogramRecorder = AnimationFrameTimeHistogram
             .getAnimatorRecorder("WrenchMenu.OpeningAnimationFrameTimes");
@@ -128,15 +130,15 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
      *
      * @param context The context of the AppMenu (ensure the proper theme is set on this context).
      * @param anchorView The anchor {@link View} of the {@link ListPopupWindow}.
-     * @param isByHardwareButton Whether or not hardware button triggered it. (oppose to software
-     *                           button).
+     * @param isByPermanentButton Whether or not permanent hardware button triggered it. (oppose to
+     *                            software button or keyboard).
      * @param screenRotation Current device screen rotation.
      * @param visibleDisplayFrame The display area rect in which AppMenu is supposed to fit in.
      * @param screenHeight Current device screen height.
      * @param footerResourceId The resource id for a view to add to the end of the menu list.
      *                         Can be 0 if no such view is required.
      */
-    void show(Context context, View anchorView, boolean isByHardwareButton, int screenRotation,
+    void show(Context context, View anchorView, boolean isByPermanentButton, int screenRotation,
             Rect visibleDisplayFrame, int screenHeight, int footerResourceId) {
         mPopup = new ListPopupWindow(context, null, android.R.attr.popupMenuStyle);
         mPopup.setModal(true);
@@ -146,9 +148,11 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
         int footerHeight = 0;
         if (footerResourceId != 0) {
             mPopup.setPromptPosition(ListPopupWindow.POSITION_PROMPT_BELOW);
-            mPopup.setPromptView(LayoutInflater.from(context).inflate(footerResourceId, null));
-            footerHeight = context.getResources().getDimensionPixelSize(
-                    R.dimen.menu_footer_height);
+            View promptView = LayoutInflater.from(context).inflate(footerResourceId, null);
+            mPopup.setPromptView(promptView);
+            int measureSpec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
+            promptView.measure(measureSpec, measureSpec);
+            footerHeight = promptView.getMeasuredHeight();
         }
         mPopup.setOnDismissListener(new OnDismissListener() {
             @Override
@@ -171,7 +175,7 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
 
         // Need to explicitly set the background here.  Relying on it being set in the style caused
         // an incorrectly drawn background.
-        if (isByHardwareButton) {
+        if (isByPermanentButton) {
             mPopup.setBackgroundDrawable(
                     ApiCompatibilityUtils.getDrawable(context.getResources(), R.drawable.menu_bg));
         } else {
@@ -180,8 +184,11 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
             mPopup.setAnimationStyle(R.style.OverflowMenuAnim);
         }
 
-        // Turn off window animations for low end devices.
-        if (SysUtils.isLowEndDevice()) mPopup.setAnimationStyle(0);
+        // Turn off window animations for low end devices, and on Android M, which has built-in menu
+        // animations.
+        if (SysUtils.isLowEndDevice() || Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            mPopup.setAnimationStyle(0);
+        }
 
         Rect bgPadding = new Rect();
         mPopup.getBackground().getPadding(bgPadding);
@@ -192,7 +199,7 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
         mPopup.setWidth(popupWidth);
 
         mCurrentScreenRotation = screenRotation;
-        mIsByHardwareButton = isByHardwareButton;
+        mIsByPermanentButton = isByPermanentButton;
 
         // Extract visible items from the Menu.
         int numItems = mMenu.size();
@@ -205,7 +212,7 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
         }
 
         Rect sizingPadding = new Rect(bgPadding);
-        if (isByHardwareButton && originalBgDrawable != null) {
+        if (isByPermanentButton && originalBgDrawable != null) {
             Rect originalPadding = new Rect();
             originalBgDrawable.getPadding(originalPadding);
             sizingPadding.top = originalPadding.top;
@@ -253,7 +260,7 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
 
         // If we have a hardware menu button, locate the app menu closer to the estimated
         // hardware menu button location.
-        if (mIsByHardwareButton) {
+        if (mIsByPermanentButton) {
             int horizontalOffset = -anchorLocation[0];
             switch (screenRotation) {
                 case Surface.ROTATION_0:
@@ -357,7 +364,7 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
         int[] anchorViewLocation = new int[2];
         anchorView.getLocationOnScreen(anchorViewLocation);
         anchorViewLocation[1] -= appDimensions.top;
-        int anchorViewImpactHeight = mIsByHardwareButton ? anchorView.getHeight() : 0;
+        int anchorViewImpactHeight = mIsByPermanentButton ? anchorView.getHeight() : 0;
 
         // Set appDimensions.height() for abnormal anchorViewLocation.
         if (anchorViewLocation[1] > screenHeight) {
@@ -367,7 +374,7 @@ public class AppMenu implements OnItemClickListener, OnKeyListener {
                 appDimensions.height() - anchorViewLocation[1] - anchorViewImpactHeight);
 
         availableScreenSpace -= padding.bottom + footerHeight;
-        if (mIsByHardwareButton) availableScreenSpace -= padding.top;
+        if (mIsByPermanentButton) availableScreenSpace -= padding.top;
 
         int numCanFit = availableScreenSpace / (mItemRowHeight + mItemDividerHeight);
 

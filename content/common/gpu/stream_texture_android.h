@@ -18,7 +18,7 @@ class Size;
 
 namespace content {
 
-class StreamTexture : public gfx::GLImage,
+class StreamTexture : public gl::GLImage,
                       public IPC::Listener,
                       public GpuCommandBufferStub::DestructionObserver {
  public:
@@ -32,24 +32,24 @@ class StreamTexture : public gfx::GLImage,
                 uint32 texture_id);
   ~StreamTexture() override;
 
-  // gfx::GLImage implementation:
+  // gl::GLImage implementation:
   void Destroy(bool have_context) override;
   gfx::Size GetSize() override;
   unsigned GetInternalFormat() override;
   bool BindTexImage(unsigned target) override;
   void ReleaseTexImage(unsigned target) override;
+  bool CopyTexImage(unsigned target) override;
   bool CopyTexSubImage(unsigned target,
                        const gfx::Point& offset,
                        const gfx::Rect& rect) override;
-  void WillUseTexImage() override;
-  void DidUseTexImage() override {}
-  void WillModifyTexImage() override {}
-  void DidModifyTexImage() override {}
   bool ScheduleOverlayPlane(gfx::AcceleratedWidget widget,
                             int z_order,
                             gfx::OverlayTransform transform,
                             const gfx::Rect& bounds_rect,
                             const gfx::RectF& crop_rect) override;
+  void OnMemoryDump(base::trace_event::ProcessMemoryDump* pmd,
+                    uint64_t process_tracing_id,
+                    const std::string& dump_name) override;
 
   // GpuCommandBufferStub::DestructionObserver implementation.
   void OnWillDestroyStub() override;
@@ -82,6 +82,7 @@ class StreamTexture : public gfx::GLImage,
   GpuCommandBufferStub* owner_stub_;
   int32 route_id_;
   bool has_listener_;
+  uint32 texture_id_;
 
   base::WeakPtrFactory<StreamTexture> weak_factory_;
   DISALLOW_COPY_AND_ASSIGN(StreamTexture);

@@ -32,6 +32,7 @@
 #include "snapshot/test/test_module_snapshot.h"
 #include "test/gtest_death_check.h"
 #include "util/file/string_file.h"
+#include "util/misc/implicit_cast.h"
 #include "util/misc/uuid.h"
 #include "util/stdlib/pointer_container.h"
 
@@ -100,10 +101,9 @@ void ExpectCodeViewRecord(const MINIDUMP_LOCATION_DESCRIPTOR* codeview_record,
     std::string observed_pdb_name;
     if (expected_pdb_uuid) {
       // The CodeView record should be a PDB 7.0 link.
-      const MinidumpModuleCodeViewRecordPDB70* codeview_pdb70_record =
-          MinidumpWritableAtLocationDescriptor<
-              MinidumpModuleCodeViewRecordPDB70>(file_contents,
-                                                 *codeview_record);
+      const CodeViewRecordPDB70* codeview_pdb70_record =
+          MinidumpWritableAtLocationDescriptor<CodeViewRecordPDB70>(
+              file_contents, *codeview_record);
       ASSERT_TRUE(codeview_pdb70_record);
       EXPECT_EQ(0,
                 memcmp(expected_pdb_uuid,
@@ -113,14 +113,12 @@ void ExpectCodeViewRecord(const MINIDUMP_LOCATION_DESCRIPTOR* codeview_record,
 
       observed_pdb_name.assign(
           reinterpret_cast<const char*>(&codeview_pdb70_record->pdb_name[0]),
-          codeview_record->DataSize -
-              offsetof(MinidumpModuleCodeViewRecordPDB70, pdb_name));
+          codeview_record->DataSize - offsetof(CodeViewRecordPDB70, pdb_name));
     } else {
       // The CodeView record should be a PDB 2.0 link.
-      const MinidumpModuleCodeViewRecordPDB20* codeview_pdb20_record =
-          MinidumpWritableAtLocationDescriptor<
-              MinidumpModuleCodeViewRecordPDB20>(file_contents,
-                                                 *codeview_record);
+      const CodeViewRecordPDB20* codeview_pdb20_record =
+          MinidumpWritableAtLocationDescriptor<CodeViewRecordPDB20>(
+              file_contents, *codeview_record);
       ASSERT_TRUE(codeview_pdb20_record);
       EXPECT_EQ(static_cast<uint32_t>(expected_pdb_timestamp),
                 codeview_pdb20_record->timestamp);
@@ -128,8 +126,7 @@ void ExpectCodeViewRecord(const MINIDUMP_LOCATION_DESCRIPTOR* codeview_record,
 
       observed_pdb_name.assign(
           reinterpret_cast<const char*>(&codeview_pdb20_record->pdb_name[0]),
-          codeview_record->DataSize -
-              offsetof(MinidumpModuleCodeViewRecordPDB20, pdb_name));
+          codeview_record->DataSize - offsetof(CodeViewRecordPDB20, pdb_name));
     }
 
     // Check for, and then remove, the NUL terminator.
@@ -161,8 +158,7 @@ void ExpectMiscellaneousDebugRecord(
                                                                *misc_record);
     ASSERT_TRUE(misc_debug_record);
     EXPECT_EQ(expected_debug_type, misc_debug_record->DataType);
-    EXPECT_EQ(expected_debug_utf16,
-              static_cast<bool>(misc_debug_record->Unicode));
+    EXPECT_EQ(expected_debug_utf16, misc_debug_record->Unicode != 0);
     EXPECT_EQ(0u, misc_debug_record->Reserved[0]);
     EXPECT_EQ(0u, misc_debug_record->Reserved[1]);
     EXPECT_EQ(0u, misc_debug_record->Reserved[2]);
@@ -618,7 +614,9 @@ void InitializeTestModuleSnapshotFromMinidumpModule(
     TestModuleSnapshot* module_snapshot,
     const MINIDUMP_MODULE& minidump_module,
     const std::string& name,
-    const crashpad::UUID& uuid) {
+    const std::string& pdb_name,
+    const crashpad::UUID& uuid,
+    uint32_t age) {
   module_snapshot->SetName(name);
 
   module_snapshot->SetAddressAndSize(minidump_module.BaseOfImage,
@@ -649,14 +647,17 @@ void InitializeTestModuleSnapshotFromMinidumpModule(
   }
   module_snapshot->SetModuleType(module_type);
 
-  module_snapshot->SetUUID(uuid);
+  module_snapshot->SetUUIDAndAge(uuid, age);
+  module_snapshot->SetDebugFileName(pdb_name);
 }
 
 TEST(MinidumpModuleWriter, InitializeFromSnapshot) {
   MINIDUMP_MODULE expect_modules[3] = {};
   const char* module_paths[arraysize(expect_modules)] = {};
   const char* module_names[arraysize(expect_modules)] = {};
+  const char* module_pdbs[arraysize(expect_modules)] = {};
   UUID uuids[arraysize(expect_modules)] = {};
+  uint32_t ages[arraysize(expect_modules)] = {};
 
   expect_modules[0].BaseOfImage = 0x100101000;
   expect_modules[0].SizeOfImage = 0xf000;
@@ -668,10 +669,12 @@ TEST(MinidumpModuleWriter, InitializeFromSnapshot) {
   expect_modules[0].VersionInfo.dwFileType = VFT_APP;
   module_paths[0] = "/usr/bin/true";
   module_names[0] = "true";
+  module_pdbs[0] = "true";
   const uint8_t kUUIDBytes0[16] =
       {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
        0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
   uuids[0].InitializeFromBytes(kUUIDBytes0);
+  ages[0] = 10;
 
   expect_modules[1].BaseOfImage = 0x200202000;
   expect_modules[1].SizeOfImage = 0x1e1000;
@@ -683,10 +686,12 @@ TEST(MinidumpModuleWriter, InitializeFromSnapshot) {
   expect_modules[1].VersionInfo.dwFileType = VFT_DLL;
   module_paths[1] = "/usr/lib/libSystem.B.dylib";
   module_names[1] = "libSystem.B.dylib";
+  module_pdbs[1] = "libSystem.B.dylib.pdb";
   const uint8_t kUUIDBytes1[16] =
       {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f};
   uuids[1].InitializeFromBytes(kUUIDBytes1);
+  ages[1] = 20;
 
   expect_modules[2].BaseOfImage = 0x300303000;
   expect_modules[2].SizeOfImage = 0x2d000;
@@ -698,10 +703,12 @@ TEST(MinidumpModuleWriter, InitializeFromSnapshot) {
   expect_modules[2].VersionInfo.dwFileType = VFT_UNKNOWN;
   module_paths[2] = "/usr/lib/dyld";
   module_names[2] = "dyld";
+  module_pdbs[2] = "/usr/lib/dyld.pdb";
   const uint8_t kUUIDBytes2[16] =
       {0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa, 0xf9, 0xf8,
        0xf7, 0xf6, 0xf5, 0xf4, 0xf3, 0xf2, 0xf1, 0xf0};
   uuids[2].InitializeFromBytes(kUUIDBytes2);
+  ages[2] = 30;
 
   PointerVector<TestModuleSnapshot> module_snapshots_owner;
   std::vector<const ModuleSnapshot*> module_snapshots;
@@ -711,7 +718,9 @@ TEST(MinidumpModuleWriter, InitializeFromSnapshot) {
     InitializeTestModuleSnapshotFromMinidumpModule(module_snapshot,
                                                    expect_modules[index],
                                                    module_paths[index],
-                                                   uuids[index]);
+                                                   module_pdbs[index],
+                                                   uuids[index],
+                                                   ages[index]);
     module_snapshots.push_back(module_snapshot);
   }
 
@@ -736,10 +745,10 @@ TEST(MinidumpModuleWriter, InitializeFromSnapshot) {
                                          &module_list->Modules[index],
                                          string_file.string(),
                                          module_paths[index],
-                                         module_names[index],
+                                         module_pdbs[index],
                                          &uuids[index],
                                          0,
-                                         0,
+                                         ages[index],
                                          nullptr,
                                          0,
                                          false));

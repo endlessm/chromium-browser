@@ -32,11 +32,13 @@ goog.provide('framework.opengl.gluTextureUtil');
 goog.require('framework.common.tcuCompressedTexture');
 goog.require('framework.common.tcuTexture');
 goog.require('framework.common.tcuTextureUtil');
+goog.require('framework.delibs.debase.deString');
 goog.require('framework.opengl.gluShaderUtil');
 
 goog.scope(function() {
 
 var gluTextureUtil = framework.opengl.gluTextureUtil;
+var deString = framework.delibs.debase.deString;
 var tcuTexture = framework.common.tcuTexture;
 var tcuTextureUtil = framework.common.tcuTextureUtil;
 var tcuCompressedTexture = framework.common.tcuCompressedTexture;
@@ -341,7 +343,7 @@ gluTextureUtil.mapGLTransferFormat = function(format, dataType) {
         case gl.DEPTH_STENCIL: return new tcuTexture.TextureFormat(tcuTexture.ChannelOrder.DS, gluTextureUtil.mapGLChannelType(dataType, true));
 
         default:
-            throw new Error("Can't map GL pixel format (" + format + ', ' + dataType + ') to texture format');
+            throw new Error("Can't map GL pixel format (" + deString.enumToString(gl, format) + ', ' + deString.enumToString(gl, dataType) + ') to texture format');
     }
 };
 
@@ -508,7 +510,7 @@ gluTextureUtil.mapGLWrapMode = function(wrapMode) {
         case gl.REPEAT: return tcuTexture.WrapMode.REPEAT_GL;
         case gl.MIRRORED_REPEAT: return tcuTexture.WrapMode.MIRRORED_REPEAT_GL;
         default:
-            throw new Error("Can't map GL wrap mode " + wrapMode);
+            throw new Error("Can't map GL wrap mode " + deString.enumToString(gl, wrapMode));
     }
 };
 
@@ -613,78 +615,68 @@ gluTextureUtil.mapGLCompareFunc = function(mode) {
      }
 };
 
-// /*--------------------------------------------------------------------*//*!
-//  * \brief Get GL wrap mode.
-//  *
-//  * If no mapping is found, throws tcu::InternalError.
-//  *
-//  * \param wrapMode Wrap mode
-//  * \return GL wrap mode
-//  *//*--------------------------------------------------------------------*/
-// deUint32 getGLWrapMode (tcu::Sampler::WrapMode wrapMode)
-// {
-//     DE_ASSERT(wrapMode != tcu::Sampler::WRAPMODE_LAST);
-//     switch (wrapMode)
-//     {
-//         case tcu::Sampler::CLAMP_TO_EDGE: return gl.CLAMP_TO_EDGE;
-//         case tcu::Sampler::CLAMP_TO_BORDER: return gl.CLAMP_TO_BORDER;
-//         case tcu::Sampler::REPEAT_GL: return gl.REPEAT;
-//         case tcu::Sampler::MIRRORED_REPEAT_GL: return gl.MIRRORED_REPEAT;
-//         default:
-//             throw tcu::InternalError("Can't map wrap mode");
-//     }
-// }
+/**
+ * Get GL wrap mode.
+ *
+ * If no mapping is found, throws tcu::InternalError.
+ *
+ * @param {tcuTexture.WrapMode} wrapMode
+ * @return {number} GL wrap mode
+ */
+gluTextureUtil.getGLWrapMode = function(wrapMode) {
+    switch (wrapMode) {
+        case tcuTexture.WrapMode.CLAMP_TO_EDGE: return gl.CLAMP_TO_EDGE;
+        case tcuTexture.WrapMode.REPEAT_GL: return gl.REPEAT;
+        case tcuTexture.WrapMode.MIRRORED_REPEAT_GL: return gl.MIRRORED_REPEAT;
+        default:
+            throw new Error("Can't map wrap mode");
+    }
+};
 
-// /*--------------------------------------------------------------------*//*!
-//  * \brief Get GL filter mode.
-//  *
-//  * If no mapping is found, throws tcu::InternalError.
-//  *
-//  * \param filterMode Filter mode
-//  * \return GL filter mode
-//  *//*--------------------------------------------------------------------*/
-// deUint32 getGLFilterMode (tcu::Sampler::FilterMode filterMode)
-// {
-//     DE_ASSERT(filterMode != tcu::Sampler::FILTERMODE_LAST);
-//     switch (filterMode)
-//     {
-//         case tcu::Sampler::NEAREST: return gl.NEAREST;
-//         case tcu::Sampler::LINEAR: return gl.LINEAR;
-//         case tcu::Sampler::NEAREST_MIPMAP_NEAREST: return gl.NEAREST_MIPMAP_NEAREST;
-//         case tcu::Sampler::NEAREST_MIPMAP_LINEAR: return gl.NEAREST_MIPMAP_LINEAR;
-//         case tcu::Sampler::LINEAR_MIPMAP_NEAREST: return gl.LINEAR_MIPMAP_NEAREST;
-//         case tcu::Sampler::LINEAR_MIPMAP_LINEAR: return gl.LINEAR_MIPMAP_LINEAR;
-//         default:
-//             throw tcu::InternalError("Can't map filter mode");
-//     }
-// }
+/**
+ * Get GL filter mode.
+ *
+ * If no mapping is found, throws tcu::InternalError.
+ *
+ * @param {tcuTexture.FilterMode} filterMode Filter mode
+ * @return {number} GL filter mode
+ */
+gluTextureUtil.getGLFilterMode = function(filterMode) {
+    switch (filterMode) {
+        case tcuTexture.FilterMode.NEAREST: return gl.NEAREST;
+        case tcuTexture.FilterMode.LINEAR: return gl.LINEAR;
+        case tcuTexture.FilterMode.NEAREST_MIPMAP_NEAREST: return gl.NEAREST_MIPMAP_NEAREST;
+        case tcuTexture.FilterMode.NEAREST_MIPMAP_LINEAR: return gl.NEAREST_MIPMAP_LINEAR;
+        case tcuTexture.FilterMode.LINEAR_MIPMAP_NEAREST: return gl.LINEAR_MIPMAP_NEAREST;
+        case tcuTexture.FilterMode.LINEAR_MIPMAP_LINEAR: return gl.LINEAR_MIPMAP_LINEAR;
+        default:
+            throw new Error("Can't map filter mode");
+    }
+};
 
-// /*--------------------------------------------------------------------*//*!
-//  * \brief Get GL compare mode.
-//  *
-//  * If no mapping is found, throws tcu::InternalError.
-//  *
-//  * \param compareMode Compare mode
-//  * \return GL compare mode
-//  *//*--------------------------------------------------------------------*/
-// deUint32 getGLCompareFunc (tcu::Sampler::CompareMode compareMode)
-// {
-//     DE_ASSERT(compareMode != tcu::Sampler::COMPAREMODE_NONE);
-//     switch (compareMode)
-//     {
-//         case tcu::Sampler::COMPAREMODE_NONE: return gl.NONE;
-//         case tcu::Sampler::COMPAREMODE_LESS: return gl.LESS;
-//         case tcu::Sampler::COMPAREMODE_LESS_OR_EQUAL: return gl.LEQUAL;
-//         case tcu::Sampler::COMPAREMODE_GREATER: return gl.GREATER;
-//         case tcu::Sampler::COMPAREMODE_GREATER_OR_EQUAL: return gl.GEQUAL;
-//         case tcu::Sampler::COMPAREMODE_EQUAL: return gl.EQUAL;
-//         case tcu::Sampler::COMPAREMODE_NOT_EQUAL: return gl.NOTEQUAL;
-//         case tcu::Sampler::COMPAREMODE_ALWAYS: return gl.ALWAYS;
-//         case tcu::Sampler::COMPAREMODE_NEVER: return gl.NEVER;
-//         default:
-//             throw tcu::InternalError("Can't map compare mode");
-//     }
-// }
+/**
+ * Get GL compare mode.
+ *
+ * If no mapping is found, throws tcu::InternalError.
+ *
+ * @param {tcuTexture.CompareMode} compareMode Compare mode
+ * @return {number} GL compare mode
+ */
+gluTextureUtil.getGLCompareFunc = function(compareMode) {
+    switch (compareMode) {
+        case tcuTexture.CompareMode.COMPAREMODE_NONE: return gl.NONE;
+        case tcuTexture.CompareMode.COMPAREMODE_LESS: return gl.LESS;
+        case tcuTexture.CompareMode.COMPAREMODE_LESS_OR_EQUAL: return gl.LEQUAL;
+        case tcuTexture.CompareMode.COMPAREMODE_GREATER: return gl.GREATER;
+        case tcuTexture.CompareMode.COMPAREMODE_GREATER_OR_EQUAL: return gl.GEQUAL;
+        case tcuTexture.CompareMode.COMPAREMODE_EQUAL: return gl.EQUAL;
+        case tcuTexture.CompareMode.COMPAREMODE_NOT_EQUAL: return gl.NOTEQUAL;
+        case tcuTexture.CompareMode.COMPAREMODE_ALWAYS: return gl.ALWAYS;
+        case tcuTexture.CompareMode.COMPAREMODE_NEVER: return gl.NEVER;
+        default:
+            throw new Error("Can't map compare mode");
+    }
+};
 
 /**
  * Get GL cube face.
@@ -754,139 +746,155 @@ gluTextureUtil.getGLCubeFace = function(face) {
  * If no mapping is found, glu::TYPE_LAST is returned.
  *
  * @param {tcuTexture.TextureFormat} format
- * @return {gluShaderUtil.DataType | number} GLSL 2D sampler type for format
+ * @return {gluShaderUtil.DataType} GLSL 2D sampler type for format
  */
 gluTextureUtil.getSampler2DType = function(format) {
     if (format.order == tcuTexture.ChannelOrder.D || format.order == tcuTexture.ChannelOrder.DS)
     return gluShaderUtil.DataType.SAMPLER_2D;
 
     if (format.order == tcuTexture.ChannelOrder.S)
-    return Object.keys(gluShaderUtil.DataType).length;
+    return /** @type {gluShaderUtil.DataType} */ (Object.keys(gluShaderUtil.DataType).length);
 
-    switch (tcuTextureUtil.getTextureChannelClass(format.type)) {
-        case tcuTextureUtil.TextureChannelClass.FLOATING_POINT:
-        case tcuTextureUtil.TextureChannelClass.SIGNED_FIXED_POINT:
-        case tcuTextureUtil.TextureChannelClass.UNSIGNED_FIXED_POINT:
+    switch (tcuTexture.getTextureChannelClass(format.type)) {
+        case tcuTexture.TextureChannelClass.FLOATING_POINT:
+        case tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT:
+        case tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT:
             return gluShaderUtil.DataType.SAMPLER_2D;
 
-        case tcuTextureUtil.TextureChannelClass.SIGNED_INTEGER:
+        case tcuTexture.TextureChannelClass.SIGNED_INTEGER:
             return gluShaderUtil.DataType.INT_SAMPLER_2D;
 
-        case tcuTextureUtil.TextureChannelClass.UNSIGNED_INTEGER:
+        case tcuTexture.TextureChannelClass.UNSIGNED_INTEGER:
             return gluShaderUtil.DataType.UINT_SAMPLER_2D;
 
         default:
-            return Object.keys(gluShaderUtil.DataType).length;
+            return /** @type {gluShaderUtil.DataType} */ (Object.keys(gluShaderUtil.DataType).length);
     }
 };
 
-// /*--------------------------------------------------------------------*//*!
-//  * \brief Get GLSL sampler type for texture format.
-//  *
-//  * If no mapping is found, glu::TYPE_LAST is returned.
-//  *
-//  * \param format Texture format
-//  * \return GLSL cube map sampler type for format
-//  *//*--------------------------------------------------------------------*/
-// DataType getSamplerCubeType (tcu::TextureFormat format)
-// {
-//     using tcu::TextureFormat;
+/**
+ *
+ * @param {tcuTexture.TextureFormat} format
+ * @return {gluShaderUtil.DataType} GLSL 2D sampler type for format
+ */
+gluTextureUtil.getSampler3DType = function(format) {
+    if (format.order === tcuTexture.ChannelOrder.D || format.order === tcuTexture.ChannelOrder.DS)
+        return gluShaderUtil.DataType.SAMPLER_3D;
 
-//     if (format.order == tcuTexture.ChannelOrder.D || format.order == tcuTexture.ChannelOrder.DS)
-//         return TYPE_SAMPLER_CUBE;
+    if (format.order === tcuTexture.ChannelOrder.S)
+        return /** @type {gluShaderUtil.DataType} */ (Object.keys(gluShaderUtil.DataType).length); // shouldn't we throw an error instead?
 
-//     if (format.order == tcuTexture.ChannelOrder.S)
-//         return TYPE_LAST;
+    switch (tcuTexture.getTextureChannelClass(format.type)) {
+        case tcuTexture.TextureChannelClass.FLOATING_POINT:
+        case tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT:
+        case tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT:
+            return gluShaderUtil.DataType.SAMPLER_3D;
 
-//     switch (tcu::getTextureChannelClass(format.type))
-//     {
-//         case tcu::TEXTURECHANNELCLASS_FLOATING_POINT:
-//         case tcu::TEXTURECHANNELCLASS_SIGNED_FIXED_POINT:
-//         case tcu::TEXTURECHANNELCLASS_UNSIGNED_FIXED_POINT:
-//             return glu::TYPE_SAMPLER_CUBE;
+        case tcuTexture.TextureChannelClass.SIGNED_INTEGER:
+            return gluShaderUtil.DataType.INT_SAMPLER_3D;
 
-//         case tcu::TEXTURECHANNELCLASS_SIGNED_INTEGER:
-//             return glu::TYPE_INT_SAMPLER_CUBE;
+        case tcuTexture.TextureChannelClass.UNSIGNED_INTEGER:
+            return gluShaderUtil.DataType.UINT_SAMPLER_3D;
 
-//         case tcu::TEXTURECHANNELCLASS_UNSIGNED_INTEGER:
-//             return glu::TYPE_UINT_SAMPLER_CUBE;
+        default:
+            return /** @type {gluShaderUtil.DataType} */ (Object.keys(gluShaderUtil.DataType).length);
+    }
+};
 
-//         default:
-//             return glu::TYPE_LAST;
-//     }
-// }
+/**
+ * \brief Get GLSL sampler type for texture format.
+ *
+ * @param {tcuTexture.TextureFormat} format
+ * @return {gluShaderUtil.DataType} GLSL 2D sampler type for format
+ */
+gluTextureUtil.getSamplerCubeType = function(format) {
+    if (format.order == tcuTexture.ChannelOrder.D || format.order == tcuTexture.ChannelOrder.DS)
+        return gluShaderUtil.DataType.SAMPLER_CUBE;
 
-// /*--------------------------------------------------------------------*//*!
-//  * \brief Get GLSL sampler type for texture format.
-//  *
-//  * If no mapping is found, glu::TYPE_LAST is returned.
-//  *
-//  * \param format Texture format
-//  * \return GLSL 2D array sampler type for format
-//  *//*--------------------------------------------------------------------*/
-// DataType getSampler2DArrayType (tcu::TextureFormat format)
-// {
-//     using tcu::TextureFormat;
+    if (format.order == tcuTexture.ChannelOrder.S)
+        throw new Error('No cube sampler');
 
-//     if (format.order == tcuTexture.ChannelOrder.D || format.order == tcuTexture.ChannelOrder.DS)
-//         return TYPE_SAMPLER_2D_ARRAY;
+    switch (tcuTexture.getTextureChannelClass(format.type)) {
+        case tcuTexture.TextureChannelClass.FLOATING_POINT:
+        case tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT:
+        case tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT:
+            return gluShaderUtil.DataType.SAMPLER_CUBE;
 
-//     if (format.order == tcuTexture.ChannelOrder.S)
-//         return TYPE_LAST;
+        case tcuTexture.TextureChannelClass.SIGNED_INTEGER:
+            return gluShaderUtil.DataType.INT_SAMPLER_CUBE;
 
-//     switch (tcu::getTextureChannelClass(format.type))
-//     {
-//         case tcu::TEXTURECHANNELCLASS_FLOATING_POINT:
-//         case tcu::TEXTURECHANNELCLASS_SIGNED_FIXED_POINT:
-//         case tcu::TEXTURECHANNELCLASS_UNSIGNED_FIXED_POINT:
-//             return glu::TYPE_SAMPLER_2D_ARRAY;
+        case tcuTexture.TextureChannelClass.UNSIGNED_INTEGER:
+            return gluShaderUtil.DataType.UINT_SAMPLER_CUBE;
 
-//         case tcu::TEXTURECHANNELCLASS_SIGNED_INTEGER:
-//             return glu::TYPE_INT_SAMPLER_2D_ARRAY;
+        default:
+            throw new Error('No cube sampler');
+    }
+};
 
-//         case tcu::TEXTURECHANNELCLASS_UNSIGNED_INTEGER:
-//             return glu::TYPE_UINT_SAMPLER_2D_ARRAY;
+/**
+ * \brief Get GLSL sampler type for texture format.
+ *
+ * If no mapping is found, glu::TYPE_LAST is returned.
+ *
+ * @param {tcuTexture.TextureFormat} format
+ * @return {gluShaderUtil.DataType} GLSL 2D sampler type for format
+ */
+gluTextureUtil.getSampler2DArrayType = function(format) {
 
-//         default:
-//             return glu::TYPE_LAST;
-//     }
-// }
+    if (format.order == tcuTexture.ChannelOrder.D || format.order == tcuTexture.ChannelOrder.DS)
+        return gluShaderUtil.DataType.SAMPLER_2D_ARRAY;
 
-// /*--------------------------------------------------------------------*//*!
-//  * \brief Get GLSL sampler type for texture format.
-//  *
-//  * If no mapping is found, glu::TYPE_LAST is returned.
-//  *
-//  * \param format Texture format
-//  * \return GLSL 3D sampler type for format
-//  *//*--------------------------------------------------------------------*/
-// DataType getSampler3DType (tcu::TextureFormat format)
-// {
-//     using tcu::TextureFormat;
+    if (format.order == tcuTexture.ChannelOrder.S)
+        throw new Error('No 2d array sampler');
 
-//     if (format.order == tcuTexture.ChannelOrder.D || format.order == tcuTexture.ChannelOrder.DS)
-//         return TYPE_SAMPLER_3D;
+    switch (tcuTexture.getTextureChannelClass(format.type)) {
+        case tcuTexture.TextureChannelClass.FLOATING_POINT:
+        case tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT:
+        case tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT:
+            return gluShaderUtil.DataType.SAMPLER_2D_ARRAY;
 
-//     if (format.order == tcuTexture.ChannelOrder.S)
-//         return TYPE_LAST;
+        case tcuTexture.TextureChannelClass.SIGNED_INTEGER:
+            return gluShaderUtil.DataType.INT_SAMPLER_2D_ARRAY;
 
-//     switch (tcu::getTextureChannelClass(format.type))
-//     {
-//         case tcu::TEXTURECHANNELCLASS_FLOATING_POINT:
-//         case tcu::TEXTURECHANNELCLASS_SIGNED_FIXED_POINT:
-//         case tcu::TEXTURECHANNELCLASS_UNSIGNED_FIXED_POINT:
-//             return glu::TYPE_SAMPLER_3D;
+        case tcuTexture.TextureChannelClass.UNSIGNED_INTEGER:
+            return gluShaderUtil.DataType.UINT_SAMPLER_2D_ARRAY;
 
-//         case tcu::TEXTURECHANNELCLASS_SIGNED_INTEGER:
-//             return glu::TYPE_INT_SAMPLER_3D;
+        default:
+            throw new Error('No 2d array sampler');
+    }
+};
 
-//         case tcu::TEXTURECHANNELCLASS_UNSIGNED_INTEGER:
-//             return glu::TYPE_UINT_SAMPLER_3D;
+/**
+ * \brief Get GLSL sampler type for texture format.
+ *
+ * If no mapping is found, glu::TYPE_LAST is returned.
+ *
+ * @param {tcuTexture.TextureFormat} format
+ * @return {gluShaderUtil.DataType} GLSL 2D sampler type for format
+ */
+gluTextureUtil.getSampler3D = function(format) {
+    if (format.order == tcuTexture.ChannelOrder.D || format.order == tcuTexture.ChannelOrder.DS)
+        return gluShaderUtil.DataType.SAMPLER_3D;
 
-//         default:
-//             return glu::TYPE_LAST;
-//     }
-// }
+    if (format.order == tcuTexture.ChannelOrder.S)
+        throw new Error('No 3d sampler');
+
+    switch (tcuTexture.getTextureChannelClass(format.type)) {
+        case tcuTexture.TextureChannelClass.FLOATING_POINT:
+        case tcuTexture.TextureChannelClass.SIGNED_FIXED_POINT:
+        case tcuTexture.TextureChannelClass.UNSIGNED_FIXED_POINT:
+            return gluShaderUtil.DataType.SAMPLER_3D;
+
+        case tcuTexture.TextureChannelClass.SIGNED_INTEGER:
+            return gluShaderUtil.DataType.INT_SAMPLER_3D;
+
+        case tcuTexture.TextureChannelClass.UNSIGNED_INTEGER:
+            return gluShaderUtil.DataType.UINT_SAMPLER_3D;
+
+        default:
+            throw new Error('No 3d sampler');
+    }
+};
 
 // /*--------------------------------------------------------------------*//*!
 //  * \brief Get GLSL sampler type for texture format.

@@ -9,7 +9,6 @@
 #include "base/memory/scoped_ptr.h"
 #include "base/memory/weak_ptr.h"
 #include "base/time/default_tick_clock.h"
-#include "chrome/common/cast_messages.h"
 #include "content/public/browser/browser_message_filter.h"
 #include "media/cast/cast_sender.h"
 #include "media/cast/logging/logging_defines.h"
@@ -24,6 +23,7 @@ namespace cast {
 class CastTransportHostFilter : public content::BrowserMessageFilter {
  public:
   CastTransportHostFilter();
+
  private:
   ~CastTransportHostFilter() override;
 
@@ -32,8 +32,8 @@ class CastTransportHostFilter : public content::BrowserMessageFilter {
       media::cast::CastTransportStatus result);
   void SendRawEvents(
       int32 channel_id,
-      const std::vector<media::cast::PacketEvent>& packet_events,
-      const std::vector<media::cast::FrameEvent>& frame_events);
+      scoped_ptr<std::vector<media::cast::FrameEvent>> frame_events,
+      scoped_ptr<std::vector<media::cast::PacketEvent>> packet_events);
   void SendRtt(int32 channel_id, uint32 ssrc, base::TimeDelta rtt);
   void SendCastMessage(int32 channel_id,
                        uint32 ssrc,

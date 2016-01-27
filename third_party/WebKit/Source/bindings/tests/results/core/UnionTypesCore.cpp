@@ -13,7 +13,6 @@
 #include "bindings/core/v8/V8ArrayBufferView.h"
 #include "bindings/core/v8/V8Node.h"
 #include "bindings/core/v8/V8NodeList.h"
-#include "bindings/core/v8/V8TestDictionary.h"
 #include "bindings/core/v8/V8TestInterface.h"
 #include "bindings/core/v8/V8TestInterface2.h"
 #include "bindings/core/v8/V8TestInterfaceEmpty.h"
@@ -24,6 +23,7 @@
 #include "bindings/tests/idls/core/TestImplements3Implementation.h"
 #include "bindings/tests/idls/core/TestPartialInterface.h"
 #include "bindings/tests/idls/core/TestPartialInterfaceImplementation.h"
+#include "core/dom/FlexibleArrayBufferView.h"
 #include "core/dom/NameNodeList.h"
 #include "core/dom/NodeList.h"
 #include "core/dom/StaticNodeList.h"
@@ -919,7 +919,7 @@ void TestEnumOrDouble::setTestEnum(String value)
 {
     ASSERT(isNull());
     NonThrowableExceptionState exceptionState;
-    static const char* validValues[] = {
+    const char* validValues[] = {
         "",
         "EnumValue1",
         "EnumValue2",
@@ -985,7 +985,7 @@ void V8TestEnumOrDouble::toImpl(v8::Isolate* isolate, v8::Local<v8::Value> v8Val
         V8StringResource<> cppValue = v8Value;
         if (!cppValue.prepare(exceptionState))
             return;
-        static const char* validValues[] = {
+        const char* validValues[] = {
             "",
             "EnumValue1",
             "EnumValue2",

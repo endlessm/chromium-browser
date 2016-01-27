@@ -2,8 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#ifndef CHROME_NACL_NACL_LISTENER_H_
-#define CHROME_NACL_NACL_LISTENER_H_
+#ifndef COMPONENTS_NACL_LOADER_NACL_LISTENER_H_
+#define COMPONENTS_NACL_LOADER_NACL_LISTENER_H_
 
 #include <map>
 #include <vector>
@@ -17,6 +17,7 @@
 #include "ipc/ipc_listener.h"
 
 namespace IPC {
+class AttachmentBrokerUnprivileged;
 class SyncChannel;
 class SyncMessageFilter;
 }
@@ -74,6 +75,8 @@ class NaClListener : public IPC::Listener {
       const nacl::NaClResourcePrefetchResult& prefetched_resource_file);
   void OnStart(const nacl::NaClStartParams& params);
 
+  scoped_ptr<IPC::AttachmentBrokerUnprivileged> attachment_broker_;
+
   // A channel back to the browser.
   scoped_ptr<IPC::SyncChannel> channel_;
 
@@ -115,4 +118,4 @@ class NaClListener : public IPC::Listener {
   DISALLOW_COPY_AND_ASSIGN(NaClListener);
 };
 
-#endif  // CHROME_NACL_NACL_LISTENER_H_
+#endif  // COMPONENTS_NACL_LOADER_NACL_LISTENER_H_

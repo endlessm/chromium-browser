@@ -15,9 +15,12 @@
 #include "media/base/pipeline.h"
 #include "media/base/video_decoder.h"
 #include "media/filters/decoder_stream_traits.h"
-#include "media/filters/decrypting_audio_decoder.h"
 #include "media/filters/decrypting_demuxer_stream.h"
+
+#if !defined(OS_ANDROID)
+#include "media/filters/decrypting_audio_decoder.h"
 #include "media/filters/decrypting_video_decoder.h"
+#endif
 
 namespace media {
 
@@ -57,9 +60,8 @@ DecoderSelector<StreamType>::DecoderSelector(
     : task_runner_(task_runner),
       decoders_(decoders.Pass()),
       media_log_(media_log),
-      input_stream_(NULL),
-      weak_ptr_factory_(this) {
-}
+      input_stream_(nullptr),
+      weak_ptr_factory_(this) {}
 
 template <DemuxerStream::Type StreamType>
 DecoderSelector<StreamType>::~DecoderSelector() {
@@ -76,7 +78,7 @@ DecoderSelector<StreamType>::~DecoderSelector() {
 template <DemuxerStream::Type StreamType>
 void DecoderSelector<StreamType>::SelectDecoder(
     DemuxerStream* stream,
-    const SetDecryptorReadyCB& set_decryptor_ready_cb,
+    const SetCdmReadyCB& set_cdm_ready_cb,
     const SelectDecoderCB& select_decoder_cb,
     const typename Decoder::OutputCB& output_cb,
     const base::Closure& waiting_for_decryption_key_cb) {
@@ -85,7 +87,7 @@ void DecoderSelector<StreamType>::SelectDecoder(
   DCHECK(stream);
   DCHECK(select_decoder_cb_.is_null());
 
-  set_decryptor_ready_cb_ = set_decryptor_ready_cb;
+  set_cdm_ready_cb_ = set_cdm_ready_cb;
   waiting_for_decryption_key_cb_ = waiting_for_decryption_key_cb;
 
   // Make sure |select_decoder_cb| runs on a different execution stack.
@@ -105,14 +107,25 @@ void DecoderSelector<StreamType>::SelectDecoder(
     return;
   }
 
-  // This could be null if Encrypted Media Extension (EME) is not enabled.
-  if (set_decryptor_ready_cb_.is_null()) {
+  // This could be null during fallback after decoder reinitialization failure.
+  // See DecoderStream<StreamType>::OnDecoderReinitialized().
+  if (set_cdm_ready_cb_.is_null()) {
     ReturnNullDecoder();
     return;
   }
 
+#if !defined(OS_ANDROID)
+  InitializeDecryptingDecoder();
+#else
+  InitializeDecryptingDemuxerStream();
+#endif
+}
+
+#if !defined(OS_ANDROID)
+template <DemuxerStream::Type StreamType>
+void DecoderSelector<StreamType>::InitializeDecryptingDecoder() {
   decoder_.reset(new typename StreamTraits::DecryptingDecoderType(
-      task_runner_, media_log_, set_decryptor_ready_cb_,
+      task_runner_, media_log_, set_cdm_ready_cb_,
       waiting_for_decryption_key_cb_));
 
   DecoderStreamTraits<StreamType>::InitializeDecoder(
@@ -135,9 +148,17 @@ void DecoderSelector<StreamType>::DecryptingDecoderInitDone(bool success) {
 
   decoder_.reset();
 
-  decrypted_stream_.reset(new DecryptingDemuxerStream(
-      task_runner_, media_log_, set_decryptor_ready_cb_,
-      waiting_for_decryption_key_cb_));
+  // When we get here decrypt-and-decode is not supported. Try to use
+  // DecryptingDemuxerStream to do decrypt-only.
+  InitializeDecryptingDemuxerStream();
+}
+#endif  // !defined(OS_ANDROID)
+
+template <DemuxerStream::Type StreamType>
+void DecoderSelector<StreamType>::InitializeDecryptingDemuxerStream() {
+  decrypted_stream_.reset(
+      new DecryptingDemuxerStream(task_runner_, media_log_, set_cdm_ready_cb_,
+                                  waiting_for_decryption_key_cb_));
 
   decrypted_stream_->Initialize(
       input_stream_,
@@ -151,13 +172,19 @@ void DecoderSelector<StreamType>::DecryptingDemuxerStreamInitDone(
   DVLOG(2) << __FUNCTION__;
   DCHECK(task_runner_->BelongsToCurrentThread());
 
-  if (status != PIPELINE_OK) {
-    ReturnNullDecoder();
-    return;
+  // If DecryptingDemuxerStream initialization succeeded, we'll use it to do
+  // decryption and use a decoder to decode the clear stream. Otherwise, we'll
+  // try to see whether any decoder can decrypt-and-decode the encrypted stream
+  // directly. So in both cases, we'll initialize the decoders.
+
+  if (status == PIPELINE_OK) {
+    input_stream_ = decrypted_stream_.get();
+    DCHECK(!IsStreamEncrypted(input_stream_));
+  } else {
+    decrypted_stream_.reset();
+    DCHECK(IsStreamEncrypted(input_stream_));
   }
 
-  DCHECK(!IsStreamEncrypted(decrypted_stream_.get()));
-  input_stream_ = decrypted_stream_.get();
   InitializeDecoder();
 }
 

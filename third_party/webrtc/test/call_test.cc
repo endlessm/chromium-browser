@@ -19,6 +19,7 @@ const int kVideoRotationRtpExtensionId = 4;
 
 CallTest::CallTest()
     : clock_(Clock::GetRealTimeClock()),
+      send_config_(nullptr),
       send_stream_(NULL),
       fake_encoder_(clock_) {
 }
@@ -26,22 +27,30 @@ CallTest::CallTest()
 CallTest::~CallTest() {
 }
 
-void CallTest::RunBaseTest(BaseTest* test) {
+void CallTest::RunBaseTest(BaseTest* test,
+                           const FakeNetworkPipe::Config& config) {
   CreateSenderCall(test->GetSenderCallConfig());
   if (test->ShouldCreateReceivers())
     CreateReceiverCall(test->GetReceiverCallConfig());
+  send_transport_.reset(new PacketTransport(
+      sender_call_.get(), test, test::PacketTransport::kSender, config));
+  receive_transport_.reset(new PacketTransport(
+      nullptr, test, test::PacketTransport::kReceiver, config));
+  test->OnTransportsCreated(send_transport_.get(), receive_transport_.get());
   test->OnCallsCreated(sender_call_.get(), receiver_call_.get());
 
   if (test->ShouldCreateReceivers()) {
-    test->SetReceivers(receiver_call_->Receiver(), sender_call_->Receiver());
+    send_transport_->SetReceiver(receiver_call_->Receiver());
+    receive_transport_->SetReceiver(sender_call_->Receiver());
   } else {
     // Sender-only call delivers to itself.
-    test->SetReceivers(sender_call_->Receiver(), NULL);
+    send_transport_->SetReceiver(sender_call_->Receiver());
+    receive_transport_->SetReceiver(nullptr);
   }
 
-  CreateSendConfig(test->GetNumStreams());
+  CreateSendConfig(test->GetNumStreams(), send_transport_.get());
   if (test->ShouldCreateReceivers()) {
-    CreateMatchingReceiveConfigs();
+    CreateMatchingReceiveConfigs(receive_transport_.get());
   }
   test->ModifyConfigs(&send_config_, &receive_configs_, &encoder_config_);
   CreateStreams();
@@ -52,7 +61,8 @@ void CallTest::RunBaseTest(BaseTest* test) {
 
   Start();
   test->PerformTest();
-  test->StopSending();
+  send_transport_->StopSending();
+  receive_transport_->StopSending();
   Stop();
 
   DestroyStreams();
@@ -88,9 +98,15 @@ void CallTest::CreateReceiverCall(const Call::Config& config) {
   receiver_call_.reset(Call::Create(config));
 }
 
-void CallTest::CreateSendConfig(size_t num_streams) {
+void CallTest::DestroyCalls() {
+  sender_call_.reset(nullptr);
+  receiver_call_.reset(nullptr);
+}
+
+void CallTest::CreateSendConfig(size_t num_streams,
+                                Transport* send_transport) {
   assert(num_streams <= kNumSsrcs);
-  send_config_ = VideoSendStream::Config();
+  send_config_ = VideoSendStream::Config(send_transport);
   send_config_.encoder_settings.encoder = &fake_encoder_;
   send_config_.encoder_settings.payload_name = "FAKE";
   send_config_.encoder_settings.payload_type = kFakeSendPayloadType;
@@ -103,11 +119,12 @@ void CallTest::CreateSendConfig(size_t num_streams) {
       RtpExtension(RtpExtension::kVideoRotation, kVideoRotationRtpExtensionId));
 }
 
-void CallTest::CreateMatchingReceiveConfigs() {
+void CallTest::CreateMatchingReceiveConfigs(
+    Transport* rtcp_send_transport) {
   assert(!send_config_.rtp.ssrcs.empty());
   assert(receive_configs_.empty());
   assert(allocated_decoders_.empty());
-  VideoReceiveStream::Config config;
+  VideoReceiveStream::Config config(rtcp_send_transport);
   config.rtp.remb = true;
   config.rtp.local_ssrc = kReceiverLocalSsrc;
   for (const RtpExtension& extension : send_config_.rtp.extensions)
@@ -132,6 +149,7 @@ void CallTest::CreateFrameGeneratorCapturer() {
                                            stream.max_framerate,
                                            clock_));
 }
+
 void CallTest::CreateStreams() {
   assert(send_stream_ == NULL);
   assert(receive_streams_.empty());
@@ -168,29 +186,26 @@ const uint32_t CallTest::kSendRtxSsrcs[kNumSsrcs] = {0xBADCAFD, 0xBADCAFE,
 const uint32_t CallTest::kSendSsrcs[kNumSsrcs] = {0xC0FFED, 0xC0FFEE, 0xC0FFEF};
 const uint32_t CallTest::kReceiverLocalSsrc = 0x123456;
 const int CallTest::kNackRtpHistoryMs = 1000;
-const int CallTest::kAbsSendTimeExtensionId = 7;
 
 BaseTest::BaseTest(unsigned int timeout_ms) : RtpRtcpObserver(timeout_ms) {
-}
-
-BaseTest::BaseTest(unsigned int timeout_ms,
-                   const FakeNetworkPipe::Config& config)
-    : RtpRtcpObserver(timeout_ms, config) {
 }
 
 BaseTest::~BaseTest() {
 }
 
 Call::Config BaseTest::GetSenderCallConfig() {
-  return Call::Config(SendTransport());
+  return Call::Config();
 }
 
 Call::Config BaseTest::GetReceiverCallConfig() {
-  return Call::Config(ReceiveTransport());
+  return Call::Config();
 }
 
 void BaseTest::OnCallsCreated(Call* sender_call, Call* receiver_call) {
 }
+
+void BaseTest::OnTransportsCreated(PacketTransport* send_transport,
+                                   PacketTransport* receive_transport) {}
 
 size_t BaseTest::GetNumStreams() const {
   return 1;
@@ -214,21 +229,11 @@ void BaseTest::OnFrameGeneratorCapturerCreated(
 SendTest::SendTest(unsigned int timeout_ms) : BaseTest(timeout_ms) {
 }
 
-SendTest::SendTest(unsigned int timeout_ms,
-                   const FakeNetworkPipe::Config& config)
-    : BaseTest(timeout_ms, config) {
-}
-
 bool SendTest::ShouldCreateReceivers() const {
   return false;
 }
 
 EndToEndTest::EndToEndTest(unsigned int timeout_ms) : BaseTest(timeout_ms) {
-}
-
-EndToEndTest::EndToEndTest(unsigned int timeout_ms,
-                           const FakeNetworkPipe::Config& config)
-    : BaseTest(timeout_ms, config) {
 }
 
 bool EndToEndTest::ShouldCreateReceivers() const {

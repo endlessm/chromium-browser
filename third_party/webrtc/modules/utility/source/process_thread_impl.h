@@ -16,16 +16,16 @@
 
 #include "webrtc/base/criticalsection.h"
 #include "webrtc/base/thread_checker.h"
-#include "webrtc/modules/utility/interface/process_thread.h"
-#include "webrtc/system_wrappers/interface/event_wrapper.h"
-#include "webrtc/system_wrappers/interface/thread_wrapper.h"
+#include "webrtc/modules/utility/include/process_thread.h"
+#include "webrtc/system_wrappers/include/event_wrapper.h"
+#include "webrtc/system_wrappers/include/thread_wrapper.h"
 #include "webrtc/typedefs.h"
 
 namespace webrtc {
 
 class ProcessThreadImpl : public ProcessThread {
  public:
-  ProcessThreadImpl();
+  explicit ProcessThreadImpl(const char* thread_name);
   ~ProcessThreadImpl() override;
 
   void Start() override;
@@ -76,6 +76,7 @@ class ProcessThreadImpl : public ProcessThread {
   // TODO(tommi): Support delayed tasks.
   std::queue<ProcessTask*> queue_;
   bool stop_;
+  const char* thread_name_;
 };
 
 }  // namespace webrtc

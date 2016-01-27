@@ -275,9 +275,9 @@ void IpcDesktopEnvironmentTest::SetUp() {
   EXPECT_CALL(client_session_control_, client_jid())
       .Times(AnyNumber())
       .WillRepeatedly(ReturnRef(client_jid_));
-  EXPECT_CALL(client_session_control_, DisconnectSession())
+  EXPECT_CALL(client_session_control_, DisconnectSession(_))
       .Times(AnyNumber())
-      .WillRepeatedly(Invoke(
+      .WillRepeatedly(InvokeWithoutArgs(
           this, &IpcDesktopEnvironmentTest::DeleteDesktopEnvironment));
   EXPECT_CALL(client_session_control_, OnLocalMouseMoved(_))
       .Times(0);
@@ -394,11 +394,9 @@ void IpcDesktopEnvironmentTest::CreateDesktopProcess() {
 
   // Create the daemon end of the daemon-to-desktop channel.
   desktop_channel_name_ = IPC::Channel::GenerateUniqueRandomChannelID();
-  desktop_channel_ =
-      IPC::ChannelProxy::Create(IPC::ChannelHandle(desktop_channel_name_),
-                                IPC::Channel::MODE_SERVER,
-                                &desktop_listener_,
-                                io_task_runner_.get());
+  desktop_channel_ = IPC::ChannelProxy::Create(
+      IPC::ChannelHandle(desktop_channel_name_), IPC::Channel::MODE_SERVER,
+      &desktop_listener_, io_task_runner_.get());
 
   // Create and start the desktop process.
   desktop_process_.reset(new DesktopProcess(task_runner_,

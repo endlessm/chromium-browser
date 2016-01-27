@@ -5,6 +5,7 @@
 #include "config.h"
 #include "core/css/parser/CSSParserImpl.h"
 
+#include "core/css/CSSCustomPropertyDeclaration.h"
 #include "core/css/CSSKeyframesRule.h"
 #include "core/css/CSSStyleSheet.h"
 #include "core/css/StylePropertySet.h"
@@ -12,13 +13,15 @@
 #include "core/css/StyleRuleKeyframe.h"
 #include "core/css/StyleRuleNamespace.h"
 #include "core/css/StyleSheetContents.h"
+#include "core/css/parser/CSSAtRuleID.h"
 #include "core/css/parser/CSSParserObserver.h"
 #include "core/css/parser/CSSParserObserverWrapper.h"
-#include "core/css/parser/CSSParserValues.h"
+#include "core/css/parser/CSSParserSelector.h"
 #include "core/css/parser/CSSPropertyParser.h"
 #include "core/css/parser/CSSSelectorParser.h"
 #include "core/css/parser/CSSSupportsParser.h"
 #include "core/css/parser/CSSTokenizer.h"
+#include "core/css/parser/CSSVariableParser.h"
 #include "core/css/parser/MediaQueryParser.h"
 #include "core/dom/Document.h"
 #include "core/dom/Element.h"
@@ -30,7 +33,6 @@ namespace blink {
 
 CSSParserImpl::CSSParserImpl(const CSSParserContext& context, StyleSheetContents* styleSheet)
 : m_context(context)
-, m_defaultNamespace(starAtom)
 , m_styleSheet(styleSheet)
 , m_observerWrapper(nullptr)
 {
@@ -57,9 +59,12 @@ static inline void filterProperties(bool important, const WillBeHeapVector<CSSPr
         if (property.isImportant() != important)
             continue;
         const unsigned propertyIDIndex = property.id() - firstCSSProperty;
-        if (seenProperties.get(propertyIDIndex))
-            continue;
-        seenProperties.set(propertyIDIndex);
+        // All custom properties use the same CSSPropertyID so we can't remove repeated definitions
+        if (property.id() != CSSPropertyVariable) {
+            if (seenProperties.get(propertyIDIndex))
+                continue;
+            seenProperties.set(propertyIDIndex);
+        }
         output[--unusedEntries] = property;
     }
 }
@@ -272,14 +277,17 @@ PassRefPtrWillBeRawPtr<StyleRuleBase> CSSParserImpl::consumeAtRule(CSSParserToke
         range.consumeComponentValue();
 
     CSSParserTokenRange prelude = range.makeSubRange(preludeStart, &range.peek());
+    CSSAtRuleID id = cssAtRuleID(name);
+    if (id != CSSAtRuleInvalid && m_context.useCounter())
+        countAtRule(m_context.useCounter(), id);
 
     if (range.atEnd() || range.peek().type() == SemicolonToken) {
         range.consume();
-        if (allowedRules == AllowCharsetRules && name.equalIgnoringCase("charset"))
+        if (allowedRules == AllowCharsetRules && id == CSSAtRuleCharset)
             return consumeCharsetRule(prelude);
-        if (allowedRules <= AllowImportRules && name.equalIgnoringCase("import"))
+        if (allowedRules <= AllowImportRules && id == CSSAtRuleImport)
             return consumeImportRule(prelude);
-        if (allowedRules <= AllowNamespaceRules && name.equalIgnoringCase("namespace"))
+        if (allowedRules <= AllowNamespaceRules && id == CSSAtRuleNamespace)
             return consumeNamespaceRule(prelude);
         return nullptr; // Parse error, unrecognised at-rule without block
     }
@@ -292,21 +300,24 @@ PassRefPtrWillBeRawPtr<StyleRuleBase> CSSParserImpl::consumeAtRule(CSSParserToke
 
     ASSERT(allowedRules <= RegularRules);
 
-    if (name.equalIgnoringCase("media"))
+    switch (id) {
+    case CSSAtRuleMedia:
         return consumeMediaRule(prelude, block);
-    if (name.equalIgnoringCase("supports"))
+    case CSSAtRuleSupports:
         return consumeSupportsRule(prelude, block);
-    if (name.equalIgnoringCase("viewport"))
+    case CSSAtRuleViewport:
         return consumeViewportRule(prelude, block);
-    if (name.equalIgnoringCase("font-face"))
+    case CSSAtRuleFontFace:
         return consumeFontFaceRule(prelude, block);
-    if (name.equalIgnoringCase("-webkit-keyframes"))
+    case CSSAtRuleWebkitKeyframes:
         return consumeKeyframesRule(true, prelude, block);
-    if (name.equalIgnoringCase("keyframes"))
+    case CSSAtRuleKeyframes:
         return consumeKeyframesRule(false, prelude, block);
-    if (name.equalIgnoringCase("page"))
+    case CSSAtRulePage:
         return consumePageRule(prelude, block);
-    return nullptr; // Parse error, unrecognised at-rule with block
+    default:
+        return nullptr; // Parse error, unrecognised at-rule with block
+    }
 }
 
 PassRefPtrWillBeRawPtr<StyleRuleBase> CSSParserImpl::consumeQualifiedRule(CSSParserTokenRange& range, AllowedRulesType allowedRules)
@@ -388,8 +399,6 @@ PassRefPtrWillBeRawPtr<StyleRuleNamespace> CSSParserImpl::consumeNamespaceRule(C
     if (uri.isNull() || !prelude.atEnd())
         return nullptr; // Parse error, expected string or URI
 
-    if (namespacePrefix.isNull())
-        m_defaultNamespace = uri;
     return StyleRuleNamespace::create(namespacePrefix, uri);
 }
 
@@ -538,7 +547,7 @@ PassRefPtrWillBeRawPtr<StyleRulePage> CSSParserImpl::consumePageRule(CSSParserTo
 
     OwnPtr<CSSParserSelector> selector;
     if (!typeSelector.isNull() && pseudo.isNull()) {
-        selector = CSSParserSelector::create(QualifiedName(nullAtom, typeSelector, m_defaultNamespace));
+        selector = CSSParserSelector::create(QualifiedName(nullAtom, typeSelector, m_styleSheet->defaultNamespace()));
     } else {
         selector = CSSParserSelector::create();
         if (!pseudo.isNull()) {
@@ -548,7 +557,7 @@ PassRefPtrWillBeRawPtr<StyleRulePage> CSSParserImpl::consumePageRule(CSSParserTo
                 return nullptr; // Parse error; unknown page pseudo-class
         }
         if (!typeSelector.isNull())
-            selector->prependTagSelector(QualifiedName(nullAtom, typeSelector, m_defaultNamespace));
+            selector->prependTagSelector(QualifiedName(nullAtom, typeSelector, m_styleSheet->defaultNamespace()));
     }
 
     if (m_observerWrapper) {
@@ -601,7 +610,7 @@ static void observeSelectors(CSSParserObserverWrapper& wrapper, CSSParserTokenRa
 PassRefPtrWillBeRawPtr<StyleRule> CSSParserImpl::consumeStyleRule(CSSParserTokenRange prelude, CSSParserTokenRange block)
 {
     CSSSelectorList selectorList;
-    CSSSelectorParser::parseSelector(prelude, m_context, m_defaultNamespace, m_styleSheet, selectorList);
+    CSSSelectorParser::parseSelector(prelude, m_context, m_styleSheet, selectorList);
     if (!selectorList.isValid())
         return nullptr; // Parse error, invalid selector list
 
@@ -668,7 +677,8 @@ void CSSParserImpl::consumeDeclaration(CSSParserTokenRange range, StyleRule::Typ
     CSSParserTokenRange rangeCopy = range; // For inspector callbacks
 
     ASSERT(range.peek().type() == IdentToken);
-    CSSPropertyID unresolvedProperty = range.consumeIncludingWhitespace().parseAsUnresolvedCSSPropertyID();
+    const CSSParserToken& token = range.consumeIncludingWhitespace();
+    CSSPropertyID unresolvedProperty = token.parseAsUnresolvedCSSPropertyID();
     if (range.consume().type() != ColonToken)
         return; // Parse error
 
@@ -685,6 +695,11 @@ void CSSParserImpl::consumeDeclaration(CSSParserTokenRange range, StyleRule::Typ
             important = true;
             declarationValueEnd = last;
         }
+    }
+    if (RuntimeEnabledFeatures::cssVariablesEnabled() && unresolvedProperty == CSSPropertyInvalid && CSSVariableParser::isValidVariableName(token)) {
+        AtomicString variableName = token.value();
+        consumeVariableDeclarationValue(range.makeSubRange(&range.peek(), declarationValueEnd), variableName, important);
+        return;
     }
 
     if (important && (ruleType == StyleRule::FontFace || ruleType == StyleRule::Keyframes))
@@ -706,15 +721,15 @@ void CSSParserImpl::consumeDeclaration(CSSParserTokenRange range, StyleRule::Typ
     consumeDeclarationValue(range.makeSubRange(&range.peek(), declarationValueEnd), unresolvedProperty, important, ruleType);
 }
 
+void CSSParserImpl::consumeVariableDeclarationValue(CSSParserTokenRange range, const AtomicString& variableName, bool important)
+{
+    if (RefPtrWillBeRawPtr<CSSCustomPropertyDeclaration> value = CSSVariableParser::parseDeclarationValue(variableName, range))
+        m_parsedProperties.append(CSSProperty(CSSPropertyVariable, value.release(), important));
+}
+
 void CSSParserImpl::consumeDeclarationValue(CSSParserTokenRange range, CSSPropertyID unresolvedProperty, bool important, StyleRule::Type ruleType)
 {
-    bool usesRemUnits;
-    CSSParserValueList valueList(range, usesRemUnits);
-    if (!valueList.size())
-        return; // Parser error
-    if (usesRemUnits && m_styleSheet)
-        m_styleSheet->parserSetUsesRemUnits(true);
-    CSSPropertyParser::parseValue(unresolvedProperty, important, &valueList, m_context, m_parsedProperties, ruleType);
+    CSSPropertyParser::parseValue(unresolvedProperty, important, range, m_context, m_parsedProperties, ruleType);
 }
 
 PassOwnPtr<Vector<double>> CSSParserImpl::consumeKeyframeKeyList(CSSParserTokenRange range)

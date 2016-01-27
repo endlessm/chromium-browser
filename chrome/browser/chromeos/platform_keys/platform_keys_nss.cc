@@ -22,7 +22,9 @@
 #include "base/threading/worker_pool.h"
 #include "chrome/browser/browser_process.h"
 #include "chrome/browser/browser_process_platform_part_chromeos.h"
+#include "chrome/browser/chromeos/certificate_provider/certificate_provider.h"
 #include "chrome/browser/chromeos/net/client_cert_filter_chromeos.h"
+#include "chrome/browser/chromeos/net/client_cert_store_chromeos.h"
 #include "chrome/browser/chromeos/policy/browser_policy_connector_chromeos.h"
 #include "chrome/browser/chromeos/profiles/profile_helper.h"
 #include "chrome/browser/extensions/api/enterprise_platform_keys/enterprise_platform_keys_api.h"
@@ -37,9 +39,7 @@
 #include "net/base/net_errors.h"
 #include "net/cert/cert_database.h"
 #include "net/cert/nss_cert_database.h"
-#include "net/cert/x509_certificate.h"
 #include "net/cert/x509_util_nss.h"
-#include "net/ssl/client_cert_store_chromeos.h"
 #include "net/ssl/ssl_cert_request_info.h"
 
 using content::BrowserContext;
@@ -550,10 +550,11 @@ void DidSelectCertificatesOnIOThread(
 // SelectClientCertificates().
 void SelectCertificatesOnIOThread(scoped_ptr<SelectCertificatesState> state) {
   DCHECK_CURRENTLY_ON(BrowserThread::IO);
-  state->cert_store_.reset(new net::ClientCertStoreChromeOS(
-      make_scoped_ptr(new chromeos::ClientCertFilterChromeOS(
-          state->use_system_key_slot_, state->username_hash_)),
-      net::ClientCertStoreChromeOS::PasswordDelegateFactory()));
+  state->cert_store_.reset(new ClientCertStoreChromeOS(
+      nullptr,  // no additional provider
+      make_scoped_ptr(new ClientCertFilterChromeOS(state->use_system_key_slot_,
+                                                   state->username_hash_)),
+      ClientCertStoreChromeOS::PasswordDelegateFactory()));
 
   state->certs_.reset(new net::CertificateList);
 

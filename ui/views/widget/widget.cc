@@ -21,6 +21,7 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/screen.h"
 #include "ui/views/controls/menu/menu_controller.h"
+#include "ui/views/event_monitor.h"
 #include "ui/views/focus/focus_manager.h"
 #include "ui/views/focus/focus_manager_factory.h"
 #include "ui/views/focus/view_storage.h"
@@ -55,13 +56,19 @@ void BuildRootLayers(View* view, std::vector<ui::Layer*>* layers) {
 // Create a native widget implementation.
 // First, use the supplied one if non-NULL.
 // Finally, make a default one.
-NativeWidget* CreateNativeWidget(NativeWidget* native_widget,
+NativeWidget* CreateNativeWidget(const Widget::InitParams& params,
                                  internal::NativeWidgetDelegate* delegate) {
-  if (!native_widget) {
-    native_widget =
-        internal::NativeWidgetPrivate::CreateNativeWidget(delegate);
+  if (params.native_widget)
+    return params.native_widget;
+
+  ViewsDelegate* views_delegate = ViewsDelegate::GetInstance();
+  if (views_delegate && !views_delegate->native_widget_factory().is_null()) {
+    NativeWidget* native_widget =
+        views_delegate->native_widget_factory().Run(params, delegate);
+    if (native_widget)
+      return native_widget;
   }
-  return native_widget;
+  return internal::NativeWidgetPrivate::CreateNativeWidget(delegate);
 }
 
 void NotifyCaretBoundsChanged(ui::InputMethod* input_method) {
@@ -122,7 +129,8 @@ Widget::InitParams::InitParams()
       desktop_window_tree_host(NULL),
       layer_type(ui::LAYER_TEXTURED),
       context(NULL),
-      force_show_in_taskbar(false) {
+      force_show_in_taskbar(false),
+      force_software_compositing(false) {
 }
 
 Widget::InitParams::InitParams(Type type)
@@ -145,7 +153,8 @@ Widget::InitParams::InitParams(Type type)
       desktop_window_tree_host(NULL),
       layer_type(ui::LAYER_TEXTURED),
       context(NULL),
-      force_show_in_taskbar(false) {
+      force_show_in_taskbar(false),
+      force_software_compositing(false) {
 }
 
 Widget::InitParams::~InitParams() {
@@ -348,8 +357,7 @@ void Widget::Init(const InitParams& in_params) {
   widget_delegate_->set_can_activate(can_activate);
 
   ownership_ = params.ownership;
-  native_widget_ = CreateNativeWidget(params.native_widget, this)->
-                   AsNativeWidgetPrivate();
+  native_widget_ = CreateNativeWidget(params, this)->AsNativeWidgetPrivate();
   root_view_.reset(CreateRootView());
   default_theme_provider_.reset(new ui::DefaultThemeProvider);
   if (params.type == InitParams::TYPE_MENU) {
@@ -988,9 +996,16 @@ gfx::Rect Widget::GetWorkAreaBoundsInScreen() const {
 }
 
 void Widget::SynthesizeMouseMoveEvent() {
+  // In screen coordinate.
+  gfx::Point mouse_location = EventMonitor::GetLastMouseLocation();
+  if (!GetWindowBoundsInScreen().Contains(mouse_location))
+      return;
+
+  // Convert: screen coordinate -> widget coordinate.
+  View::ConvertPointFromScreen(root_view_.get(), &mouse_location);
   last_mouse_event_was_move_ = false;
-  ui::MouseEvent mouse_event(ui::ET_MOUSE_MOVED, last_mouse_event_position_,
-                             last_mouse_event_position_, ui::EventTimeForNow(),
+  ui::MouseEvent mouse_event(ui::ET_MOUSE_MOVED, mouse_location,
+                             mouse_location, ui::EventTimeForNow(),
                              ui::EF_IS_SYNTHESIZED, 0);
   root_view_->OnMouseMoved(mouse_event);
 }

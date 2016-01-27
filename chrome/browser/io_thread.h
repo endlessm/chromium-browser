@@ -6,6 +6,7 @@
 #define CHROME_BROWSER_IO_THREAD_H_
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -18,14 +19,13 @@
 #include "base/strings/string_piece.h"
 #include "base/time/time.h"
 #include "chrome/browser/net/chrome_network_delegate.h"
-#include "chrome/browser/net/ssl_config_service_manager.h"
+#include "components/ssl_config/ssl_config_service_manager.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/browser_thread_delegate.h"
 #include "net/base/network_change_notifier.h"
 #include "net/http/http_network_session.h"
 #include "net/socket/next_proto.h"
 
-class ChromeNetLog;
 class PrefProxyConfigTracker;
 class PrefService;
 class PrefRegistrySimple;
@@ -35,8 +35,20 @@ namespace base {
 class CommandLine;
 }
 
+#if defined(OS_ANDROID)
+namespace chrome {
+namespace android {
+class ExternalDataUseObserver;
+}
+}
+#endif  // defined(OS_ANDROID)
+
 namespace chrome_browser_net {
 class DnsProbeService;
+}
+
+namespace data_usage {
+class DataUseAggregator;
 }
 
 namespace extensions {
@@ -53,6 +65,7 @@ class FtpTransactionFactory;
 class HostMappingRules;
 class HostResolver;
 class HttpAuthHandlerFactory;
+class HttpNetworkSession;
 class HttpServerProperties;
 class HttpTransactionFactory;
 class HttpUserAgentSettings;
@@ -62,11 +75,16 @@ class ProxyConfigService;
 class ProxyService;
 class SSLConfigService;
 class TransportSecurityState;
+class URLRequestBackoffManager;
 class URLRequestContext;
 class URLRequestContextGetter;
 class URLRequestJobFactory;
 class URLSecurityManager;
 }  // namespace net
+
+namespace net_log {
+class ChromeNetLog;
+}
 
 namespace policy {
 class PolicyService;
@@ -117,6 +135,14 @@ class IOThread : public content::BrowserThreadDelegate {
     Globals();
     ~Globals();
 
+    // Global aggregator of data use. It must outlive the
+    // |system_network_delegate|.
+    scoped_ptr<data_usage::DataUseAggregator> data_use_aggregator;
+#if defined(OS_ANDROID)
+    // An external observer of data use.
+    scoped_ptr<chrome::android::ExternalDataUseObserver>
+        external_data_use_observer;
+#endif  // defined(OS_ANDROID)
     // The "system" NetworkDelegate, used for Profile-agnostic network events.
     scoped_ptr<net::NetworkDelegate> system_network_delegate;
     scoped_ptr<net::HostResolver> host_resolver;
@@ -133,12 +159,15 @@ class IOThread : public content::BrowserThreadDelegate {
     scoped_ptr<net::HttpAuthHandlerFactory> http_auth_handler_factory;
     scoped_ptr<net::HttpServerProperties> http_server_properties;
     scoped_ptr<net::ProxyService> proxy_script_fetcher_proxy_service;
+    scoped_ptr<net::HttpNetworkSession>
+        proxy_script_fetcher_http_network_session;
     scoped_ptr<net::HttpTransactionFactory>
         proxy_script_fetcher_http_transaction_factory;
     scoped_ptr<net::FtpTransactionFactory>
         proxy_script_fetcher_ftp_transaction_factory;
     scoped_ptr<net::URLRequestJobFactory>
         proxy_script_fetcher_url_request_job_factory;
+    scoped_ptr<net::URLRequestBackoffManager> url_request_backoff_manager;
     scoped_ptr<net::URLSecurityManager> url_security_manager;
     // TODO(willchan): Remove proxy script fetcher context since it's not
     // necessary now that I got rid of refcounting URLRequestContexts.
@@ -148,6 +177,7 @@ class IOThread : public content::BrowserThreadDelegate {
     // ProxyService, since we always directly connect to fetch the PAC script.
     scoped_ptr<net::URLRequestContext> proxy_script_fetcher_context;
     scoped_ptr<net::ProxyService> system_proxy_service;
+    scoped_ptr<net::HttpNetworkSession> system_http_network_session;
     scoped_ptr<net::HttpTransactionFactory> system_http_transaction_factory;
     scoped_ptr<net::URLRequestJobFactory> system_url_request_job_factory;
     scoped_ptr<net::URLRequestContext> system_request_context;
@@ -174,11 +204,12 @@ class IOThread : public content::BrowserThreadDelegate {
     net::NextProtoVector next_protos;
     Optional<std::string> trusted_spdy_proxy;
     std::set<net::HostPortPair> forced_spdy_exclusions;
-    Optional<bool> use_alternate_protocols;
+    Optional<bool> use_alternative_services;
     Optional<double> alternative_service_probability_threshold;
 
+    Optional<bool> enable_npn;
+
     Optional<bool> enable_quic;
-    Optional<bool> disable_insecure_quic;
     Optional<bool> enable_quic_for_proxies;
     Optional<bool> enable_quic_port_selection;
     Optional<bool> quic_always_require_handshake_confirmation;
@@ -191,11 +222,13 @@ class IOThread : public content::BrowserThreadDelegate {
     Optional<int> quic_max_number_of_lossy_connections;
     Optional<float> quic_packet_loss_threshold;
     Optional<int> quic_socket_receive_buffer_size;
+    Optional<bool> quic_delay_tcp_race;
     Optional<size_t> quic_max_packet_length;
     net::QuicTagVector quic_connection_options;
     Optional<std::string> quic_user_agent_id;
     Optional<net::QuicVersionVector> quic_supported_versions;
     Optional<net::HostPortPair> origin_to_force_quic_on;
+    Optional<bool> quic_close_sessions_on_ip_change;
     bool enable_user_alternate_protocol_ports;
     // NetErrorTabHelper uses |dns_probe_service| to send DNS probes when a
     // main frame load fails with a DNS error in order to provide more useful
@@ -206,7 +239,7 @@ class IOThread : public content::BrowserThreadDelegate {
   // |net_log| must either outlive the IOThread or be NULL.
   IOThread(PrefService* local_state,
            policy::PolicyService* policy_service,
-           ChromeNetLog* net_log,
+           net_log::ChromeNetLog* net_log,
            extensions::EventRouterForwarder* extension_event_router_forwarder);
 
   ~IOThread() override;
@@ -221,7 +254,7 @@ class IOThread : public content::BrowserThreadDelegate {
   // IOThread global objects.
   void SetGlobalsForTesting(Globals* globals);
 
-  ChromeNetLog* net_log();
+  net_log::ChromeNetLog* net_log();
 
   // Handles changing to On The Record mode, discarding confidential data.
   void ChangedToOnTheRecord();
@@ -275,6 +308,10 @@ class IOThread : public content::BrowserThreadDelegate {
                                    base::StringPiece quic_trial_group,
                                    const VariationParameters& quic_trial_params,
                                    Globals* globals);
+
+  // Configures NPN in |globals| based on the field trial group.
+  static void ConfigureNPNGlobals(base::StringPiece npn_trial_group,
+                                  Globals* globals);
 
   // Global state must be initialized on the IO thread, then this
   // method must be invoked on the UI thread.
@@ -331,11 +368,6 @@ class IOThread : public content::BrowserThreadDelegate {
       base::StringPiece quic_trial_group,
       bool quic_allowed_by_policy);
 
-  // Returns true if QUIC should be disabled for http:// URLs, as a result
-  // of a field trial.
-  static bool ShouldDisableInsecureQuic(
-      const VariationParameters& quic_trial_params);
-
   // Returns true if the selection of the ephemeral port in bind() should be
   // performed by Chromium, and false if the OS should select the port.  The OS
   // option is used to prevent Windows from posting a security security warning
@@ -374,6 +406,11 @@ class IOThread : public content::BrowserThreadDelegate {
   // Returns true if QUIC should prefer AES-GCN even without hardware support.
   static bool ShouldQuicPreferAes(const VariationParameters& quic_trial_params);
 
+  // Returns true if QUIC should enable alternative services.
+  static bool ShouldQuicEnableAlternativeServices(
+      const base::CommandLine& command_line,
+      const VariationParameters& quic_trial_params);
+
   // Returns the maximum number of QUIC connections with high packet loss in a
   // row after which QUIC should be disabled.  Returns 0 if the default value
   // should be used.
@@ -389,6 +426,15 @@ class IOThread : public content::BrowserThreadDelegate {
   // Returns the size of the QUIC receive buffer to use, or 0 if
   // the default should be used.
   static int GetQuicSocketReceiveBufferSize(
+      const VariationParameters& quic_trial_params);
+
+  // Returns true if QUIC should delay TCP connection when QUIC works.
+  static bool ShouldQuicDelayTcpRace(
+      const VariationParameters& quic_trial_params);
+
+  // Returns true if QUIC should close sessions when any of the client's
+  // IP addresses change.
+  static bool ShouldQuicCloseSessionsOnIpChange(
       const VariationParameters& quic_trial_params);
 
   // Returns the maximum length for QUIC packets, based on any flags in
@@ -420,9 +466,20 @@ class IOThread : public content::BrowserThreadDelegate {
       const base::CommandLine& command_line,
       const VariationParameters& quic_trial_params);
 
+  static net::URLRequestContext* ConstructSystemRequestContext(
+      IOThread::Globals* globals,
+      net::NetLog* net_log);
+
+  // TODO(willchan): Remove proxy script fetcher context since it's not
+  // necessary now that I got rid of refcounting URLRequestContexts.
+  // See IOThread::Globals for details.
+  static net::URLRequestContext* ConstructProxyScriptFetcherContext(
+      IOThread::Globals* globals,
+      net::NetLog* net_log);
+
   // The NetLog is owned by the browser process, to allow logging from other
   // threads during shutdown, but is used most frequently on the IOThread.
-  ChromeNetLog* net_log_;
+  net_log::ChromeNetLog* net_log_;
 
 #if defined(ENABLE_EXTENSIONS)
   // The extensions::EventRouterForwarder allows for sending events to
@@ -461,7 +518,7 @@ class IOThread : public content::BrowserThreadDelegate {
 
   // This is an instance of the default SSLConfigServiceManager for the current
   // platform and it gets SSL preferences from local_state object.
-  scoped_ptr<SSLConfigServiceManager> ssl_config_service_manager_;
+  scoped_ptr<ssl_config::SSLConfigServiceManager> ssl_config_service_manager_;
 
   // These member variables are initialized by a task posted to the IO thread,
   // which gets posted by calling certain member functions of IOThread.

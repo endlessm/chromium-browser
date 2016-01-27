@@ -28,12 +28,7 @@
 
 namespace blink {
 
-inline PassRefPtrWillBeRawPtr<SVGLengthList> toSVGLengthList(PassRefPtrWillBeRawPtr<SVGPropertyBase> passBase)
-{
-    RefPtrWillBeRawPtr<SVGPropertyBase> base = passBase;
-    ASSERT(base->type() == SVGLengthList::classType());
-    return static_pointer_cast<SVGLengthList>(base.release());
-}
+DEFINE_SVG_PROPERTY_TYPE_CASTS(SVGLengthList);
 
 SVGLengthList::SVGLengthList(SVGLengthMode mode)
     : m_mode(mode)
@@ -152,11 +147,11 @@ void SVGLengthList::calculateAnimatedValue(SVGAnimationElement* animationElement
 
     for (size_t i = 0; i < toLengthListSize; ++i) {
         float animatedNumber = at(i)->value(lengthContext);
-        SVGLengthType unitType = toList->at(i)->unitType();
+        CSSPrimitiveValue::UnitType unitType = toList->at(i)->typeWithCalcResolved();
         float effectiveFrom = 0;
         if (fromLengthListSize) {
             if (percentage < 0.5)
-                unitType = fromList->at(i)->unitType();
+                unitType = fromList->at(i)->typeWithCalcResolved();
             effectiveFrom = fromList->at(i)->value(lengthContext);
         }
         float effectiveTo = toList->at(i)->value(lengthContext);

@@ -11,11 +11,20 @@ import android.accounts.AuthenticatorDescription;
 import android.os.Bundle;
 import android.os.Handler;
 
+import org.chromium.base.Callback;
+
 /**
  * Wrapper around the Android account manager, to facilitate dependency injection during testing.
  */
 public interface AccountManagerDelegate {
+    /**
+     * This method is deprecated; please use the asynchronous version below instead.
+     *
+     * See http://crbug.com/517697 for details.
+     */
     Account[] getAccountsByType(String type);
+
+    void getAccountsByType(String type, Callback<Account[]> callback);
 
     AccountManagerFuture<Bundle> getAuthToken(Account account, String authTokenType,
             boolean notifyAuthFailure, AccountManagerCallback<Bundle> callback, Handler handler);
@@ -24,6 +33,5 @@ public interface AccountManagerDelegate {
 
     AuthenticatorDescription[] getAuthenticatorTypes();
 
-    AccountManagerFuture<Boolean> hasFeatures(Account account, String[] features,
-            AccountManagerCallback<Boolean> callback, Handler handler);
+    void hasFeatures(Account account, String[] features, Callback<Boolean> callback);
 }

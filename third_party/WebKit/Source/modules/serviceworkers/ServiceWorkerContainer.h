@@ -41,10 +41,8 @@
 #include "modules/serviceworkers/ServiceWorker.h"
 #include "modules/serviceworkers/ServiceWorkerRegistration.h"
 #include "platform/heap/Handle.h"
-#include "public/platform/WebServiceWorkerProviderClient.h"
+#include "public/platform/modules/serviceworker/WebServiceWorkerProviderClient.h"
 #include "wtf/Forward.h"
-#include "wtf/PassRefPtr.h"
-#include "wtf/RefPtr.h"
 
 namespace blink {
 
@@ -68,7 +66,7 @@ public:
 
     DECLARE_VIRTUAL_TRACE();
 
-    PassRefPtrWillBeRawPtr<ServiceWorker> controller() { return m_controller.get(); }
+    ServiceWorker* controller() { return m_controller; }
     ScriptPromise ready(ScriptState*);
     WebServiceWorkerProvider* provider() { return m_provider; }
 
@@ -77,8 +75,8 @@ public:
     ScriptPromise getRegistrations(ScriptState*);
 
     // WebServiceWorkerProviderClient overrides.
-    void setController(WebServiceWorker*, bool shouldNotifyControllerChange) override;
-    void dispatchMessageEvent(WebServiceWorker*, const WebString& message, const WebMessagePortChannelArray&) override;
+    void setController(WebPassOwnPtr<WebServiceWorker::Handle>, bool shouldNotifyControllerChange) override;
+    void dispatchMessageEvent(WebPassOwnPtr<WebServiceWorker::Handle>, const WebString& message, const WebMessagePortChannelArray&) override;
 
     // EventTarget overrides.
     ExecutionContext* executionContext() const override { return ContextLifecycleObserver::executionContext(); }
@@ -95,7 +93,7 @@ private:
     ReadyProperty* createReadyProperty();
 
     WebServiceWorkerProvider* m_provider;
-    RefPtrWillBeMember<ServiceWorker> m_controller;
+    Member<ServiceWorker> m_controller;
     Member<ReadyProperty> m_ready;
 };
 

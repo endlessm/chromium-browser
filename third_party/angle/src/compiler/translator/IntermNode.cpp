@@ -311,17 +311,26 @@ bool TIntermAggregate::replaceChildNodeWithMultiple(TIntermNode *original, TInte
 
 bool TIntermAggregate::insertChildNodes(TIntermSequence::size_type position, TIntermSequence insertions)
 {
-    TIntermSequence::size_type itPosition = 0;
-    for (auto it = mSequence.begin(); it < mSequence.end(); ++it)
+    if (position > mSequence.size())
     {
-        if (itPosition == position)
-        {
-            mSequence.insert(it, insertions.begin(), insertions.end());
-            return true;
-        }
-        ++itPosition;
+        return false;
     }
-    return false;
+    auto it = mSequence.begin() + position;
+    mSequence.insert(it, insertions.begin(), insertions.end());
+    return true;
+}
+
+bool TIntermAggregate::areChildrenConstQualified()
+{
+    for (TIntermNode *&child : mSequence)
+    {
+        TIntermTyped *typed = child->getAsTyped();
+        if (typed && typed->getQualifier() != EvqConst)
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 void TIntermAggregate::setPrecisionFromChildren()
@@ -365,7 +374,7 @@ void TIntermAggregate::setBuiltInFunctionPrecision()
     }
     // ESSL 3.0 spec section 8: textureSize always gets highp precision.
     // All other functions that take a sampler are assumed to be texture functions.
-    if (mName.find("textureSize") == 0)
+    if (mName.getString().find("textureSize") == 0)
         mType.setPrecision(EbpHigh);
     else
         mType.setPrecision(precision);
@@ -393,6 +402,75 @@ bool TIntermCase::replaceChildNode(
 {
     REPLACE_IF_IS(mCondition, TIntermTyped, original, replacement);
     return false;
+}
+
+TIntermTyped::TIntermTyped(const TIntermTyped &node) : TIntermNode(), mType(node.mType)
+{
+    // Copy constructor is disallowed for TIntermNode in order to disallow it for subclasses that
+    // don't explicitly allow it, so normal TIntermNode constructor is used to construct the copy.
+    // We need to manually copy any fields of TIntermNode besides handling fields in TIntermTyped.
+    mLine = node.mLine;
+}
+
+TIntermConstantUnion::TIntermConstantUnion(const TIntermConstantUnion &node) : TIntermTyped(node)
+{
+    size_t arraySize   = mType.getObjectSize();
+    mUnionArrayPointer = new TConstantUnion[arraySize];
+    for (size_t i = 0u; i < arraySize; ++i)
+    {
+        mUnionArrayPointer[i] = node.mUnionArrayPointer[i];
+    }
+}
+
+TIntermAggregate::TIntermAggregate(const TIntermAggregate &node)
+    : TIntermOperator(node),
+      mName(node.mName),
+      mUserDefined(node.mUserDefined),
+      mFunctionId(node.mFunctionId),
+      mUseEmulatedFunction(node.mUseEmulatedFunction),
+      mGotPrecisionFromChildren(node.mGotPrecisionFromChildren)
+{
+    for (TIntermNode *child : node.mSequence)
+    {
+        TIntermTyped *typedChild = child->getAsTyped();
+        ASSERT(typedChild != nullptr);
+        TIntermTyped *childCopy = typedChild->deepCopy();
+        mSequence.push_back(childCopy);
+    }
+}
+
+TIntermBinary::TIntermBinary(const TIntermBinary &node)
+    : TIntermOperator(node), mAddIndexClamp(node.mAddIndexClamp)
+{
+    TIntermTyped *leftCopy  = node.mLeft->deepCopy();
+    TIntermTyped *rightCopy = node.mRight->deepCopy();
+    ASSERT(leftCopy != nullptr && rightCopy != nullptr);
+    mLeft  = leftCopy;
+    mRight = rightCopy;
+}
+
+TIntermUnary::TIntermUnary(const TIntermUnary &node)
+    : TIntermOperator(node), mUseEmulatedFunction(node.mUseEmulatedFunction)
+{
+    TIntermTyped *operandCopy = node.mOperand->deepCopy();
+    ASSERT(operandCopy != nullptr);
+    mOperand = operandCopy;
+}
+
+TIntermSelection::TIntermSelection(const TIntermSelection &node) : TIntermTyped(node)
+{
+    // Only supported for ternary nodes, not if statements.
+    TIntermTyped *trueTyped  = node.mTrueBlock->getAsTyped();
+    TIntermTyped *falseTyped = node.mFalseBlock->getAsTyped();
+    ASSERT(trueTyped != nullptr);
+    ASSERT(falseTyped != nullptr);
+    TIntermTyped *conditionCopy = node.mCondition->deepCopy();
+    TIntermTyped *trueCopy      = trueTyped->deepCopy();
+    TIntermTyped *falseCopy = falseTyped->deepCopy();
+    ASSERT(conditionCopy != nullptr && trueCopy != nullptr && falseCopy != nullptr);
+    mCondition  = conditionCopy;
+    mTrueBlock  = trueCopy;
+    mFalseBlock = falseCopy;
 }
 
 //
@@ -522,7 +600,10 @@ void TIntermUnary::promote(const TType *funcReturnType)
         }
     }
 
-    mType.setQualifier(EvqTemporary);
+    if (mOperand->getQualifier() == EvqConst)
+        mType.setQualifier(EvqConst);
+    else
+        mType.setQualifier(EvqTemporary);
 }
 
 //
@@ -547,10 +628,12 @@ bool TIntermBinary::promote(TInfoSink &infoSink)
         mLeft->getPrecision(), mRight->getPrecision());
     getTypePointer()->setPrecision(higherPrecision);
 
+    TQualifier resultQualifier = EvqConst;
     // Binary operations results in temporary variables unless both
     // operands are const.
     if (mLeft->getQualifier() != EvqConst || mRight->getQualifier() != EvqConst)
     {
+        resultQualifier = EvqTemporary;
         getTypePointer()->setQualifier(EvqTemporary);
     }
 
@@ -605,14 +688,15 @@ bool TIntermBinary::promote(TInfoSink &infoSink)
             if (mLeft->isVector())
             {
                 mOp = EOpVectorTimesMatrix;
-                setType(TType(basicType, higherPrecision, EvqTemporary,
+                setType(TType(basicType, higherPrecision, resultQualifier,
                               static_cast<unsigned char>(mRight->getCols()), 1));
             }
             else
             {
                 mOp = EOpMatrixTimesScalar;
-                setType(TType(basicType, higherPrecision, EvqTemporary,
-                              static_cast<unsigned char>(mRight->getCols()), static_cast<unsigned char>(mRight->getRows())));
+                setType(TType(basicType, higherPrecision, resultQualifier,
+                              static_cast<unsigned char>(mRight->getCols()),
+                              static_cast<unsigned char>(mRight->getRows())));
             }
         }
         else if (mLeft->isMatrix() && !mRight->isMatrix())
@@ -620,7 +704,7 @@ bool TIntermBinary::promote(TInfoSink &infoSink)
             if (mRight->isVector())
             {
                 mOp = EOpMatrixTimesVector;
-                setType(TType(basicType, higherPrecision, EvqTemporary,
+                setType(TType(basicType, higherPrecision, resultQualifier,
                               static_cast<unsigned char>(mLeft->getRows()), 1));
             }
             else
@@ -631,8 +715,9 @@ bool TIntermBinary::promote(TInfoSink &infoSink)
         else if (mLeft->isMatrix() && mRight->isMatrix())
         {
             mOp = EOpMatrixTimesMatrix;
-            setType(TType(basicType, higherPrecision, EvqTemporary,
-                          static_cast<unsigned char>(mRight->getCols()), static_cast<unsigned char>(mLeft->getRows())));
+            setType(TType(basicType, higherPrecision, resultQualifier,
+                          static_cast<unsigned char>(mRight->getCols()),
+                          static_cast<unsigned char>(mLeft->getRows())));
         }
         else if (!mLeft->isMatrix() && !mRight->isMatrix())
         {
@@ -643,7 +728,7 @@ bool TIntermBinary::promote(TInfoSink &infoSink)
             else if (mLeft->isVector() || mRight->isVector())
             {
                 mOp = EOpVectorTimesScalar;
-                setType(TType(basicType, higherPrecision, EvqTemporary,
+                setType(TType(basicType, higherPrecision, resultQualifier,
                               static_cast<unsigned char>(nominalSize), 1));
             }
         }
@@ -686,8 +771,9 @@ bool TIntermBinary::promote(TInfoSink &infoSink)
         else if (mLeft->isMatrix() && mRight->isMatrix())
         {
             mOp = EOpMatrixTimesMatrixAssign;
-            setType(TType(basicType, higherPrecision, EvqTemporary,
-                          static_cast<unsigned char>(mRight->getCols()), static_cast<unsigned char>(mLeft->getRows())));
+            setType(TType(basicType, higherPrecision, resultQualifier,
+                          static_cast<unsigned char>(mRight->getCols()),
+                          static_cast<unsigned char>(mLeft->getRows())));
         }
         else if (!mLeft->isMatrix() && !mRight->isMatrix())
         {
@@ -700,7 +786,7 @@ bool TIntermBinary::promote(TInfoSink &infoSink)
                 if (!mLeft->isVector())
                     return false;
                 mOp = EOpVectorTimesScalarAssign;
-                setType(TType(basicType, higherPrecision, EvqTemporary,
+                setType(TType(basicType, higherPrecision, resultQualifier,
                               static_cast<unsigned char>(mLeft->getNominalSize()), 1));
             }
         }
@@ -770,8 +856,9 @@ bool TIntermBinary::promote(TInfoSink &infoSink)
         {
             const int secondarySize = std::max(
                 mLeft->getSecondarySize(), mRight->getSecondarySize());
-            setType(TType(basicType, higherPrecision, EvqTemporary,
-                          static_cast<unsigned char>(nominalSize), static_cast<unsigned char>(secondarySize)));
+            setType(TType(basicType, higherPrecision, resultQualifier,
+                          static_cast<unsigned char>(nominalSize),
+                          static_cast<unsigned char>(secondarySize)));
             if (mLeft->isArray())
             {
                 ASSERT(mLeft->getArraySize() == mRight->getArraySize());
@@ -1875,7 +1962,7 @@ TConstantUnion *TIntermConstantUnion::FoldAggregateBuiltIn(TIntermAggregate *agg
 {
     TOperator op = aggregate->getOp();
     TIntermSequence *sequence = aggregate->getSequence();
-    unsigned int paramsCount = sequence->size();
+    unsigned int paramsCount = static_cast<unsigned int>(sequence->size());
     std::vector<TConstantUnion *> unionArrays(paramsCount);
     std::vector<size_t> objectSizes(paramsCount);
     size_t maxObjectSize = 0;
@@ -2256,7 +2343,7 @@ TConstantUnion *TIntermConstantUnion::FoldAggregateBuiltIn(TIntermAggregate *agg
             {
                 // Perform component-wise matrix multiplication.
                 resultArray = new TConstantUnion[maxObjectSize];
-                size_t size = (*sequence)[0]->getAsTyped()->getNominalSize();
+                int size = (*sequence)[0]->getAsTyped()->getNominalSize();
                 angle::Matrix<float> result =
                     GetMatrix(unionArrays[0], size).compMult(GetMatrix(unionArrays[1], size));
                 SetUnionArrayFromMatrix(result, resultArray);
@@ -2272,7 +2359,8 @@ TConstantUnion *TIntermConstantUnion::FoldAggregateBuiltIn(TIntermAggregate *agg
                 size_t numCols = (*sequence)[1]->getAsTyped()->getType().getObjectSize();
                 resultArray = new TConstantUnion[numRows * numCols];
                 angle::Matrix<float> result =
-                    GetMatrix(unionArrays[0], 1, numCols).outerProduct(GetMatrix(unionArrays[1], numRows, 1));
+                    GetMatrix(unionArrays[0], 1, static_cast<int>(numCols))
+                        .outerProduct(GetMatrix(unionArrays[1], static_cast<int>(numRows), 1));
                 SetUnionArrayFromMatrix(result, resultArray);
             }
             else
@@ -2478,9 +2566,20 @@ void TIntermTraverser::updateTree()
     {
         const NodeInsertMultipleEntry &insertion = mInsertions[ii];
         ASSERT(insertion.parent);
-        bool inserted = insertion.parent->insertChildNodes(insertion.position, insertion.insertions);
-        ASSERT(inserted);
-        UNUSED_ASSERTION_VARIABLE(inserted);
+        if (!insertion.insertionsAfter.empty())
+        {
+            bool inserted = insertion.parent->insertChildNodes(insertion.position + 1,
+                                                               insertion.insertionsAfter);
+            ASSERT(inserted);
+            UNUSED_ASSERTION_VARIABLE(inserted);
+        }
+        if (!insertion.insertionsBefore.empty())
+        {
+            bool inserted =
+                insertion.parent->insertChildNodes(insertion.position, insertion.insertionsBefore);
+            ASSERT(inserted);
+            UNUSED_ASSERTION_VARIABLE(inserted);
+        }
     }
     for (size_t ii = 0; ii < mReplacements.size(); ++ii)
     {

@@ -211,7 +211,8 @@ void VideoTrackAdapter::VideoFrameResolutionAdapter::DeliverFrame(
 
   // TODO(perkj): Allow cropping / scaling of textures once
   // http://crbug/362521 is fixed.
-  if (frame->HasTextures()) {
+  if (frame->HasTextures() ||
+      frame->storage_type() == media::VideoFrame::STORAGE_GPU_MEMORY_BUFFERS) {
     DoDeliverFrame(frame, estimated_capture_time);
     return;
   }
@@ -479,7 +480,7 @@ void VideoTrackAdapter::RemoveTrackOnIO(const MediaStreamVideoTrack* track) {
 
 void VideoTrackAdapter::DeliverFrameOnIO(
     const scoped_refptr<media::VideoFrame>& frame,
-    const base::TimeTicks& estimated_capture_time) {
+    base::TimeTicks estimated_capture_time) {
   DCHECK(io_task_runner_->BelongsToCurrentThread());
   TRACE_EVENT0("video", "VideoTrackAdapter::DeliverFrameOnIO");
   ++frame_counter_;

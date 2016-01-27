@@ -107,7 +107,7 @@ Vector<Length> parseHTMLAreaElementCoords(const String& string)
 }
 
 class CalculationValueHandleMap {
-    WTF_MAKE_FAST_ALLOCATED(CalculationValueHandleMap);
+    USING_FAST_MALLOC(CalculationValueHandleMap);
 public:
     CalculationValueHandleMap()
         : m_index(1)
@@ -208,6 +208,21 @@ Length Length::subtractFromOneHundredPercent() const
     if (result.percent)
         return Length(result.percent, Percent);
     return Length(result.pixels, Fixed);
+}
+
+Length Length::zoom(double factor) const
+{
+    switch (type()) {
+    case Fixed:
+        return Length(getFloatValue() * factor, Fixed);
+    case Calculated: {
+        PixelsAndPercent result = pixelsAndPercent();
+        result.pixels *= factor;
+        return Length(CalculationValue::create(result, calculationValue().valueRange()));
+    }
+    default:
+        return *this;
+    }
 }
 
 CalculationValue& Length::calculationValue() const

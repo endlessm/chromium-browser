@@ -39,11 +39,16 @@
 #include "content/public/browser/resource_dispatcher_host.h"
 #include "content/public/common/resource_type.h"
 #include "ipc/ipc_message.h"
+#include "net/base/request_priority.h"
 #include "net/cookies/canonical_cookie.h"
 #include "net/url_request/url_request.h"
 
 class ResourceHandler;
 struct ResourceHostMsg_Request;
+
+namespace base {
+class FilePath;
+}
 
 namespace net {
 class URLRequestJobFactory;
@@ -62,6 +67,7 @@ class ResourceMessageDelegate;
 class ResourceMessageFilter;
 class ResourceRequestInfoImpl;
 class SaveFileManager;
+class ServiceWorkerNavigationHandleCore;
 class WebContentsImpl;
 struct CommonNavigationParams;
 struct DownloadSaveInfo;
@@ -88,7 +94,8 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
       bool is_content_initiated,
       ResourceContext* context,
       int child_id,
-      int route_id,
+      int render_view_route_id,
+      int render_frame_route_id,
       bool prefer_cache,
       bool do_not_prompt_for_login,
       scoped_ptr<DownloadSaveInfo> save_info,
@@ -122,7 +129,8 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
   void BeginSaveFile(const GURL& url,
                      const Referrer& referrer,
                      int child_id,
-                     int route_id,
+                     int render_view_route_id,
+                     int render_frame_route_id,
                      ResourceContext* context);
 
   // Cancels the given request if it still exists.
@@ -233,12 +241,20 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
       scoped_ptr<DownloadSaveInfo> save_info,
       const DownloadUrlParameters::OnStartedCallback& started_cb);
 
-  // Must be called after the ResourceRequestInfo has been created
-  // and associated with the request.  If |payload| is set to a non-empty value,
-  // the value will be sent to the old resource handler instead of canceling
-  // it, except on HTTP errors. This is marked virtual so it can be overriden in
-  // testing.
+  // Called to determine whether the response to |request| should be intercepted
+  // and handled as a stream. Streams are used to pass direct access to a
+  // resource response to another application (e.g. a web page) without being
+  // handled by the browser itself. If the request should be intercepted as a
+  // stream, a StreamResourceHandler is returned which provides access to the
+  // response. |plugin_path| is the path to the plugin which is handling the
+  // URL request. This may be empty if there is no plugin handling the request.
+  //
+  // This function must be called after the ResourceRequestInfo has been created
+  // and associated with the request. If |payload| is set to a non-empty value,
+  // the caller must send it to the old resource handler instead of cancelling
+  // it.
   virtual scoped_ptr<ResourceHandler> MaybeInterceptAsStream(
+      const base::FilePath& plugin_path,
       net::URLRequest* request,
       ResourceResponse* response,
       std::string* payload);
@@ -258,10 +274,11 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
 
   // PlzNavigate: Begins a request for NavigationURLLoader. |loader| is the
   // loader to attach to the leaf resource handler.
-  void BeginNavigationRequest(ResourceContext* resource_context,
-                              int frame_tree_node_id,
-                              const NavigationRequestInfo& info,
-                              NavigationURLLoaderImplCore* loader);
+  void BeginNavigationRequest(
+      ResourceContext* resource_context,
+      const NavigationRequestInfo& info,
+      NavigationURLLoaderImplCore* loader,
+      ServiceWorkerNavigationHandleCore* service_worker_handle_core);
 
  private:
   friend class ResourceDispatcherHostTest;
@@ -446,15 +463,18 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
       scoped_ptr<ResourceHandler> handler);
 
   void OnDataDownloadedACK(int request_id);
-  void OnUploadProgressACK(int request_id);
   void OnCancelRequest(int request_id);
   void OnReleaseDownloadedFile(int request_id);
+  void OnDidChangePriority(int request_id,
+                           net::RequestPriority new_priority,
+                           int intra_priority_value);
 
   // Creates ResourceRequestInfoImpl for a download or page save.
   // |download| should be true if the request is a file download.
   ResourceRequestInfoImpl* CreateRequestInfo(
       int child_id,
-      int route_id,
+      int render_view_route_id,
+      int render_frame_route_id,
       bool download,
       ResourceContext* context);
 
@@ -504,8 +524,7 @@ class CONTENT_EXPORT ResourceDispatcherHostImpl
 
   // A timer that periodically calls UpdateLoadInfo while pending_loaders_ is
   // not empty and at least one RenderViewHost is loading.
-  scoped_ptr<base::RepeatingTimer<ResourceDispatcherHostImpl> >
-      update_load_states_timer_;
+  scoped_ptr<base::RepeatingTimer> update_load_states_timer_;
 
   // We own the save file manager.
   scoped_refptr<SaveFileManager> save_file_manager_;

@@ -4,12 +4,12 @@
 
 /**
  * @constructor
- * @extends {WebInspector.StylesSidebarPane.BaseToolbarPaneWidget}
+ * @extends {WebInspector.ElementsPanel.BaseToolbarPaneWidget}
  * @param {!WebInspector.ToolbarItem} toolbarItem
  */
 WebInspector.ElementStatePaneWidget = function(toolbarItem)
 {
-    WebInspector.StylesSidebarPane.BaseToolbarPaneWidget.call(this, toolbarItem);
+    WebInspector.ElementsPanel.BaseToolbarPaneWidget.call(this, toolbarItem);
     this.element.className = "styles-element-state-pane";
     this.element.createChild("div").createTextChild(WebInspector.UIString("Force element state"));
     var table = createElementWithClass("table", "source-code");
@@ -101,7 +101,7 @@ WebInspector.ElementStatePaneWidget.prototype = {
      */
     _updateInputs: function(node)
     {
-        var nodePseudoState = node.getUserProperty(WebInspector.CSSStyleModel.PseudoStatePropertyName) || [];
+        var nodePseudoState = WebInspector.CSSStyleModel.fromNode(node).pseudoState(node);
         var inputs = this._inputs;
         for (var i = 0; i < inputs.length; ++i) {
             inputs[i].disabled = !!node.pseudoType();
@@ -109,7 +109,7 @@ WebInspector.ElementStatePaneWidget.prototype = {
         }
     },
 
-    __proto__: WebInspector.StylesSidebarPane.BaseToolbarPaneWidget.prototype
+    __proto__: WebInspector.ElementsPanel.BaseToolbarPaneWidget.prototype
 }
 
 /**
@@ -128,8 +128,7 @@ WebInspector.ElementStatePaneWidget.ButtonProvider = function()
 WebInspector.ElementStatePaneWidget.ButtonProvider.prototype = {
     _clicked: function()
     {
-        var stylesSidebarPane = WebInspector.ElementsPanel.instance().sidebarPanes.styles;
-        stylesSidebarPane.showToolbarPane(!this._view.isShowing() ? this._view : null);
+        WebInspector.ElementsPanel.instance().showToolbarPane(!this._view.isShowing() ? this._view : null);
     },
 
     /**
@@ -146,6 +145,6 @@ WebInspector.ElementStatePaneWidget.ButtonProvider.prototype = {
         var enabled = !!WebInspector.context.flavor(WebInspector.DOMNode);
         this._button.setEnabled(enabled);
         if (!enabled && this._button.toggled())
-            WebInspector.ElementsPanel.instance().sidebarPanes.styles.showToolbarPane(null);
+            WebInspector.ElementsPanel.instance().showToolbarPane(null);
     }
 }

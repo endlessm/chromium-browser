@@ -14,7 +14,7 @@
 #include <jni.h>
 #include <string>
 
-#include "webrtc/modules/utility/interface/jvm_android.h"
+#include "webrtc/modules/utility/include/jvm_android.h"
 
 namespace webrtc {
 
@@ -23,7 +23,7 @@ namespace webrtc {
 // The calling thread is attached to the JVM at construction if needed and a
 // valid Java environment object is also created.
 // All Get methods must be called on the creating thread. If not, the code will
-// hit DCHECKs when calling JNIEnvironment::JavaToStdString().
+// hit RTC_DCHECKs when calling JNIEnvironment::JavaToStdString().
 class BuildInfo {
  public:
   BuildInfo();

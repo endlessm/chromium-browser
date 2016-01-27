@@ -4,15 +4,15 @@
 
 #include "chrome/browser/ui/toolbar/test_toolbar_model.h"
 
-#include "grit/theme_resources.h"
+#include "grit/components_scaled_resources.h"
+#include "ui/gfx/vector_icons_public.h"
 
 TestToolbarModel::TestToolbarModel()
-    : ToolbarModel(),
+    : ChromeToolbarModel(),
       perform_search_term_replacement_(false),
-      security_level_(connection_security::NONE),
+      security_level_(SecurityStateModel::NONE),
       icon_(IDR_LOCATION_BAR_HTTP),
-      should_display_url_(true) {
-}
+      should_display_url_(true) {}
 
 TestToolbarModel::~TestToolbarModel() {}
 
@@ -37,7 +37,7 @@ bool TestToolbarModel::WouldPerformSearchTermReplacement(
   return perform_search_term_replacement_;
 }
 
-connection_security::SecurityLevel TestToolbarModel::GetSecurityLevel(
+SecurityStateModel::SecurityLevel TestToolbarModel::GetSecurityLevel(
     bool ignore_editing) const {
   return security_level_;
 }
@@ -46,14 +46,13 @@ int TestToolbarModel::GetIcon() const {
   return icon_;
 }
 
-int TestToolbarModel::GetIconForSecurityLevel(
-    connection_security::SecurityLevel level) const {
-  return icon_;
+gfx::VectorIconId TestToolbarModel::GetVectorIcon() const {
+  return gfx::VectorIconId::VECTOR_ICON_NONE;
 }
 
 base::string16 TestToolbarModel::GetEVCertName() const {
-  return (security_level_ == connection_security::EV_SECURE) ? ev_cert_name_
-                                                             : base::string16();
+  return (security_level_ == SecurityStateModel::EV_SECURE) ? ev_cert_name_
+                                                            : base::string16();
 }
 
 bool TestToolbarModel::ShouldDisplayURL() const {
