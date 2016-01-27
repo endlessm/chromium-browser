@@ -27,6 +27,7 @@
 #include "ui/gfx/screen.h"
 #include "ui/views/controls/menu/menu_runner.h"
 #include "ui/views/widget/native_widget.h"
+#include "ui/views/widget/native_widget_aura.h"
 
 #if defined(OS_CHROMEOS)
 #include "ash/session/session_state_delegate.h"
@@ -125,6 +126,8 @@ views::View* BrowserFrame::GetLocationIconView() const {
 views::View* BrowserFrame::GetFrameView() const {
   return browser_frame_view_;
 }
+
+void BrowserFrame::SendSessionIdToWindow() { }
 
 bool BrowserFrame::UseCustomFrame() const {
   return native_browser_frame_->UseCustomFrame();

@@ -598,6 +598,11 @@ void DesktopNativeWidgetAura::ViewRemoved(View* view) {
   drop_helper_->ResetTargetViewIfEquals(view);
 }
 
+void DesktopNativeWidgetAura::SetSessionID(unsigned int sessionid) {
+  desktop_window_tree_host_->SetSessionID(sessionid);
+  VLOG(1) << "session id Sent to treehost";
+}
+
 void DesktopNativeWidgetAura::SetNativeWindowProperty(const char* name,
                                                       void* value) {
   if (content_window_)

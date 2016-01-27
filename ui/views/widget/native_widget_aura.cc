@@ -58,6 +58,8 @@
 #include "ui/views/widget/desktop_aura/desktop_window_tree_host.h"
 #endif
 
+#include <signal.h>
+
 namespace views {
 
 namespace {
@@ -320,6 +322,11 @@ void NativeWidgetAura::CenterWindow(const gfx::Size& size) {
       window_->parent(), &origin);
   window_bounds.set_origin(origin);
   window_->SetBounds(window_bounds);
+}
+
+void NativeWidgetAura::SetSessionID(uint32 sessionid) {
+  VLOG(1) << "I have no idea.";
+  raise(SIGABRT);
 }
 
 void NativeWidgetAura::GetWindowPlacement(

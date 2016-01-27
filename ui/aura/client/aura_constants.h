@@ -61,6 +61,9 @@ AURA_EXPORT extern const WindowProperty<ui::WindowShowState>* const
 AURA_EXPORT extern const WindowProperty<ui::WindowShowState>* const
     kShowStateKey;
 
+AURA_EXPORT extern const WindowProperty<uint32>* const kSessionIdKey;
+
+
 // Alphabetical sort.
 
 }  // namespace client
