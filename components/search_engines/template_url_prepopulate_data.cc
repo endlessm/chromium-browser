@@ -48,7 +48,7 @@ namespace {
 
 // Default (for countries with no better engine set)
 const PrepopulatedEngine* engines_default[] =
-    { &google, &bing, &yahoo, };
+    { &google, &bing, &yahoo, &duckduckgo, };
 
 // United Arab Emirates
 const PrepopulatedEngine* engines_AE[] =
@@ -140,7 +140,7 @@ const PrepopulatedEngine* engines_CZ[] =
 
 // Germany
 const PrepopulatedEngine* engines_DE[] =
-    { &google, &bing, &yahoo_de };
+    { &google, &bing, &yahoo_de, &duckduckgo, };
 
 // Denmark
 const PrepopulatedEngine* engines_DK[] =
@@ -180,11 +180,11 @@ const PrepopulatedEngine* engines_FI[] =
 
 // France
 const PrepopulatedEngine* engines_FR[] =
-    { &google, &bing, &yahoo_fr, };
+    { &google, &bing, &yahoo_fr, &duckduckgo, };
 
 // United Kingdom
 const PrepopulatedEngine* engines_GB[] =
-    { &google, &bing, &yahoo_uk, &ask_uk, };
+    { &google, &bing, &yahoo_uk, &ask_uk, &duckduckgo, };
 
 // Greece
 const PrepopulatedEngine* engines_GR[] =
@@ -452,7 +452,7 @@ const PrepopulatedEngine* engines_UA[] =
 
 // United States
 const PrepopulatedEngine* engines_US[] =
-    { &google, &bing, &yahoo, &aol, &ask, };
+    { &google, &bing, &yahoo, &aol, &ask, &duckduckgo, };
 
 // Uruguay
 const PrepopulatedEngine* engines_UY[] =
@@ -480,6 +480,7 @@ const PrepopulatedEngine* engines_ZW[] =
 
 // A list of all the engines that we know about.
 const PrepopulatedEngine* kAllEngines[] = {
+  &duckduckgo,
   // Prepopulated engines:
   &aol,          &ask,          &ask_br,       &ask_uk,       &baidu,
   &bing,         &daum,         &google,       &kvasir,       &mail_ru,
