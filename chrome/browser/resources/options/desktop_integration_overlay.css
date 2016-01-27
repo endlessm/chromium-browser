@@ -1,0 +1,75 @@
+/* Copyright (c) 2012 The Chromium Authors. All rights reserved.
+ * Use of this source code is governed by a BSD-style license that can be
+ * found in the LICENSE file. */
+
+#desktop-integration-area {
+  min-width: 550px;
+}
+
+#desktop-integration-area list {
+  min-height: 172px;
+}
+
+#desktop-integration-area span {
+  -webkit-padding-start: 18px;
+}
+
+.desktop-integration-list-item {
+  -webkit-box-flex: 1;
+  -webkit-padding-start: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desktop-integration-lower-left button {
+  min-width: 70px;
+}
+
+.desktop-integration-lower-left {
+  -webkit-box-flex: 0;
+  -webkit-padding-start: 12px;
+  padding-bottom: 10px;
+}
+
+#desktop-integration-column-headers {
+  -webkit-margin-start: 17px;
+  display: -webkit-box;
+  margin-top: 17px;
+}
+
+#desktop-integration-column-headers > div {
+  font-weight: bold;
+}
+
+#desktop-integration-pattern-column {
+  -webkit-box-flex: 1;
+}
+
+#desktop-integration-behavior-column {
+  width: 145px;
+}
+
+#desktop-integration-area list {
+  margin-bottom: 10px;
+  margin-top: 4px;
+}
+
+#domains-list {
+  -webkit-box-flex: 1;
+  outline: none;
+  padding: 1px 0 0;
+  width: 100%;
+}
+
+#domains-list .domain-name {
+  -webkit-box-flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#domains-list li {
+  -webkit-padding-start: 12px;
+  padding-bottom: 2px;
+  padding-top: 2px;
+}
