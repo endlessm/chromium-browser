@@ -79,7 +79,7 @@
       "name": "\u767e\u5ea6",
       "keyword": "baidu.com",
       "favicon_url": "http://www.baidu.com/favicon.ico",
-      "search_url": "http://www.baidu.com/#ie={inputEncoding}&wd={searchTerms}",
+      "search_url": "http://www.baidu.com/#ie={inputEncoding}&tn=ubuntuu_cb&wd={searchTerms}",
       "type": "SEARCH_ENGINE_BAIDU",
       "id": 21
     },
