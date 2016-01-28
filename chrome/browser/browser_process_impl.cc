@@ -152,7 +152,7 @@
 #include "chrome/browser/media/webrtc_log_uploader.h"
 #endif
 
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
 #include "chrome/browser/memory/tab_manager.h"
 #endif
 
@@ -742,7 +742,7 @@ gcm::GCMDriver* BrowserProcessImpl::gcm_driver() {
 
 memory::TabManager* BrowserProcessImpl::GetTabManager() {
   DCHECK(CalledOnValidThread());
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
   if (!tab_manager_.get())
     tab_manager_.reset(new memory::TabManager());
   return tab_manager_.get();
