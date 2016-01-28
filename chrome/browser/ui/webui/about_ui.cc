@@ -423,7 +423,7 @@ std::string ChromeURLs() {
   return html;
 }
 
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
 
 const char kAboutDiscardsRunCommand[] = "run";
 
@@ -581,7 +581,7 @@ std::string AboutDiscards(const std::string& path) {
   return output;
 }
 
-#endif  // OS_WIN || OS_CHROMEOS
+#endif  // OS_WIN || OS_MACOSX || OS_CHROMEOS || OS_LINUX
 
 // AboutDnsHandler bounces the request back to the IO thread to collect
 // the DNS information.
@@ -780,7 +780,7 @@ void AboutUIHTMLSource::StartDataRequest(
     } else {
       response = raw_response.as_string();
     }
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
   } else if (source_name_ == chrome::kChromeUIDiscardsHost) {
     response = AboutDiscards(path);
 #endif

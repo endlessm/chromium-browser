@@ -151,7 +151,7 @@ const char kChromeUICastURL[] = "chrome://cast/";
 #endif
 #endif
 
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
 const char kChromeUIDiscardsHost[] = "discards";
 const char kChromeUIDiscardsURL[] = "chrome://discards/";
 #endif
@@ -685,7 +685,7 @@ const char* const kChromeHostURLs[] = {
   kChromeUIProxySettingsHost,
   kChromeUIVoiceSearchHost,
 #endif
-#if defined(OS_WIN) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_CHROMEOS) || defined(OS_LINUX)
   kChromeUIDiscardsHost,
 #endif
 #if defined(OS_POSIX) && !defined(OS_MACOSX) && !defined(OS_ANDROID)
