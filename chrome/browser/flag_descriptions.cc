@@ -2241,7 +2241,7 @@ const char kTeamDrivesDescription[] =
 
 #endif  // defined(OS_CHROMEOS)
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
 //  Tab discarding
 
@@ -2253,7 +2253,7 @@ const char kAutomaticTabDiscardingDescription[] =
     "reloaded when clicked on. Info about discarded tabs can be found at "
     "chrome://discards.";
 
-#endif  // defined(OS_WIN) || defined(OS_MACOSX)
+#endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
 #if defined(OS_WIN)
 
