@@ -2120,11 +2120,11 @@ const FeatureEntry kFeatureEntries[] = {
      SINGLE_VALUE_TYPE_AND_VALUE(switches::kDisableAutoHidingToolbarThreshold,
                                  "800")},
 #endif
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
     {"automatic-tab-discarding", IDS_FLAGS_ENABLE_TAB_DISCARDING_NAME,
-     IDS_FLAGS_ENABLE_TAB_DISCARDING_DESCRIPTION, kOsWin | kOsMac,
+     IDS_FLAGS_ENABLE_TAB_DISCARDING_DESCRIPTION, kOsAll,
      FEATURE_VALUE_TYPE(features::kAutomaticTabDiscarding)},
-#endif  // OS_WIN || OS_MACOSX
+#endif  // OS_WIN || OS_MACOSX || defined(OS_LINUX)
     // NOTE: Adding new command-line switches requires adding corresponding
     // entries to enum "LoginCustomFlags" in histograms.xml. See note in
     // histograms.xml and don't forget to run AboutFlagsHistogramTest unit test.
