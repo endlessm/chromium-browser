@@ -2053,7 +2053,7 @@ const char kAllowInsecureLocalhostDescription[] =
     "Allows requests to localhost over HTTPS even when an invalid "
     "certificate is presented.";
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
 //  Tab discarding
 
@@ -2065,7 +2065,7 @@ const char kAutomaticTabDiscardingDescription[] =
     "strip and get reloaded when clicked on. Info about discarded tabs can "
     "be found at chrome://discards.";
 
-#endif  // defined(OS_WIN) || defined(OS_MACOSX)
+#endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
 #if defined(OS_ANDROID)
 

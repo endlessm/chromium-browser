@@ -2256,7 +2256,7 @@ extern const char kAllowInsecureLocalhost[];
 // Description of the 'Allow insecure localhost' flag.
 extern const char kAllowInsecureLocalhostDescription[];
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
 //  Tab discarding
 
@@ -2266,7 +2266,7 @@ extern const char kAutomaticTabDiscardingName[];
 // Description for the flag to enable or disable automatic tab description.
 extern const char kAutomaticTabDiscardingDescription[];
 
-#endif  // defined(OS_WIN) || defined(OS_MACOSX)
+#endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
 #if defined(OS_ANDROID)
 
