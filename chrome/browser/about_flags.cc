@@ -2427,11 +2427,11 @@ const FeatureEntry kFeatureEntries[] = {
          switches::kMarketUrlForTesting,
          "https://play.google.com/store/apps/details?id=com.android.chrome")},
 #endif  // OS_ANDROID
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
     {"automatic-tab-discarding", flag_descriptions::kAutomaticTabDiscardingName,
-     flag_descriptions::kAutomaticTabDiscardingDescription, kOsWin | kOsMac,
+     flag_descriptions::kAutomaticTabDiscardingDescription, kOsAll,
      FEATURE_VALUE_TYPE(features::kAutomaticTabDiscarding)},
-#endif  // OS_WIN || OS_MACOSX
+#endif  // OS_WIN || OS_MACOSX || OS_LINUX
     {"enable-es3-apis", flag_descriptions::kWebgl2Name,
      flag_descriptions::kWebgl2Description, kOsAll,
      MULTI_VALUE_TYPE(kEnableWebGL2Choices)},

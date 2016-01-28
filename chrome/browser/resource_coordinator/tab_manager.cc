@@ -87,7 +87,7 @@ const size_t kNumOfLoadingSlots = 1;
 // value.
 const int kAdjustmentIntervalSeconds = 10;
 
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
 // For each period of this length record a statistic to indicate whether or not
 // the user experienced a low memory event. If this interval is changed,
 // Tabs.Discard.DiscardInLastMinute must be replaced with a new statistic.
@@ -273,7 +273,7 @@ void TabManager::Start() {
 
 // MemoryPressureMonitor is not implemented on Linux so far and tabs are never
 // discarded.
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
   if (!recent_tab_discard_timer_.IsRunning()) {
     recent_tab_discard_timer_.Start(
         FROM_HERE, TimeDelta::FromSeconds(kRecentTabDiscardIntervalSeconds),
