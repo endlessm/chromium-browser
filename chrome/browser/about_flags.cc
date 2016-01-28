@@ -2397,11 +2397,11 @@ const FeatureEntry kFeatureEntries[] = {
          switches::kMarketUrlForTesting,
          "https://play.google.com/store/apps/details?id=com.android.chrome")},
 #endif  // OS_ANDROID
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
     {"automatic-tab-discarding", flag_descriptions::kAutomaticTabDiscardingName,
-     flag_descriptions::kAutomaticTabDiscardingDescription, kOsWin | kOsMac,
+     flag_descriptions::kAutomaticTabDiscardingDescription, kOsAll,
      FEATURE_VALUE_TYPE(features::kAutomaticTabDiscarding)},
-#endif  // OS_WIN || OS_MACOSX
+#endif  // OS_WIN || OS_MACOSX || defined(OS_LINUX)
     {"enforce-tls13-downgrade", flag_descriptions::kEnforceTLS13DowngradeName,
      flag_descriptions::kEnforceTLS13DowngradeDescription, kOsAll,
      FEATURE_WITH_PARAMS_VALUE_TYPE(net::features::kEnforceTLS13Downgrade,
