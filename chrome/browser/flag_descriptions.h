@@ -2193,12 +2193,12 @@ extern const char kEnableInputImeApiDescription[];
 extern const char kExperimentalUiName[];
 extern const char kExperimentalUiDescription[];
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
 extern const char kAutomaticTabDiscardingName[];
 extern const char kAutomaticTabDiscardingDescription[];
 
-#endif  // defined(OS_WIN) || defined(OS_MACOSX)
+#endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
 #if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 

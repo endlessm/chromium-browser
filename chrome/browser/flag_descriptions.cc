@@ -3607,7 +3607,7 @@ const char kEnableInputImeApiDescription[] =
 
 #endif  // defined(OS_WIN) || defined(OS_LINUX)
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
 const char kAutomaticTabDiscardingName[] = "Automatic tab discarding";
 const char kAutomaticTabDiscardingDescription[] =
@@ -3616,7 +3616,7 @@ const char kAutomaticTabDiscardingDescription[] =
     "reloaded when clicked on. Info about discarded tabs can be found at "
     "chrome://discards.";
 
-#endif  // defined(OS_WIN) || defined(OS_MACOSX)
+#endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
 #if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
