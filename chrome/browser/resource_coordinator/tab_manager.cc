@@ -224,7 +224,7 @@ void TabManager::Start() {
 
 // MemoryPressureMonitor is not implemented on Linux so far and tabs are never
 // discarded.
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
   // Create a |MemoryPressureListener| to listen for memory events when
   // MemoryCoordinator is disabled. When MemoryCoordinator is enabled
   // it asks TabManager to do tab discarding.
