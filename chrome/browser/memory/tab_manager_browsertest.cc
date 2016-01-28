@@ -28,7 +28,7 @@
 
 using content::OpenURLParams;
 
-#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_CHROMEOS) || defined(OS_LINUX)
 
 namespace memory {
 
@@ -390,4 +390,4 @@ IN_PROC_BROWSER_TEST_F(TabManagerTest, ProtectVideoTabs) {
 
 }  // namespace memory
 
-#endif  // OS_WIN || OS_CHROMEOS
+#endif  // OS_WIN || OS_MACOSX || OS_CHROMEOS || OS_LINUX
