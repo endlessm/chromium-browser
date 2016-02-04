@@ -111,6 +111,12 @@ namespace blink {
 
 using namespace HTMLNames;
 
+// Helper function we use on EndlessOS to alter the UserAgent string
+// returned by chromium's content layer based on the frame's URL.
+String adaptUserAgentForURL(const String& userAgent, const KURL& url) {
+  return userAgent;
+}
+
 bool IsBackForwardLoadType(FrameLoadType type) {
   return type == kFrameLoadTypeBackForward ||
          type == kFrameLoadTypeInitialHistoryLoad;
@@ -1286,8 +1292,13 @@ void FrameLoader::RestoreScrollPositionAndViewState(
 }
 
 String FrameLoader::UserAgent() const {
-  String user_agent = Client()->UserAgent();
-  probe::applyUserAgentOverride(frame_->GetDocument(), &user_agent);
+  String clientUserAgent = Client()->UserAgent();
+  // On Endless, we need to still be able to alter the UserAgent string depending
+  // on the URL we are loading, so we adapt it if needed before applying it. But we
+  // might not have a committed load, so we first check the URL from the provisional
+  // loader before trying with the regular one, so that we always get a valid URL.
+  const DocumentLoader& activeLoader = provisional_document_loader_.Get() ? *provisional_document_loader_ : *document_loader_;
+  String user_agent = adaptUserAgentForURL(clientUserAgent, activeLoader.GetRequest().Url());
   return user_agent;
 }
 
