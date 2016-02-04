@@ -7,7 +7,6 @@ Vcs-Bzr: https://code.launchpad.net/~chromium-team/chromium-browser/trusty-worki
 Homepage: http://code.google.com/chromium/
 Build-Depends:
 	debhelper (>= 9),
-	eos-shell-content-dev,
 	dh-buildinfo,
 	ninja-build (>= 1.3),
 	pkg-config,
@@ -16,6 +15,7 @@ Build-Depends:
 	python,
 	bison,
 	gperf,
+	clang (>= 3.5),
 	libpulse-dev,
 	libcups2-dev | libcupsys2-dev,
 	libasound2-dev,
@@ -28,6 +28,7 @@ Build-Depends:
 	libglib2.0-dev,
 	libgnome-keyring-dev,
 	libudev-dev,
+	libgconf2-dev,
 	libdrm-dev,
 	libcap-dev,
 	libexif-dev,
@@ -35,9 +36,8 @@ Build-Depends:
 	libkrb5-dev,
 	libxkbcommon-dev,
 	libssl-dev,
+	libpam0g-dev,
 	chrpath,
-	gcc-4.8,
-	g++-4.8,
 	xdg-utils
 Standards-Version: 3.9.6
 
@@ -48,8 +48,8 @@ Depends: ${shlibs:Depends}, ${misc:Depends},
 	bash (>= 4),
 	libnss3,
 	xdg-utils,
-	chromium-codecs-ffmpeg (= ${binary:Version}),
-	chromium-browser-l10n
+	chromium-codecs-ffmpeg-extra (= ${binary:Version}) | chromium-codecs-ffmpeg (= ${binary:Version})
+Recommends: chromium-browser-l10n
 Suggests: webaccounts-chromium-extension,
 	unity-chromium-extension,
 	adobe-flashplugin
