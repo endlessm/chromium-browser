@@ -113,6 +113,36 @@ using namespace HTMLNames;
 // Helper function we use on EndlessOS to alter the UserAgent string
 // returned by chromium's content layer based on the frame's URL.
 String adaptUserAgentForURL(const String& userAgent, const KURL& url) {
+#ifdef __arm__
+  if (url.IsEmpty() || !url.IsValid())
+    return userAgent;
+
+  const String& host = url.Host();
+  String userAgentOS;
+
+  // With the default Linux user agent, Netflix presents a cryptic error when
+  // trying to play back video. Pretend to be CrOS.
+  if (host.Contains("netflix.com") || host.Contains("nflxvideo.net"))
+    userAgentOS = String::FromUTF8("X11; CrOS armv7l 7262.57.0");
+
+  // With the default user agent string, containing the '(X11; Linux armv7l)' part, Google
+  // Calendar and Yahoo redirect to their mobile version, so send 'Linux i686' instead.
+  if (host.Contains("calendar.google.com") ||
+      (host.Contains("google.com") && url.GetPath().StartsWith("/calendar")) ||
+      host.Contains("yahoo.com"))
+    userAgentOS = String::FromUTF8("X11; Linux i686");
+
+  if (!userAgentOS.IsEmpty()) {
+    // Replace the OS part of the UserAgent string if needed.
+    StringBuilder builder;
+    builder.Append(userAgent.Left(userAgent.find('(') + 1));
+    builder.Append(userAgentOS);
+    builder.Append(userAgent.Substring(userAgent.find(')')));
+
+    return builder.ToString();
+  }
+#endif
+
   return userAgent;
 }
 
