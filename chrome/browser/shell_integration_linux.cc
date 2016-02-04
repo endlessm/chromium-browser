@@ -358,10 +358,6 @@ bool GetChromeVersionOfScript(const std::string& script,
   return false;
 }
 
-// Value returned by xdg-settings if it can't understand our request.
-const int EXIT_XDG_SETTINGS_SYNTAX_ERROR = 1;
-const int EXIT_XDG_SETTINGS_FILE_NOT_EXIST = 2;
-
 // We delegate the difficulty of setting the default browser and default url
 // scheme handler in Linux desktop environments to an xdg utility, xdg-settings.
 
