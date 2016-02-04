@@ -110,6 +110,37 @@ namespace {
 // returned by chromium's content layer based on the frame's URL.
 static String adaptUserAgentForURL(const String& userAgent, const KURL& url)
 {
+#ifdef __arm__
+    if (url.isEmpty() || !url.isValid())
+        return userAgent;
+
+    const String& host = url.host();
+    String userAgentOS;
+
+    // With the default Linux user agent, Netflix presents a cryptic error when
+    // trying to play back video. Pretend to be CrOS.
+    if (host.contains("netflix.com") || host.contains("nflxvideo.net")) {
+        userAgentOS = String::fromUTF8("X11; CrOS armv7l 7262.57.0");
+    }
+
+    // With the default user agent string, containing the '(X11; Linux armv7l)' part, Google
+    // Calendar and Yahoo redirect to their mobile version, so send 'Linux i686' instead.
+    if (host.contains("calendar.google.com") || (host.contains("google.com") && url.path().startsWith("/calendar"))
+            || host.contains("yahoo.com")) {
+        userAgentOS = String::fromUTF8("X11; Linux i686");
+    }
+
+    if (!userAgentOS.isEmpty()) {
+        // Replace the OS part of the UserAgent string if needed.
+        StringBuilder builder;
+        builder.append(userAgent.left(userAgent.find('(') + 1));
+        builder.append(userAgentOS);
+        builder.append(userAgent.substring(userAgent.find(')')));
+
+        return builder.toString();
+    }
+#endif
+
     return userAgent;
 }
 
