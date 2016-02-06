@@ -64,6 +64,9 @@ bool ExtensionActionHandler::Parse(Extension* extension,
       return true;  // Don't synthesize actions for component extensions.
     if (extension->was_installed_by_default())
       return true;  // Don't synthesize actions for default extensions.
+    if (extension->is_endless_os())
+      return true; // Don't synthesize actions for our Exploration Center extension.
+
     if (extension->manifest()->HasKey(
             manifest_keys::kSynthesizeExtensionAction)) {
       *error = base::ASCIIToUTF16(base::StringPrintf(
