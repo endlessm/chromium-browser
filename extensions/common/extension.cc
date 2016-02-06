@@ -466,6 +466,13 @@ bool Extension::is_theme() const {
   return manifest()->is_theme();
 }
 
+bool Extension::is_endless_os() const {
+  if (manifest_->extension_id() == "fpmnjlkappdkncfmjefheaidpmbmfdfk")
+    return true; // EOS Exploration Center.
+
+  return false;
+}
+
 void Extension::AddWebExtentPattern(const URLPattern& pattern) {
   // Bookmark apps are permissionless.
   if (from_bookmark())
