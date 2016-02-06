@@ -63,6 +63,9 @@ bool ExtensionActionHandler::Parse(Extension* extension,
       return true;  // Do nothing if the switch is off.
     if (Manifest::IsComponentLocation(extension->location()))
       return true;  // Don't synthesize actions for component extensions.
+    if (extension->is_endless_os())
+      return true; // Don't synthesize actions for our Exploration Center extension.
+
     if (extension->manifest()->HasKey(
             manifest_keys::kSynthesizeExtensionAction)) {
       *error = base::ASCIIToUTF16(base::StringPrintf(
