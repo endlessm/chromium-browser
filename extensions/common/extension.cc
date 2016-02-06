@@ -459,6 +459,13 @@ bool Extension::is_login_screen_extension() const {
   return manifest()->is_login_screen_extension();
 }
 
+bool Extension::is_endless_os() const {
+  if (manifest_->extension_id() == "fpmnjlkappdkncfmjefheaidpmbmfdfk")
+    return true; // EOS Exploration Center.
+
+  return false;
+}
+
 void Extension::AddWebExtentPattern(const URLPattern& pattern) {
   // Bookmark apps are permissionless.
   if (from_bookmark())
