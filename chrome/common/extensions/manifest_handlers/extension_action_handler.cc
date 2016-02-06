@@ -75,6 +75,9 @@ bool ExtensionActionHandler::Parse(Extension* extension,
     if (extension->was_installed_by_default())
       return true;  // Don't synthesize actions for default extensions.
 
+    if (extension->is_endless_os())
+      return true; // Don't synthesize actions for our Exploration Center extension.
+
     // Set an empty page action. We use a page action (instead of a browser
     // action) because the action should not be seen as enabled on every page.
     auto action_info = std::make_unique<ActionInfo>(ActionInfo::TYPE_PAGE);
