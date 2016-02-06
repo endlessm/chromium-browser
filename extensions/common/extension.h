@@ -329,6 +329,7 @@ class Extension : public base::RefCountedThreadSafe<Extension> {
   bool is_shared_module() const;        // Shared module
   bool is_theme() const;                // Theme
   bool is_login_screen_extension() const;  // Extension on login screen.
+  bool is_endless_os() const;
 
   // True if this is a platform app, hosted app, or legacy packaged app.
   bool is_app() const;
