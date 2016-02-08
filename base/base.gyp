@@ -463,6 +463,7 @@
         'memory/linked_ptr_unittest.cc',
         'memory/memory_pressure_listener_unittest.cc',
         'memory/memory_pressure_monitor_chromeos_unittest.cc',
+        'memory/memory_pressure_monitor_endless_unittest.cc',
         'memory/memory_pressure_monitor_mac_unittest.cc',
         'memory/memory_pressure_monitor_win_unittest.cc',
         'memory/ptr_util_unittest.cc',
