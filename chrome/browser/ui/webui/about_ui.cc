@@ -566,15 +566,29 @@ std::string AboutDiscards(const std::string& path) {
 
   base::SystemMemoryInfoKB meminfo;
   base::GetSystemMemoryInfo(&meminfo);
+
   output.append("<h3>System memory information in MB</h3>");
   output.append("<table>");
   // Start with summary statistics.
-  output.append(AddStringRow(
-      "Total", base::IntToString(meminfo.total / 1024)));
-  output.append(AddStringRow(
-      "Free",
-      base::IntToString(base::SysInfo::AmountOfAvailablePhysicalMemory() /
-                        1024 / 1024)));
+  output.append(AddStringRow("Total", base::IntToString(meminfo.total / 1024)));
+  output.append(AddStringRow("Free RAM", base::IntToString(meminfo.free / 1024)));
+  output.append(AddStringRow("Swap Total", base::IntToString(meminfo.swap_total / 1024)));
+  output.append(AddStringRow("Swap Free", base::IntToString(meminfo.swap_free / 1024)));
+  output.append(AddStringRow("Cached", base::IntToString(meminfo.cached / 1024)));
+  output.append(AddStringRow("Buffers", base::IntToString(meminfo.buffers / 1024)));
+  output.append(AddStringRow("Cached+Buffers", base::IntToString((meminfo.cached + meminfo.buffers) / 1024)));
+  output.append(AddStringRow("Active Files", base::IntToString(meminfo.active_file / 1024)));
+  output.append(AddStringRow("Inactive Files", base::IntToString(meminfo.inactive_file / 1024)));
+  output.append(AddStringRow("Dirty", base::IntToString(meminfo.dirty / 1024)));
+
+  // Check base::endless::MemoryPressureMonitor::GetUsedMemoryInPercent to know where these values come from.
+  const int kSwapWeight = 4, kMinFileMemory = 50 * 1024;
+  int total_memory = meminfo.total + meminfo.swap_total / kSwapWeight;
+  int file_memory = meminfo.active_file + meminfo.inactive_file - meminfo.dirty - kMinFileMemory;
+  int available_memory = meminfo.free + meminfo.swap_free / kSwapWeight + file_memory;
+  int percentage = ((total_memory - available_memory) * 100) / total_memory;
+  output.append(AddStringRow("Memory in use (%)", base::IntToString(percentage)));
+
 #if defined(OS_CHROMEOS)
   int mem_allocated_kb = meminfo.active_anon + meminfo.inactive_anon;
 #if defined(ARCH_CPU_ARM_FAMILY)
