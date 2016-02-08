@@ -16,6 +16,9 @@ namespace base {
 
 namespace endless {
 
+class TestMemoryPressureMonitor;
+
+
 class BASE_EXPORT MemoryPressureMonitor : public base::MemoryPressureMonitor {
  public:
   explicit MemoryPressureMonitor();
@@ -29,6 +32,8 @@ class BASE_EXPORT MemoryPressureMonitor : public base::MemoryPressureMonitor {
   static MemoryPressureMonitor* Get();
 
  private:
+  friend TestMemoryPressureMonitor;
+
   // Starts observing the memory fill level.
   // Calls to StartObserving should always be matched with calls to
   // StopObserving.
@@ -50,8 +55,8 @@ class BASE_EXPORT MemoryPressureMonitor : public base::MemoryPressureMonitor {
   // Returns the correct MemoryPressureLevel according to the moderate and critical tresholds.
   MemoryPressureListener::MemoryPressureLevel GetMemoryPressureLevelFromPercent(int percent);
 
-  // Get the memory pressure in percent.
-  int GetUsedMemoryInPercent();
+  // Get the memory pressure in percent (virtual for testing).
+  virtual int GetUsedMemoryInPercent();
 
   // The current memory pressure.
   base::MemoryPressureListener::MemoryPressureLevel current_memory_pressure_level_;
