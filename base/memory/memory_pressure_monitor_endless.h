@@ -34,6 +34,9 @@ class BASE_EXPORT MemoryPressureMonitor : public base::MemoryPressureMonitor {
  private:
   friend TestMemoryPressureMonitor;
 
+  // Parses the command line parameters in case we want to define our own thresholds;
+  void ParseCommandLineParameters();
+
   // Starts observing the memory fill level.
   // Calls to StartObserving should always be matched with calls to
   // StopObserving.
@@ -68,6 +71,10 @@ class BASE_EXPORT MemoryPressureMonitor : public base::MemoryPressureMonitor {
   // To slow down the amount of moderate pressure event calls, this counter
   // gets used to count the number of events since the last event occured.
   int moderate_pressure_repeat_count_;
+
+  // Thresholds (as in % of used memory) to decide when to emit memory pressure events.
+  int moderate_threshold_;
+  int critical_threshold_;
 
   base::WeakPtrFactory<MemoryPressureMonitor> weak_ptr_factory_;
 
