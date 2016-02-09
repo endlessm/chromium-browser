@@ -20,6 +20,8 @@ source_set("memory") {
     "memory_pressure_monitor.h",
     "memory_pressure_monitor_chromeos.cc",
     "memory_pressure_monitor_chromeos.h",
+    "memory_pressure_monitor_endless.cc",
+    "memory_pressure_monitor_endless.h",
     "memory_pressure_monitor_mac.cc",
     "memory_pressure_monitor_mac.h",
     "memory_pressure_monitor_win.cc",
