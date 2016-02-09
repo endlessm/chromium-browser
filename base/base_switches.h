@@ -36,6 +36,11 @@ extern const char kDisableUsbKeyboardDetect[];
 extern const char kEnableCrashReporterForTesting[];
 #endif
 
+#if defined(OS_LINUX)
+extern const char kMemoryPressureModerateThreshold[];
+extern const char kMemoryPressureCriticalThreshold[];
+#endif
+
 }  // namespace switches
 
 #endif  // BASE_BASE_SWITCHES_H_
