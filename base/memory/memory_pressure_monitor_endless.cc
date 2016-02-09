@@ -4,6 +4,8 @@
 
 #include "base/memory/memory_pressure_monitor_endless.h"
 
+#include "base/base_switches.h"
+#include "base/command_line.h"
 #include "base/process/process_metrics.h"
 #include "base/single_thread_task_runner.h"
 #include "base/strings/string_number_conversions.h"
@@ -32,10 +34,13 @@ const int kDefaultMemoryPressureCriticalThreshold = 80;
 MemoryPressureMonitor::MemoryPressureMonitor()
     : current_memory_pressure_level_(MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE)
     , moderate_pressure_repeat_count_(0)
+    , moderate_threshold_(kDefaultMemoryPressureModerateThreshold)
+    , critical_threshold_(kDefaultMemoryPressureCriticalThreshold)
     , dispatch_callback_(
           base::Bind(&MemoryPressureListener::NotifyMemoryPressure))
     , weak_ptr_factory_(this) {
 
+	ParseCommandLineParameters();
 	StartObserving();
 }
 
@@ -51,6 +56,30 @@ MemoryPressureListener::MemoryPressureLevel MemoryPressureMonitor::GetCurrentPre
 MemoryPressureMonitor* MemoryPressureMonitor::Get() {
   return static_cast<MemoryPressureMonitor*>(
       base::MemoryPressureMonitor::Get());
+}
+
+void MemoryPressureMonitor::ParseCommandLineParameters() {
+  base::CommandLine* command_line = base::CommandLine::ForCurrentProcess();
+  std::string switch_str;
+  int value;
+
+  // Parse the switch for the MODERATE threshold (should be a positive integer between 0 - 100).
+  if (command_line->HasSwitch(switches::kMemoryPressureModerateThreshold)) {
+    switch_str = command_line->GetSwitchValueASCII(switches::kMemoryPressureModerateThreshold);
+    if (base::StringToInt(switch_str, &value) && value >= 0 && value < 100)
+      moderate_threshold_ = value;
+    else
+      VLOG(1) << "Invalid switch for memory-pressure-moderate-threshold: " << switch_str;
+  }
+
+  // Parse the switch for the CRITICAL threshold (should be a positive integer between MODERATE - 100).
+  if (command_line->HasSwitch(switches::kMemoryPressureCriticalThreshold)) {
+    switch_str = command_line->GetSwitchValueASCII(switches::kMemoryPressureCriticalThreshold);
+    if (base::StringToInt(switch_str, &value) && value > moderate_threshold_ && value < 100)
+      critical_threshold_ = value;
+    else
+      VLOG(1) << "Invalid switch for memory-pressure-critical-threshold: " << switch_str;
+  }
 }
 
 void MemoryPressureMonitor::StartObserving() {
@@ -96,10 +125,10 @@ void MemoryPressureMonitor::CheckMemoryPressure() {
 
 // Converts free percent of memory into a memory pressure value.
 MemoryPressureListener::MemoryPressureLevel MemoryPressureMonitor::GetMemoryPressureLevelFromPercent(int percent) {
-  if (percent < kDefaultMemoryPressureModerateThreshold)
+  if (percent < moderate_threshold_)
     return MemoryPressureListener::MEMORY_PRESSURE_LEVEL_NONE;
 
-  if (percent < kDefaultMemoryPressureCriticalThreshold)
+  if (percent < critical_threshold_)
     return MemoryPressureListener::MEMORY_PRESSURE_LEVEL_MODERATE;
 
   return MemoryPressureListener::MEMORY_PRESSURE_LEVEL_CRITICAL;
