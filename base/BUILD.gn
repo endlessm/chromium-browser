@@ -412,6 +412,8 @@ jumbo_component("base") {
     "memory/memory_pressure_monitor.h",
     "memory/memory_pressure_monitor_chromeos.cc",
     "memory/memory_pressure_monitor_chromeos.h",
+    "memory/memory_pressure_monitor_endless.cc",
+    "memory/memory_pressure_monitor_endless.h",
     "memory/memory_pressure_monitor_mac.cc",
     "memory/memory_pressure_monitor_mac.h",
     "memory/memory_pressure_monitor_win.cc",
