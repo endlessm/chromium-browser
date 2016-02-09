@@ -31,7 +31,7 @@ class MultiSourceMemoryPressureMonitor
   ~MultiSourceMemoryPressureMonitor() override;
 
   // Start monitoring memory pressure using the platform-specific voter.
-  void Start();
+  void Start() override;
 
   // MemoryPressureMonitor implementation.
   MemoryPressureLevel GetCurrentPressureLevel() const override;
