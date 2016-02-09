@@ -197,6 +197,10 @@
 #include "services/data_decoder/public/cpp/data_decoder.h"
 #endif
 
+#if defined(OS_LINUX)
+#include "base/memory/memory_pressure_monitor_endless.h"
+#endif
+
 #if defined(USE_GLIB)
 #include <glib-object.h>
 #endif
@@ -370,13 +374,15 @@ std::unique_ptr<base::MemoryPressureMonitor> CreateMemoryPressureMonitor(
   if (command_line.HasSwitch(switches::kBrowserTest))
     return nullptr;
 
-  std::unique_ptr<util::MultiSourceMemoryPressureMonitor> monitor;
+  std::unique_ptr<base::MemoryPressureMonitor> monitor;
 
 #if defined(OS_CHROMEOS)
   if (chromeos::switches::MemoryPressureHandlingEnabled())
     monitor = std::make_unique<util::MultiSourceMemoryPressureMonitor>();
 #elif defined(OS_MACOSX) || defined(OS_WIN) || defined(OS_FUCHSIA)
   monitor = std::make_unique<util::MultiSourceMemoryPressureMonitor>();
+#elif defined(OS_LINUX)
+  monitor = std::make_unique<base::endless::MemoryPressureMonitor>();
 #endif
   // No memory monitor on other platforms...
 
