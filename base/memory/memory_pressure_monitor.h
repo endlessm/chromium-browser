@@ -30,6 +30,8 @@ class BASE_EXPORT MemoryPressureMonitor {
 
   virtual ~MemoryPressureMonitor();
 
+  virtual void Start() {}
+
   // Return the singleton MemoryPressureMonitor.
   static MemoryPressureMonitor* Get();
 
