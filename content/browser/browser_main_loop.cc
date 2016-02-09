@@ -188,6 +188,10 @@
 #include "chromeos/chromeos_switches.h"
 #endif
 
+#if defined(OS_LINUX)
+#include "base/memory/memory_pressure_monitor_endless.h"
+#endif
+
 #if defined(USE_GLIB)
 #include <glib-object.h>
 #endif
@@ -1430,6 +1434,9 @@ void BrowserMainLoop::InitializeMemoryManagementComponent() {
 #elif defined(OS_WIN)
   memory_pressure_monitor_ =
       CreateWinMemoryPressureMonitor(parsed_command_line_);
+#elif defined(OS_LINUX)
+  memory_pressure_monitor_ =
+    std::make_unique<base::endless::MemoryPressureMonitor>();
 #endif
 
   if (base::FeatureList::IsEnabled(features::kMemoryCoordinator))
