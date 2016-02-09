@@ -146,4 +146,10 @@ const char kEnableReachedCodeProfiler[] = "enable-reached-code-profiler";
 const char kEnableThreadInstructionCount[] = "enable-thread-instruction-count";
 #endif
 
+// Used to override the default thresholds used by the MemoryPressureMonitor
+// to notify the MemoryPressureListener that a relevant event has occurred.
+// If defined they must be integers between [0, 100], with CRITICAL > MODERATE.
+const char kMemoryPressureModerateThreshold[] = "memory-pressure-moderate-threshold";
+const char kMemoryPressureCriticalThreshold[] = "memory-pressure-critical-threshold";
+
 }  // namespace switches
