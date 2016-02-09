@@ -144,6 +144,10 @@
 #include "chromeos/chromeos_switches.h"
 #endif
 
+#if defined(OS_LINUX)
+#include "base/memory/memory_pressure_monitor_endless.h"
+#endif
+
 #if defined(USE_GLIB)
 #include <glib-object.h>
 #endif
@@ -755,6 +759,8 @@ int BrowserMainLoop::PreCreateThreads() {
 #elif defined(OS_WIN)
   memory_pressure_monitor_.reset(CreateWinMemoryPressureMonitor(
       parsed_command_line_));
+#elif defined(OS_LINUX)
+  memory_pressure_monitor_.reset(new base::endless::MemoryPressureMonitor());
 #endif
 
 #if defined(ENABLE_PLUGINS)
