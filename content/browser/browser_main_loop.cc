@@ -200,6 +200,10 @@
 #include "chromeos/chromeos_switches.h"
 #endif
 
+#if defined(OS_LINUX)
+#include "base/memory/memory_pressure_monitor_endless.h"
+#endif
+
 #if defined(USE_GLIB)
 #include <glib-object.h>
 #endif
@@ -419,6 +423,8 @@ std::unique_ptr<base::MemoryPressureMonitor> CreateMemoryPressureMonitor(
   return std::make_unique<base::mac::MemoryPressureMonitor>();
 #elif defined(OS_WIN)
   return CreateWinMemoryPressureMonitor(command_line);
+#elif defined(OS_LINUX)
+  return std::make_unique<base::endless::MemoryPressureMonitor>();
 #else
   // No memory monitor on other platforms...
   return nullptr;
