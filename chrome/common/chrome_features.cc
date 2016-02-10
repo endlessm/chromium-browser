@@ -8,10 +8,10 @@ namespace features {
 
 // All features in alphabetical order.
 
-#if defined(OS_WIN) || defined(OS_MACOSX)
+#if defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 // Enables automatic tab discarding, when the system is in low memory state.
 const base::Feature kAutomaticTabDiscarding{"AutomaticTabDiscarding",
-                                            base::FEATURE_DISABLED_BY_DEFAULT};
-#endif  // defined(OS_WIN) || defined(OS_MACOSX)
+                                            base::FEATURE_ENABLED_BY_DEFAULT};
+#endif  // defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
 
 }  // namespace features

@@ -1162,10 +1162,10 @@ void ChromeBrowserMainParts::PreBrowserStart() {
 // now.
 #if defined(OS_CHROMEOS)
   g_browser_process->GetTabManager()->Start(false);
-#elif defined(OS_WIN) || defined(OS_MACOSX)
+#elif defined(OS_WIN) || defined(OS_MACOSX) || defined(OS_LINUX)
   if (base::FeatureList::IsEnabled(features::kAutomaticTabDiscarding)) {
     // The default behavior is to only discard once (for now).
-    g_browser_process->GetTabManager()->Start(true);
+    g_browser_process->GetTabManager()->Start(false);
   }
 #endif
 }
