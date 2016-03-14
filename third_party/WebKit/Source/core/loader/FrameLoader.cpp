@@ -1242,12 +1242,14 @@ void FrameLoader::restoreScrollPositionAndViewState()
 
 String FrameLoader::userAgent() const
 {
-    Document* document = m_frame->document();
     String clientUserAgent = client()->userAgent();
 
     // On Endless, we need to still be able to alter the UserAgent string depending
-    // on the URL we are loading, so we adapt it if needed before applying it.
-    String userAgent = document ? adaptUserAgentForURL(clientUserAgent, document->url()) : clientUserAgent;
+    // on the URL we are loading, so we adapt it if needed before applying it. But we
+    // might not have a committed load, so we first check the URL from the provisional
+    // loader before trying with the regular one, so that we always get a valid URL.
+    const DocumentLoader& activeLoader = m_provisionalDocumentLoader.get() ? *m_provisionalDocumentLoader : *m_documentLoader;
+    String userAgent = adaptUserAgentForURL(clientUserAgent, activeLoader.request().url());
 
     InspectorInstrumentation::applyUserAgentOverride(m_frame, &userAgent);
     return userAgent;
