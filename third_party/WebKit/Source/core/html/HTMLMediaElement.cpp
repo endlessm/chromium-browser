@@ -637,6 +637,13 @@ void HTMLMediaElement::removedFrom(ContainerNode* insertionPoint) {
   BLINK_MEDIA_LOG << "removedFrom(" << (void*)this << ", " << insertionPoint
                   << ")";
 
+  // Update the current network state based on whether we have processed data or not at
+  // this point, so that we don't mistakenly call pause() or stop() below if not needed.
+  if (m_readyState < kHaveCurrentData) {
+    setNetworkState(kNetworkEmpty);
+    scheduleEvent(EventTypeNames::emptied);
+  }
+
   HTMLElement::removedFrom(insertionPoint);
   if (insertionPoint->inActiveDocument()) {
     configureMediaControls();
