@@ -650,6 +650,13 @@ void HTMLMediaElement::removedFrom(ContainerNode* insertionPoint)
 {
     WTF_LOG(Media, "HTMLMediaElement::removedFrom(%p, %p)", this, insertionPoint);
 
+    // Update the current network state based on whether we have processed data or not at
+    // this point, so that we don't mistakenly call pause() or stop() below if not needed.
+    if (m_readyState == HAVE_NOTHING) {
+        setNetworkState(NETWORK_EMPTY);
+        scheduleEvent(EventTypeNames::emptied);
+    }
+
     HTMLElement::removedFrom(insertionPoint);
     if (insertionPoint->inActiveDocument()) {
         configureMediaControls();
