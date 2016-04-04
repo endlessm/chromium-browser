@@ -16,7 +16,6 @@ Build-Depends:
 	python,
 	bison,
 	gperf,
-	clang (>= 3.5),
 	libpulse-dev,
 	libcups2-dev | libcupsys2-dev,
 	libasound2-dev,

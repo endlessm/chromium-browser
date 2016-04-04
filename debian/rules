@@ -109,8 +109,8 @@ GYP_DEFINES += enable_hangout_services_extension=1
 GYP_DEFINES += enable_widevine=1 enable_pepper_cdms=1
 
 # Prefer gcc/g++ over clang until clang is better tested in Ubuntu.
-GYP_DEFINES += clang=1
-GYP_DEFINES += clang_use_chrome_plugins=0
+GYP_DEFINES += clang=0
+#GYP_DEFINES += clang_use_chrome_plugins=0
 
 #GYP_DEFINES += use_ozone=1 ozone_auto_platforms=0 ozone_platform_mir=1 ozone_platform_wayland=0
 #GYP_DEFINES += use_ozone=1
@@ -253,7 +253,7 @@ endif
 ifneq ($(DEB_HOST_ARCH),$(DEB_BUILD_ARCH))
 CROSS_BUILD = PKG_CONFIG_PATH=/usr/lib/$(DEB_HOST_MULTIARCH)/pkgconfig:/usr/$(DEB_HOST_MULTIARCH)/lib/pkgconfig CXX=$(DEB_HOST_GNU_TYPE)-g++ CC=$(DEB_HOST_GNU_TYPE)-gcc AR=$(DEB_HOST_GNU_TYPE)-ar AS=$(DEB_HOST_GNU_TYPE)-as CPP=$(DEB_HOST_GNU_TYPE)-cpp LD=$(DEB_HOST_GNU_TYPE)-ld
 else
-CROSS_BUILD = CC=clang CXX=clang++
+CROSS_BUILD = CC=$$(which gcc-4.8 gcc |head -1) CXX=$$(which g++-4.8 g++ |head -1)
 endif
 
 
