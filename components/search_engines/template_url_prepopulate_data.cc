@@ -128,7 +128,7 @@ const PrepopulatedEngine* const engines_CL[] = {
 
 // China
 const PrepopulatedEngine* const engines_CN[] = {
-    &google, &baidu, &sogou, &so_360,
+    &baidu, &google, &sogou, &so_360,
 };
 
 // Colombia
