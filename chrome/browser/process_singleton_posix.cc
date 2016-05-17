@@ -288,6 +288,12 @@ bool SymlinkPath(const base::FilePath& target, const base::FilePath& path) {
 bool ParseLockPath(const base::FilePath& path,
                    std::string* hostname,
                    int* pid) {
+  // The lock file should be a symlink, not a regular file or a directory.
+  if (base::PathExists(path) && !base::IsLink(path)) {
+      base::DeleteFile(path, true);
+      return false;
+  }
+
   std::string real_path = ReadLink(path).value();
   if (real_path.empty())
     return false;
