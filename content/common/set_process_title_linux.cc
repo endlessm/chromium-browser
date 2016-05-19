@@ -45,6 +45,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <stddef.h>
 
 extern char** environ;
 
@@ -88,7 +89,11 @@ void setproctitle(const char* fmt, ...) {
   // Put the title in argv[0]. We have to zero out the space first since the
   // kernel doesn't actually look for a null terminator unless we make the
   // argument list longer than it started.
-  avail_size = page_end - (uintptr_t) g_main_argv[0];
+  avail_size = 0;
+  for (i = 0; g_main_argv[i]; ++i) {
+    avail_size += strlen(g_main_argv[i]) + 1;
+  }
+
   memset(g_main_argv[0], 0, avail_size);
   va_start(ap, fmt);
   if (fmt[0] == '-') {
